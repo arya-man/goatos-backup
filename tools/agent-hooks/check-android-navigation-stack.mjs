@@ -62,7 +62,14 @@ export function findingsForSources({ host, shell, test }) {
   if (!/target\.isNullOrBlank\(\)\)\s+return\s+(?:fallbackDriveRoute|Routes\.calendarDriveRoute\()/.test(calendarTarget)) {
     findings.push("blank Calendar targets must fall back to the hosted `Routes.calendarDriveRoute(...)`, never an L0 route");
   }
-  if (!/else\s+(?:fallbackDriveRoute|Routes\.calendarDriveRoute\()/.test(calendarTarget)) {
+  // The fallback may be written as an `else` branch OR as an elvis on a nullable resolver
+  // (`workTargetRoute(target) ?: fallbackDriveRoute`). Both express the same invariant. Matching
+  // only the `else` spelling made this guard enforce the STRING from the original incident rather
+  // than the rule, so a correct refactor failed CI while the invariant held.
+  // Still deliberately textual, and that is a known blind spot: it cannot see a fallback computed
+  // in a helper, nor one whose variable is reassigned. It checks the last expression names the
+  // hosted drive route.
+  if (!/(?:else\s+|\?:\s*)(?:fallbackDriveRoute|Routes\.calendarDriveRoute\()/.test(calendarTarget)) {
     findings.push("generic Calendar targets must fall back to the hosted `Routes.calendarDriveRoute(...)`, never an L0 route");
   }
   if (/return\s+Routes\.(?:CALENDAR|VACCINATION|LEADERSHIP|ALERTS|YOU)\b/.test(calendarTarget)) {
@@ -156,6 +163,21 @@ function featureSources() {
 }
 
 function selfTest() {
+  // Same invariant, written with an elvis instead of an else. This spelling is what the real
+  // AppNavHost uses after workTargetRoute was extracted, and the guard silently rejected it until
+  // the regex learned both forms -- so it is a fixture, not a footnote: without it the widened
+  // pattern is asserted by nothing.
+  const goodElvis = {
+    host: `
+      object Routes { const val CALENDAR_DRIVE = "/calendar/drive" }
+      internal fun calendarTargetRoute(target: String?, fallbackDateKey: String? = null): String {
+        val fallbackDriveRoute = Routes.calendarDriveRoute(fallbackDateKey)
+        if (target.isNullOrBlank()) return fallbackDriveRoute
+        return workTargetRoute(target) ?: fallbackDriveRoute
+      }
+    `,
+  };
+
   const good = {
     host: `
       object Routes { const val CALENDAR_DRIVE = "/calendar/drive" }
@@ -189,6 +211,25 @@ function selfTest() {
   };
   if (findingsForSources(good).length) {
     throw new Error(`self-test rejected compliant fixture: ${findingsForSources(good).join("; ")}`);
+  }
+
+  // The elvis spelling must be accepted too. It reuses the compliant shell/tests and swaps only
+  // the resolver, so a failure here is unambiguously about the fallback form.
+  const elvisSources = { ...good, host: goodElvis.host };
+  if (findingsForSources(elvisSources).length) {
+    throw new Error(
+      `self-test rejected the elvis fallback spelling: ${findingsForSources(elvisSources).join("; ")}`,
+    );
+  }
+
+  // And an L0 fallback must STILL be rejected in that spelling -- otherwise widening the regex
+  // would have quietly opened a hole rather than accepted an equivalent form.
+  const elvisToL0 = {
+    ...good,
+    host: goodElvis.host.replace("?: fallbackDriveRoute", "?: Routes.VACCINATION"),
+  };
+  if (!findingsForSources(elvisToL0).length) {
+    throw new Error("self-test accepted an elvis fallback onto an L0 route");
   }
 
   const prefixBug = {

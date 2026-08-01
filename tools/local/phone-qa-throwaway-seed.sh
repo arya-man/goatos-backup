@@ -135,7 +135,12 @@ FROM (
     ('93000000-0000-4000-8000-000000000104'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000104'::uuid, 'JYOTHI-QA', 'Jyothi', 'active', 'verifier', NULL::uuid, 'verification', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000201'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000201'::uuid, 'AMIT-QA', 'Amit', 'active', 'operator', '92000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
     ('93000000-0000-4000-8000-000000000202'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000202'::uuid, 'PRAMOD-QA', 'Pramod', 'active', 'operator', '91000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
-    ('93000000-0000-4000-8000-000000000203'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203'::uuid, 'KUMAR-SHARATH-QA', 'Kumar Sharath', 'active', 'operator', '91000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now())
+    ('93000000-0000-4000-8000-000000000203'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203'::uuid, 'KUMAR-SHARATH-QA', 'Kumar Sharath', 'active', 'operator', '91000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now()),
+    -- OPERATORS are park people: two per park, each scoped to their own park.
+    -- DIRECTORS are not. There is ONE director per module, covering BOTH parks: Dinakar runs
+    -- weighing across CBE and CPT, Chandrakant runs vaccination across both. A director is split
+    -- by MODULE, never by park.
+    ('93000000-0000-4000-8000-000000000204'::uuid, '${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000204'::uuid, 'SAGAR-QA', 'Sagar', 'active', 'operator', '92000000-0000-4000-8000-000000000101'::uuid, 'operations', '{"seed":"phone-qa"}'::jsonb, now())
 ) AS seed(workforce_member_id, tenant_id, user_id, display_code, display_name, status, primary_role_hint, primary_location_id, department_code, metadata, updated_at)
 JOIN departments d ON d.tenant_id = seed.tenant_id AND d.code = seed.department_code
 ON CONFLICT (tenant_id, display_code) DO UPDATE
@@ -165,18 +170,22 @@ WHERE tenant_id = '${tenant_id}'::uuid
     '90000000-0000-4000-8000-000000000104',
     '90000000-0000-4000-8000-000000000201',
     '90000000-0000-4000-8000-000000000202',
-    '90000000-0000-4000-8000-000000000203'
+    '90000000-0000-4000-8000-000000000203',
+    '90000000-0000-4000-8000-000000000204'
   );
 
 INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
 VALUES
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000101', 'ceo_internal', 'tenant', '${tenant_id}'::uuid, 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000102', 'pc_director', 'tenant', '${tenant_id}'::uuid, 'active', now()),
+  -- ONE weighing director for the whole farm: tenant scope, so he covers CBE and CPT both. The
+  -- module is what narrows a director (weighing here, vaccination for the PC director), not the park.
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000103', 'growth_director', 'tenant', '${tenant_id}'::uuid, 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000104', 'verifier', 'tenant', '${tenant_id}'::uuid, 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000201', 'operator', 'park', '92000000-0000-4000-8000-000000000101', 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000202', 'operator', 'park', '91000000-0000-4000-8000-000000000101', 'active', now()),
-  ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203', 'operator', 'park', '91000000-0000-4000-8000-000000000101', 'active', now());
+  ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203', 'operator', 'park', '91000000-0000-4000-8000-000000000101', 'active', now()),
+  ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000204', 'operator', 'park', '92000000-0000-4000-8000-000000000101', 'active', now());
 
 UPDATE sop_tasks
 SET assigned_to = '90000000-0000-4000-8000-000000000202',
@@ -810,11 +819,11 @@ CREATE TEMP TABLE qa_sheds (
 -- shed on his Operators list belongs to somebody else.
 INSERT INTO qa_sheds VALUES
   (1, '91000000-0000-4000-8000-000000000201', '91000000-0000-4000-8000-000000000101', 'Godel 1',   '',    '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
-  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', '90000000-0000-4000-8000-000000000202', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
+  (2, '91000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000101', 'Yashoda 1', 'Y1-', '90000000-0000-4000-8000-000000000203', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', false),
   (3, '9c000000-0000-4000-8000-000000000301', '91000000-0000-4000-8000-000000000101', 'Gandhi 1',  'G1-', '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
   (4, '9c000000-0000-4000-8000-000000000302', '91000000-0000-4000-8000-000000000101', 'Gandhi 2',  'G2-', '90000000-0000-4000-8000-000000000103', '91000000-0000-4000-8000-000000000701', '91000000-0000-4000-8000-000000000702', true),
   (5, '91000000-0000-4000-8000-000000000202', '92000000-0000-4000-8000-000000000101', 'Mandela 2', 'M2-', '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
-  (6, '92000000-0000-4000-8000-000000000203', '92000000-0000-4000-8000-000000000101', 'Castro 1',  'C1-', '90000000-0000-4000-8000-000000000201', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
+  (6, '92000000-0000-4000-8000-000000000203', '92000000-0000-4000-8000-000000000101', 'Castro 1',  'C1-', '90000000-0000-4000-8000-000000000204', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', false),
   (7, '9c000000-0000-4000-8000-000000000303', '92000000-0000-4000-8000-000000000101', 'Castro 2',  'C2-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true),
   (8, '9c000000-0000-4000-8000-000000000304', '92000000-0000-4000-8000-000000000101', 'Castro 3',  'C3-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true);
 
@@ -1004,6 +1013,36 @@ ON CONFLICT (campaign_shed_id) DO UPDATE
 SET location_id = EXCLUDED.location_id, display_name = EXCLUDED.display_name,
     expected_animal_count = 0, weighing_category = EXCLUDED.weighing_category,
     operator_user_id = EXCLUDED.operator_user_id, updated_at = now();
+
+-- This fixture is a TWO-PARK world: CBE and CPT, four sheds each. That is the whole
+-- point of it -- vaccination scheduled for one operator per park, and per park two
+-- weighing sheds to the growth director and two to that park's operator, all driven by
+-- five physical RFIDs behind per-shed prefixes.
+--
+-- The base seed also ships the canonical Coimbatore and Channapatna parks (78 and 76
+-- sheds), which hold no animals and no weighing buckets here and only bury the real
+-- fixture in every park and shed picker. Retire them for the phone.
+--
+-- locations carries a guard trigger that refuses to rescope the seeded CBE/CPT/HF ids
+-- without an explicit approved plan. That gate is deliberate, so the reason is stated
+-- rather than worked around, and it is scoped to THIS disposable database only -- never
+-- run this against a shared or staging environment.
+SET LOCAL goatos.approved_location_migration_plan = 'phone-qa-throwaway: retire empty seeded parks, fixture is CBE+CPT only';
+
+UPDATE locations
+SET status = 'inactive', updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND (
+    location_id IN (
+      '00000000-0000-4000-8000-000000003001',
+      '00000000-0000-4000-8000-000000003002',
+      '00000000-0000-4000-8000-000000003003'
+    )
+    OR parent_location_id IN (
+      '00000000-0000-4000-8000-000000003001',
+      '00000000-0000-4000-8000-000000003002'
+    )
+  );
 
 COMMIT;
 SQL

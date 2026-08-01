@@ -76,7 +76,9 @@ import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 import sg.mesha.goatos.feature.scan.VaccineGroup
-import sg.mesha.goatos.R
+
+/** How many group videos a shed / partition result may carry. Unchanged from the inline 5. */
+private const val SHED_PROOF_VIDEO_LIMIT = 5
 
 // telemetry:exempt Weighing execution V1 has repository/viewmodel sync events; screen-level click telemetry is deferred until workflow names settle.
 
@@ -84,13 +86,13 @@ data class WeighingUiState(
     val title: String = "Weighing",
     val scopeLabel: String = "",
     val hasScope: Boolean = false,
+    // plannerMode still selects this screen's HEADER TITLE ("Plan" vs "My work") and suppresses
+    // the operator work list on the planner surface. It is the only planner field this screen
+    // reads: the week strip, the park card, the shed/category picker and the operator vocabulary
+    // moved to the planner surface proper (WeighingTasksScreen + the create wizard), so their
+    // state fields are gone rather than sitting here populated and unrendered.
     val plannerMode: Boolean = false,
-    val plannerWeekLabel: String = "",
-    val plannerPeriodLabel: String = "",
-    val plannerDayTabs: List<WeighingDayTabUiRow> = emptyList(),
     val parkFilters: List<WeighingParkFilterUiRow> = emptyList(),
-    val plannerParks: List<WeighingPlannerParkUiRow> = emptyList(),
-    val plannerOperators: List<WeighingPlannerOperatorUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
@@ -150,40 +152,6 @@ data class WeighingProofUiRow(
     val status: ProofUploadStatus,
 )
 
-data class WeighingPlannerParkUiRow(
-    val parkId: String,
-    val name: String,
-    val kidCount: Int,
-    val existingCampaignId: String?,
-    val existingCampaignStatus: String?,
-    val existingCampaignShedCount: Int,
-    val sheds: List<WeighingPlannerShedUiRow>,
-) {
-    val hasExistingTask: Boolean get() = !existingCampaignStatus.isNullOrBlank()
-    val individualKids: Int get() = sheds.filter { it.category == "individual_animal" }.sumOf { it.kidCount }
-    val lumpsumSheds: Int get() = sheds.count { it.category != "individual_animal" }
-}
-
-data class WeighingDayTabUiRow(
-    val dayLabel: String,
-    val dateLabel: String,
-    val selected: Boolean,
-)
-
-data class WeighingPlannerShedUiRow(
-    val locationId: String,
-    val name: String,
-    val kidCount: Int,
-    val category: String,
-    val selected: Boolean = false,
-)
-
-data class WeighingPlannerOperatorUiRow(
-    val userId: String,
-    val displayName: String,
-    val displayCode: String,
-)
-
 data class WeighingRosterUiRow(
     val id: String,
     val animalId: String,
@@ -239,6 +207,13 @@ data class WeighingAssignmentUiRow(
         get() = !isSubmittedAndWaitingVerification && !isClosed
 }
 
+/** One filter chip: a stable id, its label, and whether it is the active filter. */
+data class WeighingFilterChipUiRow(
+    val id: String,
+    val label: String,
+    val selected: Boolean,
+)
+
 data class WeighingParkFilterUiRow(
     val parkId: String,
     val label: String,
@@ -279,9 +254,6 @@ fun WeighingScreen(
     onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
     onAssignmentRowVisible: (Int) -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
-    onCreateOrEditTask: () -> Unit = {},
-    onTogglePlannerShed: (String) -> Unit = {},
-    onPlannerShedCategory: (String, String) -> Unit = { _, _ -> },
     onRefresh: () -> Unit = {},
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -292,7 +264,7 @@ fun WeighingScreen(
     }
     if (rosterSheetOpen) {
         WeighingRosterSheet(
-            title = state.title.ifBlank { "Weighing rows" },
+            title = state.title.ifBlank { stringResource(R.string.weighing_rows_title) },
             rows = state.visibleRows,
             totalExpected = state.totalExpected,
             onDismiss = { rosterSheetOpen = false },
@@ -329,8 +301,12 @@ fun WeighingScreen(
         modifier = modifier.fillMaxSize(),
     ) {
         MeshaScreenHeader(
-            title = if (state.plannerMode) "Plan" else "My work",
-            eyebrow = "WEIGHING",
+            title = if (state.plannerMode) {
+                stringResource(R.string.weighing_home_title_plan)
+            } else {
+                stringResource(R.string.weighing_home_title_my_work)
+            },
+            eyebrow = stringResource(R.string.weighing_eyebrow),
             eyebrowColor = MeshaColors.BrandD,
             onBack = onBack,
             actions = {
@@ -364,14 +340,7 @@ fun WeighingScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (state.plannerMode && !state.hasScope) {
-                        PlannerRootContent(
-                            state = state,
-                            onCreateOrEditTask = onCreateOrEditTask,
-                            onTogglePlannerShed = onTogglePlannerShed,
-                            onPlannerShedCategory = onPlannerShedCategory,
-                        )
-                    } else if (state.hasScope) {
+                    if (state.hasScope) {
                         WeighingCapturePanel(
                             state = state,
                             onScanInputChange = onScanInputChange,
@@ -390,8 +359,9 @@ fun WeighingScreen(
                             LoadingWorkSkeleton()
                         } else if (state.assignments.isEmpty()) {
                             EmptyWorkCard(
-                                title = "No weighing work",
-                                body = "Assigned shed and partition tasks will appear here when the weekly plan is published.",
+                                title = stringResource(R.string.weighing_empty_title),
+                                body = stringResource(R.string.weighing_empty_body),
+                                showRefreshHint = true,
                             )
                         }
                     }
@@ -426,21 +396,21 @@ fun WeighingScreen(
             }
 
             if (state.shedDrafts.isNotEmpty()) {
-                item { SectionTitle("Shed / partition result") }
+                item { SectionTitle(stringResource(R.string.weighing_section_shed_result)) }
                 items(state.shedDrafts, key = { it.id }) { row ->
                     DraftRow(row)
                 }
             }
 
             if (state.individualDrafts.isNotEmpty()) {
-                item { SectionTitle("Queued animal weights") }
+                item { SectionTitle(stringResource(R.string.weighing_section_queued_weights)) }
                 items(state.individualDrafts, key = { it.id }) { row ->
                     DraftRow(row)
                 }
             }
 
             if (state.hasScope && !state.isShedPartition && state.visibleRows.isNotEmpty()) {
-                item { SectionTitle("Recent row updates") }
+                item { SectionTitle(stringResource(R.string.weighing_section_recent_updates)) }
                 items(state.visibleRows.take(3), key = { it.id }) { row ->
                     RosterRow(row)
                 }
@@ -465,385 +435,27 @@ internal fun ListLoadingFooter() {
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "Loading more work",
+            text = stringResource(R.string.weighing_loading_more_work),
             color = MeshaColors.Muted,
             style = MaterialTheme.typography.bodySmall,
         )
     }
 }
 
-@Composable
-internal fun PlannerRootContent(
-    state: WeighingUiState,
-    onCreateOrEditTask: () -> Unit,
-    onTogglePlannerShed: (String) -> Unit,
-    onPlannerShedCategory: (String, String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        WeekPlanStrip(
-            weekLabel = state.plannerWeekLabel,
-            periodLabel = state.plannerPeriodLabel,
-            tabs = state.plannerDayTabs,
-        )
-        if (state.loading) {
-            LoadingWorkSkeleton()
-            return
-        }
-        if (state.plannerParks.isEmpty()) {
-            EmptyWorkCard(
-                title = "No kid sheds to plan",
-                body = "Weekly kid weighing opens here when park and shed roster truth is available.",
-            )
-            return
-        }
-        val primaryPark = state.plannerParks.first()
-        PlannerParkCard(
-            park = primaryPark,
-            operator = state.plannerOperators.firstOrNull(),
-            busy = state.actionInFlight,
-            onCreateOrEditTask = onCreateOrEditTask,
-        )
-        PlannerLaneCard()
-        SectionTitle("SHEDS & CATEGORY")
-        primaryPark.sheds.take(6).forEach { shed ->
-            PlannerShedCard(
-                shed = shed,
-                selected = shed.selected,
-                onToggle = { onTogglePlannerShed(shed.locationId) },
-                onCategory = { category -> onPlannerShedCategory(shed.locationId, category) },
-            )
-        }
-        PlannerSummaryCard(
-            park = primaryPark,
-            operator = state.plannerOperators.firstOrNull(),
-        )
-    }
-}
-
-@Composable
-private fun WeekPlanStrip(
-    weekLabel: String,
-    periodLabel: String,
-    tabs: List<WeighingDayTabUiRow>,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionTitle("WEEK PLAN")
-            Text(
-                text = periodLabel.ifBlank { weekLabel.ifBlank { "THIS WEEK" } },
-                color = MeshaColors.Muted,
-                style = MeshaType.bodyStrong,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            tabs.take(7).forEach { tab ->
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(74.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (tab.selected) MeshaColors.Brand else MeshaColors.Surf)
-                        .border(1.dp, if (tab.selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(14.dp))
-                        .padding(vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = tab.dayLabel,
-                        color = if (tab.selected) MeshaColors.PageBg else MeshaColors.Muted,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.W900,
-                    )
-                    Text(
-                        text = tab.dateLabel,
-                        color = if (tab.selected) MeshaColors.PageBg else MeshaColors.Ink,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.W900,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlannerLaneCard() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Brand, RoundedCornerShape(16.dp))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text("STEP 1 · LANE", color = MeshaColors.BrandD, style = MeshaType.sectionLabel)
-        Text("Weekly · Kids", color = MeshaColors.Ink, style = MeshaType.cardTitle)
-        Text(
-            "Kids weighing runs weekly. Adults stay out of v1, and each selected shed gets its own category below.",
-            color = MeshaColors.Muted,
-            style = MeshaType.cardSubtitle,
-        )
-    }
-}
-
-@Composable
-private fun PlannerParkCard(
-    park: WeighingPlannerParkUiRow,
-    operator: WeighingPlannerOperatorUiRow?,
-    busy: Boolean,
-    onCreateOrEditTask: () -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MeshaColors.Surf)
-            .border(
-                1.dp,
-                if (park.hasExistingTask) MeshaColors.Warn else MeshaColors.Hair,
-                RoundedCornerShape(18.dp),
-            )
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (park.hasExistingTask) "task already exists" else "weekly kids",
-                color = if (park.hasExistingTask) MeshaColors.Warn else MeshaColors.BrandD,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W900,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(if (park.hasExistingTask) MeshaColors.WarnX else MeshaColors.BrandTint)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
-            Box(Modifier.weight(1f))
-            Text(
-                text = "${park.kidCount}",
-                color = MeshaColors.Ink,
-                style = MeshaType.cardTitle,
-            )
-        }
-        Text(
-            text = park.name,
-            color = MeshaColors.Ink,
-            style = MeshaType.cardTitle,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = if (park.hasExistingTask) {
-                "${park.existingCampaignStatus} - ${park.existingCampaignShedCount} sheds. Creating another task for this park/week is blocked."
-            } else {
-                "${park.sheds.size} kid sheds - assign ${operator?.displayName ?: "operator"}."
-            },
-            color = MeshaColors.Muted,
-            style = MeshaType.cardSubtitle,
-        )
-        if (park.hasExistingTask) {
-            ExistingTaskSummary(park)
-        }
-        Text(
-            text = if (park.hasExistingTask) "Edit existing task" else "New task",
-            color = if (busy) MeshaColors.Faint else MeshaColors.BrandD,
-            style = MeshaType.cta,
-            modifier = Modifier
-                .fillMaxWidth()
-                .minimumInteractiveComponentSize()
-                .clip(RoundedCornerShape(999.dp))
-                .background(if (busy) MeshaColors.Surf3 else MeshaColors.BrandTint)
-                .clickable(
-                    enabled = !busy,
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onCreateOrEditTask,
-                )
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-        )
-    }
-}
-
-@Composable
-private fun ExistingTaskSummary(park: WeighingPlannerParkUiRow) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MeshaColors.WarnX)
-            .border(1.dp, MeshaColors.Warn, RoundedCornerShape(12.dp)),
-    ) {
-        PlannerSummaryRow("Existing task", "${park.existingCampaignShedCount} sheds")
-        PlannerSummaryRow("Status", park.existingCampaignStatus ?: "Open")
-    }
-}
-
-@Composable
-private fun PlannerShedCard(
-    shed: WeighingPlannerShedUiRow,
-    selected: Boolean,
-    onToggle: () -> Unit,
-    onCategory: (String) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, if (selected) MeshaColors.Brand else MeshaColors.Hair, RoundedCornerShape(16.dp))
-            .clickable(onClick = onToggle)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(if (selected) MeshaColors.BrandTint else MeshaColors.Surf3),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (selected) {
-                    Icon(
-                        imageVector = MeshaIcons.CheckCircle,
-                        contentDescription = null,
-                        tint = MeshaColors.BrandD,
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = shed.name,
-                    color = MeshaColors.Ink,
-                    style = MeshaType.bodyStrong,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = "kid shed",
-                    color = MeshaColors.Muted,
-                    style = MeshaType.cardSubtitle,
-                )
-            }
-            Text(
-                text = "${shed.kidCount}",
-                color = MeshaColors.BrandD,
-                style = MeshaType.bodyStrong,
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(MeshaColors.Bg)
-                .border(1.dp, MeshaColors.Hair, RoundedCornerShape(12.dp))
-                .padding(4.dp),
-        ) {
-            PlannerCategorySegment(
-                label = "Individual",
-                active = shed.category == "individual_animal",
-                enabled = selected,
-                onClick = { onCategory("individual_animal") },
-                modifier = Modifier.weight(1f),
-            )
-            PlannerCategorySegment(
-                label = "Lumpsum",
-                active = shed.category != "individual_animal",
-                enabled = selected,
-                onClick = { onCategory("per_shed_partition") },
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun PlannerCategorySegment(
-    label: String,
-    active: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Text(
-        text = label,
-        color = when {
-            !enabled -> MeshaColors.Faint
-            active && label == "Individual" -> MeshaColors.Info
-            active -> MeshaColors.Purple
-            else -> MeshaColors.Muted
-        },
-        fontSize = 12.sp,
-        fontWeight = FontWeight.W900,
-        modifier = modifier
-            .minimumInteractiveComponentSize()
-            .clip(RoundedCornerShape(9.dp))
-            .background(if (active) MeshaColors.Surf3 else Color.Transparent)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
-    )
-}
-
-@Composable
-private fun PlannerSummaryCard(
-    park: WeighingPlannerParkUiRow,
-    operator: WeighingPlannerOperatorUiRow?,
-) {
-    val selected = park.sheds.filter { it.selected }
-    val individual = selected.filter { it.category == "individual_animal" }
-    val lumpsum = selected.filter { it.category != "individual_animal" }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(16.dp)),
-    ) {
-        PlannerSummaryRow("Operator", operator?.displayName ?: "Amit Kumar")
-        PlannerSummaryRow("Selected", "${selected.size} sheds - ${selected.sumOf { it.kidCount }} kids")
-        PlannerSummaryRow("Individual", "${individual.size} sheds - ${individual.sumOf { it.kidCount }} kids")
-        PlannerSummaryRow("Lumpsum", "${lumpsum.size} sheds - ${lumpsum.sumOf { it.kidCount }} in scope")
-    }
-}
-
-@Composable
-private fun PlannerSummaryRow(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
-        Text(
-            text = value,
-            color = MeshaColors.Ink,
-            style = MeshaType.bodyStrong,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
 /**
- * Park chips, shared by all three weighing surfaces so the filter looks and behaves the same on
- * each. The leading "All parks" pill is what clears the filter.
+ * One filter chip row, shared by every weighing surface that narrows a list.
+ *
+ * Filtering is deliberately how these lists narrow, rather than splitting them into per-group
+ * sections: a sectioned list cannot paginate. A keyset page of ~20 splits mid-group, leaving a
+ * header showing three of an operator's fourteen sheds with the rest arriving pages later. One
+ * flat list behind a chip pages uniformly no matter how many groups exist.
+ *
+ * The leading pill clears the filter, so [onSelect] receives null for "show everything".
  */
 @Composable
-internal fun WeighingParkFilters(
-    filters: List<WeighingParkFilterUiRow>,
+internal fun WeighingFilterChips(
+    options: List<WeighingFilterChipUiRow>,
+    allLabel: String,
     onSelect: (String?) -> Unit,
 ) {
     FlowRow(
@@ -851,20 +463,33 @@ internal fun WeighingParkFilters(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        val anySelected = filters.any { it.selected }
+        val anySelected = options.any { it.selected }
         WeighingFilterPill(
-            label = "All parks",
+            label = allLabel,
             selected = !anySelected,
             onClick = { onSelect(null) },
         )
-        filters.forEach { option ->
+        options.forEach { option ->
             WeighingFilterPill(
                 label = option.label,
                 selected = option.selected,
-                onClick = { onSelect(option.parkId) },
+                onClick = { onSelect(option.id) },
             )
         }
     }
+}
+
+/** Park chips. Kept as its own entry point so existing call sites read as what they filter. */
+@Composable
+internal fun WeighingParkFilters(
+    filters: List<WeighingParkFilterUiRow>,
+    onSelect: (String?) -> Unit,
+) {
+    WeighingFilterChips(
+        options = filters.map { WeighingFilterChipUiRow(id = it.parkId, label = it.label, selected = it.selected) },
+        allLabel = stringResource(R.string.weighing_all_parks),
+        onSelect = onSelect,
+    )
 }
 
 @Composable
@@ -882,7 +507,7 @@ internal fun WeighingFilterPill(label: String, selected: Boolean, onClick: () ->
             .padding(horizontal = 13.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+        Text(text = label, color = fg, style = MeshaType.pillStrong)
     }
 }
 
@@ -939,7 +564,7 @@ private fun AssignmentRow(
                 )
             } else if (row.isClosed) {
                 Text(
-                    text = "Reopen",
+                    text = stringResource(R.string.weighing_reopen),
                     color = MeshaColors.BrandD,
                     style = MeshaType.cta,
                     modifier = Modifier
@@ -950,7 +575,7 @@ private fun AssignmentRow(
             } else {
                 // Submitted and waiting for verification - non-clickable
                 Text(
-                    text = "Pending verification",
+                    text = stringResource(R.string.weighing_pending_verification),
                     color = MeshaColors.Muted,
                     style = MeshaType.cta,
                     modifier = Modifier
@@ -976,10 +601,9 @@ private fun StatusPill(status: String) {
         else -> MeshaColors.Surf3
     }
     Text(
-        text = status.ifBlank { "Not started" },
+        text = status.ifBlank { stringResource(R.string.weighing_status_not_started) },
         color = color,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.W800,
+        style = MeshaType.pillStrong,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
             .background(bg)
@@ -992,8 +616,7 @@ private fun CategoryPill(category: String) {
     Text(
         text = weighingCategoryLabel(category),
         color = MeshaColors.Purple,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.W800,
+        style = MeshaType.pillStrong,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
             .background(MeshaColors.PurpleX)
@@ -1022,20 +645,21 @@ private fun WeighingProgressBar(complete: Boolean, category: String) {
     }
 }
 
+@Composable
 private fun mapWeighingStatusLabel(backendStatus: String): String = when {
-    backendStatus.equals("pending", ignoreCase = true) -> "Scheduled"
-    backendStatus.equals("in_progress", ignoreCase = true) -> "In progress"
-    backendStatus.equals("delayed", ignoreCase = true) -> "Delayed"
-    backendStatus.equals("completed", ignoreCase = true) -> "Submitted"
-    backendStatus.equals("closed", ignoreCase = true) -> "Closed"
-    backendStatus.equals("canceled", ignoreCase = true) -> "Canceled"
-    backendStatus.equals("cancelled", ignoreCase = true) -> "Canceled"
+    backendStatus.equals("pending", ignoreCase = true) -> stringResource(R.string.weighing_status_scheduled)
+    backendStatus.equals("in_progress", ignoreCase = true) -> stringResource(R.string.weighing_status_in_progress)
+    backendStatus.equals("delayed", ignoreCase = true) -> stringResource(R.string.weighing_status_delayed)
+    backendStatus.equals("completed", ignoreCase = true) -> stringResource(R.string.weighing_status_submitted)
+    backendStatus.equals("closed", ignoreCase = true) -> stringResource(R.string.weighing_status_closed)
+    backendStatus.equals("canceled", ignoreCase = true) -> stringResource(R.string.weighing_status_canceled)
+    backendStatus.equals("cancelled", ignoreCase = true) -> stringResource(R.string.weighing_status_canceled)
     else -> backendStatus
 }
 
 @Composable
 private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
-    "Free-flow RFID, weight, and video capture"
+    stringResource(R.string.weighing_assignment_summary)
 
 @Composable
 private fun assignmentAction(): String =
@@ -1050,7 +674,7 @@ private fun weighingCategoryLabel(category: String): String =
     }
 
 @Composable
-private fun EmptyWorkCard(title: String, body: String) {
+private fun EmptyWorkCard(title: String, body: String, showRefreshHint: Boolean = false) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1083,9 +707,9 @@ private fun EmptyWorkCard(title: String, body: String) {
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )
-        if (body.contains("published", ignoreCase = true)) {
+        if (showRefreshHint) {
             Text(
-                text = "Pull to refresh after leadership publishes the weekly plan.",
+                text = stringResource(R.string.weighing_pull_to_refresh_hint),
                 color = MeshaColors.BrandD,
                 style = MeshaType.cta,
             )
@@ -1148,42 +772,42 @@ private fun WeighingCapturePanel(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (state.isShedPartition) {
             WeighingActionCard(
-                iconLabel = "KG",
-                title = "Record shed result",
-                body = "One live video is required for this shed / partition result.",
+                iconLabel = stringResource(R.string.weighing_icon_kg),
+                title = stringResource(R.string.weighing_record_shed_result),
+                body = stringResource(R.string.weighing_record_shed_result_body),
                 tone = MeshaColors.Purple,
                 background = MeshaColors.PurpleX,
             )
         } else {
             WeighingActionCard(
-                iconLabel = "RFID",
-                title = state.selectedAnimalLabel ?: "Scan RFID tag now",
+                iconLabel = stringResource(R.string.weighing_icon_rfid),
+                title = state.selectedAnimalLabel ?: stringResource(R.string.weighing_scan_tag_now),
                 body = if (state.selectedAnimalLabel == null) {
-                    "Keep scanning RFID tags. Each captured animal stays on this page."
+                    stringResource(R.string.weighing_scan_keep_scanning)
                 } else {
-                    "Add weight and video proof for this animal."
+                    stringResource(R.string.weighing_scan_add_weight_and_video)
                 },
                 tone = MeshaColors.Brand,
                 background = MeshaColors.BrandTint,
             )
             InlineEntryCard(
-                label = "RFID / animal tag",
+                label = stringResource(R.string.weighing_field_tag_label),
                 value = state.scanInput,
-                placeholder = "Type tag only for manual retry",
+                placeholder = stringResource(R.string.weighing_field_tag_placeholder),
                 onValueChange = onScanInputChange,
-                actionLabel = "Match",
+                actionLabel = stringResource(R.string.weighing_field_tag_action),
                 actionEnabled = !state.actionInFlight && state.scanInput.isNotBlank(),
                 onAction = onScanSubmit,
             )
         }
         if (state.isShedPartition) {
             InlineEntryCard(
-                label = "Weight",
+                label = stringResource(R.string.weighing_field_weight_label),
                 value = state.weightInput,
-                placeholder = "0.0",
-                suffix = "kg",
+                placeholder = stringResource(R.string.weighing_field_weight_placeholder),
+                suffix = stringResource(R.string.weighing_kg),
                 onValueChange = onWeightChange,
-                actionLabel = "Record shed",
+                actionLabel = stringResource(R.string.weighing_field_weight_action),
                 actionEnabled = state.canRecordShedPartition,
                 onAction = onRecordShedPartition,
             )
@@ -1224,7 +848,11 @@ private fun RosterPeekCard(
         }
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text("View rows", color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+            Text(
+                stringResource(R.string.weighing_view_rows),
+                color = MeshaColors.Ink,
+                style = MeshaType.bodyStrong,
+            )
             Text(
                 text = rosterPeekSummary(total = total, visible = visible, wrongShed = wrongShed),
                 color = MeshaColors.Muted,
@@ -1233,15 +861,19 @@ private fun RosterPeekCard(
             )
         }
         Text(
-            text = "Open",
+            text = stringResource(R.string.weighing_open),
             color = MeshaColors.BrandD,
             style = MeshaType.cta,
         )
     }
 }
 
-private fun rosterPeekSummary(@Suppress("UNUSED_PARAMETER") total: Int, visible: Int, @Suppress("UNUSED_PARAMETER") wrongShed: Int): String =
-    "$visible captured ${if (visible == 1) "row" else "rows"}"
+@Composable
+private fun rosterPeekSummary(
+    @Suppress("UNUSED_PARAMETER") total: Int,
+    visible: Int,
+    @Suppress("UNUSED_PARAMETER") wrongShed: Int,
+): String = capturedRowsLabel(visible)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1307,11 +939,11 @@ private fun WeighingRosterSheetContent(
     Surface(color = MeshaColors.Surf, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(bottom = 22.dp)) {
             Column(Modifier.padding(horizontal = 20.dp)) {
-                Text(title, color = MeshaColors.Ink, fontSize = 16.sp, fontWeight = FontWeight.W700)
+                Text(title, color = MeshaColors.Ink, style = MeshaType.headerTitle)
                 Text(
                     text = rosterSheetSubtitle(filtered.size, totalExpected),
                     color = MeshaColors.Muted,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
@@ -1321,7 +953,11 @@ private fun WeighingRosterSheetContent(
                 onValueChange = { query = it },
                 singleLine = true,
                 placeholder = {
-                    Text("Search tag or shed", color = MeshaColors.Faint, style = MeshaType.cardSubtitle)
+                    Text(
+                        stringResource(R.string.weighing_search_tag_or_shed),
+                        color = MeshaColors.Faint,
+                        style = MeshaType.cardSubtitle,
+                    )
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1330,8 +966,8 @@ private fun WeighingRosterSheetContent(
             Spacer(Modifier.height(6.dp))
             if (filtered.isEmpty()) {
                 EmptyWorkCard(
-                    title = "No matching rows",
-                    body = "Try another tag or shed name.",
+                    title = stringResource(R.string.weighing_no_matching_rows_title),
+                    body = stringResource(R.string.weighing_no_matching_rows_body),
                 )
             } else {
                 LazyColumn(
@@ -1348,8 +984,18 @@ private fun WeighingRosterSheetContent(
     }
 }
 
-private fun rosterSheetSubtitle(visibleCount: Int, @Suppress("UNUSED_PARAMETER") totalExpected: Int): String =
-    "$visibleCount captured ${if (visibleCount == 1) "row" else "rows"}"
+@Composable
+private fun rosterSheetSubtitle(
+    visibleCount: Int,
+    @Suppress("UNUSED_PARAMETER") totalExpected: Int,
+): String = capturedRowsLabel(visibleCount)
+
+@Composable
+private fun capturedRowsLabel(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_captured_rows_one, count)
+} else {
+    stringResource(R.string.weighing_captured_rows_other, count)
+}
 
 @Composable
 private fun WeighingExecutionScanScreen(
@@ -1381,8 +1027,8 @@ private fun WeighingExecutionScanScreen(
         containerColor = MeshaColors.PageBg,
         topBar = {
             MeshaScreenHeader(
-                title = state.title.ifBlank { "Weighing" },
-                eyebrow = "WEIGHING",
+                title = state.title.ifBlank { stringResource(R.string.weighing_title) },
+                eyebrow = stringResource(R.string.weighing_eyebrow),
                 subtitle = state.scopeLabel,
                 onBack = onBack,
                 actions = {
@@ -1396,7 +1042,11 @@ private fun WeighingExecutionScanScreen(
         },
         bottomBar = {
             ActionButton(
-                text = if (state.isShedPartition) "Submit lump-sum weighing" else "Submit",
+                text = if (state.isShedPartition) {
+                    stringResource(R.string.weighing_submit_lump_sum)
+                } else {
+                    stringResource(R.string.weighing_submit)
+                },
                 enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
                 onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
                 modifier = Modifier
@@ -1426,7 +1076,11 @@ private fun WeighingExecutionScanScreen(
                 }
                 item {
                     Text(
-                        text = "${state.visibleRows.size} ${if (state.visibleRows.size == 1) "animal" else "animals"} captured",
+                        text = if (state.visibleRows.size == 1) {
+                            stringResource(R.string.weighing_animals_captured_one, state.visibleRows.size)
+                        } else {
+                            stringResource(R.string.weighing_animals_captured_other, state.visibleRows.size)
+                        },
                         color = MeshaColors.Ink,
                         style = MeshaType.bodyStrong,
                         modifier = Modifier.fillMaxWidth(),
@@ -1435,7 +1089,7 @@ private fun WeighingExecutionScanScreen(
                 if (state.visibleRows.isEmpty()) {
                     item {
                         Text(
-                            text = "Scan an RFID tag to begin",
+                            text = stringResource(R.string.weighing_scan_to_begin),
                             color = MeshaColors.Muted,
                             style = MeshaType.bodyStrong,
                             textAlign = TextAlign.Center,
@@ -1508,19 +1162,19 @@ private fun WeighingReaderBanner(
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = reader?.readerName ?: "RFID reader",
+                text = reader?.readerName ?: stringResource(R.string.weighing_reader_default_name),
                 color = MeshaColors.Ink,
                 style = MeshaType.bodyStrong,
             )
             Text(
-                text = reader?.statusLabel ?: "Checking connection",
+                text = reader?.statusLabel ?: stringResource(R.string.weighing_reader_checking),
                 color = MeshaColors.Muted,
                 style = MeshaType.caption,
             )
         }
         if (!connected) {
             ActionButton(
-                text = reader?.actionLabel ?: "Reconnect",
+                text = reader?.actionLabel ?: stringResource(R.string.weighing_reader_reconnect),
                 enabled = true,
                 onClick = onReconnect,
                 primary = false,
@@ -1619,13 +1273,22 @@ private fun WeighingFreeFlowFeedRow(
         )
         Text(
             text = when {
-                complete -> "Weight saved · ${row.proofStatusLabel ?: "video synced"}"
-                row.proofUploadStatus == ProofUploadStatus.FAILED -> row.proofStatusLabel ?: "Video upload failed"
-                row.proofUploadStatus == ProofUploadStatus.UPLOADING -> row.proofStatusLabel ?: "Video syncing"
+                complete -> stringResource(
+                    R.string.weighing_proof_weight_saved_fmt,
+                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_video_synced),
+                )
+                row.proofUploadStatus == ProofUploadStatus.FAILED ->
+                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_upload_failed)
+                row.proofUploadStatus == ProofUploadStatus.UPLOADING ->
+                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_syncing)
                 row.proofUploadStatus == ProofUploadStatus.SYNCED && !row.backendSynced ->
-                    "${row.proofStatusLabel ?: "Video synced"} · weight waiting to sync"
-                row.proofUploadStatus == ProofUploadStatus.SYNCED -> row.proofStatusLabel ?: "Video synced"
-                else -> "Video captured"
+                    stringResource(
+                        R.string.weighing_proof_weight_waiting_fmt,
+                        row.proofStatusLabel ?: stringResource(R.string.weighing_proof_synced),
+                    )
+                row.proofUploadStatus == ProofUploadStatus.SYNCED ->
+                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_synced)
+                else -> stringResource(R.string.weighing_proof_captured)
             },
             color = when {
                 complete -> MeshaColors.Ok
@@ -1640,13 +1303,20 @@ private fun WeighingFreeFlowFeedRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = "Weight ${row.savedWeightLabel ?: row.weightInput} kg",
+                    text = stringResource(
+                        R.string.weighing_weight_value_fmt,
+                        row.savedWeightLabel ?: row.weightInput,
+                    ),
                     color = MeshaColors.Ink,
                     style = MeshaType.bodyStrong,
                     modifier = Modifier.weight(1f),
                 )
                 ActionButton(
-                    text = if (updating) "Updating..." else "Edit weight",
+                    text = if (updating) {
+                        stringResource(R.string.weighing_updating)
+                    } else {
+                        stringResource(R.string.weighing_edit_weight)
+                    },
                     enabled = !updating,
                     onClick = {
                         editingWeight = true
@@ -1667,8 +1337,8 @@ private fun WeighingFreeFlowFeedRow(
                         draftWeight = it
                         onWeightChange(it)
                     },
-                    label = { Text("Weight") },
-                    suffix = { Text("kg") },
+                    label = { Text(stringResource(R.string.weighing_field_weight_label)) },
+                    suffix = { Text(stringResource(R.string.weighing_kg)) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     enabled = !updating,
@@ -1677,7 +1347,11 @@ private fun WeighingFreeFlowFeedRow(
                         .onFocusChanged { onWeightEntryActive(it.isFocused) },
                 )
                 ActionButton(
-                    text = if (updating) "Updating..." else if (row.weightSaved) "Update" else "Save",
+                    text = when {
+                        updating -> stringResource(R.string.weighing_updating)
+                        row.weightSaved -> stringResource(R.string.weighing_update)
+                        else -> stringResource(R.string.weighing_save)
+                    },
                     enabled = canSaveDraftWeight && !updating,
                     onClick = {
                         focusManager.clearFocus()
@@ -1705,7 +1379,7 @@ private fun WeighingFreeFlowFeedRow(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "Scan this RFID tag again to replace the video.",
+                    text = stringResource(R.string.weighing_rescan_to_replace_video),
                     color = MeshaColors.Info,
                     style = MeshaType.caption,
                     modifier = Modifier.weight(1f),
@@ -1714,14 +1388,18 @@ private fun WeighingFreeFlowFeedRow(
         }
         when (row.proofUploadStatus) {
             ProofUploadStatus.FAILED -> ActionButton(
-                text = "Retry",
+                text = stringResource(R.string.weighing_retry),
                 enabled = true,
                 onClick = onRetryVideo,
                 modifier = Modifier.fillMaxWidth(),
                 primary = false,
             )
             ProofUploadStatus.SYNCED -> ActionButton(
-                text = if (row.reuploadRequested) "Waiting for RFID scan" else "Re-upload",
+                text = if (row.reuploadRequested) {
+                    stringResource(R.string.weighing_waiting_for_scan)
+                } else {
+                    stringResource(R.string.weighing_reupload)
+                },
                 enabled = !row.reuploadRequested,
                 onClick = onReuploadVideo,
                 modifier = Modifier.fillMaxWidth(),
@@ -1761,8 +1439,8 @@ private fun WeighingLumpSumCapture(
         OutlinedTextField(
             value = state.weightInput,
             onValueChange = onWeightChange,
-            label = { Text("Total weight") },
-            suffix = { Text("kg") },
+            label = { Text(stringResource(R.string.weighing_field_total_weight)) },
+            suffix = { Text(stringResource(R.string.weighing_kg)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             singleLine = true,
             modifier = Modifier
@@ -1772,7 +1450,7 @@ private fun WeighingLumpSumCapture(
         OutlinedTextField(
             value = state.animalCountInput,
             onValueChange = onAnimalCountChange,
-            label = { Text("Animal count") },
+            label = { Text(stringResource(R.string.weighing_field_animal_count)) },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             modifier = Modifier
@@ -1783,14 +1461,21 @@ private fun WeighingLumpSumCapture(
         val animalCount = state.animalCountInput.toIntOrNull()
         if (totalWeight != null && totalWeight > 0 && animalCount != null && animalCount > 0) {
             Text(
-                text = "Average ${"%.2f".format(totalWeight / animalCount)} kg per animal",
+                text = stringResource(
+                    R.string.weighing_average_per_animal_fmt,
+                    "%.2f".format(totalWeight / animalCount),
+                ),
                 color = MeshaColors.Ok,
                 style = MeshaType.bodyStrong,
             )
         }
         Text(
-            text = "${state.shedProofs.size} / 5 videos uploaded",
-            color = if (state.shedProofs.size >= 5) MeshaColors.Warn else MeshaColors.Muted,
+            text = stringResource(
+                R.string.weighing_videos_uploaded_fmt,
+                state.shedProofs.size,
+                SHED_PROOF_VIDEO_LIMIT,
+            ),
+            color = if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) MeshaColors.Warn else MeshaColors.Muted,
             style = MeshaType.bodyStrong,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1820,7 +1505,7 @@ private fun WeighingLumpSumCapture(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    text = "Video ${index + 1}",
+                    text = stringResource(R.string.weighing_video_index_fmt, index + 1),
                     color = MeshaColors.Ink,
                     style = MeshaType.bodyStrong,
                     modifier = Modifier.weight(1f),
@@ -1837,7 +1522,7 @@ private fun WeighingLumpSumCapture(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     ShedVideoAction(
-                        text = "Replace",
+                        text = stringResource(R.string.weighing_replace),
                         icon = MeshaIcons.Refresh,
                         enabled = !state.actionInFlight,
                         onClick = {
@@ -1847,7 +1532,7 @@ private fun WeighingLumpSumCapture(
                         modifier = Modifier.weight(1f),
                     )
                     ShedVideoAction(
-                        text = "Remove",
+                        text = stringResource(R.string.weighing_remove),
                         icon = MeshaIcons.Close,
                         enabled = !state.actionInFlight,
                         onClick = {
@@ -1859,7 +1544,7 @@ private fun WeighingLumpSumCapture(
                     )
                 }
                 ProofUploadStatus.FAILED -> ShedVideoAction(
-                    text = "Retry",
+                    text = stringResource(R.string.weighing_retry),
                     icon = MeshaIcons.Refresh,
                     enabled = !state.actionInFlight,
                     onClick = {
@@ -1874,7 +1559,11 @@ private fun WeighingLumpSumCapture(
             }
         }
         ActionButton(
-            text = if (state.shedProofs.isEmpty()) "Capture group video" else "Add another video",
+            text = if (state.shedProofs.isEmpty()) {
+                stringResource(R.string.weighing_capture_group_video)
+            } else {
+                stringResource(R.string.weighing_add_another_video)
+            },
             enabled = !state.actionInFlight && state.shedProofs.size < 5,
             onClick = {
                 dismissKeyboard()
@@ -1918,6 +1607,7 @@ private fun ShedVideoAction(
             modifier = Modifier.size(15.dp),
         )
         Spacer(Modifier.width(6.dp))
+        // design-system:ignore: deliberate W700 override on the W600 caption token; dropping it would lighten this action label.
         Text(text = text, color = color, style = MeshaType.caption, fontWeight = FontWeight.Bold)
     }
 }
@@ -1974,7 +1664,8 @@ private fun WeighingScanCaptureCard(
     onRecordShedPartition: () -> Unit,
 ) {
     val selectedLabel = when {
-        state.isShedPartition -> state.scopeLabel.ifBlank { state.title.ifBlank { "Selected shed" } }
+        state.isShedPartition ->
+            state.scopeLabel.ifBlank { state.title.ifBlank { stringResource(R.string.weighing_selected_shed) } }
         !state.selectedAnimalLabel.isNullOrBlank() -> state.selectedAnimalLabel
         else -> null
     }
@@ -1999,8 +1690,9 @@ private fun WeighingScanCaptureCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = "KG",
+                    text = stringResource(R.string.weighing_icon_kg),
                     color = if (state.isShedPartition) MeshaColors.Purple else MeshaColors.Brand,
+                    // design-system:ignore: 10sp/W900 glyph badge — no token pairs a ~10sp size with W900 (overline/dayName are W700), so any swap would visibly lighten the badge.
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Black,
                 )
@@ -2008,18 +1700,20 @@ private fun WeighingScanCaptureCard(
             Spacer(Modifier.width(11.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (state.isShedPartition) "Shed weight + proof" else "Animal weight + proof",
+                    text = if (state.isShedPartition) {
+                        stringResource(R.string.weighing_shed_weight_and_proof)
+                    } else {
+                        stringResource(R.string.weighing_animal_weight_and_proof)
+                    },
                     color = MeshaColors.Ink,
-                    fontSize = 14.sp,
+                    style = MeshaType.bodyStrong,
                     lineHeight = 17.sp,
-                    fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = selectedLabel ?: "Tap Pending, then scan or select an animal.",
+                    text = selectedLabel ?: stringResource(R.string.weighing_tap_pending_hint),
                     color = if (selectedLabel == null) MeshaColors.Faint else MeshaColors.Muted,
-                    fontSize = 11.sp,
+                    style = MeshaType.caption,
                     lineHeight = 15.sp,
-                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 3.dp),
@@ -2029,24 +1723,35 @@ private fun WeighingScanCaptureCard(
         OutlinedTextField(
             value = state.weightInput,
             onValueChange = onWeightChange,
-            label = { Text(if (state.isShedPartition) "Total weight" else "Weight") },
-            suffix = { Text("kg") },
+            label = {
+                Text(
+                    if (state.isShedPartition) {
+                        stringResource(R.string.weighing_field_total_weight)
+                    } else {
+                        stringResource(R.string.weighing_field_weight_label)
+                    },
+                )
+            },
+            suffix = { Text(stringResource(R.string.weighing_kg)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         Text(
             text = if (state.isShedPartition) {
-                "One shed video is mandatory before this result can be submitted."
+                stringResource(R.string.weighing_shed_video_mandatory)
             } else {
-                "One animal video is mandatory for every saved weight."
+                stringResource(R.string.weighing_animal_video_mandatory)
             },
             color = MeshaColors.Muted,
-            fontSize = 11.sp,
+            style = MeshaType.caption,
             lineHeight = 15.sp,
-            fontWeight = FontWeight.Medium,
         )
         ActionButton(
-            text = if (state.isShedPartition) "Add shed camera clip" else "Add camera clip",
+            text = if (state.isShedPartition) {
+                stringResource(R.string.weighing_add_shed_camera_clip)
+            } else {
+                stringResource(R.string.weighing_add_camera_clip)
+            },
             enabled = canSave,
             onClick = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
             modifier = Modifier.fillMaxWidth(),
@@ -2075,12 +1780,18 @@ private fun WeighingWeightSheet(
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionTitle(if (state.isShedPartition) "SHED RESULT" else "ANIMAL WEIGHT")
+            SectionTitle(
+                if (state.isShedPartition) {
+                    stringResource(R.string.weighing_section_shed_result_caps)
+                } else {
+                    stringResource(R.string.weighing_section_animal_weight_caps)
+                },
+            )
             Text(
                 text = if (state.isShedPartition) {
-                    "Record total weight and capture one shed video."
+                    stringResource(R.string.weighing_record_total_and_video)
                 } else {
-                    state.selectedAnimalLabel ?: "Scan or select a pending animal first."
+                    state.selectedAnimalLabel ?: stringResource(R.string.weighing_scan_or_select_first)
                 },
                 color = MeshaColors.Ink,
                 style = MeshaType.cardTitle,
@@ -2088,30 +1799,42 @@ private fun WeighingWeightSheet(
             OutlinedTextField(
                 value = state.weightInput,
                 onValueChange = onWeightChange,
-                label = { Text(if (state.isShedPartition) "Total weight" else "Weight") },
-                suffix = { Text("kg") },
+                label = {
+                    Text(
+                        if (state.isShedPartition) {
+                            stringResource(R.string.weighing_field_total_weight)
+                        } else {
+                            stringResource(R.string.weighing_field_weight_label)
+                        },
+                    )
+                },
+                suffix = { Text(stringResource(R.string.weighing_kg)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(
                 text = if (state.isShedPartition) {
-                    "Video proof opens after saving."
+                    stringResource(R.string.weighing_proof_opens_after_saving)
                 } else {
-                    "Per-animal video proof opens after saving."
+                    stringResource(R.string.weighing_animal_proof_opens_after_saving)
                 },
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ActionButton(
-                    text = "Cancel",
+                    text = stringResource(R.string.weighing_cancel),
                     enabled = true,
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
                     primary = false,
                 )
                 ActionButton(
-                    text = if (state.isShedPartition) "Save shed" else "Save kid",
+                    text = if (state.isShedPartition) {
+                        stringResource(R.string.weighing_save_shed)
+                    } else {
+                        stringResource(R.string.weighing_save_kid)
+                    },
                     enabled = if (state.isShedPartition) state.canRecordShedPartition else state.canRecordIndividual,
                     onClick = if (state.isShedPartition) onRecordShedPartition else onRecordIndividual,
                     modifier = Modifier.weight(1f),
@@ -2175,21 +1898,25 @@ private fun CaptureProgressTiles(state: WeighingUiState) {
     ) {
         CaptureMetricTile(
             value = done.toString(),
-            label = if (state.isShedPartition) "Result" else "Done",
+            label = if (state.isShedPartition) {
+                stringResource(R.string.weighing_tab_result)
+            } else {
+                stringResource(R.string.weighing_tab_done)
+            },
             selected = done > 0,
             tone = if (state.isShedPartition) MeshaColors.Purple else MeshaColors.BrandD,
             modifier = Modifier.weight(1f),
         )
         CaptureMetricTile(
             value = pending.toString(),
-            label = "Pending",
+            label = stringResource(R.string.weighing_tab_pending),
             selected = pending == 0 && total > 0,
             tone = MeshaColors.Ink,
             modifier = Modifier.weight(1f),
         )
         CaptureMetricTile(
             value = proofReady.toString(),
-            label = "Proof",
+            label = stringResource(R.string.weighing_tab_proof),
             selected = proofReady > 0,
             tone = MeshaColors.BrandD,
             modifier = Modifier.weight(1f),
@@ -2259,6 +1986,7 @@ private fun WeighingActionCard(
             Text(
                 text = iconLabel,
                 color = tone,
+                // design-system:ignore: 9sp/W900 glyph badge — no token pairs a ~9sp size with W900 (dayName is 9.5sp/W700), so any swap would visibly lighten the badge.
                 fontSize = 9.sp,
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.W900,
@@ -2319,6 +2047,7 @@ private fun InlineEntryCard(
                                 Text(
                                     text = placeholder,
                                     color = MeshaColors.Faint,
+                                    // design-system:ignore: 17sp/W700 placeholder sits between headerTitle (16.5sp) and screenTitle (22sp); headerTitle also carries -0.3sp tracking, so a human should decide whether this placeholder should shrink to the field's bodyStrong scale instead.
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.W700,
                                 )
@@ -2400,20 +2129,20 @@ private fun RosterRow(row: WeighingRosterUiRow) {
                 )
             }
             Text(
-                text = "Expected: ${row.expectedLocationLabel}",
+                text = stringResource(R.string.weighing_expected_shed_fmt, row.expectedLocationLabel),
                 style = MeshaType.cardSubtitle,
                 color = MeshaColors.Muted,
             )
             row.actualLocationLabel?.takeIf { it.isNotBlank() && it != row.expectedLocationLabel }?.let {
                 Text(
-                    text = "Current: $it",
+                    text = stringResource(R.string.weighing_current_shed_fmt, it),
                     style = MeshaType.cardSubtitle,
                     color = MeshaColors.Danger,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (row.wrongShed) {
-                    AssistChip(onClick = {}, label = { Text("Wrong shed") })
+                    AssistChip(onClick = {}, label = { Text(stringResource(R.string.weighing_wrong_shed)) })
                 }
                 row.availabilityStatus?.takeIf { it.isNotBlank() }?.let {
                     AssistChip(onClick = {}, label = { Text(it) })
@@ -2447,13 +2176,21 @@ private fun DraftRow(row: WeighingDraftUiRow) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = if (row.proofReady) "Proof ready" else "Proof required",
+                    text = if (row.proofReady) {
+                        stringResource(R.string.weighing_proof_ready)
+                    } else {
+                        stringResource(R.string.weighing_proof_required)
+                    },
                     style = MeshaType.cardSubtitle,
                     color = MeshaColors.Muted,
                 )
             }
             Text(
-                text = if (row.readyToSubmit) "Ready" else "Draft",
+                text = if (row.readyToSubmit) {
+                    stringResource(R.string.weighing_ready)
+                } else {
+                    stringResource(R.string.weighing_draft)
+                },
                 style = MeshaType.caption,
                 color = if (row.readyToSubmit) MeshaColors.BrandD else MeshaColors.Muted,
             )

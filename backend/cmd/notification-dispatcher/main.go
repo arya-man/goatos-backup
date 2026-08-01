@@ -75,7 +75,6 @@ func run(args []string) error {
 		FCMProjectID:       firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
 		FCMEndpoint:        getenv("GOATOS_FCM_ENDPOINT"),
 		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
-		FCMDefaultTopic:    getenv("GOATOS_FCM_DEFAULT_TOPIC"),
 		DryRun:             *dryRun,
 		HTTPTimeout:        envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 	}, logger)

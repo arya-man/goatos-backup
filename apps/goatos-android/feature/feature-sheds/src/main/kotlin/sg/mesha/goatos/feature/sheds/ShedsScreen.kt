@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.LoadingSkeletonList
@@ -324,25 +325,12 @@ fun ShedsScreen(
     val listState = rememberLazyListState()
     val canFilterHere = state.parkFilters.isNotEmpty() && !state.hostedFromCalendar
     val parkGroups = state.parkGroups()
-    val showParkGroupSelector = parkGroups.size > 1 && state.leadershipMode
-    var selectedParkGroupId by rememberSaveable(state.selectedParkId) {
-        mutableStateOf(state.selectedParkId)
-    }
-    val parkGroupIds = parkGroups.map { it.parkId }
-    LaunchedEffect(parkGroupIds, state.selectedParkId) {
-        if (selectedParkGroupId !in parkGroupIds) {
-            selectedParkGroupId = state.selectedParkId
-                ?.takeIf { it in parkGroupIds }
-                ?: parkGroupIds.firstOrNull()
-        }
-    }
-    val selectedParkGroup = parkGroups.firstOrNull { it.parkId == selectedParkGroupId }
-        ?: parkGroups.firstOrNull()
-    val visibleParkGroups = if (showParkGroupSelector) {
-        listOfNotNull(selectedParkGroup)
-    } else {
-        parkGroups
-    }
+    // Park scope is chosen ONCE, by the filter pills above, which select through the ViewModel and
+    // therefore drive the query and its cursor. There used to be a second park selector here -- the
+    // per-park summary cards -- which picked a park purely client-side out of already-loaded rows.
+    // Two controls for one scope disagreed on screen (the pills reading "All parks" while the cards
+    // had CBE selected and the list showed only CBE), and the client-side one silently fought
+    // pagination by hiding rows the cursor had already paid for.
     var showParkFilters by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(listState, state.hasMore, state.isLoadingMore, state.rows.size) {
         if (!state.hasMore || state.isLoadingMore || state.rows.isEmpty()) return@LaunchedEffect
@@ -372,16 +360,6 @@ fun ShedsScreen(
             contentPadding = PaddingValues(bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (showProtocolAdherenceCard && !state.hostedFromCalendar) {
-                state.adherence?.let { adherence ->
-                    item {
-                        ProtocolAdherenceCard(
-                            summary = adherence,
-                            parkScope = state.parkFilters.firstOrNull { it.isSelected }?.label ?: "All parks",
-                        )
-                    }
-                }
-            }
             if (state.dayTabs.isNotEmpty()) {
                 // Leadership reaches this screen from a specific drive/date on the Calendar, so
                 // the day strip is redundant for them — show it only for the operator work queue
@@ -402,16 +380,17 @@ fun ShedsScreen(
                     )
                 }
             }
-            state.roleNote?.let { note -> item { RoleNote(note) } }
-            if (showParkGroupSelector) {
-                item(key = "park-chip-selector") {
-                    ParkGroupChips(
-                        groups = parkGroups,
-                        selectedParkId = selectedParkGroup?.parkId,
-                        onSelect = { selectedParkGroupId = it },
-                    )
+            if (showProtocolAdherenceCard && !state.hostedFromCalendar) {
+                state.adherence?.let { adherence ->
+                    item {
+                        ProtocolAdherenceCard(
+                            summary = adherence,
+                            parkScope = state.parkFilters.firstOrNull { it.isSelected }?.label ?: "All parks",
+                        )
+                    }
                 }
             }
+            state.roleNote?.let { note -> item { RoleNote(note) } }
             if (state.isInitialLoading && state.rows.isEmpty()) {
                 item(key = "initial-skeleton") {
                     LoadingSkeletonList(
@@ -429,13 +408,7 @@ fun ShedsScreen(
                     )
                 }
             }
-            if (showParkGroupSelector) {
-                visibleParkGroups.forEach { group ->
-                    items(group.rows, key = { it.id }) { row ->
-                        ShedCard(row = row, onOpen = { onEvent(ShedsEvent.OpenShedRecord(row.id)) })
-                    }
-                }
-            } else if (parkGroups.size > 1 && !state.hostedFromCalendar) {
+            if (parkGroups.size > 1 && !state.hostedFromCalendar) {
                 parkGroups.forEach { group ->
                     item(key = "park-header-${group.parkId}") {
                         ParkGroupHeader(group)
@@ -508,6 +481,8 @@ private fun ShedsParkFilterSheet(
             Text(
                 text = "Filter park",
                 color = Ink,
+                // design-system:ignore: no 20sp/W800 token (screenTitle is 22sp/W700) — a 2sp
+                // drop plus a weight step would visibly shrink this sheet title.
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -562,7 +537,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
                 .padding(horizontal = 13.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = label, color = fg, fontSize = 12.sp, fontWeight = FontWeight.W800)
+            Text(text = label, color = fg, style = MeshaType.pillStrong)
         }
     }
 }
@@ -583,60 +558,6 @@ private fun ShedsUiState.parkGroups(): List<ShedParkGroup> =
         .sortedBy { it.label.lowercase() }
 
 @Composable
-private fun ParkGroupChips(
-    groups: List<ShedParkGroup>,
-    selectedParkId: String?,
-    onSelect: (String) -> Unit,
-) {
-    FlowRow(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        groups.forEach { group ->
-            ParkSummaryPill(
-                group = group,
-                selected = group.parkId == selectedParkId,
-                onSelect = { onSelect(group.parkId) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ParkSummaryPill(
-    group: ShedParkGroup,
-    selected: Boolean,
-    onSelect: () -> Unit,
-) {
-    val bg = if (selected) MeshaColors.Brand else Surf2
-    val edge = if (selected) MeshaColors.Brand else Hair
-    val primary = if (selected) PageBg else Ink
-    val secondary = if (selected) PageBg.copy(alpha = 0.82f) else Muted
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(bg)
-            .border(1.dp, edge, RoundedCornerShape(18.dp))
-            .clickable(onClick = onSelect)
-            .height(48.dp)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(text = group.label, color = primary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-        Text(
-            text = "${group.rows.size} sheds · ${group.openCount} open",
-            color = secondary,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
-}
-
-@Composable
 private fun ParkGroupHeader(group: ShedParkGroup) {
     Row(
         modifier = Modifier
@@ -647,8 +568,7 @@ private fun ParkGroupHeader(group: ShedParkGroup) {
         Text(
             text = group.label,
             color = Ink,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.ExtraBold,
+            style = MeshaType.button,
         )
     }
 }
@@ -683,7 +603,9 @@ private fun DayTabs(tabs: List<ShedDayTab>, onSelect: (String) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(text = tab.dayLabel, color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(text = tab.dayLabel, color = labelColor, style = MeshaType.pill)
+                    // design-system:ignore: no 20sp token (screenTitle 22sp/W700, dayNumber 15sp/W800);
+                    // this day-tab number would change size noticeably either way.
                     Text(text = tab.dateLabel, color = dateColor, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
@@ -713,23 +635,20 @@ private fun VaccineCarryCard(carry: DayCarry?) {
                 Text(
                     text = "Vaccines to carry",
                     color = Ink,
-                    fontSize = 15.5f.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MeshaType.cardTitle,
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "${carry.totalRemaining} doses",
                     color = BrandD,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MeshaType.listTitle,
                 )
             }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = "Selected day · all sheds below",
                 color = Muted,
-                fontSize = 11.5f.sp,
-                fontWeight = FontWeight.Medium,
+                style = MeshaType.caption,
             )
             Spacer(Modifier.height(12.dp))
             FlowRow(
@@ -871,16 +790,18 @@ private fun DriveMeta(state: ShedsUiState) {
 
 @Composable
 private fun MetaStrong(text: String) {
-    Text(text = text, color = Ink, fontSize = 11.5f.sp, fontWeight = FontWeight.SemiBold)
+    Text(text = text, color = Ink, style = MeshaType.caption)
 }
 
 @Composable
 private fun MetaMuted(text: String) {
-    Text(text = text, color = Muted, fontSize = 11.5f.sp, fontWeight = FontWeight.Medium)
+    Text(text = text, color = Muted, style = MeshaType.caption)
 }
 
 @Composable
 private fun Dot() {
+    // design-system:ignore: this separator is 11.5sp at the default W400; the only 11.5sp
+    // token (caption) is W600, which would visibly embolden the "·".
     Text(text = "·", color = Faint, fontSize = 11.5f.sp)
 }
 
@@ -896,9 +817,11 @@ private fun DayProgress(state: ShedsUiState) {
             .padding(horizontal = 15.dp, vertical = 13.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // design-system:ignore: 13sp/W600 has no near token (listTitle is 13.5sp/W700,
+            // cta 12.5sp/W700) — both shift size and weight at once.
             Text(text = stringResource(R.string.sheds_day_progress), color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            Text(text = state.dayProgressLabel, color = BrandD, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            Text(text = state.dayProgressLabel, color = BrandD, style = MeshaType.bodyStrong)
         }
         Spacer(Modifier.height(8.dp))
         ProgressBar(state.dayProgressFraction)
@@ -912,6 +835,8 @@ private fun DayProgress(state: ShedsUiState) {
         } else {
             state.daySummary
         }
+        // design-system:ignore: 10.5sp at the default W400; the only 10.5sp token (overline)
+        // is W700 with 0.42sp tracking, which would restyle this summary line.
         Text(text = summary, color = Muted, fontSize = 10.5f.sp)
     }
 }
@@ -963,14 +888,12 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                     Text(
                         text = "Protocol adherence",
                         color = Ink,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MeshaType.cardTitle,
                     )
                     Text(
                         text = parkScope,
                         color = Muted,
-                        fontSize = 11.5f.sp,
-                        fontWeight = FontWeight.Medium,
+                        style = MeshaType.caption,
                     )
                 }
                 FlowRow(
@@ -986,6 +909,8 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = progressLabel,
+                    // design-system:ignore: no 18sp token (screenTitle 22sp, headerTitle 16.5sp) —
+                    // this headline number would jump size either way.
                     color = Ink,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.ExtraBold,
@@ -994,8 +919,7 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 Text(
                     text = progressCaption,
                     color = BrandD,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MeshaType.bodyStrong,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -1018,8 +942,7 @@ private fun CompactFact(text: String, color: Color) {
     Text(
         text = text,
         color = color,
-        fontSize = 11.5f.sp,
-        fontWeight = FontWeight.Bold,
+        style = MeshaType.caption,
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Surf2)
@@ -1040,7 +963,9 @@ private fun RoleNote(note: String) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        // design-system:ignore: 8sp bullet glyph — smallest token is dayName at 9.5sp/W700.
         Text(text = "●", color = Muted, fontSize = 8.sp)
+        // design-system:ignore: 11.5sp at default W400; caption (the only 11.5sp token) is W600.
         Text(text = note, color = Muted, fontSize = 11.5f.sp)
     }
 }
@@ -1050,8 +975,7 @@ private fun SectionCaption(text: String) {
     Text(
         text = text,
         color = Faint,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
+        style = MeshaType.pill,
         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
     )
 }
@@ -1118,6 +1042,8 @@ private fun DriveAssignmentStrip(row: ShedRow) {
             Text(
                 text = label,
                 color = Muted,
+                // design-system:ignore: the only 10.5sp token (overline) adds W700 + 0.42sp
+                // tracking, which would restyle this dense meta strip.
                 fontSize = 10.5f.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -1141,11 +1067,13 @@ private fun ShedCardTop(row: ShedRow, tone: StatusTone) {
         ShedAvatar()
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.name, color = Ink, fontSize = 15.5f.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(text = row.name, color = Ink, style = MeshaType.cardTitle, maxLines = 1)
             row.scheduleDateLabel.takeIf { it.isNotBlank() }?.let {
+                // design-system:ignore: 12sp at default W400; cardSubtitle is 12sp/W500.
                 Text(text = it, color = Muted, fontSize = 12.sp, maxLines = 1)
             }
             row.animalStage.takeIf { it.isNotBlank() }?.let {
+                // design-system:ignore: 11.5sp at default W400; caption is 11.5sp/W600.
                 Text(text = it, color = Muted, fontSize = 11.5f.sp, maxLines = 1)
             }
         }
@@ -1223,7 +1151,7 @@ private fun StatusPill(label: String, tone: StatusTone) {
             .background(tone.bg)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        Text(text = label, color = tone.fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Text(text = label, color = tone.fg, style = MeshaType.pill, maxLines = 1)
     }
 }
 
@@ -1258,15 +1186,13 @@ private fun VaccineChip(group: VaccineGroup) {
         Text(
             text = group.label,
             color = if (group.full) Muted else Ink,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            style = MeshaType.pill,
             maxLines = 1,
         )
         Text(
             text = group.countLabel,
             color = if (group.full) Muted else BrandD,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.ExtraBold,
+            style = MeshaType.pill,
             maxLines = 1,
         )
     }
@@ -1295,8 +1221,10 @@ private fun NumCell(value: String, label: String, modifier: Modifier = Modifier)
         modifier = modifier.padding(vertical = 9.dp, horizontal = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // design-system:ignore: no 16sp token (headerTitle is 16.5sp/W700 with -0.3sp tracking,
+        // button 15sp/W800) — this stat number should not gain tracking or drop a full sp.
         Text(text = value, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-        Text(text = label, color = Muted, fontSize = 9.5f.sp, fontWeight = FontWeight.Bold)
+        Text(text = label, color = Muted, style = MeshaType.dayName)
     }
 }
 
@@ -1349,8 +1277,10 @@ private fun ChangeRow(change: RosterChange) {
                 .background(bg)
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         ) {
+            // design-system:ignore: no 10sp token (dayName 9.5sp/W700, overline 10.5sp/W700+tracking).
             Text(text = change.tag, color = fg, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
+        // design-system:ignore: 12.5sp at default W400; the only 12.5sp token (cta) is W700.
         Text(text = change.text, color = Muted, fontSize = 12.5f.sp, modifier = Modifier.weight(1f))
     }
 }
@@ -1360,6 +1290,7 @@ private fun InfoBox(text: String) {
     Text(
         text = text,
         color = Muted,
+        // design-system:ignore: 12sp at default W400; cardSubtitle (12sp) is W500.
         fontSize = 12.sp,
         modifier = Modifier
             .fillMaxWidth()

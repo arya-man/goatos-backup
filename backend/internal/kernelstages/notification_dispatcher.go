@@ -36,7 +36,6 @@ func NewNotificationDispatcherStage(deps Deps, tenantID string) *NotificationDis
 		FCMProjectID:       firstNonEmptyEnv("GOATOS_FCM_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"),
 		FCMEndpoint:        getenv("GOATOS_FCM_ENDPOINT"),
 		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
-		FCMDefaultTopic:    getenv("GOATOS_FCM_DEFAULT_TOPIC"),
 		DryRun:             envTruthy("GOATOS_NOTIFICATION_DRY_RUN"),
 		HTTPTimeout:        durationEnv("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
 	}, deps.Logger)

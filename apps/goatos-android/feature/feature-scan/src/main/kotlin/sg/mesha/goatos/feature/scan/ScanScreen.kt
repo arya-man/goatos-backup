@@ -289,6 +289,24 @@ private object ScanTokens {
     val onPrimary = MeshaColors.OnBrand
 }
 
+/**
+ * DELIBERATELY EXEMPT from [sg.mesha.goatos.core.ui.RefreshOnResume].
+ *
+ * This is a MID-CAPTURE surface, the exact case the refresh-on-open rule carves out ("Do not use
+ * this on screens with in-progress user input (scan-capture, forms)" — RefreshOnResume KDoc,
+ * docs/decisions/android-offline-first.md). The operator's session state here — the per-animal
+ * draft done overlay built from live RFID reads, the captured-but-unsynced proofs, the grown scan
+ * window — is UNSUBMITTED work that exists only in the ViewModel. A resume-triggered
+ * `refreshScanRoster` re-pulls the backend roster; every camera/proof capture, permission dialog
+ * and app-switch fires ON_RESUME, so a resume refresh would repeatedly re-baseline the roster
+ * under a half-finished shed and could discard reads the operator has already made. That is lost
+ * operator work, which is strictly worse than showing a roster that is a few minutes stale.
+ *
+ * There is accordingly no `ScanEvent.Refresh` to call: the roster is refreshed once on entry
+ * (`ScanViewModel.init`) and continuation pages are pulled explicitly via [ScanEvent.LoadMore].
+ * Post-submit freshness is covered by the LIST screens the operator returns to, which ARE
+ * RefreshOnResume.
+ */
 @Composable
 fun ScanScreen(
     state: ScanUiState,

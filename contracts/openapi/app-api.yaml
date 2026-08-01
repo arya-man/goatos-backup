@@ -323,12 +323,56 @@ paths:
       tags:
         - Weighing
       operationId: appWeighingPlannerCatalog
-      summary: Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards.
+      summary: Get every Weighing planner park for a weigh date, with the operator picker.
+      description: >
+        PARK-GRAIN read. It returns EVERY park the planner may use on the requested date --
+        each with a park-grain shed COUNT, a park-grain kid count, and the park's existing task
+        on that date -- plus the operator picker the wizard holds while it pages buckets.
+        It carries NO shed rows and has no cursor: a park picker that paged could not offer the
+        parks it had not reached yet. Read the chosen park's sheds, with their date-scoped
+        availability, from /app/weighing/planner/parks/{park_id}/buckets.
+      parameters:
+        - name: period_start_date
+          in: query
+          required: true
+          description: The Asia/Kolkata business DATE the existing-task decoration is read for.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Every planner park for the date, plus the operator picker.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingPlannerCatalogResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/planner/parks/{park_id}/buckets:
+    get:
+      tags:
+        - weighing
+      operationId: appWeighingPlannerParkBuckets
+      summary: Page one Weighing planner park's kid sheds with their availability on a weigh date.
       description: >
         Availability is scoped to ONE weigh date: each shed reports whether an open weighing
         task already claims it on that date, and by whom. A shed claimed on another date is
-        not claimed here.
+        not claimed here. A real park holds 76+ sheds, so this is a keyset page; the park list
+        it drills from is a separate unpaged read.
       parameters:
+        - name: park_id
+          in: path
+          required: true
+          description: The park whose sheds are paged.
+          schema:
+            type: string
+            format: uuid
         - name: period_start_date
           in: query
           required: true
@@ -345,13 +389,72 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: cursor
+          in: query
+          required: false
+          description: >-
+            Opaque cursor returned as next_cursor by the previous page of THIS park.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Shed rows per page.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
         "200":
-          description: Bounded Weighing planner catalog.
+          description: One keyset page of the park's buckets.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WeighingPlannerCatalogResponse"
+                $ref: "#/components/schemas/WeighingPlannerParkBucketsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /app/weighing/campaigns/{campaign_id}/sheds:
+    get:
+      tags:
+        - Weighing
+      operationId: appListWeighingCampaignSheds
+      summary: Page one Weighing task's shed buckets.
+      description: >
+        The task-detail bucket list. It exists so the detail screen stops rendering the bucket
+        set that the task LIST embeds in every campaign row: a park holds 76+ sheds, so a
+        20-task list page carried well over a thousand bucket rows. Keyset-paged on
+        (display_name, campaign_shed_id). An assignee sees only their own buckets on the task;
+        a planner or monitor sees all of them — the same split the task list already applies.
+      parameters:
+        - $ref: "#/components/parameters/WeighingCampaignId"
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned as next_cursor by the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: One page of the task's shed buckets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingCampaignShedPageResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -491,12 +594,57 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/leadership/sheds:
+    get:
+      tags:
+        - Weighing
+      operationId: appListWeighingLeadershipSheds
+      summary: List leadership-visible Weighing shed buckets with their captured evidence.
+      description: >
+        ONE keyset page of shed buckets across tasks, each with its own context and its first page
+        of captured evidence. The leadership gallery's own read: building this page client-side
+        meant one request per bucket (about 1,500 on a 76-shed park) on every screen open.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned as next_cursor by the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: One page of shed buckets with their evidence.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingLeadershipShedPageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos:
     get:
       tags:
         - Weighing
       operationId: appGetWeighingShedVideos
       summary: Get leadership-visible proof videos for one Weighing scope.
+      description: >
+        The shed's captured evidence, plus the shed's own context (park name, weigh business
+        date, assignee display name) so a cold deep link to this surface renders without the
+        parent list having to hand those over. `individual` is a keyset page on
+        (accepted_at, observation_id); `lump_sum` is a single latest row and is not paged.
       parameters:
         - $ref: "#/components/parameters/WeighingCampaignId"
         - name: campaign_shed_id
@@ -505,6 +653,20 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned as next_individual_cursor by the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
       responses:
         "200":
           description: Shed proof media and observations.
@@ -9047,6 +9209,12 @@ components:
             - string
             - "null"
           maxLength: 200
+        notifications_enabled:
+          type: boolean
+          description: >-
+            Last phone-reported state of the OS notification switch. Present only
+            once the phone has reported it; false means push-muted (the device is
+            not addressed and a dropped push is not counted as delivered).
         app_version:
           type: string
           minLength: 1
@@ -9131,6 +9299,16 @@ components:
           description: >-
             Raw FCM registration token used as the push delivery address
             (message.token). push_token_hash stays the identity/dedup hash.
+        notifications_enabled:
+          type:
+            - boolean
+            - "null"
+          description: >-
+            Whether this phone will actually show what is sent to it (the OS
+            notification switch). false marks the device push-muted: FCM would
+            accept the send and the OS would drop it, so the device is not
+            addressed and the drop is never counted as a delivery. Omitted or
+            null by an app build that predates this field, which stays reachable.
         app_version:
           type: string
           minLength: 1
@@ -9164,6 +9342,16 @@ components:
           description: >-
             Raw FCM registration token used as the push delivery address
             (message.token). push_token_hash stays the identity/dedup hash.
+        notifications_enabled:
+          type:
+            - boolean
+            - "null"
+          description: >-
+            Whether this phone will actually show what is sent to it (the OS
+            notification switch). false marks the device push-muted: FCM would
+            accept the send and the OS would drop it, so the device is not
+            addressed and the drop is never counted as a delivery. Omitted or
+            null by an app build that predates this field, which stays reachable.
         metadata:
           type: object
           additionalProperties: true
@@ -10724,6 +10912,13 @@ components:
         completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive;
         completed_animals = goats where ALL drive obligations are completed (fully covered);
         submitted_animals = goats with recorded mobile completion pending verification.
+        Cross-surface progress: progress_completed / progress_total / progress_pct on the
+        progress_basis grain are the ONE authoritative drive-progress figure. Admin-web and the
+        Android app MUST render them verbatim and MUST NOT derive their own numerator from any
+        other field -- two clients each picking their own fields is how the same drive showed two
+        different completion numbers and ring percentages. The numerator counts VERIFIED completion
+        only; submitted-but-unverified work is reported by submitted_count / submitted_animals and
+        never inflates progress.
         Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
         product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
       required:
@@ -10742,6 +10937,10 @@ components:
         - total_animals
         - completed_animals
         - submitted_animals
+        - progress_basis
+        - progress_completed
+        - progress_total
+        - progress_pct
         - owner_label
       properties:
         park_name:
@@ -10809,6 +11008,30 @@ components:
           type: integer
           minimum: 0
           description: Distinct animals with recorded completion pending verification
+        progress_basis:
+          type: string
+          enum: [animals, doses]
+          description: >-
+            Grain that progress_completed/progress_total are counted on. "animals" whenever the
+            drive has animals (a goat due several vaccines the same day is ONE animal), else the
+            obligation/dose grain.
+        progress_completed:
+          type: integer
+          minimum: 0
+          description: >-
+            Authoritative progress numerator on progress_basis. Verified completion only -- clients
+            render this verbatim and never substitute submitted counts.
+        progress_total:
+          type: integer
+          minimum: 0
+          description: Authoritative progress denominator on progress_basis.
+        progress_pct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            Backend-rounded (half-up) progress percentage. Clients render this verbatim instead of
+            re-deriving it, so the ring reads identically on every surface.
         owner_label:
           type: string
           description: Owner/team label
@@ -14347,6 +14570,7 @@ components:
         - expected_animal_count
         - weighing_category
         - operator_user_id
+        - operator_display_name
         - status
         - pending_verification_count
         - ready_to_close
@@ -14365,6 +14589,12 @@ components:
           enum: [shed, cohort, pen]
         display_name:
           type: string
+        operator_display_name:
+          type: string
+          description: >-
+            Backend-resolved assignee name, carried ON the bucket so a client never has to join it
+            against a separately paged operator vocabulary. Empty WITH a non-empty
+            operator_user_id is a roster gap, not "not assigned".
         expected_animal_count:
           type: integer
           minimum: 0
@@ -14575,7 +14805,7 @@ components:
         - park_id
         - name
         - kid_count
-        - sheds
+        - shed_count
       properties:
         park_id:
           type: string
@@ -14585,10 +14815,14 @@ components:
         kid_count:
           type: integer
           minimum: 0
-        sheds:
-          type: array
-          items:
-            $ref: "#/components/schemas/WeighingPlannerShed"
+        shed_count:
+          type: integer
+          minimum: 0
+          description: >-
+            PARK-GRAIN count of this park's active sheds, computed over the park's own
+            children. It is not a count of rows on any page: this response carries no shed
+            rows, and a bucket page carries only ~20. Read the sheds themselves from
+            /app/weighing/planner/parks/{park_id}/buckets.
         existing_campaign:
           $ref: "#/components/schemas/WeighingPlannerCampaignSummary"
     WeighingPlannerOperator:
@@ -14605,6 +14839,29 @@ components:
         display_name:
           type: string
         display_code:
+          type: string
+    WeighingPlannerParkBucketsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - park_id
+        - sheds
+      properties:
+        park_id:
+          type: string
+          format: uuid
+          description: The park these buckets belong to; echoes the path parameter.
+        sheds:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingPlannerShed"
+        next_cursor:
+          type: string
+          description: >-
+            Keyset cursor for this park's next bucket page. Absent/empty means the last page.
+            The cursor is scoped to the park in the path, so a page can never carry rows from
+            another park.
+        trace_id:
           type: string
     WeighingPlannerCatalogResponse:
       type: object
@@ -14673,6 +14930,32 @@ components:
         seq:
           type: integer
           minimum: 1
+    WeighingCampaignShedPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - campaign_id
+        - items
+        - total_count
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingCampaignShed"
+        next_cursor:
+          type: string
+          description: Keyset cursor for the next page. Absent/empty means the last page.
+        total_count:
+          type: integer
+          minimum: 0
+          description: >-
+            WHOLE-TASK bucket count over the same scope the rows range over — never the length
+            of this page, so the header does not change as the user scrolls.
+        trace_id:
+          type: string
     WeighingRosterResponse:
       type: object
       additionalProperties: false
@@ -14883,8 +15166,14 @@ components:
         - campaign_id
         - campaign_shed_id
         - shed_name
+        - park_name
+        - weigh_date
+        - operator_user_id
+        - operator_display_name
         - weighing_category
         - status
+        - estimated_animal_count
+        - max_shed_videos
         - individual
       properties:
         campaign_id:
@@ -14895,6 +15184,38 @@ components:
           format: uuid
         shed_name:
           type: string
+        park_name:
+          type: string
+          description: The park this bucket's task belongs to. Rendered as the screen eyebrow.
+        weigh_date:
+          type: string
+          format: date
+          description: The task's Asia/Kolkata business DATE. Never a timestamp.
+        operator_user_id:
+          type: string
+          description: >-
+            Who owns this bucket. An EMPTY value is the only thing that entitles a client to
+            say the bucket is not assigned.
+        operator_display_name:
+          type: string
+          description: >-
+            Backend-resolved assignee name. Empty WITH a non-empty operator_user_id means the
+            assignee has no active workforce record — a roster gap, not "not assigned".
+        estimated_animal_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Planning-time herd estimate for the shed. A coverage hint, never a completeness
+            denominator — weighing is free-flow and has no expected roster.
+        max_shed_videos:
+          type: integer
+          minimum: 1
+          description: Group-video allowance for a lump-sum submission, so "N of M" reads off policy.
+        next_individual_cursor:
+          type: string
+          description: >-
+            Keyset cursor for the next page of `individual`, on (accepted_at, observation_id).
+            Absent/empty means the last page.
         weighing_category:
           $ref: "#/components/schemas/WeighingCategory"
         status:
@@ -14905,6 +15226,32 @@ components:
             $ref: "#/components/schemas/WeighingObservation"
         lump_sum:
           $ref: "#/components/schemas/WeighingObservation"
+        period_label:
+          type: string
+          description: >-
+            Backend-owned sentence for the weigh period this bucket belongs to. A client must not
+            build this label by concatenating dates itself.
+    WeighingLeadershipShedPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      description: >-
+        ONE keyset page of shed buckets across tasks, each carrying its own context and its FIRST
+        page of captured evidence. GRAIN: one row = one bucket = one shed on one task. There is no
+        denominator; each bucket states its own evidence cursor.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingShedVideos"
+        next_cursor:
+          type: string
+          description: >-
+            Keyset cursor on (period_start_date, created_at, campaign_id, campaign_shed_id).
+            Absent/empty means the last page.
+        trace_id:
+          type: string
     WeighingShedVideosResponse:
       type: object
       additionalProperties: false
@@ -15993,6 +16340,12 @@ components:
         - pending
         - approved
         - rejected
+        # 'withdrawn' is NOT a verdict: nobody decided anything. The producing module
+        # retired the item because the source record it points at is superseded (a
+        # reopened weighing bucket withdraws its lump-sum submission), so the item must
+        # stop being decidable. Terminal and never queryable as a queue filter -- a
+        # withdrawn item is not work anyone still owes.
+        - withdrawn
     VerificationSourceRef:
       type: object
       additionalProperties: false

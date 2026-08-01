@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -52,7 +53,222 @@ const (
 	positionPCDirector             = "pc_director"
 	positionGrowthDirector         = "growth_director"
 	positionCEOInternal            = "ceo_internal"
+	// positionFeedDirector / positionHealthDirector are the tenant seats that own Feed and
+	// Counts (maintainer decision 2026-08-01). health_director is NOT pc_director: Health and
+	// Preventive Care are separate departments, so routing a counts proof to the PC Director
+	// would be the same wrong-module defect weighing had.
+	positionFeedDirector   = "feed_director"
+	positionHealthDirector = "health_director"
+
+	moduleWeighing = "weighing"
+	// moduleFeed / moduleCounts mirror feeddirection/domain.VerificationModuleFeed and
+	// tasks/domain.VerificationModuleCounts, the strings their verificationbridge enqueuers
+	// write into the item's Module.
+	moduleFeed   = "feed"
+	moduleCounts = "counts"
+
+	// dutyModuleFeed / dutyModuleCounts are the position_module_duties.module_code values whose
+	// 'verify' duty holders review these modules' proofs. dutyModuleFeed matches the
+	// "feeding" -> "feed.direction" mapping in backend/cmd/seed-position-duties/main.go.
+	dutyModuleFeed   = "feed.direction"
+	dutyModuleCounts = "counts"
 )
+
+// pendingModuleProfile is the per-module routing + copy contract of a verification.item.pending
+// push. The generic verification vertical is shared by several owning modules, so WHO is told and
+// WHAT they are told must be selected by the item's own Module rather than assumed to be
+// vaccination. Before this existed the handler hardcoded the vaccination verify duty and the PC
+// director, so a weighing proof reached the vaccination verifier and the PC director with
+// vaccination wording, while the growth director -- who owns weighing -- was never told.
+type pendingModuleProfile struct {
+	// dutyModule is the position_module_duties.module_code whose 'verify' duty holders review this
+	// module's proofs at the park.
+	dutyModule string
+	// leadershipPosition is the tenant-scope director seat that owns the module.
+	leadershipPosition string
+	// leadershipRoleLabel is the recipient role label recorded on the queued notification.
+	leadershipRoleLabel  string
+	verifierTitle        string
+	verifierBodySuffix   string
+	leadershipTitle      string
+	leadershipBodySuffix string
+	leadershipScreen     string
+	leadershipTarget     string
+
+	// The three LIFECYCLE pushes that follow the pending one. They used to be hardcoded to the
+	// PC Director in vaccination wording for EVERY module ("Vaccination proof verified",
+	// "vaccination record"), which is the same wrong-module defect the pending path already
+	// fixed: a feed or counts approval pushed vaccination copy to the wrong director. Each
+	// module now carries its own recipient seat (leadershipPosition above) and its own copy.
+	approvedTitle string
+	approvedBody  string
+	// approvedScreen/approvedTarget, reworkScreen/reworkTarget and closedScreen/closedTarget are
+	// the client route the tap opens. They stay module-owned for the same reason the titles do.
+	approvedScreen string
+	approvedTarget string
+	reworkTitle    string
+	reworkBody     string
+	// reworkReasonBody is the body used when the verifier supplied a reason; the reason is
+	// inserted verbatim between the two halves.
+	reworkReasonPrefix string
+	reworkReasonSuffix string
+	reworkScreen       string
+	reworkTarget       string
+	closedTitle        string
+	closedBody         string
+	closedScreen       string
+	closedTarget       string
+}
+
+// pendingModuleProfiles is keyed by the item's Module (VerificationEventPayload.Module, which the
+// producing bridge sets from its own module constant: "vaccination" for the SOP bridge,
+// weighingdomain.VerificationModuleWeighing = "weighing" for weighing).
+var pendingModuleProfiles = map[string]pendingModuleProfile{
+	legacyVaccinationSourceModule: {
+		dutyModule:           moduleVaccination,
+		leadershipPosition:   positionPCDirector,
+		leadershipRoleLabel:  "pc_director",
+		verifierTitle:        "Video verification waiting",
+		verifierBodySuffix:   " vaccinated; video is waiting for verification.",
+		leadershipTitle:      "Vaccination video pending",
+		leadershipBodySuffix: " vaccinated; video verification is pending.",
+		leadershipScreen:     "vaccination_overview",
+		leadershipTarget:     "/vaccination",
+
+		approvedTitle:      "Vaccination proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/vaccination",
+		reworkTitle:        "Vaccination proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a vaccination proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a vaccination proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/vaccination",
+		closedTitle:        "Vaccination record closed",
+		closedBody:         "The verified vaccination record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/vaccination",
+	},
+	moduleWeighing: {
+		dutyModule:           moduleWeighing,
+		leadershipPosition:   positionGrowthDirector,
+		leadershipRoleLabel:  roleLabelGrowthDirector,
+		verifierTitle:        "Weighing video waiting",
+		verifierBodySuffix:   " weighed; video is waiting for verification.",
+		leadershipTitle:      "Weighing video pending",
+		leadershipBodySuffix: " weighed; video verification is pending.",
+		leadershipScreen:     "weighing_overview",
+		leadershipTarget:     "/weighing",
+
+		approvedTitle:      "Weighing proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/weighing",
+		reworkTitle:        "Weighing proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a weighing proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a weighing proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/weighing",
+		closedTitle:        "Weighing record closed",
+		closedBody:         "The verified weighing record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/weighing",
+	},
+	// Feed covers BOTH gated feed completions -- packing and distribution -- plus feed transport;
+	// all three enqueue with Module="feed" and are kept apart only by ref_type, so one profile is
+	// correct here. Wording is feed's own ("fed"), never vaccination's ("vaccinated"), and the
+	// tap route is the feed surface. Feed_Director.pdf M1 makes the Feed Director the person who
+	// confirms daily that feeding SOP videos are actually being reviewed.
+	moduleFeed: {
+		dutyModule:           dutyModuleFeed,
+		leadershipPosition:   positionFeedDirector,
+		leadershipRoleLabel:  positionFeedDirector,
+		verifierTitle:        "Feed video waiting",
+		verifierBodySuffix:   " fed; video is waiting for verification.",
+		leadershipTitle:      "Feed video pending",
+		leadershipBodySuffix: " fed; feed video verification is pending.",
+		leadershipScreen:     "feed_overview",
+		leadershipTarget:     "/feed",
+
+		approvedTitle:      "Feed proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/feed",
+		reworkTitle:        "Feed proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a feed proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a feed proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/feed",
+		closedTitle:        "Feed record closed",
+		closedBody:         "The verified feed record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/feed",
+	},
+	// Counts proofs (the shifting/movement completion video) route to the Health Director, who
+	// owns Counts per the 2026-08-01 maintainer decision. Deliberately NOT pc_director.
+	moduleCounts: {
+		dutyModule:           dutyModuleCounts,
+		leadershipPosition:   positionHealthDirector,
+		leadershipRoleLabel:  positionHealthDirector,
+		verifierTitle:        "Counts video waiting",
+		verifierBodySuffix:   " recorded; video is waiting for verification.",
+		leadershipTitle:      "Counts video pending",
+		leadershipBodySuffix: " recorded; counts video verification is pending.",
+		leadershipScreen:     "counts_overview",
+		leadershipTarget:     "/counts",
+
+		approvedTitle:      "Counts proof verified",
+		approvedBody:       "The proof is ready for operational closure.",
+		approvedScreen:     "leadership_close",
+		approvedTarget:     "/counts",
+		reworkTitle:        "Counts proof rejected — rework needed",
+		reworkBody:         "The verifier rejected a counts proof. This needs to be resubmitted.",
+		reworkReasonPrefix: "The verifier rejected a counts proof. Reason: ",
+		reworkReasonSuffix: " Please resubmit.",
+		reworkScreen:       "record",
+		reworkTarget:       "/counts",
+		closedTitle:        "Counts record closed",
+		closedBody:         "The verified counts record is now complete.",
+		closedScreen:       "record",
+		closedTarget:       "/counts",
+	},
+}
+
+// PendingNotificationDutyModules returns the position_module_duties.module_code of every module
+// that routes a pending-proof push, sorted for determinism.
+//
+// It is exported for ONE reason: backend/cmd/seed-position-duties must seed a 'verify' duty
+// holder for exactly these modules, and its seed-closeout assertion must fail when one has none.
+// Re-listing the modules in the seeder by hand is how position_module_duties ended up with zero
+// verify rows while every notification test stayed green -- the seeder emitted only
+// 'execute'/'manage', so ResolveModuleDutyRecipients matched nothing and EVERY verifier push,
+// vaccination and weighing included, resolved to zero devices in the field.
+func PendingNotificationDutyModules() []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(pendingModuleProfiles))
+	for _, profile := range pendingModuleProfiles {
+		if _, ok := seen[profile.dutyModule]; ok {
+			continue
+		}
+		seen[profile.dutyModule] = struct{}{}
+		out = append(out, profile.dutyModule)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// pendingProfileFor selects the routing contract for an item's module. There is deliberately NO
+// fallback: defaulting an unclaimed module to the vaccination profile is how weighing proofs came
+// to notify the vaccination verifier and the PC director in vaccination words, for months, with
+// nothing in the logs that read as wrong. A module with no declared owner is a wiring gap, and the
+// only safe answer is to notify nobody loudly rather than the wrong people quietly.
+func pendingProfileFor(module string) (pendingModuleProfile, bool) {
+	profile, ok := pendingModuleProfiles[strings.ToLower(strings.TrimSpace(module))]
+	return profile, ok
+}
 
 // verificationSource is the producer's source back-reference (verificationVerdictPayload /
 // verificationItemPendingPayload in the verification repository). module + ref_type are the
@@ -259,8 +475,14 @@ func (c *VerificationEventConsumer) handleVaccinationDriveClosed(ctx context.Con
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":         "verification_closed",
-			"screen":       "record",
+			"type":   "verification_closed",
+			"screen": "record",
+			// The record screen belongs to VACCINATION. Every push that names it must declare its
+			// module, because the client can no longer assume one: a module-blind match on
+			// screen="record" was sending weighing and feed rework notices into the vaccination
+			// record for that shed. An absent category now means "not vaccination", so omitting it
+			// here would silently strand this drive-closed notice on the recipient's home screen.
+			"category":     "vaccination",
 			"batch_id":     batchID,
 			"group_key":    "verification:" + tenantID + ":vaccination_drive",
 			"collapse_key": "verification:" + tenantID + ":vaccination_drive",
@@ -278,13 +500,20 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	if tenantID == "" || itemID == "" || parkID == "" {
 		return nil
 	}
+	// Same no-fallback rule as the pending path: an unclaimed module notifies NOBODY loudly
+	// rather than pushing another module's director another module's wording.
+	profile, known := pendingProfileFor(p.Module)
+	if !known {
+		c.logUnroutedModule(ctx, "verification_approved_notification_unrouted_module", tenantID, itemID, parkID, p.Module)
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	parkHeadDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, scopeCenter, parkID, positionParkHead)
 	if err != nil {
 		return err
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
 	if err != nil {
 		return err
 	}
@@ -295,7 +524,7 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	recipients := dedupeQueueRecipients(
 		append(append(
 			toQueueRecipients(parkHeadDevices, "park_head"),
-			toQueueRecipients(directorDevices, "pc_director")...),
+			toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...),
 			toQueueRecipients(ceoDevices, "ceo")...),
 	)
 	eventKey := EventVerificationVerdictApproved + ":" + itemID
@@ -307,13 +536,14 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 		NotificationType: "verification_approved",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Vaccination proof verified",
-		Body:             "The proof is ready for operational closure.",
+		Title:            profile.approvedTitle,
+		Body:             profile.approvedBody,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
 			"type":         "verification_approved",
-			"screen":       "leadership_close",
+			"screen":       profile.approvedScreen,
+			"target":       profile.approvedTarget,
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,
@@ -335,6 +565,11 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 	if tenantID == "" || itemID == "" || operatorID == "" {
 		return nil
 	}
+	profile, known := pendingProfileFor(p.Module)
+	if !known {
+		c.logUnroutedModule(ctx, "verification_closed_notification_unrouted_module", tenantID, itemID, parkID, p.Module)
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	operatorDevices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
@@ -350,13 +585,14 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 		NotificationType: "verification_closed",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Vaccination record closed",
-		Body:             "The verified vaccination record is now complete.",
+		Title:            profile.closedTitle,
+		Body:             profile.closedBody,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
 			"type":         "verification_closed",
-			"screen":       "record",
+			"screen":       profile.closedScreen,
+			"target":       profile.closedTarget,
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,
@@ -392,13 +628,37 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	tenantID := strings.TrimSpace(p.TenantID)
 	itemID := strings.TrimSpace(p.ItemID)
 	parkID := strings.TrimSpace(p.ParkID)
-	if tenantID == "" || itemID == "" || parkID == "" {
-		return nil // Well-formed but non-routable → no-op.
+	if tenantID == "" || itemID == "" {
+		return nil // Not even identifiable → no-op.
+	}
+	if parkID == "" {
+		// A well-formed item with no park is a PRODUCER wiring gap: every recipient of this push
+		// resolves at park scope, so the operator's proof waits with nobody told. Silence is how
+		// the missing weighing push hid for so long, so this is logged loudly instead.
+		if c.logger != nil {
+			c.logger.WarnContext(ctx, "verification_pending_notification_missing_park",
+				"tenant_id", tenantID, "item_id", itemID, "module", p.Module,
+				"source_module", p.Source.Module, "source_ref_type", p.Source.RefType)
+		}
+		return nil
+	}
+
+	profile, known := pendingProfileFor(p.Module)
+	if !known {
+		// Not retryable: a redelivery resolves nothing, because the gap is a missing entry in
+		// pendingModuleProfiles, not a transient failure. Drop with a loud error so the item
+		// surfaces as unrouted instead of being delivered to the wrong module's people.
+		if c.logger != nil {
+			c.logger.ErrorContext(ctx, "verification_pending_notification_unrouted_module",
+				"tenant_id", tenantID, "item_id", itemID, "module", p.Module, "park_id", parkID,
+				"remedy", "add the module to pendingModuleProfiles")
+		}
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	verifierDevices, err := c.recipients.ResolveModuleDutyRecipients(ctx, tenantID, scopeCenter, parkID, moduleVaccination, dutyVerify)
+	verifierDevices, err := c.recipients.ResolveModuleDutyRecipients(ctx, tenantID, scopeCenter, parkID, profile.dutyModule, dutyVerify)
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
 	}
@@ -406,9 +666,9 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if err != nil {
 		return fmt.Errorf("verification_notify_consumer: resolve park head recipients: %w", err)
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
 	if err != nil {
-		return fmt.Errorf("verification_notify_consumer: resolve pc director recipients: %w", err)
+		return fmt.Errorf("verification_notify_consumer: resolve %s recipients: %w", profile.leadershipPosition, err)
 	}
 	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
 	if err != nil {
@@ -418,7 +678,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	leadershipRecipients := dedupeQueueRecipients(
 		append(append(
 			toQueueRecipients(parkHeadDevices, "park_head"),
-			toQueueRecipients(directorDevices, "pc_director")...),
+			toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...),
 			toQueueRecipients(ceoDevices, "ceo")...),
 	)
 	if len(verifierRecipients)+len(leadershipRecipients) == 0 && c.logger != nil {
@@ -435,8 +695,8 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 	if animalSummary == "" {
 		animalSummary = "A shed"
 	}
-	verifierBody := animalSummary + " vaccinated; video is waiting for verification."
-	leadershipBody := animalSummary + " vaccinated; video verification is pending."
+	verifierBody := animalSummary + profile.verifierBodySuffix
+	leadershipBody := animalSummary + profile.leadershipBodySuffix
 	baseContext := map[string]string{
 		"type":         NotificationTypeVerificationPending,
 		"item_id":      itemID,
@@ -460,7 +720,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 			NotificationType: NotificationTypeVerificationPending,
 			Channel:          channelPushFCM,
 			Priority:         priorityNormal,
-			Title:            "Video verification waiting",
+			Title:            profile.verifierTitle,
 			Body:             verifierBody,
 			TraceID:          eventKey,
 			EventKey:         eventKey,
@@ -475,8 +735,8 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		return nil
 	}
 	leadershipContext := cloneContext(baseContext)
-	leadershipContext["screen"] = "vaccination_overview"
-	leadershipContext["target"] = "/vaccination"
+	leadershipContext["screen"] = profile.leadershipScreen
+	leadershipContext["target"] = profile.leadershipTarget
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  verificationCalendarEventID(itemID),
@@ -485,7 +745,7 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		NotificationType: NotificationTypeVerificationPending,
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Vaccination video pending",
+		Title:            profile.leadershipTitle,
 		Body:             leadershipBody,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
@@ -493,6 +753,19 @@ func (c *VerificationEventConsumer) handleItemPending(ctx context.Context, p Ver
 		Recipients:       leadershipRecipients,
 	})
 	return err
+}
+
+// logUnroutedModule is the shared no-fallback drop used by every lifecycle handler. Dropping is
+// deliberate and not retryable: the gap is a missing pendingModuleProfiles entry, not a transient
+// failure, and delivering to the vaccination default is exactly the wrong-module defect being
+// closed here.
+func (c *VerificationEventConsumer) logUnroutedModule(ctx context.Context, event, tenantID, itemID, parkID, module string) {
+	if c.logger == nil {
+		return
+	}
+	c.logger.ErrorContext(ctx, event,
+		"tenant_id", tenantID, "item_id", itemID, "module", module, "park_id", parkID,
+		"remedy", "add the module to pendingModuleProfiles")
 }
 
 func cloneContext(in map[string]string) map[string]string {
@@ -513,6 +786,11 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	parkID := strings.TrimSpace(p.ParkID)
 	if tenantID == "" || itemID == "" || parkID == "" {
 		return nil // Well-formed but non-routable → no-op.
+	}
+	profile, known := pendingProfileFor(p.Module)
+	if !known {
+		c.logUnroutedModule(ctx, "verification_rework_notification_unrouted_module", tenantID, itemID, parkID, p.Module)
+		return nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -540,11 +818,11 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 			"source_module", p.Source.Module, "source_ref_type", p.Source.RefType,
 			"source_task_id", p.Source.TaskID)
 	}
-	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionPCDirector)
+	directorDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, profile.leadershipPosition)
 	if err != nil {
 		return err
 	}
-	recipients = append(recipients, toQueueRecipients(directorDevices, "pc_director")...)
+	recipients = append(recipients, toQueueRecipients(directorDevices, profile.leadershipRoleLabel)...)
 	ceoDevices, err := c.recipients.ResolvePositionRecipients(ctx, tenantID, "tenant", tenantID, positionCEOInternal)
 	if err != nil {
 		return err
@@ -558,9 +836,9 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	}
 
 	eventKey := EventVerificationVerdictRework + ":" + itemID
-	body := "The verifier rejected a proof. This needs to be resubmitted."
+	body := profile.reworkBody
 	if p.Reason != "" {
-		body = "The verifier rejected a proof. Reason: " + p.Reason + " Please resubmit."
+		body = profile.reworkReasonPrefix + p.Reason + profile.reworkReasonSuffix
 	}
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -570,13 +848,14 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		NotificationType: NotificationTypeRework,
 		Channel:          channelPushFCM,
 		Priority:         priorityHigh,
-		Title:            "Verification proof rejected — rework needed",
+		Title:            profile.reworkTitle,
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
 			"type":         NotificationTypeRework,
-			"screen":       "record",
+			"screen":       profile.reworkScreen,
+			"target":       profile.reworkTarget,
 			"item_id":      itemID,
 			"park_id":      parkID,
 			"shed_id":      p.ShedID,

@@ -4639,3 +4639,117 @@ WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, testTenantID, canOblDefer)
 		t.Fatalf("canceled+deferred summary_primary=%q, want %q", canceled.SummaryPrimary, scheduledCopy(0))
 	}
 }
+
+// TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred pins the DriveSummary
+// invariant that contracts/openapi/app-api.yaml documents and that both the admin-web and Android
+// drive cards render as five disjoint chips:
+//
+//	total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count
+//
+// submitted_for_verification is a SECOND dimension on top of status, so a shed that submitted its
+// proof LATE is both submitted and overdue, and a submitted obligation that is on a clinical hold is
+// both submitted and deferred. Before the fix only due_count subtracted submitted, so those two
+// obligations were counted TWICE (once in submitted_count, again in overdue_count/deferred_count):
+// the chips summed to 7 over a 5-obligation drive.
+//
+// VERIFICATION BOUNDARY: this test is Docker-gated (pgtest.SkipIfNoDocker) AND opt-in
+// (GOATOS_RUN_POSTGRES_TESTS=1), so it has NOT been executed in this lane -- the 7-vs-5 red is
+// reasoned from the query text, not observed. The Docker-less companions that WERE run red-then-green
+// are TestCalendarDriveSummaryBucketsSubtractSubmitted,
+// TestDriveSummarySubmittedBucketCarriesExplicitStatusWhitelist and
+// TestDriveBucketIntegrationTestSeedsOnlyPersistableStatuses in canonical_read_test.go.
+func TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	const (
+		protocolID = "86000000-0000-4000-8000-00000000db01"
+		versionID  = "86000000-0000-4000-8000-00000000db02"
+		ruleID     = "86000000-0000-4000-8000-00000000db03"
+
+		oblCompleted        = "86000000-0000-4000-8000-00000000db11"
+		oblDue              = "86000000-0000-4000-8000-00000000db12"
+		oblOverdueSubmitted = "86000000-0000-4000-8000-00000000db13"
+		oblDeferedSubmitted = "86000000-0000-4000-8000-00000000db14"
+		oblOverduePlain     = "86000000-0000-4000-8000-00000000db15"
+	)
+	loc := biztime.DefaultLocation()
+	day := stableSameLocalDayDueAt(time.Now().In(loc))
+	dayKey := day.In(loc).Format("2006-01-02")
+
+	all := []string{oblCompleted, oblDue, oblOverdueSubmitted, oblDeferedSubmitted, oblOverduePlain}
+	seedVaccinationObligation(t, ctx, pool, protocolID, versionID, ruleID, all[0], day)
+	for _, id := range all[1:] {
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day)
+	}
+	for _, id := range all {
+		attachObligationToGoatScope(t, ctx, pool, id, id, "shed", testShedA)
+	}
+	// 'missed' -- NOT 'overdue'. Two separate facts force this and both are load-bearing:
+	//  1. obligation_instances_status_check (000001_goatos_clean_slate_baseline.sql:3550) permits only
+	//     scheduled|due|in_progress|deferred|completed|missed|waived|canceled|superseded. Seeding
+	//     'overdue' aborts the UPDATE with a CHECK violation, so the test would die during seed and
+	//     never reach an assertion.
+	//  2. 'overdue' is a READ-TIME label (canonical_read.go:84-85 maps scheduled/due with a past
+	//     due_at to 'overdue' for the per-obligation EVENT rows). obligation_drive_membership does
+	//     NOT apply that mapping -- it selects raw oi.status (canonical_read.go:832) -- so inside
+	//     obligation_drive_summary the only status that reaches the overdue bucket is 'missed'.
+	//     Seeding 'due' with a past due_at would land in due_count, not overdue_count.
+	setDriveObligationStatus(t, ctx, pool, oblCompleted, "completed")
+	setDriveObligationStatus(t, ctx, pool, oblOverdueSubmitted, "missed")
+	setDriveObligationStatus(t, ctx, pool, oblDeferedSubmitted, "deferred")
+	setDriveObligationStatus(t, ctx, pool, oblOverduePlain, "missed")
+
+	// A 'recorded' completion is what makes an obligation submitted-for-verification.
+	for _, id := range []string{oblOverdueSubmitted, oblDeferedSubmitted} {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text || ':recorded')`,
+			testTenantID, id, day); err != nil {
+			t.Fatalf("seed recorded completion %s: %v", id, err)
+		}
+	}
+
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: day.Add(-24 * time.Hour), DateTo: day.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents drive bucket window: %v", err)
+	}
+	var summary *domain.DriveSummary
+	for i := range resp.Items {
+		item := resp.Items[i]
+		if item.EventType == domain.EventVaccinationDrive && item.DriveSummary != nil &&
+			item.DueAt.In(loc).Format("2006-01-02") == dayKey {
+			summary = item.DriveSummary
+		}
+	}
+	if summary == nil {
+		t.Fatalf("missing drive_summary for %s; items=%#v", dayKey, resp.Items)
+	}
+
+	sum := summary.CompletedCount + summary.SubmittedCount + summary.DueCount + summary.OverdueCount + summary.DeferredCount
+	if sum != summary.TotalCount {
+		t.Fatalf("five buckets are not disjoint: completed=%d submitted=%d due=%d overdue=%d deferred=%d sums to %d, want total_count=%d",
+			summary.CompletedCount, summary.SubmittedCount, summary.DueCount,
+			summary.OverdueCount, summary.DeferredCount, sum, summary.TotalCount)
+	}
+	if summary.TotalCount != 5 || summary.CompletedCount != 1 || summary.SubmittedCount != 2 ||
+		summary.DueCount != 1 || summary.OverdueCount != 1 || summary.DeferredCount != 0 {
+		t.Fatalf("summary=%#v, want total=5 completed=1 submitted=2 due=1 overdue=1 deferred=0 (the late-submitted and deferred-submitted obligations belong to submitted ONLY)", summary)
+	}
+
+	// The backend now owns the cross-surface progress numerator and its basis; both clients render
+	// these verbatim instead of each deriving its own (parity defect: same drive, two numbers).
+	// Verified completion only -- the two submitted-pending animals must NOT inflate progress.
+	if summary.ProgressBasis != "animals" || summary.ProgressCompleted != 1 || summary.ProgressTotal != 5 || summary.ProgressPct != 20 {
+		t.Fatalf("progress=%s %d/%d (%d%%), want animals 1/5 (20%%) -- completed only, submitted stays out of the numerator",
+			summary.ProgressBasis, summary.ProgressCompleted, summary.ProgressTotal, summary.ProgressPct)
+	}
+}

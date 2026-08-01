@@ -61,9 +61,20 @@ import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
 import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedEntity
 import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRowEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -127,6 +138,9 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_20_21,
                 MIGRATION_21_22,
                 MIGRATION_22_23,
+                MIGRATION_23_24,
+                MIGRATION_24_25,
+                MIGRATION_25_26,
             )
             .build()
         try {
@@ -304,6 +318,11 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 12. The v22 Weighing tables are separate from Vaccination capture state and round-trip.
             assertWeighingTablesRoundTrip(upgraded, base = 120L)
+
+            // 13. The ten v24 Weighing LEADERSHIP read-model tables (MIGRATION_23_24). Additive, so
+            //     an omitted CREATE would still compile and still pass every fresh-install test —
+            //     only reopening a real old file like this one catches it.
+            assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
         } finally {
             upgraded.close()
         }
@@ -419,6 +438,9 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_20_21,
                 MIGRATION_21_22,
                 MIGRATION_22_23,
+                MIGRATION_23_24,
+                MIGRATION_24_25,
+                MIGRATION_25_26,
             )
             .build()
         try {
@@ -524,9 +546,186 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 10. The three v22 Weighing tables (MIGRATION_21_22) exist and round-trip.
             assertWeighingTablesRoundTrip(upgraded, base = 120L)
+
+            // 11. The ten v24 Weighing LEADERSHIP read-model tables (MIGRATION_23_24) round-trip.
+            assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /**
+     * Round-trips every v24 Weighing LEADERSHIP table so an omitted CREATE fails on upgrade.
+     *
+     * Each of the five read models is exercised through the SAME bounded observed read the screens
+     * will use, so a table that exists with the wrong columns/indices fails here rather than on a
+     * user's phone after an update.
+     */
+    private suspend fun assertWeighingLeadershipTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        val taskDao = upgraded.weighingTaskDao()
+        taskDao.upsertAll(
+            listOf(
+                WeighingTaskRowEntity(
+                    queryKey = "weighing-tasks:all:",
+                    campaignId = "task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals("task-1", taskDao.observeWindow("weighing-tasks:all:", 20).first().single().campaignId)
+
+        val taskKeyDao = upgraded.weighingTaskRemoteKeyDao()
+        taskKeyDao.upsert(
+            WeighingTaskRemoteKeyEntity(
+                queryKey = "weighing-tasks:all:",
+                nextCursor = "cursor-1",
+                endReached = false,
+                activeCount = 3,
+                completedCount = 1,
+                canPublish = true,
+                canEnd = false,
+                canReopen = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals(3, taskKeyDao.get("weighing-tasks:all:")?.activeCount)
+
+        val bucketDao = upgraded.weighingTaskBucketDao()
+        bucketDao.upsertAll(
+            listOf(
+                WeighingTaskBucketRowEntity(
+                    campaignId = "task-1",
+                    campaignShedId = "bucket-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 2,
+                ),
+            ),
+        )
+        assertEquals("bucket-1", bucketDao.observeWindow("task-1", 20).first().single().campaignShedId)
+
+        val bucketKeyDao = upgraded.weighingTaskBucketRemoteKeyDao()
+        bucketKeyDao.upsert(
+            WeighingTaskBucketRemoteKeyEntity(
+                campaignId = "task-1",
+                nextCursor = null,
+                endReached = true,
+                totalCount = 76,
+                updatedAt = base + 3,
+            ),
+        )
+        // The WHOLE-TASK count survives, not the page length.
+        assertEquals(76, bucketKeyDao.get("task-1")?.totalCount)
+
+        val shedDao = upgraded.weighingLeadershipShedDao()
+        shedDao.upsert(
+            WeighingLeadershipShedEntity(
+                shedKey = "task-1:bucket-1",
+                campaignId = "task-1",
+                campaignShedId = "bucket-1",
+                shedName = "Gandhi 1",
+                parkName = "Channapatna",
+                weighDate = "2026-07-31",
+                operatorUserId = "user-1",
+                operatorDisplayName = "Amit Kumar",
+                category = "individual_animal",
+                status = "in_progress",
+                periodLabel = "",
+                estimatedAnimalCount = 40,
+                maxShedVideos = 5,
+                lumpSumJson = null,
+                galleryQueryKey = "weighing-videos",
+                gallerySortIndex = 0,
+                updatedAt = base + 4,
+            ),
+        )
+        val cachedShed = shedDao.observe("task-1:bucket-1").first()
+        // The deep-link context columns are what let a cold open render without route arguments.
+        assertEquals("Channapatna", cachedShed?.parkName)
+        assertEquals("2026-07-31", cachedShed?.weighDate)
+        assertEquals("Amit Kumar", cachedShed?.operatorDisplayName)
+        assertEquals(1, shedDao.observeGalleryWindow("weighing-videos", 20).first().size)
+
+        val recordDao = upgraded.weighingLeadershipRecordDao()
+        recordDao.upsertAll(
+            listOf(
+                WeighingLeadershipRecordEntity(
+                    shedKey = "task-1:bucket-1",
+                    observationId = "obs-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 5,
+                ),
+            ),
+        )
+        assertEquals("obs-1", recordDao.observeWindow("task-1:bucket-1", 20).first().single().observationId)
+
+        val recordKeyDao = upgraded.weighingLeadershipRecordRemoteKeyDao()
+        recordKeyDao.upsert(
+            WeighingLeadershipRecordRemoteKeyEntity(
+                shedKey = "task-1:bucket-1",
+                nextCursor = "obs-cursor",
+                endReached = false,
+                updatedAt = base + 6,
+            ),
+        )
+        assertEquals("obs-cursor", recordKeyDao.get("task-1:bucket-1")?.nextCursor)
+
+        // v25: the gallery's OWN cursor table. It used to share the task-list remote-key table,
+        // where the task list's newest-N-filters prune could evict it mid-scroll.
+        val galleryKeyDao = upgraded.weighingLeadershipGalleryRemoteKeyDao()
+        galleryKeyDao.upsert(
+            WeighingLeadershipGalleryRemoteKeyEntity(
+                queryKey = "weighing-videos",
+                nextCursor = "gallery-cursor",
+                endReached = false,
+                updatedAt = base + 6,
+            ),
+        )
+        assertEquals("gallery-cursor", galleryKeyDao.get("weighing-videos")?.nextCursor)
+
+        val plannerDao = upgraded.weighingPlannerCatalogDao()
+        plannerDao.upsertSheds(
+            listOf(
+                WeighingPlannerShedRowEntity(
+                    queryKey = "2026-08-03",
+                    locationId = "loc-1",
+                    parkId = "park-1",
+                    parkName = "Channapatna",
+                    sortIndex = 0,
+                    shedJson = "{}",
+                    existingCampaignJson = null,
+                    updatedAt = base + 7,
+                ),
+            ),
+        )
+        assertEquals("park-1", plannerDao.observeShedWindow("2026-08-03", 20).first().single().parkId)
+
+        plannerDao.upsertOperators(
+            listOf(
+                WeighingPlannerOperatorRowEntity(
+                    queryKey = "2026-08-03",
+                    userId = "user-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 8,
+                ),
+            ),
+        )
+        assertEquals(1, plannerDao.observeOperators("2026-08-03", 20).first().size)
+
+        val plannerKeyDao = upgraded.weighingPlannerRemoteKeyDao()
+        plannerKeyDao.upsert(
+            WeighingPlannerRemoteKeyEntity(
+                queryKey = "2026-08-03",
+                nextCursor = "catalog-cursor",
+                endReached = false,
+                updatedAt = base + 9,
+            ),
+        )
+        assertEquals("catalog-cursor", plannerKeyDao.get("2026-08-03")?.nextCursor)
     }
 
     /** Round-trips the v22 Weighing local tables so an omitted migration fails on upgrade. */

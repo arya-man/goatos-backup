@@ -6,8 +6,13 @@ type Route struct {
 	OperationID string
 	Method      string
 	Pattern     string
+	// Permissions is ANDed: the caller must hold EVERY listed permission.
 	Permissions []string
-	AdminOnly   bool
+	// AnyPermissions is ORed: the caller must hold AT LEAST ONE listed permission.
+	// Use it for an either/or surface (e.g. a read a planner OR a monitor may open)
+	// where naming both in Permissions would deny anyone holding only one.
+	AnyPermissions []string
+	AdminOnly      bool
 }
 
 var protectedRoutes = []Route{
@@ -189,10 +194,26 @@ var protectedRoutes = []Route{
 	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},
 	{OperationID: "publishWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns/{campaign_id}/publish", Permissions: []string{WeighingPlan}},
-	{OperationID: "appWeighingPlannerCatalog", Method: "GET", Pattern: "/app/weighing/planner/catalog", Permissions: []string{WeighingPlan, WeighingMonitor}},
+	// EITHER/OR, not both. These two are READS, and weighing/app/service.go's
+	// canPlanOrMonitor deliberately admits WeighingPlan OR WeighingMonitor (it calls
+	// RolesAuthorize twice for exactly that reason). Route.Permissions is ANDed, so
+	// naming both there contradicted the service and would 403 a monitor-only actor at
+	// the middleware before the service's own either/or gate ever ran. AnyPermissions is
+	// the OR form; the fine-grained WRITE checks stay in the service.
+	// These two feed the CREATE WIZARD's park picker and its per-park shed page, so they are
+	// planning surfaces despite being reads: WeighingPlan only. A monitor sees the same parks
+	// and sheds through the task list and the Operators surface, which carry their own gates.
+	{OperationID: "appWeighingPlannerCatalog", Method: "GET", Pattern: "/app/weighing/planner/catalog", Permissions: []string{WeighingPlan}},
+	// Per-park bucket page of the same planner read; same gate as the park picker it drills from.
+	{OperationID: "appWeighingPlannerParkBuckets", Method: "GET", Pattern: "/app/weighing/planner/parks/{park_id}/buckets", Permissions: []string{WeighingPlan}},
 	{OperationID: "appListWeighingCampaigns", Method: "GET", Pattern: "/app/weighing/campaigns", Permissions: []string{AppBootstrap}},
+	// Task-detail bucket page. Gated on AppBootstrap like the task list it drills
+	// from — the SERVICE narrows an execute-only caller to their own buckets, so a
+	// tighter route permission here would lock assignees out of their own task.
+	{OperationID: "appListWeighingCampaignSheds", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds", Permissions: []string{AppBootstrap}},
 	{OperationID: "appGetWeighingScopeRoster", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", Permissions: []string{WeighingExecute}},
 	{OperationID: "appGetWeighingLeadershipShedVideos", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", Permissions: []string{WeighingMonitor}},
+	{OperationID: "appListWeighingLeadershipSheds", Method: "GET", Pattern: "/app/weighing/leadership/sheds", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appSubmitWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},
@@ -222,10 +243,10 @@ var protectedRoutes = []Route{
 	// given overlays, Overlays.kt DataGapsSheet/DosesGivenSheet).
 	{OperationID: "appVaccinationGaps", Method: "GET", Pattern: "/app/vaccination/gaps", Permissions: []string{AppBootstrap}},
 	{OperationID: "appVaccinationCoverage", Method: "GET", Pattern: "/app/vaccination/coverage", Permissions: []string{AppBootstrap}},
-	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{ProtocolRead}},
-	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
-	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{ProtocolWrite}},
-	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{ProtocolWrite}},
+	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{FeedDirectionOversee}},
+	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{FeedDirectionOversee}},
 	// Feed-direction GENERATION (backend/internal/feeddirection): projected shed counts + the
 	// authored ration grid -> per-session feed quantities.
 	//
@@ -242,15 +263,14 @@ var protectedRoutes = []Route{
 	// Both are GET-only. This module has no write path: it generates what SHOULD be fed, while
 	// recording what WAS fed belongs to backend/internal/feed. No route here needs an
 	// Idempotency-Key because no route here has a side effect to replay.
-	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
-	// The completion WRITE path: an operator records that one shed-session's feed direction was
-	// carried out (optional video proof). Idempotency-Key required; gated on the operator write twin
-	// FeedDirectionComplete, not on the feed reads.
-	{OperationID: "completeFeedDirectionSession", Method: "POST", Pattern: "/feed-direction/complete", Permissions: []string{FeedDirectionComplete}},
+	// The pre-gate instant completion (POST /feed-direction/complete) is intentionally absent: its
+	// route is unregistered and its store unwired, because completing at operator submit bypasses the
+	// verifier gate. Do not re-add it here.
 	// The verifier-gated feed DISTRIBUTION and PACKING completions (maintainer decision, 2026-07-26).
-	// Both are operator WRITE paths on the same feed-direction surface as /feed-direction/complete, so
-	// both reuse FeedDirectionComplete. They MUST be registered here: the auth middleware 403s
+	// Both are operator WRITE paths on the feed-direction surface and reuse the operator write twin
+	// FeedDirectionComplete. They MUST be registered here: the auth middleware 403s
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
@@ -407,6 +427,34 @@ var protectedRoutes = []Route{
 	{OperationID: "listAdminWebCountsApprovals", Method: "GET", Pattern: "/admin-web/counts/approvals", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "approveAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "rejectAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},
+}
+
+// AuthorizeRoute is THE route-level authorization predicate. The HTTP auth
+// middleware (internal/platform/httpmiddleware.AuthMiddleware.Wrap) calls this
+// and nothing else, so a test that calls AuthorizeRoute exercises the exact
+// production gate rather than a re-spelled copy of it.
+//
+// Permissions is ANDed (the caller must hold every listed permission).
+// AnyPermissions is ORed (the caller must hold at least one) and is the form for
+// an either/or surface such as the weighing planner reads, which the service
+// layer already treats as "plan OR monitor". A route may set either list; when
+// both are set both conditions must hold.
+func AuthorizeRoute(route Route, roles []string) bool {
+	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
+		return false
+	}
+	if route.AdminOnly {
+		// Unchanged legacy semantics: AdminOnly short-circuits to the product-admin
+		// role check and ignores the permission lists entirely.
+		return RolesAuthorize(roles, route.Permissions, true)
+	}
+	if len(route.Permissions) > 0 && !RolesAuthorize(roles, route.Permissions, false) {
+		return false
+	}
+	if len(route.AnyPermissions) > 0 && !RolesAuthorizeAny(roles, route.AnyPermissions) {
+		return false
+	}
+	return true
 }
 
 func ProtectedRoutes() []Route {

@@ -52,6 +52,7 @@ include(":feature:feature-record")
 include(":feature:feature-profile")
 include(":feature:feature-timetable")
 include(":feature:feature-verify")
+include(":feature:feature-weighing")
 
 // --- device (vendor SDKs live ONLY here, behind ports; each ships a fake) ---
 include(":device:device-rfid")

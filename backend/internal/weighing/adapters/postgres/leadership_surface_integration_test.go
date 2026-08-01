@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -43,10 +44,9 @@ func TestPlannerCatalogReportsShedAvailabilityForTheRequestedDateOnly(t *testing
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	onDay, err := repo.PlannerCatalog(ctx, repoTenant, lsFixtureDay, "")
-	if err != nil {
-		t.Fatalf("planner catalog: %v", err)
-	}
+	// Bucket availability is a keyset feed per park, so it is asserted over the
+	// DRAINED buckets of every park rather than whichever sheds land on page one.
+	onDay := drainAllParkBuckets(t, ctx, repo, lsFixtureDay, "")
 	taken := lsShed(t, onDay, repoExpectedShed)
 	if !taken.Scheduled {
 		t.Fatalf("shed %s scheduled=false on %s, want taken by the fixture campaign", repoExpectedShed, lsFixtureDay)
@@ -67,22 +67,121 @@ func TestPlannerCatalogReportsShedAvailabilityForTheRequestedDateOnly(t *testing
 	// The fixture buckets were inserted WITHOUT park_id/start_business_date. They are
 	// only visible to this date-scoped read because the identity columns were derived
 	// on write, so this also proves the denormalized copy cannot be forgotten.
-	otherDay, err := repo.PlannerCatalog(ctx, repoTenant, "2026-07-30", "")
-	if err != nil {
-		t.Fatalf("planner catalog other day: %v", err)
-	}
+	otherDay := drainAllParkBuckets(t, ctx, repo, "2026-07-30", "")
 	if shed := lsShed(t, otherDay, repoExpectedShed); shed.Scheduled {
 		t.Fatalf("shed %s reads as taken on 2026-07-30; availability must be scoped to the requested weigh date", repoExpectedShed)
 	}
 
 	// Editing the task that owns the bucket must not see its own bucket as taken,
 	// or an edit could never re-save the sheds it already owns.
-	editing, err := repo.PlannerCatalog(ctx, repoTenant, lsFixtureDay, repoCampaign)
-	if err != nil {
-		t.Fatalf("planner catalog excluding campaign: %v", err)
-	}
+	editing := drainAllParkBuckets(t, ctx, repo, lsFixtureDay, repoCampaign)
 	if shed := lsShed(t, editing, repoExpectedShed); shed.Scheduled {
 		t.Fatalf("shed %s reads as taken while editing the very task that owns it", repoExpectedShed)
+	}
+}
+
+// THE PARK-PICKER REGRESSION. The catalog and the bucket page were once ONE
+// flattened keyset page over (park, shed) pairs with a ~20-row limit. A real park
+// holds 76+ sheds, so page one was entirely that park and the wizard's "Select
+// park" step offered a SINGLE park -- the others were unreachable without paging
+// through dozens of shed rows.
+//
+// The park read must therefore return EVERY park no matter how many sheds the
+// biggest park holds, and it must report each park's shed count at PARK grain.
+func TestPlannerCatalogReturnsEveryParkRegardlessOfTheBiggestParksShedCount(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Give CPT far more sheds than any page could hold -- the real Channapatna
+	// shape. CBE and a third park must still be offered.
+	const bulkSheds = 76
+	for i := 0; i < bulkSheds; i++ {
+		lsInsertShed(t, ctx, pool, lcpUUID(32000+i), lsParkCPT, fmt.Sprintf("Bulk %03d", i), 500+i)
+	}
+	third := lcpUUID(33001)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO locations (location_id, tenant_id, location_type, name, status, display_order)
+VALUES ($1::uuid, $2::uuid, 'park', 'KLR', 'active', 90)
+ON CONFLICT (location_id) DO NOTHING`, third, repoTenant)
+	lsInsertShed(t, ctx, pool, lcpUUID(33002), third, "KLR Shed 1", 1)
+	// One active field operator, so the picker the wizard holds has something in it.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO workforce_members (tenant_id, user_id, display_code, display_name, status, primary_role_hint)
+VALUES ($1::uuid, $2::uuid, 'OP-1', 'Planner Operator', 'active', 'operator')
+ON CONFLICT DO NOTHING`, repoTenant, repoOperator)
+
+	catalog, err := repo.PlannerCatalog(ctx, repoTenant, lsFixtureDay)
+	if err != nil {
+		t.Fatalf("planner catalog: %v", err)
+	}
+	byID := map[string]domain.PlannerPark{}
+	for _, park := range catalog.Parks {
+		byID[park.ParkID] = park
+	}
+	for _, want := range []string{repoPark, lsParkCPT, third} {
+		if _, ok := byID[want]; !ok {
+			t.Fatalf("park %s missing from the planner catalog (%d parks returned); the park picker must offer every park", want, len(catalog.Parks))
+		}
+	}
+	// PARK-grain shed count: the whole park's active sheds, not a page-local sum.
+	// A page-derived count could never exceed the ~20-row bucket page size.
+	cpt := byID[lsParkCPT]
+	if cpt.ShedCount < bulkSheds {
+		t.Fatalf("park %s shed_count=%d, want at least the %d sheds it holds -- the count must be park-grain, not page-local", lsParkCPT, cpt.ShedCount, bulkSheds)
+	}
+	var wantShedCount int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*)::int FROM locations
+WHERE tenant_id=$1::uuid AND parent_location_id=$2::uuid
+  AND location_type='shed' AND status='active' AND retired_at IS NULL`, repoTenant, lsParkCPT).Scan(&wantShedCount); err != nil {
+		t.Fatalf("count CPT sheds: %v", err)
+	}
+	if cpt.ShedCount != wantShedCount {
+		t.Fatalf("park %s shed_count=%d, want the park's own active shed total %d", lsParkCPT, cpt.ShedCount, wantShedCount)
+	}
+	// The operator picker rides the park read, so the wizard holds it while it
+	// pages buckets and never re-fetches the roster per shed page.
+	if len(catalog.Operators) == 0 {
+		t.Fatalf("planner catalog returned no operators; the wizard has no operator picker")
+	}
+
+	// The duplicate-block signal survives the split: the park read still names the
+	// park's existing task on that date, which is what the wizard blocks on. It is
+	// keyed on the task's PERIOD start date, so it is read for that date.
+	dupCatalog, err := repo.PlannerCatalog(ctx, repoTenant, "2026-07-27")
+	if err != nil {
+		t.Fatalf("planner catalog on the fixture task's period: %v", err)
+	}
+	var existing *domain.CampaignSummary
+	for _, park := range dupCatalog.Parks {
+		if park.ParkID == repoPark {
+			existing = park.ExistingCampaign
+		}
+	}
+	if existing == nil {
+		t.Fatalf("park %s reports no existing task on 2026-07-27; the wizard cannot block a duplicate", repoPark)
+	}
+	if existing.CampaignID != repoCampaign {
+		t.Fatalf("existing_campaign=%s, want the fixture task %s", existing.CampaignID, repoCampaign)
+	}
+	if existing.ShedCount < 1 {
+		t.Fatalf("existing task shed_count=%d, want its own bucket count at campaign grain", existing.ShedCount)
+	}
+
+	// And the many-side is still bounded: one park's buckets come back ~20 at a time.
+	page, err := repo.PlannerParkBuckets(ctx, repoTenant, lsParkCPT, lsFixtureDay, "", "", 0)
+	if err != nil {
+		t.Fatalf("bucket page: %v", err)
+	}
+	if len(page.Sheds) != domain.PlannerBucketPageSize {
+		t.Fatalf("bucket page size=%d, want the default page of %d", len(page.Sheds), domain.PlannerBucketPageSize)
+	}
+	if page.NextCursor == "" {
+		t.Fatalf("park holding %d sheds reported no bucket cursor", wantShedCount)
 	}
 }
 
@@ -104,20 +203,10 @@ func TestPlannerCatalogTakenJoinOneToManyDoesNotMultiplyShedRows(t *testing.T) {
 	lsSetCampaignWeighDate(t, ctx, pool, other, lsFixtureDay)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(21011), other, repoExpectedShed, domain.CategoryIndividualAnimal, repoOperator, 1, "canceled")
 
-	catalog, err := repo.PlannerCatalog(ctx, repoTenant, lsFixtureDay, "")
-	if err != nil {
-		t.Fatalf("planner catalog: %v", err)
-	}
-	seen := 0
-	for _, park := range catalog.Parks {
-		for _, shed := range park.Sheds {
-			if shed.LocationID == repoExpectedShed {
-				seen++
-			}
-		}
-	}
+	buckets := drainAllParkBuckets(t, ctx, repo, lsFixtureDay, "")
+	seen := len(buckets[repoExpectedShed])
 	if seen != 1 {
-		t.Fatalf("shed %s appears %d times in the catalog, want exactly 1", repoExpectedShed, seen)
+		t.Fatalf("shed %s appears %d times across the bucket pages, want exactly 1", repoExpectedShed, seen)
 	}
 }
 
@@ -351,15 +440,11 @@ func lsSetCampaignWeighDate(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaigns SET start_business_date=$3::date WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, campaignID, weighDate)
 }
 
-func lsShed(t *testing.T, catalog domain.PlannerCatalog, locationID string) domain.PlannerShed {
+func lsShed(t *testing.T, buckets map[string][]domain.PlannerShed, locationID string) domain.PlannerShed {
 	t.Helper()
-	for _, park := range catalog.Parks {
-		for _, shed := range park.Sheds {
-			if shed.LocationID == locationID {
-				return shed
-			}
-		}
+	sheds := buckets[locationID]
+	if len(sheds) == 0 {
+		t.Fatalf("shed %s missing from the planner bucket pages", locationID)
 	}
-	t.Fatalf("shed %s missing from planner catalog", locationID)
-	return domain.PlannerShed{}
+	return sheds[0]
 }

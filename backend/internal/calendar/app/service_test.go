@@ -323,6 +323,10 @@ func (f *fakeRepo) ReconcileEventReferences(context.Context, string) ([]ports.Or
 	return nil, nil
 }
 
+func (f *fakeRepo) ResolveMissedObligationContext(context.Context, string, string) (ports.MissedObligationContext, error) {
+	return ports.MissedObligationContext{}, nil
+}
+
 func (f *fakeRepo) ReconcileEventReferencesPage(context.Context, string, string, string, int) ([]ports.OrphanedCalendarEventReference, error) {
 	return nil, nil
 }

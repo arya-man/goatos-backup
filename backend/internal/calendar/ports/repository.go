@@ -109,6 +109,29 @@ type Repository interface {
 	// see adapters/postgres/reconciler.go's doc comment for the housekeeping-stage wiring seam.
 	// NOTE: deprecated in favor of ReconcileEventReferencesPage for bounded pagination.
 	ReconcileEventReferences(ctx context.Context, tenantID string) ([]OrphanedCalendarEventReference, error)
+
+	// ResolveMissedObligationContext resolves a missed obligation to the routing facts a
+	// notification needs: which module's work it was, which park/shed it belongs to, the business
+	// date it was due on, and which operator was assigned the drive that covered it. Returns
+	// ErrNotFound when the obligation does not exist in the tenant. One bounded, indexed read.
+	ResolveMissedObligationContext(ctx context.Context, tenantID, obligationID string) (MissedObligationContext, error)
+}
+
+// MissedObligationContext is everything the missed-work notification needs to decide WHO to tell and
+// WHERE to send them. Module is the protocol category ("vaccination"); routing is per module and
+// there is deliberately NO fallback profile, so an unclaimed module notifies nobody loudly rather
+// than the wrong people quietly.
+type MissedObligationContext struct {
+	ObligationID string
+	Module       string    // protocol_definitions.category, e.g. "vaccination"
+	DueAt        time.Time // the obligation's due instant; the business date is derived in Asia/Kolkata
+	ParkID       string
+	ShedID       string
+	ShedLabel    string // human shed name for farm-language copy; empty when the work is park-wide
+	// OperatorID is the workforce member assigned the drive that covered this obligation on its due
+	// business date. Empty when no drive assignment covered it (unplanned work) -- the notification
+	// then still goes UP, because someone must know.
+	OperatorID string
 }
 
 // OrphanedCalendarEventReference is one row ReconcileEventReferences flags: a notification_requests

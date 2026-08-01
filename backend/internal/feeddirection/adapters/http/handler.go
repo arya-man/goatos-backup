@@ -1,7 +1,7 @@
-// Package http exposes the feed-direction generation read API plus the ONE write path the module now
-// owns: recording that a shed-session's feed direction was carried out (POST /feed-direction/complete).
-// The two GET routes remain pure reads; the completion route is idempotent (Idempotency-Key header)
-// and is the client-facing edge of the feed.direction.completed producer.
+// Package http exposes the feed-direction generation read API plus the VERIFIER-GATED write paths the
+// module owns: distribution completion, packing completion, and transport submission. Each of those
+// flips a session to pending_verification and is completed only by a verifier's approval; the
+// pre-gate instant route POST /feed-direction/complete is no longer registered.
 package http
 
 import (
@@ -28,7 +28,6 @@ import (
 type Service interface {
 	Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error)
 	PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error)
-	CompleteSession(ctx context.Context, in app.CompleteSessionInput) (ports.CompleteSessionResult, error)
 	// CompleteDistribution is the verifier-gated feed DISTRIBUTION completion, entirely separate from
 	// CompleteSession (the old instant path). It requires two mandatory proofs and flips the session to
 	// pending_verification (maintainer decision, 2026-07-26).
@@ -54,12 +53,13 @@ func NewHandler(service Service, log *slog.Logger) *Handler {
 func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /feed-direction/preview", h.GetPreview)
 	mux.HandleFunc("GET /feed-packing/worklist", h.GetPackingWorklist)
-	mux.HandleFunc("POST /feed-direction/complete", h.PostComplete)
-	// The verifier-gated feed DISTRIBUTION completion. Separate route from POST /feed-direction/complete
-	// (the old instant path).
+	// POST /feed-direction/complete (the pre-gate INSTANT completion) is deliberately NOT registered.
+	// It wrote 'completed' at operator submit, which walks around the ratified verification gate
+	// (submit -> pending_verification -> verifier approve -> completed). Its service dependency is
+	// unwired too, so the app path fails closed with ports.ErrCompletionUnavailable even if a caller
+	// reaches it another way. See docs/decisions/feed-distribution-verification.md.
 	mux.HandleFunc("POST /feed-direction/distribution/complete", h.PostCompleteDistribution)
-	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26). Separate route from
-	// both POST /feed-direction/complete (old instant path) and the distribution route.
+	// The verifier-gated feed PACKING completion (maintainer decision, 2026-07-26).
 	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
 	mux.HandleFunc("GET /feed-transport/tasks", h.GetTransportTasks)
 	mux.HandleFunc("POST /feed-transport/tasks/{task_id}/submit", h.PostTransportSubmit)
@@ -171,76 +171,6 @@ type completeSessionResponse struct {
 	Status       string `json:"status"`
 	// Applied is false on an idempotent replay or when the shed-session was already completed.
 	Applied bool `json:"applied"`
-}
-
-// PostComplete records that one shed-session's feed direction was carried out. Idempotent: the same
-// Idempotency-Key returns the original result and runs no new side effects.
-func (h *Handler) PostComplete(w http.ResponseWriter, r *http.Request) {
-	tenantID := httpmiddleware.TenantIDFromContext(r.Context())
-	if tenantID == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing tenant context", nil)
-		return
-	}
-	actorID := httpmiddleware.ActorIDFromContext(r.Context())
-	if actorID == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
-		return
-	}
-	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	if key == "" {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key header is required", nil)
-		return
-	}
-	if len(key) < 8 || len(key) > 200 {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "Idempotency-Key must be between 8 and 200 characters", nil)
-		return
-	}
-
-	var body completeSessionRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "request body must be valid JSON", nil)
-		return
-	}
-	targetDate, err := businessDateFromString(body.TargetDate)
-	if err != nil {
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
-		return
-	}
-
-	proofRefs := make([]domain.ProofRef, 0, len(body.ProofRefs))
-	for _, ref := range body.ProofRefs {
-		proofRefs = append(proofRefs, domain.ProofRef{
-			ProofID:     strings.TrimSpace(ref.ProofID),
-			ProofType:   strings.TrimSpace(ref.ProofType),
-			SubjectType: strings.TrimSpace(ref.SubjectType),
-			SubjectID:   strings.TrimSpace(ref.SubjectID),
-			UploadState: strings.TrimSpace(ref.UploadState),
-		})
-	}
-
-	res, err := h.service.CompleteSession(r.Context(), app.CompleteSessionInput{
-		TenantID:       tenantID,
-		ParkID:         strings.TrimSpace(body.ParkID),
-		ShedID:         strings.TrimSpace(body.ShedID),
-		SessionNo:      body.SessionNo,
-		TargetDate:     targetDate,
-		Workflow:       strings.TrimSpace(body.Workflow),
-		ProofRefs:      proofRefs,
-		CompletedBy:    actorID,
-		IdempotencyKey: key,
-		ActorID:        actorID,
-		ActorType:      "operator",
-		TraceID:        httpmiddleware.TraceIDFromContext(r.Context()),
-	})
-	if err != nil {
-		h.writeServiceError(w, r, "feed direction complete", err)
-		return
-	}
-	httpresponse.WriteJSON(w, http.StatusOK, completeSessionResponse{
-		CompletionID: res.CompletionID,
-		Status:       res.Status,
-		Applied:      res.Applied,
-	})
 }
 
 // completeDistributionRequest is the verifier-gated distribution completion body: which shed-session,

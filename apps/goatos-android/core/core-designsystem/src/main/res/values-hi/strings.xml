@@ -25,6 +25,7 @@
     <string name="ovl_doses_subtitle">इस चक्र में पूरी हुई खुराक · टीके के अनुसार</string>
     <string name="offline_title">आप ऑफ़लाइन हैं</string>
     <string name="offline_details">विवरण</string>
+    <string name="alert_unavailable_notice">यह सूचना नहीं खुल सकती। आपका काम दिखाया जा रहा है।</string>
     <string name="offline_subtitle">रिकॉर्ड इस फ़ोन पर सहेजे जाते हैं और दोबारा कनेक्ट होने पर सिंक होते हैं</string>
     <string name="ovl_error_fmt">त्रुटि: %1$s</string>
     <string name="sync_footer">ऑफ़लाइन-प्रथम: आउटबॉक्स पहले वीडियो प्रूफ़, फिर शेड रिकॉर्ड अपलोड करता है, बैकऑफ़ के साथ पुनः प्रयास करता है, और कभी डुप्लिकेट नहीं बनाता।</string>

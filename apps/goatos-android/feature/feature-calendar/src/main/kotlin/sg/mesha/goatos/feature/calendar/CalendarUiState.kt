@@ -67,6 +67,13 @@ data class CalendarDriveSummary(
     val dueCount: Int = 0,
     val overdueCount: Int = 0,
     val deferredCount: Int = 0,
+    // Backend-owned cross-surface progress (numerator + denominator + its grain + the rounded
+    // percentage). Rendered VERBATIM; the client must not compute its own numerator. Null only on
+    // legacy cache / older-backend responses, where the card falls back to the local derivation.
+    val progressBasis: String? = null,
+    val progressCompleted: Int? = null,
+    val progressTotal: Int? = null,
+    val progressPct: Int? = null,
     val ownerLabel: String = "",
 )
 

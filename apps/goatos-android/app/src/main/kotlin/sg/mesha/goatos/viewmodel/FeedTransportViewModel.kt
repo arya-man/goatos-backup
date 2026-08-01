@@ -7,12 +7,16 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.time.LocalDate
 import java.time.ZoneId
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import sg.mesha.goatos.capture.ProofCapturePrompt
@@ -20,6 +24,7 @@ import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.FeedTransportRepository
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.FeedTransportTaskPageDto
 import sg.mesha.goatos.core.network.dto.ProofUploadRequestDto
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureEvent
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
@@ -32,7 +37,12 @@ private data class FeedTransportFlags(
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
     val isLoadingMore: Boolean = false,
+    /** Sticky: set once a LoadMore fails to grow the rendered window. Kills the spin. */
+    val endReached: Boolean = false,
 )
+
+/** One page of the transport list. ~20 rows per the repo's mobile list-fetch rule. */
+private const val TRANSPORT_PAGE_SIZE = 20
 
 @HiltViewModel
 class FeedTransportViewModel @Inject constructor(
@@ -40,7 +50,21 @@ class FeedTransportViewModel @Inject constructor(
 ) : ViewModel() {
     private val date = LocalDate.now(ZoneId.of("Asia/Kolkata")).toString()
     private val flags = MutableStateFlow(FeedTransportFlags())
-    val state: StateFlow<FeedTransportUiState> = combine(repo.observe(date, 100), flags) { page, current ->
+
+    // The visible window over the Room-backed SSOT. Starts at ONE page and grows on LoadMore —
+    // the DAO query is re-run at the new size (ScanViewModel's `_windowSize` pattern). Before
+    // this, the DAO window was a frozen `limit = 100` while `hasMore` was derived from the
+    // remote cursor, so on any day with >20 rows LoadMore could fire forever against a list
+    // that never changed: the rows the UI rendered could not grow, `hasMore` never went false,
+    // and the list kept re-requesting — an unbounded loop (ANR risk).
+    private val window = MutableStateFlow(TRANSPORT_PAGE_SIZE)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val observedPage: StateFlow<FeedTransportTaskPageDto> =
+        window.flatMapLatest { size -> repo.observe(date, size) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FeedTransportTaskPageDto(emptyList(), null))
+
+    val state: StateFlow<FeedTransportUiState> = combine(observedPage, flags, window) { page, current, size ->
         FeedTransportUiState(
             date = date,
             rows = page.items.map {
@@ -48,7 +72,10 @@ class FeedTransportViewModel @Inject constructor(
             },
             isRefreshing = current.isRefreshing,
             isOffline = current.isOffline,
-            hasMore = page.nextCursor != null,
+            // Only offer more when the window is actually FULL (so growing it can yield rows) and
+            // a previous LoadMore has not already proven there is nothing left. Never derived
+            // from the remote cursor alone — that is what made the loop unbounded.
+            hasMore = !current.endReached && page.items.size >= size,
             isLoadingMore = current.isLoadingMore,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), FeedTransportUiState(date = date))
@@ -68,15 +95,38 @@ class FeedTransportViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         flags.value = flags.value.copy(isRefreshing = true, isOffline = false)
         val result = repo.refresh(date)
-        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.isFailure)
+        // A refresh replaces the day's rows, so a previous "nothing left" verdict no longer holds
+        // and the window goes back to one page — the same reset a fresh screen entry would give.
+        window.value = TRANSPORT_PAGE_SIZE
+        flags.value = flags.value.copy(isRefreshing = false, isOffline = result.isFailure, endReached = false)
     }
 
+    /**
+     * Grow the rendered window by one page, pulling the next network page first when the local
+     * cache is already exhausted. Terminates: if the window grows and the row count does NOT
+     * increase, there is nothing left and [FeedTransportFlags.endReached] latches `hasMore` off.
+     */
     private fun loadMore() {
-        if (flags.value.isLoadingMore) return
-        flags.value = flags.value.copy(isLoadingMore = true)
+        val current = flags.value
+        if (current.isLoadingMore || current.endReached) return
+        val before = observedPage.value.items.size
+        // The window is not even full — the local page is the whole page. Nothing more to show.
+        if (before < window.value) {
+            flags.value = current.copy(endReached = true)
+            return
+        }
+        flags.value = current.copy(isLoadingMore = true)
         viewModelScope.launch {
-            val result = repo.loadMore(date)
-            flags.value = flags.value.copy(isLoadingMore = false, isOffline = result.isFailure)
+            val result = if (observedPage.value.nextCursor != null) repo.loadMore(date) else Result.success(Unit)
+            val grown = window.updateAndGet { it + TRANSPORT_PAGE_SIZE }
+            val after = repo.observe(date, grown).first().items.size
+            flags.value = flags.value.copy(
+                isLoadingMore = false,
+                isOffline = result.isFailure,
+                // Only latch the end when the fetch SUCCEEDED and still produced no new row; a
+                // failed network page must stay retryable, not permanently end the list.
+                endReached = result.isSuccess && after <= before,
+            )
         }
     }
 }

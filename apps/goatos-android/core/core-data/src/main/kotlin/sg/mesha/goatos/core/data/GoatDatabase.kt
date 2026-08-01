@@ -84,9 +84,31 @@ import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheDao
 import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedDao
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedEntity
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogDao
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingRosterDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyDao
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
@@ -185,8 +207,20 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingRosterRowEntity::class,
         WeighingObservationEntity::class,
         WeighingShedObservationEntity::class,
+        WeighingTaskRowEntity::class,
+        WeighingTaskRemoteKeyEntity::class,
+        WeighingTaskBucketRowEntity::class,
+        WeighingTaskBucketRemoteKeyEntity::class,
+        WeighingLeadershipShedEntity::class,
+        WeighingLeadershipRecordEntity::class,
+        WeighingLeadershipRecordRemoteKeyEntity::class,
+        WeighingLeadershipGalleryRemoteKeyEntity::class,
+        WeighingPlannerParkRowEntity::class,
+        WeighingPlannerShedRowEntity::class,
+        WeighingPlannerOperatorRowEntity::class,
+        WeighingPlannerRemoteKeyEntity::class,
     ],
-    version = 23,
+    version = 26,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -217,6 +251,16 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v22 (see [MIGRATION_21_22]) adds Weighing's local roster and observation tables.
     // v23 (see [MIGRATION_22_23]) relaxes Weighing RFID uniqueness from campaign-wide to
     // selected shed-bucket-wide, matching the free-flow bucket model.
+    // v25 (see [MIGRATION_24_25]) gives the leadership VIDEOS gallery its own cursor table, so a
+    // surface's cursor is never stored in — and pruned by — another surface's table.
+    // v26 (see [MIGRATION_25_26]) splits the planner catalog into its two real grains: a PARK table
+    // (every park the planner may use on a date, with the backend's own park-grain shed COUNT) and
+    // the existing shed table re-keyed per park. The two used to share one flattened keyset page,
+    // so a 76-shed park filled page one alone and the wizard's park step offered a single park.
+    // v24 (see [MIGRATION_23_24]) adds the ten Weighing LEADERSHIP read-model tables — the task
+    // list, the task's shed buckets, the shed's own context and its captured records (shared with
+    // the videos gallery), and the planner catalog — each a keyset-paged row table plus its remote
+    // key, so every leadership surface renders from Room instead of straight off a network call.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -265,4 +309,15 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun weighingRosterDao(): WeighingRosterDao
     abstract fun weighingObservationDao(): WeighingObservationDao
     abstract fun weighingShedObservationDao(): WeighingShedObservationDao
+    abstract fun weighingTaskDao(): WeighingTaskDao
+    abstract fun weighingTaskRemoteKeyDao(): WeighingTaskRemoteKeyDao
+    abstract fun weighingTaskBucketDao(): WeighingTaskBucketDao
+    abstract fun weighingTaskBucketRemoteKeyDao(): WeighingTaskBucketRemoteKeyDao
+    abstract fun weighingLeadershipShedDao(): WeighingLeadershipShedDao
+    abstract fun weighingLeadershipRecordDao(): WeighingLeadershipRecordDao
+    abstract fun weighingLeadershipRecordRemoteKeyDao(): WeighingLeadershipRecordRemoteKeyDao
+
+    abstract fun weighingLeadershipGalleryRemoteKeyDao(): WeighingLeadershipGalleryRemoteKeyDao
+    abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
+    abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
 }

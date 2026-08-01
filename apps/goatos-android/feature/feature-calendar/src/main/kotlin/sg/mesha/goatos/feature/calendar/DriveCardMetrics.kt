@@ -40,21 +40,34 @@ internal fun driveCoverage(
         DriveCoverage(completedDoses, totalDoses, usesAnimals = false)
     }
 
+// The drive progress the card renders. The backend owns the numerator, the denominator, and the
+// GRAIN they are counted on (progress_basis), and both clients render it verbatim -- this is the
+// cross-surface parity contract. Before it existed, this function returned max(submitted, completed)
+// while the admin-web card used completed only, so the SAME drive showed two different completion
+// numbers and two different ring percentages. Submitted-but-unverified work is NOT progress; it
+// stays visible through submittedAnimals/submittedCount and the "verification pending" strip.
+//
+// The local derivation below is a LEGACY fallback only, for a Room row cached before these fields
+// shipped or a mixed-version response from an older backend (they decode as null, not 0). A
+// background refresh replaces it with the contract values.
 internal fun driveVisibleProgress(summary: CalendarDriveSummary): DriveCoverage {
-    val completed = driveCoverage(
+    val completed = summary.progressCompleted
+    val total = summary.progressTotal
+    if (completed != null && total != null) {
+        return DriveCoverage(completed, total, usesAnimals = summary.progressBasis != "doses")
+    }
+    return driveCoverage(
         completedAnimals = summary.completedAnimals,
         totalAnimals = summary.totalAnimals,
         completedDoses = summary.completedCount,
         totalDoses = summary.totalCount,
     )
-    val submitted = driveCoverage(
-        completedAnimals = summary.submittedAnimals,
-        totalAnimals = summary.totalAnimals,
-        completedDoses = summary.submittedCount,
-        totalDoses = summary.totalCount,
-    )
-    return if (submitted.completed > completed.completed) submitted else completed
 }
+
+// The percentage shown in the ring. Backend-rounded value wins verbatim so the ring reads
+// identically on web and mobile; the local half-up rounding is the same legacy fallback.
+internal fun drivePctFor(summary: CalendarDriveSummary, coverage: DriveCoverage): Int =
+    summary.progressPct ?: driveCoveragePct(coverage.completed, coverage.total)
 
 // Status chips for the redesigned drive card: returns ALL nonzero buckets
 // (completed/submitted/due/overdue/deferred)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,7 +31,6 @@ type Config struct {
 	FCMProjectID       string
 	FCMEndpoint        string
 	FCMBearerToken     string
-	FCMDefaultTopic    string
 	DryRun             bool
 	HTTPTimeout        time.Duration
 }
@@ -179,6 +179,14 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 	if err != nil {
 		return nil, fmt.Errorf("marshal notification payload: %w", err)
 	}
+	// Bound every provider call. A slow or down provider must surface as a timeout this tick and be
+	// retried, never hold the dispatcher's lease open indefinitely.
+	timeout := g.config.HTTPTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build notification webhook request: %w", err)
@@ -192,6 +200,11 @@ func (g *Gateway) postJSONWithHeadersResponse(ctx context.Context, url string, p
 	}
 	resp, err := g.client.Do(req)
 	if err != nil {
+		// Timeouts stay plain (retryable) errors -- never a not-configured sentinel -- so the
+		// dispatcher schedules another attempt instead of exhausting the request.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("notification provider did not respond within %s: %w", timeout, err)
+		}
 		return nil, fmt.Errorf("post notification webhook: %w", err)
 	}
 	defer resp.Body.Close()
@@ -285,7 +298,13 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 			}
 		}
 	}
-	if err := setFCMTarget(message, request.RecipientRef, g.config.FCMDefaultTopic); err != nil {
+	if err := setFCMTarget(message, request.RecipientRef); err != nil {
+		g.log.ErrorContext(ctx, "notification_push_recipient_unusable",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("type", request.NotificationType),
+			slog.String("error", err.Error()),
+		)
 		return ports.DeliveryResult{}, err
 	}
 	token, err := g.fcmBearer(ctx)
@@ -321,34 +340,67 @@ func isInvalidFCMRecipientResponse(err error) bool {
 		strings.Contains(text, "notification webhook status 400")) &&
 		(strings.Contains(text, "notregistered") ||
 			strings.Contains(text, "unregistered") ||
-			strings.Contains(text, "registration-token-not-registered"))
+			strings.Contains(text, "registration-token-not-registered") ||
+			// A malformed / unparseable target is permanent too: no amount of retrying repairs it.
+			strings.Contains(text, "invalid_argument") ||
+			strings.Contains(text, "invalid argument") ||
+			strings.Contains(text, "invalid registration token") ||
+			strings.Contains(text, "invalid-registration-token") ||
+			strings.Contains(text, "invalid-argument"))
 }
 
-func setFCMTarget(message map[string]any, recipientRef, defaultTopic string) error {
+// minDeviceTokenLength is a conservative floor for a real device registration token (live tokens run
+// well past 100 characters). Its job is to reject identifiers that are plainly not tokens -- above all
+// role names such as "park_head", which callers bind into recipient_ref.
+const minDeviceTokenLength = 64
+
+// looksLikeDeviceToken reports whether ref has the shape of a device registration token.
+func looksLikeDeviceToken(ref string) bool {
+	if len(ref) < minDeviceTokenLength {
+		return false
+	}
+	for _, r := range ref {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '_', r == '-', r == ':', r == '.', r == '~', r == '%':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// setFCMTarget resolves exactly one push target from the recipient the caller resolved. There is no
+// default-topic fallback: a reminder with no resolved recipient must fail loudly rather than broadcast
+// one shed's reminder to every device in the tenant. A caller that genuinely wants a topic must say so
+// explicitly with a "topic:" / "condition:" recipient.
+func setFCMTarget(message map[string]any, recipientRef string) error {
 	ref := strings.TrimSpace(recipientRef)
 	switch {
+	case ref == "":
+		return fmt.Errorf("%w: no push recipient resolved", ports.ErrRecipientUnusable)
 	case strings.HasPrefix(ref, "topic:"):
 		topic := strings.TrimSpace(strings.TrimPrefix(ref, "topic:"))
-		if topic != "" {
-			message["topic"] = topic
-			return nil
+		if topic == "" {
+			return fmt.Errorf("%w: empty push topic", ports.ErrRecipientUnusable)
 		}
+		message["topic"] = topic
+		return nil
 	case strings.HasPrefix(ref, "condition:"):
 		condition := strings.TrimSpace(strings.TrimPrefix(ref, "condition:"))
-		if condition != "" {
-			message["condition"] = condition
-			return nil
+		if condition == "" {
+			return fmt.Errorf("%w: empty push condition", ports.ErrRecipientUnusable)
 		}
-	case ref != "":
+		message["condition"] = condition
+		return nil
+	case looksLikeDeviceToken(ref):
 		message["token"] = ref
 		return nil
+	default:
+		// A role name or any other non-token identifier: permanent, and loud. Sending it would earn a
+		// 400 that no retry can fix.
+		return fmt.Errorf("%w: push recipient is not a device registration token", ports.ErrRecipientUnusable)
 	}
-	topic := strings.TrimSpace(defaultTopic)
-	if topic == "" {
-		return fmt.Errorf("%w: push_fcm recipient", ports.ErrChannelNotConfigured)
-	}
-	message["topic"] = topic
-	return nil
 }
 
 func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
@@ -364,7 +416,8 @@ func (g *Gateway) fcmBearer(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("fetch FCM access token: %w", err)
 	}
 	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return "", fmt.Errorf("%w: push_fcm auth token", ports.ErrChannelNotConfigured)
+		// Also network-derived: retry rather than exhaust.
+		return "", fmt.Errorf("push credentials returned an empty access token")
 	}
 	return token.AccessToken, nil
 }
@@ -375,9 +428,13 @@ func (g *Gateway) fcmAuthSource(ctx context.Context) (oauth2.TokenSource, error)
 	if g.fcmTokenSource != nil {
 		return g.fcmTokenSource, nil
 	}
+	// Credential discovery talks to the metadata server / ADC over the network, so a failure here is
+	// transient by nature. It must stay a plain (retryable) error: wrapping it in
+	// ErrChannelNotConfigured makes the dispatcher skip retry scheduling, and one metadata hiccup
+	// would permanently exhaust every claimed request in that tick.
 	source, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/firebase.messaging")
 	if err != nil {
-		return nil, fmt.Errorf("%w: push_fcm auth", ports.ErrChannelNotConfigured)
+		return nil, fmt.Errorf("resolve push credentials: %w", err)
 	}
 	g.fcmTokenSource = source
 	return source, nil

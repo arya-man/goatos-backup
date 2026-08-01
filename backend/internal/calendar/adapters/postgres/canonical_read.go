@@ -981,16 +981,45 @@ obligation_drive_shed_animals AS (
   GROUP BY per_shed.park_id, per_shed.due_date
 ),
 -- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id, the obligation grain); group_key=(park_id, due_date); join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over that single membership row-set, no join fan-out (sc/ac/vl/sa are each exactly 1 row per (park_id, due_date) and are attached 1:1 AFTER grouping). Grain proof for the FIVE-bucket disjointness fix: the bucket key is the pair (status, submitted_for_verification), both columns of the SAME membership row, so bucketing is a pure per-row partition -- no cross-row/cross-grain dependency. Partition is now total and disjoint: completed = status='completed'; submitted = status<>'completed' AND submitted; deferred = status='deferred' AND NOT submitted; overdue = status IN ('overdue','missed') AND NOT submitted AND NOT deferred; due = the remaining open statuses AND NOT submitted. Every status in total_count's list appears in exactly one branch for each value of submitted_for_verification, hence total_count = completed+submitted+due+overdue+deferred exactly (previously an overdue-or-deferred row that was ALSO submitted was counted twice, in submitted_count and again in overdue_count/deferred_count). progress_* is derived at the SAME group grain from already-grouped scalars (animal grain when total_animals>0, else obligation grain) and adds no rows, no joins, and no new scan. pagination=unchanged (computed inline per ListEvents request, bounded keyset canonical read, 5k-50k envelope, no projector, no materialized table); scope=(park_id, due_date), unchanged, no re-derivation; date/status window semantics unchanged -- only the mutually-exclusive bucket predicates and the new derived progress scalars changed, no index or scan shape impact.
+-- projection-review evidence (AGENTS.md "Grain Predicates and Executable Gates", clauses a/b/c):
+--   (a) PRODUCER unique column list: obligation_drive_membership is unique on (obligation_id) -- the
+--       obligation_membership_rows UNION dedups a row matched by several branches, so one obligation
+--       appears exactly once. CONSUMER match/group column list: GROUP BY (m.park_id, m.due_date).
+--       total_count/completed_count/submitted_count/due_count/overdue_count/deferred_count and the
+--       progress_* scalars all range over that one grouped row-set; no bucket introduces an extra
+--       WHERE dimension that the others lack, and every bucket now carries the SAME explicit status
+--       whitelist (no bucket falls back to the membership CTE's hand-maintained deny-list).
+--   (b) Row multiplicity of every joined side: sc (shed_complete), ac (animal_coverage), vl
+--       (vaccine_labels) and sa (sheds) are each pre-aggregated to EXACTLY ONE row per
+--       (park_id, due_date) and LEFT JOINed 1:1 AFTER the GROUP BY, so no join fans out the
+--       obligation grain. ac itself pre-aggregates goats to one row per animal
+--       (bool_and(status='completed')) before counting, so an animal due several vaccines the same
+--       day contributes 1, not N.
+--   (c) Ratio key sets, shown identical: progress_pct's numerator and denominator range over the
+--       SAME key set in both branches -- animals branch = DISTINCT target_id (target_type='goat')
+--       within (park_id, due_date) for BOTH completed_animals and total_animals; doses branch =
+--       DISTINCT obligation_id within (park_id, due_date) for BOTH completed_count and total_count.
+--       The branch predicate (total_animals > 0) is evaluated once and selects the key set for
+--       numerator, denominator and basis label together, so the percentage can never mix an animal
+--       numerator with a dose denominator. progress_completed is the COMPLETED count in both
+--       branches -- never a submitted/pending count -- so progress <= 100 by construction.
 obligation_drive_summary AS (
   -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
   --   total_count = completed_count + due_count + overdue_count + deferred_count
   -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
   -- product feature yet (owner decision 2026-07-14); an obligation on a stock-blocked batch is
   -- bucketed purely by its own status. Revisit when the stock module ships.
-  -- Precedence (each obligation counted in EXACTLY ONE bucket):
-  --   completed = status='completed'
-  --   deferred  = NOT completed AND status='deferred' (a clinical/anchor hold stays deferred)
-  --   overdue   = NOT completed AND NOT deferred AND status IN ('overdue','missed')
+  -- Precedence (each obligation counted in EXACTLY ONE of the FIVE buckets). submitted_for_verification
+  -- is a SECOND dimension on top of status (work recorded on mobile, not yet verified), so it must be
+  -- subtracted from EVERY non-completed status bucket -- not just due_count. Before this fix a shed that
+  -- was submitted-but-late landed in BOTH submitted_count and overdue_count (and submitted-while-deferred
+  -- in both submitted_count and deferred_count), so the "5 disjoint buckets" invariant documented on
+  -- DriveSummary in contracts/openapi/app-api.yaml was false and total_count < sum(buckets):
+  --   completed = status='completed'                       (verification already done)
+  --   submitted = NOT completed AND submitted_for_verification (any open status, awaiting verification)
+  --   deferred  = NOT submitted AND status='deferred'      (a clinical/anchor hold stays deferred)
+  --   overdue   = NOT submitted AND NOT deferred AND status IN ('overdue','missed')
   --   due       = everything else open, not already bucketed
   -- SCALE: aggregate membership to the (park_id, due_date) GROUP grain FIRST, then attach the three
   -- 1:1 per-group sub-metrics (shed_complete / animal_coverage / vaccine_labels). Previously the
@@ -1026,9 +1055,19 @@ obligation_drive_summary AS (
         'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
         'deferred'))::int AS total_count,
       count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
+      -- Carries the SAME explicit status whitelist as total_count above. It must not lean on the
+      -- membership CTE's NOT IN ('superseded','canceled','waived') pre-filter (canonical_read.go
+      -- obligation_membership_rows): that list is hand-maintained in a different CTE, so a newly
+      -- added terminal status would be excluded from total_count (explicit allow-list) while still
+      -- falling into submitted_count (implicit deny-list), silently breaking
+      -- total_count = completed + submitted + due + overdue + deferred. Every bucket now ranges over
+      -- one identical status key set.
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
           AND m.submitted_for_verification
+          AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+            'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
+            'deferred')
       )::int AS submitted_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
@@ -1038,10 +1077,14 @@ obligation_drive_summary AS (
       )::int AS due_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
+          AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
           AND m.status IN ('overdue', 'missed')
       )::int AS overdue_count,
-      count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.status = 'deferred'
+          AND NOT m.submitted_for_verification
+      )::int AS deferred_count,
       count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
@@ -1206,6 +1249,23 @@ park_drive_events AS (
         'total_animals', obl_summary.total_animals,
         'completed_animals', obl_summary.completed_animals,
         'submitted_animals', obl_summary.submitted_animals,
+        -- SINGLE cross-surface progress definition. Android and admin-web previously each derived
+        -- their own ring numerator from different fields (Android took max(submitted, completed),
+        -- web took completed only), so the SAME drive showed two different numbers and two different
+        -- ring percentages. The backend now owns the numerator AND its basis; both clients render
+        -- these verbatim. Basis is the distinct-ANIMAL grain whenever the drive has animals (a goat
+        -- due several vaccines the same day is ONE animal, complete only when ALL its drive
+        -- obligations are), else the obligation/dose grain. Numerator is COMPLETED only:
+        -- submitted-but-unverified is NOT done (it stays visible via submitted_animals /
+        -- submitted_count), so progress can never overstate verified coverage.
+        'progress_basis', CASE WHEN obl_summary.total_animals > 0 THEN 'animals' ELSE 'doses' END,
+        'progress_completed', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.completed_animals ELSE obl_summary.completed_count END,
+        'progress_total', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.total_animals ELSE obl_summary.total_count END,
+        'progress_pct', CASE
+          WHEN obl_summary.total_animals > 0 THEN round(obl_summary.completed_animals * 100.0 / obl_summary.total_animals)::int
+          WHEN obl_summary.total_count > 0 THEN round(obl_summary.completed_count * 100.0 / obl_summary.total_count)::int
+          ELSE 0
+        END,
         'owner_label', COALESCE(NULLIF(grouped.operator_names, ''), 'PC')
       ) ELSE NULL END
     ) AS detail

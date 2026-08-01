@@ -110,6 +110,18 @@ data class WeighingWizardUiState(
     val operators: List<WeighingWizardOperatorOption> = emptyList(),
     val configSummary: String = "",
 
+    /**
+     * Set only when this task is being started FROM an existing one: names where the answers came
+     * from, so the planner knows what is already filled in and can still change all of it.
+     */
+    val repeatSourceLabel: String? = null,
+    /**
+     * Buckets carried over that could NOT be added on the chosen date, because the server says
+     * they are already scheduled that day or the park no longer has them. Stated rather than
+     * silently dropped.
+     */
+    val repeatDroppedCount: Int = 0,
+
     val reviewRows: List<WeighingWizardReviewRow> = emptyList(),
     val reviewOperatorLabel: String = "",
     val lopsidedOperatorLabel: String? = null,

@@ -641,3 +641,85 @@ val MIGRATION_22_23: Migration = object : Migration(22, 23) {
         )
     }
 }
+
+/**
+ * v24 — the Weighing LEADERSHIP read models.
+ *
+ * Purely ADDITIVE: ten new tables, no existing table touched, nothing dropped. Before this, the
+ * leadership half of Weighing (task list, task detail, shed detail + its captured records, the
+ * videos gallery, and the planner catalog) was network-only — no Room entity, no DAO, no Flow — so
+ * a phone with no signal rendered a blank wall over data it had already been shown, and every
+ * screen rendered straight off a network response instead of off the on-device SSOT.
+ *
+ * Each list table pairs with a remote-key table holding the backend's opaque keyset cursor plus the
+ * WHOLE-SCOPE tallies (task tab counts, whole-task bucket count) that must not be derived from the
+ * cached page. The shed table carries park name, weigh business DATE and the resolved assignee name
+ * as columns, because those are the shed read's own answer — that is what lets a cold deep link
+ * render without route arguments.
+ */
+val MIGRATION_23_24: Migration = object : Migration(23, 24) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "CREATE TABLE IF NOT EXISTS `weighing_task_row` (`queryKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `campaignId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_task_row_queryKey_sortIndex` ON `weighing_task_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_remote_key` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `activeCount` INTEGER NOT NULL, `completedCount` INTEGER NOT NULL, `canPublish` INTEGER NOT NULL, `canEnd` INTEGER NOT NULL, `canReopen` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_bucket_row` (`campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`, `campaignShedId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_task_bucket_row_campaignId_sortIndex` ON `weighing_task_bucket_row` (`campaignId`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_task_bucket_remote_key` (`campaignId` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `totalCount` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_shed` (`shedKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `shedName` TEXT NOT NULL, `parkName` TEXT NOT NULL, `weighDate` TEXT NOT NULL, `operatorUserId` TEXT NOT NULL, `operatorDisplayName` TEXT NOT NULL, `category` TEXT NOT NULL, `status` TEXT NOT NULL, `periodLabel` TEXT NOT NULL, `estimatedAnimalCount` INTEGER NOT NULL, `maxShedVideos` INTEGER NOT NULL, `lumpSumJson` TEXT, `galleryQueryKey` TEXT, `gallerySortIndex` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_campaignId` ON `weighing_leadership_shed` (`campaignId`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_galleryQueryKey_gallerySortIndex` ON `weighing_leadership_shed` (`galleryQueryKey`, `gallerySortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_record` (`shedKey` TEXT NOT NULL, `observationId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`, `observationId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_record_shedKey_sortIndex` ON `weighing_leadership_record` (`shedKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_record_remote_key` (`shedKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_shed_row` (`queryKey` TEXT NOT NULL, `locationId` TEXT NOT NULL, `parkId` TEXT NOT NULL, `parkName` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `shedJson` TEXT NOT NULL, `existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `locationId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_operator_row` (`queryKey` TEXT NOT NULL, `userId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `userId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_operator_row_queryKey_sortIndex` ON `weighing_planner_operator_row` (`queryKey`, `sortIndex`)",
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_remote_key` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        ).forEach(db::execSQL)
+    }
+}
+
+/**
+ * v24 -> v25: the leadership VIDEOS gallery gets its own cursor table.
+ *
+ * The gallery's cursor was stored as a task-list remote key under an invented query key, in the
+ * table the L0 task list prunes by newest-N-filters — so browsing task filters evicted the gallery
+ * cursor while its rows were still on screen, and the gallery row evicted a real filter's tallies.
+ * Additive: one new table, nothing dropped or rewritten.
+ */
+val MIGRATION_24_25: Migration = object : Migration(24, 25) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_leadership_gallery_remote_key` " +
+                "(`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
+        )
+    }
+}
+
+/**
+ * v25 -> v26: the planner catalog's PARK grain gets its own table.
+ *
+ * Parks and sheds are two different grains and used to share one flattened keyset page of ~20 rows.
+ * A real park holds 76+ sheds, so page one was entirely one park and the wizard's park step offered
+ * a single park. Parks are few and must all be offered, so they are now cached whole in this table;
+ * the shed table keeps pagination and is re-keyed per park (`<date>|<park id>`).
+ *
+ * Additive: one new table. The shed and cursor tables are untouched — their old date-keyed rows
+ * simply stop matching the new park-scoped key and age out through the existing prune.
+ */
+val MIGRATION_25_26: Migration = object : Migration(25, 26) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        listOf(
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_park_row` (`queryKey` TEXT NOT NULL, " +
+                "`parkId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `name` TEXT NOT NULL, " +
+                "`kidCount` INTEGER NOT NULL, `shedCount` INTEGER NOT NULL, " +
+                "`existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `parkId`))",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_planner_park_row_queryKey_sortIndex` " +
+                "ON `weighing_planner_park_row` (`queryKey`, `sortIndex`)",
+        ).forEach(db::execSQL)
+    }
+}

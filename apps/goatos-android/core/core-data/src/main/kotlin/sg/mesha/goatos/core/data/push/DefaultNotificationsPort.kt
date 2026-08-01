@@ -39,6 +39,17 @@ class DefaultNotificationsPort(
     private val appScope: CoroutineScope,
     private val appVersion: String,
     private val osVersion: String,
+    /**
+     * Whether this phone will actually SHOW what we send it — the OS notification switch, read at
+     * report time (`NotificationManagerCompat.areNotificationsEnabled()`, supplied by :app so this
+     * module stays free of Android UI framework types). Reported alongside the token so the
+     * backend can mark a push-muted device and stop counting a dropped push as delivered: FCM
+     * accepts a send to a muted phone and reports success while the OS throws it away.
+     *
+     * Defaults to "not reported" (`null`) rather than `true` — asserting reachability we have not
+     * observed is exactly the failure this closes.
+     */
+    private val notificationsEnabled: () -> Boolean? = { null },
 ) : NotificationsPort {
 
     override fun registerToken(token: String) {
@@ -68,6 +79,7 @@ class DefaultNotificationsPort(
                     osVersion = osVersion,
                     pushTokenHash = null,
                     fcmToken = token,
+                    notificationsEnabled = notificationsEnabled(),
                 ),
             )
         } else {
@@ -78,6 +90,7 @@ class DefaultNotificationsPort(
                     osVersion = osVersion,
                     pushTokenHash = null,
                     fcmToken = token,
+                    notificationsEnabled = notificationsEnabled(),
                 ),
             )
             deviceStore.setDeviceId(response.device.deviceId.ifBlank { null })

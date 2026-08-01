@@ -17,16 +17,28 @@ import (
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
+// cadenceAudienceResolver is the slice of the workforce roster service the ladder needs to resolve
+// who a fire is addressed to. Declared as an interface at the point of use so the audience rule can
+// be unit-tested against a roster fake that mirrors the real seeded seat vocabulary, without a
+// database.
+type cadenceAudienceResolver interface {
+	// ResolveModuleDutyRecipientsBatch resolves the park-scoped operational audience by module duty.
+	ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error)
+	// ResolvePositionRecipientsBatch resolves the tenant leadership audience, which is role-grant
+	// truth (ceo_internal / pc_director), not a module duty.
+	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error)
+}
+
 // ReminderCadenceStage materializes the vaccination reminder cadence ladder
 // (T-7 days, day-start/afternoon/EOD, due-today) by calling SweepReminderCadence to find
-// fires at each ladder slot, resolving recipients from the workforce roster
-// (operators, park heads, PHC managers), and queueing notification_requests rows
-// via QueueReminderCadenceBatch. This replaces the deleted cmd/calendar-reminder-sweeper.
-// Operational (15m) cadence.
+// fires at each ladder slot, resolving recipients from the workforce roster (every seat holding the
+// vaccination execute/manage duty in the park, plus tenant leadership on the EOD rung), and queueing
+// notification_requests rows via QueueReminderCadenceBatch. This replaces the deleted
+// cmd/calendar-reminder-sweeper. Operational (15m) cadence.
 type ReminderCadenceStage struct {
 	deps     Deps
 	calendar *calendarapp.Service
-	roster   *workforceapp.RosterService
+	roster   cadenceAudienceResolver
 	tenantID string
 	logger   *slog.Logger
 	// now is the clock the sweep is evaluated at. Production uses the real IST wall clock; tests
@@ -39,9 +51,23 @@ type ReminderCadenceStage struct {
 	lastRunIterations int
 }
 
-// reminderCadencePositionCodes is the park-scoped operational audience for the reminder ladder:
-// the operator(s), park head, and PHC manager for the park the drive is due in.
-var reminderCadencePositionCodes = []string{"operator", "park_head", "phc_manager"}
+// The park-scoped operational audience for the reminder ladder is resolved by MODULE DUTY, not by a
+// literal position-code list.
+//
+// It used to be []string{"operator", "park_head", "phc_manager"}. None of those three except
+// park_head is a code the roster seeder ever writes: real seats are named
+// "vaccination_operator_<name>" and "preventive_care_manager", and "phc_manager" exists nowhere
+// outside that list. So the ladder addressed one seat out of three, and the operator who actually
+// has to run the drive received no T-7, no 08:00, no 13:00 and no due-today reminder. A literal list
+// that silently drifts from the seeder is the defect class; naming the DUTY instead means a renamed
+// seat that still holds the duty is still notified, and a same-named seat without the duty is not.
+//
+// (module_code, duty_type) here is exactly what seed-position-duties derives into
+// position_module_duties (migration 000157) for vaccination seats: operators carry 'execute';
+// park_head / preventive_care_manager / shed_manager (manager+ tiers) carry 'manage'.
+const reminderCadenceModuleCode = "pc.vaccination"
+
+var reminderCadenceDutyTypes = []string{"execute", "manage"}
 
 // reminderCadenceTenantPositionCodes is the tenant-scoped leadership audience for the same ladder.
 var reminderCadenceTenantPositionCodes = []string{"pc_director", "ceo_internal"}
@@ -72,7 +98,7 @@ func (s *ReminderCadenceStage) Name() string { return "reminder-cadence" }
 
 // Run performs one reminder cadence sweep pass:
 // 1. SweepReminderCadence finds drives at each ladder slot (T-7, T-daily, T-0)
-// 2. For each fire, resolve recipients from workforce (operators, park heads, PHC managers)
+// 2. For each fire, resolve recipients from workforce (the park's vaccination duty holders)
 // 3. QueueReminderCadenceBatch inserts notification_requests rows (idempotent per fire)
 func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 	if strings.TrimSpace(s.tenantID) == "" {
@@ -142,40 +168,13 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 				parks = append(parks, parkID)
 			}
 
-			// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a
-			// 'center' scope in the workforce model; tenant leaders are resolved separately and then
-			// attached to every park fire.
-			// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
-			recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
-				ctx,
-				s.tenantID,
-				"center", // parks are 'center'-scoped positions
-				parks,
-				reminderCadencePositionCodes,
-				now,
-			)
+			// Resolve the audience for every park on this page in ONE batched pair of reads (never a
+			// per-park N+1): the park-scoped operational audience by MODULE DUTY, plus the tenant
+			// leadership audience, which is attached only to the EOD leadership rung.
+			recipientsByPark, tenantRecipients, err := s.resolveCadenceAudience(ctx, parks, now)
 			if err != nil {
-				return fmt.Errorf("resolve position recipients batch: %w", err)
+				return err
 			}
-			// scale-guard:ignore: per-PAGE tenant leadership batch read; one fixed-size lookup, not per-row fanout.
-			tenantRecipientsByPosition, err := s.roster.ResolvePositionRecipientsBatch(
-				ctx,
-				s.tenantID,
-				"tenant",
-				[]string{s.tenantID},
-				reminderCadenceTenantPositionCodes,
-				now,
-			)
-			if err != nil {
-				return fmt.Errorf("resolve tenant position recipients batch: %w", err)
-			}
-
-			// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
-			// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
-			// devices back to the bare park id and dedup by device (one member may hold two seats, or one
-			// device serve two members) so a recipient is pushed at most once per fire.
-			recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
-			tenantRecipients := foldTenantRecipients(tenantRecipientsByPosition)
 
 			// Map fires to fire inputs with resolved recipients.
 			var fireInputs []calendarports.ReminderCadenceFireInput
@@ -275,6 +274,48 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 		s.logger.Info("reminder_cadence_stage_no_fires", "tenant_id", s.tenantID)
 	}
 	return nil
+}
+
+// resolveCadenceAudience resolves, for one swept page, who each fire is addressed to:
+//
+//   - the park-scoped OPERATIONAL audience, by module duty (pc.vaccination execute|manage) -- the
+//     operator(s) who run the drive plus the park's managing seats, whatever those seats are named;
+//   - the tenant-scoped LEADERSHIP audience (pc_director, ceo_internal), which is role-grant truth
+//     rather than a module duty, and which the caller attaches ONLY to the EOD exception rung.
+//
+// Two batched reads for the whole page -- never one per park.
+func (s *ReminderCadenceStage) resolveCadenceAudience(ctx context.Context, parks []string, now time.Time) (map[string][]calendarports.NotificationRecipient, []calendarports.NotificationRecipient, error) {
+	// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
+	recipientsByParkPosition, err := s.roster.ResolveModuleDutyRecipientsBatch(
+		ctx,
+		s.tenantID,
+		"center", // parks are 'center'-scoped positions
+		parks,
+		reminderCadenceModuleCode,
+		reminderCadenceDutyTypes,
+		now,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve module duty recipients batch: %w", err)
+	}
+	// scale-guard:ignore: per-PAGE tenant leadership batch read; one fixed-size lookup, not per-row fanout.
+	tenantRecipientsByPosition, err := s.roster.ResolvePositionRecipientsBatch(
+		ctx,
+		s.tenantID,
+		"tenant",
+		[]string{s.tenantID},
+		reminderCadenceTenantPositionCodes,
+		now,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve tenant position recipients batch: %w", err)
+	}
+
+	// Both reads key their result by "<scopeID>|<positionCode>", so a park with three duty-holding
+	// seats yields three separate keys. Fold every seat's devices back to the bare park id and dedup
+	// by device (one member may hold two seats, or one device serve two members) so a recipient is
+	// pushed at most once per fire.
+	return foldRecipientsByPark(recipientsByParkPosition), foldTenantRecipients(tenantRecipientsByPosition), nil
 }
 
 // foldRecipientsByPark collapses the "<parkID>|<positionCode>"-keyed roster batch result into one

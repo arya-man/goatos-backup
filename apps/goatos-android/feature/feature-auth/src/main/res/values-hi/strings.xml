@@ -40,4 +40,10 @@
     <string name="perm_status_granted">स्वीकृत</string>
     <string name="perm_status_needed">आवश्यक</string>
     <string name="perm_status_open_settings">सेटिंग्स खोलें</string>
+
+    <string name="alerts_off_title">इस फ़ोन पर अलर्ट बंद हैं</string>
+    <string name="alerts_off_body">काम बाकी होने पर, कोई शेड दोबारा करने के लिए वापस भेजे जाने पर, और कोई वीडियो जाँच के लिए बचे होने पर यह फ़ोन चुप रहेगा। आपको खुद ऐप खोलकर देखना पड़ेगा।</string>
+    <string name="alerts_off_turn_on">अलर्ट चालू करें</string>
+    <string name="alerts_off_settings_help">आपका फ़ोन दोबारा नहीं पूछेगा। नीचे से फ़ोन सेटिंग्स खोलें और Mesha के लिए सूचनाएं चालू करें।</string>
+    <string name="alerts_off_open_settings">फ़ोन सेटिंग्स खोलें</string>
 </resources>

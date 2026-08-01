@@ -131,8 +131,13 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	}
 
 	var nextAttempt *time.Time
+	// Two different permanent failures. A dead DEVICE justifies suppressing that recipient's other
+	// queued pushes. A bad ADDRESS does not say anything about any device -- and because the
+	// calendar path binds a role name into recipient_ref, suppressing on it would kill every
+	// queued push for that role across the tenant, permanently.
 	invalidRecipient := errors.Is(err, ports.ErrInvalidRecipient)
-	if !invalidRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
+	unusableRecipient := errors.Is(err, ports.ErrRecipientUnusable)
+	if !invalidRecipient && !unusableRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
 	}

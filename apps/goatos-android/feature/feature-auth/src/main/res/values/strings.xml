@@ -47,4 +47,12 @@
     <string name="perm_status_granted">Granted</string>
     <string name="perm_status_needed">Needed</string>
     <string name="perm_status_open_settings">Open Settings</string>
+
+    <!-- Alerts gate shown in the app shell to EVERY signed-in role (NotificationAlertsGate.kt).
+         Farm language: what they will miss, and how to switch it back on. -->
+    <string name="alerts_off_title">Alerts are off on this phone</string>
+    <string name="alerts_off_body">This phone will stay silent when work is due, when a shed is sent back to be done again, and when a video is waiting to be checked. You will only find out by opening the app and looking.</string>
+    <string name="alerts_off_turn_on">Turn on alerts</string>
+    <string name="alerts_off_settings_help">Your phone will not ask again. Open the phone settings below and switch notifications on for Mesha.</string>
+    <string name="alerts_off_open_settings">Open phone settings</string>
 </resources>

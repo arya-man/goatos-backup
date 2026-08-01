@@ -40,4 +40,10 @@
     <string name="perm_status_granted">ಅನುಮತಿಸಲಾಗಿದೆ</string>
     <string name="perm_status_needed">ಅಗತ್ಯವಿದೆ</string>
     <string name="perm_status_open_settings">ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ</string>
+
+    <string name="alerts_off_title">ಈ ಫೋನ್‌ನಲ್ಲಿ ಎಚ್ಚರಿಕೆಗಳು ಆಫ್ ಆಗಿವೆ</string>
+    <string name="alerts_off_body">ಕೆಲಸ ಬಾಕಿ ಇದ್ದಾಗ, ಶೆಡ್ ಮತ್ತೆ ಮಾಡಲು ಹಿಂತಿರುಗಿಸಿದಾಗ, ಮತ್ತು ವೀಡಿಯೊ ಪರಿಶೀಲನೆಗೆ ಕಾಯುತ್ತಿದ್ದಾಗ ಈ ಫೋನ್ ಸುಮ್ಮನಿರುತ್ತದೆ. ನೀವೇ ಆ್ಯಪ್ ತೆರೆದು ನೋಡಬೇಕಾಗುತ್ತದೆ.</string>
+    <string name="alerts_off_turn_on">ಎಚ್ಚರಿಕೆಗಳನ್ನು ಆನ್ ಮಾಡಿ</string>
+    <string name="alerts_off_settings_help">ನಿಮ್ಮ ಫೋನ್ ಮತ್ತೆ ಕೇಳುವುದಿಲ್ಲ. ಕೆಳಗಿನಿಂದ ಫೋನ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆದು Mesha ಗಾಗಿ ಅಧಿಸೂಚನೆಗಳನ್ನು ಆನ್ ಮಾಡಿ.</string>
+    <string name="alerts_off_open_settings">ಫೋನ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ</string>
 </resources>

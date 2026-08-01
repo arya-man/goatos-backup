@@ -389,6 +389,18 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	}
 	now := s.now().UTC()
 	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
+	navChrome := navChromeFor(grants, bootstrapModules)
+	visibleNav := visibleNavigationFor(grants, grantedModules, localeTag)
+	// "You" is the account, not a feature. A principal with the module DRAWER reaches it there,
+	// beside Sign out, so repeating it in every module's bottom bar is the same destination shown
+	// once per feature. A principal WITHOUT a drawer keeps it on the bar -- that is their only way
+	// to reach it.
+	if navChrome == domain.NavChromeExpanded {
+		visibleNav = withoutNavItem(visibleNav, navItemKeyYou)
+		for i := range bootstrapModules {
+			bootstrapModules[i].NavItems = withoutNavItem(bootstrapModules[i].NavItems, navItemKeyYou)
+		}
+	}
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -407,9 +419,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			"weighing_oversee_operators":  canOverseeWeighingOperators(grants, grantedModules),
 			"verification_video_controls": canUseVerificationVideoControls(grants),
 		},
-		VisibleNavigation:       visibleNavigationFor(grants, grantedModules, localeTag),
+		VisibleNavigation:       visibleNav,
 		Modules:                 bootstrapModules,
-		NavChrome:               navChromeFor(grants, bootstrapModules),
+		NavChrome:               navChrome,
 		TaskQueueDescriptors:    queuesFor(caps, localeTag),
 		PinnedSOPVersions:       []domain.BootstrapSOPVersion{},
 		SupportedFieldTypes:     []string{"text", "number", "date_time", "boolean", "select", "multiselect", "goat_scan", "animal_id_scan", "goat_lookup", "shed_picker", "photo_proof", "video_proof"},
@@ -577,7 +589,7 @@ func validMemberStatus(value string) bool {
 
 func validRoleHint(value string) bool {
 	switch value {
-	case "operator", "park_head", "pc_director", "growth_director", "verifier", "supervisor", "cxo", "other":
+	case "operator", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "verifier", "supervisor", "cxo", "other":
 		return true
 	default:
 		return false
@@ -586,7 +598,7 @@ func validRoleHint(value string) bool {
 
 func validRole(value string) bool {
 	switch value {
-	case "admin", "park_head", "pc_director", "growth_director", "operator", "verifier", "ceo_internal":
+	case "admin", "park_head", "pc_director", "growth_director", "feed_director", "health_director", "operator", "verifier", "ceo_internal":
 		return true
 	default:
 		return false
@@ -622,6 +634,12 @@ var leadershipGrantRoles = map[string]bool{
 	permissions.RoleCEOInternal:    true,
 	permissions.RolePCDirector:     true,
 	permissions.RoleGrowthDirector: true,
+	// Live as of the 2026-08-01 module-ownership decision: feed_director owns Feed and
+	// health_director owns Counts, so both are leadership for nav composition the same way
+	// pc_director and growth_director are. Their module set still comes from their granted
+	// permissions, not from this map.
+	permissions.RoleFeedDirector:   true,
+	permissions.RoleHealthDirector: true,
 	permissions.RoleParkHead:       true,
 }
 
@@ -662,6 +680,22 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 // ENABLED (it was previously pinned to minimal). Operators with >=2 granted
 // modules now get the same >=2->drawer treatment as leadership. A standalone
 // verifier is the only principal deliberately kept on minimal chrome.
+
+// navItemKeyYou is the account destination's stable key in the nav registry.
+const navItemKeyYou = "you"
+
+// withoutNavItem drops one contribution from a composed bar.
+func withoutNavItem(items []domain.BootstrapNavigationItem, key string) []domain.BootstrapNavigationItem {
+	out := make([]domain.BootstrapNavigationItem, 0, len(items))
+	for _, item := range items {
+		if item.Key == key {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
 	if isStandaloneVerifierPrincipal(grants) {
 		return domain.NavChromeMinimal

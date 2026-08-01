@@ -502,7 +502,12 @@ internal fun mergeExecutionRowsPage(
     page: VaccinationExecutionResponseDto,
 ): VaccinationExecutionResponseDto = page.copy(
     totalCount = maxOf(current.totalCount, page.totalCount),
-    filterOptions = current.filterOptions ?: page.filterOptions,
+    // The FRESH page wins. This used to prefer the cached options, which meant a filter vocabulary
+    // could never be replaced once cached: a principal who could see both parks left their park
+    // chips behind for the next principal, so a CBE-scoped operator was offered a CPT chip and
+    // could pull up another park's sheds. Cached options are only a fallback for a continuation
+    // page, which legitimately omits them.
+    filterOptions = page.filterOptions ?: current.filterOptions,
     rows = (current.rows + page.rows).distinctBy { row -> // mobile-guard:ignore: cursor-gated single-page append into a TTL+row/byte-capped blob (enforceCacheBounds)
         listOf(
             row.parkId,

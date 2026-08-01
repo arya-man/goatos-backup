@@ -248,7 +248,11 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
-		CalendarRead: {}, CalendarAction: {},
+		// Oversight of vaccination execution, read-only and park-scoped: this tier supervises the
+		// ground it owns but never captures (no TaskExecute above), so it must not be
+		// operator-assignment scoped. See VaccinationOverseeExecution's doc comment.
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		VerificationAct: {},
@@ -265,7 +269,9 @@ var tierPermissions = map[Tier]map[string]struct{}{
 		SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {},
 		ObligationRead: {}, VaccinationRead: {}, VaccinationCampaign: {},
-		CalendarRead: {}, CalendarAction: {},
+		// Same oversight capability as the Head tier: owns the vertical, never holds the scanner.
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
@@ -288,38 +294,18 @@ func init() {
 			continue
 		}
 		for _, vertical := range AllVerticals {
-			key := RoleKey(tier, vertical)
-			if _, exists := rolePermissions[key]; exists {
-				panic("permissions: composite org role key collides with an existing role: " + key)
-			}
 			set := make(map[string]struct{}, len(perms))
 			for permission := range perms {
 				set[permission] = struct{}{}
 			}
-			rolePermissions[key] = set
+			// registerRole panics on collision with a pre-existing role -- including the
+			// flat legacy roles declared in permissions.go. It replaces the previous
+			// hand-written collision check here AND closes the hole that check did not
+			// cover: a DIRECT `rolePermissions[role] = ...` assignment elsewhere in this
+			// init(), which is exactly how growth_director's WeighingOverseeOperators and
+			// then WeighingPlan were silently voided. Flat roles are declared once, in the
+			// rolePermissions literal; nothing here may re-declare one.
+			registerRole(RoleKey(tier, vertical), set)
 		}
-	}
-
-	// Growth Director is the first production use of a vertical-specific director
-	// role on mobile. Keep it intentionally narrow: it owns weighing execution and
-	// monitoring, not Preventive Care vaccination, even though the generic Director
-	// tier still has vaccination-era read/planning permissions for the broader org
-	// catalog. Future vertical directors should get the same explicit permission
-	// composition instead of relying on role names in Android.
-	rolePermissions[RoleGrowthDirector] = map[string]struct{}{
-		GoatRead: {}, GoatWriteHealth: {},
-		LocationsRead: {},
-		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
-		AppBootstrap: {}, AdminWebBootstrap: {},
-		SOPRead: {}, TaskRead: {}, TaskAssign: {},
-		WeighingMonitor: {}, WeighingExecute: {},
-		// This map REPLACES the RoleGrowthDirector literal in permissions.go, so a permission
-		// added only there is silently inert. WeighingOverseeOperators shipped that way; it is
-		// repeated here because this override is the effective grant set.
-		WeighingOverseeOperators: {},
-		CalendarRead:             {}, CalendarAction: {},
-		ProcurementRead: {},
-		RosterRead:      {}, RosterManage: {},
-		VerificationAct: {},
 	}
 }

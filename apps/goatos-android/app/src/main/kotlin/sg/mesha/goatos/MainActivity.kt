@@ -190,7 +190,9 @@ class MainActivity : ComponentActivity() {
             .mapNotNull { key -> extras.getString(key)?.takeIf { it.isNotBlank() }?.let { key to it } }
             .toMap()
         if (payload.isEmpty()) return
-        pendingNavigation.set(resolvePushRoute(payload))
+        // No recognisable destination is not an error and not a reason to pick a module: leaving
+        // the pending route unset opens the app on this person's own home screen.
+        resolvePushRoute(payload)?.let { pendingNavigation.set(it) }
     }
 
     /**

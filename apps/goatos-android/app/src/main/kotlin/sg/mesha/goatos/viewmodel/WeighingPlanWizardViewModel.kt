@@ -1,9 +1,13 @@
 package sg.mesha.goatos.viewmodel
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -13,10 +17,15 @@ import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
+import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
+import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
 import sg.mesha.goatos.feature.weighing.plan.WeighingBucketFilter
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardBucketRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardConfigRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardDateOption
@@ -25,6 +34,7 @@ import sg.mesha.goatos.feature.weighing.plan.WeighingWizardParkOption
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardReviewRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardStep
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardUiState
+import sg.mesha.goatos.ui.Routes
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -45,9 +55,35 @@ import javax.inject.Inject
 @HiltViewModel
 class WeighingPlanWizardViewModel @Inject constructor(
     private val repository: WeighingRepository,
+    repeatSeedStore: WeighingRepeatSeedStore,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val raw = MutableStateFlow(WizardRaw())
+    /**
+     * The answers carried over when the planner started this task from an existing one.
+     *
+     * Consumed ONCE, at construction. The wizard still opens on the DATE step with no date chosen:
+     * a repeat is a NEW task on a new day, and its buckets are re-checked for availability against
+     * whichever date is picked. Nothing is copied from the source campaign row.
+     */
+    private val repeatSeed: WeighingRepeatSeed? =
+        savedStateHandle.get<String>(Routes.WEIGHING_REPEAT_OF_ARG)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { repeatSeedStore.take(it) }
+
+    private val raw = MutableStateFlow(WizardRaw(repeat = repeatSeed))
+
+    /**
+     * How many cached SHED rows of the CHOSEN park the bucket step observes. Sheds, not parks: the
+     * park read has no cursor and offers every park, while a single park holds 76+ sheds and is the
+     * only side that pages. Bounded by the cache ceiling.
+     */
+    private val bucketWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
+    private var observeCatalogJob: Job? = null
+    private var observeBucketsJob: Job? = null
+
+    /** The chosen park's cached cursor state. Stops the scroll prefetch at the end of that park. */
+    private var bucketsEndReached = false
 
     val state: StateFlow<WeighingWizardUiState> = raw
         .map { it.toUiState() }
@@ -102,18 +138,39 @@ class WeighingPlanWizardViewModel @Inject constructor(
             date = isoDate,
             catalog = null,
             parkId = null,
+            buckets = emptyList(),
+            bucketsParkId = null,
             selections = emptyMap(),
             picked = emptySet(),
+            repeatDropped = 0,
         )
         loadCatalog(isoDate)
     }
 
     // ---- step 2: park --------------------------------------------------------------------
 
+    /**
+     * Picks the park whose buckets the next step pages.
+     *
+     * A different park is a different keyset stream, so the shed paging is reset cleanly: the
+     * window shrinks back to one page, the cursor state is cleared, and page one of THAT park is
+     * fetched. Selections are dropped with the park because a task is ONE park — a selection made
+     * in another park could not be published on this one.
+     */
     fun selectPark(parkId: String) {
         val current = raw.value
         if (current.parkId == parkId) return
-        raw.value = current.copy(parkId = parkId, selections = emptyMap(), picked = emptySet())
+        val date = current.date ?: return
+        raw.value = current.copy(
+            parkId = parkId,
+            buckets = emptyList(),
+            bucketsParkId = null,
+            selections = emptyMap(),
+            picked = emptySet(),
+            bucketQuery = "",
+            bucketCap = WEIGHING_PAGE_SIZE,
+        )
+        loadParkBuckets(date, parkId)
     }
 
     // ---- step 3: shed buckets ------------------------------------------------------------
@@ -126,11 +183,28 @@ class WeighingPlanWizardViewModel @Inject constructor(
         raw.value = raw.value.copy(bucketFilter = filter, bucketCap = WEIGHING_PAGE_SIZE)
     }
 
-    /** One more page of buckets, on scroll-end. The list never loads the whole park at once. */
+    /**
+     * One more page of buckets, on scroll-end.
+     *
+     * Grows the rendered page AND, when the rendered rows have caught up with the cache, the
+     * observed Room window plus the next server page. The list never loads the whole park at once:
+     * a park can hold 76+ sheds and the catalog is keyset-paged for exactly that reason.
+     */
     fun loadMoreBuckets() {
         val current = raw.value
-        if (current.bucketCap >= current.filteredBuckets().size) return
+        val date = current.date
+        val parkId = current.parkId
+        if (current.bucketCap < current.filteredBuckets().size) {
+            raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE)
+            return
+        }
+        if (date == null || parkId == null || bucketsEndReached) return
+        if (bucketWindow.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
+            bucketWindow.value =
+                (bucketWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
+        }
         raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE)
+        refreshParkBuckets(date, parkId, reset = false)
     }
 
     /**
@@ -206,7 +280,8 @@ class WeighingPlanWizardViewModel @Inject constructor(
     fun setBucketOperator(locationId: String, operatorUserId: String) {
         val current = raw.value
         val selection = current.selections[locationId] ?: return
-        if (current.catalog?.operators?.none { it.userId == operatorUserId } != false) return
+        // Refuse a pick that is not valid for the chosen park, even if the id is real.
+        if (current.operatorsForPark().none { it.userId == operatorUserId }) return
         raw.value = current.copy(
             selections = current.selections + (locationId to selection.copy(operatorUserId = operatorUserId)),
         )
@@ -247,7 +322,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
     /** Deals the buckets round-robin across the park's operators, in a stable order. */
     fun splitEvenly() {
         val current = raw.value
-        val operators = current.catalog?.operators.orEmpty()
+        val operators = current.operatorsForPark()
         if (operators.isEmpty()) return
         val ordered = current.orderedSelections().map { it.first }
         val selections = current.selections.toMutableMap()
@@ -306,11 +381,84 @@ class WeighingPlanWizardViewModel @Inject constructor(
 
     // ---- loading -------------------------------------------------------------------------
 
+    /**
+     * Points the wizard at ONE weigh date's catalog.
+     *
+     * The catalog the screen renders comes from ROOM: the collector below observes a bounded window
+     * of cached shed rows and feeds the wizard's answers, while the network refresh only writes
+     * into Room. A park can hold 76+ sheds, so this is a real keyset page, not a whole-park read --
+     * and a failed refresh leaves the cached catalog on screen instead of emptying the picker.
+     */
     private fun loadCatalog(isoDate: String) {
+        observeCatalogJob?.cancel()
+        observeBucketsJob?.cancel()
+        observeCatalogJob = viewModelScope.launch {
+            repository.observePlannerCatalog(isoDate).collect { cached ->
+                // Only replace the answers once the cache actually holds this date, so an empty
+                // first emission does not blank a park list the planner is already working in.
+                if (!cached.hasCache && cached.catalog.parks.isEmpty()) return@collect
+                val seeded = raw.value.copy(catalog = cached.catalog).withRepeatParkApplied()
+                raw.value = seeded
+                // A repeated task names its park, so its buckets can start loading before the
+                // planner reaches the bucket step.
+                val seededPark = seeded.parkId
+                if (seededPark != null && seeded.bucketsParkId == null && observeBucketsJob == null) {
+                    loadParkBuckets(isoDate, seededPark)
+                }
+            }
+        }
+        refreshCatalog(isoDate)
+    }
+
+    private fun refreshCatalog(isoDate: String) {
+        if (raw.value.loading) return
         raw.value = raw.value.copy(loading = true)
         viewModelScope.launch {
-            when (val result = repository.plannerCatalog(isoDate)) {
-                is AppResult.Ok -> raw.value = raw.value.copy(loading = false, catalog = result.value)
+            when (val result = repository.refreshPlannerCatalog(isoDate)) {
+                is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
+                // The cached park list stays on screen; the wizard says what did not land rather
+                // than dropping the planner back to an empty picker.
+                is AppResult.Err -> raw.value = raw.value.copy(loading = false, message = result.message)
+            }
+        }
+    }
+
+    /**
+     * Points the bucket step at ONE park's sheds on the chosen date.
+     *
+     * The rows the screen renders come from ROOM: this collector observes a bounded window of that
+     * park's cached shed rows, and the network refresh only writes into Room. A park can hold 76+
+     * sheds, so this is a real keyset page -- and a failed refresh leaves the cached buckets on
+     * screen instead of emptying the picker.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun loadParkBuckets(isoDate: String, parkId: String) {
+        bucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
+        bucketsEndReached = false
+        observeBucketsJob?.cancel()
+        observeBucketsJob = viewModelScope.launch {
+            bucketWindow.flatMapLatest { window ->
+                repository.observePlannerParkBuckets(isoDate, parkId, window)
+            }.collect { cached ->
+                // A stale emission for a park the planner has already moved off must not repopulate
+                // the list under the new park.
+                if (raw.value.parkId != parkId) return@collect
+                if (!cached.hasCache && cached.sheds.isEmpty()) return@collect
+                bucketsEndReached = !cached.canLoadMore
+                raw.value = raw.value
+                    .copy(buckets = cached.sheds, bucketsParkId = parkId)
+                    .withRepeatBucketsApplied()
+            }
+        }
+        refreshParkBuckets(isoDate, parkId, reset = true)
+    }
+
+    private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean) {
+        if (raw.value.loading) return
+        raw.value = raw.value.copy(loading = true)
+        viewModelScope.launch {
+            when (val result = repository.refreshPlannerParkBuckets(isoDate, parkId, reset = reset)) {
+                is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
                 is AppResult.Err -> raw.value = raw.value.copy(loading = false, message = result.message)
             }
         }
@@ -343,6 +491,10 @@ private data class WizardRaw(
     val date: String? = null,
     val parkId: String? = null,
     val catalog: WeighingPlannerCatalog? = null,
+    /** The CHOSEN park's cached shed buckets, as far as the wizard has paged them. */
+    val buckets: List<WeighingPlannerShed> = emptyList(),
+    /** Which park [buckets] belongs to, so a stale page can never be read as another park's. */
+    val bucketsParkId: String? = null,
     val selections: Map<String, WizardSelection> = emptyMap(),
     val picked: Set<String> = emptySet(),
     val bucketQuery: String = "",
@@ -355,7 +507,73 @@ private data class WizardRaw(
     val busy: Boolean = false,
     val message: String? = null,
     val savedCampaignId: String? = null,
+    /** Answers carried over from an existing task, applied once the chosen date's catalog lands. */
+    val repeat: WeighingRepeatSeed? = null,
+    val repeatDropped: Int = 0,
+    /** Carried-over buckets are applied ONCE, so a later page never overwrites the planner's edits. */
+    val repeatApplied: Boolean = false,
 )
+
+/**
+ * Names the park the repeated task ran in, as soon as the park list lands.
+ *
+ * Only the park: its buckets are a separate, paged read, so carrying them over waits for
+ * [withRepeatBucketsApplied]. A park the planner may no longer use on this date drops the whole
+ * carry-over and says how many buckets went with it.
+ */
+private fun WizardRaw.withRepeatParkApplied(): WizardRaw {
+    val seed = repeat ?: return this
+    if (repeatApplied || parkId != null) return this
+    val catalog = catalog ?: return this
+    val park = catalog.parks.firstOrNull { it.parkId == seed.parkId }
+        ?: return copy(repeatApplied = true, repeatDropped = seed.buckets.size)
+    return copy(parkId = park.parkId, selections = emptyMap(), picked = emptySet())
+}
+
+/**
+ * Prefills the buckets from the repeated task, for the date the planner just chose.
+ *
+ * A carried-over bucket is added ONLY if this park's loaded buckets still have it and the SERVER
+ * says it is free on that date; anything else is counted as dropped and reported. The taken ones
+ * stay visible on the bucket step under the availability filter, with the server's own reason --
+ * the duplicate block is never routed around.
+ *
+ * Applied ONCE, on the first page of the seeded park, so paging further never re-writes the
+ * planner's own edits. A carried bucket sitting on a later page of a 76-shed park is reported as
+ * dropped rather than silently added behind the planner's back.
+ */
+private fun WizardRaw.withRepeatBucketsApplied(): WizardRaw {
+    val seed = repeat ?: return this
+    if (repeatApplied) return this
+    val catalog = catalog ?: return this
+    if (parkId != seed.parkId || bucketsParkId != seed.parkId) return this
+    if (buckets.isEmpty()) return this
+    val shedsById = buckets.associateBy { it.locationId }
+    val operatorIds = operatorsForPark().map { it.userId }.toSet()
+    val carried = seed.buckets.mapNotNull { bucket ->
+        val shed = shedsById[bucket.locationId] ?: return@mapNotNull null
+        if (shed.scheduled) return@mapNotNull null
+        val category = when (bucket.category.trim().lowercase()) {
+            INDIVIDUAL_ANIMAL_CATEGORY -> INDIVIDUAL_ANIMAL_CATEGORY
+            else -> PER_SHED_PARTITION_CATEGORY
+        }
+        bucket.locationId to WizardSelection(
+            category = category,
+            // An operator the catalog no longer offers for this date is not carried over, and no
+            // stand-in is invented either: the catalog's operator list is tenant-wide, so "the
+            // first one" could be someone who does not work this park. The bucket comes across
+            // UNASSIGNED, which the configure step shows and the save gate refuses until the
+            // planner picks somebody.
+            operatorUserId = bucket.operatorUserId.takeIf { it in operatorIds }.orEmpty(),
+        )
+    }
+    return copy(
+        selections = carried.toMap(),
+        picked = emptySet(),
+        repeatApplied = true,
+        repeatDropped = seed.buckets.size - carried.size,
+    )
+}
 
 private fun WeighingWizardStep.next(): WeighingWizardStep? =
     WeighingWizardStep.entries.getOrNull(ordinal + 1)
@@ -366,10 +584,28 @@ private fun WeighingWizardStep.previous(): WeighingWizardStep? =
 private fun WizardRaw.park(): WeighingPlannerPark? =
     catalog?.parks?.firstOrNull { it.parkId == parkId }
 
-private fun WizardRaw.shedsInPark(): List<WeighingPlannerShed> = park()?.sheds.orEmpty()
+/**
+ * The CHOSEN park's loaded shed buckets. Empty until the park is picked and its first page lands --
+ * the park read carries no shed rows at all.
+ */
+private fun WizardRaw.shedsInPark(): List<WeighingPlannerShed> =
+    if (bucketsParkId != null && bucketsParkId == parkId) buckets else emptyList()
+
+/**
+ * The people who may be assigned work in the CHOSEN park.
+ *
+ * A person with no park list is tenant-scoped and may work anywhere; everyone else must name this
+ * park. Without this the picker offered the whole roster, defaulted a CBE task to the CPT operator,
+ * and the write accepted it -- so a park-scoped operator could see and weigh another park's shed.
+ */
+private fun WizardRaw.operatorsForPark(): List<WeighingPlannerOperator> {
+    val park = parkId ?: return emptyList()
+    return catalog?.operators.orEmpty()
+        .filter { it.parkIds.isEmpty() || park in it.parkIds }
+}
 
 private fun WizardRaw.defaultOperatorId(): String =
-    catalog?.operators?.firstOrNull()?.userId.orEmpty()
+    operatorsForPark().firstOrNull()?.userId.orEmpty()
 
 private fun WizardRaw.canContinue(): Boolean = when (step) {
     WeighingWizardStep.DATE -> date != null
@@ -446,7 +682,9 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
             WeighingWizardParkOption(
                 parkId = park.parkId,
                 name = park.name,
-                subtitle = "${park.sheds.size} ${bucketWord(park.sheds.size)}",
+                // The park's OWN shed total, as the backend counted it. Never a count of loaded
+                // rows: the park read sends none, and a bucket page holds ~20 of a 76-shed park.
+                subtitle = "${park.shedCount} ${bucketWord(park.shedCount)}",
                 selected = parkId == park.parkId,
             )
         },
@@ -515,7 +753,8 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         configShownCount = shownConfig.size,
         configTotalCount = filteredConfig.size,
         tickedCount = picked.size,
-        operators = catalog?.operators.orEmpty().map {
+        // Only people who work THIS park (plus anyone tenant-scoped).
+        operators = operatorsForPark().map {
             WeighingWizardOperatorOption(userId = it.userId, displayName = it.displayName)
         },
         configSummary = buildString {
@@ -532,6 +771,8 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
                     append(count)
                 }
         },
+        repeatSourceLabel = repeat?.let { "From ${it.parkName} · ${it.sourceDateLabel}" },
+        repeatDroppedCount = repeatDropped,
         reviewRows = ordered.map { (locationId, selection) ->
             WeighingWizardReviewRow(
                 locationId = locationId,
@@ -553,7 +794,7 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
 
 private fun WizardRaw.contextLine(dateLabel: String, addedCount: Int): String = when (step) {
     WeighingWizardStep.DATE -> if (date != null) dateLabel else "Pick a date to continue"
-    WeighingWizardStep.PARK -> park()?.let { "${it.name} · ${it.sheds.size} ${bucketWord(it.sheds.size)}" }
+    WeighingWizardStep.PARK -> park()?.let { "${it.name} · ${it.shedCount} ${bucketWord(it.shedCount)}" }
         ?: "Pick a park to continue"
     WeighingWizardStep.BUCKETS -> if (addedCount > 0) {
         "$addedCount ${bucketWord(addedCount)} added"

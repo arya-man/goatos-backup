@@ -40,4 +40,10 @@
     <string name="perm_status_granted">మంజూరైంది</string>
     <string name="perm_status_needed">అవసరం</string>
     <string name="perm_status_open_settings">సెట్టింగ్‌లు తెరవండి</string>
+
+    <string name="alerts_off_title">ఈ ఫోన్‌లో అలర్ట్‌లు ఆఫ్‌లో ఉన్నాయి</string>
+    <string name="alerts_off_body">పని గడువు వచ్చినప్పుడు, ఒక షెడ్‌ను మళ్లీ చేయమని తిప్పి పంపినప్పుడు, ఒక వీడియో తనిఖీ కోసం ఎదురుచూస్తున్నప్పుడు ఈ ఫోన్ మౌనంగా ఉంటుంది. మీరే యాప్ తెరిచి చూడాల్సి వస్తుంది.</string>
+    <string name="alerts_off_turn_on">అలర్ట్‌లు ఆన్ చేయండి</string>
+    <string name="alerts_off_settings_help">మీ ఫోన్ మళ్లీ అడగదు. కింద నుండి ఫోన్ సెట్టింగ్‌లు తెరిచి Mesha కోసం నోటిఫికేషన్‌లు ఆన్ చేయండి.</string>
+    <string name="alerts_off_open_settings">ఫోన్ సెట్టింగ్‌లు తెరవండి</string>
 </resources>

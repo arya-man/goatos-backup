@@ -6,6 +6,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import sg.mesha.goatos.core.permissions.areNotificationsEnabled
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -295,6 +296,7 @@ object AppModule {
         api: AppApi,
         cache: BootstrapCache,
         deviceStore: DeviceStore,
+        @ApplicationContext context: Context,
     ): BootstrapRepository =
         DefaultBootstrapRepository(
             api = api,
@@ -302,6 +304,10 @@ object AppModule {
             deviceStore = deviceStore,
             appVersion = BuildConfig.VERSION_NAME,
             osVersion = Build.VERSION.RELEASE.orEmpty(),
+            // Read at report time, not captured once: someone can switch notifications off in
+            // system settings long after this repository was constructed, and the heartbeat that
+            // follows must carry the CURRENT answer.
+            notificationsEnabled = { areNotificationsEnabled(context) },
         )
 
     @Provides
@@ -551,6 +557,7 @@ object AppModule {
         outboxWiper: OutboxWiper,
         syncJobsCanceller: SyncJobsCanceller,
         pushLogoutCleanup: PushLogoutCleanup,
+        feedCompletionLocalStore: FeedCompletionLocalStore,
     ): LogoutCoordinator = LogoutCoordinator(
         api = api,
         deviceStore = deviceStore,
@@ -559,6 +566,7 @@ object AppModule {
         outboxWiper = outboxWiper,
         syncJobsCanceller = syncJobsCanceller,
         clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
+        feedCompletionLocalStore = feedCompletionLocalStore,
     )
 
     @Provides

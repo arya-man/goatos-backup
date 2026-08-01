@@ -368,3 +368,38 @@ func mapRepoErr(err error) error {
 		return err
 	}
 }
+
+// WithdrawItemsBySource is the producing module's retire seam: the module that
+// raised the items tells verification that the source records they point at are
+// superseded, so the items must stop being decidable. It is not a verdict and is
+// not reachable from the verifier-facing HTTP surface.
+func (s *Service) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	refs := make([]string, 0, len(sourceRefIDs))
+	for _, ref := range sourceRefIDs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(ref) {
+			return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+		}
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	withdrawn, err := s.repo.WithdrawItemsBySource(ctx, tenantID, sourceModule, sourceRefType, refs)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return withdrawn, nil
+}

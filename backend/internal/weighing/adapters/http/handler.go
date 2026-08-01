@@ -22,9 +22,12 @@ type Service interface {
 	UpdateCampaign(ctx context.Context, actor domain.Actor, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
 	PublishCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey string) (domain.Campaign, error)
 	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error)
-	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate, excludeCampaignID string) (domain.PlannerCatalog, error)
+	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
+	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
-	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string) (domain.LeadershipShedVideos, error)
+	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
+	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
+	ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
@@ -64,9 +67,12 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /weighing/campaigns/{campaign_id}", h.UpdateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
+	mux.HandleFunc("GET /app/weighing/planner/parks/{park_id}/buckets", h.PlannerParkBuckets)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
+	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds", h.ListCampaignSheds)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", h.GetLeadershipShedVideos)
+	mux.HandleFunc("GET /app/weighing/leadership/sheds", h.ListLeadershipSheds)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/animal-observations", h.RecordAnimalObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/shed-observations", h.RecordShedObservation)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
@@ -185,8 +191,17 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	}
 	// park_id filters the ROWS only. counts stays a whole-scope aggregate on purpose, so the
 	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
-	page, err := h.service.ListCampaigns(r.Context(), actor(r), scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "trace_id": traceID(r)}, err)
+	caller := actor(r)
+	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
+	// Which task-level writes THIS caller may attempt. Publish and end are held by
+	// DIFFERENT permissions (plan vs monitor), so a client that gates only on status
+	// shows a live button that 403s -- a growth director holds monitor and not plan.
+	capabilities := map[string]bool{
+		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
+		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+	}
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": capabilities, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -213,9 +228,28 @@ func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, r, map[string]any{"campaign": c, "trace_id": traceID(r)}, err)
 }
 
+// PlannerCatalog is the PARK-grain read. It has no cursor and no limit: a park picker that
+// paged could not offer the parks it had not reached yet, which is exactly the defect this
+// split removes. The many-side page is PlannerParkBuckets.
 func (h *Handler) PlannerCatalog(w http.ResponseWriter, r *http.Request) {
-	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"), r.URL.Query().Get("exclude_campaign_id"))
+	catalog, err := h.service.PlannerCatalog(r.Context(), actor(r), r.URL.Query().Get("period_start_date"))
 	h.respond(w, r, map[string]any{"parks": catalog.Parks, "operators": catalog.Operators, "trace_id": traceID(r)}, err)
+}
+
+func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.queryLimit(w, r, domain.PlannerBucketPageSize)
+	if !ok {
+		return
+	}
+	page, err := h.service.PlannerParkBuckets(
+		r.Context(), actor(r),
+		r.PathValue("park_id"),
+		r.URL.Query().Get("period_start_date"),
+		r.URL.Query().Get("exclude_campaign_id"),
+		r.URL.Query().Get("cursor"),
+		limit,
+	)
+	h.respond(w, r, map[string]any{"park_id": page.ParkID, "sheds": page.Sheds, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {
@@ -242,17 +276,60 @@ func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
 	}, err)
 }
 
+func (h *Handler) ListCampaignSheds(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.queryLimit(w, r, domain.CampaignShedPageSize)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListCampaignSheds(r.Context(), actor(r), r.PathValue("campaign_id"), r.URL.Query().Get("cursor"), limit)
+	h.respond(w, r, map[string]any{
+		"campaign_id": page.CampaignID,
+		"items":       page.Items,
+		"next_cursor": page.NextCursor,
+		"total_count": page.TotalCount,
+		"trace_id":    traceID(r),
+	}, err)
+}
+
 func (h *Handler) GetLeadershipShedVideos(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.queryLimit(w, r, domain.LeadershipShedVideosPageSize)
+	if !ok {
+		return
+	}
 	result, err := h.service.GetLeadershipShedVideos(
 		r.Context(),
 		actor(r),
 		r.PathValue("campaign_id"),
 		r.PathValue("campaign_shed_id"),
+		r.URL.Query().Get("cursor"),
+		limit,
 	)
 	if err == nil {
 		err = h.resolveLeadershipMedia(r.Context(), actor(r).TenantID, &result)
 	}
 	h.respond(w, r, map[string]any{"shed": result, "trace_id": traceID(r)}, err)
+}
+
+// ListLeadershipSheds serves the gallery a PAGE of buckets. The client used to
+// build this page itself by calling the single-bucket read once per bucket.
+func (h *Handler) ListLeadershipSheds(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.queryLimit(w, r, domain.LeadershipShedPageSize)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListLeadershipSheds(r.Context(), actor(r), r.URL.Query().Get("cursor"), limit)
+	if err == nil {
+		for i := range page.Items {
+			if err = h.resolveLeadershipMedia(r.Context(), actor(r).TenantID, &page.Items[i]); err != nil {
+				break
+			}
+		}
+	}
+	h.respond(w, r, map[string]any{
+		"items":       page.Items,
+		"next_cursor": page.NextCursor,
+		"trace_id":    traceID(r),
+	}, err)
 }
 
 func (h *Handler) resolveLeadershipMedia(ctx context.Context, tenantID string, result *domain.LeadershipShedVideos) error {
@@ -441,6 +518,9 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrOperatorOutsidePark):
+		// Farm language, not a rule name: the planner picked someone who does not work that park.
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "operator_outside_park", Message: "One of the people chosen does not work in this park. Pick someone from this park, or a director who covers both.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrShedAlreadyScheduled):
 		// The blocked bucket NAMES travel with the 409 so the planner can render the
 		// reason inline instead of asking again.

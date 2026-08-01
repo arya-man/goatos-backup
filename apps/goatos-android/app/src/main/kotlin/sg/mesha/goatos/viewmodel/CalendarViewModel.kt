@@ -687,6 +687,10 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
     dueCount = dueCount,
     overdueCount = overdueCount,
     deferredCount = deferredCount,
+    progressBasis = progressBasis,
+    progressCompleted = progressCompleted,
+    progressTotal = progressTotal,
+    progressPct = progressPct,
     ownerLabel = ownerLabel,
 )
 

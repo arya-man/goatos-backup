@@ -157,7 +157,7 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -187,7 +187,7 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
-		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
+		{Key: "alerts", Label: "टीकाकरण अलर्ट", Href: "/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -221,7 +221,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -278,7 +278,7 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -342,7 +342,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	tests := []struct {
@@ -363,7 +363,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -386,7 +386,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -398,7 +398,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -580,7 +580,9 @@ func TestBootstrapNavComposition(t *testing.T) {
 		// An operator executes and nothing else: one work list, no planner list, no oversight.
 		want := []domain.BootstrapNavigationItem{
 			{Key: "weighing", Label: "My work", Href: "/weighing"},
-			{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			// No alerts tab: /alerts is the VACCINATION process-integrity feed, and a weighing
+			// operator holds no vaccination permission, so carrying it here gave them a
+			// permanently-empty cross-module tab that 403s on open.
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(weighing.NavItems) != len(want) {

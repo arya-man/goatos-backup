@@ -155,10 +155,50 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get leadership-visible Weighing planner parks, kid sheds, operators, and duplicate guards.
-         * @description Availability is scoped to ONE weigh date: each shed reports whether an open weighing task already claims it on that date, and by whom. A shed claimed on another date is not claimed here.
+         * Get every Weighing planner park for a weigh date, with the operator picker.
+         * @description PARK-GRAIN read. It returns EVERY park the planner may use on the requested date -- each with a park-grain shed COUNT, a park-grain kid count, and the park's existing task on that date -- plus the operator picker the wizard holds while it pages buckets. It carries NO shed rows and has no cursor: a park picker that paged could not offer the parks it had not reached yet. Read the chosen park's sheds, with their date-scoped availability, from /app/weighing/planner/parks/{park_id}/buckets.
          */
         get: operations["appWeighingPlannerCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/planner/parks/{park_id}/buckets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Page one Weighing planner park's kid sheds with their availability on a weigh date.
+         * @description Availability is scoped to ONE weigh date: each shed reports whether an open weighing task already claims it on that date, and by whom. A shed claimed on another date is not claimed here. A real park holds 76+ sheds, so this is a keyset page; the park list it drills from is a separate unpaged read.
+         */
+        get: operations["appWeighingPlannerParkBuckets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/campaigns/{campaign_id}/sheds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Page one Weighing task's shed buckets.
+         * @description The task-detail bucket list. It exists so the detail screen stops rendering the bucket set that the task LIST embeds in every campaign row: a park holds 76+ sheds, so a 20-task list page carried well over a thousand bucket rows. Keyset-paged on (display_name, campaign_shed_id). An assignee sees only their own buckets on the task; a planner or monitor sees all of them — the same split the task list already applies.
+         */
+        get: operations["appListWeighingCampaignSheds"];
         put?: never;
         post?: never;
         delete?: never;
@@ -218,6 +258,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/leadership/sheds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List leadership-visible Weighing shed buckets with their captured evidence.
+         * @description ONE keyset page of shed buckets across tasks, each with its own context and its first page of captured evidence. The leadership gallery's own read: building this page client-side meant one request per bucket (about 1,500 on a 76-shed park) on every screen open.
+         */
+        get: operations["appListWeighingLeadershipSheds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos": {
         parameters: {
             query?: never;
@@ -225,7 +285,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get leadership-visible proof videos for one Weighing scope. */
+        /**
+         * Get leadership-visible proof videos for one Weighing scope.
+         * @description The shed's captured evidence, plus the shed's own context (park name, weigh business date, assignee display name) so a cold deep link to this surface renders without the parent list having to hand those over. `individual` is a keyset page on (accepted_at, observation_id); `lump_sum` is a single latest row and is not paged.
+         */
         get: operations["appGetWeighingShedVideos"];
         put?: never;
         post?: never;
@@ -3467,6 +3530,8 @@ export interface components {
             app_install_id: string;
             device_public_key_hash: string | null;
             push_token_hash: string | null;
+            /** @description Last phone-reported state of the OS notification switch. Present only once the phone has reported it; false means push-muted (the device is not addressed and a dropped push is not counted as delivered). */
+            notifications_enabled?: boolean;
             app_version: string;
             os_version: string;
             /** @enum {string} */
@@ -3495,6 +3560,8 @@ export interface components {
             push_token_hash?: string | null;
             /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
             fcm_token?: string | null;
+            /** @description Whether this phone will actually show what is sent to it (the OS notification switch). false marks the device push-muted: FCM would accept the send and the OS would drop it, so the device is not addressed and the drop is never counted as a delivery. Omitted or null by an app build that predates this field, which stays reachable. */
+            notifications_enabled?: boolean | null;
             app_version: string;
             os_version?: string;
             metadata?: {
@@ -3507,6 +3574,8 @@ export interface components {
             push_token_hash?: string | null;
             /** @description Raw FCM registration token used as the push delivery address (message.token). push_token_hash stays the identity/dedup hash. */
             fcm_token?: string | null;
+            /** @description Whether this phone will actually show what is sent to it (the OS notification switch). false marks the device push-muted: FCM would accept the send and the OS would drop it, so the device is not addressed and the drop is never counted as a delivery. Omitted or null by an app build that predates this field, which stays reachable. */
+            notifications_enabled?: boolean | null;
             metadata?: {
                 [key: string]: unknown;
             };
@@ -4000,7 +4069,7 @@ export interface components {
             links: components["schemas"]["CalendarEventLinks"];
             drive_summary?: components["schemas"]["DriveSummary"] | null;
         };
-        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
+        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Cross-surface progress: progress_completed / progress_total / progress_pct on the progress_basis grain are the ONE authoritative drive-progress figure. Admin-web and the Android app MUST render them verbatim and MUST NOT derive their own numerator from any other field -- two clients each picking their own fields is how the same drive showed two different completion numbers and ring percentages. The numerator counts VERIFIED completion only; submitted-but-unverified work is reported by submitted_count / submitted_animals and never inflates progress. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
@@ -4037,6 +4106,17 @@ export interface components {
             completed_animals: number;
             /** @description Distinct animals with recorded completion pending verification */
             submitted_animals: number;
+            /**
+             * @description Grain that progress_completed/progress_total are counted on. "animals" whenever the drive has animals (a goat due several vaccines the same day is ONE animal), else the obligation/dose grain.
+             * @enum {string}
+             */
+            progress_basis: "animals" | "doses";
+            /** @description Authoritative progress numerator on progress_basis. Verified completion only -- clients render this verbatim and never substitute submitted counts. */
+            progress_completed: number;
+            /** @description Authoritative progress denominator on progress_basis. */
+            progress_total: number;
+            /** @description Backend-rounded (half-up) progress percentage. Clients render this verbatim instead of re-deriving it, so the ring reads identically on every surface. */
+            progress_pct: number;
             /** @description Owner/team label */
             owner_label: string;
         };
@@ -5454,6 +5534,8 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
+            /** @description Backend-resolved assignee name, carried ON the bucket so a client never has to join it against a separately paged operator vocabulary. Empty WITH a non-empty operator_user_id is a roster gap, not "not assigned". */
+            operator_display_name: string;
             expected_animal_count: number;
             weighing_category: components["schemas"]["WeighingCategory"];
             /** Format: uuid */
@@ -5542,7 +5624,8 @@ export interface components {
             park_id: string;
             name: string;
             kid_count: number;
-            sheds: components["schemas"]["WeighingPlannerShed"][];
+            /** @description PARK-GRAIN count of this park's active sheds, computed over the park's own children. It is not a count of rows on any page: this response carries no shed rows, and a bucket page carries only ~20. Read the sheds themselves from /app/weighing/planner/parks/{park_id}/buckets. */
+            shed_count: number;
             existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
         };
         WeighingPlannerOperator: {
@@ -5550,6 +5633,17 @@ export interface components {
             user_id: string;
             display_name: string;
             display_code: string;
+        };
+        WeighingPlannerParkBucketsResponse: {
+            /**
+             * Format: uuid
+             * @description The park these buckets belong to; echoes the path parameter.
+             */
+            park_id: string;
+            sheds: components["schemas"]["WeighingPlannerShed"][];
+            /** @description Keyset cursor for this park's next bucket page. Absent/empty means the last page. The cursor is scoped to the park in the path, so a page can never carry rows from another park. */
+            next_cursor?: string;
+            trace_id?: string;
         };
         WeighingPlannerCatalogResponse: {
             parks: components["schemas"]["WeighingPlannerPark"][];
@@ -5578,6 +5672,16 @@ export interface components {
             current_location_label?: string;
             current_lifecycle_status?: string;
             seq: number;
+        };
+        WeighingCampaignShedPageResponse: {
+            /** Format: uuid */
+            campaign_id: string;
+            items: components["schemas"]["WeighingCampaignShed"][];
+            /** @description Keyset cursor for the next page. Absent/empty means the last page. */
+            next_cursor?: string;
+            /** @description WHOLE-TASK bucket count over the same scope the rows range over — never the length of this page, so the header does not change as the user scrolls. */
+            total_count: number;
+            trace_id?: string;
         };
         WeighingRosterResponse: {
             items: components["schemas"]["WeighingRosterRow"][];
@@ -5670,10 +5774,36 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             shed_name: string;
+            /** @description The park this bucket's task belongs to. Rendered as the screen eyebrow. */
+            park_name: string;
+            /**
+             * Format: date
+             * @description The task's Asia/Kolkata business DATE. Never a timestamp.
+             */
+            weigh_date: string;
+            /** @description Who owns this bucket. An EMPTY value is the only thing that entitles a client to say the bucket is not assigned. */
+            operator_user_id: string;
+            /** @description Backend-resolved assignee name. Empty WITH a non-empty operator_user_id means the assignee has no active workforce record — a roster gap, not "not assigned". */
+            operator_display_name: string;
+            /** @description Planning-time herd estimate for the shed. A coverage hint, never a completeness denominator — weighing is free-flow and has no expected roster. */
+            estimated_animal_count: number;
+            /** @description Group-video allowance for a lump-sum submission, so "N of M" reads off policy. */
+            max_shed_videos: number;
+            /** @description Keyset cursor for the next page of `individual`, on (accepted_at, observation_id). Absent/empty means the last page. */
+            next_individual_cursor?: string;
             weighing_category: components["schemas"]["WeighingCategory"];
             status: string;
             individual: components["schemas"]["WeighingObservation"][];
             lump_sum?: components["schemas"]["WeighingObservation"];
+            /** @description Backend-owned sentence for the weigh period this bucket belongs to. A client must not build this label by concatenating dates itself. */
+            period_label?: string;
+        };
+        /** @description ONE keyset page of shed buckets across tasks, each carrying its own context and its FIRST page of captured evidence. GRAIN: one row = one bucket = one shed on one task. There is no denominator; each bucket states its own evidence cursor. */
+        WeighingLeadershipShedPageResponse: {
+            items: components["schemas"]["WeighingShedVideos"][];
+            /** @description Keyset cursor on (period_start_date, created_at, campaign_id, campaign_shed_id). Absent/empty means the last page. */
+            next_cursor?: string;
+            trace_id?: string;
         };
         WeighingShedVideosResponse: {
             shed: components["schemas"]["WeighingShedVideos"];
@@ -6062,7 +6192,7 @@ export interface components {
             projected_at: string;
         };
         /** @enum {string} */
-        VerificationItemStatus: "pending" | "approved" | "rejected";
+        VerificationItemStatus: "pending" | "approved" | "rejected" | "withdrawn";
         VerificationSourceRef: {
             module: string;
             /** Format: uuid */
@@ -7133,10 +7263,8 @@ export interface operations {
     appWeighingPlannerCatalog: {
         parameters: {
             query: {
-                /** @description The Asia/Kolkata business DATE the availability is reported for. */
+                /** @description The Asia/Kolkata business DATE the existing-task decoration is read for. */
                 period_start_date: string;
-                /** @description The task currently being edited. Its own buckets are not reported as taken, so an edit can re-save the sheds it already owns. */
-                exclude_campaign_id?: string;
             };
             header?: never;
             path?: never;
@@ -7144,13 +7272,79 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Bounded Weighing planner catalog. */
+            /** @description Every planner park for the date, plus the operator picker. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingPlannerCatalogResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appWeighingPlannerParkBuckets: {
+        parameters: {
+            query: {
+                /** @description The Asia/Kolkata business DATE the availability is reported for. */
+                period_start_date: string;
+                /** @description The task currently being edited. Its own buckets are not reported as taken, so an edit can re-save the sheds it already owns. */
+                exclude_campaign_id?: string;
+                /** @description Opaque cursor returned as next_cursor by the previous page of THIS park. */
+                cursor?: string;
+                /** @description Shed rows per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The park whose sheds are paged. */
+                park_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One keyset page of the park's buckets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingPlannerParkBucketsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingCampaignSheds: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the task's shed buckets. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignShedPageResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -7263,9 +7457,41 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    appListWeighingLeadershipSheds: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of shed buckets with their evidence. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingLeadershipShedPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appGetWeighingShedVideos: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque cursor returned as next_individual_cursor by the previous page. */
+                cursor?: string;
+                limit?: number;
+            };
             header?: never;
             path: {
                 campaign_id: components["parameters"]["WeighingCampaignId"];

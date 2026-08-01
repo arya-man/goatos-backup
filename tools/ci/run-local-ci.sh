@@ -281,6 +281,7 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "design-system-guard"          make design-system-guard
   step "android-row-action-scope-guard" make android-row-action-scope-guard
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
@@ -293,6 +294,10 @@ run_android_guards() {
 }
 
 run_android() {
+  # Orphaned test JVMs from a previously-killed Gradle run hold module build locks, so the
+  # next run blocks on a lock nobody is watching and reads as "the suite is slow". Reap first.
+  bash tools/agent-hooks/reap-stale-gradle-workers.sh || true
+
   run_android_guards
   local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"

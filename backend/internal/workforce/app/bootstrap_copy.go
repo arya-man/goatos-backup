@@ -110,7 +110,12 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
 			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			// NO alerts tab here. /alerts is the vaccination process-integrity feed -- its only
+			// upstream needs ObligationRead+VaccinationRead, and its label reads "Vaccination
+			// alerts" in all four languages. Carried in the weighing bar it gave a weighing
+			// operator a permanently-empty cross-module tab that 403s, contradicting both the
+			// comment above and the rule that alerts are scoped by feature AND role. Weighing
+			// alerts belong to weighing once a module-scoped notification feed exists.
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 	},
@@ -296,6 +301,23 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	}
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = append(keys, "weighing")
+	}
+	// Feed Director -> Feed, Health Director -> Counts (maintainer decision 2026-08-01, one
+	// module per director). Both roles are in leadershipGrantRoles, so WITHOUT these entries the
+	// leadership branch above resolved len(keys)==0 and /app/bootstrap returned an EMPTY nav and
+	// an EMPTY drawer for them -- a role that can log in and see nothing.
+	//
+	// The keys are the OFFER; permission filtering still decides what renders. Counts is an OFF
+	// feature (AGENTS.md) and health_director deliberately holds no counts.read/counts.write, so
+	// every Counts nav item is gated away from him and the Counts module contributes nothing
+	// until the feature is switched on. Feed is a declared roadmap module (moduleStatusSoon), so
+	// feed_director sees its "Soon" drawer row and no bottom bar until the Feed surface is built.
+	// Both are asserted in bootstrap_copy_test.go so the offer cannot silently become access.
+	if hasRole(grants, permissions.RoleFeedDirector) {
+		keys = append(keys, "feed_direction")
+	}
+	if hasRole(grants, permissions.RoleHealthDirector) {
+		keys = append(keys, "counts")
 	}
 	return keys
 }
@@ -543,7 +565,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.verify":      "Verify",
 		"nav.overview":    "Overview",
 		"nav.calendar":    "Calendar",
-		"nav.alerts":      "Alerts",
+		"nav.alerts":      "Vaccination alerts",
 		"nav.drives":      "Drives",
 		"nav.counts":      "Counts",
 		"nav.birth_death": "Birth/Death",
@@ -570,7 +592,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.verify":      "सत्यापित करें",
 		"nav.overview":    "अवलोकन",
 		"nav.calendar":    "कैलेंडर",
-		"nav.alerts":      "अलर्ट",
+		"nav.alerts":      "टीकाकरण अलर्ट",
 		"nav.drives":      "ड्राइव",
 		"nav.counts":      "गिनती",
 		"nav.birth_death": "जन्म/मृत्यु",
@@ -597,7 +619,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
 		"nav.overview":    "ಅವಲೋಕನ",
 		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
-		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.alerts":      "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
 		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
 		"nav.counts":      "ಎಣಿಕೆ",
 		"nav.birth_death": "ಜನನ/ಮರಣ",
@@ -624,7 +646,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.verify":      "ధృవీకరించండి",
 		"nav.overview":    "అవలోకనం",
 		"nav.calendar":    "క్యాలెండర్",
-		"nav.alerts":      "అలర్ట్లు",
+		"nav.alerts":      "టీకా అలర్ట్లు",
 		"nav.drives":      "డ్రైవ్‌లు",
 		"nav.counts":      "లెక్కలు",
 		"nav.birth_death": "జననం/మరణం",
