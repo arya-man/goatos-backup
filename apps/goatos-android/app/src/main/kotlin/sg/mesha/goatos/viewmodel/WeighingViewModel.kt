@@ -1138,7 +1138,20 @@ class WeighingViewModel @Inject constructor(
                         workGroupId = workGroupId,
                         campaignShedId = campaignShedId,
                         animalId = row.animalId,
-                        scannedIdentifier = scanInput.value.ifBlank { row.primaryTag },
+                        // The identity of this weight is the ROW's own tag, never the shared scan
+                        // box. scanInput is one ViewModel-wide field that every scan and the typed-
+                        // scan box overwrite; the per-row save path runs WITHOUT the global busy
+                        // gate (useGlobalBusyGate = false), so nothing holds it still while this
+                        // save is dispatched. Reading it here meant "scan the next animal, then
+                        // save the previous row's weight" shipped that weight under the OTHER
+                        // animal's tag -- and free-flow gives the backend nothing to catch it with
+                        // (RecordAnimalObservation clears AnimalID and takes scanned_identifier
+                        // verbatim, service.go:419-426), so the client binding IS the record.
+                        // For every path that reaches here the two agree when they are correct:
+                        // matchTag sets selectedRow and scanInput from the SAME scanned tag, and
+                        // selectAnimal sets scanInput = row.primaryTag. Only the divergent case
+                        // was ever wrong.
+                        scannedIdentifier = row.primaryTag.ifBlank { row.animalId },
                         weightKg = weightKg,
                     ),
                 )) {

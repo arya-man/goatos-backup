@@ -239,6 +239,54 @@ class WeighingViewModelTest {
         assertFalse(vm.state.value.visibleRows.any { it.weightUpdating })
     }
 
+    /**
+     * The per-row weight save must bind the weight to the ROW it was typed against, not to whatever
+     * tag the shared scan box happens to be holding.
+     *
+     * recordIndividualRow built its capture with `scannedIdentifier = scanInput.value.ifBlank {
+     * row.primaryTag }`. scanInput is a single ViewModel-wide field written by every scan and by
+     * the typed-scan box; the per-row save path deliberately runs WITHOUT the global busy gate
+     * (`useGlobalBusyGate = false`), so nothing holds that field still while the save is dispatched.
+     * The operator scans the next animal, then goes back and saves the weight for the previous row:
+     * that row's weight leaves the phone under the OTHER animal's tag.
+     *
+     * The backend cannot catch this. RecordAnimalObservation clears AnimalID outright and takes
+     * scanned_identifier verbatim (service.go:419-426) -- free-flow has no roster to cross-check
+     * against, so the client's binding IS the record.
+     */
+    @Test
+    fun `per-row weight save binds to its own row not the shared scan box`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow(), rosterRow(animalId = SECOND_TAG, rowId = "row-2")),
+                emptyList(),
+                emptyList(),
+                0,
+            ),
+            recordIndividualGate = gate,
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG)
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, SECOND_TAG)
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // The operator has moved on: the scan box now holds the SECOND animal's tag.
+        vm.onScanInputChange(SECOND_TAG)
+        // ...and now saves the weight typed against the FIRST animal's row.
+        vm.onAnimalWeightInputChange(TEST_TAG, "12.0")
+        vm.recordIndividual(TEST_TAG, "12.0")
+        runCurrent()
+
+        assertEquals(TEST_TAG, repository.lastCapture?.animalId)
+        assertEquals(TEST_TAG, repository.lastCapture?.scannedIdentifier)
+
+        gate.complete(AppResult.Ok(acceptedDraft(weightKg = 12.0)))
+        advanceUntilIdle()
+    }
+
     @Test
     fun `free flow scanned animals stay newest first after merging restored drafts`() = runTest(dispatcher) {
         val olderDraftTag = "901007000504406"
