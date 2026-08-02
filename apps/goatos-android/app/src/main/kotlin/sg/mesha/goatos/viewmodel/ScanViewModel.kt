@@ -983,7 +983,7 @@ class ScanViewModel @Inject constructor(
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value
-        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
+        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank()) return
         // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
         // a proof re-capture may be below the scroll window (the gate surfaces the full-roster set).
         val current = state.value
@@ -992,10 +992,21 @@ class ScanViewModel @Inject constructor(
         requestGoatProof(row)
     }
 
+    /** Opens the goat proof camera for [row]. Only one capture may be in flight at a time — the
+     *  camera is a single physical device the operator is actively pointing at ONE animal. A scan
+     *  of a second goat while the first goat's video is still recording must NOT silently drop
+     *  (that let a since-fixed bug save the recording under the WRONG goat's id, because the
+     *  in-flight capture's subject was already bound to the first goat's closure). Instead the new
+     *  scan is refused and the reason is surfaced to the operator via the same visible notice
+     *  banner used elsewhere on this screen (repo rule: disabled-with-reason, never silent). */
     private fun requestGoatProof(row: RosterRow) {
         val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value
-        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank() || proofCaptureInFlight) return
+        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
+        if (proofCaptureInFlight) {
+            _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
+            return
+        }
         proofCaptureInFlight = true
         viewModelScope.launch {
             try {
@@ -1082,6 +1093,9 @@ private const val MIN_VISIBLE_PROOF_SYNCING_MS = 1_500L
 /** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
 private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
+/** Operator-facing copy for [ScanViewModel.requestGoatProof]'s busy guard — plain farm language,
+ *  never internal terms like "in-flight" or "capture session". */
+private const val PROOF_CAPTURE_BUSY_MESSAGE = "Finish the current animal's video first."
 
 private fun scanHeaderTitle(routeTitle: String?, detail: TaskDetail?): String {
     val shedName = routeTitle

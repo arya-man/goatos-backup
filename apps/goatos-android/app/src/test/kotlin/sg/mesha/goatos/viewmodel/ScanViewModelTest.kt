@@ -59,6 +59,7 @@ import sg.mesha.goatos.core.network.dto.TaskSummaryDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 import sg.mesha.goatos.feature.scan.ScanEvent
+import sg.mesha.goatos.feature.scan.ScanError
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.submit.SubmitEvent
 import sg.mesha.goatos.rfid.FakeScanSource
@@ -270,6 +271,60 @@ class ScanViewModelTest {
         assertEquals("already scanned duplicate scans are a notice, not another visible feed row", 1, scanVm.state.value.feed.size)
         assertEquals("Already scanned · ET", scanVm.state.value.duplicateNotice)
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+    }
+
+    @Test
+    fun `scanning a second goat while the first goat's proof video is still recording is refused visibly, not silently, and does not corrupt the subject id`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-1"),
+                        scanRow("goat-2", "TAG-200", "obl-2"),
+                    ),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        // Goat A is scanned; its camera opens and the recording is still in progress (suspended
+        // on the gate) when goat B is scanned.
+        val goatAGate = proofSource.queueGate()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("goat A's camera opened", 1, proofSource.captureCount)
+        assertEquals(0, proofRepo.captureCalls.size)
+
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+
+        // Goat B's scan must not silently drop: no second camera launch, no proof saved for B, and
+        // the operator sees a plain-language reason instead of nothing happening.
+        assertEquals("goat B must not open a second camera while goat A's is recording", 1, proofSource.captureCount)
+        assertEquals("goat B must not record a proof while goat A's capture is in flight", 0, proofRepo.captureCalls.size)
+        assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
+
+        // Goat A's recording finishes; its proof must land under goat A's subject id, not goat B's.
+        goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+
+        assertEquals(1, proofRepo.captureCalls.size)
+        assertEquals("goat-1", proofRepo.captureCalls.single().subjectId)
     }
 
     @Test
@@ -949,6 +1004,7 @@ class ScanViewModelTest {
         val first = ScanRosterResponseDto(rows = pages.first(), nextCursor = if (pages.size > 1) "cursor-1" else null)
         return FakeScanExecutionRepository(firstPage = first, continuationPages = continuation)
     }
+
 }
 
 private fun scanRow(goatId: String, tag: String, obligationId: String, secondaryTag: String? = null): ScanRosterRowDto =
@@ -1297,4 +1353,5 @@ class ScanViewModelExecutionGateTest {
         advanceUntilIdle()
         assertFalse(vm.state.value.captureAccessRequired)
     }
+
 }
