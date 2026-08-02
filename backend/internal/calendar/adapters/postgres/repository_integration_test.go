@@ -4979,4 +4979,224 @@ INSERT INTO vaccination_completions (
 			t.Errorf("overdue_count=%d, want 5 (unsubmitted missed)", s.OverdueCount)
 		}
 	})
+
+	// CASE (c) OneToMany + MultiPage + StatusBuckets, all on one fixture.
+	//
+	// Cardinality (OneToMany): 12 obligations across TWO rules collapse into ONE drive row for
+	// (park, day). bool_or is a per-row predicate over the single membership row-set, so a drive
+	// with many obligations must not multiply the drive, and a mixed drive must still read
+	// missed/critical rather than being diluted by the submitted majority.
+	//
+	// Pagination (MultiPage/PageBoundary): the effective-state flags are whole-filter aggregates,
+	// not page-local. Limit=1 and Limit=50 must therefore produce an IDENTICAL headline and
+	// severity for the same drive -- if the flags ever became page-local, the drive would change
+	// colour depending on how many events happened to share the page.
+	//
+	// StatusBuckets: the five summary buckets stay disjoint and sum to total while the new
+	// submission-aware flags are in play.
+	t.Run("OneToManyMultiPageStatusBuckets_PageBoundaryDoesNotChangeHeadline", func(t *testing.T) {
+		const (
+			protC  = "cc000000-0000-4000-8000-000000ca0001"
+			verC   = "cc000000-0000-4000-8000-000000ca0002"
+			ruleC1 = "cc000000-0000-4000-8000-000000ca0003"
+			batchC = "cc000000-0000-4000-8000-000000cb0001"
+		)
+		dayC := biztime.BusinessDayStart(time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC))
+		dayKeyC := dayC.In(loc).Format("2006-01-02")
+
+		obl1 := "cc000000-0000-4000-8000-000000cc0001"
+		seedVaccinationObligation(t, ctx, pool, protC, verC, ruleC1, obl1, dayC)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		var oblIDs []string
+		oblIDs = append(oblIDs, obl1)
+		for i := 2; i <= 12; i++ {
+			oblID := fmt.Sprintf("cc000000-0000-4000-8000-000000cc%04d", i)
+			// Many obligations on the same rule and the same (park, day): the drive must stay
+			// exactly ONE row -- the aggregate collapses obligations, it does not multiply drives.
+			seedAdditionalVaccinationObligation(t, ctx, pool, verC, ruleC1, oblID, dayC)
+			seedCalendarGoat(t, ctx, pool, oblID)
+			oblIDs = append(oblIDs, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verC, ruleC1, "PPR")
+		seedVaccinationBatchForShed(t, ctx, pool, batchC, verC, testParkA, testShedB, dayC, oblIDs...)
+
+		// 6 submitted, 6 genuinely missed. The submitted majority must NOT hide the missed work.
+		for i, oblID := range oblIDs {
+			setDriveObligationStatus(t, ctx, pool, oblID, "missed")
+			if i < 6 {
+				if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text)`,
+					testTenantID, oblID, dayC); err != nil {
+					t.Fatalf("seed completion: %v", err)
+				}
+			}
+		}
+
+		findDrive := func(t *testing.T, items []domain.CalendarEvent) *domain.CalendarEvent {
+			t.Helper()
+			for i := range items {
+				if items[i].EventType == domain.EventVaccinationDrive &&
+					items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyC {
+					return &items[i]
+				}
+			}
+			return nil
+		}
+
+		// Page boundary: one event per page vs a whole page of them.
+		var wide, narrow *domain.CalendarEvent
+		for _, tc := range []struct {
+			name  string
+			limit int
+			out   **domain.CalendarEvent
+		}{
+			{"wide page", 50, &wide},
+			{"single-event page", 1, &narrow},
+		} {
+			resp, err := repo.ListEvents(ctx, domain.Query{
+				TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+				// Window pinned to dayC only: neighbouring subtests seed drives on 08-01/08-02,
+				// and a +/-24h window would let one of those occupy the single-event page.
+				DateFrom: dayC, DateTo: dayC.Add(1 * time.Hour), Limit: tc.limit,
+				Scope: domain.ScopeFilter{TenantWide: true},
+			})
+			if err != nil {
+				t.Fatalf("ListEvents (%s): %v", tc.name, err)
+			}
+			got := findDrive(t, resp.Items)
+			if got == nil {
+				t.Fatalf("drive for %s missing from %s response", dayKeyC, tc.name)
+			}
+			*tc.out = got
+		}
+
+		if wide.Status != domain.StatusMissed || wide.Severity != domain.SeverityCritical {
+			t.Errorf("mixed drive status/severity = %s/%s, want missed/critical (6 genuinely missed present)",
+				wide.Status, wide.Severity)
+		}
+		if narrow.Status != wide.Status || narrow.Severity != wide.Severity {
+			t.Errorf("page boundary changed the headline: limit=1 gave %s/%s, limit=50 gave %s/%s -- effective-state flags must be whole-filter aggregates, not page-local",
+				narrow.Status, narrow.Severity, wide.Status, wide.Severity)
+		}
+
+		// StatusBuckets: disjoint and total, with the summary explicitly requested.
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayC, DateTo: dayC.Add(1 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents with summary: %v", err)
+		}
+		event := findDrive(t, resp.Items)
+		if event == nil {
+			t.Fatalf("drive for %s missing from IncludeDriveSummary response", dayKeyC)
+		}
+		if event.Status != domain.StatusMissed || event.Severity != domain.SeverityCritical {
+			t.Errorf("summary path status/severity = %s/%s, want missed/critical (must match the default path)",
+				event.Status, event.Severity)
+		}
+		s := event.DriveSummary
+		if s == nil {
+			t.Fatalf("drive_summary is nil despite IncludeDriveSummary=true")
+		}
+		sum := s.CompletedCount + s.SubmittedCount + s.DueCount + s.OverdueCount + s.DeferredCount
+		if sum != s.TotalCount {
+			t.Errorf("five-bucket invariant broken: %d+%d+%d+%d+%d=%d != total %d",
+				s.CompletedCount, s.SubmittedCount, s.DueCount, s.OverdueCount, s.DeferredCount, sum, s.TotalCount)
+		}
+		if s.TotalCount != len(oblIDs) {
+			t.Errorf("total_count=%d, want %d -- 12 obligations across 2 rules must collapse to ONE drive without fan-out",
+				s.TotalCount, len(oblIDs))
+		}
+		if s.SubmittedCount != 6 {
+			t.Errorf("submitted_count=%d, want 6", s.SubmittedCount)
+		}
+	})
+
+	// CASE (d) DateShift + ParkScope.
+	//
+	// DateShift: genuine_overdue is a READ-TIME condition -- an obligation still open whose IST
+	// business date has passed. It must NOT depend on a literal 'overdue' obligation status, which
+	// the baseline CHECK does not permit. This is the regression a reviewer predicted: gating the
+	// read-time condition on a status bucket would let ordinary past-due scheduled/due work fall
+	// through every branch and render as the false-green 'scheduled'.
+	//
+	// ParkScope: the same verdict must hold when the query is narrowed to the owning park, proving
+	// the flags are keyed on (park_id, due_date) and not silently tenant-wide.
+	t.Run("DateShiftParkScope_PastDueScheduledStillReadsOverdue", func(t *testing.T) {
+		const (
+			protD  = "cd000000-0000-4000-8000-000000da0001"
+			verD   = "cd000000-0000-4000-8000-000000da0002"
+			ruleD  = "cd000000-0000-4000-8000-000000da0003"
+			batchD = "cd000000-0000-4000-8000-000000db0001"
+		)
+		// Deliberately in the past relative to any plausible run date, so "past due" is not
+		// dependent on the clock at test time.
+		dayD := biztime.BusinessDayStart(time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC))
+		dayKeyD := dayD.In(loc).Format("2006-01-02")
+
+		obl1 := "cd000000-0000-4000-8000-000000dc0001"
+		seedVaccinationObligation(t, ctx, pool, protD, verD, ruleD, obl1, dayD)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		oblIDs := []string{obl1}
+		for i := 2; i <= 8; i++ {
+			oblID := fmt.Sprintf("cd000000-0000-4000-8000-000000dc%04d", i)
+			seedAdditionalVaccinationObligation(t, ctx, pool, verD, ruleD, oblID, dayD)
+			seedCalendarGoat(t, ctx, pool, oblID)
+			oblIDs = append(oblIDs, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verD, ruleD, "FMD")
+		seedVaccinationBatchForShed(t, ctx, pool, batchD, verD, testParkA, testShedA, dayD, oblIDs...)
+
+		// Left as legal open statuses, NOT 'missed', and nothing submitted: this is ordinary
+		// past-due work, the exact case that must not read as 'scheduled'.
+		for i, oblID := range oblIDs {
+			status := "scheduled"
+			if i%2 == 0 {
+				status = "due"
+			}
+			setDriveObligationStatus(t, ctx, pool, oblID, status)
+		}
+
+		for _, tc := range []struct {
+			name  string
+			scope domain.ScopeFilter
+		}{
+			{"tenant wide", domain.ScopeFilter{TenantWide: true}},
+			{"park scoped", domain.ScopeFilter{ParkIDs: []string{testParkA}}},
+		} {
+			for _, withSummary := range []bool{false, true} {
+				resp, err := repo.ListEvents(ctx, domain.Query{
+					TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+					DateFrom: dayD.Add(-24 * time.Hour), DateTo: dayD.Add(24 * time.Hour), Limit: 50,
+					Scope: tc.scope, IncludeDriveSummary: withSummary,
+				})
+				if err != nil {
+					t.Fatalf("ListEvents (%s, summary=%v): %v", tc.name, withSummary, err)
+				}
+				var event *domain.CalendarEvent
+				for i := range resp.Items {
+					if resp.Items[i].EventType == domain.EventVaccinationDrive &&
+						resp.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyD {
+						event = &resp.Items[i]
+						break
+					}
+				}
+				if event == nil {
+					t.Fatalf("drive for %s missing (%s, summary=%v)", dayKeyD, tc.name, withSummary)
+				}
+				if event.Status == domain.StatusScheduled {
+					t.Errorf("past-due open work rendered as %q (%s, summary=%v) -- this is the false-green regression",
+						event.Status, tc.name, withSummary)
+				}
+				if event.Status != domain.StatusOverdue || event.Severity != domain.SeverityCritical {
+					t.Errorf("status/severity = %s/%s (%s, summary=%v), want overdue/critical",
+						event.Status, event.Severity, tc.name, withSummary)
+				}
+			}
+		}
+	})
 }
