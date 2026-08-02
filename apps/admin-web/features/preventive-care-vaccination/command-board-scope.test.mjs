@@ -40,6 +40,11 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /formatDateSpan\(administered\?\.min, administered\?\.max\)/);
   assert.match(commandBoardViewSource, /pending === 0 && done === 0/);
   assert.match(commandBoardViewSource, /hasPending \? "cbm-pending" : "cbm-verified"/);
+  assert.ok(
+    commandBoardViewSource.indexOf("command_board.shed_matrix.title")
+      < commandBoardViewSource.indexOf("command_board.future_drives.title"),
+    "future vaccination drives should render below Vaccine × Shed Status",
+  );
 });
 
 test("vaccination operations passes URL search params into the command board", () => {
