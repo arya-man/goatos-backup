@@ -5,7 +5,10 @@ import java.io.IOException
 
 /**
  * Maps network-layer errors to domain-level bootstrap errors:
- * - 401/403 HttpException → [BootstrapError.AuthSessionExpired]
+ * - 401 HttpException → [BootstrapError.AuthSessionExpired]
+ * - 403 HttpException → [BootstrapError.AccessNotProvisioned] (NOT a dead session: the token is
+ *   valid, the person just has no profile/grant. Sign-out wipes the offline outbox, so routing
+ *   403 to sign-out would destroy unsynced operator writes to fix nothing.)
  * - IOException (network failure) → [BootstrapError.ConnectivityFailure]
  * - Other HttpException (5xx, etc.) → [BootstrapError.ConnectivityFailure]
  *
@@ -16,7 +19,7 @@ fun Throwable.asBootstrapError(): BootstrapError = when {
         BootstrapError.AuthSessionExpired(statusCode = 401, cause = this)
     }
     this is HttpException && code() == 403 -> {
-        BootstrapError.AuthSessionExpired(statusCode = 403, cause = this)
+        BootstrapError.AccessNotProvisioned(statusCode = 403, cause = this)
     }
     this is IOException -> {
         BootstrapError.ConnectivityFailure(cause = this)

@@ -24,11 +24,15 @@ class BootstrapErrorMapperTest {
     }
 
     @Test
-    fun `HTTP 403 maps to AuthSessionExpired`() {
+    fun `HTTP 403 maps to AccessNotProvisioned, never a destructive sign-out`() {
         val httpError = httpError(403)
         val error = httpError.asBootstrapError()
 
-        assertIs<BootstrapError.AuthSessionExpired>(error)
+        // A 403 means the token is VALID but access is not provisioned. It must NOT map to
+        // AuthSessionExpired: that screen's only action is sign-out, which wipes the offline
+        // outbox and would destroy an operator's unsynced scans to fix something sign-out
+        // cannot fix.
+        assertIs<BootstrapError.AccessNotProvisioned>(error)
         assertEquals(403, error.statusCode)
     }
 

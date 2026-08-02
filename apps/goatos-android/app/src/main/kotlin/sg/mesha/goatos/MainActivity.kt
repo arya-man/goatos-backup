@@ -151,6 +151,15 @@ class MainActivity : ComponentActivity() {
                                         onAction = { sessionViewModel.signOut() }
                                     )
                                 }
+                                BootstrapErrorType.ACCESS_NOT_PROVISIONED -> {
+                                    // Valid sign-in, access not set up. Retry only: signing out
+                                    // would wipe unsynced work and could not fix this.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_access_not_provisioned),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
                                 BootstrapErrorType.CONNECTIVITY_FAILURE -> {
                                     // Connectivity failure: show retryable error.
                                     BootstrapError(

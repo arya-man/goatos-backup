@@ -21,6 +21,18 @@ sealed class BootstrapError(message: String, cause: Throwable? = null) : Excepti
     ) : BootstrapError(message, cause)
 
     /**
+     * The token is VALID but the backend refused it (403): the person's access is not set up
+     * yet -- no roster profile, or no grant for this app. Signing out cannot fix that, and the
+     * sign-out path wipes the offline outbox, so an operator's unsynced scans would be destroyed
+     * by an action that was never going to help. Retryable, never destructive.
+     */
+    class AccessNotProvisioned(
+        val statusCode: Int = 403,
+        message: String = "Your access is not set up yet.",
+        cause: Throwable? = null,
+    ) : BootstrapError(message, cause)
+
+    /**
      * Network connectivity or server (5xx) failure. The app should show a retryable
      * "check your connection" message.
      */
