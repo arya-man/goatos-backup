@@ -25,6 +25,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
@@ -494,6 +495,119 @@ class WeighingViewModelTest {
 
         assertEquals("per_shed_partition", vm.state.value.category)
         assertTrue(vm.state.value.isShedPartition)
+    }
+
+    /**
+     * Free-flow weighing has the SAME wrong-animal capture window vaccination had (fixed in
+     * 2db1eb207): scanning animal A opened the camera bound to A, and a scan of animal B while A's
+     * recording was still in progress was dropped on the floor with no camera, no message and no
+     * retarget — so footage actually shot at B was saved under A's tag, and the weight typed next
+     * landed on A too. Free-flow does not make this safe: it just means the wrong SCANNED TAG is
+     * written instead of the wrong animal id.
+     */
+    @Test
+    fun `scanning a second animal while the first video is recording never saves that video under the first animal`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        val proofs = FakeProofCaptureRepository()
+        val scans = FakeScanCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Animal A is scanned; its camera opens and is still recording (captureVideo() has not
+        // returned — nothing written yet) when the operator walks to animal B and scans it.
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("animal A's camera opened", 1, proofSource.captureCount)
+        assertEquals(0, proofs.captureCalls.size)
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        assertEquals(
+            "scanning animal B must cancel A's unfinished recording and reopen the camera for B",
+            2,
+            proofSource.captureCount,
+        )
+        assertEquals("no video may be saved until a recording actually finishes", 0, proofs.captureCalls.size)
+        assertTrue(
+            "the operator must be told animal A was left without its video, not silently ignored",
+            vm.state.value.message.orEmpty().contains(TEST_TAG),
+        )
+
+        // A's cancelled recording finishing late must never be saved under anyone.
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+        assertEquals("a cancelled recording's late result must never be saved", 0, proofs.captureCalls.size)
+
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+    }
+
+    /**
+     * The weight is the other half of the same window: the dropped scan also left the selected
+     * animal pointing at A, so the next weight the operator typed — standing at B — was recorded
+     * against A's tag.
+     */
+    @Test
+    fun `weight typed after scanning a second animal mid-recording is recorded against that second animal`() = runTest(dispatcher) {
+        val recordGate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            recordIndividualGates = ArrayDeque(listOf(recordGate)),
+        )
+        val proofSource = FakeProofCaptureSource()
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        vm.onWeightInputChange("14.5")
+        vm.recordIndividual()
+        advanceUntilIdle()
+        recordGate.complete(AppResult.Ok(acceptedDraft(animalId = SECOND_TAG, weightKg = 14.5)))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the weight belongs to the animal the operator is standing at, not the one whose scan came first",
+            SECOND_TAG,
+            repository.lastCapture?.animalId,
+        )
+        assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
     }
 
     private fun weighingViewModel(
