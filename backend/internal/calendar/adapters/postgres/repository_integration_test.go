@@ -3021,10 +3021,10 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 		t.Errorf("sheds_completed = %d, want 1 (shed A fully complete)", s.ShedsCompleted)
 	}
 
-	// Invariant: total = completed + due + overdue + deferred.
-	sum := s.CompletedCount + s.DueCount + s.OverdueCount + s.DeferredCount
+	// Invariant: total = completed + submitted + due + overdue + deferred (FIVE disjoint buckets).
+	sum := s.CompletedCount + s.SubmittedCount + s.DueCount + s.OverdueCount + s.DeferredCount
 	if sum != s.TotalCount {
-		t.Errorf("invariant violated: buckets sum %d != total_count %d", sum, s.TotalCount)
+		t.Errorf("invariant violated: buckets sum %d != total_count %d (expected %d+%d+%d+%d+%d)", sum, s.TotalCount, s.CompletedCount, s.SubmittedCount, s.DueCount, s.OverdueCount, s.DeferredCount)
 	}
 	// remaining = total - completed.
 	if s.RemainingCount != s.TotalCount-s.CompletedCount {
@@ -4752,4 +4752,231 @@ INSERT INTO vaccination_completions (
 		t.Fatalf("progress=%s %d/%d (%d%%), want animals 1/5 (20%%) -- completed only, submitted stays out of the numerator",
 			summary.ProgressBasis, summary.ProgressCompleted, summary.ProgressTotal, summary.ProgressPct)
 	}
+}
+
+// TestCalendarHeadlineEffectiveStateAccountsForSubmission proves the fix for the calendar
+// headline/severity logic bug: raw event-grain flags were used without accounting for submission
+// at obligation-membership grain, causing false CRITICAL for fully-submitted drives.
+// Tests both include_drive_summary=true and false to ensure headline consistency.
+func TestCalendarHeadlineEffectiveStateAccountsForSubmission(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+
+	loc := biztime.DefaultLocation()
+
+	// CASE (a): All submitted past-due → verification_pending/warning
+	t.Run("AllSubmittedPastDue_VerificationPendingWarning", func(t *testing.T) {
+		const (
+			protA  = "ca000000-0000-4000-8000-000000aa0001"
+			verA   = "ca000000-0000-4000-8000-000000aa0002"
+			ruleA  = "ca000000-0000-4000-8000-000000aa0003"
+			batchA = "ca000000-0000-4000-8000-000000ab0001"
+		)
+		dayA := biztime.BusinessDayStart(time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
+		dayKeyA := dayA.In(loc).Format("2006-01-02")
+
+		obl1 := "ca000000-0000-4000-8000-000000ac0001"
+		seedVaccinationObligation(t, ctx, pool, protA, verA, ruleA, obl1, dayA)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		for i := 2; i <= 10; i++ {
+			oblID := fmt.Sprintf("ca000000-0000-4000-8000-000000ac%04d", i)
+			seedAdditionalVaccinationObligation(t, ctx, pool, verA, ruleA, oblID, dayA)
+			seedCalendarGoat(t, ctx, pool, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verA, ruleA, "FMD")
+
+		var oblIDs []string
+		for i := 1; i <= 10; i++ {
+			oblIDs = append(oblIDs, fmt.Sprintf("ca000000-0000-4000-8000-000000ac%04d", i))
+		}
+		seedVaccinationBatchForShed(t, ctx, pool, batchA, verA, testParkA, testShedA, dayA, oblIDs...)
+
+		// All missed + submitted
+		for _, oblID := range oblIDs {
+			setDriveObligationStatus(t, ctx, pool, oblID, "missed")
+			if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text)`,
+				testTenantID, oblID, dayA); err != nil {
+				t.Fatalf("seed completion: %v", err)
+			}
+		}
+
+		// Test WITHOUT include_drive_summary (the default path where bug lived)
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayA.Add(-24 * time.Hour), DateTo: dayA.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true},
+			// NOT requesting drive_summary — this is the default path
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (no summary): %v", err)
+		}
+
+		var event *domain.CalendarEvent
+		for i := range resp.Items {
+			if resp.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyA {
+				event = &resp.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("missing drive for %s without summary", dayKeyA)
+		}
+
+		// BUG: was rendering missed/critical even though all submitted
+		// FIX: verification_pending, severity NOT critical
+		if event.Status != domain.StatusVerificationPending {
+			t.Errorf("status=%s (no summary), want verification_pending", event.Status)
+		}
+		if event.Severity == domain.SeverityCritical {
+			t.Errorf("severity=%s (no summary), should NOT be critical", event.Severity)
+		}
+
+		// Also test WITH include_drive_summary to verify consistency
+		resp2, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayA.Add(-24 * time.Hour), DateTo: dayA.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (with summary): %v", err)
+		}
+
+		for i := range resp2.Items {
+			if resp2.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp2.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyA {
+				event = &resp2.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("missing drive for %s with summary", dayKeyA)
+		}
+		if event.Status != domain.StatusVerificationPending {
+			t.Errorf("status=%s (with summary), want verification_pending", event.Status)
+		}
+		if s := event.DriveSummary; s != nil && s.SubmittedCount != 10 {
+			t.Errorf("submitted_count=%d, want 10", s.SubmittedCount)
+		}
+		if s := event.DriveSummary; s != nil && s.OverdueCount != 0 {
+			t.Errorf("overdue_count=%d (with summary), want 0", s.OverdueCount)
+		}
+	})
+
+	// CASE (b): Mixed 5 submitted + 5 unsubmitted missed → missed/critical
+	t.Run("MixedSubmittedAndMissed_MissedCritical", func(t *testing.T) {
+		const (
+			protB  = "cb000000-0000-4000-8000-000000bb0001"
+			verB   = "cb000000-0000-4000-8000-000000bb0002"
+			ruleB  = "cb000000-0000-4000-8000-000000bb0003"
+			batchB = "cb000000-0000-4000-8000-000000bc0001"
+		)
+		dayB := biztime.BusinessDayStart(time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC))
+		dayKeyB := dayB.In(loc).Format("2006-01-02")
+
+		obl1 := "cb000000-0000-4000-8000-000000bd0001"
+		seedVaccinationObligation(t, ctx, pool, protB, verB, ruleB, obl1, dayB)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		for i := 2; i <= 10; i++ {
+			oblID := fmt.Sprintf("cb000000-0000-4000-8000-000000bd%04d", i)
+			seedAdditionalVaccinationObligation(t, ctx, pool, verB, ruleB, oblID, dayB)
+			seedCalendarGoat(t, ctx, pool, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verB, ruleB, "ET+TT")
+
+		var oblIDs []string
+		for i := 1; i <= 10; i++ {
+			oblIDs = append(oblIDs, fmt.Sprintf("cb000000-0000-4000-8000-000000bd%04d", i))
+		}
+		seedVaccinationBatchForShed(t, ctx, pool, batchB, verB, testParkA, testShedB, dayB, oblIDs...)
+
+		// All missed, but only first 5 submitted
+		for i, oblID := range oblIDs {
+			setDriveObligationStatus(t, ctx, pool, oblID, "missed")
+			if i < 5 { // Only submit first 5
+				if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text)`,
+					testTenantID, oblID, dayB); err != nil {
+					t.Fatalf("seed completion: %v", err)
+				}
+			}
+		}
+
+		// Test without summary
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayB.Add(-24 * time.Hour), DateTo: dayB.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("ListEvents: %v", err)
+		}
+
+		var event *domain.CalendarEvent
+		for i := range resp.Items {
+			if resp.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyB {
+				event = &resp.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("missing drive for %s", dayKeyB)
+		}
+
+		// With 5 genuine unsubmitted missed, should be missed/critical
+		if event.Status != domain.StatusMissed {
+			t.Errorf("status=%s, want missed (5 unsubmitted missed present)", event.Status)
+		}
+		if event.Severity != domain.SeverityCritical {
+			t.Errorf("severity=%s, want critical (genuine missed)", event.Severity)
+		}
+
+		// Test with summary to verify five-bucket invariant
+		resp2, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayB.Add(-24 * time.Hour), DateTo: dayB.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents with summary: %v", err)
+		}
+
+		// Re-resolve against resp2 explicitly: reusing the stale `event` from the
+		// no-summary response would let a lookup miss pass silently.
+		event = nil
+		for i := range resp2.Items {
+			if resp2.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp2.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyB {
+				event = &resp2.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("drive event for %s missing from IncludeDriveSummary response", dayKeyB)
+		}
+		s := event.DriveSummary
+		if s == nil {
+			t.Fatalf("drive_summary is nil despite IncludeDriveSummary=true")
+		}
+		sum := s.CompletedCount + s.SubmittedCount + s.DueCount + s.OverdueCount + s.DeferredCount
+		if sum != s.TotalCount {
+			t.Errorf("five-bucket invariant: %d+%d+%d+%d+%d=%d != %d",
+				s.CompletedCount, s.SubmittedCount, s.DueCount, s.OverdueCount, s.DeferredCount, sum, s.TotalCount)
+		}
+		if s.SubmittedCount != 5 {
+			t.Errorf("submitted_count=%d, want 5", s.SubmittedCount)
+		}
+		if s.OverdueCount != 5 {
+			t.Errorf("overdue_count=%d, want 5 (unsubmitted missed)", s.OverdueCount)
+		}
+	})
 }
