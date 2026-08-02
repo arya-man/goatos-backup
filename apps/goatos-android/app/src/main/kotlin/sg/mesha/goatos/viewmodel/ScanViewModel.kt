@@ -168,6 +168,23 @@ class ScanViewModel @Inject constructor(
     private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
     private var currentPrincipalId: String? = null
     private var proofCaptureInFlight = false
+    // Identity of the ONE physical camera session currently open, and the job that owns it. The
+    // camera is a single physical device — only one goat's capture can be open at a time. A scan
+    // of a DIFFERENT goat while a capture is still recording cancels that job (see
+    // [requestGoatProof]) and starts a new one bound to the new goat. Cancellation is only safe
+    // before [proofCaptureVideoCaptured] flips true — see that flag's doc.
+    private var proofCaptureGoatId: String? = null
+    // The RFID tag of [proofCaptureGoatId]'s row, kept only for farm-language copy ("TAG-100 still
+    // needs its video.") when that goat's capture is cancelled in favor of a newly scanned goat.
+    private var strandedGoatTag: String? = null
+    private var proofCaptureJob: Job? = null
+    // Flips true the instant `proofCaptureSource.captureVideo(...)` RETURNS a non-null
+    // [sg.mesha.goatos.capture.CapturedVideo] for the in-flight goat — i.e. once a real, complete
+    // recording exists and hand-off to Room/the outbox has begun. From that point the capture must
+    // NEVER be cancelled by a later scan (that would discard a completed field recording, the
+    // exact prior incident this repo must not repeat); a later scan is refused with the busy
+    // notice instead, same as before this fix.
+    private var proofCaptureVideoCaptured = false
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -992,23 +1009,53 @@ class ScanViewModel @Inject constructor(
         requestGoatProof(row)
     }
 
-    /** Opens the goat proof camera for [row]. Only one capture may be in flight at a time — the
-     *  camera is a single physical device the operator is actively pointing at ONE animal. A scan
-     *  of a second goat while the first goat's video is still recording must NOT silently drop
-     *  (that let a since-fixed bug save the recording under the WRONG goat's id, because the
-     *  in-flight capture's subject was already bound to the first goat's closure). Instead the new
-     *  scan is refused and the reason is surfaced to the operator via the same visible notice
-     *  banner used elsewhere on this screen (repo rule: disabled-with-reason, never silent). */
+    /** Opens the goat proof camera for [row]. Only one capture may be RECORDING at a time — the
+     *  camera is a single physical device the operator is actively pointing at ONE animal.
+     *
+     *  A scan of a DIFFERENT goat while the current goat's video is still recording (i.e.
+     *  `captureVideo()` has not yet returned — no [sg.mesha.goatos.capture.CapturedVideo] exists,
+     *  nothing has been written to Room or the outbox) CLOSES the wrong-goat window instead of
+     *  merely warning about it: the still-open camera for the old goat is cancelled and a fresh
+     *  camera opens bound to the newly scanned goat's tags. This is safe specifically because
+     *  nothing has been captured yet — cancelling discards an unfinished camera session, never a
+     *  completed field recording (see [proofCaptureVideoCaptured]). The old goat is left needing
+     *  its proof and the operator is told so via the visible notice banner (repo rule:
+     *  disabled-with-reason, never silent).
+     *
+     *  A re-scan of the SAME goat that is already recording (e.g. a duplicate hardware read of the
+     *  animal currently in front of the camera) is refused with the busy notice, same as before —
+     *  restarting a capture already in progress for the same animal has no benefit and would just
+     *  reopen the same camera on itself. */
     private fun requestGoatProof(row: RosterRow) {
         val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value
         if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
-        if (proofCaptureInFlight) {
-            _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
-            return
+
+        val strandedGoatId = proofCaptureGoatId
+        if (proofCaptureInFlight && strandedGoatId != null) {
+            if (strandedGoatId == row.goatId || proofCaptureVideoCaptured) {
+                // Same goat re-scanned mid-recording, OR the in-flight capture already has a
+                // completed video mid-upload — in either case there is nothing safe to cancel.
+                _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
+                return
+            }
+            // A different goat was just scanned while the previous goat's camera is still open and
+            // recording — nothing has been captured for it yet, so cancel that unfinished session.
+            val strandedTag = strandedGoatTag ?: strandedGoatId
+            proofCaptureJob?.cancel()
+            proofCaptureJob = null
+            proofCaptureGoatId = null
+            proofCaptureVideoCaptured = false
+            proofCaptureInFlight = false
+            _duplicateNotice.value = "$strandedTag still needs its video."
         }
+
         proofCaptureInFlight = true
-        viewModelScope.launch {
+        proofCaptureGoatId = row.goatId
+        strandedGoatTag = row.primaryTag
+        proofCaptureVideoCaptured = false
+        val myGoatId = row.goatId
+        val job = viewModelScope.launch {
             try {
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -1018,6 +1065,10 @@ class ScanViewModel @Inject constructor(
                         workLabel = row.vaccineLabel,
                     ),
                 ) ?: return@launch
+                // Past this point a real, complete recording exists — it must never be discarded,
+                // so from here on this job's own state ownership is no longer cancellable by a
+                // later scan (see the busy-refusal branch above).
+                proofCaptureVideoCaptured = true
                 val syncingStartedAtMs = System.currentTimeMillis()
                 _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
                 proofCaptureRepository.capture(
@@ -1039,13 +1090,32 @@ class ScanViewModel @Inject constructor(
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
             } finally {
-                // Clear in `finally`: cancellation (navigating away, ViewModel recreation) between the
-                // capture and the delay would otherwise strand this goat's optimistic "uploading"
-                // marker forever, so a fully synced row keeps rendering as proof-pending.
-                _proofSyncingStartedAt.update { it - row.goatId }
-                proofCaptureInFlight = false
+                // Only the job that still OWNS the in-flight state may clean it up. A cancelled job
+                // (superseded by a later scan of a different goat, handled above) must not clear
+                // state that already belongs to the goat that superseded it — classic
+                // use-after-cancel race if guarded only by a plain boolean.
+                if (proofCaptureGoatId == myGoatId) {
+                    // Clear in `finally`: cancellation (navigating away, ViewModel recreation)
+                    // between the capture and the delay would otherwise strand this goat's
+                    // optimistic "uploading" marker forever, so a fully synced row keeps rendering
+                    // as proof-pending.
+                    _proofSyncingStartedAt.update { it - row.goatId }
+                    proofCaptureInFlight = false
+                    proofCaptureGoatId = null
+                    proofCaptureJob = null
+                    proofCaptureVideoCaptured = false
+                    // The busy condition (this goat's recording) has now resolved — clear the busy
+                    // notice so it doesn't linger telling the operator to finish a video that
+                    // already finished. Guarded: only clear if it's still literally the busy
+                    // message, so an unrelated notice raised in the meantime (e.g. "Already
+                    // scanned · X") is never clobbered.
+                    if (_duplicateNotice.value == PROOF_CAPTURE_BUSY_MESSAGE) {
+                        _duplicateNotice.value = null
+                    }
+                }
             }
         }
+        proofCaptureJob = job
     }
 
     private fun retryGoatProof(goatId: String) {
