@@ -67,10 +67,28 @@
              FCM token registers after this. -->
         <meta-data android:name="firebase_performance_collection_enabled" android:value="false" />
         <meta-data android:name="firebase_performance_collection_deactivated" android:value="true" />
+        <!-- android:configChanges — the V1 RFID reader is a Bluetooth HID KEYBOARD (logcat:
+             EventHub "New device ... name='IDT RHLS-3', classes=KEYBOARD | ALPHAKEY | CURSOR |
+             EXTERNAL"). Every reader connect AND every disconnect therefore changes
+             Configuration.keyboard / hardKeyboardHidden / navigation. Without declaring those
+             configs here the platform DESTROYS AND RELAUNCHES this Activity on each edge —
+             proven on a POCO X5 Pro 5G: reader drop at 01:46:19.930 → "finishDrawing of
+             relaunch" + "Screen frozen for +283ms" at 01:46:20.2, then "Bootstrap loaded" from
+             scratch. The relaunch tears down the Activity-scoped BootstrapViewModel, so the shell
+             recomposes on a fresh NavHost at the operator's landing route (/vaccination = the
+             sheds list) and the operator is thrown out of the scan screen mid-drive — on every
+             reader reconnect.
+
+             Handling these in-process is the fix, not a workaround: nothing in this app renders
+             off the keyboard/navigation config, orientation is locked portrait, and the reader
+             already observes connect/disconnect itself (KeyboardWedgeRfidReader, via
+             InputManager.InputDeviceListener + BluetoothDevice.ACTION_ACL_*), so the RFID banner
+             still flips without an Activity relaunch. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|navigation"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.GoatOs">

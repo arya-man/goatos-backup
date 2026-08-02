@@ -186,7 +186,12 @@ type MediaItem struct {
 
 // QueueRow is one queue listing row: the item plus its resolved media.
 type QueueRow struct {
-	Item              Item
-	Media             []MediaItem
-	EvidenceAvailable bool
+	Item  Item
+	Media []MediaItem
+	// EvidenceLinkResolved reports that EVERY media_ref on the item resolved to a signed download
+	// link at read time. It is a LINK-RESOLUTION claim, NOT a byte-retrievability guarantee: the
+	// queue read deliberately does not stat the stored objects (see resolveMedia). Terminal
+	// unavailability is discovered on the download path, which answers 410 proof_object_missing
+	// with retryable=false. Serialized as `evidence_available` for wire compatibility.
+	EvidenceLinkResolved bool
 }

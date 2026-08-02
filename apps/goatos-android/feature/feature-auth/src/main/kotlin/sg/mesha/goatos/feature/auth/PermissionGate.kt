@@ -67,10 +67,10 @@ fun PermissionGateCard(
     val required = remember { AppPermission.requiredForSdkInt() }
     if (required.isEmpty()) return
 
-    // Only knowable as "permanently denied" AFTER a real request this session — before
-    // that, shouldShowRationale is also false but just means "never asked" (see
-    // PermissionGrantResolver's kdoc).
-    var hasRequestedOnce by rememberSaveable { mutableStateOf(false) }
+    // Only knowable as "permanently denied" after repeated real requests — before the
+    // first, shouldShowRationale is also false but just means "never asked", and after a
+    // single denial some phones report it false too (see PermissionGrantResolver's kdoc).
+    var requestRounds by rememberSaveable { mutableStateOf(0) }
     var grantedSnapshot by remember {
         mutableStateOf(required.associateWith { isPermissionGranted(context, it) })
     }
@@ -84,7 +84,7 @@ fun PermissionGateCard(
     val registryOwner = LocalActivityResultRegistryOwner.current
     val launcher: ActivityResultLauncher<Array<String>>? = if (registryOwner != null) {
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-            hasRequestedOnce = true
+            requestRounds += 1
             grantedSnapshot = required.associateWith { permission -> isPermissionGranted(context, permission) }
         }
     } else {
@@ -96,7 +96,7 @@ fun PermissionGateCard(
         val rationaleOk = activity?.let { shouldShowRationale(it, permission) } ?: true
         permission to PermissionGrantResolver.resolve(
             isGranted = granted,
-            hasRequestedOnce = hasRequestedOnce,
+            requestCount = requestRounds,
             shouldShowRationale = rationaleOk,
         )
     }

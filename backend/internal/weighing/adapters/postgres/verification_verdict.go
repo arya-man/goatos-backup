@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,17 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
+
+// ErrStaleEvidence is returned when a verdict's EvidenceProofID no longer
+// matches the proof currently attached to the observation -- the reviewer
+// approved/reworked evidence that has since been superseded (e.g. a rework
+// re-shoot swapped the video out from under an in-flight review). It is
+// deliberately distinct from ports.ErrIdempotencyConflict (same key,
+// different request) and ports.ErrImmutable (already terminal): this is
+// neither -- the verdict itself is well-formed, but it names evidence that
+// is no longer current, so applying it would silently bless whatever proof
+// happens to be attached NOW instead of what was actually reviewed.
+var ErrStaleEvidence = errors.New("weighing: stale verification evidence")
 
 // Weighing side of the generic verification verdict.
 //
@@ -61,6 +73,9 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 
 	scope, err := r.lockObservationScope(ctx, tx, verdict)
 	if err != nil {
+		return domain.VerificationVerdictResult{}, err
+	}
+	if err := checkVerdictEvidenceCurrent(verdict, scope); err != nil {
 		return domain.VerificationVerdictResult{}, err
 	}
 
@@ -135,13 +150,17 @@ func (r *Repository) verdictByIdempotency(
 // campaign/bucket it belongs to, which shed it was captured in, and the single
 // operator who owns that bucket.
 type observationScope struct {
-	CampaignID     string
-	CampaignShedID string
-	ShedID         string
-	ShedLabel      string
-	ParkID         string
-	OperatorID     string
-	AnimalID       string
+	CampaignID      string
+	CampaignShedID  string
+	ShedID          string
+	ShedLabel       string
+	ParkID          string
+	OperatorID      string
+	// ProofArtifactID is the proof/video id CURRENTLY attached to the
+	// observation, read under the same row lock as the rest of the scope
+	// (FOR UPDATE OF observation), so it cannot change out from under the
+	// comparison in checkVerdictEvidenceCurrent below.
+	ProofArtifactID string
 }
 
 func (r *Repository) lockObservationScope(ctx context.Context, tx pgx.Tx, verdict domain.VerificationVerdict) (observationScope, error) {
@@ -156,7 +175,7 @@ SELECT observation.campaign_id::text,
   COALESCE(cs.display_name, ''),
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.animal_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, '')
 FROM weighing_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -175,7 +194,7 @@ SELECT observation.campaign_id::text,
   cs.display_name,
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  ''
+  COALESCE(observation.proof_artifact_id::text, '')
 FROM weighing_shed_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -196,7 +215,7 @@ FOR UPDATE OF observation`
 		&scope.ShedLabel,
 		&scope.ParkID,
 		&scope.OperatorID,
-		&scope.AnimalID,
+		&scope.ProofArtifactID,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return observationScope{}, ports.ErrNotFound
@@ -204,6 +223,28 @@ FOR UPDATE OF observation`
 		return observationScope{}, err
 	}
 	return scope, nil
+}
+
+// checkVerdictEvidenceCurrent guards against approving/reworking evidence
+// that is no longer the evidence attached to the observation. A verdict
+// minted before EvidenceProofID existed (durable-bus in-flight events at
+// deploy time) carries an empty EvidenceProofID; that is NOT treated as a
+// mismatch -- crashing or rejecting a legitimate in-flight verdict over a
+// field it predates would be worse than the gap it closes. It is logged so
+// the skip stays visible without breaking delivery.
+func checkVerdictEvidenceCurrent(verdict domain.VerificationVerdict, scope observationScope) error {
+	if verdict.EvidenceProofID == "" {
+		slog.Default().Warn("weighing: verification verdict has no evidence id, skipping stale-evidence check",
+			"observation_id", verdict.ObservationID,
+			"ref_type", verdict.RefType,
+			"event_id", verdict.EventID,
+		)
+		return nil
+	}
+	if scope.ProofArtifactID == "" || verdict.EvidenceProofID != scope.ProofArtifactID {
+		return ErrStaleEvidence
+	}
+	return nil
 }
 
 // markObservationVerified RETURNS the persisted verified_at rather than letting
@@ -315,21 +356,12 @@ WHERE tenant_id=$1::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignID); err != nil {
 		return time.Time{}, err
 	}
-	// Free-flow: a rejected individual scan only returns to the roster when the
-	// observation actually carries an animal_id. A scanned-identifier-only
-	// observation has no roster row by design and is never validated against
-	// herd/vaccination tables.
-	if verdict.RefType == domain.VerificationRefTypeAnimal && scope.AnimalID != "" {
-		if _, err := tx.Exec(ctx, `
-UPDATE weighing_expected_animals
-SET status='pending', updated_at=now()
-WHERE tenant_id=$1::uuid
-  AND campaign_id=$2::uuid
-  AND animal_id=$3::uuid
-  AND status='weighed'`, verdict.TenantID, scope.CampaignID, scope.AnimalID); err != nil {
-			return time.Time{}, err
-		}
-	}
+	// Free-flow: an individual scan observation never carries an animal_id (the
+	// column does not exist -- 000078_weighing_observations_drop_animal_id.sql)
+	// and so never has a weighing_expected_animals roster row to return to
+	// 'pending' on rework. The roster is a planner/catalog label, populated and
+	// read independently of the scan write path; it is never validated against
+	// herd/vaccination tables and a rejected scan has nothing there to restore.
 	return decidedAt, nil
 }
 

@@ -583,8 +583,8 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	// so they can correlate it to their work. Per docs/decisions/2026-08-02-meaningful-notification-copy.md.
 	approvedTitle := profile.approvedTitle
 	approvedBody := profile.approvedBody
-	approvedBodyEnriched := enrichApprovedNotificationCopy(c.locations, c.vaccineLabels, ctx, tenantID,
-		p.Module, parkID, p.ShedID, p.Category)
+	approvedBodyEnriched := enrichApprovedNotificationCopy(ctx, c.locations, c.vaccineLabels, c.logger,
+		tenantID, p.Module, parkID, p.ShedID, p.Category)
 	if approvedBodyEnriched != "" {
 		approvedBody = approvedBodyEnriched
 	}
@@ -686,8 +686,8 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 //
 // Enrichment is optional: location / vaccine lookups are best-effort, and transient failures
 // gracefully degrade to the fallback copy rather than blocking notification delivery.
-func enrichApprovedNotificationCopy(locations *LocationNameResolver, vaccineLabels *VaccineLabelResolver,
-	ctx context.Context, tenantID, module, parkID, shedID, category string) string {
+func enrichApprovedNotificationCopy(ctx context.Context, locations *LocationNameResolver,
+	vaccineLabels *VaccineLabelResolver, logger *slog.Logger, tenantID, module, parkID, shedID, category string) string {
 	parkID = strings.TrimSpace(parkID)
 	shedID = strings.TrimSpace(shedID)
 	category = strings.TrimSpace(category)
@@ -716,11 +716,29 @@ func enrichApprovedNotificationCopy(locations *LocationNameResolver, vaccineLabe
 	}
 
 	// For vaccination module: append vaccine label (e.g., "ET+TT").
+	//
+	// C19c (confirmed defect / open gap): VerificationEventPayload.Category is the fixed
+	// verification-registry category string (e.g. sopbridge.VaccinationVerificationCategory =
+	// "vaccination_proof"), never a protocol_rules.rule_id -- the payload as produced today
+	// (verification/adapters/postgres/repository.go + sopbridge/vaccination_submission.go) does
+	// not carry the dose/rule identity anywhere (Source.RefID is the sop submission id, not a
+	// rule id). Passing category straight into ResolveVaccineLabels as if it were a rule id was
+	// the bug: it can never match a row, so the vaccine label always silently degraded to the
+	// generic fallback below. Until the producer contract is extended to carry the real rule id,
+	// this path fails closed to the generic copy -- but LOUDLY (WARN, once per call), instead of
+	// the previous silent `if err != nil { return out }` degrade that hid both this mismatch and
+	// genuine DB outages.
 	if strings.EqualFold(module, legacyVaccinationSourceModule) && vaccineLabels != nil && category != "" {
-		// category is a rule_id for vaccination. Resolve its vaccine_label.
-		labels := vaccineLabels.ResolveVaccineLabels(ctx, tenantID, category)
-		if label := labels[category]; label != "" {
-			return label + " vaccination proof for " + location + " is verified."
+		if !looksLikeUUID(category) {
+			if logger != nil {
+				logger.WarnContext(ctx, "vaccine label enrichment skipped: verification category is not a rule id",
+					"tenant_id", tenantID, "category", category)
+			}
+		} else {
+			labels := vaccineLabels.ResolveVaccineLabels(ctx, tenantID, category)
+			if label := labels[category]; label != "" {
+				return label + " vaccination proof for " + location + " is verified."
+			}
 		}
 	}
 
@@ -728,6 +746,8 @@ func enrichApprovedNotificationCopy(locations *LocationNameResolver, vaccineLabe
 	// Module names are internals; use the farm-readable gerund (weighing, feeding, etc).
 	moduleNoun := "work"
 	switch {
+	case strings.EqualFold(module, legacyVaccinationSourceModule):
+		moduleNoun = "vaccination"
 	case strings.EqualFold(module, moduleWeighing):
 		moduleNoun = "weighing"
 	case strings.EqualFold(module, moduleFeed):

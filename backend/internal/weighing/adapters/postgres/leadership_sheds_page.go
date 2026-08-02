@@ -181,11 +181,11 @@ LIMIT $6`,
 	if len(individualSheds) > 0 {
 		obsRows, err := r.pool.Query(ctx, `
 SELECT o.campaign_id::text, o.campaign_shed_id::text, o.observation_id::text,
-       COALESCE(NULLIF(o.scanned_identifier, ''), o.animal_id::text),
+       o.scanned_identifier,
        o.weight_kg::float8, o.proof_artifact_id::text, o.accepted_at
 FROM unnest($2::uuid[], $3::uuid[]) AS k(campaign_id, campaign_shed_id)
 CROSS JOIN LATERAL (
-  SELECT w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier, w.animal_id,
+  SELECT w.campaign_id, w.campaign_shed_id, w.observation_id, w.scanned_identifier,
          w.weight_kg, w.proof_artifact_id, w.accepted_at
   FROM weighing_observations w
   WHERE w.tenant_id=$1::uuid AND w.campaign_id=k.campaign_id AND w.campaign_shed_id=k.campaign_shed_id
@@ -199,7 +199,7 @@ CROSS JOIN LATERAL (
 		for obsRows.Next() {
 			var observation domain.Observation
 			if err := obsRows.Scan(&observation.CampaignID, &observation.CampaignShedID,
-				&observation.ObservationID, &observation.AnimalID, &observation.WeightKg,
+				&observation.ObservationID, &observation.ScannedIdentifier, &observation.WeightKg,
 				&observation.ProofArtifactID, &observation.AcceptedAt); err != nil {
 				return domain.LeadershipShedPage{}, err
 			}

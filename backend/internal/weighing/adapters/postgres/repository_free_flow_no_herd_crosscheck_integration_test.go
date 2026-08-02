@@ -43,25 +43,23 @@ const (
 )
 
 // seedWeighableGoat inserts a goat in the individual bucket's expected shed with
-// the given clinical state, its own completed video proof, and (optionally) the
-// matching roster row.
+// the given clinical state and its own completed video proof.
+//
+// onRoster is retained ONLY as a no-op parameter so existing call sites need not
+// change: there is no expected-animal roster any more (weighing_expected_animals
+// was DROPPED, migration 000079) -- a goat cannot be "on" or "off" a roster that
+// does not exist, which is the whole point of these tests.
 func seedWeighableGoat(
 	t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	animalID, proofID, displayID, healthStatus, lifecycleStatus string, onRoster bool,
 ) {
 	t.Helper()
+	_ = onRoster
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, health_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
 VALUES ($1::uuid, $2::uuid, $3, 'female', 'kid', $4, NULLIF($5,''), 'kid', $6::uuid, $7::uuid, $8::uuid, $7::uuid)
 ON CONFLICT (goat_id) DO UPDATE SET health_status=EXCLUDED.health_status, lifecycle_status=EXCLUDED.lifecycle_status`,
 		animalID, repoTenant, displayID, lifecycleStatus, healthStatus, repoParty, repoExpectedShed, repoPark)
-	if onRoster {
-		execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid)
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='pending', availability_status='expected_shed'`,
-			repoCampaign, repoTenant, animalID, repoExpectedShed, repoAnimalScope)
-	}
 	// Bucket-scoped proof: weighing proof belongs to the WEIGHING BUCKET's shed, never
 	// to a goat. Requiring goat-scoped proof was itself herd coupling.
 	insertProof(t, ctx, pool, proofID, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
@@ -95,7 +93,7 @@ func TestRecordAnimalObservationAcceptsEveryClinicalState(t *testing.T) {
 
 			if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 				TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-				AnimalID: freeFlowClinicalAnimal, ScannedIdentifier: "clinical-" + tc.name,
+ ScannedIdentifier: "clinical-" + tc.name,
 				WeightKg: 12.0, ProofArtifactID: freeFlowClinicalProof, ActualLocationID: repoExpectedShed,
 				IdempotencyKey: "free-flow:clinical-" + tc.name, RecordedBy: repoOperator,
 			}); err != nil {
@@ -124,8 +122,6 @@ func TestRecordAnimalObservationStoresScannedIdentifierWithoutHerdIdentity(t *te
 	repo := NewRepository(pool, 5*time.Second)
 
 	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
-	rosterBefore := countRows(t, ctx, pool,
-		`SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant)
 	goatsBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant)
 
 	const unknownTag = "909900000000001"
@@ -138,15 +134,11 @@ func TestRecordAnimalObservationStoresScannedIdentifierWithoutHerdIdentity(t *te
 		t.Fatalf("unknown scanned identifier must be accepted, got err=%v", err)
 	}
 
-	var storedAnimalID *string
 	var scanned string
 	if err := pool.QueryRow(ctx,
-		`SELECT animal_id, scanned_identifier FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
-		repoTenant, obs.ObservationID).Scan(&storedAnimalID, &scanned); err != nil {
+		`SELECT scanned_identifier FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
+		repoTenant, obs.ObservationID).Scan(&scanned); err != nil {
 		t.Fatalf("read stored observation: %v", err)
-	}
-	if storedAnimalID != nil {
-		t.Fatalf("stored animal_id=%q, want NULL — weighing must not resolve a scan to herd identity", *storedAnimalID)
 	}
 	if scanned != unknownTag {
 		t.Fatalf("stored scanned_identifier=%q, want %q", scanned, unknownTag)
@@ -155,10 +147,9 @@ func TestRecordAnimalObservationStoresScannedIdentifierWithoutHerdIdentity(t *te
 	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant); got != goatsBefore {
 		t.Fatalf("goats rows changed from %d to %d — weighing must never write herd identity", goatsBefore, got)
 	}
-	if got := countRows(t, ctx, pool,
-		`SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
-		t.Fatalf("roster rows changed from %d to %d — weighing must never write the expected-animal roster", rosterBefore, got)
-	}
+	// weighing_expected_animals was DROPPED (migration 000079): there is no
+	// roster table left for the write to touch, which is the strongest possible
+	// version of this assertion.
 }
 
 // A clinically held animal that is not on the campaign roster at all is still
@@ -222,16 +213,13 @@ func TestRecordAnimalObservationAcceptsResolvedAnimalRegardlessOfRosterState(t *
 
 			seedWeighableGoat(t, ctx, pool, freeFlowOffRoster, freeFlowOffRosterProof, "G-990083",
 				"healthy", "alive", tc.onRoster)
-			if tc.onRoster && tc.availabilityStatus != "" {
-				execWeighingTestSQL(t, ctx, pool, `
-UPDATE weighing_expected_animals SET availability_status=$4
-WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
-					repoTenant, repoCampaign, freeFlowOffRoster, tc.availabilityStatus)
-			}
+			// weighing_expected_animals was DROPPED (migration 000079): there is no
+			// roster/availability row left to seed, so every case in this table
+			// now exercises the identical code path -- which is the point.
 
 			obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 				TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-				AnimalID: freeFlowOffRoster, ScannedIdentifier: "roster-state-" + tc.name,
+ ScannedIdentifier: "roster-state-" + tc.name,
 				WeightKg: 14.25, ProofArtifactID: freeFlowOffRosterProof, ActualLocationID: repoExpectedShed,
 				IdempotencyKey: "free-flow:roster-" + tc.name, RecordedBy: repoOperator,
 			})
@@ -264,8 +252,11 @@ FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`
 // The write path used to branch on `uuidutil.IsUUIDString(cmd.AnimalID)` and, for
 // anything UUID-shaped, join goats and demand goat-scoped proof — so a UUID-looking
 // RFID with no herd row was rejected. Under the strict rule the write never resolves
-// identity at all: it stores scanned_identifier and leaves animal_id NULL.
-func TestRecordAnimalObservationStoresUuidLookingTagWithNullAnimalId(t *testing.T) {
+// identity at all: it stores scanned_identifier. There is no animal_id field or
+// column left anywhere on this path (command field removed, table column dropped
+// by 000078_weighing_observations_drop_animal_id.sql) for a caller to even attempt
+// to supply one.
+func TestRecordAnimalObservationStoresUuidLookingTagAsPlainScan(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -285,8 +276,6 @@ func TestRecordAnimalObservationStoresUuidLookingTagWithNullAnimalId(t *testing.
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		// Sent as AnimalID too: the write must IGNORE it, not honour it and not choke.
-		AnimalID:          uuidLookingTag,
 		ScannedIdentifier: uuidLookingTag,
 		WeightKg:          15.75,
 		ProofArtifactID:   repoExpectedShedProof,
@@ -297,15 +286,11 @@ func TestRecordAnimalObservationStoresUuidLookingTagWithNullAnimalId(t *testing.
 		t.Fatalf("UUID-looking scanned tag with no goats row must still record, got err=%v", err)
 	}
 
-	var storedAnimalID *string
 	var scanned string
 	if err := pool.QueryRow(ctx,
-		`SELECT animal_id, scanned_identifier FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
-		repoTenant, obs.ObservationID).Scan(&storedAnimalID, &scanned); err != nil {
+		`SELECT scanned_identifier FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
+		repoTenant, obs.ObservationID).Scan(&scanned); err != nil {
 		t.Fatalf("read stored observation: %v", err)
-	}
-	if storedAnimalID != nil {
-		t.Fatalf("stored animal_id=%q, want NULL — the weighing write must never set animal_id", *storedAnimalID)
 	}
 	if scanned != uuidLookingTag {
 		t.Fatalf("stored scanned_identifier=%q, want the raw scanned tag %q", scanned, uuidLookingTag)

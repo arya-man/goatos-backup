@@ -154,6 +154,14 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 
 // resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
 // storage signed-URL port (never a per-row lookup — bounded by page size x media-per-item).
+//
+// It deliberately does NOT verify that each stored object is retrievable. Doing so would cost one
+// stat/HEAD per proof per row: on GCS (the production provider) a signed HEAD is ~20-50ms, so a
+// 20-item page with ~3 proofs each is ~60 sequential round trips (~1.2-3s) — far past the sub-500ms
+// operator hot-read budget, and an N+1 on a queue read. The honest contract is therefore
+// EvidenceLinkResolved ("a link was issued for every media_ref"), and terminal unavailability is
+// reported by the download route as 410 proof_object_missing / retryable=false for the client to
+// render as "evidence unavailable".
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
 	allProofIDs := make([]string, 0, len(items)*3)
@@ -186,7 +194,7 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				media = append(media, m)
 			}
 		}
-		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceAvailable: resolutionOK && len(media) == len(it.MediaRefs)}
+		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: resolutionOK && len(media) == len(it.MediaRefs)}
 	}
 	return rows
 }

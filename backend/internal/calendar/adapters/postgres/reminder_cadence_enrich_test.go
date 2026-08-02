@@ -26,7 +26,36 @@ func TestReminderCadenceShedVaccineEnrichment(t *testing.T) {
 	versionID := "86000000-0000-4000-8000-0000000f4102"
 	ruleID := "86000000-0000-4000-8000-0000000f4103"
 
-	// Two parks, each with multiple sheds and different vaccines, to test capping behavior.
+	// Three DISTINCT vaccines, one per shed. Each gets its own protocol rule plus a
+	// protocol_rule_dimensions row carrying the vaccine name, which is what the drive projection
+	// renders as its vaccine label. Reusing one rule (as this fixture originally did) could only ever
+	// produce a single vaccine label and made the 3-vaccine cap assertion unreachable.
+	vaccineRuleIDs := []string{
+		"86000000-0000-4000-8000-0000000f4131",
+		"86000000-0000-4000-8000-0000000f4132",
+		"86000000-0000-4000-8000-0000000f4133",
+	}
+	// Labels are deduped and sorted, then capped, so "ET+TT" is deliberately the alphabetically
+	// first name: it must survive the cap for the human-readable-name assertion below to mean
+	// anything.
+	vaccineNames := []string{"ET+TT", "FMD", "PPR Booster"}
+	vaccineProtocolIDs := []string{
+		"86000000-0000-4000-8000-0000000f4141",
+		"86000000-0000-4000-8000-0000000f4142",
+		"86000000-0000-4000-8000-0000000f4143",
+	}
+	vaccineVersionIDs := []string{
+		"86000000-0000-4000-8000-0000000f4151",
+		"86000000-0000-4000-8000-0000000f4152",
+		"86000000-0000-4000-8000-0000000f4153",
+	}
+	vaccineSeedObligationIDs := []string{
+		"86000000-0000-4000-8000-0000000f4161",
+		"86000000-0000-4000-8000-0000000f4162",
+		"86000000-0000-4000-8000-0000000f4163",
+	}
+
+	// One park with three sheds and three different vaccines, to test capping behavior.
 	parkMulti := "86000000-0000-4000-8000-0000000f4701"
 	shedMulti1 := "86000000-0000-4000-8000-0000000f4711"
 	shedMulti2 := "86000000-0000-4000-8000-0000000f4712"
@@ -57,19 +86,26 @@ func TestReminderCadenceShedVaccineEnrichment(t *testing.T) {
 		seedCalendarGoat(t, ctx, pool, g)
 	}
 
-	// MULTI-SHED, MULTI-VACCINE: create 3 obligations across 3 sheds with 2 different vaccines.
-	// Obligation 1: ET+TT in Gandhi 1
-	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, ruleID, oblMulti1,
+	// Seed one protocol/version/rule + named vaccine dimension per shed. Published protocol config is
+	// immutable, so each extra vaccine needs its own version rather than an extra rule on versionID.
+	for i, rid := range vaccineRuleIDs {
+		seedVaccinationObligation(t, ctx, pool, vaccineProtocolIDs[i], vaccineVersionIDs[i], rid,
+			vaccineSeedObligationIDs[i], dayStart.AddDate(0, 0, -30))
+		seedProtocolRuleDimension(t, ctx, pool, vaccineVersionIDs[i], rid, "enrich-"+vaccineNames[i], vaccineNames[i])
+	}
+	// MULTI-SHED, MULTI-VACCINE: 3 obligations across 3 sheds with 3 different vaccines.
+	// Obligation 1: ET+TT in shed 1
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, vaccineRuleIDs[0], oblMulti1,
 		goatMulti1, shedMulti1, parkMulti, dueToday)
 	seedVaccinationBatchForShed(t, ctx, pool, batchMulti1, versionID, parkMulti, shedMulti1, dueToday, oblMulti1)
 
-	// Obligation 2: PPR Booster in Gandhi 2
-	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, ruleID, oblMulti2,
+	// Obligation 2: FMD in shed 2
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, vaccineRuleIDs[1], oblMulti2,
 		goatMulti2, shedMulti2, parkMulti, dueToday)
 	seedVaccinationBatchForShed(t, ctx, pool, batchMulti2, versionID, parkMulti, shedMulti2, dueToday, oblMulti2)
 
-	// Obligation 3: Blue Tongue in Gandhi 3
-	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, ruleID, oblMulti3,
+	// Obligation 3: PPR Booster in shed 3
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, vaccineRuleIDs[2], oblMulti3,
 		goatMulti3, shedMulti3, parkMulti, dueToday)
 	seedVaccinationBatchForShed(t, ctx, pool, batchMulti3, versionID, parkMulti, shedMulti3, dueToday, oblMulti3)
 
@@ -112,7 +148,7 @@ func TestReminderCadenceShedVaccineEnrichment(t *testing.T) {
 		t.Fatalf("fire.VaccineLabels has %d items, want 2 (capped at 2 max, plus 'and N more')", len(fire.VaccineLabels))
 	}
 	// Check that we have human-readable vaccine names, not raw tokens.
-	// "ET+TT" should be in there (from et_tt_adult_w1).
+	// "ET+TT" should be in there (the vaccine name on the shed-1 rule).
 	hasETTT := false
 	for _, label := range fire.VaccineLabels {
 		if strings.Contains(label, "ET+TT") {

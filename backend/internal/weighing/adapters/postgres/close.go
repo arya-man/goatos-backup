@@ -471,25 +471,23 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.Campa
 		return 1, []string{label}, nil
 	}
 
-	var count int
-	var sample []string
+	// FREE-FLOW: an individual_animal bucket has no expected roster, so "not
+	// accepted work" cannot be a per-animal sample -- there is no per-animal list
+	// to sample from. It is the SAME bucket-grain fact the per_shed_partition
+	// branch above already uses: the bucket itself has (or has not) reached a
+	// terminal accepted status.
+	var accepted bool
+	var label string
 	if err := tx.QueryRow(ctx, `
-WITH open_work AS (
-  SELECT COALESCE(NULLIF(btrim(ea.scanned_identifier), ''), ea.animal_id::text) AS label
-  FROM weighing_expected_animals ea
-  WHERE ea.tenant_id=$1::uuid
-    AND ea.campaign_id=$2::uuid
-    AND ea.campaign_shed_id=$3::uuid
-    AND ea.status NOT IN ('weighed','unavailable','canceled','closed_by_override')
-)
-SELECT
-  (SELECT count(*)::int FROM open_work),
-  COALESCE((SELECT array_agg(label ORDER BY label) FROM (SELECT label FROM open_work ORDER BY label LIMIT $4) capped), '{}')`,
-		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, domain.CloseNotAcceptedSampleLimit,
-	).Scan(&count, &sample); err != nil {
+SELECT status IN ('completed','closed'), display_name FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.CampaignShedID).
+		Scan(&accepted, &label); err != nil {
 		return 0, nil, err
 	}
-	return count, sample, nil
+	if accepted {
+		return 0, nil, nil
+	}
+	return 1, []string{label}, nil
 }
 
 // closedBucket is one campaign shed that a campaign close ends with work that was

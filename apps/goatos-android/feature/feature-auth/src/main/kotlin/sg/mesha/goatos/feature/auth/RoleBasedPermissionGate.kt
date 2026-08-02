@@ -52,8 +52,13 @@ import androidx.compose.ui.window.DialogProperties
  * - verifier/director/CEO: notifications + any permissions their workflows require
  *
  * The gate is NON-DISMISSIBLE: no back press, outside tap, or close button. App unusable
- * until all required permissions are granted. If the OS stops showing prompts
- * (shouldShowRequestPermissionRationale = false), redirects to app settings.
+ * until all required permissions are granted. Once the phone has genuinely stopped showing
+ * prompts, it offers the settings route instead — but only after
+ * [PermissionGrantResolver.MIN_REQUESTS_BEFORE_BLOCKED] real asks. A single "no" is always
+ * retryable in place: this gate previously trusted `shouldShowRequestPermissionRationale`
+ * after one ask, and worse, ran that classification on the FIRST ON_RESUME before anything
+ * had ever been asked — which sent Xiaomi/MIUI operators straight to a settings dead end
+ * for permissions the OS had never marked blocked.
  *
  * On resume (returning from settings), re-checks and auto-dismisses when the full set
  * is granted.
@@ -78,27 +83,26 @@ fun RoleBasedPermissionGate(
 
     // Track which permissions are granted
     var grantedPermissions by remember { mutableStateOf(setOf<String>()) }
-    var deniedPermanently by rememberSaveable { mutableStateOf(setOf<String>()) }
+
+    // How many times this gate has actually put the OS prompt in front of the person. One
+    // "no" is not proof the phone has stopped asking (see PermissionGrantResolver), so the
+    // settings route only appears once this reaches MIN_REQUESTS_BEFORE_BLOCKED.
+    //
+    // rememberSaveable, not a persisted value: it must survive a rotation or the OS killing
+    // the app while the permission prompt is on top (routine on low-memory MIUI phones,
+    // where losing it mid-flow would silently restart the count). It deliberately does NOT
+    // survive a cold start — a fresh launch re-asking once is harmless, whereas a stale
+    // saved count could send someone to settings for a permission they can still be asked
+    // for. The failure direction is always "ask again", never "dead end".
+    var requestRounds by rememberSaveable { mutableStateOf(0) }
+
+    fun readGranted(): Set<String> = requiredPermissions.filter { perm ->
+        isPermissionGranted(context, AppPermission.entries.first { it.manifestPermission == perm })
+    }.toSet()
 
     // Re-check permissions on resume (returning from settings)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        val nowGranted = requiredPermissions.filter { perm ->
-            isPermissionGranted(context, AppPermission.entries.first { it.manifestPermission == perm })
-        }.toSet()
-        grantedPermissions = nowGranted
-        // `activity` is null until the composable is attached to one (and in previews/tests).
-        // Treating "no activity" as "permanently denied" would strand the operator on the
-        // settings screen, so only classify a denial as permanent when we can actually ask.
-        val host = activity
-        val permanentlyDenied = if (host == null) {
-            emptySet()
-        } else {
-            requiredPermissions.filter { perm ->
-                val appPermission = AppPermission.entries.first { it.manifestPermission == perm }
-                !isPermissionGranted(context, appPermission) && !shouldShowRationale(host, appPermission)
-            }.toSet()
-        }
-        deniedPermanently = permanentlyDenied
+        grantedPermissions = readGranted()
 
         // Auto-dismiss if all granted
         if (grantedPermissions.size == requiredPermissions.size && requiredPermissions.isNotEmpty()) {
@@ -111,26 +115,18 @@ fun RoleBasedPermissionGate(
     // dead "Grant permissions" button that silently did nothing when the owner was absent.
     val permissionLauncher: ActivityResultLauncher<Array<String>> =
         rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            val granted = results.filter { it.value }.keys
-            val denied = results.filter { !it.value }.keys
-            grantedPermissions = granted.toSet()
+            requestRounds += 1
 
             // Report each answer
-            denied.forEach { perm -> onPermissionAnswered(perm, false) }
-            granted.forEach { perm -> onPermissionAnswered(perm, true) }
+            results.forEach { (perm, granted) -> onPermissionAnswered(perm, granted) }
 
-            // Mark permanently denied permissions
-            val host = activity
-            deniedPermanently = if (host == null) {
-                emptySet()
-            } else {
-                denied.filter { perm ->
-                    !shouldShowRationale(host, AppPermission.entries.first { it.manifestPermission == perm })
-                }.toSet()
-            }
+            // Re-read from the OS rather than trusting `results`: only the still-missing
+            // permissions were launched, so `results` alone would drop the ones granted in
+            // an earlier round and leave this gate stuck on a fully-granted phone.
+            grantedPermissions = readGranted()
 
             // Auto-dismiss if all granted
-            if (granted.size == requiredPermissions.size && requiredPermissions.isNotEmpty()) {
+            if (grantedPermissions.size == requiredPermissions.size && requiredPermissions.isNotEmpty()) {
                 onAllPermissionsGranted()
             }
         }
@@ -152,9 +148,18 @@ fun RoleBasedPermissionGate(
     // Missing permissions
     val missingPermissions = requiredPermissions - grantedPermissions
 
-    // Determine if we should show the prompt or the settings redirect
-    val canPrompt = missingPermissions.all { perm ->
-        deniedPermanently.contains(perm).not()
+    // Determine if we should show the prompt or the settings redirect. `activity` is null
+    // until the composable is attached to one (and in previews/tests); treating "no
+    // activity" as blocked would strand the operator on the settings screen, so only
+    // classify a denial as blocked when we can actually ask.
+    val host = activity
+    val canPrompt = host == null || missingPermissions.none { perm ->
+        val appPermission = AppPermission.entries.first { it.manifestPermission == perm }
+        PermissionGrantResolver.resolve(
+            isGranted = false,
+            requestCount = requestRounds,
+            shouldShowRationale = shouldShowRationale(host, appPermission),
+        ) == PermissionGrantState.PERMANENTLY_DENIED
     }
 
     AlertDialog(
@@ -182,6 +187,15 @@ fun RoleBasedPermissionGate(
                     Spacer(Modifier.height(MeshaDimens.space3))
                     Text(
                         text = stringResource(R.string.mandatory_permissions_settings_help),
+                        style = MeshaType.caption,
+                        color = MeshaColors.Faint,
+                    )
+                } else if (requestRounds > 0) {
+                    // Asked before and still missing, but the phone will still ask again.
+                    // Say so, so the button does not look like it did nothing.
+                    Spacer(Modifier.height(MeshaDimens.space3))
+                    Text(
+                        text = stringResource(R.string.mandatory_permissions_retry_help),
                         style = MeshaType.caption,
                         color = MeshaColors.Faint,
                     )

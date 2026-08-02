@@ -1220,9 +1220,19 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDri
 		"86000000-0000-4000-8000-000000000a36",
 		"86000000-0000-4000-8000-000000000a37",
 	}
+	goatIDs := []string{
+		"86000000-0000-4000-8000-000000000a3a",
+		"86000000-0000-4000-8000-000000000a3b",
+	}
 	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
+	// Each rule targets its OWN animal. The drive's target_count is count(DISTINCT oi.target_id)
+	// (canonical_read.go, cross-surface count parity with the operator schedule), so two rules aimed
+	// at the same target are one animal's work, not two. Two distinct goats is what "a multi-rule
+	// batch drive covering 2 animals" actually means.
+	attachObligationToGoatScope(t, ctx, pool, obligationIDs[0], goatIDs[0], "shed", testShedA)
+	attachObligationToGoatScope(t, ctx, pool, obligationIDs[1], goatIDs[1], "shed", testShedA)
 	seedVaccinationBatch(t, ctx, pool, batchID, versionIDs[0], dueAt, obligationIDs...)
 
 	list, err := repo.ListEvents(ctx, domain.Query{
@@ -3005,11 +3015,18 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	if s.CompletedCount != 3 {
 		t.Errorf("completed_count = %d, want 3", s.CompletedCount)
 	}
-	if s.DueCount != 1 {
-		t.Errorf("due_count = %d, want 1 (the one scheduled)", s.DueCount)
+	// due vs overdue is READ-TIME on the original scheduled business date, matching the card
+	// headline's genuine_overdue. driveDate is 2026-07-13, firmly in the past, so the obligation
+	// left in status 'scheduled' is past-due and belongs in overdue alongside the 'missed' one --
+	// nothing is still merely "due". This previously asserted 1/1 because overdue_count keyed off
+	// status IN ('overdue','missed'), and obligation_instances never carries a literal 'overdue'
+	// status (the baseline CHECK forbids it), so the bucket was structurally ~0 for real data
+	// while the same card's headline read "overdue". One card, two answers.
+	if s.DueCount != 0 {
+		t.Errorf("due_count = %d, want 0 (the scheduled one is past-due, so it is overdue)", s.DueCount)
 	}
-	if s.OverdueCount != 1 {
-		t.Errorf("overdue_count = %d, want 1 (the one missed)", s.OverdueCount)
+	if s.OverdueCount != 2 {
+		t.Errorf("overdue_count = %d, want 2 (the missed one plus the past-due scheduled one)", s.OverdueCount)
 	}
 	if s.DeferredCount != 1 {
 		t.Errorf("deferred_count = %d, want 1", s.DeferredCount)
@@ -3026,9 +3043,16 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	if sum != s.TotalCount {
 		t.Errorf("invariant violated: buckets sum %d != total_count %d (expected %d+%d+%d+%d+%d)", sum, s.TotalCount, s.CompletedCount, s.SubmittedCount, s.DueCount, s.OverdueCount, s.DeferredCount)
 	}
-	// remaining = total - completed.
-	if s.RemainingCount != s.TotalCount-s.CompletedCount {
-		t.Errorf("remaining_count = %d, want %d", s.RemainingCount, s.TotalCount-s.CompletedCount)
+	// remaining = work still owed by the OPERATOR = due + overdue + deferred, i.e.
+	// total - completed - submitted. It must exclude submitted-but-unverified work so it can never
+	// contradict progress_pct (FIELD WORK DONE = completed + submitted) on the same payload.
+	if s.RemainingCount != s.DueCount+s.OverdueCount+s.DeferredCount {
+		t.Errorf("remaining_count = %d, want %d (due %d + overdue %d + deferred %d)",
+			s.RemainingCount, s.DueCount+s.OverdueCount+s.DeferredCount, s.DueCount, s.OverdueCount, s.DeferredCount)
+	}
+	if s.RemainingCount != s.TotalCount-s.CompletedCount-s.SubmittedCount {
+		t.Errorf("remaining_count = %d, want %d (total %d - completed %d - submitted %d)",
+			s.RemainingCount, s.TotalCount-s.CompletedCount-s.SubmittedCount, s.TotalCount, s.CompletedCount, s.SubmittedCount)
 	}
 	// park_name must be the PARK code/name, never a shed code.
 	if s.ParkName == "" {
@@ -4775,9 +4799,15 @@ INSERT INTO vaccination_completions (
 
 	// The backend now owns the cross-surface progress numerator and its basis; both clients render
 	// these verbatim instead of each deriving its own (parity defect: same drive, two numbers).
-	// Verified completion only -- the two submitted-pending animals must NOT inflate progress.
-	if summary.ProgressBasis != "animals" || summary.ProgressCompleted != 1 || summary.ProgressTotal != 5 || summary.ProgressPct != 20 {
-		t.Fatalf("progress=%s %d/%d (%d%%), want animals 1/5 (20%%) -- completed only, submitted stays out of the numerator",
+	// MAINTAINER CONTRACT (2026-08-03): progress is FIELD WORK DONE = completed + submitted. The
+	// operator vaccinated the animal, so it counts; the outstanding video review is carried by the
+	// verification-pending status and chip, never by holding the ring below 100%. This assertion
+	// previously demanded completed-only, which redefined "done" as "verified" and showed an
+	// operator who had vaccinated every animal a 0% ring. Do NOT revert to completed-only to settle
+	// a web-vs-mobile parity disagreement: parity is kept by the backend owning the single number,
+	// not by adopting the stricter surface.
+	if summary.ProgressBasis != "animals" || summary.ProgressCompleted != 3 || summary.ProgressTotal != 5 || summary.ProgressPct != 60 {
+		t.Fatalf("progress=%s %d/%d (%d%%), want animals 3/5 (60%%) -- 1 completed + 2 submitted; submitted work IS field work done",
 			summary.ProgressBasis, summary.ProgressCompleted, summary.ProgressTotal, summary.ProgressPct)
 	}
 }
@@ -5008,6 +5038,118 @@ INSERT INTO vaccination_completions (
 		}
 	})
 
+	// CASE (c-13) Mixed submitted + genuinely-overdue (unsubmitted, open status, past-due) ->
+	// headline MUST be 'overdue'/'critical', never 'verification_pending'. This is the C13 defect:
+	// has_submitted was checked before genuine_overdue in the headline CASE, so a drive with one
+	// submitted obligation and one genuinely overdue (open-status, unsubmitted, past-due)
+	// obligation reported headline='verification_pending' while severity (computed independently
+	// from genuine_overdue) still said 'critical' -- a self-contradictory event that hid real
+	// overdue work behind a "someone already submitted this" story. Unlike CASE (b) above (which
+	// uses 'missed' status to prove genuine_missed still outranks everything), this case uses the
+	// open 'scheduled' status for the unsubmitted half, so it exercises genuine_overdue
+	// specifically, not genuine_missed.
+	t.Run("MixedSubmittedAndGenuineOverdue_OverdueOutranksVerificationPending", func(t *testing.T) {
+		const (
+			protD  = "cd000000-0000-4000-8000-000000dd0001"
+			verD   = "cd000000-0000-4000-8000-000000dd0002"
+			ruleD  = "cd000000-0000-4000-8000-000000dd0003"
+			batchD = "cd000000-0000-4000-8000-000000de0001"
+		)
+		dayD := biztime.BusinessDayStart(time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC))
+		dayKeyD := dayD.In(loc).Format("2006-01-02")
+
+		obl1 := "cd000000-0000-4000-8000-000000df0001"
+		seedVaccinationObligation(t, ctx, pool, protD, verD, ruleD, obl1, dayD)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		for i := 2; i <= 10; i++ {
+			oblID := fmt.Sprintf("cd000000-0000-4000-8000-000000df%04d", i)
+			seedAdditionalVaccinationObligation(t, ctx, pool, verD, ruleD, oblID, dayD)
+			seedCalendarGoat(t, ctx, pool, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verD, ruleD, "PPR")
+
+		var oblIDs []string
+		for i := 1; i <= 10; i++ {
+			oblIDs = append(oblIDs, fmt.Sprintf("cd000000-0000-4000-8000-000000df%04d", i))
+		}
+		seedVaccinationBatchForShed(t, ctx, pool, batchD, verD, testParkA, testShedA, dayD, oblIDs...)
+
+		// Leave status at the seeded default ('scheduled', an open status) for ALL obligations --
+		// genuine_overdue is a READ-TIME flag (open status AND due_date in the past AND NOT
+		// submitted), it never depends on a literal 'overdue' obligation status. Submit the first
+		// 5 (has_submitted=true for the group); leave the other 5 unsubmitted so
+		// genuine_overdue=true for the group.
+		for i, oblID := range oblIDs {
+			if i < 5 {
+				if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text)`,
+					testTenantID, oblID, dayD); err != nil {
+					t.Fatalf("seed completion: %v", err)
+				}
+			}
+		}
+
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayD.Add(-24 * time.Hour), DateTo: dayD.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (no summary): %v", err)
+		}
+
+		var event *domain.CalendarEvent
+		for i := range resp.Items {
+			if resp.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyD {
+				event = &resp.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("missing drive for %s without summary", dayKeyD)
+		}
+
+		// C13 FIX: overdue/critical, NOT verification_pending -- 5 unsubmitted obligations are
+		// genuinely overdue (open status, past-due, unsubmitted) despite 5 others being submitted.
+		if event.Status != domain.StatusOverdue {
+			t.Errorf("status=%s (no summary), want overdue (5 genuinely overdue present despite 5 submitted)", event.Status)
+		}
+		if event.Severity != domain.SeverityCritical {
+			t.Errorf("severity=%s (no summary), want critical -- headline and severity must never disagree", event.Severity)
+		}
+
+		// Same assertion WITH include_drive_summary, to prove headline consistency across both
+		// response shapes (see CASE (a)/(b) above for the same pattern).
+		resp2, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayD.Add(-24 * time.Hour), DateTo: dayD.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (with summary): %v", err)
+		}
+		event = nil
+		for i := range resp2.Items {
+			if resp2.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp2.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyD {
+				event = &resp2.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("drive event for %s missing from IncludeDriveSummary response", dayKeyD)
+		}
+		if event.Status != domain.StatusOverdue {
+			t.Errorf("status=%s (with summary), want overdue", event.Status)
+		}
+		if event.Severity != domain.SeverityCritical {
+			t.Errorf("severity=%s (with summary), want critical", event.Severity)
+		}
+	})
+
 	// CASE (c) OneToMany + MultiPage + StatusBuckets, all on one fixture.
 	//
 	// Cardinality (OneToMany): 12 obligations across TWO rules collapse into ONE drive row for
@@ -5227,4 +5369,278 @@ INSERT INTO vaccination_completions (
 			}
 		}
 	})
+}
+
+func TestCalendarBatchedParkDriveRollsForwardUntilClosed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	loc := biztime.DefaultLocation()
+
+	today := biztime.BusinessDayStart(time.Now())
+	dayD := today.AddDate(0, 0, -1) // "yesterday" business day -- the drive's original planned date
+
+	// --- Open drive: submitted but not yet verified (matches the live 00:03 IST symptom). ---
+	openProtocolID := "86000000-0000-4000-8000-000000009101"
+	openVersionID := "86000000-0000-4000-8000-000000009102"
+	openRuleID := "86000000-0000-4000-8000-000000009103"
+	openObligationID := "86000000-0000-4000-8000-000000009104"
+	openBatchID := "86000000-0000-4000-8000-000000009105"
+	openGoatID := "86000000-0000-4000-8000-000000009106"
+
+	seedVaccinationObligation(t, ctx, pool, openProtocolID, openVersionID, openRuleID, openObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, openGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, openGoatID, testParkA, testShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, openObligationID, openGoatID); err != nil {
+		t.Fatalf("seed open obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, openBatchID, openVersionID, testParkA, testShedA, dayD, openObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'in_progress', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, openBatchID); err != nil {
+		t.Fatalf("mark open batch in_progress: %v", err)
+	}
+	// verification_pending is a READ-TIME label, not a stored obligation_instances.status value
+	// (obligation_instances_status_check does not permit it). It is derived from a 'recorded'
+	// vaccination_completions row against an otherwise-open obligation -- see
+	// TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred's fixture for the
+	// same pattern. Leave the obligation itself 'in_progress' (open, not completed/canceled).
+	setDriveObligationStatus(t, ctx, pool, openObligationID, "in_progress")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::timestamptz, 'recorded', $2::text || ':recorded')`,
+		testTenantID, openObligationID, openGoatID, dayD); err != nil {
+		t.Fatalf("seed recorded completion for open drive: %v", err)
+	}
+
+	// --- Closed drive: same original day D, but completed. Must NOT roll forward. ---
+	closedProtocolID := "86000000-0000-4000-8000-000000009111"
+	closedVersionID := "86000000-0000-4000-8000-000000009112"
+	closedRuleID := "86000000-0000-4000-8000-000000009113"
+	closedObligationID := "86000000-0000-4000-8000-000000009114"
+	closedBatchID := "86000000-0000-4000-8000-000000009115"
+	closedGoatID := "86000000-0000-4000-8000-000000009116"
+
+	seedVaccinationObligation(t, ctx, pool, closedProtocolID, closedVersionID, closedRuleID, closedObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, closedGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, closedGoatID, testParkB, testShedB)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, closedObligationID, closedGoatID); err != nil {
+		t.Fatalf("seed closed obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, closedBatchID, closedVersionID, testParkB, testShedB, dayD, closedObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'completed', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, closedBatchID); err != nil {
+		t.Fatalf("mark closed batch completed: %v", err)
+	}
+	setDriveObligationStatus(t, ctx, pool, closedObligationID, domain.StatusCompleted)
+
+	// Query the calendar for TODAY only (D+1 relative to the drives' original planned date).
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: today,
+		DateTo:   today.AddDate(0, 0, 1),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents(today): %v", err)
+	}
+
+	openTodayEventID := parkDriveEventID(testParkA, today)
+	closedTodayEventID := parkDriveEventID(testParkB, today)
+	closedOriginalDayEventID := parkDriveEventID(testParkB, dayD)
+
+	var openEvent, closedTodayEvent, closedOriginalDayEvent *domain.CalendarEvent
+	for i := range resp.Items {
+		switch resp.Items[i].EventID {
+		case openTodayEventID:
+			openEvent = &resp.Items[i]
+		case closedTodayEventID:
+			closedTodayEvent = &resp.Items[i]
+		case closedOriginalDayEventID:
+			closedOriginalDayEvent = &resp.Items[i]
+		}
+	}
+
+	// POSITIVE: the open, submitted-but-unverified drive must be SURFACED under today's date --
+	// not merely present in the result set while still keyed under its original planned date D.
+	if openEvent == nil {
+		t.Fatalf("open verification_pending drive not surfaced under today (%s); items=%#v",
+			today.In(loc).Format("2006-01-02"), eventIDs(resp.Items))
+	}
+	if gotDay := openEvent.DueAt.In(loc).Format("2006-01-02"); gotDay != today.In(loc).Format("2006-01-02") {
+		t.Fatalf("open drive due_at grouped under %s, want today %s -- returned but not surfaced on D+1",
+			gotDay, today.In(loc).Format("2006-01-02"))
+	}
+	if openEvent.Status != domain.StatusVerificationPending {
+		t.Fatalf("open drive status = %q, want verification_pending", openEvent.Status)
+	}
+
+	// NEGATIVE: a CLOSED (completed) drive on day D must not roll forward onto today, and must not
+	// appear at all in a today-only query (its original day D is outside [today, today+1)).
+	if closedTodayEvent != nil {
+		t.Fatalf("closed/completed drive rolled forward onto today; a blanket 45-day lookback with no closed-status guard would produce this false positive: %#v", closedTodayEvent)
+	}
+	if closedOriginalDayEvent != nil {
+		t.Fatalf("closed/completed drive from day D leaked into a today-only query result: %#v", closedOriginalDayEvent)
+	}
+}
+
+// TestCalendarOpenParkDriveRollsOnlyOntoToday pins the BOUNDS of the "open drive keeps showing on
+// the current date" rollover. The rolled card belongs to TODAY and to today alone:
+//   - it must NOT bleed into any window AFTER today (the D+1/D+2 leak: the phone showed the same
+//     cards when tapping tomorrow as when tapping today, still labelled with today's due_at),
+//   - it must NOT appear on days BEFORE its original planned date, and per the same contract it no
+//     longer sits on its original planned date either (it moved to today),
+//   - and a FUTURE-planned drive must be left completely alone on its own planned date -- the
+//     regression most likely to be caused by widening inclusion bounds to make the roll work.
+func TestCalendarOpenParkDriveRollsOnlyOntoToday(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	loc := biztime.DefaultLocation()
+
+	today := biztime.BusinessDayStart(time.Now())
+	dayD := today.AddDate(0, 0, -1)     // open drive's ORIGINAL planned date
+	tomorrow := today.AddDate(0, 0, 1)  // must stay clean
+	futureDay := today.AddDate(0, 0, 3) // forward-scheduled drive's own planned date
+	beforeDayD := today.AddDate(0, 0, -3)
+
+	// --- Open (in_progress) drive planned on day D, i.e. already in the past. ---
+	openProtocolID := "86000000-0000-4000-8000-000000009201"
+	openVersionID := "86000000-0000-4000-8000-000000009202"
+	openRuleID := "86000000-0000-4000-8000-000000009203"
+	openObligationID := "86000000-0000-4000-8000-000000009204"
+	openBatchID := "86000000-0000-4000-8000-000000009205"
+	openGoatID := "86000000-0000-4000-8000-000000009206"
+
+	seedVaccinationObligation(t, ctx, pool, openProtocolID, openVersionID, openRuleID, openObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, openGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, openGoatID, testParkA, testShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, openObligationID, openGoatID); err != nil {
+		t.Fatalf("seed open obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, openBatchID, openVersionID, testParkA, testShedA, dayD, openObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'in_progress', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, openBatchID); err != nil {
+		t.Fatalf("mark open batch in_progress: %v", err)
+	}
+	setDriveObligationStatus(t, ctx, pool, openObligationID, "in_progress")
+
+	// --- Forward-scheduled drive on a FUTURE day. Untouched by the rollover. ---
+	futureProtocolID := "86000000-0000-4000-8000-000000009211"
+	futureVersionID := "86000000-0000-4000-8000-000000009212"
+	futureRuleID := "86000000-0000-4000-8000-000000009213"
+	futureObligationID := "86000000-0000-4000-8000-000000009214"
+	futureBatchID := "86000000-0000-4000-8000-000000009215"
+	futureGoatID := "86000000-0000-4000-8000-000000009216"
+
+	seedVaccinationObligation(t, ctx, pool, futureProtocolID, futureVersionID, futureRuleID, futureObligationID, futureDay)
+	seedCalendarGoat(t, ctx, pool, futureGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, futureGoatID, testParkB, testShedB)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, futureObligationID, futureGoatID); err != nil {
+		t.Fatalf("seed future obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, futureBatchID, futureVersionID, testParkB, testShedB, futureDay, futureObligationID)
+
+	// ListEvents treats DateTo as an INCLUSIVE day (repository.go adds 24h to get the exclusive
+	// bound), so DateTo == DateFrom is a single-day window -- the same shape as the reported
+	// `?date_from=D&date_to=D` request.
+	listDay := func(t *testing.T, from time.Time) []domain.CalendarEvent {
+		t.Helper()
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID,
+			OwnerKey: domain.OwnerAll,
+			DateFrom: from,
+			DateTo:   from,
+			Limit:    50,
+			Scope:    domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("ListEvents(%s): %v", from.In(loc).Format("2006-01-02"), err)
+		}
+		return resp.Items
+	}
+	findPark := func(items []domain.CalendarEvent, parkID string) *domain.CalendarEvent {
+		for i := range items {
+			if items[i].EventType == "vaccination_drive" && items[i].ParkID != nil && *items[i].ParkID == parkID {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	// Sanity anchor: the open drive IS on today (the behaviour the rollover exists to provide).
+	todayItems := listDay(t, today)
+	if got := findPark(todayItems, testParkA); got == nil {
+		t.Fatalf("open drive missing from today's window (%s); items=%v",
+			today.In(loc).Format("2006-01-02"), eventIDs(todayItems))
+	}
+
+	// 1) TOMORROW must be clean. This is the reported bug: the rolled card, still carrying today's
+	//    due_at, materialised inside every future window.
+	tomorrowItems := listDay(t, tomorrow)
+	if got := findPark(tomorrowItems, testParkA); got != nil {
+		t.Errorf("open drive leaked into the TOMORROW window (%s) as %s due_at=%s -- a rolled drive belongs to today only",
+			tomorrow.In(loc).Format("2006-01-02"), got.EventID, got.DueAt.In(loc).Format("2006-01-02"))
+	}
+
+	// 2) The original planned day D, and a day BEFORE it, must not carry the drive: it rolled onto
+	//    today and lives there.
+	for _, day := range []time.Time{dayD, beforeDayD} {
+		items := listDay(t, day)
+		if got := findPark(items, testParkA); got != nil {
+			t.Errorf("open drive appeared on %s as %s due_at=%s -- want it only on today %s",
+				day.In(loc).Format("2006-01-02"), got.EventID, got.DueAt.In(loc).Format("2006-01-02"),
+				today.In(loc).Format("2006-01-02"))
+		}
+	}
+
+	// 3) A future-planned drive still shows on its OWN planned date, unrolled.
+	futureItems := listDay(t, futureDay)
+	futureEvent := findPark(futureItems, testParkB)
+	if futureEvent == nil {
+		t.Fatalf("future-planned drive missing from its own planned date %s; items=%v",
+			futureDay.In(loc).Format("2006-01-02"), eventIDs(futureItems))
+	}
+	if gotDay := futureEvent.DueAt.In(loc).Format("2006-01-02"); gotDay != futureDay.In(loc).Format("2006-01-02") {
+		t.Errorf("future-planned drive due_at = %s, want its own planned date %s",
+			gotDay, futureDay.In(loc).Format("2006-01-02"))
+	}
+	// ...and it must not have been dragged onto today by the rollover's widened bounds.
+	if got := findPark(todayItems, testParkB); got != nil {
+		t.Errorf("future-planned drive appeared on TODAY as %s due_at=%s", got.EventID, got.DueAt.In(loc).Format("2006-01-02"))
+	}
+}
+
+func eventIDs(items []domain.CalendarEvent) []string {
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.EventID
+	}
+	return ids
 }

@@ -133,6 +133,15 @@ class WeighingViewModel @Inject constructor(
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
 
     private val selectedAssignmentParkId = MutableStateFlow<String?>(null)
+
+    /**
+     * Park chips for the assignment list are built from every park seen so far, NOT from the
+     * current page. `listAssignments(parkId = ...)` re-fetches server-filtered rows, so once a
+     * park is selected `assignments` collapses to that one park -- deriving the chip list (incl.
+     * "All parks") from that same collapsed list left no way back (A22). This mirrors
+     * [knownTaskParks] below, which already solves the identical problem for the planner tab.
+     */
+    private val knownAssignmentParks = MutableStateFlow<Map<String, String>>(emptyMap())
     private val tasksLoading = MutableStateFlow(false)
     private val tasksAppending = MutableStateFlow(false)
 
@@ -216,6 +225,22 @@ class WeighingViewModel @Inject constructor(
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskBucketCache())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
+
+    // ---- The ONE open camera, and which animal it is pointed at -----------------------------
+    //
+    // The camera is a single physical device the operator is holding in front of ONE animal. These
+    // fields track whose video is currently being recorded so that a scan of a DIFFERENT animal,
+    // arriving while that recording is still open, retargets the camera instead of being dropped.
+    // Without them the animal was bound in the launched coroutine's closure and a scan of the next
+    // animal was silently swallowed by the busy gate, so footage shot at the second animal was
+    // saved under the FIRST animal's tag and the weight typed next landed there too.
+    private var proofCaptureAnimalId: String? = null
+    private var proofCaptureJob: Job? = null
+    // Flips true the instant captureVideo() RETURNS a real recording for the in-flight animal.
+    // Past that point the capture must NEVER be cancelled by a later scan — that would throw away
+    // a finished field recording. A later scan is refused with a visible reason instead.
+    private var proofCaptureVideoCaptured = false
+
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val loadingAssignments = MutableStateFlow(false)
 
@@ -275,8 +300,13 @@ class WeighingViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
-        combine(assignments, selectedAssignmentParkId, appendingAssignments) { availableAssignments, selectedParkId, appending ->
-            AssignmentParkSelection(availableAssignments, selectedParkId, appending)
+        combine(assignments, selectedAssignmentParkId, appendingAssignments, knownAssignmentParks) {
+                availableAssignments,
+                selectedParkId,
+                appending,
+                knownParks,
+            ->
+            AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks)
         }.let { assignmentSelection ->
             combine(assignmentSelection, loadingAssignments, plannerMode) { selection, loading, isPlanner ->
                 WeighingRootState(
@@ -285,6 +315,7 @@ class WeighingViewModel @Inject constructor(
                     plannerMode = isPlanner,
                     selectedParkId = selection.selectedParkId,
                     appendingAssignments = selection.appending,
+                    knownParks = selection.knownParks,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
@@ -575,6 +606,7 @@ class WeighingViewModel @Inject constructor(
                 busy = form.busy,
                 replacementAnimalId = form.replacementAnimalId,
                 availableAssignments = root.assignments,
+                knownParks = root.knownParks,
                 loading = root.loading,
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
@@ -662,6 +694,7 @@ class WeighingViewModel @Inject constructor(
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
                         assignmentsError.value = null
+                        rememberAssignmentParks(loaded.value.items)
                         // Do not clear a failure the planner read is still reporting.
                         message.value = plannerError.value
                     }
@@ -705,6 +738,7 @@ class WeighingViewModel @Inject constructor(
                         assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
                         assignmentsNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
                         assignmentsError.value = null
+                        rememberAssignmentParks(loaded.value.items)
                         message.value = plannerError.value
                     }
                     is AppResult.Err -> {
@@ -833,6 +867,13 @@ class WeighingViewModel @Inject constructor(
         if (visible >= LIST_PREFETCH_DISTANCE) return
         tabRefillBudget -= 1
         appendTasks()
+    }
+
+    private fun rememberAssignmentParks(loaded: List<WeighingAssignment>) {
+        if (loaded.isEmpty()) return
+        knownAssignmentParks.value = knownAssignmentParks.value + loaded
+            .filter { it.parkId.isNotBlank() }
+            .associate { it.parkId to it.parkName.ifBlank { it.parkId } }
     }
 
     private fun rememberTaskParks(loaded: List<WeighingTask>) {
@@ -1122,7 +1163,20 @@ class WeighingViewModel @Inject constructor(
                         workGroupId = workGroupId,
                         campaignShedId = campaignShedId,
                         animalId = row.animalId,
-                        scannedIdentifier = scanInput.value.ifBlank { row.primaryTag },
+                        // The identity of this weight is the ROW's own tag, never the shared scan
+                        // box. scanInput is one ViewModel-wide field that every scan and the typed-
+                        // scan box overwrite; the per-row save path runs WITHOUT the global busy
+                        // gate (useGlobalBusyGate = false), so nothing holds it still while this
+                        // save is dispatched. Reading it here meant "scan the next animal, then
+                        // save the previous row's weight" shipped that weight under the OTHER
+                        // animal's tag -- and free-flow gives the backend nothing to catch it with
+                        // (RecordAnimalObservation clears AnimalID and takes scanned_identifier
+                        // verbatim, service.go:419-426), so the client binding IS the record.
+                        // For every path that reaches here the two agree when they are correct:
+                        // matchTag sets selectedRow and scanInput from the SAME scanned tag, and
+                        // selectAnimal sets scanInput = row.primaryTag. Only the divergent case
+                        // was ever wrong.
+                        scannedIdentifier = row.primaryTag.ifBlank { row.animalId },
                         weightKg = weightKg,
                     ),
                 )) {
@@ -1435,7 +1489,12 @@ class WeighingViewModel @Inject constructor(
     private fun matchTag(tag: String) {
         val key = scopeKey ?: return
         val normalizedTag = normalizeFreeFlowTag(tag)
-        if (normalizedTag.isBlank() || actionInFlight.value) return
+        if (normalizedTag.isBlank()) return
+        // A scan that arrives while a VIDEO is being recorded must still be handled — the operator
+        // has physically moved to the next animal, and dropping the scan is what let a recording
+        // land under the previous animal. Other busy work (saving, submitting, closing) still
+        // holds scans off, as before.
+        if (actionInFlight.value && proofCaptureAnimalId == null) return
         viewModelScope.launch {
             val existingRow = scannedRows.value.firstOrNull {
                 normalizeFreeFlowTag(it.animalId) == normalizedTag ||
@@ -1495,10 +1554,39 @@ class WeighingViewModel @Inject constructor(
         message.value = null
     }
 
+    /** Opens the video camera for [row]. Only one animal's video can be RECORDING at a time — the
+     *  camera is one physical device pointed at one animal.
+     *
+     *  A scan of a DIFFERENT animal while the current animal's video is still being recorded (i.e.
+     *  the camera has not returned a recording yet, so nothing has been written) CLOSES that
+     *  window rather than dropping the scan: the still-open camera is cancelled and a fresh one
+     *  opens for the newly scanned animal, and the operator is told the first animal still needs
+     *  its video. Cancelling is only safe before a recording exists — once one does
+     *  ([proofCaptureVideoCaptured]) the new scan is refused with a visible reason so a finished
+     *  recording is never thrown away. */
     private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
-        if (actionInFlight.value) return
+        val strandedAnimalId = proofCaptureAnimalId
+        if (strandedAnimalId != null) {
+            if (strandedAnimalId == row.animalId || proofCaptureVideoCaptured) {
+                // The same animal was re-scanned mid-recording, or the open capture already has a
+                // finished recording being saved. Nothing safe to cancel in either case.
+                message.value = "Finish the current animal's video first."
+                return
+            }
+            proofCaptureJob?.cancel()
+            proofCaptureJob = null
+            proofCaptureAnimalId = null
+            proofCaptureVideoCaptured = false
+            actionInFlight.value = false
+            message.value = "$strandedAnimalId still needs its video."
+        } else if (actionInFlight.value) {
+            return
+        }
         actionInFlight.value = true
-        viewModelScope.launch {
+        proofCaptureAnimalId = row.animalId
+        proofCaptureVideoCaptured = false
+        val myAnimalId = row.animalId
+        val job = viewModelScope.launch {
             try {
                 when (val proof = captureProofForRow(key, row)) {
                     is AppResult.Ok -> {
@@ -1512,9 +1600,18 @@ class WeighingViewModel @Inject constructor(
                     }
                 }
             } finally {
-                actionInFlight.value = false
+                // Only the job that still OWNS the open camera may clear it. A job cancelled
+                // because a later scan retargeted the camera must not clear state that now belongs
+                // to the animal that superseded it.
+                if (proofCaptureAnimalId == myAnimalId) {
+                    actionInFlight.value = false
+                    proofCaptureAnimalId = null
+                    proofCaptureJob = null
+                    proofCaptureVideoCaptured = false
+                }
             }
         }
+        proofCaptureJob = job
     }
 
     private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
@@ -1529,6 +1626,9 @@ class WeighingViewModel @Inject constructor(
         if (captured == null) {
             return AppResult.Err("missing_video")
         }
+        // A real, complete recording now exists for this animal. From here on a later scan may no
+        // longer cancel this capture — see [captureVideoForRow].
+        proofCaptureVideoCaptured = true
         val principalId = currentPrincipalId
             ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
                 ?.takeIf { it.isNotBlank() }
@@ -1595,6 +1695,7 @@ class WeighingViewModel @Inject constructor(
         busy: Boolean,
         replacementAnimalId: String?,
         availableAssignments: List<WeighingAssignment>,
+        knownParks: Map<String, String>,
         loading: Boolean,
         appendingAssignments: Boolean,
         isPlanner: Boolean,
@@ -1614,7 +1715,7 @@ class WeighingViewModel @Inject constructor(
                 weightInput = weight,
                 animalCountInput = animalCount,
                 selectedAnimalId = selected?.animalId,
-                selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
+                selectedAnimalLabel = selected?.displayAnimalId,
                 message = currentMessage,
                 actionInFlight = busy,
                 loading = true,
@@ -1635,7 +1736,10 @@ class WeighingViewModel @Inject constructor(
             assignments = availableAssignments
                 .filter { selectedParkId == null || it.parkId == selectedParkId }
                 .map { it.toUiRow() },
-            parkFilters = availableAssignments.toParkFilters(selectedParkId),
+            // Built from EVERY park seen so far (knownParks), not the current possibly
+            // park-filtered page -- see [knownAssignmentParks]. Fixes A22: selecting a park used
+            // to collapse this to one chip with no way back to "All parks".
+            parkFilters = knownParks.toParkFilters(selectedParkId),
             loading = loading,
             assignmentsLoadingMore = appendingAssignments,
             category = category,
@@ -1665,7 +1769,7 @@ class WeighingViewModel @Inject constructor(
             hasScope = true,
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
-            selectedAnimalLabel = selected?.let { "${it.displayAnimalId} in ${it.expectedLocationLabel}" },
+            selectedAnimalLabel = selected?.displayAnimalId,
             scanInput = scan,
             weightInput = weight,
             animalCountInput = animalCount,
@@ -1740,11 +1844,7 @@ class WeighingViewModel @Inject constructor(
                 id = row.id,
                 animalId = row.animalId,
                 displayAnimalId = row.displayAnimalId,
-                expectedLocationLabel = row.expectedLocationLabel,
-                actualLocationLabel = null,
                 status = if (draft?.syncedToBackend == true) "Completed" else "Scanned",
-                availabilityStatus = null,
-                wrongShed = false,
                 scannedAtLabel = scanTimeLabel(row.updatedAt),
                 weightInput = weight,
                 savedWeightLabel = savedWeight,
@@ -1910,20 +2010,20 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         label = label,
         category = category,
         status = status.readableWeighingStatus(),
-        expectedCount = expectedCount,
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
         readyToClose = readyToClose,
         pendingVerificationCount = pendingVerificationCount,
     )
 
-private fun List<WeighingAssignment>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =
-    distinctBy { it.parkId }
-        .filter { it.parkId.isNotBlank() }
+private fun Map<String, String>.toParkFilters(selectedParkId: String?): List<WeighingParkFilterUiRow> =
+    entries
+        .filter { it.key.isNotBlank() }
+        .sortedBy { it.value }
         .map {
             WeighingParkFilterUiRow(
-                parkId = it.parkId,
-                label = it.parkName.ifBlank { it.parkId.take(8) },
-                selected = it.parkId == selectedParkId,
+                parkId = it.key,
+                label = it.value.ifBlank { it.key.take(8) },
+                selected = it.key == selectedParkId,
             )
         }
 
@@ -1998,12 +2098,17 @@ private data class WeighingRootState(
     val plannerMode: Boolean = false,
     val selectedParkId: String? = null,
     val appendingAssignments: Boolean = false,
+    // Every park seen across every fetch, NOT just the current (possibly park-filtered) page --
+    // see [knownAssignmentParks]. Keeps the "All parks" chip and every other park chip reachable
+    // after the user selects a park (A22).
+    val knownParks: Map<String, String> = emptyMap(),
 )
 
 private data class AssignmentParkSelection(
     val assignments: List<WeighingAssignment>,
     val selectedParkId: String?,
     val appending: Boolean = false,
+    val knownParks: Map<String, String> = emptyMap(),
 )
 
 private data class WeighingCaptureState(

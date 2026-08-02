@@ -293,6 +293,36 @@ func (r *Repository) supersedeOlderTaskGoatVideos(ctx context.Context, tx pgx.Tx
 		return nil
 	}
 
+	// F7: two concurrent CompleteProof calls for the SAME (tenant, task,
+	// goat) scope race under the pool's default READ COMMITTED isolation.
+	// There is no `is_current` column and no dedicated parent/aggregate row
+	// for a (task, goat) scope in this schema to take a FOR NO KEY UPDATE
+	// lock on (unlike weighing's campaign/bucket rows -- see
+	// lockCampaignRowForNoKeyUpdate in internal/weighing/adapters/postgres
+	// for that convention). Currency is inferred purely from the newest-wins
+	// SELECT below, and under READ COMMITTED each concurrent transaction's
+	// snapshot is taken independently: both can run this SELECT before
+	// either commits, both see themselves as the sole completed row, and
+	// both return without superseding anything -- two "current" videos for
+	// one goat.
+	//
+	// A session-scoped advisory lock keyed on the (tenant, task, goat) scope
+	// closes this without a new table or column: pg_advisory_xact_lock
+	// serialises every CompleteProof for the same scope so the second
+	// transaction's newest-wins lookup always runs AFTER the first has
+	// committed its supersede/mark-superseded write, and always sees the
+	// correct, up-to-date state. The lock is released automatically at
+	// transaction end (commit or rollback), matching this repository's
+	// per-call transaction lifetime. hashtextextended(..., 0) folds the
+	// three-part scope key into the single bigint pg_advisory_xact_lock
+	// takes; the salt is fixed (0) so the same scope always hashes to the
+	// same lock key across calls.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		fmt.Sprintf("proof:task-goat-video:%s:%s:%s", artifact.TenantID, artifact.ScopeID, *artifact.SubjectID),
+	); err != nil {
+		return err
+	}
+
 	var newestProofID string
 	var newestCreatedAt time.Time
 	err := tx.QueryRow(ctx, `

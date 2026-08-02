@@ -4069,7 +4069,7 @@ export interface components {
             links: components["schemas"]["CalendarEventLinks"];
             drive_summary?: components["schemas"]["DriveSummary"] | null;
         };
-        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = total_count - completed_count. Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Cross-surface progress: progress_completed / progress_total / progress_pct on the progress_basis grain are the ONE authoritative drive-progress figure. Admin-web and the Android app MUST render them verbatim and MUST NOT derive their own numerator from any other field -- two clients each picking their own fields is how the same drive showed two different completion numbers and ring percentages. The numerator counts VERIFIED completion only; submitted-but-unverified work is reported by submitted_count / submitted_animals and never inflates progress. Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
+        /** @description Park-level drive progress. Invariant: total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count (5 disjoint obligation buckets); remaining_count = due_count + overdue_count + deferred_count = total_count - completed_count - submitted_count (work still owed by the OPERATOR; it excludes submitted work so it can never contradict progress_pct on the same payload). Distinct-animal coverage: total_animals = distinct goats in this drive; completed_animals = goats where ALL drive obligations are completed (fully covered); submitted_animals = goats with recorded mobile completion pending verification. Cross-surface progress: progress_completed / progress_total / progress_pct on the progress_basis grain are the ONE authoritative drive-progress figure. Admin-web and the Android app MUST render them verbatim and MUST NOT derive their own numerator from any other field -- two clients each picking their own fields is how the same drive showed two different completion numbers and ring percentages. The numerator is FIELD WORK DONE = completed + submitted (maintainer decision 2026-08-03): an operator who vaccinated every animal and submitted proof sees 100% and "4 of 4 sheds done", and the outstanding verifier review is carried by the verification_pending status/chip and submitted_count / submitted_animals, never by holding the ring below 100%. remaining_count follows the same numerator, so a fully submitted drive reports progress_pct 100 AND remaining_count 0 -- one payload never carries two answers to "how much is left". Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built product feature yet (owner decision 2026-07-14); revisit when the stock module ships. */
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
@@ -4096,7 +4096,7 @@ export interface components {
             completed_count: number;
             /** @description Recorded mobile completions pending verification */
             submitted_count: number;
-            /** @description Remaining obligations */
+            /** @description Work still owed by the OPERATOR = due_count + overdue_count + deferred_count, i.e. total_count - completed_count - submitted_count. Deliberately EXCLUDES submitted-but-unverified work, exactly like the progress numerator, so a fully submitted drive reports remaining_count 0 beside progress_pct 100. It was total_count - completed_count, which rendered "20 left" next to a full ring. */
             remaining_count: number;
             /** @description Active open obligations */
             due_count: number;
@@ -4790,13 +4790,16 @@ export interface components {
             sex: "male" | "female";
             animalCount: number;
         };
+        /** @description One farm × cohort × dose-qualified-vaccine cell, at OBLIGATION grain (COUNT(DISTINCT obligation_id)). pendingCount, submittedCount and verifiedCount are a DISJOINT partition of the cell's obligations along "who owes the next move": the operator, the verifier, nobody. pendingCount previously fused the first two, because obligation status advances only on VERIFICATION and never on submission — a park whose every animal had been vaccinated and submitted rendered byte-identically to a park nobody had touched, and the page showed "40 awaiting verification" in the KPI row above "40 pending" in this matrix with no column reconciling them. submittedCount is that reconciling column. GRAIN NOTE: these counts are obligation grain while VaccinationCommandBoardKPI is animal grain; the two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses, and the matrix stays obligation grain by design so a multi-vaccine animal is visible once per vaccine. */
         VaccinationCommandBoardCohortCell: {
             cohort: components["schemas"]["VaccinationCommandBoardCohort"];
             /** @description Human-readable vaccine label (e.g., ET+TT, PPR · Booster). */
             vaccineLabel: string;
-            /** @description Count of animals in this cohort with pending obligations for this vaccine (scheduled, due, or recorded-unverified). */
+            /** @description Field work the OPERATOR still owes: obligations in this cohort/vaccine that are open (scheduled, due, in_progress, deferred, missed), due on or before the as-of IST business date, and carry NO recorded completion. Does NOT include submitted work — counting submitted animals here is what made a fully vaccinated park look untouched. */
             pendingCount: number;
-            /** @description Count of animals in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor recorded-but-unverified — so the two may be displayed side by side. */
+            /** @description Field work DONE and awaiting a verifier: obligations with a recorded completion that is not yet verifier-accepted. Reconciles with VaccinationCommandBoardKPI.awaitingVerification (same predicate, animal grain there). Disjoint from pendingCount and verifiedCount. */
+            submittedCount: number;
+            /** @description Obligations in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount and submittedCount — an accepted obligation is neither open-unrecorded nor recorded-but-unverified — so the three may be displayed side by side without double counting. */
             verifiedCount: number;
             /**
              * Format: date-time
@@ -5742,9 +5745,7 @@ export interface components {
         RecordWeighingAnimalObservationRequest: {
             /** Format: uuid */
             campaign_shed_id: string;
-            /** Format: uuid */
-            animal_id: string;
-            scanned_identifier?: string;
+            scanned_identifier: string;
             weight_kg: number;
             /** Format: uuid */
             proof_artifact_id: string;
@@ -5768,8 +5769,7 @@ export interface components {
             campaign_id: string;
             /** Format: uuid */
             campaign_shed_id?: string;
-            /** Format: uuid */
-            animal_id?: string;
+            scanned_identifier?: string;
             weight_kg: number;
             average_weight_kg?: number;
             animal_count?: number;

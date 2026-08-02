@@ -47,6 +47,7 @@
     <string name="mandatory_permissions_grant">అనుమతులను ఇవ్వండి</string>
     <string name="mandatory_permissions_settings">సెట్టింగ్‌లు తెరవండి</string>
     <string name="mandatory_permissions_settings_help">మీ ఫోన్ మళ్లీ అడగదు. కింద నుండి సెట్టింగ్‌ల యాప్ తెరిచి. Mesha కనుగొనండి, అనుమతులను ట్యాప్ చేసి, అవసరమైన అనుమతులను ఎనేబల్ చేయండి. చేసిన తర్వాత ఈ యాప్‌కు ఉంటారు.</string>
+    <string name="mandatory_permissions_retry_help">మీ ఫోన్ ఇంకా అడగగలదు. పైన ఉన్న బటన్ నొక్కి అనుమతించు ఎంచుకోండి — అన్ని అనుమతులు ఆన్ అయ్యే వరకు పని ప్రారంభం కాదు.</string>
     <string name="perm_label_location">లొకేషన్</string>
     <string name="perm_rationale_location">పని ఏ పార్క్ మరియు షెడ్‌లో జరిగిందో చూపిస్తుంది.</string>
 </resources>

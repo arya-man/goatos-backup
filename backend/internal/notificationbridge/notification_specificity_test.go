@@ -58,7 +58,7 @@ func TestVerificationApprovedNotificationIncludesSpecificDetails(t *testing.T) {
 			t.Parallel()
 
 			// Simulate the enrichment without a database
-			enrich := enrichApprovedNotificationCopy(nil, nil, context.Background(), "test-tenant",
+			enrich := enrichApprovedNotificationCopy(context.Background(), nil, nil, nil, "test-tenant",
 				tt.module, "", "", "")
 			// Without actual database lookups, should fall back to empty.
 			if enrich != "" {

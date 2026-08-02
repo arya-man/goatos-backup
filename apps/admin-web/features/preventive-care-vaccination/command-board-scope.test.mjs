@@ -38,8 +38,14 @@ test("command board defaults to all drives and renders the complete future progr
   assert.match(commandBoardViewSource, /command_board\.filter\.operator_day/);
   assert.match(commandBoardViewSource, /formatDateSpan\(cell\.minAdministeredDate, cell\.maxAdministeredDate\)/);
   assert.match(commandBoardViewSource, /formatDateSpan\(administered\?\.min, administered\?\.max\)/);
-  assert.match(commandBoardViewSource, /pending === 0 && done === 0/);
-  assert.match(commandBoardViewSource, /hasPending \? "cbm-pending" : "cbm-verified"/);
+  // Three-state cell: the empty guard must also spare a submitted-but-unverified cell, and the
+  // colour is pending -> submitted -> clear. Pinning the old two-state literals here would
+  // re-assert the defect where a fully submitted park rendered as untouched.
+  assert.match(commandBoardViewSource, /pending === 0 && awaiting === 0 && done === 0/);
+  assert.match(
+    commandBoardViewSource,
+    /pending > 0 \? "cbm-pending" : awaiting > 0 \? "cbm-awaiting" : "cbm-clear"/,
+  );
   assert.ok(
     commandBoardViewSource.indexOf("command_board.shed_matrix.title")
       < commandBoardViewSource.indexOf("command_board.future_drives.title"),

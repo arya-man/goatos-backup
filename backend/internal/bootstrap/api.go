@@ -687,7 +687,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
+	vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, log)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithVaccineLabels(vaccineLabels).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.

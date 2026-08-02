@@ -3792,11 +3792,33 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	// (c) all KPI numerators count distinct animals, not obligation/dose fan-out.
 	//     doses_verified numerator: bool_or(status='accepted');
 	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted);
-	//     overdue_not_given numerator: scheduled AND (due_at's IST business date)<(asOf's IST business
-	//     date) AND no completions; scheduled_ahead numerator: scheduled
+	//     overdue_not_given numerator: OPEN AND (due_at's IST business date)<(asOf's IST business
+	//     date) AND no completions; scheduled_ahead numerator: OPEN AND no completions
 	//     AND (due_at's IST business date)>=(asOf's IST business date), denominator: all obligations.
 	//     Vaccination time grain is the IST business DAY, never an instant — a dose due today at
 	//     00:00 IST must never read overdue merely because as_of is later the same day.
+	// (d) OPEN is the repo's canonical open-obligation set
+	//     ('scheduled','due','in_progress','deferred','missed') — the SAME set that defines
+	//     obligation_instances_open_logical_due_idx. It is NOT 'scheduled' alone: the sweeper flips
+	//     scheduled -> 'due' on the due business day, so a 'scheduled'-only predicate silently
+	//     dropped every currently-actionable obligation out of BOTH overdue_not_given and
+	//     scheduled_ahead (live CEO board read targets=40 but bucketed only 20 — the other park's
+	//     20 animals, with zero work done, were invisible to leadership).
+	// (e) BUCKET CONTRACT (docs/architecture/operational-read-model-contract.md,
+	//     "GET /vaccination/command — Grain and Buckets (disjoint unless noted)" + Bucket
+	//     Invariant): the four numerator buckets are a DISJOINT and EXHAUSTIVE partition of
+	//     targets, evaluated as a priority chain on the SAME obligation row —
+	//       verified   = has_accepted
+	//       awaiting   = has_recorded_unverified AND NOT has_accepted
+	//       overdue    = no completion AND OPEN AND due business date <  as_of business date
+	//       scheduled  = no completion AND OPEN AND due business date >= as_of business date
+	//     so verified+awaiting+overdue+scheduled = targets. scheduled_ahead carries the same
+	//     `comp.obligation_id IS NULL` guard overdue_not_given already had; without it an
+	//     obligation recorded-but-unverified and due today counted in awaiting AND scheduled_ahead.
+	//     Residual (stated, not silently hidden): targets is ANIMAL grain (COUNT DISTINCT
+	//     target_id), so an animal holding two obligations in different buckets can still appear
+	//     in two buckets; the partition is exact at one-obligation-per-animal, which is the drive
+	//     grain every live vaccination drive uses.
 	kpiSQL := `
 WITH comp AS (
   SELECT
@@ -3811,8 +3833,8 @@ SELECT
   COUNT(DISTINCT oi.target_id) as targets,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.target_id END) as doses_verified,
   COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.target_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.target_id END) as scheduled_ahead
+  COUNT(DISTINCT CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as scheduled_ahead
 FROM obligation_instances oi
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
@@ -3830,18 +3852,54 @@ WHERE oi.tenant_id = $1::uuid
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
-	// 2. Cohort matrix query (management_stage × sex × vaccine × pending count)
+	// 2. Cohort matrix query (management_stage × sex × vaccine × pending/submitted/verified)
+	//
+	// THREE disjoint buckets, partitioned by WHO OWES THE NEXT MOVE. pending_count used to fuse the
+	// first two, because obligation status advances only on VERIFICATION and never on submission:
+	// a park whose every animal had been vaccinated and submitted rendered byte-identically to a
+	// park nobody had touched, so the page showed "40 awaiting verification" in the KPI row and
+	// "40 pending" in the matrix directly below it with no column reconciling them, and a CEO could
+	// not tell that all 40 animals had in fact been vaccinated. The query was conformant to its
+	// written contract; the DEFINITION was the defect. Contract updated in the same change
+	// (docs/architecture/operational-read-model-contract.md, "Cohort Submission Matrix").
+	//
 	// projection-review:
-	// (a) producer: obligation_id, status, due_at, target_id, rule_id, dose_code | consumer: management_stage, sex, dose_code GROUP BY
-	// (b) completions pre-aggregated per obligation (1:1 after CTE), goat lookup 1:1, protocol rule 1:1
-	// (c) pending_count numerator: (scheduled AND (due_at's IST business date)<=(asOf's IST business
-	//     date)) OR (has_recorded_unverified), denominator: all obligations per cohort — due-today
-	//     counts pending (matches CEO pending semantics; IST business-day grain, never an instant);
-	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals;
-	//     verified_count numerator: bool_or(status='accepted'), denominator: all obligations per
-	//     cohort. pending_count and verified_count are DISJOINT: an accepted obligation is neither
-	//     still-scheduled nor recorded-unverified, so the two may be read side by side without
-	//     double counting, and pending + verified <= animal-level obligation total per cohort.
+	// (a) PRODUCER unique column list: obligation_instances is unique on (obligation_id); the comp
+	//     CTE is pre-aggregated to exactly one row per obligation_id. Every bucket counts
+	//     DISTINCT oi.obligation_id, so one obligation contributes at most 1 to at most one bucket.
+	//     CONSUMER match/group column list: GROUP BY (park.location_id, park.name,
+	//     g.management_stage, g.sex, pr.dose_code) — the identical key set for all three buckets and
+	//     for animal_count; no bucket carries an extra or missing WHERE dimension.
+	// (b) Join multiplicity: comp is 1:1 on obligation_id (GROUP BY obligation_id in the CTE);
+	//     goats 1:1 on (target_id, tenant_id) (PK); protocol_rules 1:1 on (rule_id, tenant_id) (PK);
+	//     locations shed 1:1 on (scope_id, tenant_id) and park 1:1 on shed.parent_location_id. No
+	//     join fans the obligation grain out, so animal_count (DISTINCT goat_id) cannot multiply by
+	//     the number of vaccines or doses.
+	// (c) DISJOINT + TOTAL partition over the cell's obligations, evaluated per row from columns of
+	//     the SAME row (oi.status, oi.due_at, comp.has_accepted, comp.has_recorded_unverified), so
+	//     bucketing is a pure per-row partition with no cross-grain dependency:
+	//       verified  = comp.has_accepted                                  (nobody owes anything)
+	//       submitted = NOT has_accepted AND has_recorded_unverified       (the VERIFIER owes review)
+	//       pending   = NOT has_accepted AND NOT has_recorded_unverified
+	//                   AND status IN (open set) AND due business date <= as-of business date
+	//                                                                     (the OPERATOR owes work)
+	//     has_accepted is checked first in every branch, so no obligation lands in two buckets, and
+	//     pending + submitted + verified <= the cell's obligation total.
+	//     Reconciliation key sets, shown identical: submitted_count's key set is
+	//     {obligation_id : has_recorded_unverified AND NOT has_accepted}, the obligation-grain image
+	//     of the KPI row's awaiting_verification key set {target_id : has_recorded_unverified AND
+	//     NOT has_accepted} computed over the SAME tenant/batch/park filter as the KPI query above;
+	//     the two agree exactly at one-obligation-per-animal-per-vaccine (the grain every live drive
+	//     uses), and the matrix stays obligation grain BY DESIGN so a multi-vaccine animal is
+	//     visible once per vaccine. Business-day grain, Asia/Kolkata, on both sides of the due-date
+	//     comparison — never an instant, never now()±N.
+	//     animal_count numerator: DISTINCT target_id per cohort; denominator: all non-terminated
+	//     animals in the cohort.
+	// (d) min/max_administered_at are MIN/MAX over the VERIFIED (accepted) completions of the same
+	//     obligation rows only — they are a date range read off the cell's verified bucket, never a
+	//     count, so they add no grain and cannot double count. They are NULL when verified_count is
+	//     0. They carry the real medical dates so a clubbed adult drive does not report its planned
+	//     date as the administration date.
 	cohortSQL := `
 WITH comp AS (
   SELECT
@@ -3861,7 +3919,15 @@ SELECT
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE
+    WHEN NOT COALESCE(comp.has_accepted, false)
+     AND NOT COALESCE(comp.has_recorded_unverified, false)
+     AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
+     AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE
+    WHEN NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)
+    THEN oi.obligation_id END) as submitted_count,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count,
   MIN(CASE WHEN comp.has_accepted THEN comp.min_administered_at END) as min_administered_at,
   MAX(CASE WHEN comp.has_accepted THEN comp.max_administered_at END) as max_administered_at
@@ -3888,7 +3954,9 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 
 	// Build cohort matrix cells. SQL rows arrive per dose_code; the board cell grain is
 	// cohort (stage × sex) × VACCINE, so fold dose rows into their vaccine label here
-	// (pending counts sum across doses; animal count is per-cohort and identical per row).
+	// (pending/submitted/verified counts sum across doses -- they stay disjoint under summation
+	// because each bucket is disjoint within every dose row; animal count is per-cohort and
+	// identical per row).
 	// Farm (park) is part of the cell key: leadership reads this matrix farmwise, so a cohort in
 	// Channapatna must never merge with the same cohort in Coimbatore.
 	type cohortKey struct{ parkID, stage, sex, vaccine string }
@@ -3896,9 +3964,9 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 	cohortOrder := []cohortKey{}
 	for cohortRows.Next() {
 		var parkID, parkName, stage, sex, doseCode string
-		var animalCount, pendingCount, verifiedCount int
+		var animalCount, pendingCount, submittedCount, verifiedCount int
 		var minAdministeredAt, maxAdministeredAt pgtype.Timestamptz
-		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount, &minAdministeredAt, &maxAdministeredAt); err != nil {
+		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &submittedCount, &verifiedCount, &minAdministeredAt, &maxAdministeredAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
@@ -3923,6 +3991,7 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 			cohortOrder = append(cohortOrder, key)
 		}
 		cell.PendingCount += pendingCount
+		cell.SubmittedCount += submittedCount
 		cell.VerifiedCount += verifiedCount
 		if minAdministeredAt.Valid && (cell.MinAdministeredDate == nil || minAdministeredAt.Time.Before(*cell.MinAdministeredDate)) {
 			administeredAt := minAdministeredAt.Time
@@ -3976,14 +4045,14 @@ shed_dose_obligations AS (
     CASE
       WHEN comp.has_accepted THEN 'verified'
       WHEN comp.has_recorded_unverified THEN 'awaiting'
-      WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
-      WHEN oi.status = 'scheduled' THEN 'scheduled'
+      WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN 'scheduled'
       ELSE 'other'
     END as state,
     oi.target_id,
     comp.min_administered_at,
     comp.max_administered_at,
-    CASE WHEN oi.status = 'scheduled' THEN oi.due_at END as due_at
+    CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN oi.due_at END as due_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id

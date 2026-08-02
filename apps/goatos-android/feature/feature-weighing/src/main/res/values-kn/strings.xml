@@ -113,9 +113,6 @@
     <string name="weighing_tab_done">ಮುಗಿದಿದೆ</string>
     <string name="weighing_tab_pending">ಬಾಕಿ</string>
     <string name="weighing_tab_proof">ಪುರಾವೆ</string>
-    <string name="weighing_expected_shed_fmt">ನಿರೀಕ್ಷಿತ: %1$s</string>
-    <string name="weighing_current_shed_fmt">ಪ್ರಸ್ತುತ: %1$s</string>
-    <string name="weighing_wrong_shed">ತಪ್ಪು ಶೆಡ್</string>
     <string name="weighing_proof_ready">ಪುರಾವೆ ಸಿದ್ಧ</string>
     <string name="weighing_proof_required">ಪುರಾವೆ ಬೇಕು</string>
     <string name="weighing_ready">ಸಿದ್ಧ</string>

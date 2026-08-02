@@ -134,8 +134,12 @@ type createCampaignRequest struct {
 	Sheds             []domain.CreateCampaignShed `json:"sheds"`
 }
 
+// animalObservationRequest is the free-flow scan write request. It carries the
+// raw scanned identifier only -- no animal_id field exists here, and none may
+// be added: weighing never resolves a scan to herd identity (see
+// repository_free_flow_no_herd_crosscheck_integration_test.go and the
+// weighing-free-flow-guard machine gate).
 type animalObservationRequest struct {
-	AnimalID          string  `json:"animal_id"`
 	CampaignShedID    string  `json:"campaign_shed_id"`
 	ScannedIdentifier string  `json:"scanned_identifier"`
 	WeightKg          float64 `json:"weight_kg"`
@@ -381,7 +385,7 @@ func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	obs, err := h.service.RecordAnimalObservation(r.Context(), actor(r), domain.RecordAnimalObservation{
-		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, AnimalID: req.AnimalID, ScannedIdentifier: req.ScannedIdentifier, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, ScannedIdentifier: req.ScannedIdentifier, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	})
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
 }

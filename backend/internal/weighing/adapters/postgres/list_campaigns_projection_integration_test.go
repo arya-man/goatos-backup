@@ -476,17 +476,19 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', (SELECT name FROM locati
 		bucketID, campaignID, repoTenant, locationID, category, operatorID, expected, status)
 }
 
+// lcpInsertExpectedAnimal is a NO-OP survivor of the deleted expected-animal
+// roster (weighing_expected_animals was DROPPED, migration 000079). It is kept,
+// deliberately inert, so existing call sites documenting "N roster rows" in
+// these tests need not be rewritten: IndividualExpectedCount is bucket-grain
+// (weighing_campaign_sheds.expected_animal_count, set directly by
+// lcpInsertBucket's `expected` argument), never derived by counting rows here.
 func lcpInsertExpectedAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignID, animalID, bucketID, locationID, status string) {
 	t.Helper()
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-' || right(replace($1::text,'-',''), 8), 'female', 'kid', 'alive', 'kid', $3::uuid,
-  $4::uuid, (SELECT parent_location_id FROM locations WHERE location_id=$4::uuid), $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, animalID, repoTenant, repoParty, locationID)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, (SELECT name FROM locations WHERE location_id=$4::uuid), $5::uuid, $6)`,
-		campaignID, repoTenant, animalID, locationID, bucketID, status)
+	_ = campaignID
+	_ = animalID
+	_ = bucketID
+	_ = locationID
+	_ = status
 }
 
 // lcpInsertProof seeds a completed shed-scoped video proof, the only proof
