@@ -142,7 +142,11 @@ jobs.
 
 **If history is missing or untrusted:**
 - **do NOT invent completions.**
-- after Preventive Care (PC) approval, create **baseline / catch-up drives** by shed/cohort (a deliberate "establish current coverage" pass), not fabricated history.
+- automatically create **baseline / catch-up obligations** in the normal adult
+  drive for that vaccine, grouped by whole physical shed. No separate manual
+  campaign or Preventive Care approval is required for routine adult coverage;
+  the animal still receives an explicit initial/catch-up dose instruction, not
+  fabricated history.
 
 ## 6. Cutover policy — no years of overdue noise
 

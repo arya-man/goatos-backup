@@ -10923,6 +10923,8 @@ components:
         product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
       required:
         - park_name
+        - drive_name
+        - drive_total
         - due_date
         - shed_count
         - sheds_completed
@@ -10946,6 +10948,13 @@ components:
         park_name:
           type: string
           description: Park name or code
+        drive_name:
+          type: string
+          description: Shared logical drive name across every operator-day in the same vaccine campaign
+        drive_total:
+          type: integer
+          minimum: 0
+          description: Total distinct animals across all operator-days carrying this logical drive name
         due_date:
           type: string
           format: date

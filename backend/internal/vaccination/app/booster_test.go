@@ -6,6 +6,7 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	protodomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
@@ -166,6 +167,50 @@ func TestScheduleNextDoseRepeatsAdultRevaccinationRule(t *testing.T) {
 	wantDue := businessDayStart(administered).AddDate(0, 0, 182)
 	if got.RuleID != "rule-et-adult" || got.Sequence != 3 || !got.DueAt.Equal(wantDue) {
 		t.Fatalf("inserted=%#v, want same adult rule sequence 3 due %s", got, wantDue)
+	}
+}
+
+func TestScheduleNextDoseUsesEachOperatorSubmissionDateAfterDelayedVerification(t *testing.T) {
+	proto := &boosterRuleReaderFake{rules: []protodomain.Rule{
+		{RuleID: "rule-et-adult", DoseCode: "et_tt_adult_revac_182d", Sequence: 3, TriggerType: "after_previous_completion", OffsetDays: 182, MinGapDays: 182, Repeat: "every_n_days"},
+	}}
+	submissions := []struct {
+		name           string
+		goats          int
+		administeredAt time.Time
+	}{
+		{name: "gandhi", goats: 114, administeredAt: time.Date(2026, time.July, 24, 15, 0, 0, 0, biztime.DefaultLocation())},
+		{name: "godel-and-yashoda", goats: 163, administeredAt: time.Date(2026, time.July, 25, 15, 0, 0, 0, biztime.DefaultLocation())},
+		{name: "mandela", goats: 47, administeredAt: time.Date(2026, time.July, 26, 15, 0, 0, 0, biztime.DefaultLocation())},
+	}
+	if total := submissions[0].goats + submissions[1].goats + submissions[2].goats; total != 324 {
+		t.Fatalf("fixture total=%d, want 324", total)
+	}
+
+	for _, submission := range submissions {
+		t.Run(submission.name, func(t *testing.T) {
+			obl := &boosterObligationWriterFake{}
+			svc := NewBoosterService(proto, obl)
+			scheduled, err := svc.ScheduleNextDose(context.Background(), ScheduleNextInput{
+				TenantID:          "tenant-1",
+				ProtocolVersionID: "version-1",
+				GoatID:            "goat-" + submission.name,
+				ScopeType:         "shed",
+				ScopeID:           "shed-1",
+				PrevSequence:      3,
+				AdministeredAt:    submission.administeredAt,
+			})
+			if err != nil {
+				t.Fatalf("schedule repeat: %v", err)
+			}
+			if !scheduled || len(obl.inserted) != 1 {
+				t.Fatalf("scheduled=%v inserted=%d, want one repeat", scheduled, len(obl.inserted))
+			}
+			wantDue := businessDayStart(submission.administeredAt).AddDate(0, 0, 182)
+			if got := obl.inserted[0].DueAt; !got.Equal(wantDue) {
+				t.Fatalf("due=%s, want %s from operator submission; delayed verification/closure must not be the anchor", got, wantDue)
+			}
+		})
 	}
 }
 
@@ -487,6 +532,10 @@ func (f *boosterObligationWriterFake) DeferOpenObligationForGeneration(context.C
 }
 
 func (f *boosterObligationWriterFake) ReopenDeferredObligationForGeneration(context.Context, string, string, time.Time, *obldomain.RecoveryReschedule) (obldomain.ObligationRef, bool, error) {
+	return obldomain.ObligationRef{}, false, nil
+}
+
+func (f *boosterObligationWriterFake) RealignOpenObligationForGeneration(context.Context, string, string, time.Time, *time.Time, time.Time) (obldomain.ObligationRef, bool, error) {
 	return obldomain.ObligationRef{}, false, nil
 }
 

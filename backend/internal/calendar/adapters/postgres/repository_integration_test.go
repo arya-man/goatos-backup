@@ -4388,7 +4388,7 @@ INSERT INTO vaccination_drive_assignments (
 	}
 }
 
-func TestCalendarDriveSummarySplitAssignmentDatesOneToManyPaginationScheduledDateParkScopeStatusBucketsDoNotRepeatBatchTotals(t *testing.T) {
+func TestCalendarDriveSummaryLogicalDriveTotalSplitAssignmentDatesOneToManyPaginationScheduledDateParkScopeStatusBuckets(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -4420,15 +4420,19 @@ func TestCalendarDriveSummarySplitAssignmentDatesOneToManyPaginationScheduledDat
 		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day1)
 	}
 	for _, id := range obligations[2:] {
-		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day2)
+		// Medical due date remains day one for the whole logical drive. Operator capacity moves
+		// this physical shed to execution day two without creating a second medical campaign.
+		seedAdditionalVaccinationObligation(t, ctx, pool, versionID, ruleID, id, day1)
 	}
 	seedProtocolRuleVaccineName(t, ctx, pool, versionID, ruleID, "ET+TT")
 	for _, id := range obligations[:2] {
 		attachObligationToGoatScope(t, ctx, pool, id, id, "shed", testShedA)
+		setCalendarGoatCurrentShed(t, ctx, pool, id, testParkA, testShedA)
 		setDriveObligationStatus(t, ctx, pool, id, "completed")
 	}
 	for _, id := range obligations[2:] {
 		attachObligationToGoatScope(t, ctx, pool, id, id, "shed", testShedB)
+		setCalendarGoatCurrentShed(t, ctx, pool, id, testParkA, testShedB)
 	}
 	seedVaccinationBatchForShed(t, ctx, pool, batchID, versionID, testParkA, testShedB, day2, obligations...)
 
@@ -4483,12 +4487,36 @@ INSERT INTO vaccination_completions (
 	if day1Summary.TotalCount != 2 || day1Summary.CompletedCount != 2 || day1Summary.DueCount != 0 {
 		t.Fatalf("day one summary=%#v, want total=2 completed=2 due=0 (not whole batch repeated)", day1Summary)
 	}
+	if day1Summary.DriveTotal != 4 || day1Summary.DriveName == "" {
+		t.Fatalf("day one logical drive=%#v, want backend name and whole-drive total=4", day1Summary)
+	}
 	day2Summary := summaries[day2Key]
 	if day2Summary == nil {
 		t.Fatalf("missing day two drive_summary for %s; items=%#v", day2Key, resp.Items)
 	}
 	if day2Summary.TotalCount != 2 || day2Summary.CompletedCount != 0 || day2Summary.SubmittedCount != 2 || day2Summary.DueCount != 0 {
 		t.Fatalf("day two summary=%#v, want total=2 completed=0 submitted=2 due=0 (submitted mobile scans pending verification, not day one completions repeated)", day2Summary)
+	}
+	if day2Summary.DriveTotal != 4 || day2Summary.DriveName != day1Summary.DriveName {
+		t.Fatalf("day two logical drive=%#v, want same name %q and whole-drive total=4", day2Summary, day1Summary.DriveName)
+	}
+	singleDay, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+		DateFrom: day1, DateTo: day1.Add(24 * time.Hour), Limit: 20,
+		Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+	})
+	if err != nil {
+		t.Fatalf("ListEvents single operator-day window: %v", err)
+	}
+	var singleDaySummary *domain.DriveSummary
+	for i := range singleDay.Items {
+		if singleDay.Items[i].EventType == domain.EventVaccinationDrive {
+			singleDaySummary = singleDay.Items[i].DriveSummary
+			break
+		}
+	}
+	if singleDaySummary == nil || singleDaySummary.DriveTotal != 4 || singleDaySummary.DriveName != day1Summary.DriveName {
+		t.Fatalf("single-day logical drive=%#v, want page/window-invariant total=4 and name %q", singleDaySummary, day1Summary.DriveName)
 	}
 }
 

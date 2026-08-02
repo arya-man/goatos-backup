@@ -831,6 +831,24 @@ obligation_drive_membership AS (
     oi.obligation_id,
     oi.status,
     oi.rule_id,
+    oi.batch_id,
+    oi.protocol_version_id,
+    COALESCE(
+      (ob.window_start AT TIME ZONE 'Asia/Kolkata')::date,
+      (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS logical_window_start,
+    COALESCE(
+      (ob.window_end AT TIME ZONE 'Asia/Kolkata')::date,
+      (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS logical_window_end,
+    COALESCE(
+      NULLIF(pr.eligibility_json->'vaccine'->>'display_name', ''),
+      NULLIF(pr.eligibility_json->'vaccine'->>'name', ''),
+      NULLIF(pr.eligibility_json->'vaccine'->>'code', ''),
+      NULLIF(pr.dose_code, ''),
+      pd.name
+    ) AS logical_vaccine_label,
+    (lower(pr.dose_code) LIKE '%adult%' OR lower(pr.dose_code) LIKE '%revac%') AS adult_drive,
     pd.name AS protocol_name,
     loc.park_id,
     loc.park_code,
@@ -851,6 +869,8 @@ obligation_drive_membership AS (
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   LEFT JOIN goats g
@@ -915,6 +935,84 @@ obligation_drive_membership AS (
   WHERE pd.category = 'vaccination'
     AND pv.status = 'published'
     AND oi.status NOT IN ('superseded', 'canceled', 'waived')
+),
+-- A logical vaccination drive may span multiple operator-days. Calendar rows stay at the
+-- executable park/day grain, while this bounded seed-and-expand rollup gives each row the same
+-- backend-owned drive name and DISTINCT-animal total. The key is the persisted batch window,
+-- protocol and vaccine identity; verifier/director workflow timestamps never participate.
+obligation_logical_drive_keys AS (
+  SELECT DISTINCT
+    m.park_id,
+    m.park_code,
+    m.due_date AS execution_date,
+    m.protocol_version_id,
+    m.logical_window_start,
+    m.logical_window_end,
+    m.logical_vaccine_label,
+    m.adult_drive
+  FROM obligation_drive_membership m
+  WHERE m.batch_id IS NOT NULL
+    AND m.park_id IS NOT NULL
+    AND m.logical_vaccine_label IS NOT NULL
+),
+obligation_logical_drive_full_membership AS (
+  SELECT
+    k.park_id,
+    k.park_code,
+    k.execution_date,
+    k.logical_window_start,
+    k.logical_vaccine_label,
+    k.adult_drive,
+    CASE WHEN all_oi.target_type = 'goat' THEN all_oi.target_id END AS animal_id
+  FROM obligation_logical_drive_keys k
+  JOIN obligation_batches all_ob
+    ON all_ob.tenant_id = $1::uuid
+   AND all_ob.protocol_version_id = k.protocol_version_id
+   AND COALESCE(
+         (all_ob.window_start AT TIME ZONE 'Asia/Kolkata')::date,
+         all_ob.planned_date
+       ) = k.logical_window_start
+   AND COALESCE(
+         (all_ob.window_end AT TIME ZONE 'Asia/Kolkata')::date,
+         all_ob.planned_date
+       ) = k.logical_window_end
+   AND all_ob.status NOT IN ('superseded', 'canceled')
+  JOIN obligation_instances all_oi
+    ON all_oi.tenant_id = all_ob.tenant_id
+   AND all_oi.batch_id = all_ob.batch_id
+   AND all_oi.status NOT IN ('superseded', 'canceled', 'waived')
+  JOIN protocol_rules all_pr
+    ON all_pr.tenant_id = all_oi.tenant_id
+   AND all_pr.rule_id = all_oi.rule_id
+  LEFT JOIN goats all_goat
+    ON all_goat.tenant_id = all_oi.tenant_id
+   AND all_oi.target_type = 'goat'
+   AND all_goat.goat_id = all_oi.target_id
+   AND all_goat.merged_into_goat_id IS NULL
+  LEFT JOIN locations all_shed
+    ON all_shed.tenant_id = all_goat.tenant_id
+   AND all_shed.location_id = all_goat.shed_id
+   AND all_shed.location_type = 'shed'
+  WHERE COALESCE(
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'display_name', ''),
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'name', ''),
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'code', ''),
+          NULLIF(all_pr.dose_code, '')
+        ) = k.logical_vaccine_label
+    AND COALESCE(all_goat.park_id, all_shed.parent_location_id) = k.park_id
+),
+-- projection-review: membership=obligation_logical_drive_full_membership starts from the bounded executable-day keys, then expands through persisted batch membership to every animal in the same protocol+park+batch-window+vaccine cohort, including operator days outside the requested Calendar page/window; group_key=(park_id, protocol_version_id, logical_window_start, logical_window_end, logical_vaccine_label) identifies one persisted multi-day drive cohort, while execution_date keeps the emitted row at park/day grain; join_cardinality=protocol_rules is one row per rule and drive_total collapses batch members with COUNT(DISTINCT animal_id), with no protocol_rule_dimensions fan-out; pagination=the complete matching cohort is aggregated before the bounded Calendar event page is emitted, so Limit or a single-day request cannot change drive_total; scope=park is resolved explicitly from goat.park_id or its physical-shed parent and matched to the executable key
+obligation_logical_drive_rollup AS (
+  SELECT
+    m.park_id,
+    m.execution_date,
+    COALESCE(NULLIF(max(m.park_code), ''), 'Park') ||
+      CASE WHEN bool_and(m.adult_drive) THEN ' Adult ' ELSE ' ' END ||
+      string_agg(DISTINCT m.logical_vaccine_label, ' + ' ORDER BY m.logical_vaccine_label) ||
+      ' – ' || to_char(min(m.logical_window_start), 'Mon YYYY') AS drive_name,
+    count(DISTINCT m.animal_id)::int AS drive_total
+  FROM obligation_logical_drive_full_membership m
+  GROUP BY m.park_id, m.execution_date
 ),
 obligation_drive_vaccine_labels AS (
   SELECT
@@ -1045,6 +1143,8 @@ obligation_drive_summary AS (
     COALESCE(ac.submitted_animals, 0)::int AS submitted_animals,
     COALESCE(vl.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
     COALESCE(sa.sheds, '[]'::jsonb) AS sheds,
+    COALESCE(ld.drive_name, '') AS drive_name,
+    COALESCE(ld.drive_total, ac.total_animals, 0)::int AS drive_total,
     g.park_code
   FROM (
     SELECT
@@ -1099,6 +1199,8 @@ obligation_drive_summary AS (
     ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
   LEFT JOIN obligation_drive_shed_animals sa
     ON sa.park_id IS NOT DISTINCT FROM g.park_id AND sa.due_date = g.due_date
+  LEFT JOIN obligation_logical_drive_rollup ld
+    ON ld.park_id IS NOT DISTINCT FROM g.park_id AND ld.execution_date = g.due_date
 ),
 -- projection-review: membership=obligation_drive_membership (exactly one row per obligation_id, the obligation grain -- the SAME membership CTE the five-bucket obl_summary groups over, so headline and counts can never diverge on membership); group_key=(park_id, due_date) taken from that same membership row, never re-derived from a joined table; join_cardinality=NO JOIN -- this CTE reads the single membership row-set and collapses it with bool_or over three predicates, so it cannot fan out; each flag is a pure per-row predicate on columns of the SAME row (status, submitted_for_verification, due_date), making the grouping a total partition of the row-set; the result is attached to park_drive_events 1:1 on (park_id, due_date), the identical key, so it adds no rows; pagination=computed inline per ListEvents request inside the bounded keyset canonical read (5k-50k envelope, no projector, no materialized table); the flags are whole-filter aggregates over the group, NOT page-local, so Limit changes rows only and never the headline; scope=(park_id, due_date), identical to membership's scope matrix, shed remains a display dimension only and never narrows drive membership; date=due_date is already IST-normalized at membership build time ((membership_at AT TIME ZONE 'Asia/Kolkata')::date), so genuine_overdue compares IST date to IST date with no second conversion; status=genuine_missed/genuine_overdue are submission-aware (status AND submitted_for_verification together, never status alone), and genuine_overdue is READ-TIME over the open-status allow-list -- it never references a literal 'overdue' obligation status, which the baseline CHECK does not permit.
 obligation_drive_effective_state AS (
@@ -1273,6 +1375,8 @@ park_drive_events AS (
       'links', jsonb_build_object('vaccination', '/vaccination'),
       'drive_summary', CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND obl_summary.total_count > 0 THEN jsonb_build_object(
         'park_name', COALESCE(obl_summary.park_code, grouped.park_code, 'Vaccination drive'),
+        'drive_name', obl_summary.drive_name,
+        'drive_total', obl_summary.drive_total,
         'due_date', grouped.due_day,
         'shed_count', obl_summary.shed_count,
         'sheds_completed', obl_summary.sheds_completed,

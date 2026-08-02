@@ -34,10 +34,13 @@ class DriveSummaryDtoDecodeTest {
     @Test
     fun currentPayloadDecodesAnimalFields() {
         val current = """
-            {"park_name":"CBE","total_count":77,"completed_count":46,
+            {"park_name":"CBE","drive_name":"CBE Adult FMD – Jan 2027","drive_total":324,
+             "total_count":77,"completed_count":46,
              "total_animals":70,"completed_animals":42}
         """.trimIndent()
         val dto = json.decodeFromString<DriveSummaryDto>(current)
+        assertEquals("CBE Adult FMD – Jan 2027", dto.driveName)
+        assertEquals(324, dto.driveTotal)
         assertEquals(70, dto.totalAnimals)
         assertEquals(42, dto.completedAnimals)
     }

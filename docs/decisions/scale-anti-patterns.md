@@ -83,8 +83,8 @@ remains.
 Adult vaccination date drift is also a seed-scale anti-pattern. Adult
 `entry_date` / `post_arrival` must not create private due windows, singleton
 drives, or shed/partition fragments. Adult timing comes from accepted
-same-vaccine history when present; adult no-history animals join the reviewed
-manual campaign/catch-up cohort and are packed by the same whole
+same-vaccine history when present; adult no-history animals join the normal
+generated adult drive automatically (with no manual approval gate) and are packed by the same whole
 physical-shed/partition operator-cap rule as the rest of the drive. Kid and
 young-stock DOB/age timing remains strict and must not be weakened by this adult
 campaign rule.
@@ -1175,3 +1175,4 @@ leaving the key present and unread is not.
 <!-- Coupling review 2026-07-25: PUT /vaccination/operator-assignment/config with selected_operator_ids remains compute-on-write, not request-path aggregation. The write updates the config row under row_version and reassigns only open planned drive-assignment rows from the effective business date; completed scan/proof rows are not touched, and mobile/frontend continue reading the same backend-owned execution/schedule assignment data. -->
 <!-- Coupling review 2026-07-25: migration 000002 only converges already-migrated DB schema for selected_operator_ids. The backfill is a single bounded table update from default_operator_id, preserving prior one-operator behavior and adding no request-path aggregation, projection workaround, or tenant scan. -->
 <!-- Coupling review 2026-08-01: verify-duty seeding adds bounded set-based INSERTs at seed time (one row per position x notification module), not a request-path read. The runtime consumer ResolveModuleDutyRecipients stays one indexed set-based query per notification -- no per-recipient loop and no N+1 fan-out. seed-position-duties' closeout assertion mirrors that query predicate-for-predicate (scope_type/scope_id, position and duty validity windows, active member) so the gate counts what the runtime counts rather than a looser superset that would pass while pushes still resolved to nobody. -->
+<!-- Coupling review 2026-08-02: Automatic adult blank-history enrolment and history-over-campaign replay cancellation are bounded generation-time operations on the existing goat/rule key. They add no request-path scan or per-row I/O. Operator administered_at remains the medical anchor; verifier/director workflow timestamps do not trigger schedule-wide recomputation. Raw seed fixture bytes and HRMS counts are unchanged. -->

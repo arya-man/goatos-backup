@@ -50,6 +50,8 @@ data class CalendarWeekDay(
  */
 data class CalendarDriveSummary(
     val parkName: String = "",
+    val driveName: String = "",
+    val driveTotal: Int? = null,
     val dueDateLabel: String = "",
     val shedCount: Int = 0,
     val shedsCompleted: Int = 0,

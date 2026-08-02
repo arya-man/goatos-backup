@@ -42,9 +42,15 @@ MOP cleanly without duplicate scans, missed animals, or confused proof capture.
   count or obligation row count.
 - Automatically use the operators available on each drive date based on the
   weekly timetable, leave, and role eligibility.
-- Keep physical sheds and partitions together where possible.
-- Split a shed or partition only when capacity or meaningful balancing requires
-  it.
+- Keep every physical shed at or below one operator's full configured cap intact,
+  even when it does not fit the current day's residual slots; carry it to the
+  next operator-day.
+- Apply that boundary before batch creation and across rule rows: initial/catch-up
+  and history-backed repeat instructions for the same vaccine cannot divide one
+  physical shed into different operator-days.
+- Split by partition only when the physical shed itself exceeds one operator's
+  full configured cap, then split inside a partition only when that partition
+  also exceeds the cap.
 - Spill work to later dates when total eligible animals exceed that day's
   available operator capacity.
 - Recompute operator availability and capacity independently on each spillover
@@ -233,7 +239,9 @@ Fairness rules:
 
 Assignment priority:
 
-1. Keep a physical shed with one operator when it fits cap and fairness.
+1. Keep a physical shed with one operator whenever the complete shed fits the
+   full configured per-operator cap. Residual capacity never justifies a split.
+   Count the shed across every compatible catch-up/repeat rule row in the drive.
 2. If a physical shed exceeds one operator's cap, split by partition.
 3. If a partition exceeds one operator's cap, split the partition by animal list.
 4. If all work fits without splitting partitions, do not split partitions.
@@ -303,12 +311,14 @@ For each park and drive window:
 3. Remove animals blocked by clinical/defer/data-quality rules into review or
    deferred buckets.
 4. Normalize shed and partition names.
-5. Group clean eligible animals into work blocks:
-   `park + physical_shed + partition + species + vaccine_bundle`.
+5. Group clean eligible animals first by `park + physical_shed`, then retain
+   partition, species, vaccine bundle, and dose-instruction breakdowns inside
+   that indivisible shed group.
 6. For the target date, build the available operator pool.
-7. Sort work blocks by physical shed and size, keeping partitions attached.
-8. Assign largest physical shed groups first to different operators where
-   possible.
+7. Sort whole-shed groups by the park's canonical field route, keeping partitions
+   and rule rows attached. CPT route order is `Gandhi`, `Godel 1`, `Godel 2`,
+   `Mandela 2`, `Old Yashoda`.
+8. Assign canonical-route physical shed groups to available operators.
 9. Assign remaining smaller sheds to the currently lowest-loaded operator.
 10. Check caps. If an assignment exceeds cap, split at partition boundary first,
     then within partition only if required.
@@ -318,6 +328,13 @@ For each park and drive window:
 12. If daily capacity is exhausted, carry unscheduled blocks to the next date
     and repeat from operator availability.
 13. Emit plan, review holds, defers, and capacity warnings.
+
+With CPT's 324-adult clone and one 200-animal operator, this deterministic route
+produces Day 1 = Gandhi 114 + Godel 2 32 + Mandela 2 47 = 193 and Day 2 =
+Godel 1 120 + Old Yashoda 11 = 131. Both rows carry the same logical drive name
+and the backend-owned `drive_total` is 324. Calendar must display both
+`drive_name` and `drive_total`; it must not present the two operator-days as
+unrelated drives or derive the total from only the currently visible row.
 
 ## 8. Animal State and Defer Rules
 
@@ -464,6 +481,9 @@ The field MOP must require:
   and recomputes capacity for that date.
 - Given total eligible animals exceed daily capacity, planner spills remaining
   animals to the next available date.
+- Given a physical shed fits the full operator cap but not the remaining slots
+  on the current day, planner carries the entire shed to the next date without
+  assigning any of its partitions early.
 - Given one shed exceeds one operator cap, planner splits by partition first.
 - Given one partition exceeds one operator cap, planner splits within that
   partition and records a forced-split warning.

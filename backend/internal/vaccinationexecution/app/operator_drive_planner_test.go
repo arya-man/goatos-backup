@@ -58,6 +58,48 @@ func TestOperatorDrivePlannerCPTAdultMockRunUsesAllOperatorsByAnimalCap(t *testi
 	assertShedAssignment(t, plan.Days[0], "Sagar Mahoor", "Old Yashoda", 11)
 }
 
+func TestOperatorDrivePlannerCPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays(t *testing.T) {
+	planner := OperatorDrivePlanner{}
+	plan, err := planner.Plan(DrivePlanRequest{
+		StartDate:             date(2027, 1, 6),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
+			{Date: date(2027, 1, 6), Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}}},
+			{Date: date(2027, 1, 7), Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}}},
+		},
+		WorkBlocks: []DriveWorkBlock{
+			{ID: "gandhi-1", Park: "CPT", RawShed: "Gandhi 1", Animals: 42},
+			{ID: "gandhi-2", Park: "CPT", RawShed: "Gandhi 2", Animals: 30},
+			{ID: "gandhi-3", Park: "CPT", RawShed: "Gandhi 3", Animals: 42},
+			{ID: "godel-1-part-1", Park: "CPT", RawShed: "Godel 1 - Part 1", Animals: 60},
+			{ID: "godel-1-part-3", Park: "CPT", RawShed: "Godel 1 - Part 3", Animals: 30},
+			{ID: "godel-1-part-4", Park: "CPT", RawShed: "Godel 1 - Part 4", Animals: 30},
+			{ID: "godel-2-part-4", Park: "CPT", RawShed: "Godel 2 - Part 4", Animals: 32},
+			{ID: "mandela-2-part-1", Park: "CPT", RawShed: "Mandela 2 - Part 1", Animals: 1},
+			{ID: "mandela-2-part-2", Park: "CPT", RawShed: "Mandela 2 - Part 2", Animals: 2},
+			{ID: "mandela-2-part-3", Park: "CPT", RawShed: "Mandela 2 - Part 3", Animals: 1},
+			{ID: "mandela-2-part-7", Park: "CPT", RawShed: "Mandela 2 - Part 7", Animals: 13},
+			{ID: "mandela-2-part-8", Park: "CPT", RawShed: "Mandela 2 - Part 8", Animals: 30},
+			{ID: "old-yashoda-1", Park: "CPT", RawShed: "Old Yashoda 1", Animals: 8},
+			{ID: "old-yashoda-5", Park: "CPT", RawShed: "Old Yashoda 5", Animals: 3},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(plan.Unassigned) != 0 || len(plan.Days) != 2 {
+		t.Fatalf("plan=%#v, want all 324 animals assigned over two days", plan)
+	}
+	if plan.Days[0].Assigned != 193 || plan.Days[1].Assigned != 131 {
+		t.Fatalf("assigned by day=%d/%d, want 193/131", plan.Days[0].Assigned, plan.Days[1].Assigned)
+	}
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Gandhi", 114)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Godel 2", 32)
+	assertShedAssignment(t, plan.Days[0], "Darshan Talwar", "Mandela 2", 47)
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1", 120)
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Old Yashoda", 11)
+}
+
 func TestOperatorDrivePlannerSpillsToNextDateWithThatDatesAvailability(t *testing.T) {
 	planner := OperatorDrivePlanner{}
 	plan, err := planner.Plan(DrivePlanRequest{
@@ -136,6 +178,66 @@ func TestOperatorDrivePlannerCarriesWholePartitionPastResidualCapacity(t *testin
 		t.Fatalf("first day assignments = %#v, want none instead of residual-cap split", plan.Days[0].Assignments)
 	}
 	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Godel 1", 3)
+}
+
+func TestOperatorDrivePlannerCarriesWholePhysicalShedPastResidualCapacity(t *testing.T) {
+	planner := OperatorDrivePlanner{}
+	plan, err := planner.Plan(DrivePlanRequest{
+		StartDate:             date(2027, 1, 6),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{
+			{Date: date(2027, 1, 6), Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}}},
+			{Date: date(2027, 1, 7), Operators: []DriveOperator{{ID: "darshan", Name: "Darshan Talwar", Cap: 200, Available: true}}},
+		},
+		WorkBlocks: []DriveWorkBlock{
+			{ID: "alpha-whole", Park: "CPT", PhysicalShed: "Alpha", Partition: "whole", Animals: 150},
+			{ID: "beta-part-1", Park: "CPT", PhysicalShed: "Beta", Partition: "Part 1", Animals: 30},
+			{ID: "beta-part-2", Park: "CPT", PhysicalShed: "Beta", Partition: "Part 2", Animals: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(plan.Unassigned) != 0 {
+		t.Fatalf("unassigned blocks = %#v, want none", plan.Unassigned)
+	}
+	if len(plan.Days) != 2 || plan.Days[0].Assigned != 150 || plan.Days[1].Assigned != 60 {
+		t.Fatalf("assigned by day = %#v, want 150 then whole Beta shed 60", plan.Days)
+	}
+	for _, assignment := range plan.Days[0].Assignments {
+		if assignment.PhysicalShed == "Beta" {
+			t.Fatalf("first day assignment=%#v, Beta must carry whole to the next day", assignment)
+		}
+	}
+	assertShedAssignment(t, plan.Days[1], "Darshan Talwar", "Beta", 60)
+}
+
+func TestOperatorDrivePlannerUsesHRMSConfiguredCapBeforeRequestFallback(t *testing.T) {
+	planner := OperatorDrivePlanner{}
+	plan, err := planner.Plan(DrivePlanRequest{
+		StartDate:             date(2027, 1, 6),
+		ConfiguredOperatorCap: 200,
+		Availability: []DriveDateAvailability{{
+			Date: date(2027, 1, 6),
+			Operators: []DriveOperator{
+				{ID: "amit", Name: "Amit Kumar", Cap: 100, ConfiguredCap: 100, Available: true},
+				{ID: "darshan", Name: "Darshan Talwar", Cap: 100, ConfiguredCap: 100, Available: true},
+			},
+		}},
+		WorkBlocks: []DriveWorkBlock{
+			{ID: "alpha-part-1", Park: "CPT", PhysicalShed: "Alpha", Partition: "Part 1", Animals: 75},
+			{ID: "alpha-part-2", Park: "CPT", PhysicalShed: "Alpha", Partition: "Part 2", Animals: 75},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if len(plan.Unassigned) != 0 || len(plan.Days) != 1 || plan.Days[0].Assigned != 150 {
+		t.Fatalf("plan=%#v, want HRMS cap 100 to allow 75/75 partition fallback on one day", plan)
+	}
+	if got := totalsByOperator(plan.Days[0]); got["Amit Kumar"] != 75 || got["Darshan Talwar"] != 75 {
+		t.Fatalf("operator totals=%#v, want 75/75 under HRMS cap 100", got)
+	}
 }
 
 func TestOperatorDrivePlannerLatestSafeCarriesWholePartitionPastResidualCapacity(t *testing.T) {

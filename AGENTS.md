@@ -847,6 +847,15 @@ Do:
   partition strings as separate physical shed buildings. Drive planning and UI
   must show physical shed -> partition -> operator assignment, with capacity
   counted as unique animals per assigned operator/day.
+- Adult animals with no accepted history for a vaccine automatically join that
+  vaccine's normal adult drive. Do not require or render a separate manual
+  campaign; `repeat` versus `initial/catch-up` is per-animal dose status inside
+  the same logical drive. Overlapping repeat safe windows must coalesce on their
+  latest shared ready date, and that date applies to both history-backed and
+  blank-history obligations. A physical shed at or below the full per-operator cap
+  is indivisible and must carry to the next operator-day when residual capacity
+  is insufficient. Verification/director closure timestamps never replace the
+  operator submission's `administered_at` medical anchor.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group

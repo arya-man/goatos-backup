@@ -923,6 +923,54 @@ func (r *Repository) reopenDeferredObligationByIdempotencyKey(ctx context.Contex
 // write the context->'*_repair' stock-reconciliation JSONB bookkeeping those flows use — see the inline
 // comment at the detach site for why that was judged out of scope here.
 func (r *Repository) RescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time) (string, bool, error) {
+	return r.rescheduleObligationByID(ctx, tenantID, obligationID, idempotencyKey, authorizedParkIDs, dueAt, windowStart, windowEnd, occurredAt, "mobile_reschedule")
+}
+
+// RealignOpenObligationForGeneration moves an existing stable-key adult campaign row onto the
+// newly-discovered normal repeat cohort. The stable key prevents duplicate work; this explicit
+// reschedule makes a later history import converge the already-persisted row instead of leaving it
+// on its original standalone date. Terminal/in-flight rows remain immutable.
+func (r *Repository) RealignOpenObligationForGeneration(ctx context.Context, tenantID, idempotencyKey string, dueAt time.Time, windowEnd *time.Time, occurredAt time.Time) (domain.ObligationRef, bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	var ref domain.ObligationRef
+	read := func() error {
+		return r.pool.QueryRow(ctx, `
+SELECT obligation_id::text, status, due_at, row_version
+FROM obligation_instances
+WHERE tenant_id = $1::uuid
+  AND idempotency_key = $2`, tenantID, idempotencyKey).Scan(
+			&ref.ObligationID, &ref.Status, &ref.DueAt, &ref.RowVersion,
+		)
+	}
+	if err := read(); errors.Is(err, pgx.ErrNoRows) {
+		return domain.ObligationRef{}, false, nil
+	} else if err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read adult campaign realignment target: %w", err)
+	}
+	if (ref.Status != "scheduled" && ref.Status != "due") || ref.DueAt.Equal(dueAt) {
+		return ref, false, nil
+	}
+	realignKey := idempotencyKey + ":adult_campaign_date_realigned:" + dueAt.UTC().Format(time.RFC3339)
+	_, replay, err := r.rescheduleObligationByID(ctx, tenantID, ref.ObligationID, realignKey, nil,
+		dueAt, dueAt, windowEnd, occurredAt, "adult_campaign_date_realigned")
+	if errors.Is(err, ports.ErrNotFound) {
+		// A concurrent terminal transition wins. Return its stored state rather than rewriting it.
+		if readErr := read(); readErr != nil {
+			return domain.ObligationRef{}, false, readErr
+		}
+		return ref, false, nil
+	}
+	if err != nil {
+		return domain.ObligationRef{}, false, err
+	}
+	if err := read(); err != nil {
+		return domain.ObligationRef{}, false, fmt.Errorf("obligation: read realigned adult campaign: %w", err)
+	}
+	return ref, !replay, nil
+}
+
+func (r *Repository) rescheduleObligationByID(ctx context.Context, tenantID, obligationID, idempotencyKey string, authorizedParkIDs []string, dueAt, windowStart time.Time, windowEnd *time.Time, occurredAt time.Time, reason string) (string, bool, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
 	tenant, err := pgconv.UUID(tenantID)
@@ -1094,7 +1142,7 @@ WHERE ob.tenant_id = $1 AND ob.batch_id = $2::uuid`, tenant, lockedBatchID); err
 				return "", false, fmt.Errorf("obligation: rescheduled obligation id: %w", err)
 			}
 			payload, _ := json.Marshal(map[string]string{
-				"reason":     "mobile_reschedule",
+				"reason":     reason,
 				"new_due_at": dueAt.UTC().Format(time.RFC3339),
 			})
 			// EventType "scheduled" (not a new "rescheduled" type) deliberately matches the established

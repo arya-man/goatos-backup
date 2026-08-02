@@ -104,6 +104,25 @@ vaccination seed data. After reseed/sweeper, also run
 `make vaccination-drive-clubbing-db-proof` so a small drive proves it had no
 reachable same-park clubbing target.
 
+Adult blank-history vaccination is ordinary generated schedule work. A published
+adult catch-up row may retain `trigger_type='manual_campaign'` as matrix metadata,
+but normal whole-cohort generation must automatically materialize eligible adults
+with no accepted same-vaccine history into the next adult drive. The manual command
+remains for genuinely manual/non-adult rows; it is not a gate for routine adult
+coverage. History-backed repeats and blank-history initial/catch-up instructions
+remain separate per-animal obligations but must be clubbable into one logical
+vaccine drive when their safe windows overlap. Compute the common drive anchor as
+the latest repeat-cohort ready date only when it remains on or before every
+member's safe-through date, then apply that anchor to both the history-backed
+repeat rows and blank-history rows.
+
+Operator planning treats a physical shed at or below the full configured
+per-operator cap as indivisible. If it does not fit residual capacity, carry the
+whole shed forward; partition splitting is permitted only when the physical shed
+itself exceeds the full cap. Verification and leadership closeout are workflow
+timestamps only: accepted completion and SM-7 scheduling continue to use the
+operator-submitted `vaccination_completions.administered_at`.
+
 Vaccination seed/import/local proof is incomplete until generation and the
 obligation sweeper have both run through the visible schedule horizon. A clean
 source seed that leaves zero generated obligations is fine; a source seed that

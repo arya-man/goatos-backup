@@ -532,6 +532,10 @@ func (s *SweeperService) RebuildMergedBatchDriveAssignments(ctx context.Context,
 }
 
 func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings, session *SweepSession) (domain.DrivePlannerSettings, error) {
+	return s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, date, planner, session, nil)
+}
+
+func (s *SweeperService) operatorCapacityPlannerForTargets(ctx context.Context, tenantID, parkID string, date *time.Time, planner domain.DrivePlannerSettings, session *SweepSession, targetIDs []string) (domain.DrivePlannerSettings, error) {
 	if planner.MaxGoatsPerDrive <= 0 || date == nil || strings.TrimSpace(parkID) == "" {
 		return planner, nil
 	}
@@ -554,6 +558,19 @@ func (s *SweeperService) operatorCapacityPlanner(ctx context.Context, tenantID, 
 	}
 	scaled := planner
 	scaled.MaxGoatsPerDrive = totalVaccinationOperatorCap(tenantID, parkID, *date, operators, planner.MaxGoatsPerDrive, session)
+	if len(operators) == 1 && len(targetIDs) > 0 {
+		// Compatible vaccine lanes for the same animal are one operator visit. Reuse
+		// the single operator's already-claimed animal slots while the separate visit
+		// shot cap continues to limit how many vaccines that animal may receive.
+		scaled.MaxGoatsPerDrive += session.claimedDriveTargetCount(parkID, *date, targetIDs)
+		configuredCap := operators[0].ConfiguredCap
+		if configuredCap <= 0 {
+			configuredCap = planner.MaxGoatsPerDrive
+		}
+		if scaled.MaxGoatsPerDrive > configuredCap {
+			scaled.MaxGoatsPerDrive = configuredCap
+		}
+	}
 	return scaled, nil
 }
 
@@ -684,11 +701,15 @@ func planVaccinationDriveAssignments(tenantID, parkID string, plannedDate time.T
 		if remaining <= 0 {
 			continue
 		}
+		configuredCap := int(operator.ConfiguredCap)
+		if configuredCap <= 0 {
+			configuredCap = capacity
+		}
 		ops = append(ops, vaccexecapp.DriveOperator{
 			ID:            operatorID,
 			Name:          operatorID,
 			Cap:           remaining,
-			ConfiguredCap: int(capacity),
+			ConfiguredCap: configuredCap,
 			Available:     true,
 		})
 	}
@@ -1230,7 +1251,7 @@ func (s *SweeperService) batchDueGroup(ctx context.Context, tenantID, versionID 
 		}
 		return false, 0, nil
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, firstUnbatchedParkID(g.rows), plannedDate, planner, session, targetIDs)
 	if err != nil {
 		_ = release(ctx)
 		return false, 0, err
@@ -1459,7 +1480,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 			if err != nil {
 				return plannedDate, nil, nil, noopRelease, err
 			}
-			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
+			capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, &day, planner, session, targetIDs)
 			if err != nil {
 				_ = visitRelease(ctx)
 				return plannedDate, nil, nil, noopRelease, err
@@ -1512,7 +1533,7 @@ func (s *SweeperService) selectBestUnbatchedDriveDateWithVisitCap(ctx context.Co
 	if err != nil {
 		return bestDate, nil, nil, noopRelease, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, bestDate, planner, session, targetIDs)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return bestDate, nil, nil, noopRelease, err
@@ -1883,7 +1904,7 @@ func claimUnbatchedDriveAnimals(session *SweepSession, rows []domain.UnbatchedDu
 			continue
 		}
 		seenTargets[targetKey] = struct{}{}
-		session.claimDriveCapacity(row.ParkID, plannedDate, row.ObligationID, 1)
+		session.claimDriveCapacity(row.ParkID, plannedDate, targetKey, 1)
 	}
 }
 
