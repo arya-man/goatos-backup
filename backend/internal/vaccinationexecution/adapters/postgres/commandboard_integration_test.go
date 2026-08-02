@@ -858,7 +858,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 // many side, so a batch holding several obligations across several vaccines and several sheds must
 // still yield exactly ONE option. It also pins park scope, bounded output, the status passthrough,
 // and newest-window-first ordering.
-func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDate(t *testing.T) {
+func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDateAndDisplayMetadata(t *testing.T) {
 	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations across vaccines and sheds collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -887,8 +887,8 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		{obBatchPark2, cmdBoardShed2, "planned", "2026-07-22", "2026-07-29"},
 	} {
 		execProjectionSQL(t, ctx, pool, "obligation batch "+b.id,
-			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, window_start, window_end)
-			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::timestamptz, $6::timestamptz)`,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, window_start, window_end)
+			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::date, $5::timestamptz, $6::timestamptz)`,
 			b.id, cmdBoardTestTenant, b.scopeID, b.status, b.windowStart, b.windowEnd)
 	}
 
@@ -938,6 +938,17 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 	}
 	if seen[obBatchPark2] != 0 {
 		t.Fatalf("ParkScope: park-2 batch leaked into park-1 scope (%d occurrences)", seen[obBatchPark2])
+	}
+	for _, option := range resp.DriveOptions {
+		if option.DriveBatchID != obBatchEarly {
+			continue
+		}
+		if option.TargetCount != 2 || option.DoseCount != 4 {
+			t.Fatalf("early option counts=%+v, want 2 distinct animals and 4 dose obligations", option)
+		}
+		if option.PlannedDate == nil || option.DriveName == "" || len(option.ShedNames) != 1 {
+			t.Fatalf("early option execution metadata=%+v, want planned date, drive name, and one whole shed", option)
+		}
 	}
 
 	// Pagination: bounded by construction, never an unbounded batch list.

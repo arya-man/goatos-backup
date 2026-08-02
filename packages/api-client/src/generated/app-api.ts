@@ -4882,13 +4882,23 @@ export interface components {
              * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
              */
             driveBatchId: string;
-            /** @description Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata, and its status. Never a raw config token such as et_tt_adult_w2. */
+            /** @description Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed. */
+            driveName: string;
+            /** @description Operator-facing executable-day label: vaccine names, planned date, distinct animal count, and status. Never a raw config token such as et_tt_adult_w2. */
             label: string;
             status: string;
+            /** Format: date-time */
+            plannedDate?: string;
             /** Format: date-time */
             windowStart?: string;
             /** Format: date-time */
             windowEnd?: string;
+            /** @description Distinct animals assigned to this executable operator day. */
+            targetCount: number;
+            /** @description Distinct vaccine-dose obligations assigned to this executable operator day. */
+            doseCount: number;
+            /** @description Whole physical sheds assigned to this executable operator day. */
+            shedNames: string[];
         };
         VaccinationCommandBoardResponse: {
             /** @enum {string} */

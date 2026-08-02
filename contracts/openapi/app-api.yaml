@@ -13015,26 +13015,47 @@ components:
       additionalProperties: false
       required:
         - driveBatchId
+        - driveName
         - label
         - status
+        - targetCount
+        - doseCount
+        - shedNames
       properties:
         driveBatchId:
           type: string
           format: uuid
           description: Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
+        driveName:
+          type: string
+          description: Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed.
         label:
           type: string
           description: >-
-            Operator-facing drive name: vaccines it covers, its business-day window in Asia/Kolkata,
-            and its status. Never a raw config token such as et_tt_adult_w2.
+            Operator-facing executable-day label: vaccine names, planned date, distinct animal count,
+            and status. Never a raw config token such as et_tt_adult_w2.
         status:
           type: string
+        plannedDate:
+          type: string
+          format: date-time
         windowStart:
           type: string
           format: date-time
         windowEnd:
           type: string
           format: date-time
+        targetCount:
+          type: integer
+          description: Distinct animals assigned to this executable operator day.
+        doseCount:
+          type: integer
+          description: Distinct vaccine-dose obligations assigned to this executable operator day.
+        shedNames:
+          type: array
+          items:
+            type: string
+          description: Whole physical sheds assigned to this executable operator day.
     VaccinationCommandBoardResponse:
       type: object
       additionalProperties: false
