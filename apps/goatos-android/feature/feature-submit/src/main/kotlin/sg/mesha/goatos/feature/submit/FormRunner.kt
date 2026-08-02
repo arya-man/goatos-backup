@@ -306,14 +306,15 @@ private fun TextControl(field: FormFieldUi, numeric: Boolean, onText: (String, S
 }
 
 /** Operational vaccination timestamps are explicitly acknowledged by the operator. The wire
- * value is RFC 3339 with an offset; the visible value follows the device locale/time zone. */
+ * value is RFC 3339 with an offset; the visible value is rendered in IST (Asia/Kolkata) — the
+ * repo's business-day timezone — never the device's local zone (NEW-7). */
 @Composable
 private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit) {
     val displayValue = remember(field.text, Locale.getDefault()) {
         field.text.takeIf(String::isNotBlank)?.let { raw ->
             runCatching {
                 OffsetDateTime.parse(raw)
-                    .atZoneSameInstant(ZoneId.systemDefault())
+                    .atZoneSameInstant(ZoneId.of("Asia/Kolkata"))
                     .format(
                         DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
                             .withLocale(Locale.getDefault()),
@@ -326,7 +327,7 @@ private fun DateTimeControl(field: FormFieldUi, onText: (String, String) -> Unit
         icon = MeshaIcons.Calendar,
         done = displayValue != null,
         onClick = {
-            onText(field.key, OffsetDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+            onText(field.key, OffsetDateTime.now(ZoneId.of("Asia/Kolkata")).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
         },
     )
 }
@@ -418,9 +419,11 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
     }
 }
 
+/** Last-scan timestamp is a business (SOP scan) event, so it renders in IST (Asia/Kolkata), not
+ * the device's local zone (NEW-7). */
 private fun formatTimeOnly(epochMs: Long): String =
     java.time.Instant.ofEpochMilli(epochMs)
-        .atZone(ZoneId.systemDefault())
+        .atZone(ZoneId.of("Asia/Kolkata"))
         .format(DateTimeFormatter.ofPattern("h:mm a"))
 
 /** Mock-faithful `.proofbox` (mock/vaccination-mobile-mock.html): dashed 1.5dp border box with a
