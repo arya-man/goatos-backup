@@ -8,6 +8,7 @@ import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { fmtDate } from "@/lib/format";
 import { getWeighingPageData, roleFromSearchParam, type WeighingCampaignState, type WeighingCategory, type WeighingPlanner, type WeighingScopeStatus } from "./data";
+import { ParkSelector } from "./park-selector";
 
 async function createWeighingCampaignAction(formData: FormData) {
   "use server";
@@ -166,7 +167,12 @@ function CapabilityButton({
 
 export async function WeighingPage({ searchParams, pageContract }: { searchParams?: RouteSearchParams; pageContract: AdminUiPageContract }) {
   const role = roleFromSearchParam(one(searchParams ?? {}, "role"));
-  const result = await getWeighingPageData(role, one(searchParams ?? {}, "week"), one(searchParams ?? {}, "campaign"));
+  const result = await getWeighingPageData(
+    role,
+    one(searchParams ?? {}, "week"),
+    one(searchParams ?? {}, "campaign"),
+    one(searchParams ?? {}, "park"),
+  );
   if (!result.ok) {
     return (
       <div className="screen on weighing-page">
@@ -308,10 +314,22 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                     <span className="muted small blockish">{row.partitionName}</span>
                   </td>
                   <td><Tag tone={categoryTone[row.category]}>{categoryLabel[row.category]}</Tag></td>
-                  <td>
-                    <b>{row.completedCount}</b> captured
+                  <td
+                    aria-disabled={!row.capturedCountIsBacked}
+                    style={{ opacity: row.capturedCountIsBacked ? 1 : 0.6 }}
+                    title={!row.capturedCountIsBacked ? "Weighing is free-flow; backend field 'per_shed_captured_count' required for honest count" : undefined}
+                  >
+                    <b>{row.completedCount}</b> {row.capturedCountIsBacked ? "captured" : "captured (n/a)"}
                   </td>
-                  <td><Tag tone={!row.readyToClose && row.proofPendingCount > 0 ? "warn" : "ok"}><Video className="ic" aria-hidden="true" />{!row.readyToClose && row.proofPendingCount > 0 ? `${row.proofPendingCount} pending` : "linked"}</Tag></td>
+                  <td>
+                    {row.readyToClose ? (
+                      <Tag tone="ok"><Video className="ic" aria-hidden="true" />linked</Tag>
+                    ) : row.proofPendingCount > 0 ? (
+                      <Tag tone="warn"><Video className="ic" aria-hidden="true" />{row.proofPendingCount} pending</Tag>
+                    ) : (
+                      <Tag tone="mut"><Video className="ic" aria-hidden="true" />not submitted</Tag>
+                    )}
+                  </td>
                   <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>
                   <td>{fmtDate(row.plannedDate)}</td>
                   <td>{fmtDate(row.effectiveDate)}</td>
@@ -489,18 +507,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               </div>
             </div>
 
-            <div className="weighing-builder-step">
-              <div className="weighing-step-label">Step 2 · Park</div>
-              <h3>Select one park</h3>
-              {planner.parks.map((park) => (
-                <label className={`weighing-choice${park.selected ? " on" : ""}`} key={park.id}>
-                  <input type="radio" name="park_id" value={park.id} defaultChecked={park.selected} />
-                  <span className="weighing-radio" />
-                  <div><b>{park.label}</b><small>{park.subtitle}</small></div>
-                  <strong>{park.kidCount}</strong>
-                </label>
-              ))}
-            </div>
+            <ParkSelector planner={planner} />
 
             <div className="weighing-builder-step weighing-shed-step">
               <div className="weighing-step-label">Step 3 · Sheds</div>
@@ -531,6 +538,11 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
                   <strong>{shed.kidCount}</strong>
                 </div>
               ))}
+              {planner.shedListTruncated && (
+                <div className="weighing-truncation-notice" style={{ padding: "8px 12px", marginTop: "8px", borderRadius: "4px", backgroundColor: "var(--bg-attention)", color: "var(--fg-warn)", fontSize: "12px" }}>
+                  <strong>Shed list is truncated:</strong> This park has more sheds than can be displayed. Contact admin if you need sheds beyond this list.
+                </div>
+              )}
               <div className="weighing-total-card">
                 <span>{planner.individualShedCount} individual · {planner.lumpsumShedCount} lumpsum</span>
                 <b>{planner.individualKidCount}</b>
