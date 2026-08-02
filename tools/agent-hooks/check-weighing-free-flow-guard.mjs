@@ -246,7 +246,11 @@ export function writePathTableFindings(rel, fn, body) {
     seen.add(table);
     if (WRITE_PATH_ALLOWED_TABLES.has(table) || ctes.has(table)) continue;
     // SQL keywords that can follow UPDATE/FROM in the shapes we scan.
-    if (["set", "select", "only", "unnest", "lateral", "values"].includes(table)) continue;
+    // "of" is the row-lock form `FOR [NO KEY] UPDATE OF <alias>`: the token after UPDATE is the
+    // keyword OF, not a table. Without this the guard reports a phantom table named `of` on any
+    // write path that takes an explicit row lock -- i.e. it fired on the fix that closed the
+    // late-capture-after-close race, punishing the correct locking it exists to encourage.
+    if (["set", "select", "only", "unnest", "lateral", "values", "of"].includes(table)) continue;
     findings.push({
       rule: "write-path-table-not-allowlisted",
       message: `${rel}: ${fn}() reads/writes \`${table}\` — the weighing write path is restricted to weighing-owned tables plus proof/idempotency/audit/outbox. goats, weighing_expected_animals and vaccination tables are banned outright (maintainer decision 2026-07-31, strict form). If this table is genuinely weighing-owned, add it to WRITE_PATH_ALLOWED_TABLES with a reason.`,
