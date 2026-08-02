@@ -522,12 +522,20 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 	//      carries the category -- but the LABEL must not name the feature. The verifier is
 	//      already standing in that module, so "Vaccination alerts" / "Weighing alerts" only
 	//      repeats it back at them.
-	//   2. "You" is NOT a bottom-bar tab. Repeating it across vaccination, weighing and every
-	//      future verifiable feature is redundant; it belongs in the nav drawer, exactly as it
-	//      does for leadership/CEO (see the registry entries that carry shared_key "you").
+	//   2. "You" STAYS in the bar -- a verifier must be able to reach their profile. What the
+	//      maintainer flagged was its per-feature REPETITION, not its presence. It is declared
+	//      with shared_key "you" to match the leadership/CEO registry entries so that if these
+	//      contributions are ever routed through composeNavigationFromModules they dedupe the
+	//      same way. Be precise about today's behavior, though: this function builds NavItems by
+	//      hand and never calls composeNavigationFromModules -- the only reader of shared_key --
+	//      so that field is currently inert here. The single You is guaranteed instead by the bar
+	//      being MODULE-SCOPED: one module's bar is served at a time, so a second verify feature
+	//      adds a drawer row, not a second You. If verifier modules are ever composed into one
+	//      flat bar, shared_key becomes load-bearing and needs a test that fails without it.
 	items := []moduleNavContribution{
 		{key: "verify", labelKey: "nav.verify", href: "/verify?module=" + normalized, shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
 		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
+		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
 	}
 
 	// Filter to permitted items

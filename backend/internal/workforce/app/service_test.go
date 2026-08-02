@@ -267,12 +267,14 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	}
 	// No named duties -> scoped to every built feature; the active/default bar is the
 	// first feature (vaccination, drawer priority 1).
-	// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"
-	// lives in the drawer, and the alerts tab label never names the feature (the href's
-	// category still scopes it).
+	// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
+	// carries shared_key "you" so it dedupes across modules like the leadership entries
+	// -- the objection was the per-feature REPETITION, not its presence. The alerts tab
+	// label never names the feature; the href's category still scopes it.
 	want := []domain.BootstrapNavigationItem{
 		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
 		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -305,9 +307,10 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 // THAT feature, with a correctly-categorized Alerts item -- never the generic merged
 // "verification" module the pre-fix code fell back to for len(grantedModules) <= 1.
 //
-// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You" lives
-// in the drawer, and the alerts tab label never names the feature (the href's category
-// still scopes it).
+// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
+// carries shared_key "you" so it dedupes across modules like the leadership entries --
+// the objection was the per-feature REPETITION, not its presence. The alerts tab label
+// never names the feature; the href's category still scopes it.
 //
 // The scoping this test is named for did NOT move to the label -- it lives in the href
 // category, and that is what is asserted per feature below: three single-duty verifiers
@@ -342,6 +345,7 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 			want := []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature},
 				{Key: "alerts", Label: wantAlertsLabel, Href: "/verify/alerts?category=" + tc.wantCategory},
+				{Key: "you", Label: "You", Href: "/you"},
 			}
 			if len(got.VisibleNavigation) != len(want) {
 				t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -476,10 +480,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
-				// "You" lives in the drawer, and the alerts tab label never names the feature
-				// (the href's category still scopes it). This is a leadership/registry bar, so
-				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -488,15 +493,18 @@ func TestVisibleNavigationFor(t *testing.T) {
 			// No duties named -> scoped to every built feature; the default/active bar
 			// is the first (vaccination), with a correctly-categorized Alerts item.
 			//
-			// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
-			// "You" lives in the drawer, and the alerts tab label never names the
-			// feature (the href's category still scopes it).
+			// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+			// "You" carries shared_key "you" so it dedupes across modules like the
+			// leadership entries -- the objection was the per-feature REPETITION, not
+			// its presence. The alerts tab label never names the feature; the href's
+			// category still scopes it.
 			name:    "verifier with no duties",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
 				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
@@ -504,15 +512,18 @@ func TestVisibleNavigationFor(t *testing.T) {
 			// different href category (counts maps to shifting_move, NOT counts_proof)
 			// -- the label went generic, the SCOPING did not.
 			//
-			// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
-			// "You" lives in the drawer, and the alerts tab label never names the
-			// feature (the href's category still scopes it).
+			// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+			// "You" carries shared_key "you" so it dedupes across modules like the
+			// leadership entries -- the objection was the per-feature REPETITION, not
+			// its presence. The alerts tab label never names the feature; the href's
+			// category still scopes it.
 			name:    "single-feature verifier",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: []string{"counts"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=counts"},
 				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=shifting_move"},
+				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
@@ -525,10 +536,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
-				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
-				// "You" lives in the drawer, and the alerts tab label never names the feature
-				// (the href's category still scopes it). This is a leadership/registry bar, so
-				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
@@ -541,10 +553,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
-				// "You" lives in the drawer, and the alerts tab label never names the feature
-				// (the href's category still scopes it). This is a leadership/registry bar, so
-				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
 				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
