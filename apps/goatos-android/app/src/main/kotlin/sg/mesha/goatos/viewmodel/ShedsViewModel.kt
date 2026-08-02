@@ -577,7 +577,7 @@ private fun VaccinationExecutionRowDto.isOverdueWork(): Boolean {
         ?.takeIf { it.isNotBlank() }
         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         ?: return false
-    return scheduleDate.isBefore(LocalDate.now(ZoneId.systemDefault()))
+    return scheduleDate.isBefore(LocalDate.now(ZoneId.of("Asia/Kolkata")))
 }
 
 private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =
