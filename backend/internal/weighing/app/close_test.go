@@ -75,7 +75,16 @@ func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 	service := NewService(repo)
 	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
 
-	result, err := service.CloseScope(context.Background(), ceo, closeCampaign, closeScopeID, "  close-1  ", "  shed emptied early  ")
+	// Set up context with tenant-wide ceo_internal grant (needed for park scope check)
+	ceoGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleCEOInternal,
+		ScopeType: "tenant",
+		ScopeID:   testTenant,
+	}
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{ceoGrant})
+	ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+
+	result, err := service.CloseScope(ctx, ceo, closeCampaign, closeScopeID, "  close-1  ", "  shed emptied early  ")
 	if err != nil {
 		t.Fatalf("CloseScope errored: %v", err)
 	}
@@ -96,7 +105,7 @@ func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 		t.Fatalf("close campaignShedID=%q, want %q", got.CampaignShedID, closeScopeID)
 	}
 
-	if _, err := service.CloseCampaign(context.Background(), ceo, closeCampaign, " close-2 ", " park shut "); err != nil {
+	if _, err := service.CloseCampaign(ctx, ceo, closeCampaign, " close-2 ", " park shut "); err != nil {
 		t.Fatalf("CloseCampaign errored: %v", err)
 	}
 	if len(repo.closeCampaignCalls) != 1 {

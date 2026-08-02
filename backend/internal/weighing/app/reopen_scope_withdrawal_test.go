@@ -6,16 +6,22 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
 
 type supersedingRepo struct {
 	fakeRepo
 	superseded []string
+	parkID     string
 }
 
 func (r *supersedingRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
 	return r.superseded, nil
+}
+
+func (r *supersedingRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
+	return r.parkID, nil
 }
 
 type captureWithdrawer struct {
@@ -44,11 +50,21 @@ func reopenActor() domain.Actor {
 // reports that non-decision as success.
 func TestReopenScopeRetiresVerificationForSupersededSubmissions(t *testing.T) {
 	observationID := "00000000-0000-4000-8000-000000000901"
+	parkID := "00000000-0000-4000-8000-000000000200"
 	withdrawer := &captureWithdrawer{}
-	service := NewService(&supersedingRepo{superseded: []string{observationID}}).
+	service := NewService(&supersedingRepo{superseded: []string{observationID}, parkID: parkID}).
 		WithVerificationWithdrawer(withdrawer)
 
-	if err := service.ReopenScope(context.Background(), reopenActor(),
+	// Set up context with tenant-wide growth_director grant (needed for park scope check)
+	growthDirectorGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleGrowthDirector,
+		ScopeType: "tenant",
+		ScopeID:   testTenant,
+	}
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{growthDirectorGrant})
+	ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+
+	if err := service.ReopenScope(ctx, reopenActor(),
 		"00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801",
 		"reopen:withdraw", "video unusable"); err != nil {
 		t.Fatalf("ReopenScope: %v", err)
@@ -70,10 +86,20 @@ func TestReopenScopeRetiresVerificationForSupersededSubmissions(t *testing.T) {
 // Reopening an INDIVIDUAL bucket supersedes no lump-sum submission, so verification
 // must not be called at all.
 func TestReopenScopeSkipsVerificationWhenNothingSuperseded(t *testing.T) {
+	parkID := "00000000-0000-4000-8000-000000000200"
 	withdrawer := &captureWithdrawer{}
-	service := NewService(&supersedingRepo{}).WithVerificationWithdrawer(withdrawer)
+	service := NewService(&supersedingRepo{parkID: parkID}).WithVerificationWithdrawer(withdrawer)
 
-	if err := service.ReopenScope(context.Background(), reopenActor(),
+	// Set up context with tenant-wide growth_director grant (needed for park scope check)
+	growthDirectorGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleGrowthDirector,
+		ScopeType: "tenant",
+		ScopeID:   testTenant,
+	}
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{growthDirectorGrant})
+	ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+
+	if err := service.ReopenScope(ctx, reopenActor(),
 		"00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801",
 		"reopen:none", "recheck"); err != nil {
 		t.Fatalf("ReopenScope: %v", err)
@@ -86,12 +112,22 @@ func TestReopenScopeSkipsVerificationWhenNothingSuperseded(t *testing.T) {
 // A failed withdrawal must SURFACE. Swallowing it leaves the item decidable with
 // nobody aware, which is the exact silent-success shape this lane exists to remove.
 func TestReopenScopeSurfacesVerificationWithdrawalFailure(t *testing.T) {
+	parkID := "00000000-0000-4000-8000-000000000200"
 	boom := errors.New("verification unavailable")
 	withdrawer := &captureWithdrawer{err: boom}
-	service := NewService(&supersedingRepo{superseded: []string{"00000000-0000-4000-8000-000000000901"}}).
+	service := NewService(&supersedingRepo{superseded: []string{"00000000-0000-4000-8000-000000000901"}, parkID: parkID}).
 		WithVerificationWithdrawer(withdrawer)
 
-	err := service.ReopenScope(context.Background(), reopenActor(),
+	// Set up context with tenant-wide growth_director grant (needed for park scope check)
+	growthDirectorGrant := permissions.ActiveGrant{
+		Role:      permissions.RoleGrowthDirector,
+		ScopeType: "tenant",
+		ScopeID:   testTenant,
+	}
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{growthDirectorGrant})
+	ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+
+	err := service.ReopenScope(ctx, reopenActor(),
 		"00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801",
 		"reopen:boom", "video unusable")
 	if !errors.Is(err, boom) {

@@ -76,8 +76,8 @@ func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader
 // It resolves the campaign's park and verifies the actor is authorized to access it.
 //
 // Authorization semantics:
-// - Empty authorizedParkIDs = tenant-wide grant (leadership/CEO) = access all parks
-// - Non-empty authorizedParkIDs = operator/park-scoped grant = must match campaign park
+// - Tenant-wide grant with weighing-relevant role = access all parks
+// - Park-scoped grant = must match campaign park
 // - Campaign not found or unauthorized park = ErrNotFound (not leaking existence)
 func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID string) error {
 	// Get the campaign's park
@@ -89,8 +89,10 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 	// Get actor's authorized park scope from context (set by HTTP middleware)
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 
-	// Empty grants or tenant-wide grant = authorized for all parks
-	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID) {
+	// Check if actor has a tenant-wide grant that carries weighing authority
+	// (e.g., growth_director or ceo_internal). A tenant-wide grant for an unrelated
+	// role (e.g., health_director) does NOT grant tenant-wide weighing access.
+	if hasWeighingAuthorityTenantWide(grants, tenantID) {
 		return nil
 	}
 
@@ -106,6 +108,26 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 
 	// Park is outside authorized scope - return not found to hide existence
 	return ports.ErrNotFound
+}
+
+// hasWeighingAuthorityTenantWide reports whether any grant is scoped to the whole tenant
+// AND carries a role that has weighing permissions (growth_director or ceo_internal).
+// A tenant-wide grant for an unrelated role (e.g., health_director) returns false.
+func hasWeighingAuthorityTenantWide(grants []permissions.ActiveGrant, tenantID string) bool {
+	// Roles that can get tenant-wide grants for weighing
+	weighingRoles := map[string]struct{}{
+		permissions.RoleGrowthDirector: {},
+		permissions.RoleCEOInternal:    {},
+	}
+
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
+			if _, ok := weighingRoles[grant.Role]; ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // WeighingProcessState serves the shared command surfaces: Calendar day markers

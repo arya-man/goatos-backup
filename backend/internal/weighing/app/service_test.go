@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -574,7 +575,6 @@ func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 
 func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 	service := NewService(&fakeRepo{})
-	ctx := context.Background()
 	for _, tc := range []struct {
 		name string
 		role string
@@ -587,6 +587,21 @@ func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{tc.role}}
+
+			// Set up context with appropriate grant
+			// Growth director and CEO need tenant-wide grants for weighing
+			// Other roles don't have weighing permissions anyway
+			ctx := context.Background()
+			if tc.role == permissions.RoleGrowthDirector || tc.role == permissions.RoleCEOInternal {
+				grant := permissions.ActiveGrant{
+					Role:      tc.role,
+					ScopeType: "tenant",
+					ScopeID:   testTenant,
+				}
+				ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{grant})
+				ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+			}
+
 			err := service.ReopenScope(ctx, actor, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "reopen:"+tc.role, "missed tags")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("ReopenScope() error=%v want %v", err, tc.want)
