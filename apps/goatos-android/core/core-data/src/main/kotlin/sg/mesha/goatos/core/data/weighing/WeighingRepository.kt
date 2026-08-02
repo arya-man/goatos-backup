@@ -401,7 +401,7 @@ interface WeighingRepository {
      * executable list, [WEIGHING_SCOPE_ALL] is the planner's flat all-tasks list, and
      * [WEIGHING_SCOPE_OPERATORS] is read-only oversight of other people's work.
      */
-    suspend fun listAssignments(cursor: String? = null, scope: String = WEIGHING_SCOPE_MINE): AppResult<WeighingPage<WeighingAssignment>>
+    suspend fun listAssignments(cursor: String? = null, scope: String = WEIGHING_SCOPE_MINE, parkId: String? = null): AppResult<WeighingPage<WeighingAssignment>>
     // --- Leadership reads: Room-backed, observed, keyset-paged -------------------------
     //
     // Every one of these is a PAIR: an `observe*` that renders from Room, and a `refresh*` that
@@ -599,11 +599,11 @@ class DefaultWeighingRepository(
         rosterDao.replaceScope(scopeKey, rows)
     }
 
-    override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> = withContext(Dispatchers.IO) {
+    override suspend fun listAssignments(cursor: String?, scope: String, parkId: String?): AppResult<WeighingPage<WeighingAssignment>> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing assignments are not configured.")
         val requestCursor = cursor?.takeIf { it.isNotBlank() }
         runCatching {
-            val response = client.listWeighingCampaigns(scope = scope, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE)
+            val response = client.listWeighingCampaigns(scope = scope, cursor = requestCursor, limit = WEIGHING_PAGE_SIZE, parkId = parkId)
             val assignments = response.items.flatMap { it.toAssignments() }
             AppResult.Ok(
                 WeighingPage(
@@ -1947,8 +1947,14 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
 private fun WeighingCampaignDto.toAssignments(): List<WeighingAssignment> =
     sheds
         .filter { shed ->
+            // INTENTIONAL: Closed buckets are excluded from the assignments list because they are
+            // not active work anymore. Once closed, a bucket has no open work for the operator.
+            // However, toTask() includes closed buckets for historical/administrative purposes
+            // in the task detail view, and WeighingTasksScreen already renders a closed color.
+            // This filtering keeps the two paths consistent and aligned with the UX model:
+            // assignments are actionable work, tasks are historical records.
             status in setOf("published", "in_progress", "delayed", "completed") &&
-                shed.status.lowercase() !in setOf("canceled", "cancelled")
+                shed.status.lowercase() !in setOf("canceled", "cancelled", "closed")
         }
         .map { shed ->
             WeighingAssignment(
