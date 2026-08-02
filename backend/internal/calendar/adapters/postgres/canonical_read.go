@@ -45,6 +45,20 @@ import (
 // - Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue on (tenant_id, status, due_at))
 // This ensures the planner uses index scans for each branch and stays sub-second at 500k obligations.
 //
+// calendarTodayInRequestedWindow is true only when the CURRENT Asia/Kolkata business day falls inside
+// the requested [$2, $3) window. It gates the P1 drive-rollover lookback below.
+//
+// The rollover re-dates an open past drive onto TODAY. That rolled date is meaningful ONLY to a query
+// whose window actually contains today: a window for tomorrow (or any later day) must not be handed a
+// card dated today. Without this guard the widened 45-day lower bound admitted the batch into EVERY
+// future window and the rollover then stamped it as today's date, so tapping the 2nd, the 3rd and
+// the 4th on the phone all showed the same cards. Anchored to the business-day start
+// (biztime.BusinessDayStart's SQL twin, the same expression rolled_due_at uses), never now()±N hours.
+const calendarTodayInRequestedWindow = `(
+          (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata' >= $2::timestamptz
+      AND (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata' <  $3::timestamptz
+        )`
+
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarCanonicalEventsCTE = `obligation_events AS (
   WITH obligation_events_rows AS (
@@ -604,8 +618,11 @@ batch_events AS (
         -- NOT widened here: it already surfaces via the pre-existing catch-up/overdue path on its
         -- own date, and widening it too would return it (still labeled with its ORIGINAL due_at,
         -- since it never gets the display rollover) into unrelated future query windows --
-        -- "returned but not surfaced on D+1", the exact defect this fix targets.
-        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
+        -- "returned but not surfaced on D+1", the exact defect this fix targets. The lookback is
+        -- ADDITIONALLY gated on calendarTodayInRequestedWindow: the roll only produces a card dated
+        -- TODAY, so a window that does not contain today has no business being handed one. Without
+        -- that gate every future window inherited the rolled card (tomorrow showed today's drives).
+        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
       GROUP BY vda.planned_date
     ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
@@ -617,7 +634,7 @@ batch_events AS (
           AND
           ob.planned_date IS NOT NULL
           AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
+          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
         )
         OR (
           NOT COALESCE(assignment_presence.has_any_assignment, false)
@@ -808,7 +825,7 @@ obligation_drive_membership AS (
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
+      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
     UNION
     -- Assignment-era compatibility for completed or otherwise still-unbound batch obligations. Some
     -- historical split batches have assignment rows for the day-level cards but no member rows for
@@ -855,7 +872,7 @@ obligation_drive_membership AS (
         (
           ob2.planned_date IS NOT NULL
           AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
         )
         OR (
           ob2.planned_date IS NULL
