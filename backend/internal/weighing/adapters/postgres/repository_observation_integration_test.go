@@ -896,6 +896,18 @@ INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_da
 VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-07-27', '2026-08-02', '2026-07-29', 'published', 100, $4::uuid, $4::uuid)
 ON CONFLICT (campaign_id) DO UPDATE SET status=EXCLUDED.status, operator_user_id=EXCLUDED.operator_user_id`,
 		repoCampaign, repoTenant, repoPark, repoOperator)
+	// Migration 000065 binds a bucket's operator to the bucket's park through an
+	// ACTIVE user_scope_grants row. Seed the grant before inserting weighing_campaign_sheds.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOperator, repoPark)
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOtherOp, repoPark)
 	execWeighingTestSQL(t, ctx, pool, `
 INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count)
 VALUES
