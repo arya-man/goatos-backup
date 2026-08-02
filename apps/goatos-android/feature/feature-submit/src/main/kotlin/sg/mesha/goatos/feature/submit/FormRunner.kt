@@ -42,10 +42,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
@@ -143,10 +141,10 @@ fun FormRunner(
 ) {
     Column(modifier.fillMaxWidth().background(MeshaColors.Bg)) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 6.dp)) {
-            Text(state.title, color = MeshaColors.Ink, fontSize = 20.sp, fontWeight = FontWeight.W800)
+            Text(state.title, color = MeshaColors.Ink, style = MeshaType.screenTitle)
             if (state.subtitle.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
-                Text(state.subtitle, color = MeshaColors.Muted, fontSize = 12.5.sp)
+                Text(state.subtitle, color = MeshaColors.Muted, style = MeshaType.cardSubtitle)
             }
         }
         LazyColumn(
@@ -214,7 +212,7 @@ private fun FieldCard(
         // `.proofbox span`) — showing it again here would duplicate the same description.
         if (field.kind != FieldKindUi.VIDEO_PROOF) {
             field.helpText.takeIf { !it.isNullOrBlank() }?.let {
-                Text(it, color = MeshaColors.Faint, fontSize = 11.5.sp)
+                Text(it, color = MeshaColors.Faint, style = MeshaType.caption)
             }
         }
         when (field.kind) {
@@ -228,20 +226,20 @@ private fun FieldCard(
             FieldKindUi.UNKNOWN -> Text(
                 "Unsupported field — update the app to record this.",
                 color = MeshaColors.Faint,
-                fontSize = 12.sp,
+                style = MeshaType.cardSubtitle,
             )
         }
-        field.error?.let { Text(it, color = MeshaColors.Danger, fontSize = 11.5.sp) }
+        field.error?.let { Text(it, color = MeshaColors.Danger, style = MeshaType.caption) }
     }
 }
 
 @Composable
 private fun FieldLabel(label: String, required: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = MeshaColors.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+        Text(label, color = MeshaColors.Ink, style = MeshaType.listTitle)
         if (required) {
             Spacer(Modifier.size(4.dp))
-            Text("*", color = MeshaColors.Danger, fontSize = 13.5.sp, fontWeight = FontWeight.W800)
+            Text("*", color = MeshaColors.Danger, style = MeshaType.listTitle)
         }
     }
 }
@@ -279,8 +277,7 @@ private fun BooleanChoice(text: String, selected: Boolean, onClick: () -> Unit, 
         Text(
             text,
             color = if (selected) MeshaColors.BrandD else MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
         )
     }
 }
@@ -356,7 +353,7 @@ private fun PickerControl(field: FormFieldUi, onPick: (String, String) -> Unit) 
                         Column {
                             Text(option.label)
                             option.disabledReason?.takeIf(String::isNotBlank)?.let { reason ->
-                                Text(reason, color = MeshaColors.Faint, fontSize = 10.sp)
+                                Text(reason, color = MeshaColors.Faint, style = MeshaType.overline)
                             }
                         }
                     },
@@ -413,8 +410,7 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
                 else -> "Tap to scan goats"
             },
             color = MeshaColors.Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.bodyStrong,
         )
     }
 }
@@ -455,11 +451,10 @@ private fun ProofBoxControl(
                 Text(
                     text = proofCaptureTitle(field),
                     color = MeshaColors.Ink,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.listTitle,
                 )
                 Spacer(Modifier.height(2.dp))
-                Text(text = proofCaptureHint(field), color = MeshaColors.Muted, fontSize = 11.sp)
+                Text(text = proofCaptureHint(field), color = MeshaColors.Muted, style = MeshaType.caption)
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ProofActionButton("Record", Modifier.weight(1f)) { onCaptureVideo(field.key, "in_app_camera") }
@@ -523,8 +518,8 @@ private fun ProofItemRow(
                     value = item.caption,
                     onValueChange = { onCaption(fieldKey, item.id, it) },
                     singleLine = true,
-                    placeholder = { Text("Describe this video", fontSize = 12.sp) },
-                    textStyle = MeshaType.cardSubtitle.copy(fontSize = 12.5.sp),
+                    placeholder = { Text("Describe this video", style = MeshaType.cardSubtitle) },
+                    textStyle = MeshaType.cardSubtitle,
                     modifier = Modifier
                         .fillMaxWidth()
                         .bringIntoViewRequester(bringIntoViewRequester)
@@ -547,9 +542,9 @@ private fun ProofItemRow(
                     ),
                 )
             } else {
-                Text(item.label, color = MeshaColors.Ink, fontSize = 12.5.sp, fontWeight = FontWeight.W600)
+                Text(item.label, color = MeshaColors.Ink, style = MeshaType.cta)
             }
-            Text(syncStatusLabel(item.syncStatus), color = syncStatusColor(item.syncStatus), fontSize = 10.5.sp)
+            Text(syncStatusLabel(item.syncStatus), color = syncStatusColor(item.syncStatus), style = MeshaType.overline)
         }
         if (item.editableCaption) {
             IconButton(
@@ -591,7 +586,7 @@ private fun ProofActionButton(text: String, modifier: Modifier = Modifier, onCli
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = MeshaColors.BrandD, fontSize = 12.5.sp, fontWeight = FontWeight.W800)
+        Text(text, color = MeshaColors.BrandD, style = MeshaType.pillStrong)
     }
 }
 
@@ -624,7 +619,7 @@ private fun ActionControl(text: String, icon: androidx.compose.ui.graphics.vecto
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(icon, contentDescription = null, tint = leadingTint, modifier = Modifier.size(18.dp))
-        Text(text, color = labelColor, fontSize = 13.sp, fontWeight = FontWeight.W600, modifier = Modifier.weight(1f))
+        Text(text, color = labelColor, style = MeshaType.cta, modifier = Modifier.weight(1f))
         Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
             if (done) {
                 Icon(MeshaIcons.Check, contentDescription = "Done", tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
@@ -638,7 +633,7 @@ private fun SubmitBar(state: FormRunnerState, onSubmit: () -> Unit) {
     val enabled = state.blockedReason == null
     Column(Modifier.fillMaxWidth().padding(20.dp)) {
         state.blockedReason?.let {
-            Text(it, color = MeshaColors.Warn, fontSize = 11.5.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Text(it, color = MeshaColors.Warn, style = MeshaType.caption, modifier = Modifier.padding(bottom = 8.dp))
         }
         Box(
             Modifier
@@ -652,8 +647,7 @@ private fun SubmitBar(state: FormRunnerState, onSubmit: () -> Unit) {
             Text(
                 state.submitLabel,
                 color = if (enabled) MeshaColors.Bg else MeshaColors.Faint,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W800,
+                style = MeshaType.button,
             )
         }
     }
