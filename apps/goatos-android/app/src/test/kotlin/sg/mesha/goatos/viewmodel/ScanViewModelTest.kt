@@ -274,7 +274,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `scanning a second goat while the first goat's proof video is still recording is refused visibly, not silently, and does not corrupt the subject id`() = runTest(dispatcher) {
+    fun `scanning a second goat while the first goat's proof video is still recording cancels the first camera and reopens bound to the second goat, so a completed recording can never save under the wrong subject id`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val proofRepo = FakeProofCaptureRepository()
@@ -303,26 +303,144 @@ class ScanViewModelTest {
         advanceUntilIdle()
 
         // Goat A is scanned; its camera opens and the recording is still in progress (suspended
-        // on the gate) when goat B is scanned.
+        // on the gate, i.e. captureVideo() has NOT returned — nothing has been written to Room or
+        // the outbox yet) when the operator walks to goat B and scans it.
         val goatAGate = proofSource.queueGate()
         reader.emit("TAG-100")
         advanceUntilIdle()
         assertEquals("goat A's camera opened", 1, proofSource.captureCount)
         assertEquals(0, proofRepo.captureCalls.size)
 
+        val goatBGate = proofSource.queueGate()
         reader.emit("TAG-200")
         advanceUntilIdle()
 
-        // Goat B's scan must not silently drop: no second camera launch, no proof saved for B, and
-        // the operator sees a plain-language reason instead of nothing happening.
-        assertEquals("goat B must not open a second camera while goat A's is recording", 1, proofSource.captureCount)
-        assertEquals("goat B must not record a proof while goat A's capture is in flight", 0, proofRepo.captureCalls.size)
+        // Goat A's still-recording (unfinished) camera session is cancelled and a NEW camera opens
+        // bound to goat B — the operator is standing at B, so B is what the reopened camera sees.
+        assertEquals("goat B's scan must cancel A's unfinished capture and open a fresh camera for B", 2, proofSource.captureCount)
+        assertEquals("no proof may be written until a capture actually completes", 0, proofRepo.captureCalls.size)
+        assertEquals("TAG-100 still needs its video.", scanVm.state.value.duplicateNotice)
+
+        // Goat A's original (cancelled) gate completing now must NOT deliver a proof — the coroutine
+        // that owned it was cancelled and its result is discarded.
+        goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+        assertEquals("a cancelled capture's late result must never be saved", 0, proofRepo.captureCalls.size)
+
+        // Goat B's recording finishes: the proof that lands is genuinely B's footage, saved under
+        // B's subject id. No path exists where A's cancelled recording could land under B's id, or
+        // vice versa.
+        goatBGate.complete(CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        assertEquals(1, proofRepo.captureCalls.size)
+        assertEquals("goat-2", proofRepo.captureCalls.single().subjectId)
+        assertEquals("file://goat-b.mp4", proofRepo.captureCalls.single().localUri)
+    }
+
+    @Test
+    fun `goat A is left needing proof, not falsely marked done or uploading, after its capture is cancelled for goat B`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(
+                        scanRow("goat-1", "TAG-100", "obl-1"),
+                        scanRow("goat-2", "TAG-200", "obl-2"),
+                    ),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        val goatAGate = proofSource.queueGate()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+
+        proofSource.queueGate()
+        reader.emit("TAG-200")
+        advanceUntilIdle()
+
+        val goatARow = scanVm.state.value.roster.first { it.goatId == "goat-1" }
+        assertEquals("goat A stays DONE (it really was scanned) but must not read as proof-synced", ScanStatus.DONE, goatARow.status)
+        assertEquals("cancelled-before-capture goat A must not read as proof-synced", sg.mesha.goatos.feature.scan.ProofUploadStatus.MISSING, goatARow.proofUploadStatus)
+        assertFalse(
+            "goat A must not keep an optimistic uploading marker for a capture that never completed",
+            goatARow.evidenceUploading,
+        )
+        assertTrue("no proof was ever written for goat A", proofRepo.captureCalls.none { it.subjectId == "goat-1" })
+
+        // Not a dangling reference either: goat A's gate completing late changes nothing about A.
+        goatAGate.complete(CapturedVideo(localUri = "file://goat-a-late.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+        val goatARowAfter = scanVm.state.value.roster.first { it.goatId == "goat-1" }
+        assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.MISSING, goatARowAfter.proofUploadStatus)
+        assertFalse(goatARowAfter.evidenceUploading)
+    }
+
+    @Test
+    fun `the busy proof-capture notice clears once the busy condition resolves, without waiting for an unrelated next scan`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        val scanAttempts = FakeScanAttemptRepository()
+        val proofRepo = FakeProofCaptureRepository()
+        val proofSource = FakeProofCaptureSource()
+        val reader = FakeRfidReaderPort()
+        val scanVm = ScanViewModel(
+            repo = FakeScanExecutionRepository(
+                firstPage = ScanRosterResponseDto(
+                    rows = listOf(scanRow("goat-1", "TAG-100", "obl-1")),
+                ),
+            ),
+            reader = reader,
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = scanAttempts,
+            proofCaptureRepository = proofRepo,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { scanVm.state.collect {} }
+        advanceUntilIdle()
+
+        // Goat A's camera opens and is still recording (suspended on the gate).
+        val goatAGate = proofSource.queueGate()
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals(1, proofSource.captureCount)
+
+        // The SAME tag is re-scanned while its own capture is still in flight (e.g. a duplicate
+        // hardware read of the animal that's already being recorded) — this must be refused
+        // visibly rather than opening a second camera for the same animal.
+        reader.emit("TAG-100")
+        advanceUntilIdle()
+        assertEquals("re-scanning the goat already being recorded must not open a second camera", 1, proofSource.captureCount)
         assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
 
-        // Goat A's recording finishes; its proof must land under goat A's subject id, not goat B's.
+        // The recording finishes normally. The busy condition has resolved — the notice must clear
+        // on its own, not linger until some unrelated future scan event clears it.
         goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
 
+        assertNull(
+            "the busy notice must clear once the capture it referred to finishes, without needing another scan",
+            scanVm.state.value.duplicateNotice,
+        )
         assertEquals(1, proofRepo.captureCalls.size)
         assertEquals("goat-1", proofRepo.captureCalls.single().subjectId)
     }
