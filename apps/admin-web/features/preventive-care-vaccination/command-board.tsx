@@ -55,9 +55,9 @@ async function VaccinationCommandBoardContent({ pageContract, searchParams, driv
     ? driveOptions.some((drive) => drive.driveBatchId === selectedDriveBatchId)
     : false;
 
-  if (!requestedDriveIsInScope) {
-    selectedDriveBatchId = driveOptions[0]?.driveBatchId;
-  }
+  // No URL selection means the real all-drives board. Previously the page silently selected the
+  // newest batch, which reduced a 324-animal future programme to one operator day's 95/109 rows.
+  if (selectedDriveBatchId && !requestedDriveIsInScope) selectedDriveBatchId = undefined;
 
   if (selectedDriveBatchId) {
     const driveResult = await getVaccinationCommandBoard({ driveBatchId: selectedDriveBatchId, parkId });

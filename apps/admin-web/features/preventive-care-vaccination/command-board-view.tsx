@@ -3,12 +3,19 @@ import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
+import {
+  formatScheduledDriveDates,
+  scheduledDriveRows,
+  type CommandBoardDriveOption,
+} from "./command-board-future-drives";
 
 // Build colored grid heatmap from flat shed-dose matrix
 interface GridCell {
   doseRule: string;
   state: string;
   animalCount: number;
+  minAdministeredDate?: string | null;
+  maxAdministeredDate?: string | null;
   minDueDate?: string | null;
   maxDueDate?: string | null;
 }
@@ -16,6 +23,14 @@ interface GridCell {
 interface ShedGridRow {
   shedName: string;
   cells: Record<string, GridCell>;
+}
+
+function matrixDateRange(min?: string | null, max?: string | null): string {
+  const first = min?.slice(0, 10) ?? "";
+  const last = max?.slice(0, 10) ?? "";
+  if (!first) return last;
+  if (!last || last === first) return first;
+  return `${first} – ${last}`;
 }
 
 // The cohort ladder comes from the backend option group so the row set stays
@@ -125,6 +140,8 @@ function buildShedGrid(
     doseRule: string;
     state: string;
     animalCount: number;
+    minAdministeredDate?: string | null;
+    maxAdministeredDate?: string | null;
     minDueDate?: string | null;
     maxDueDate?: string | null;
   }>
@@ -144,6 +161,8 @@ function buildShedGrid(
       doseRule: cell.doseRule,
       state: cell.state,
       animalCount: cell.animalCount,
+      minAdministeredDate: cell.minAdministeredDate,
+      maxAdministeredDate: cell.maxAdministeredDate,
       minDueDate: cell.minDueDate,
       maxDueDate: cell.maxDueDate,
     };
@@ -188,17 +207,12 @@ interface QueueRow {
   lastGivenOnDate?: string | null;
   daysInQueue?: number | null;
 }
-interface DriveOption {
-  driveBatchId: string;
-  label: string;
-  status: string;
-}
 interface CommandBoard {
   kpis: CommandBoardKpis;
   cohortMatrix: CohortCell[];
   shedDoseMatrix: ShedDoseCell[];
   verificationQueue: QueueRow[];
-  driveOptions?: DriveOption[];
+  driveOptions?: CommandBoardDriveOption[];
 }
 
 interface CommandBoardViewProps {
@@ -211,19 +225,16 @@ const STATUS_KEYS = ["verified", "awaiting", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
 export function CommandBoardView({ board, pageContract, driveBatchId }: CommandBoardViewProps) {
-  // Vaccine + status filters operate on the fetched payload: the board is one bounded
-  // read, so narrowing it client-side keeps every card, matrix and chart consistent
-  // without a refetch. Drive scope is a server read (the drive selects which obligations
-  // exist at all, which no client-side slice can reproduce). Park/date scope stays with
-  // the shell top bar, which already owns it.
+  // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
+  // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
   const searchParams = useSearchParams();
   const driveOptions = board.driveOptions ?? [];
+  const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
 
   const selectDrive = (next: string) => {
-    if (!next) return;
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    params.set("cb_drive", next);
+    if (next) params.set("cb_drive", next); else params.delete("cb_drive");
     const query = params.toString();
     router.push(query ? `?${query}` : "?", { scroll: false });
   };
@@ -277,6 +288,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           aria-disabled={driveOptions.length === 0}
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
+          <option value="">{copy(pageContract, "command_board.filter.all_drives")}</option>
           {driveOptions.map((d) => (
             <option key={d.driveBatchId} value={d.driveBatchId}>{d.label}</option>
           ))}
@@ -340,6 +352,41 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           </div>
         </div>
 
+        {futureDrives.length > 0 && (
+          <div className="cbm-future-section">
+            <div className="cbm-section-head">
+              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
+              <span className="cbm-meta">
+                {futureDrives.length} {copy(pageContract, "command_board.future_drives.count_suffix")}
+              </span>
+            </div>
+            <div className="cbm-future-table-wrap">
+              <table className="cbm-future-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {futureDrives.map((drive) => (
+                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
+                      <td><strong>{drive.driveName}</strong></td>
+                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
+                      <td>{drive.shedNames.join(", ") || "—"}</td>
+                      <td><strong>{drive.targetCount}</strong></td>
+                      <td><strong>{drive.doseCount}</strong></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Vaccine × Shed status - colored grid heatmap */}
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
@@ -376,8 +423,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                           if (!cell) {
                             return <td key={dose} className="cbm-cell cbm-na">—</td>;
                           }
-                          const dateStr =
-                            cell.state === "verified" || cell.state === "awaiting" ? cell.minDueDate || cell.maxDueDate : cell.minDueDate;
+                          // Completed cells show the operator's actual administration date. Verification
+                          // can happen days later and must never replace the medical date. Scheduled and
+                          // overdue cells continue to show their rule-derived due date.
+                          const dateStr = cell.state === "verified" || cell.state === "awaiting"
+                            ? matrixDateRange(cell.minAdministeredDate, cell.maxAdministeredDate)
+                            : matrixDateRange(cell.minDueDate, cell.maxDueDate);
                           // An awaiting cell also carries how long it has been sitting with the
                           // verifier — the one fact the removed queue table added.
                           const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${row.shedName}|${dose}`) : undefined;
@@ -391,7 +442,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                             >
                               {cell.animalCount}
                               <small>
-                                {dateStr ? dateStr.slice(0, 10) : ""}
+                                {dateStr}
                                 {waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""}
                               </small>
                             </td>
@@ -456,15 +507,21 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
                                 const done = verifiedOf[v] ?? 0;
+                                if (pending === 0 && done === 0) {
+                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                }
+                                const hasPending = pending > 0;
                                 return (
                                   <td
                                     key={v}
-                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
+                                    className={`cbm-cell ${hasPending ? "cbm-pending" : "cbm-verified"}`}
                                     title={`${label} · ${v} · ${pending} ${copy(pageContract, "command_board.cohort_matrix.pending_word")}, ${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`}
                                   >
-                                    {pending}
+                                    {hasPending ? pending : done}
                                     <small>
-                                      {done} {copy(pageContract, "command_board.cohort_matrix.verified_word")}
+                                      {hasPending
+                                        ? `${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`
+                                        : copy(pageContract, "command_board.cohort_matrix.verified_word")}
                                     </small>
                                   </td>
                                 );

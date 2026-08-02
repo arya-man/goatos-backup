@@ -851,10 +851,15 @@ type VerificationQueueRow struct {
 // rule ID alone is not a drive selector when rules recur across dates and parks.
 type CommandBoardDriveOption struct {
 	DriveBatchID string     `json:"driveBatchId"`
+	DriveName    string     `json:"driveName"`
 	Label        string     `json:"label"`
 	Status       string     `json:"status"`
+	PlannedDate  *time.Time `json:"plannedDate,omitempty"`
 	WindowStart  *time.Time `json:"windowStart,omitempty"`
 	WindowEnd    *time.Time `json:"windowEnd,omitempty"`
+	TargetCount  int        `json:"targetCount"`
+	DoseCount    int        `json:"doseCount"`
+	ShedNames    []string   `json:"shedNames"`
 }
 
 type CommandBoardResponse struct {
