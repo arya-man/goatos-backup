@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
@@ -23,15 +24,41 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
+// hasVaccinationExecutionAuthorityTenantWide reports whether any grant is scoped to the whole
+// tenant AND carries a role that has vaccination-execution authority. A tenant-wide grant
+// for an unrelated role (e.g., growth_director for weighing only) returns false.
+func hasVaccinationExecutionAuthorityTenantWide(grants []permissions.ActiveGrant, tenantID string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
+			// Check if this role carries vaccination-execution read authority
+			if permissions.RoleHasPermission(grant.Role, permissions.VaccinationRead) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // authorizedParkFilter returns the park ids a park-scoped actor may read, or nil when the caller is
-// tenant-wide / grant-less (no restriction). Derived from the request-context grants so read
-// queries enforce park scope in-query (defence in depth) without a signature change. A park-scoped
-// actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+// tenant-wide with vaccination read authority (no restriction). Derived from the request-context
+// grants so read queries enforce park scope in-query (defence in depth) without a signature change.
+// A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+// Unlike the old HasTenantWideGrant check, this properly verifies that the tenant-wide grant
+// carries a vaccination-relevant role.
 func authorizedParkFilter(ctx context.Context, tenantID string) []string {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
-	if len(grants) == 0 || httpmiddleware.HasTenantWideGrant(grants, tenantID) {
+	// No grants = internal/test context (e.g., context.Background()): allow unrestricted access
+	// for backward compatibility with integration tests and internal callers.
+	if len(grants) == 0 {
 		return nil
 	}
+	// Tenant-wide grant MUST carry a vaccination-relevant role (security fix for privilege escalation).
+	// Previously, any tenant-wide grant (even unrelated roles like growth_director) got unrestricted access.
+	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
+		return nil
+	}
+	// Park-scoped or mixed grants: extract authorized parks.
+	// If an actor has grants but no resolvable parks, fail closed (empty slice = no access).
 	parks := httpmiddleware.AuthorizedParkIDs(grants)
 	if parks == nil {
 		return []string{}
