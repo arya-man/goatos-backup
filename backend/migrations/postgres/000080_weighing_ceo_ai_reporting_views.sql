@@ -106,8 +106,28 @@ LEFT JOIN LATERAL (
 LEFT JOIN weighing_shed_observations sho
   ON sho.campaign_shed_id = cs.campaign_shed_id;
 
-GRANT SELECT ON ceo_ai.weighing_capture_activity TO mesha_ceo_readonly;
-GRANT SELECT ON ceo_ai.weighing_capture_activity TO mesha_cube_readonly;
+-- Grants are guarded on role existence, exactly like the 000001 baseline block
+-- that grants these same two roles. mesha_ceo_readonly / mesha_cube_readonly are
+-- provisioned per environment (tools/dev/setup-ceo-ai-local-role.sh + Secret
+-- Manager), NOT by a migration -- so they are absent on a fresh local database
+-- and in the pgtest harness. Granting to them unconditionally aborted the whole
+-- migration with `role "mesha_ceo_readonly" does not exist`, which took out every
+-- Postgres-backed test package and would fail any fresh environment. Idempotent
+-- and safe to re-run.
+-- +goose StatementBegin
+DO $weighing_ceo_ai_grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_capture_activity TO %I', r);
+            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_verification_status TO %I', r);
+        END IF;
+    END LOOP;
+END;
+$weighing_ceo_ai_grants$;
+-- +goose StatementEnd
 
 -- ===========================================================================
 -- 2. ceo_ai.weighing_verification_status
@@ -140,7 +160,7 @@ LEFT JOIN locations pk ON pk.location_id = vi.park_id
 WHERE vi.module = 'weighing'
 GROUP BY vi.tenant_id, pk.name, sh.name;
 
-GRANT SELECT ON ceo_ai.weighing_verification_status TO mesha_ceo_readonly;
+
 
 -- +goose Down
 DROP VIEW IF EXISTS ceo_ai.weighing_verification_status;
