@@ -657,7 +657,7 @@ class WeighingViewModel @Inject constructor(
         loadingAssignments.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.listAssignments(cursor = null, scope = surface)) {
+                when (val loaded = repository.listAssignments(cursor = null, scope = surface, parkId = selectedAssignmentParkId.value)) {
                     is AppResult.Ok -> {
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
@@ -680,16 +680,15 @@ class WeighingViewModel @Inject constructor(
      * Scroll-driven prefetch: the list tells us which row it just composed, and only a row inside
      * the tail window of the loaded page asks for the next page. One page per trigger, never a
      * drain loop, and never a tappable load-more row.
+     *
+     * NOTE: Park filtering is now server-side, so assignments are pre-filtered by parkId and this
+     * method sees only the selected park's rows. No client-side filtering needed.
      */
     fun onAssignmentRowVisible(index: Int) {
         if (scopeKey != null) return
-        val unfiltered = assignments.value
-        if (unfiltered.isEmpty()) return
-        // Apply the same park filter as the UI does, so prefetch is based on filtered list size
-        val filtered = unfiltered.filter { selectedAssignmentParkId.value == null || it.parkId == selectedAssignmentParkId.value }
-        if (filtered.isEmpty()) return
-        val filteredSize = filtered.size
-        if (index < filteredSize - LIST_PREFETCH_DISTANCE) return
+        val loaded = assignments.value
+        if (loaded.isEmpty()) return
+        if (index < loaded.size - LIST_PREFETCH_DISTANCE) return
         appendAssignments()
     }
 
@@ -700,7 +699,7 @@ class WeighingViewModel @Inject constructor(
         appendingAssignments.value = true
         viewModelScope.launch {
             try {
-                when (val loaded = repository.listAssignments(cursor = cursor, scope = surface)) {
+                when (val loaded = repository.listAssignments(cursor = cursor, scope = surface, parkId = selectedAssignmentParkId.value)) {
                     is AppResult.Ok -> {
                         val known = assignments.value.map { it.campaignShedId }.toSet()
                         assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
@@ -906,7 +905,12 @@ class WeighingViewModel @Inject constructor(
     }
 
     fun selectAssignmentPark(parkId: String?) {
-        selectedAssignmentParkId.value = parkId?.takeIf { it.isNotBlank() }
+        val normalized = parkId?.takeIf { it.isNotBlank() }
+        if (selectedAssignmentParkId.value == normalized) return
+        selectedAssignmentParkId.value = normalized
+        // A different park is a different keyset: reset the cursor and reload page 1.
+        assignmentsNextCursor.value = null
+        refreshAssignments()
     }
 
     /**
