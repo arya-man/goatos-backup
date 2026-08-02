@@ -110,14 +110,22 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	return oldest.Time, true, nil
 }
 
-// SuppressInvalidRecipient marks a provider-rejected FCM token as dead and deactivates the device row.
-// Firebase returns NotRegistered/UNREGISTERED (404) when a token was rotated, deleted, or belongs to
-// a dead install, and INVALID_ARGUMENT (400) for malformed tokens. Both are permanent failures: retrying
-// will never succeed, so the device must be deactivated. The row is marked as revoked (not deleted)
-// for audit trail preservation. If the app re-installs or registers a new token later via the Android
-// heartbeat/register path, the device can be re-activated with a fresh token. Additionally, all pending
-// notification requests addressed to this dead token are suppressed to avoid wasting dispatch retries.
-// Deactivation is idempotent: if the device is already revoked, this call is a no-op.
+// SuppressInvalidRecipient marks a provider-rejected FCM token as dead. The CALLER
+// (isInvalidFCMRecipientResponse) has already filtered out ambiguous/payload-level errors, so by
+// the time this runs the token itself is confirmed gone (UNREGISTERED/NOT_REGISTERED) or
+// explicitly named invalid by FCM. Even so, this function deliberately clears ONLY the push
+// binding (fcm_token) -- it must NEVER touch `status`/`revoked_at`/`revoked_by`. Those columns are
+// the device's ability to authenticate and bootstrap, which is a distinct, deliberate admin/
+// security action (see workforce RevokeDevice) and must never be a side effect of a push delivery
+// failure. A prior version of this function also set status='revoked' here, which meant a single
+// bad push (or a payload bug that fooled the recipient check) could brick every addressed phone's
+// login with no self-heal path (P0 device-lockout incident). The device stays 'active' and able to
+// authenticate; it simply stops receiving pushes on the dead token until it registers a fresh one
+// (Android register/heartbeat path already upserts a new fcm_token and requires no unlock). The row
+// records WHEN and WHY the token was invalidated (fcm_invalidated_at/reason) purely for observability.
+// Additionally, all pending notification requests addressed to this dead token are suppressed to
+// avoid wasting dispatch retries. Idempotent: re-running against an already-cleared token matches
+// zero rows on the device update (fcm_token is already NULL) and is a no-op.
 func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, recipientRef, reason string, now time.Time) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -135,21 +143,21 @@ func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, rec
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Deliberately no `status`/`revoked_at`/`revoked_by` write here -- see the function comment.
+	// Matches regardless of current status (not just 'active') so a device already sitting in a
+	// stale non-active state from before this fix still gets its dead token cleared instead of
+	// silently skipped.
 	if _, err := tx.Exec(ctx, `
 UPDATE workforce_member_devices
 SET fcm_token = NULL,
-    status = 'revoked',
-    revoked_at = $3::timestamptz,
-    revoked_by = NULL,
     metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
       'fcm_invalidated_at', $3::timestamptz,
       'fcm_invalidated_reason', $4::text
     ),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
-  AND fcm_token = $2
-  AND status = 'active'`, tenantID, recipientRef, now, reason); err != nil {
-		return 0, fmt.Errorf("notification: deactivate invalid fcm device: %w", err)
+  AND fcm_token = $2`, tenantID, recipientRef, now, reason); err != nil {
+		return 0, fmt.Errorf("notification: clear invalid fcm token: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
 UPDATE notification_requests

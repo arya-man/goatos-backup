@@ -73,11 +73,13 @@ func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader
 }
 
 // checkParkScope enforces park-scoped access control for mutation operations.
-// It resolves the campaign's park and verifies the actor is authorized to access it.
+// It resolves the campaign's park and verifies the actor is authorized to access it
+// for the WeighingMonitor capability -- the reopen/close/abandon authority.
 //
 // Authorization semantics:
 // - Tenant-wide grant with weighing-relevant role = access all parks
-// - Park-scoped grant = must match campaign park
+// - Park-scoped grant = must match campaign park AND that grant's role must carry
+//   the capability (see checkParkScopeForCapability)
 // - Campaign not found or unauthorized park = ErrNotFound (not leaking existence)
 func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID string) error {
 	// Get the campaign's park
@@ -85,49 +87,34 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 	if err != nil {
 		return err // ErrNotFound if campaign doesn't exist
 	}
+	return s.checkParkScopeForCapability(ctx, tenantID, parkID, permissions.WeighingMonitor)
+}
 
-	// Get actor's authorized park scope from context (set by HTTP middleware)
+// checkParkScopeForCapability verifies the actor holds `capability` in `parkID`, either via a
+// tenant-wide grant whose role carries the capability, or via a park-scoped grant whose OWN
+// role carries the capability and whose scope matches parkID.
+//
+// This is capability-aware by construction: it never separates "which parks am I scoped to"
+// from "which capability does that specific grant's role carry" -- the bug this function
+// replaces (checkParkScope + a bare AuthorizedParkIDs call) let an actor combine an unrelated
+// park grant with a capability-carrying grant scoped to a DIFFERENT park to gain that
+// capability in the first park.
+func (s *Service) checkParkScopeForCapability(ctx context.Context, tenantID, parkID, capability string) error {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 
-	// Check if actor has a tenant-wide grant that carries weighing authority
-	// (e.g., growth_director or ceo_internal). A tenant-wide grant for an unrelated
-	// role (e.g., health_director) does NOT grant tenant-wide weighing access.
-	if hasWeighingAuthorityTenantWide(grants, tenantID) {
+	if hasTenantWideCapability(grants, tenantID, capability) {
 		return nil
 	}
 
-	// Get park-scoped grant IDs
-	authorizedParkIDs := httpmiddleware.AuthorizedParkIDs(grants)
-
-	// Check if campaign's park is in the authorized list
+	authorizedParkIDs := httpmiddleware.AuthorizedParkIDsForCapability(grants, capability)
 	for _, id := range authorizedParkIDs {
 		if id == parkID {
 			return nil
 		}
 	}
 
-	// Park is outside authorized scope - return not found to hide existence
+	// Park is outside authorized scope for this capability - return not found to hide existence
 	return ports.ErrNotFound
-}
-
-// hasWeighingAuthorityTenantWide reports whether any grant is scoped to the whole tenant
-// AND carries a role that has weighing permissions (growth_director or ceo_internal).
-// A tenant-wide grant for an unrelated role (e.g., health_director) returns false.
-func hasWeighingAuthorityTenantWide(grants []permissions.ActiveGrant, tenantID string) bool {
-	// Roles that can get tenant-wide grants for weighing
-	weighingRoles := map[string]struct{}{
-		permissions.RoleGrowthDirector: {},
-		permissions.RoleCEOInternal:    {},
-	}
-
-	for _, grant := range grants {
-		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
-			if _, ok := weighingRoles[grant.Role]; ok {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // WeighingProcessState serves the shared command surfaces: Calendar day markers
@@ -383,6 +370,17 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) {
 		return domain.LeadershipShedVideos{}, ports.ErrInvalidArgument
 	}
+	// The role check above only proves the actor holds WeighingMonitor SOMEWHERE; it does not
+	// prove they hold it in THIS campaign's park. Resolve the campaign's park (same lookup
+	// checkParkScope uses) and authorize it before returning any evidence -- otherwise a
+	// park-scoped monitor for park A could read park B's leadership shed videos by campaign ID.
+	parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, campaignID)
+	if err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
+	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingMonitor); err != nil {
+		return domain.LeadershipShedVideos{}, err
+	}
 	if limit <= 0 {
 		limit = domain.LeadershipShedVideosPageSize
 	}
@@ -394,6 +392,14 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 
 // ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same
 // monitor-only authority as the single-bucket evidence read it pages.
+//
+// The repository has no park filter parameter (it pages across every campaign in the
+// tenant), so a tenant-wide WeighingMonitor role check alone is not enough: a park-scoped
+// monitor for park A would otherwise see every OTHER park's buckets too. Each returned
+// bucket is therefore authorized, per-campaign, against the actor's actual capability-scoped
+// parks before being handed back; buckets outside the actor's authorized parks are dropped.
+// This is a service-layer stopgap -- the correct long-term fix is a park filter pushed into
+// the repository query, which is out of scope for this authorization fix.
 func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.LeadershipShedPage{}, ports.ErrForbidden
@@ -404,7 +410,48 @@ func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, c
 	if limit > domain.MaxLeadershipShedPageSize {
 		limit = domain.MaxLeadershipShedPageSize
 	}
-	return s.repo.ListLeadershipSheds(ctx, actor.TenantID, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	page, err := s.repo.ListLeadershipSheds(ctx, actor.TenantID, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
+	if err != nil {
+		return domain.LeadershipShedPage{}, err
+	}
+
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) {
+		return page, nil
+	}
+	authorizedParkIDs := map[string]struct{}{}
+	for _, id := range httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor) {
+		authorizedParkIDs[id] = struct{}{}
+	}
+	parkIDCache := map[string]bool{}
+	filtered := page.Items[:0]
+	for _, item := range page.Items {
+		allowed, ok := parkIDCache[item.CampaignID]
+		if !ok {
+			parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, item.CampaignID)
+			if err != nil {
+				continue
+			}
+			_, allowed = authorizedParkIDs[parkID]
+			parkIDCache[item.CampaignID] = allowed
+		}
+		if allowed {
+			filtered = append(filtered, item)
+		}
+	}
+	page.Items = filtered
+	return page, nil
+}
+
+// hasTenantWideCapability reports whether any grant is scoped to the whole tenant AND carries
+// a role that has the given capability. A tenant-wide grant for an unrelated role returns false.
+func hasTenantWideCapability(grants []permissions.ActiveGrant, tenantID, capability string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID && permissions.RoleHasPermission(grant.Role, capability) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -416,11 +463,11 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if !uuidutil.IsUUIDString(cmd.CampaignID) || !uuidutil.IsUUIDString(cmd.CampaignShedID) || !uuidutil.IsUUIDString(cmd.ProofArtifactID) || !isPositiveFinite(cmd.WeightKg) || strings.TrimSpace(cmd.IdempotencyKey) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}
-	// FREE-FLOW: the scanned RFID is the required identity. animal_id is NOT
-	// accepted as a substitute and is ignored by the write path entirely
-	// (maintainer decision 2026-07-31), so a request carrying only a goat UUID is
-	// an invalid weighing capture — there is nothing to record as the scan.
-	cmd.AnimalID = ""
+	// FREE-FLOW: the scanned RFID is the required identity. There is no
+	// animal_id field on this command at all (maintainer decision 2026-08-03,
+	// following the 2026-07-31 decision that first made it a no-op) — a
+	// request carrying only a goat UUID and no scanned_identifier is an
+	// invalid weighing capture, since there is nothing to record as the scan.
 	if strings.TrimSpace(cmd.ScannedIdentifier) == "" {
 		return domain.Observation{}, ports.ErrInvalidArgument
 	}

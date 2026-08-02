@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -569,4 +570,155 @@ WHERE datname = current_database()
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatal("timed out waiting for concurrent proof update to block on row lock")
+}
+
+// F7: two CompleteProof calls for the SAME (tenant, task, goat) scope racing
+// concurrently must never both survive as "current". Before the
+// pg_advisory_xact_lock fix in supersedeOlderTaskGoatVideos, each
+// transaction's newest-wins lookup ran under the pool's default READ
+// COMMITTED isolation against its own snapshot: neither could see the
+// other's uncommitted completion, so both concluded they were the sole
+// completed video and neither superseded the other, leaving two live
+// "current" videos for one goat.
+//
+// This test forces the true overlapping-transaction shape of that race
+// deterministically instead of hoping two goroutines happen to interleave:
+// it manually holds proof A's slot in the advisory lock (by taking the SAME
+// pg_advisory_xact_lock key supersedeOlderTaskGoatVideos takes, in an
+// uncommitted transaction) while a concurrent repo.CompleteProof(B) call for
+// the same scope runs. If the fix is in place, B's supersede step must block
+// on that lock until A's holder commits; if the fix is absent (or a
+// regression reintroduces the old unlocked lookup), B proceeds immediately
+// and the final state can leave two current videos.
+func TestCompleteProofConcurrentSameScopeLeavesExactlyOneCurrentVideo(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := "00000000-0000-4000-8000-000000000001"
+	taskID := "20000000-0000-4000-8000-000000000001"
+	goatID := "30000000-0000-4000-8000-000000000001"
+	create := domain.CreateUpload{
+		TenantID:    tenantID,
+		ProofType:   "video",
+		MimeType:    "video/mp4",
+		ScopeType:   "task",
+		ScopeID:     taskID,
+		SubjectType: "goat",
+		SubjectID:   &goatID,
+	}
+
+	first, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("first CreateProof() error = %v", err)
+	}
+	second, err := repo.CreateProof(ctx, create, "local")
+	if err != nil {
+		t.Fatalf("second CreateProof() error = %v", err)
+	}
+
+	// Manually complete `first` and hold the SAME advisory lock key
+	// supersedeOlderTaskGoatVideos takes for this (tenant, task, goat)
+	// scope, uncommitted, to deterministically force the overlap.
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin holder tx: %v", err)
+	}
+	defer func() { _ = holder.Rollback(context.Background()) }()
+	if _, err := holder.Exec(ctx, `
+UPDATE proof_artifacts
+SET content_hash = 'sha256:first',
+    mime_type = 'video/mp4',
+    size_bytes = 111,
+    upload_state = 'completed',
+    uploaded_at = now(),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid AND proof_id = $2::uuid`, tenantID, first.ProofID); err != nil {
+		t.Fatalf("holder: complete first: %v", err)
+	}
+	lockKey := fmt.Sprintf("proof:task-goat-video:%s:%s:%s", tenantID, taskID, goatID)
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, lockKey); err != nil {
+		t.Fatalf("holder: take advisory lock: %v", err)
+	}
+
+	type completeResult struct {
+		proof domain.Artifact
+		err   error
+	}
+	done := make(chan completeResult, 1)
+	go func() {
+		artifact, err := repo.CompleteProof(ctx, domain.CompleteUpload{
+			TenantID:    tenantID,
+			ProofID:     second.ProofID,
+			ContentHash: "sha256:second",
+			MimeType:    "video/mp4",
+			SizeBytes:   222,
+		})
+		done <- completeResult{proof: artifact, err: err}
+	}()
+
+	waitForBlockedAdvisoryLock(t, ctx, pool)
+	select {
+	case <-done:
+		t.Fatal("concurrent CompleteProof(second) finished before the advisory-lock holder committed; the supersede race is not serialised")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatalf("commit holder: %v", err)
+	}
+
+	var got completeResult
+	select {
+	case got = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("concurrent CompleteProof(second) did not finish after lock release")
+	}
+	if got.err != nil {
+		t.Fatalf("concurrent CompleteProof(second) error = %v", got.err)
+	}
+
+	gotFirst, err := repo.GetProof(ctx, tenantID, first.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(first) error = %v", err)
+	}
+	gotSecond, err := repo.GetProof(ctx, tenantID, second.ProofID)
+	if err != nil {
+		t.Fatalf("GetProof(second) error = %v", err)
+	}
+
+	firstCurrent := gotFirst.Metadata["superseded_by_proof_id"] == nil
+	secondCurrent := gotSecond.Metadata["superseded_by_proof_id"] == nil
+	if firstCurrent == secondCurrent {
+		t.Fatalf("want exactly one current proof, got first current=%v (metadata=%#v) second current=%v (metadata=%#v)",
+			firstCurrent, gotFirst.Metadata, secondCurrent, gotSecond.Metadata)
+	}
+	if !secondCurrent {
+		t.Fatalf("second (authorship-newest, created after first) should be the current video, metadata=%#v", gotSecond.Metadata)
+	}
+}
+
+func waitForBlockedAdvisoryLock(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var count int
+		err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND wait_event_type = 'Lock'
+  AND query ILIKE '%pg_advisory_xact_lock%'`).Scan(&count)
+		if err != nil {
+			t.Fatalf("inspect blocked advisory lock: %v", err)
+		}
+		if count > 0 {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for concurrent CompleteProof to block on advisory lock")
 }

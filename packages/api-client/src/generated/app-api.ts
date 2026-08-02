@@ -5721,9 +5721,7 @@ export interface components {
         RecordWeighingAnimalObservationRequest: {
             /** Format: uuid */
             campaign_shed_id: string;
-            /** Format: uuid */
-            animal_id: string;
-            scanned_identifier?: string;
+            scanned_identifier: string;
             weight_kg: number;
             /** Format: uuid */
             proof_artifact_id: string;
@@ -5747,8 +5745,7 @@ export interface components {
             campaign_id: string;
             /** Format: uuid */
             campaign_shed_id?: string;
-            /** Format: uuid */
-            animal_id?: string;
+            scanned_identifier?: string;
             weight_kg: number;
             average_weight_kg?: number;
             animal_count?: number;

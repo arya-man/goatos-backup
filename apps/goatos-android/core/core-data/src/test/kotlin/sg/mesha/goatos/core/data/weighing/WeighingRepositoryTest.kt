@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -594,6 +595,73 @@ class WeighingRepositoryTest {
         val result = repository.listAssignments() as AppResult.Ok
 
         assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `operator surface still excludes closed sheds, only canceled ones dropped for real`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-closed", "Castro 2", "closed"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        // Default scope is WEIGHING_SCOPE_MINE -- the operator's own executable work. A closed
+        // bucket has nothing left for the operator to do, so it must stay excluded there.
+        val result = repository.listAssignments() as AppResult.Ok
+
+        assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `leadership oversight surface receives closed sheds so history and reopen are reachable`() = runTest {
+        // A23: toAssignments() used to drop status == "closed" unconditionally, which fed BOTH the
+        // operator screen AND LeadershipWeighingScreen from the same list. LeadershipWeighingScreen
+        // implements tap-to-reopen driven by `row.isClosed`, but a closed row could never arrive --
+        // reopen was permanently dead code. WEIGHING_SCOPE_OPERATORS is the leadership/oversight
+        // surface (per WeighingRepository.listAssignments's own scope doc), so it must see closed
+        // buckets.
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-closed", "Castro 2", "closed"),
+                                weighingShed("campaign-plan", "campaign-shed-canceled", "Castro 3", "canceled"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.listAssignments(scope = WEIGHING_SCOPE_OPERATORS) as AppResult.Ok
+
+        // Closed reaches the surface (and stays reopen-able); canceled never becomes real work.
+        assertEquals(listOf("Castro 1", "Castro 2"), result.value.items.map { it.label })
+        assertTrue(result.value.items.single { it.label == "Castro 2" }.status.equals("closed", ignoreCase = true))
     }
 
     @Test

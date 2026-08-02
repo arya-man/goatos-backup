@@ -30,34 +30,12 @@ export type WeighingScopeRow = {
    *  False if it is fabricated (e.g., status="completed" → 1, else → 0).
    *  When false, render the element disabled-with-reason per AGENTS.md binding rules. */
   capturedCountIsBacked: boolean;
-  wrongShedCount: number;
   proofPendingCount: number;
   readyToClose: boolean;
   status: WeighingScopeStatus;
   operatorName: string;
   plannedDate: string;
   effectiveDate: string;
-};
-
-export type WeighingWrongShedRow = {
-  id: string;
-  animalDisplayId: string;
-  rfid: string;
-  originalShed: string;
-  originalPartition: string;
-  actualShed: string;
-  currentPartition: string;
-  scannedAt: string;
-  operatorName: string;
-};
-
-export type WeighingMissingRow = {
-  id: string;
-  animalDisplayId: string;
-  originalShed: string;
-  currentTruth: string;
-  classification: string;
-  checkedAt: string;
 };
 
 export type WeighingCampaign = {
@@ -72,7 +50,6 @@ export type WeighingCampaign = {
   selectedScopes: number;
   individualCompleted: number;
   shedPartitionCompleted: number;
-  wrongShedScans: number;
   proofPending: number;
   canCreate: boolean;
   canEdit: boolean;
@@ -80,8 +57,6 @@ export type WeighingCampaign = {
   canExecute: boolean;
   reviewOnly: boolean;
   scopes: WeighingScopeRow[];
-  wrongShedRows: WeighingWrongShedRow[];
-  missingRows: WeighingMissingRow[];
 };
 
 export type WeighingPageData = {
@@ -161,7 +136,7 @@ export async function getWeighingPageData(
 ): Promise<ApiResult<WeighingPageData>> {
   const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
-  const selectedItem = selectCampaign(result.data.items, selectedWeek, selectedCampaignId);
+  const selectedItem = selectCampaign(result.data.items, selectedWeek, selectedCampaignId, selectedParkId);
   const campaign =
     selectedItem
       ? campaignFromApi(selectedItem, role)
@@ -239,14 +214,29 @@ function selectCampaign(
   items: ApiWeighingCampaign[],
   selectedWeek?: string,
   selectedCampaignId?: string,
+  selectedParkId?: string,
 ): ApiWeighingCampaign | undefined {
+  // A campaign from Park A must NEVER be selected as "the current campaign" while
+  // Park B is displayed (W14). When an explicit park is on the URL, every lookup
+  // below is scoped to that park's own campaigns only.
+  const scoped = selectedParkId
+    ? items.filter((item) => item.park_id === selectedParkId)
+    : items;
   if (selectedCampaignId) {
-    const byCampaign = items.find((item) => item.campaign_id === selectedCampaignId);
+    const byCampaign = scoped.find((item) => item.campaign_id === selectedCampaignId);
     if (byCampaign) return byCampaign;
+    // selectedCampaignId belongs to a different park than the one on screen (or does
+    // not exist) -- fall through to week/park-default lookup instead of ever
+    // returning a cross-park campaign.
   }
   if (selectedWeek) {
-    const byWeek = items.find((item) => item.period_start_date === selectedWeek);
+    const byWeek = scoped.find((item) => item.period_start_date === selectedWeek);
     if (byWeek) return byWeek;
+  }
+  if (selectedParkId) {
+    // Explicit park selected and nothing matched: this park is campaign-less for the
+    // requested week/campaign. Never default to another park's campaign (items[0]).
+    return scoped[0];
   }
   return items[0];
 }
@@ -440,7 +430,6 @@ function campaignFromApi(
     selectedScopes: scopes.length,
     individualCompleted,
     shedPartitionCompleted,
-    wrongShedScans: progress.wrong_shed_count,
     proofPending,
     canCreate: leadership,
     canEdit: leadership,
@@ -448,8 +437,6 @@ function campaignFromApi(
     canExecute: operator,
     reviewOnly: role === "director",
     scopes,
-    wrongShedRows: [],
-    missingRows: [],
   };
 }
 
@@ -483,7 +470,6 @@ function scopeFromApi(
     // The count is fabricated (status="completed" → 1, else → 0) and should render
     // disabled-with-reason per AGENTS.md binding rule for un-backed UI.
     capturedCountIsBacked: false,
-    wrongShedCount: 0,
     proofPendingCount: shed.pending_verification_count,
     readyToClose: shed.ready_to_close,
     status:
@@ -513,7 +499,6 @@ function emptyCampaign(role: WeighingRole): WeighingCampaign {
     selectedScopes: 0,
     individualCompleted: 0,
     shedPartitionCompleted: 0,
-    wrongShedScans: 0,
     proofPending: 0,
     canCreate: leadership,
     canEdit: false,
@@ -521,7 +506,5 @@ function emptyCampaign(role: WeighingRole): WeighingCampaign {
     canExecute: operator,
     reviewOnly: role === "director",
     scopes: [],
-    wrongShedRows: [],
-    missingRows: [],
   };
 }

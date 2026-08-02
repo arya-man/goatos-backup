@@ -340,9 +340,82 @@ func (s *Service) HeartbeatDevice(ctx context.Context, cmd ports.HeartbeatDevice
 		return nil, mapRepoErr(err)
 	}
 	if item.Status != "active" {
-		return nil, Forbidden("device_revoked", "device is not active")
+		healed, healErr := s.reactivateRecoverableDevice(ctx, cmd.TenantID, cmd.ActorID, item, domain.RegisterDeviceRequest{
+			AppInstallID:  item.AppInstallID,
+			AppVersion:    cmd.Body.AppVersion,
+			OSVersion:     cmd.Body.OSVersion,
+			PushTokenHash: cmd.Body.PushTokenHash,
+			FcmToken:      cmd.Body.FcmToken,
+		})
+		if healErr != nil {
+			return nil, healErr
+		}
+		item = healed
 	}
 	return &domain.DeviceResponse{Device: item, TraceID: traceID}, nil
+}
+
+// isAdministrativelyRevoked reports whether a non-active device was put there by a deliberate
+// admin/security action (workforce RevokeDevice, which stamps metadata["revocation_reason"]) as
+// opposed to a push-delivery side effect (notification SuppressInvalidRecipient, which stamps
+// metadata["fcm_invalidated_reason"] and -- since the P0 device-lockout fix -- no longer even
+// touches status). Only the administrative path is a terminal, non-recoverable state here.
+func isAdministrativelyRevoked(item domain.DeviceSummary) bool {
+	if item.Metadata == nil {
+		return false
+	}
+	_, revokedByAdmin := item.Metadata["revocation_reason"]
+	return revokedByAdmin
+}
+
+// reactivateRecoverableDevice self-heals a device that is not active but was never
+// administratively revoked (see isAdministrativelyRevoked): a stale non-active row left over from
+// before the SuppressInvalidRecipient fix (or any other push-side-effect deactivation), which
+// today's SuppressInvalidRecipient no longer produces but which may already exist in the fleet.
+// Recoverable state machine for workforce_member_devices.status:
+//   - "active"            -> normal, nothing to do.
+//   - "revoked" WITHOUT
+//     metadata.revocation_reason -> RECOVERABLE. Never a deliberate admin action; self-heal here.
+//   - "revoked" WITH
+//     metadata.revocation_reason -> NOT RECOVERABLE. A human/security workflow (operators device
+//     revoke) deliberately locked this device out; heartbeat/bootstrap must keep 403'ing it and
+//     must NEVER silently reactivate it.
+//   - "not_registered" (synthetic, no row yet) -> NOT handled here; the device must call
+//     RegisterDevice first, which is unambiguous because there is no device row to relitigate.
+//
+// Reactivation is always performed via the same RegisterDevice upsert path a fresh install uses
+// (keyed on (tenant_id, app_install_id), which uniquely identifies the row we already resolved as
+// belonging to this device/actor), so it reuses the exact write path already trusted to create an
+// 'active' row -- there is no second, bespoke "unlock" code path to audit. Critically, this
+// function is only ever reached AFTER the caller has resolved item via a device lookup scoped to
+// the AUTHENTICATED actor (GetDeviceForActor / activeProfileAndGrants), so reactivation requires
+// the same principal that owns the device row -- never device id alone.
+func (s *Service) reactivateRecoverableDevice(ctx context.Context, tenantID, actorID string, item domain.DeviceSummary, body domain.RegisterDeviceRequest) (domain.DeviceSummary, error) {
+	if isAdministrativelyRevoked(item) {
+		return domain.DeviceSummary{}, Forbidden("device_revoked", "device was administratively revoked")
+	}
+	if strings.TrimSpace(item.AppInstallID) == "" {
+		// No row to re-key against (e.g. the synthetic not_registered summary) -- cannot self-heal.
+		return domain.DeviceSummary{}, Forbidden("device_revoked", "device is not active")
+	}
+	body.AppInstallID = item.AppInstallID
+	body.AppVersion = strings.TrimSpace(body.AppVersion)
+	body.OSVersion = strings.TrimSpace(body.OSVersion)
+	if body.AppVersion == "" {
+		body.AppVersion = item.AppVersion
+	}
+	if body.OSVersion == "" {
+		body.OSVersion = item.OSVersion
+	}
+	healed, err := s.repo.RegisterDevice(ctx, ports.RegisterDeviceCommand{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		Body:     body,
+	})
+	if err != nil {
+		return domain.DeviceSummary{}, mapRepoErr(err)
+	}
+	return healed, nil
 }
 
 func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, localeTag, traceID string) (*domain.BootstrapResponse, error) {
@@ -380,8 +453,11 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 			}
 		} else {
 			if item.Status != "active" {
-				reason := "device is not active"
-				return nil, Forbidden("device_revoked", reason)
+				healed, healErr := s.reactivateRecoverableDevice(ctx, tenantID, actorID, item, domain.RegisterDeviceRequest{})
+				if healErr != nil {
+					return nil, healErr
+				}
+				item = healed
 			}
 			device = &item
 			deviceState = domain.BootstrapDeviceState{Required: true, Device: device, Status: item.Status}

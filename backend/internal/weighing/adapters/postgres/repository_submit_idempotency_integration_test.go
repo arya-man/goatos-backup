@@ -40,7 +40,7 @@ func TestSubmitIndividualScopeExactReplayDoesNotDuplicateTheCompletionEvent(t *t
 	const identifier = "submit-replay-rfid"
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimal, ScannedIdentifier: identifier, WeightKg: 11.5,
+ ScannedIdentifier: identifier, WeightKg: 11.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:submit-replay", RecordedBy: repoOperator,
 	}); err != nil {
@@ -80,7 +80,7 @@ func TestSubmitIndividualScopeSameKeyDifferentPayloadConflicts(t *testing.T) {
 	const identifier = "submit-conflict-rfid"
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimal, ScannedIdentifier: identifier, WeightKg: 11.5,
+ ScannedIdentifier: identifier, WeightKg: 11.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:submit-conflict", RecordedBy: repoOperator,
 	}); err != nil {
@@ -119,7 +119,7 @@ func TestSubmitIndividualScopeMatchesCaseMismatchedTags(t *testing.T) {
 	const identifier = "abc123"
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimal, ScannedIdentifier: identifier, WeightKg: 11.5,
+ ScannedIdentifier: identifier, WeightKg: 11.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:casing-test", RecordedBy: repoOperator,
 	}); err != nil {
@@ -161,7 +161,7 @@ func TestSubmitIndividualScopeMatchesTrimmedTags(t *testing.T) {
 	const identifierWithSpaces = "  abc123  "
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimal, ScannedIdentifier: identifierWithSpaces, WeightKg: 11.5,
+ ScannedIdentifier: identifierWithSpaces, WeightKg: 11.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:trimming-test", RecordedBy: repoOperator,
 	}); err != nil {
@@ -204,7 +204,7 @@ func TestSubmitIndividualScopeIncompleteRejectRejectsGenuinelyOmittedAnimalsNotC
 	const identifier2 = "RFID-TWO" // Different case will be normalized
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimal, ScannedIdentifier: identifier1, WeightKg: 11.5,
+ ScannedIdentifier: identifier1, WeightKg: 11.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:incomplete-1", RecordedBy: repoOperator,
 	}); err != nil {
@@ -212,7 +212,7 @@ func TestSubmitIndividualScopeIncompleteRejectRejectsGenuinelyOmittedAnimalsNotC
 	}
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		AnimalID: repoAnimalTwo, ScannedIdentifier: identifier2, WeightKg: 12.5,
+ ScannedIdentifier: identifier2, WeightKg: 12.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:incomplete-2", RecordedBy: repoOperator,
 	}); err != nil {

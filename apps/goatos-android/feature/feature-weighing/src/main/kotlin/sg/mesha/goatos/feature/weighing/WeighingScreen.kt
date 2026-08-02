@@ -75,7 +75,6 @@ import sg.mesha.goatos.feature.scan.ScanScreen
 import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
-import sg.mesha.goatos.feature.scan.VaccineGroup
 
 /** How many group videos a shed / partition result may carry. Unchanged from the inline 5. */
 private const val SHED_PROOF_VIDEO_LIMIT = 5
@@ -152,15 +151,15 @@ data class WeighingProofUiRow(
     val status: ProofUploadStatus,
 )
 
+// Weighing is free-flow: this row is identified ONLY by the scanned identifier. It carries no
+// herd/clinical/vaccination context (no expected/actual shed, no availability status, no
+// "wrong shed" flag) -- those are herd-module concepts that do not belong in weighing (maintainer
+// mandate: weighing never resolves a scan to a goat or reads herd/clinical state).
 data class WeighingRosterUiRow(
     val id: String,
     val animalId: String,
     val displayAnimalId: String,
-    val expectedLocationLabel: String,
-    val actualLocationLabel: String?,
     val status: String,
-    val availabilityStatus: String?,
-    val wrongShed: Boolean,
     val scannedAtLabel: String? = null,
     val weightInput: String = "",
     val savedWeightLabel: String? = null,
@@ -176,9 +175,7 @@ data class WeighingRosterUiRow(
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
             status.equals("completed", ignoreCase = true) ||
-            status.equals("accepted", ignoreCase = true) ||
-            availabilityStatus.equals("unavailable", ignoreCase = true) ||
-            !availabilityStatus.isNullOrBlank()
+            status.equals("accepted", ignoreCase = true)
 }
 
 data class WeighingAssignmentUiRow(
@@ -193,7 +190,8 @@ data class WeighingAssignmentUiRow(
     val label: String,
     val category: String,
     val status: String,
-    val expectedCount: Int,
+    // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
+    // list to count against.
     val periodLabel: String,
     val readyToClose: Boolean = false,
     val pendingVerificationCount: Int = 0,
@@ -824,7 +822,6 @@ private fun WeighingCapturePanel(
 private fun RosterPeekCard(
     total: Int,
     visible: Int,
-    wrongShed: Int,
     onOpenRoster: () -> Unit,
 ) {
     Row(
@@ -859,7 +856,7 @@ private fun RosterPeekCard(
                 style = MeshaType.bodyStrong,
             )
             Text(
-                text = rosterPeekSummary(total = total, visible = visible, wrongShed = wrongShed),
+                text = rosterPeekSummary(total = total, visible = visible),
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
                 modifier = Modifier.padding(top = 3.dp),
@@ -877,7 +874,6 @@ private fun RosterPeekCard(
 private fun rosterPeekSummary(
     @Suppress("UNUSED_PARAMETER") total: Int,
     visible: Int,
-    @Suppress("UNUSED_PARAMETER") wrongShed: Int,
 ): String = capturedRowsLabel(visible)
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -935,9 +931,7 @@ private fun WeighingRosterSheetContent(
             rows
         } else {
             rows.filter { row ->
-                row.displayAnimalId.contains(query, ignoreCase = true) ||
-                    row.expectedLocationLabel.contains(query, ignoreCase = true) ||
-                    row.actualLocationLabel.orEmpty().contains(query, ignoreCase = true)
+                row.displayAnimalId.contains(query, ignoreCase = true)
             }
         }
     }
@@ -1619,16 +1613,12 @@ private fun ShedVideoAction(
 
 private fun WeighingRosterUiRow.weighingScanLabel(draft: WeighingDraftUiRow? = null): String = buildString {
     when {
-        availabilityStatus.equals("unavailable", ignoreCase = true) -> append("Unavailable")
         draft != null -> append(draft.weightLabel("Weight saved"))
         status.equals("Weighed", ignoreCase = true) -> append("Weighed")
         else -> append(status)
     }
     if (draft != null) {
         append(if (draft.proofReady) " · video ready" else " · video required")
-    }
-    actualLocationLabel?.takeIf { wrongShed && it.isNotBlank() && it != expectedLocationLabel }?.let {
-        append(" · ").append(it)
     }
 }
 
@@ -1639,17 +1629,13 @@ private fun WeighingDraftUiRow.weightLabel(fallback: String): String =
 
 private fun WeighingRosterUiRow.weighingDetails(draft: WeighingDraftUiRow?): List<String> =
     buildList {
-        add("Expected shed: $expectedLocationLabel")
-        actualLocationLabel
-            ?.takeIf { it.isNotBlank() && it != expectedLocationLabel }
-            ?.let { add("Current shed: $it") }
         draft?.label
             ?.substringAfter(" - ", missingDelimiterValue = "")
             ?.takeIf { it.isNotBlank() }
             ?.let { add("Weight: $it") }
         if (draft != null) {
             add(if (draft.proofReady) "Video proof: ready" else "Video proof: required")
-        } else if (!availabilityStatus.equals("unavailable", ignoreCase = true)) {
+        } else {
             add("Weight and animal video pending")
         }
     }
@@ -2132,26 +2118,6 @@ private fun RosterRow(row: WeighingRosterUiRow) {
                     style = MeshaType.caption,
                     color = MeshaColors.Muted,
                 )
-            }
-            Text(
-                text = stringResource(R.string.weighing_expected_shed_fmt, row.expectedLocationLabel),
-                style = MeshaType.cardSubtitle,
-                color = MeshaColors.Muted,
-            )
-            row.actualLocationLabel?.takeIf { it.isNotBlank() && it != row.expectedLocationLabel }?.let {
-                Text(
-                    text = stringResource(R.string.weighing_current_shed_fmt, it),
-                    style = MeshaType.cardSubtitle,
-                    color = MeshaColors.Danger,
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (row.wrongShed) {
-                    AssistChip(onClick = {}, label = { Text(stringResource(R.string.weighing_wrong_shed)) })
-                }
-                row.availabilityStatus?.takeIf { it.isNotBlank() }?.let {
-                    AssistChip(onClick = {}, label = { Text(it) })
-                }
             }
         }
     }

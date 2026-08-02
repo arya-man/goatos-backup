@@ -362,11 +362,7 @@ private fun sampleWeighingLumpsumState(): WeighingUiState = WeighingUiState(
             id = "shed-row-1",
             animalId = "",
             displayAnimalId = "Castro 1",
-            expectedLocationLabel = "Castro 1",
-            actualLocationLabel = "Castro 1",
             status = "Result recorded",
-            availabilityStatus = "80 kids in scope",
-            wrongShed = false,
         ),
     ),
 )

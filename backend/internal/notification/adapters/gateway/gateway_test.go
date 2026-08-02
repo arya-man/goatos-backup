@@ -481,19 +481,34 @@ func TestFCMUnregisteredTokenDetection(t *testing.T) {
 			wantInvalid: true,
 		},
 		{
-			name:        "400 with INVALID_ARGUMENT",
+			// P0 regression: a bare/generic INVALID_ARGUMENT must NOT be treated as a dead
+			// recipient. This is exactly the shape FCM returns for a malformed PAYLOAD (wrong
+			// field, bad data block) -- identical for every recipient in the fleet -- not just for
+			// a dead token. Suppressing on this signal previously mass-revoked every addressed
+			// device on a single bad push (device-lockout P0). See isInvalidFCMRecipientResponse.
+			name:        "400 with bare INVALID_ARGUMENT is ambiguous, must not suppress",
 			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"Invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}",
-			wantInvalid: true,
+			wantInvalid: false,
 		},
 		{
-			name:        "400 with invalid argument",
-			errMsg:      "notification webhook status 400: the token is invalid argument",
-			wantInvalid: true,
+			name:        "400 with bare invalid argument text is ambiguous, must not suppress",
+			errMsg:      "notification webhook status 400: the request has an invalid argument",
+			wantInvalid: false,
 		},
 		{
-			name:        "400 with invalid-registration-token",
+			name:        "400 with invalid-registration-token names the token specifically",
 			errMsg:      "notification webhook status 400: invalid-registration-token",
 			wantInvalid: true,
+		},
+		{
+			name:        "400 with explicit not-a-valid-token message",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"The registration token is not a valid FCM registration token\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 malformed payload error must not suppress even though status is INVALID_ARGUMENT",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"Invalid JSON payload received. Unknown name \\\"badfield\\\" at 'message': Cannot find field.\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: false,
 		},
 		{
 			name:        "503 server error (transient, not invalid)",

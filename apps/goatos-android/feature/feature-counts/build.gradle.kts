@@ -41,6 +41,8 @@ dependencies {
     // bounded at both layers (Room window + network page), never a materialized full cohort.
     implementation(libs.androidx.paging.compose)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

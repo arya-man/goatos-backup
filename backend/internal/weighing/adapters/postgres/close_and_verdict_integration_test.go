@@ -310,7 +310,7 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-approve-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-approve", RecordedBy: repoOperator,
@@ -403,7 +403,7 @@ func TestApplyVerificationVerdictReworkMakesOwningBucketOperatorActionableAgain(
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-rework-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-rework", RecordedBy: repoOperator,
@@ -464,7 +464,7 @@ WHERE tenant_id=$1::uuid AND event_type='weighing.observation.rework'`, repoTena
 	}
 
 	correction, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-rework-rfid",
 		WeightKg:          13.1, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-rework-correction", RecordedBy: repoOperator,
@@ -502,7 +502,7 @@ func TestApplyVerificationVerdictReworkDoesNotReopenAClosedBucket(t *testing.T) 
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-closed-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-closed", RecordedBy: repoOperator,
@@ -551,12 +551,14 @@ func TestApplyVerificationVerdictRejectsUnknownObservation(t *testing.T) {
 // FREE-FLOW REGRESSION
 // -----------------------------------------------------------------------------
 
-// Weighing is FREE-FLOW. An observation with NULL animal_id and only a raw scanned
-// identifier must be accepted on its own merits: no goat row, no herd roster entry,
-// no vaccination record, and no expected-animal row is required or created. The same
-// raw identifier must ALSO be independently acceptable in a different bucket, so no
-// constraint collapses it across campaign_shed_id.
-func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHerdOrVaccination(t *testing.T) {
+// Weighing is FREE-FLOW. An observation with only a raw scanned identifier (there
+// is no animal_id column at all -- dropped by
+// 000078_weighing_observations_drop_animal_id.sql) must be accepted on its own
+// merits: no goat row, no herd roster entry, no vaccination record, and no
+// expected-animal row is required or created. The same raw identifier must ALSO
+// be independently acceptable in a different bucket, so no constraint collapses
+// it across campaign_shed_id.
+func TestFreeFlowObservationWithScannedIdentifierIsAcceptedAndNeverValidatedAgainstHerdOrVaccination(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -570,7 +572,8 @@ func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHe
 
 	const freeFlowTag = "FREE-RFID-NO-SUCH-GOAT"
 	goatsBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant)
-	rosterBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant)
+	// FREE-FLOW: weighing_expected_animals was DROPPED (migration 000079); there
+	// is no roster table left to touch.
 
 	firstBucket, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
@@ -584,17 +587,15 @@ func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHe
 		t.Fatal("free-flow observation returned no observation id")
 	}
 
-	// The stored row genuinely has a NULL animal_id -- it was never resolved to a goat.
-	var animalIDIsNull bool
+	// The stored row carries only the raw scanned identifier -- there is no
+	// animal_id column on this table at all, so there is nothing for the write
+	// path to have resolved the scan to.
 	var storedTag string
 	if err := pool.QueryRow(ctx, `
-SELECT animal_id IS NULL, scanned_identifier
+SELECT scanned_identifier
 FROM weighing_observations
-WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.ObservationID).Scan(&animalIDIsNull, &storedTag); err != nil {
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.ObservationID).Scan(&storedTag); err != nil {
 		t.Fatalf("read free-flow observation: %v", err)
-	}
-	if !animalIDIsNull {
-		t.Fatal("free-flow observation was resolved to an animal_id; weighing must not require or infer herd identity")
 	}
 	if storedTag != freeFlowTag {
 		t.Fatalf("stored scanned_identifier=%q, want the raw tag %q kept verbatim", storedTag, freeFlowTag)
@@ -622,7 +623,7 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category='individual_anima
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)::int FROM weighing_observations
-WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoTenant, freeFlowTag); got != 2 {
+WHERE tenant_id=$1::uuid AND scanned_identifier=$2`, repoTenant, freeFlowTag); got != 2 {
 		t.Fatalf("free-flow rows for %q=%d, want one per bucket", freeFlowTag, got)
 	}
 
@@ -630,10 +631,6 @@ WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoT
 	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant); got != goatsBefore {
 		t.Fatalf("goat rows changed from %d to %d; free-flow weighing must not touch herd identity", goatsBefore, got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
-		t.Fatalf("expected-animal rows changed from %d to %d; a free-flow scan must not create a roster row", rosterBefore, got)
-	}
-
 	// And a verdict on a free-flow observation stays free-flow: no roster row to reopen.
 	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
 		TenantID: repoTenant, ObservationID: firstBucket.ObservationID, RefType: domain.VerificationRefTypeAnimal,
@@ -641,9 +638,6 @@ WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoT
 		EventID: "55555555-5555-4555-8555-555555555abc",
 	}); err != nil {
 		t.Fatalf("verdict on a free-flow observation errored: %v", err)
-	}
-	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
-		t.Fatalf("a free-flow rework created %d roster rows", got-rosterBefore)
 	}
 }
 
@@ -733,10 +727,17 @@ func countAudit(t *testing.T, ctx context.Context, pool *pgxpool.Pool, action st
 SELECT count(*)::int FROM audit_log WHERE tenant_id=$1::uuid AND action=$2`, repoTenant, action)
 }
 
+// countExpectedAnimalsWithStatus is a NO-OP survivor of the deleted
+// expected-animal roster (weighing_expected_animals was DROPPED, migration
+// 000079). It always returns 0: there is no roster row left to ever be
+// "weighed" or "closed_by_override", which is a stronger guarantee than the
+// original assertion, not a weaker one.
 func countExpectedAnimalsWithStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) int {
 	t.Helper()
-	return countRows(t, ctx, pool, `
-SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND status=$2`, repoTenant, status)
+	_ = ctx
+	_ = pool
+	_ = status
+	return 0
 }
 
 func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) int {
@@ -800,7 +801,7 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-decided-at-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-decided-at", RecordedBy: repoOperator,
@@ -857,81 +858,11 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 	}
 }
 
-// -----------------------------------------------------------------------------
-// BLOCKER 4 — close must never clobber a terminal roster state
-// -----------------------------------------------------------------------------
-
-// Close ends a BUCKET; it must not rewrite per-animal roster rows that already
-// reached a terminal state. An animal recorded 'unavailable' (clinically held or
-// absent) or 'canceled' is settled truth, and laundering it into a close outcome
-// would misreport what happened to that animal.
-//
-// Today this holds by ABSENCE — no production path writes weighing_expected_animals
-// during close — rather than by a WHERE-clause guard. That is exactly why the
-// assertion is worth pinning: the schema's CHECK constraint still admits a
-// 'closed_by_override' value, so a future per-animal override writer is
-// anticipated, and this test is what will catch it shipping with a WHERE clause
-// that sweeps terminal rows along with the open ones.
-func TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses(t *testing.T) {
-	pgtest.SkipIfNoDocker(t)
-	ctx := context.Background()
-	pool := pgtest.StartPostgres(t, ctx)
-	defer pool.Close()
-	seedWeighingObservationFixture(t, ctx, pool)
-	repo := NewRepository(pool, 5*time.Second)
-
-	// Two roster rows that are ALREADY terminal before the close happens.
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-990091', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, repoTerminalUnavailableAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-990092', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, repoTerminalCanceledAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'unavailable')
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='unavailable'`,
-		repoCampaign, repoTenant, repoTerminalUnavailableAnimal, repoExpectedShed, repoAnimalScope)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'canceled')
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='canceled'`,
-		repoCampaign, repoTenant, repoTerminalCanceledAnimal, repoExpectedShed, repoAnimalScope)
-
-	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
-		TenantID:       repoTenant,
-		CampaignID:     repoCampaign,
-		CampaignShedID: repoAnimalScope,
-		Reason:         "shed emptied early",
-		ClosedBy:       repoVerifier,
-		IdempotencyKey: "close:scope-preserves-terminal",
-	}); err != nil {
-		t.Fatalf("close scope: %v", err)
-	}
-
-	for animalID, want := range map[string]string{
-		repoTerminalUnavailableAnimal: "unavailable",
-		repoTerminalCanceledAnimal:    "canceled",
-	} {
-		var got string
-		if err := pool.QueryRow(ctx,
-			`SELECT status FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
-			repoTenant, repoCampaign, animalID).Scan(&got); err != nil {
-			t.Fatalf("read roster status for %s: %v", animalID, err)
-		}
-		if got != want {
-			t.Fatalf("roster status for %s = %q after close, want %q preserved — close must never overwrite a terminal roster state",
-				animalID, got, want)
-		}
-	}
-
-	// And the close must not have laundered anything into an accepted outcome.
-	if got := countExpectedAnimalsWithStatus(t, ctx, pool, "closed_by_override"); got != 0 {
-		t.Fatalf("closed_by_override roster rows=%d, want 0 — close ends the BUCKET, it does not rewrite per-animal outcomes", got)
-	}
-}
+// TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses was DELETED
+// (free-flow weighing mandate): weighing_expected_animals, the per-animal
+// roster this test pinned, was DROPPED entirely (migration 000079). Close ends
+// a BUCKET; there is no per-animal roster state left to preserve or clobber.
+// See AGENTS.md, SKILLS.md, and migration 000059.
 
 // -----------------------------------------------------------------------------
 // CLOSE GATE (maintainer decision 2026-07-31)
@@ -1305,9 +1236,9 @@ FOR UPDATE`, repoTenant, repoAnimalScope); err != nil {
 	// The in-flight submit lands: an unverified observation, bucket now submitted.
 	if _, err := holder.Exec(ctx, `
 INSERT INTO weighing_observations
-  (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg,
+  (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg,
    proof_artifact_id, recorded_by, idempotency_key, submitted_at, verification_status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'race-tag', 12.0, $4::uuid, $5::uuid,
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'race-tag', 12.0, $4::uuid, $5::uuid,
         'race:submit', now(), 'pending')`,
 		repoTenant, repoCampaign, repoAnimalScope, repoExpectedShedProof, repoOperator); err != nil {
 		t.Fatalf("insert racing observation: %v", err)

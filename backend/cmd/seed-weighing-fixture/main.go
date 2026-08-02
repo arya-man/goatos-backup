@@ -633,24 +633,12 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET display_name = EXCLUDED.display_nam
 			return fmt.Errorf("upsert campaign scope %s: %w", scope.DisplayName, err)
 		}
 	}
-	for _, animal := range fx.Animals {
-		if animal.ExpectedCampaignShedID == nil {
-			continue
-		}
-		scope := scopeByID(fx, *animal.ExpectedCampaignShedID)
-		if scope == nil {
-			return fmt.Errorf("missing scope %s", *animal.ExpectedCampaignShedID)
-		}
-		currentLocationID := locationIDs[animal.CurrentLocationLabel]
-		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded expected-animal compatibility rows
-			`
-INSERT INTO public.weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status, availability_status, current_location_id, current_location_label, current_lifecycle_status, availability_checked_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status = EXCLUDED.status, availability_status = EXCLUDED.availability_status, current_location_id = EXCLUDED.current_location_id, current_location_label = EXCLUDED.current_location_label, current_lifecycle_status = EXCLUDED.current_lifecycle_status, availability_checked_at = now(), updated_at = now()`,
-			fx.Campaign.CampaignID, fx.TenantID, animal.AnimalID, scope.LocationID, scope.DisplayName, *animal.ExpectedCampaignShedID, expectedStatus(animal.ExpectedStatus), availabilityStatus(animal.CurrentTruth), currentLocationID, animal.CurrentLocationLabel, lifecycleStatus(animal.CurrentTruth)); err != nil {
-			return fmt.Errorf("upsert expected animal %s: %w", animal.DisplayID, err)
-		}
-	}
+	// FREE-FLOW: weighing_expected_animals -- the per-animal roster this loop
+	// used to populate -- was DROPPED entirely (migration 000079). Weighing has
+	// no expected set; a fixture animal's ExpectedCampaignShedID/ExpectedStatus/
+	// CurrentTruth fields are retained in the fixture JSON only as documentation
+	// of the scenario's intent (see fixtures/weighing-seed-2026-07-29), not as
+	// something this importer materializes into a roster table.
 	for _, proof := range fx.ProofArtifacts {
 		subjectType, subjectID := proofSubject(proof, fx)
 		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded proof fixture rows
@@ -664,12 +652,22 @@ ON CONFLICT (proof_id) DO UPDATE SET upload_state = 'completed', subject_type = 
 	}
 	for _, observation := range fx.Observations {
 		expectedID, expectedLabel, actualID, actualLabel, mismatch := observationLocationContext(observation, fx, locationIDs)
+		// FREE-FLOW: weighing_observations.animal_id was DROPPED (migration
+		// 000078) -- the write path never resolves a scan to herd identity, so
+		// this fixture importer must not either. scanned_identifier is the raw
+		// tag: the fixture animal's RFID when it has one, otherwise its
+		// AnimalID string stands in as an opaque scanned tag (exactly what an
+		// unresolved free-flow scan looks like on the real write path).
+		scannedIdentifier := observation.AnimalID
+		if a := animalByID(fx, observation.AnimalID); a != nil && a.RFID != "" {
+			scannedIdentifier = a.RFID
+		}
 		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded observation fixture rows
 			`
-INSERT INTO public.weighing_observations (observation_id, tenant_id, campaign_id, campaign_shed_id, animal_id, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
+INSERT INTO public.weighing_observations (observation_id, tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, proof_artifact_id = EXCLUDED.proof_artifact_id`,
-			observation.ObservationID, fx.TenantID, fx.Campaign.CampaignID, observation.CampaignShedID, observation.AnimalID, observation.WeightKG, observation.ProofArtifactID, expectedID, expectedLabel, actualID, actualLabel, mismatch, operatorID, observation.IDempotencyKey); err != nil {
+			observation.ObservationID, fx.TenantID, fx.Campaign.CampaignID, observation.CampaignShedID, scannedIdentifier, observation.WeightKG, observation.ProofArtifactID, expectedID, expectedLabel, actualID, actualLabel, mismatch, operatorID, observation.IDempotencyKey); err != nil {
 			return fmt.Errorf("upsert observation %s: %w", observation.ObservationID, err)
 		}
 	}

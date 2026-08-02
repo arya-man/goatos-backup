@@ -105,7 +105,7 @@ data class WeighingShedObservationEntity(
 
 data class WeighingIndividualReadyProofRow(
     val scopeKey: String,
-    val animalId: String,
+    val scannedIdentifier: String,
     val proofCaptureId: String,
     val serverProofId: String,
 )
@@ -169,11 +169,14 @@ interface WeighingObservationDao {
     @Query("SELECT * FROM weighing_observation WHERE idempotencyKey = :idempotencyKey LIMIT 1")
     suspend fun findByIdempotencyKey(idempotencyKey: String): WeighingObservationEntity?
 
-    @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey AND animalId = :animalId LIMIT 1")
-    suspend fun findByAnimal(scopeKey: String, animalId: String): WeighingObservationEntity?
+    // Draft/duplicate detection is keyed on the SCANNED IDENTIFIER, never animalId: free-flow
+    // weighing has no expected-animal list, so animalId can be blank/absent while
+    // scannedIdentifier is always the real free-flow identity for a capture.
+    @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey AND scannedIdentifier = :scannedIdentifier LIMIT 1")
+    suspend fun findByAnimal(scopeKey: String, scannedIdentifier: String): WeighingObservationEntity?
 
     @Query(
-        "SELECT o.scopeKey AS scopeKey, o.animalId AS animalId, o.proofCaptureId AS proofCaptureId, " +
+        "SELECT o.scopeKey AS scopeKey, o.scannedIdentifier AS scannedIdentifier, o.proofCaptureId AS proofCaptureId, " +
             "p.serverProofId AS serverProofId FROM weighing_observation o " +
             "JOIN proof_capture p ON p.id = o.proofCaptureId " +
             "WHERE o.syncStatus = 'PROOF_UPLOADING' AND o.proofCaptureId IS NOT NULL " +
@@ -183,7 +186,7 @@ interface WeighingObservationDao {
     fun observeReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): Flow<List<WeighingIndividualReadyProofRow>>
 
     @Query(
-        "SELECT o.scopeKey AS scopeKey, o.animalId AS animalId, o.proofCaptureId AS proofCaptureId, " +
+        "SELECT o.scopeKey AS scopeKey, o.scannedIdentifier AS scannedIdentifier, o.proofCaptureId AS proofCaptureId, " +
             "p.serverProofId AS serverProofId FROM weighing_observation o " +
             "JOIN proof_capture p ON p.id = o.proofCaptureId " +
             "WHERE o.syncStatus = 'PROOF_UPLOADING' AND o.proofCaptureId IS NOT NULL " +

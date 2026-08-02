@@ -1298,7 +1298,7 @@ park_drive_events AS (
       cardinality(vaccine_meta.labels)::text ||
       CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
-      -- projection-review: membership=obligation_drive_membership via obligation_drive_effective_state, one row per obligation collapsed to one row per (park_id, due_date); group_key=(park_id, due_date), the SAME key grouped.* already carries, joined with IS NOT DISTINCT FROM on park_id so a NULL-park tenant drive still matches instead of dropping out; join_cardinality=strictly 1:1, because eff_state is UNIQUE on (park_id, due_date) by construction (it is GROUP BY on exactly those two columns), so this LEFT JOIN adds no rows and cannot fan out the drive -- the COALESCE(..., false) wrappers cover ONLY the zero-obligation drive, where every flag is correctly false; pagination=headline and severity come from whole-filter group aggregates, never from the emitted page, so Limit changes which events appear but never what an event says about itself (asserted by the MultiPage/PageBoundary case); scope=(park_id, due_date) only, shed stays a display dimension and never narrows the headline, date=eff_state.due_date is IST-normalized at membership build time and compared against grouped.due_day::date so both sides are IST dates with no second conversion, status=precedence is a total ordering placing the three submission-aware flags first (genuine_missed, then has_submitted/has_review, then genuine_overdue) ahead of the legacy in_progress/completed/scheduled/deferred branches, so a mixed drive still reads missed/critical and past-due open work can never fall through to the false-green scheduled.
+      -- projection-review: membership=obligation_drive_membership via obligation_drive_effective_state, one row per obligation collapsed to one row per (park_id, due_date); group_key=(park_id, due_date), the SAME key grouped.* already carries, joined with IS NOT DISTINCT FROM on park_id so a NULL-park tenant drive still matches instead of dropping out; join_cardinality=strictly 1:1, because eff_state is UNIQUE on (park_id, due_date) by construction (it is GROUP BY on exactly those two columns), so this LEFT JOIN adds no rows and cannot fan out the drive -- the COALESCE(..., false) wrappers cover ONLY the zero-obligation drive, where every flag is correctly false; pagination=headline and severity come from whole-filter group aggregates, never from the emitted page, so Limit changes which events appear but never what an event says about itself (asserted by the MultiPage/PageBoundary case); scope=(park_id, due_date) only, shed stays a display dimension and never narrows the headline, date=eff_state.due_date is IST-normalized at membership build time and compared against grouped.due_day::date so both sides are IST dates with no second conversion, status=precedence is a total ordering placing the three submission-aware flags first (genuine_missed, then genuine_overdue, then has_submitted/has_review) ahead of the legacy in_progress/completed/scheduled/deferred branches, so a mixed drive still reads missed/critical and past-due open work can never fall through to the false-green scheduled.
       -- grain proof: headline depends on OBLIGATION-grain effective state flags, ALWAYS computed
       -- from obligation_drive_membership (which accounts for submission status), independent of
       -- the optional drive_summary. This ensures consistent headline regardless of whether
@@ -1306,12 +1306,23 @@ park_drive_events AS (
       -- has_submitted) are grouped at (park_id, due_date), same scope as headline decision.
       -- Headline precedence (each drive status assigned exactly once):
       --   genuine_missed (status='missed' AND NOT submitted) → missed/critical (don't hide real misses)
+      --   genuine_overdue (past-due open, NOT submitted) → overdue/critical (don't hide real overdue work)
       --   has_submitted OR has_review → verification_pending/warning (work is recorded)
-      --   genuine_overdue (past-due open, NOT submitted) → overdue/critical
       --   in_progress / completed / scheduled / deferred as before
+      -- C13 fix: genuine_overdue MUST outrank has_submitted/has_review in the headline, exactly
+      -- like genuine_missed already outranks both. genuine_overdue is defined as
+      -- (open status AND past-due AND NOT submitted), so it is already mutually exclusive with
+      -- "every obligation in this group is submitted" -- a fully-submitted drive always has
+      -- genuine_overdue = false regardless of this branch's position, so this reorder cannot
+      -- regress the f4cdd29b8 fix (fully-submitted drives still read verification_pending). What
+      -- it does fix: a MIXED drive (>=1 submitted, >=1 genuinely overdue+unsubmitted) previously
+      -- matched has_submitted first and reported 'verification_pending', hiding the real overdue
+      -- work; severity (below) independently derives from genuine_overdue and disagreed
+      -- ('critical'), so headline and severity could contradict each other on the exact same row.
+      -- See TestCanonicalRead_MixedDriveOverdueOutranksSubmitted.
       WHEN COALESCE(eff_state.genuine_missed, false) THEN 'missed'
-      WHEN grouped.has_review OR COALESCE(eff_state.has_submitted, false) THEN 'verification_pending'
       WHEN COALESCE(eff_state.genuine_overdue, false) THEN 'overdue'
+      WHEN grouped.has_review OR COALESCE(eff_state.has_submitted, false) THEN 'verification_pending'
       WHEN grouped.has_in_progress THEN 'in_progress'
       WHEN grouped.all_completed THEN 'completed'
       WHEN COALESCE(grouped.scheduled_count, 0) > 0 THEN 'scheduled'

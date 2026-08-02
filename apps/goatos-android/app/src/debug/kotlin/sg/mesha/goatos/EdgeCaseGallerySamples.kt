@@ -79,7 +79,7 @@ fun edgeCaseGalleryCases(): List<GalleryCase> = listOf(
     GalleryCase("submit_offline_queued", "Submit offline queued", "Vaccination submit"),
     GalleryCase("weighing_individual", "Individual weight + proof", "Weighing"),
     GalleryCase("weighing_lumpsum", "Lumpsum shed proof", "Weighing"),
-    GalleryCase("weighing_wrong_shed", "Weighing wrong shed", "Weighing"),
+    GalleryCase("weighing_duplicate_scan", "Weighing duplicate scan", "Weighing"),
     GalleryCase("weighing_offline_queued", "Weighing offline queued", "Weighing"),
 )
 
@@ -246,7 +246,7 @@ fun galleryWeighingIndividualProof(): WeighingUiState = sampleWeighingOperatorSt
         WeighingDraftUiRow("w1", "goat-901007000504407", "901007000504407 · 18.4 kg · proof uploading", proofReady = false, readyToSubmit = false),
         WeighingDraftUiRow("w2", "goat-901007000504418", "901007000504418 · 19.1 kg · proof ready", proofReady = true, readyToSubmit = true),
     ),
-    visibleRows = weighingRows(wrongShed = false),
+    visibleRows = weighingRows(duplicate = false),
 )
 
 fun galleryWeighingLumpsumProof(): WeighingUiState = sampleWeighingOperatorState().copy(
@@ -265,9 +265,12 @@ fun galleryWeighingLumpsumProof(): WeighingUiState = sampleWeighingOperatorState
     visibleRows = emptyList(),
 )
 
-fun galleryWeighingWrongShed(): WeighingUiState = galleryWeighingIndividualProof().copy(
-    message = "Wrong shed · expected Kid Shed A, now in Kid Shed B",
-    visibleRows = weighingRows(wrongShed = true),
+// Weighing is free-flow: the only rule is a duplicate-scan check within this task's shed bucket.
+// There is no herd "wrong shed" concept here -- this edge case shows a repeat scan of an
+// already-captured identifier being rejected, not a herd-location mismatch.
+fun galleryWeighingDuplicateScan(): WeighingUiState = galleryWeighingIndividualProof().copy(
+    message = "Already scanned in this shed",
+    visibleRows = weighingRows(duplicate = true),
 )
 
 fun galleryWeighingOfflineQueued(): WeighingUiState = galleryWeighingIndividualProof().copy(
@@ -431,25 +434,17 @@ private fun galleryProofRow(status: ProofUploadStatus, unsynced: Boolean = false
     proofUploadStatus = status,
 )
 
-private fun weighingRows(wrongShed: Boolean): List<WeighingRosterUiRow> = listOf(
+private fun weighingRows(duplicate: Boolean): List<WeighingRosterUiRow> = listOf(
     WeighingRosterUiRow(
         id = "row-1",
         animalId = "goat-901007000504407",
         displayAnimalId = "901007000504407",
-        expectedLocationLabel = "Kid Shed A",
-        actualLocationLabel = if (wrongShed) "Kid Shed B" else "Kid Shed A",
-        status = if (wrongShed) "Wrong shed" else "Accepted",
-        availabilityStatus = null,
-        wrongShed = wrongShed,
+        status = if (duplicate) "Duplicate scan" else "Accepted",
     ),
     WeighingRosterUiRow(
         id = "row-2",
         animalId = "goat-901007000504418",
         displayAnimalId = "901007000504418",
-        expectedLocationLabel = "Kid Shed A",
-        actualLocationLabel = null,
         status = "Pending",
-        availabilityStatus = null,
-        wrongShed = false,
     ),
 )

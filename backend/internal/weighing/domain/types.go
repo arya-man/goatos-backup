@@ -420,7 +420,12 @@ type Observation struct {
 	ObservationID       string       `json:"observation_id"`
 	CampaignID          string       `json:"campaign_id"`
 	CampaignShedID      string       `json:"campaign_shed_id,omitempty"`
-	AnimalID            string       `json:"animal_id,omitempty"`
+	// ScannedIdentifier is the raw tag/RFID the scanner read. Weighing is
+	// free-flow: this is the ONLY identity an observation carries. There is
+	// deliberately no animal_id here (removed by
+	// 000078_weighing_observations_drop_animal_id.sql) -- weighing never
+	// resolves a scan to herd identity.
+	ScannedIdentifier   string       `json:"scanned_identifier,omitempty"`
 	WeightKg            float64      `json:"weight_kg"`
 	AverageWeightKg     float64      `json:"average_weight_kg,omitempty"`
 	AnimalCount         int          `json:"animal_count,omitempty"`
@@ -498,6 +503,18 @@ type VerificationVerdict struct {
 	VerifiedBy    string
 	Reason        string
 	EventID       string
+	// EvidenceProofID is the proof/video id the verifier reviewed BEFORE
+	// deciding. Without it a verdict carries no reference to WHICH evidence
+	// was approved: approving a stale queue item approves whatever proof
+	// happens to be attached to the observation NOW, not the video the
+	// reviewer actually watched (e.g. after a rework re-shoot swapped the
+	// proof out from under an in-flight review). Empty is a deliberately
+	// backward-compatible value for verdicts minted before this field
+	// existed (in-flight events on the durable bus at deploy time); the
+	// postgres adapter treats empty as "stale-check-skipped", not a crash
+	// or a rejection, and logs it so the gap is visible without breaking
+	// delivery.
+	EvidenceProofID string
 }
 
 // VerificationVerdictResult reports what the verdict changed so the consumer stays
@@ -541,11 +558,14 @@ type CreateCampaignShed struct {
 	OperatorUserID   string `json:"operator_user_id,omitempty"`
 }
 
+// RecordAnimalObservation is the free-flow scan write command. It carries no
+// animal_id: weighing never resolves a scanned identifier to herd identity, so
+// there is no field here for a caller to (mis)supply one. ScannedIdentifier is
+// the required identity.
 type RecordAnimalObservation struct {
 	TenantID          string
 	CampaignID        string
 	CampaignShedID    string
-	AnimalID          string
 	ScannedIdentifier string
 	WeightKg          float64
 	ProofArtifactID   string
