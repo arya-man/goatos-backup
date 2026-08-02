@@ -209,7 +209,7 @@ data class WeighingAssignmentUiRow(
         get() = !isSubmittedAndWaitingVerification && !isClosed
 
     val canClose: Boolean
-        get() = readyToClose && isSubmittedAndWaitingVerification
+        get() = readyToClose && !isClosed
 }
 
 /** One filter chip: a stable id, its label, and whether it is the active filter. */
