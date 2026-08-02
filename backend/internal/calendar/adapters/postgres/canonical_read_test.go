@@ -410,7 +410,12 @@ func TestCalendarDriveSummaryBucketsSubtractSubmitted(t *testing.T) {
 // denominator, the grain they are counted on, and the rounded percentage. Admin-web and the Android
 // card render these verbatim; while they were absent each client derived its own numerator from
 // different fields and the SAME drive showed two different completion numbers and ring percentages.
-// The numerator must be COMPLETED (verified) counts -- never the submitted/pending ones.
+// MAINTAINER CONTRACT (2026-08-03): the numerator is FIELD WORK DONE = completed + submitted. The
+// operator vaccinated the animal, so it counts toward progress; the outstanding video review is
+// carried by the verification-pending status and chip, never by holding the ring below 100%. This
+// test previously demanded the opposite (completed-only), which redefined "done" as "verified" and
+// showed an operator who had vaccinated every animal a 0% ring. It now guards the reverse direction
+// so the decision cannot be silently re-litigated in code.
 func TestDriveSummaryEmitsBackendOwnedProgressContract(t *testing.T) {
 	for _, field := range []string{"progress_basis", "progress_completed", "progress_total", "progress_pct"} {
 		if !strings.Contains(calendarCanonicalListSQL, "'"+field+"'") {
@@ -423,8 +428,8 @@ func TestDriveSummaryEmitsBackendOwnedProgressContract(t *testing.T) {
 		t.Fatal("progress_completed / progress_total not emitted in order")
 	}
 	numerator := calendarCanonicalListSQL[start:end]
-	if strings.Contains(numerator, "submitted") {
-		t.Fatalf("progress numerator counts submitted-but-unverified work as done:\n%s", numerator)
+	if !strings.Contains(numerator, "submitted_animals") || !strings.Contains(numerator, "submitted_count") {
+		t.Fatalf("progress numerator drops submitted field work, so an operator who vaccinated every animal reads 0%%:\n%s", numerator)
 	}
 	if !strings.Contains(numerator, "completed_animals") || !strings.Contains(numerator, "completed_count") {
 		t.Fatalf("progress numerator does not resolve to the completed animal/dose counts:\n%s", numerator)

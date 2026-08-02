@@ -1015,7 +1015,15 @@ obligation_drive_shed_complete AS (
     FROM obligation_drive_membership
     WHERE shed_id IS NOT NULL
     GROUP BY park_id, due_date, shed_id
-    HAVING count(DISTINCT obligation_id) = count(DISTINCT obligation_id) FILTER (WHERE status = 'completed')
+    -- A shed is DONE when the operator has finished every animal in it -- completed OR submitted
+    -- for verification. Requiring status='completed' alone meant a shed whose every animal was
+    -- vaccinated and whose proof was submitted still read "0 of 4 sheds done" until a verifier
+    -- cleared it, which is the same "done means verified" redefinition corrected in
+    -- progress_completed below. The outstanding review is carried by the verification-pending
+    -- status, not by under-reporting the operator's field work.
+    HAVING count(DISTINCT obligation_id) = count(DISTINCT obligation_id) FILTER (
+      WHERE status = 'completed' OR submitted_for_verification
+    )
   ) done_sheds
   GROUP BY park_id, due_date
 ),
@@ -1411,15 +1419,22 @@ park_drive_events AS (
         -- ring percentages. The backend now owns the numerator AND its basis; both clients render
         -- these verbatim. Basis is the distinct-ANIMAL grain whenever the drive has animals (a goat
         -- due several vaccines the same day is ONE animal, complete only when ALL its drive
-        -- obligations are), else the obligation/dose grain. Numerator is COMPLETED only:
-        -- submitted-but-unverified is NOT done (it stays visible via submitted_animals /
-        -- submitted_count), so progress can never overstate verified coverage.
+        -- obligations are), else the obligation/dose grain. Numerator is FIELD WORK DONE =
+        -- completed + submitted (maintainer contract): the operator vaccinated the animal, so the
+        -- drive reads 100% and the outstanding video review is carried by the
+        -- verification-pending status/chip, NOT by holding the ring at 0%. An earlier change made
+        -- this COMPLETED-only to settle a web-vs-mobile parity disagreement; that silently
+        -- redefined "done" as "verified" and showed an operator who had vaccinated every animal a
+        -- 0% ring. Parity is preserved here instead -- backend owns the single number and both
+        -- clients render it verbatim.
+        -- The two buckets are disjoint by the precedence above (submitted_for_verification wins
+        -- over completed), so completed + submitted <= total and progress can never exceed 100.
         'progress_basis', CASE WHEN obl_summary.total_animals > 0 THEN 'animals' ELSE 'doses' END,
-        'progress_completed', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.completed_animals ELSE obl_summary.completed_count END,
+        'progress_completed', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.completed_animals + obl_summary.submitted_animals ELSE obl_summary.completed_count + obl_summary.submitted_count END,
         'progress_total', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.total_animals ELSE obl_summary.total_count END,
         'progress_pct', CASE
-          WHEN obl_summary.total_animals > 0 THEN round(obl_summary.completed_animals * 100.0 / obl_summary.total_animals)::int
-          WHEN obl_summary.total_count > 0 THEN round(obl_summary.completed_count * 100.0 / obl_summary.total_count)::int
+          WHEN obl_summary.total_animals > 0 THEN round((obl_summary.completed_animals + obl_summary.submitted_animals) * 100.0 / obl_summary.total_animals)::int
+          WHEN obl_summary.total_count > 0 THEN round((obl_summary.completed_count + obl_summary.submitted_count) * 100.0 / obl_summary.total_count)::int
           ELSE 0
         END,
         'owner_label', COALESCE(NULLIF(grouped.operator_names, ''), 'PC')
