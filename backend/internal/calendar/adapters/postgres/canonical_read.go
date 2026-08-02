@@ -1159,17 +1159,31 @@ obligation_drive_summary AS (
             'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
             'deferred')
       )::int AS submitted_count,
+      -- due vs overdue is READ-TIME on the ORIGINAL scheduled business date, matching the
+      -- headline's genuine_overdue. obligation_instances never carries a literal 'overdue'
+      -- status (the baseline CHECK does not permit it), so keying this bucket off
+      -- status IN ('overdue','missed') made overdue_count structurally ~0 while the card
+      -- headline said "overdue" -- one card, two answers. original_due_date (not due_date) is
+      -- used because the rollover rewrites due_date to today, and a rolled date is never
+      -- < today.
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
           AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
           AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+          AND m.original_due_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
       )::int AS due_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
           AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
-          AND m.status IN ('overdue', 'missed')
+          AND (
+            m.status = 'missed'
+            OR (
+              m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+              AND m.original_due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+            )
+          )
       )::int AS overdue_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status = 'deferred'
