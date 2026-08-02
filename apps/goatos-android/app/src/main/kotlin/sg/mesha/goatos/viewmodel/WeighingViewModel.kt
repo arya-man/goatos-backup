@@ -216,6 +216,22 @@ class WeighingViewModel @Inject constructor(
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskBucketCache())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
+
+    // ---- The ONE open camera, and which animal it is pointed at -----------------------------
+    //
+    // The camera is a single physical device the operator is holding in front of ONE animal. These
+    // fields track whose video is currently being recorded so that a scan of a DIFFERENT animal,
+    // arriving while that recording is still open, retargets the camera instead of being dropped.
+    // Without them the animal was bound in the launched coroutine's closure and a scan of the next
+    // animal was silently swallowed by the busy gate, so footage shot at the second animal was
+    // saved under the FIRST animal's tag and the weight typed next landed there too.
+    private var proofCaptureAnimalId: String? = null
+    private var proofCaptureJob: Job? = null
+    // Flips true the instant captureVideo() RETURNS a real recording for the in-flight animal.
+    // Past that point the capture must NEVER be cancelled by a later scan — that would throw away
+    // a finished field recording. A later scan is refused with a visible reason instead.
+    private var proofCaptureVideoCaptured = false
+
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val loadingAssignments = MutableStateFlow(false)
 
@@ -1435,7 +1451,12 @@ class WeighingViewModel @Inject constructor(
     private fun matchTag(tag: String) {
         val key = scopeKey ?: return
         val normalizedTag = normalizeFreeFlowTag(tag)
-        if (normalizedTag.isBlank() || actionInFlight.value) return
+        if (normalizedTag.isBlank()) return
+        // A scan that arrives while a VIDEO is being recorded must still be handled — the operator
+        // has physically moved to the next animal, and dropping the scan is what let a recording
+        // land under the previous animal. Other busy work (saving, submitting, closing) still
+        // holds scans off, as before.
+        if (actionInFlight.value && proofCaptureAnimalId == null) return
         viewModelScope.launch {
             val existingRow = scannedRows.value.firstOrNull {
                 normalizeFreeFlowTag(it.animalId) == normalizedTag ||
@@ -1495,10 +1516,39 @@ class WeighingViewModel @Inject constructor(
         message.value = null
     }
 
+    /** Opens the video camera for [row]. Only one animal's video can be RECORDING at a time — the
+     *  camera is one physical device pointed at one animal.
+     *
+     *  A scan of a DIFFERENT animal while the current animal's video is still being recorded (i.e.
+     *  the camera has not returned a recording yet, so nothing has been written) CLOSES that
+     *  window rather than dropping the scan: the still-open camera is cancelled and a fresh one
+     *  opens for the newly scanned animal, and the operator is told the first animal still needs
+     *  its video. Cancelling is only safe before a recording exists — once one does
+     *  ([proofCaptureVideoCaptured]) the new scan is refused with a visible reason so a finished
+     *  recording is never thrown away. */
     private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
-        if (actionInFlight.value) return
+        val strandedAnimalId = proofCaptureAnimalId
+        if (strandedAnimalId != null) {
+            if (strandedAnimalId == row.animalId || proofCaptureVideoCaptured) {
+                // The same animal was re-scanned mid-recording, or the open capture already has a
+                // finished recording being saved. Nothing safe to cancel in either case.
+                message.value = "Finish the current animal's video first."
+                return
+            }
+            proofCaptureJob?.cancel()
+            proofCaptureJob = null
+            proofCaptureAnimalId = null
+            proofCaptureVideoCaptured = false
+            actionInFlight.value = false
+            message.value = "$strandedAnimalId still needs its video."
+        } else if (actionInFlight.value) {
+            return
+        }
         actionInFlight.value = true
-        viewModelScope.launch {
+        proofCaptureAnimalId = row.animalId
+        proofCaptureVideoCaptured = false
+        val myAnimalId = row.animalId
+        val job = viewModelScope.launch {
             try {
                 when (val proof = captureProofForRow(key, row)) {
                     is AppResult.Ok -> {
@@ -1512,9 +1562,18 @@ class WeighingViewModel @Inject constructor(
                     }
                 }
             } finally {
-                actionInFlight.value = false
+                // Only the job that still OWNS the open camera may clear it. A job cancelled
+                // because a later scan retargeted the camera must not clear state that now belongs
+                // to the animal that superseded it.
+                if (proofCaptureAnimalId == myAnimalId) {
+                    actionInFlight.value = false
+                    proofCaptureAnimalId = null
+                    proofCaptureJob = null
+                    proofCaptureVideoCaptured = false
+                }
             }
         }
+        proofCaptureJob = job
     }
 
     private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {
@@ -1529,6 +1588,9 @@ class WeighingViewModel @Inject constructor(
         if (captured == null) {
             return AppResult.Err("missing_video")
         }
+        // A real, complete recording now exists for this animal. From here on a later scan may no
+        // longer cancel this capture — see [captureVideoForRow].
+        proofCaptureVideoCaptured = true
         val principalId = currentPrincipalId
             ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
                 ?.takeIf { it.isNotBlank() }
