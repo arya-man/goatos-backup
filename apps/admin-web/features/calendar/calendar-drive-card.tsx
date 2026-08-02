@@ -31,7 +31,8 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
   // Coverage ring + the "N/N" headline render the BACKEND-OWNED progress numerator, denominator and
   // grain verbatim (progress_completed / progress_total / progress_basis / progress_pct). The same
   // contract drives the Android card, so both surfaces always show the same number and the same ring
-  // percentage. Do NOT re-derive a numerator here. The status chips below stay obligation-grain.
+  // percentage. Do NOT re-derive a numerator here. The status chips below stay obligation-grain
+  // and are explicitly labelled as doses so a multi-vaccine drive cannot look like duplicate animals.
   const coverage = driveVisibleProgress(summary);
   const submittedAnimals = "submitted_animals" in summary && typeof summary.submitted_animals === "number" ? summary.submitted_animals : 0;
   const hasSubmittedPending = submittedAnimals > coverage.completed;
@@ -108,7 +109,7 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
           {chips.map((chip) => (
             <div key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
               <div className={`d c-${driveStatusClass(chip.key)}`} />
-              {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+              {chip.count} {copy(pageContract, "calendar.drive.doses").toLowerCase()} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
             </div>
           ))}
         </div>

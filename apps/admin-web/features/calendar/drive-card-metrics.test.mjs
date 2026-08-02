@@ -151,6 +151,17 @@ test("calendar-drive-detail renders the backend progress contract, not its own",
   assert.ok(!src.includes("driveCoverage("), "detail must not re-derive its own coverage numerator");
 });
 
+test("calendar drive status chips label obligation counts as doses", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const file of ["./calendar-drive-card.tsx", "./calendar-drive-detail.tsx"]) {
+    const src = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.ok(
+      src.includes('copy(pageContract, "calendar.drive.doses").toLowerCase()'),
+      `${file} must distinguish dose status counts from the distinct-animal drive total`,
+    );
+  }
+});
+
 test("the legacy detail percentage really did disagree with the card", () => {
   // Same fully covered drive, awaiting the event-level close: card said 100, detail said 99.
   assert.strictEqual(drivePctFor({ progress_pct: 100 }, { completed: 77, total: 77, usesAnimals: true }), 100);
