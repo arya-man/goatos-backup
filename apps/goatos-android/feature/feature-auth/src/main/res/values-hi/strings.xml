@@ -41,9 +41,12 @@
     <string name="perm_status_needed">आवश्यक</string>
     <string name="perm_status_open_settings">सेटिंग्स खोलें</string>
 
-    <string name="alerts_off_title">इस फ़ोन पर अलर्ट बंद हैं</string>
-    <string name="alerts_off_body">काम बाकी होने पर, कोई शेड दोबारा करने के लिए वापस भेजे जाने पर, और कोई वीडियो जाँच के लिए बचे होने पर यह फ़ोन चुप रहेगा। आपको खुद ऐप खोलकर देखना पड़ेगा।</string>
-    <string name="alerts_off_turn_on">अलर्ट चालू करें</string>
-    <string name="alerts_off_settings_help">आपका फ़ोन दोबारा नहीं पूछेगा। नीचे से फ़ोन सेटिंग्स खोलें और Mesha के लिए सूचनाएं चालू करें।</string>
-    <string name="alerts_off_open_settings">फ़ोन सेटिंग्स खोलें</string>
+    <string name="mandatory_permissions_title">काम शुरू करने के लिए अनुमतियाँ दें</string>
+    <string name="mandatory_permissions_body">काम शुरू करने से पहले इस फ़ोन को इन अनुमतियों की आवश्यकता है। इनके बिना ऐप काम नहीं करेगा।</string>
+    <string name="mandatory_permissions_why">कैमरा हर जानवर के लिए प्रमाण वीडियो रिकॉर्ड करता है। सूचनाएं आपको बताती हैं कि काम कब बाकी है। नज़दीकी डिवाइस आपके RFID रीडर को जोड़ता है।</string>
+    <string name="mandatory_permissions_grant">अनुमतियाँ दें</string>
+    <string name="mandatory_permissions_settings">सेटिंग्स खोलें</string>
+    <string name="mandatory_permissions_settings_help">आपका फ़ोन दोबारा नहीं पूछेगा। नीचे सेटिंग्स ऐप खोलें। Mesha खोजें, अनुमतियों पर टैप करें, और आवश्यक अनुमतियाँ सक्षम करें। जब हो जाए तो इस ऐप पर वापस लौटें।</string>
+    <string name="perm_label_location">लोकेशन</string>
+    <string name="perm_rationale_location">काम किस पार्क और शेड में हुआ, यह दिखाता है।</string>
 </resources>

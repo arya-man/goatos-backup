@@ -27,15 +27,18 @@ import { resolve } from "node:path";
 
 const repo = resolve(import.meta.dirname, "../..");
 const SHELL = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt";
+// 2026-08-02: the non-blocking alerts BANNER was replaced by a mandatory, non-dismissible
+// role-based permission gate (maintainer decision: the app is unusable until the permissions a
+// role needs are granted). The rule this guard protects is unchanged — a gate nothing composes
+// asks nobody for anything — so it now points at the replacement.
 const GATE =
-  "apps/goatos-android/feature/feature-auth/src/main/kotlin/sg/mesha/goatos/feature/auth/NotificationAlertsGate.kt";
-const GATE_NAME = "NotificationAlertsGate";
+  "apps/goatos-android/feature/feature-auth/src/main/kotlin/sg/mesha/goatos/feature/auth/RoleBasedPermissionGate.kt";
+const GATE_NAME = "RoleBasedPermissionGate";
 
 const composesGate = (shellSource) => new RegExp(`\\b${GATE_NAME}\\s*\\(`).test(shellSource);
 const asksTheOs = (gateSource) =>
-  gateSource.includes("areNotificationsEnabled") &&
   gateSource.includes("AppPermission.NOTIFICATIONS") &&
-  /RequestPermission\(\)/.test(gateSource);
+  /RequestMultiplePermissions\(\)/.test(gateSource);
 
 function selfTest() {
   const failures = [];

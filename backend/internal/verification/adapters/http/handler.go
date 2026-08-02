@@ -34,6 +34,7 @@ func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/queue", h.ListQueue)
 	mux.HandleFunc("GET /verification/action-queue", h.ListActionQueue)
+	mux.HandleFunc("GET /verify/alerts", h.ListAlerts)
 	mux.HandleFunc("POST /verification/items/{item_id}/verdict", h.RecordVerdict)
 	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
 	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
@@ -136,6 +137,19 @@ func (h *Handler) ListQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (h *Handler) ListActionQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
 	h.listQueue(w, r, permissions.VerificationAct, "", true)
+}
+
+// ListAlerts returns pending verification items for a module/feature. The verifier is
+// tenant-scoped, so this endpoint returns all pending items across all parks for the
+// requested category. The category query parameter is required.
+func (h *Handler) ListAlerts(w nethttp.ResponseWriter, r *nethttp.Request) {
+	q := r.URL.Query()
+	category := strings.TrimSpace(q.Get("category"))
+	if category == "" {
+		h.respondError(w, r, app.BadRequest("missing_category", "category query parameter is required"))
+		return
+	}
+	h.listQueue(w, r, permissions.VerificationReview, domain.StatusPending, false)
 }
 
 func (h *Handler) listQueue(

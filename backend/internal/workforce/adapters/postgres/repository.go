@@ -364,8 +364,11 @@ ORDER BY wmc.status, wc.capability_code, wmc.created_at DESC`), tenantID, operat
 func (r *Repository) ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	// Department module grants (operators): union of all modules the user's department is granted
+	// UNION
+	// Verifier module grants: modules where this user has a verify duty in position_module_duties
 	rows, err := r.pool.Query(ctx, `
-SELECT dmg.module_key
+SELECT DISTINCT dmg.module_key
 FROM public.workforce_members wm
 JOIN public.department_module_grants dmg
   ON dmg.tenant_id = wm.tenant_id
@@ -375,7 +378,22 @@ WHERE wm.tenant_id = $1::uuid
   AND wm.status = 'active'
   AND wm.department_id IS NOT NULL
   AND dmg.status = 'active'
-ORDER BY dmg.module_key`, tenantID, userID)
+UNION
+SELECT DISTINCT pmd.module_code
+FROM public.position_module_duties pmd
+JOIN public.workforce_positions wp
+  ON wp.tenant_id = pmd.tenant_id
+ AND wp.position_code = pmd.position_code
+ AND wp.status = 'active'
+JOIN public.workforce_members wm
+  ON wm.tenant_id = wp.tenant_id
+ AND wm.workforce_member_id = wp.workforce_member_id
+WHERE pmd.tenant_id = $1::uuid
+  AND wm.user_id = $2::uuid
+  AND wm.status = 'active'
+  AND pmd.duty_type = 'verify'
+  AND pmd.status = 'active'
+ORDER BY module_key`, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}

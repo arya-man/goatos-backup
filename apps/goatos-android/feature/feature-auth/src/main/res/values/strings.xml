@@ -48,11 +48,15 @@
     <string name="perm_status_needed">Needed</string>
     <string name="perm_status_open_settings">Open Settings</string>
 
-    <!-- Alerts gate shown in the app shell to EVERY signed-in role (NotificationAlertsGate.kt).
-         Farm language: what they will miss, and how to switch it back on. -->
-    <string name="alerts_off_title">Alerts are off on this phone</string>
-    <string name="alerts_off_body">This phone will stay silent when work is due, when a shed is sent back to be done again, and when a video is waiting to be checked. You will only find out by opening the app and looking.</string>
-    <string name="alerts_off_turn_on">Turn on alerts</string>
-    <string name="alerts_off_settings_help">Your phone will not ask again. Open the phone settings below and switch notifications on for Mesha.</string>
-    <string name="alerts_off_open_settings">Open phone settings</string>
+    <!-- Mandatory role-based permission gate (RoleBasedPermissionGate.kt).
+         Non-dismissible dialog shown after bootstrap. Operators require camera, BLE, and notifications.
+         All roles require notifications. Farm language: explain consequences and navigate to settings if needed. -->
+    <string name="mandatory_permissions_title">Grant permissions to continue</string>
+    <string name="mandatory_permissions_body">This phone needs these permissions before you can start work. The app will not work without them.</string>
+    <string name="mandatory_permissions_why">Camera records proof videos for each animal. Notifications tell you when work is due. Nearby devices connects your RFID reader.</string>
+    <string name="mandatory_permissions_grant">Grant permissions</string>
+    <string name="mandatory_permissions_settings">Open settings</string>
+    <string name="mandatory_permissions_settings_help">Your phone will not ask again. Open the settings app below. Find Mesha, tap Permissions, and enable the required permissions. Return to this app when done.</string>
+    <string name="perm_label_location">Location</string>
+    <string name="perm_rationale_location">Shows which park and shed the work was done in.</string>
 </resources>

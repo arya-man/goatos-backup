@@ -395,7 +395,9 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	// beside Sign out, so repeating it in every module's bottom bar is the same destination shown
 	// once per feature. A principal WITHOUT a drawer keeps it on the bar -- that is their only way
 	// to reach it.
-	if navChrome == domain.NavChromeExpanded {
+	// Exception: verifiers always keep "You" in each module because their drawer is a module selector,
+	// not a chrome drawer with "You + Sign out".
+	if navChrome == domain.NavChromeExpanded && !isStandaloneVerifierPrincipal(grants) {
 		visibleNav = withoutNavItem(visibleNav, navItemKeyYou)
 		for i := range bootstrapModules {
 			bootstrapModules[i].NavItems = withoutNavItem(bootstrapModules[i].NavItems, navItemKeyYou)
@@ -697,7 +699,19 @@ func withoutNavItem(items []domain.BootstrapNavigationItem, key string) []domain
 }
 
 func navChromeFor(grants []domain.GrantSummary, modules []domain.BootstrapModule) string {
+	// Verifiers with ≥2 feature modules get expanded chrome (drawer + You + Sign out).
+	// Single-module verifiers use minimal chrome (bottom bar only).
+	// This follows the same pattern as operators/leadership: ≥2 modules → drawer.
 	if isStandaloneVerifierPrincipal(grants) {
+		available := 0
+		for _, m := range modules {
+			if m.Status == moduleStatusAvailable {
+				available++
+			}
+		}
+		if available >= 2 {
+			return domain.NavChromeExpanded
+		}
 		return domain.NavChromeMinimal
 	}
 	available := 0
