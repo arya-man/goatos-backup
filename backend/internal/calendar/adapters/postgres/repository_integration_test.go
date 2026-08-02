@@ -4757,9 +4757,15 @@ INSERT INTO vaccination_completions (
 
 	// The backend now owns the cross-surface progress numerator and its basis; both clients render
 	// these verbatim instead of each deriving its own (parity defect: same drive, two numbers).
-	// Verified completion only -- the two submitted-pending animals must NOT inflate progress.
-	if summary.ProgressBasis != "animals" || summary.ProgressCompleted != 1 || summary.ProgressTotal != 5 || summary.ProgressPct != 20 {
-		t.Fatalf("progress=%s %d/%d (%d%%), want animals 1/5 (20%%) -- completed only, submitted stays out of the numerator",
+	// MAINTAINER CONTRACT (2026-08-03): progress is FIELD WORK DONE = completed + submitted. The
+	// operator vaccinated the animal, so it counts; the outstanding video review is carried by the
+	// verification-pending status and chip, never by holding the ring below 100%. This assertion
+	// previously demanded completed-only, which redefined "done" as "verified" and showed an
+	// operator who had vaccinated every animal a 0% ring. Do NOT revert to completed-only to settle
+	// a web-vs-mobile parity disagreement: parity is kept by the backend owning the single number,
+	// not by adopting the stricter surface.
+	if summary.ProgressBasis != "animals" || summary.ProgressCompleted != 3 || summary.ProgressTotal != 5 || summary.ProgressPct != 60 {
+		t.Fatalf("progress=%s %d/%d (%d%%), want animals 3/5 (60%%) -- 1 completed + 2 submitted; submitted work IS field work done",
 			summary.ProgressBasis, summary.ProgressCompleted, summary.ProgressTotal, summary.ProgressPct)
 	}
 }
