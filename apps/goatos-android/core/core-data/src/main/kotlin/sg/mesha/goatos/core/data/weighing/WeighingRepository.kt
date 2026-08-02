@@ -37,7 +37,6 @@ import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
-import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
@@ -62,7 +61,7 @@ data class WeighingScanMatch(
 
 data class IndividualWeighingDraft(
     val observationId: String,
-    val animalId: String,
+    /** Free-flow identity: the scanned tag. There is no animal id anywhere in weighing. */
     val scannedIdentifier: String,
     val weightKg: Double,
     val capturedAtMs: Long,
@@ -298,7 +297,7 @@ data class IndividualWeighingCapture(
     val campaignId: String,
     val workGroupId: String,
     val campaignShedId: String,
-    val animalId: String,
+    /** Free-flow identity: the scanned tag. There is no animal id anywhere in weighing. */
     val scannedIdentifier: String,
     val weightKg: Double,
     val capturedAtMs: Long? = null,
@@ -1222,45 +1221,31 @@ class DefaultWeighingRepository(
         val key = weighingScopeKey(campaignId, workGroupId, campaignShedId)
         runCatching {
             val safetyLimit = maxRows.coerceIn(1, MAX_SCOPE_HYDRATION_ROWS)
-            val rows = mutableListOf<WeighingRosterRowEntity>() // mobile-guard:ignore: bounded by safetyLimit and kept until successful atomic Room replace
             val accepted = linkedMapOf<String, WeighingAcceptedObservationDto>() // mobile-guard:ignore: bounded by safetyLimit within one refreshScope call, then discarded
-            // The roster and the accepted observations are paginated INDEPENDENTLY:
-            // one shed can hold far more observations than roster rows (re-weighs,
-            // free-flow scans with no roster row at all). Draining only the roster
-            // cursor would silently keep whatever observations happened to fit in the
-            // first page and drop the rest, so a re-weighed animal could keep showing
-            // as un-weighed on the device. Both cursors advance until BOTH are
-            // exhausted, and the loop stays bounded by safetyLimit on either stream.
-            var cursor: String? = null
+            // FREE-FLOW: there is no expected-animal roster to sync. `weighing_expected_animals`
+            // is gone (000079) and the scope read's `items` array is permanently empty, so the
+            // roster leg of this loop -- its own cursor, its `include_roster` gate and the
+            // `rosterDao.replaceScope` write -- was wiping the scope's Room rows and replacing
+            // them with nothing on every refresh. Only the bucket's accepted observations are
+            // real, and only their cursor is drained here, bounded by safetyLimit.
             var observationsCursor: String? = null
-            var includeRoster = true
             do {
-                val remainingRows = safetyLimit - rows.size
                 val remainingObservations = safetyLimit - accepted.size
                 val response = client.getWeighingRoster(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
-                    cursor = cursor,
                     observationsCursor = observationsCursor,
-                    includeRoster = includeRoster,
-                    limit = minOf(WEIGHING_PAGE_SIZE, maxOf(remainingRows, remainingObservations)),
+                    limit = minOf(WEIGHING_PAGE_SIZE, remainingObservations),
                 )
-                if (includeRoster) {
-                    rows += response.items.map { it.toEntity(scopeKey = key, workGroupId = workGroupId, tenantId = tenantId) }
-                }
                 response.observations.forEach { observation ->
                     accepted[observation.observationId] = observation
                 }
                 // A cursor that does not strictly change is treated as exhausted, so a
                 // server that echoes the same cursor cannot spin this loop forever.
-                cursor = response.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
                 observationsCursor = response.nextObservationsCursor?.takeIf { it.isNotBlank() && it != observationsCursor }
-                if (rows.size >= safetyLimit) cursor = null
                 if (accepted.size >= safetyLimit) observationsCursor = null
-                includeRoster = cursor != null
-            } while (cursor != null || observationsCursor != null)
+            } while (observationsCursor != null)
             val publishAccepted: suspend () -> Unit = {
-                rosterDao.replaceScope(key, rows)
                 val activeAcceptedIds = accepted.keys.toList()
                 if (activeAcceptedIds.isEmpty()) {
                     observationDao.deleteAcceptedForScope(key)
@@ -1269,9 +1254,11 @@ class DefaultWeighingRepository(
                 }
                 shedObservationDao.deleteAcceptedForScope(key)
                 accepted.values.forEach { observation ->
-                    val animalId = observation.animalId.trim()
-                    val scannedIdentifier = observation.scannedIdentifier.trim().ifBlank { animalId }
-                    if (animalId.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
+                    // The scanned tag is the whole identity of a free-flow capture. The old guard
+                    // required a non-empty animalId, which the backend has not sent since 000078 --
+                    // so NO accepted observation was ever restored to the device.
+                    val scannedIdentifier = observation.scannedIdentifier.trim()
+                    if (scannedIdentifier.isNotEmpty() && observation.weightKg > 0.0 && observation.proofArtifactId.isNotBlank()) {
                         observationDao.restoreAccepted(
                             WeighingObservationEntity(
                                 observationId = observation.observationId,
@@ -1284,7 +1271,6 @@ class DefaultWeighingRepository(
                                 expectedLocationLabel = "",
                                 actualLocationId = null,
                                 actualLocationLabel = null,
-                                animalId = animalId,
                                 scannedIdentifier = scannedIdentifier,
                                 weightKg = observation.weightKg,
                                 proofCaptureId = observation.proofArtifactId,
@@ -1301,7 +1287,7 @@ class DefaultWeighingRepository(
             database?.withTransaction {
                 publishAccepted()
             } ?: publishAccepted()
-            AppResult.Ok(rows.size)
+            AppResult.Ok(accepted.size)
         }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
     }
 
@@ -1415,11 +1401,12 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             if (capture.weightKg <= 0.0) return@withContext AppResult.Err("Weight must be greater than 0 kg.")
             val scopeKey = weighingScopeKey(capture.campaignId, capture.workGroupId, capture.campaignShedId)
-            // Keyed on scannedIdentifier, not animalId: free-flow weighing has no expected-animal
-            // list, so animalId can be blank while scannedIdentifier is the real free-flow identity.
-            val rosterRow = rosterDao.findByAnimal(scopeKey, capture.scannedIdentifier)
+            // Keyed on the scanned tag: free-flow weighing has no expected-animal list and no
+            // animal identity, so the scanned tag is the only identity a capture carries. The
+            // roster table is local-scan state only; a miss simply falls back to scope defaults.
+            val rosterRow = rosterDao.findByTag(scopeKey, normalizeWeighingTag(capture.scannedIdentifier))
             val observationId = idGenerator()
-            val existing = observationDao.findByAnimal(scopeKey, capture.scannedIdentifier)
+            val existing = observationDao.findByScannedIdentifier(scopeKey, capture.scannedIdentifier)
             if (existing != null && existing.matchesDraft(capture) && existing.proofCaptureId.isNullOrBlank()) {
                 return@withContext AppResult.Ok(existing.toDraft())
             }
@@ -1463,7 +1450,6 @@ class DefaultWeighingRepository(
                 expectedLocationLabel = rosterRow?.expectedLocationLabel ?: "Assigned shed",
                 actualLocationId = rosterRow?.actualLocationId,
                 actualLocationLabel = rosterRow?.actualLocationLabel,
-                animalId = capture.animalId,
                 scannedIdentifier = capture.scannedIdentifier,
                 weightKg = capture.weightKg,
                 proofCaptureId = null,
@@ -1483,7 +1469,7 @@ class DefaultWeighingRepository(
         proofCaptureId: String,
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
-        val row = observationDao.findByAnimal(scopeKey, scannedIdentifier) ?: return@withContext
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext
         if (
             row.syncStatus == WeighingSyncStatus.ACCEPTED.name &&
             row.proofCaptureId == proofCaptureId &&
@@ -1633,7 +1619,7 @@ class DefaultWeighingRepository(
     }
 
     override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) = withContext(Dispatchers.IO) {
-        val row = observationDao.findByAnimal(scopeKey, scannedIdentifier) ?: return@withContext
+        val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext
         cancelCancellableOutbox(row.idempotencyKey)
         observationDao.deleteEditable(row.observationId)
     }
@@ -1707,14 +1693,12 @@ private fun WeighingObservationEntity.matchesDraft(capture: IndividualWeighingCa
         campaignId == capture.campaignId &&
         workGroupId == capture.workGroupId &&
         campaignShedId == capture.campaignShedId &&
-        animalId == capture.animalId &&
         scannedIdentifier == capture.scannedIdentifier &&
         weightKg == capture.weightKg
 
 private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
     IndividualWeighingDraft(
         observationId = observationId,
-        animalId = animalId,
         scannedIdentifier = scannedIdentifier,
         weightKg = weightKg,
         capturedAtMs = capturedAtMs,
@@ -1735,30 +1719,6 @@ private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =
         readyToSubmit = syncStatus == WeighingSyncStatus.READY_TO_SUBMIT.name ||
             syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
-    )
-
-private fun WeighingRosterRowDto.toEntity(scopeKey: String, workGroupId: String, tenantId: String): WeighingRosterRowEntity =
-    WeighingRosterRowEntity(
-        id = listOf(campaignId, workGroupId, campaignShedId, animalId).joinToString(":"),
-        scopeKey = scopeKey,
-        tenantId = tenantId,
-        campaignId = campaignId,
-        workGroupId = workGroupId,
-        campaignShedId = campaignShedId,
-        expectedLocationId = expectedLocationId,
-        expectedLocationLabel = expectedLocationLabel,
-        actualLocationId = currentLocationId?.takeIf { it.isNotBlank() },
-        actualLocationLabel = currentLocationLabel?.takeIf { it.isNotBlank() },
-        animalId = animalId,
-        displayAnimalId = displayAnimalId.ifBlank { animalId.takeLast(8) },
-        primaryTag = primaryIdentifier,
-        secondaryTag = secondaryIdentifier?.takeIf { it.isNotBlank() },
-        normalizedPrimaryTag = normalizeWeighingTag(primaryIdentifier),
-        normalizedSecondaryTag = secondaryIdentifier?.takeIf { it.isNotBlank() }?.let(::normalizeWeighingTag),
-        status = status,
-        availabilityStatus = availabilityStatus,
-        seq = seq,
-        updatedAt = System.currentTimeMillis(),
     )
 
 /**
@@ -1885,7 +1845,7 @@ private fun WeighingLeadershipShedEntity.toLeadershipShed(
             val observation = json.decodeFromString<WeighingObservationDto>(record.dtoJson)
             WeighingLeadershipAnimal(
                 observationId = observation.observationId,
-                rfid = observation.scannedIdentifier?.ifBlank { null } ?: observation.animalId.orEmpty(),
+                rfid = observation.scannedIdentifier?.trim().orEmpty(),
                 weightKg = observation.weightKg,
                 acceptedAt = observation.acceptedAt,
                 videos = observation.media.map { WeighingLeadershipVideo(it.proofId, it.downloadUrl) },
@@ -2068,7 +2028,7 @@ private fun WeighingLeadershipShedVideosDto.toLeadershipShed(periodLabel: String
         animals = individual.map { observation ->
             WeighingLeadershipAnimal(
                 observationId = observation.observationId,
-                rfid = observation.scannedIdentifier?.ifBlank { null } ?: observation.animalId.orEmpty(),
+                rfid = observation.scannedIdentifier?.trim().orEmpty(),
                 weightKg = observation.weightKg,
                 acceptedAt = observation.acceptedAt,
                 videos = observation.media.map { WeighingLeadershipVideo(it.proofId, it.downloadUrl) },

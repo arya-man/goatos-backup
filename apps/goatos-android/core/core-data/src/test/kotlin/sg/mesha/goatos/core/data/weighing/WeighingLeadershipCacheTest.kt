@@ -400,7 +400,7 @@ class WeighingLeadershipCacheTest {
         observationId = id,
         campaignId = "task-1",
         campaignShedId = "bucket-1",
-        animalId = "rfid-$id",
+        scannedIdentifier = "rfid-$id",
         weightKg = 12.5,
         acceptedAt = "2026-07-31T10:00:00Z",
     )

@@ -13,6 +13,12 @@ import kotlinx.coroutines.flow.Flow
 enum class WeighingCategory { INDIVIDUAL_ANIMAL, PER_SHED_PARTITION }
 enum class WeighingSyncStatus { PENDING_LOCAL, PROOF_UPLOADING, READY_TO_SUBMIT, SYNC_FAILED, ACCEPTED }
 
+/**
+ * LOCAL SCAN STATE, not a server roster. Free-flow weighing has no expected-animal list — the
+ * backend dropped `weighing_expected_animals` (000079) and the scope read's `items` array is
+ * permanently empty — so nothing syncs into this table from the network any more. `animalId` here
+ * is the local scan LABEL the ViewModel mints for a scanned tag, never a herd identity.
+ */
 @Entity(
     tableName = "weighing_roster_row",
     indices = [
@@ -51,7 +57,14 @@ data class WeighingRosterRowEntity(
     indices = [
         Index(value = ["idempotencyKey"], unique = true),
         Index(value = ["scopeKey", "capturedAtMs"]),
-        Index(value = ["campaignId", "campaignShedId", "animalId"], unique = true),
+        // IDENTITY: the scanned tag, never an animal id. Weighing is free-flow -- the backend
+        // dropped weighing_observations.animal_id (000078) and weighing_expected_animals (000079),
+        // so a capture carries no herd identity at all and animal_id is never sent. Keying this
+        // unique index on that column made every capture in one bucket collide on animalId = "",
+        // and the DAO inserts with OnConflictStrategy.IGNORE -- so the SECOND scanned tag was
+        // silently dropped. scanned_identifier is REQUIRED on the record contract, so it is the
+        // only identity that can carry a uniqueness rule here.
+        Index(value = ["campaignId", "campaignShedId", "scannedIdentifier"], unique = true),
         Index(value = ["campaignId", "workGroupId", "campaignShedId"]),
     ],
 )
@@ -66,7 +79,7 @@ data class WeighingObservationEntity(
     val expectedLocationLabel: String,
     val actualLocationId: String?,
     val actualLocationLabel: String?,
-    val animalId: String,
+    /** The raw scanned tag. Free-flow weighing's ONLY identity; there is deliberately no animalId. */
     val scannedIdentifier: String,
     val weightKg: Double,
     val proofCaptureId: String?,
@@ -133,9 +146,6 @@ interface WeighingRosterDao {
     )
     suspend fun findByTag(scopeKey: String, normalizedTag: String): WeighingRosterRowEntity?
 
-    @Query("SELECT * FROM weighing_roster_row WHERE scopeKey = :scopeKey AND animalId = :animalId LIMIT 1")
-    suspend fun findByAnimal(scopeKey: String, animalId: String): WeighingRosterRowEntity?
-
     @Query("DELETE FROM weighing_roster_row WHERE scopeKey = :scopeKey")
     suspend fun deleteForScope(scopeKey: String)
 
@@ -169,11 +179,11 @@ interface WeighingObservationDao {
     @Query("SELECT * FROM weighing_observation WHERE idempotencyKey = :idempotencyKey LIMIT 1")
     suspend fun findByIdempotencyKey(idempotencyKey: String): WeighingObservationEntity?
 
-    // Draft/duplicate detection is keyed on the SCANNED IDENTIFIER, never animalId: free-flow
-    // weighing has no expected-animal list, so animalId can be blank/absent while
-    // scannedIdentifier is always the real free-flow identity for a capture.
+    // Draft/duplicate detection is keyed on the SCANNED IDENTIFIER: free-flow weighing has no
+    // expected-animal list and no animal identity at all, so the scanned tag is the only identity
+    // a capture carries. Matches the (campaignId, campaignShedId, scannedIdentifier) unique index.
     @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey AND scannedIdentifier = :scannedIdentifier LIMIT 1")
-    suspend fun findByAnimal(scopeKey: String, scannedIdentifier: String): WeighingObservationEntity?
+    suspend fun findByScannedIdentifier(scopeKey: String, scannedIdentifier: String): WeighingObservationEntity?
 
     @Query(
         "SELECT o.scopeKey AS scopeKey, o.scannedIdentifier AS scannedIdentifier, o.proofCaptureId AS proofCaptureId, " +

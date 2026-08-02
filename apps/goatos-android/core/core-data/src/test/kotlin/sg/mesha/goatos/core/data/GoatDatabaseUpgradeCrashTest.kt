@@ -9,12 +9,16 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -772,7 +776,6 @@ class GoatDatabaseUpgradeCrashTest {
                 expectedLocationLabel = "Gandhi 1",
                 actualLocationId = "loc-1",
                 actualLocationLabel = "Gandhi 1",
-                animalId = "animal-1",
                 scannedIdentifier = "RFID-1",
                 weightKg = 12.4,
                 proofCaptureId = null,
@@ -783,9 +786,11 @@ class GoatDatabaseUpgradeCrashTest {
                 lastError = null,
             ),
         )
-        // findByAnimal is keyed on scannedIdentifier (the real free-flow identity), not animalId --
-        // free-flow weighing has no expected-animal list, so animalId can be blank/absent.
-        assertEquals("obs-1", upgraded.weighingObservationDao().findByAnimal(scope, "RFID-1")?.observationId)
+        // Lookup is keyed on the scanned tag -- free-flow weighing carries no animal identity at all.
+        assertEquals(
+            "obs-1",
+            upgraded.weighingObservationDao().findByScannedIdentifier(scope, "RFID-1")?.observationId,
+        )
 
         upgraded.weighingShedObservationDao().insert(
             WeighingShedObservationEntity(
@@ -889,10 +894,186 @@ class GoatDatabaseUpgradeCrashTest {
         assertEquals("G-000101", upgraded.awaitingRfidRemoteKeyDao().get(AwaitingRfidRemoteKeyEntity.SCOPE)?.nextCursor)
     }
 
+    /**
+     * v25 -> v26: the installed-APK upgrade that drops `weighing_observation.animalId` and re-keys
+     * the bucket's unique index onto `scannedIdentifier`.
+     *
+     * This is the class of bug a plain in-memory Room test is BLIND to: an `@Entity` change with no
+     * matching `Migration` compiles, passes every in-memory test and works on a FRESH install, then
+     * throws `IllegalStateException: Migration didn't properly handle weighing_observation` on the
+     * first launch of every UPGRADED phone. So the v25 file is built on disk from the real
+     * migration chain, seeded through raw SQL with the v25 column set (`animalId` present), closed
+     * at user_version = 25, and reopened with the CURRENT schema + the real migrations.
+     *
+     * The rebuild must also be NON-DESTRUCTIVE: `weighing_observation` holds unsynced operator
+     * captures, so the seeded PENDING_LOCAL row must still be there afterwards with its weight,
+     * idempotency key and proof ids intact.
+     */
+    @Test
+    fun `installed v25 db upgrades to v26 dropping animalId without crashing or losing captures`() = runTest {
+        // 1. A real v25 file: v1 schema + every migration up to 24->25, seeded like a phone that
+        //    captured two weights offline and has not synced them.
+        seedV25DatabaseFile { db ->
+            db.execSQL(
+                "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, " +
+                    "`workGroupId`, `campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, " +
+                    "`actualLocationId`, `actualLocationLabel`, `animalId`, `scannedIdentifier`, `weightKg`, " +
+                    "`proofCaptureId`, `serverProofId`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                    "VALUES ('obs-v25-1', 'campaign-1:work-1:shed-1', 'tenant-1', 'campaign-1', 'work-1', " +
+                    "'shed-1', 'loc-1', 'Gandhi 1', 'loc-1', 'Gandhi 1', '', 'RFID-V25-1', 12.4, " +
+                    "'proof-local-1', 'proof-server-1', 'PENDING_LOCAL', 'weighing:individual:v25-1', 900, NULL)",
+            )
+            db.execSQL(
+                "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, " +
+                    "`workGroupId`, `campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, " +
+                    "`actualLocationId`, `actualLocationLabel`, `animalId`, `scannedIdentifier`, `weightKg`, " +
+                    "`proofCaptureId`, `serverProofId`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                    "VALUES ('obs-v25-2', 'campaign-1:work-1:shed-1', 'tenant-1', 'campaign-1', 'work-1', " +
+                    "'shed-1', 'loc-1', 'Gandhi 1', NULL, NULL, 'legacy-animal-2', 'RFID-V25-2', 13.5, " +
+                    "NULL, NULL, 'READY_TO_SUBMIT', 'weighing:individual:v25-2', 950, NULL)",
+            )
+        }
+
+        // 2. The app update: SAME file, current schema, real migration chain. A missing or wrong
+        //    MIGRATION_25_26 throws right here.
+        val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
+            .addMigrations(*ALL_TEST_MIGRATIONS)
+            .build()
+        try {
+            upgraded.openHelper.writableDatabase // force open + migrate + schema validate
+
+            // 3. Neither unsynced capture was lost, and every field the outbox needs survived.
+            val dao = upgraded.weighingObservationDao()
+            val kept = dao.observeForScope("campaign-1:work-1:shed-1", 20).first()
+            assertEquals(
+                listOf("RFID-V25-1", "RFID-V25-2"),
+                kept.map { it.scannedIdentifier },
+            )
+            val first = kept.first()
+            assertEquals(12.4, first.weightKg, 0.0)
+            assertEquals("PENDING_LOCAL", first.syncStatus)
+            assertEquals("weighing:individual:v25-1", first.idempotencyKey)
+            assertEquals("proof-local-1", first.proofCaptureId)
+            assertEquals("proof-server-1", first.serverProofId)
+            assertEquals(900L, first.capturedAtMs)
+
+            // 4. The column really is gone -- not merely ignored by the entity.
+            val columns = mutableListOf<String>()
+            upgraded.openHelper.writableDatabase
+                .query("PRAGMA table_info(`weighing_observation`)").use { c ->
+                    while (c.moveToNext()) columns += c.getString(1)
+                }
+            assertTrue("animalId must be dropped by MIGRATION_25_26, got $columns", "animalId" !in columns)
+            assertTrue("scannedIdentifier must survive", "scannedIdentifier" in columns)
+
+            // 5. And the re-keyed unique index is the one that exists.
+            val indices = mutableListOf<String>()
+            upgraded.openHelper.writableDatabase
+                .query("PRAGMA index_list(`weighing_observation`)").use { c ->
+                    while (c.moveToNext()) indices += c.getString(1)
+                }
+            assertTrue(
+                "unique index must be re-keyed onto scannedIdentifier, got $indices",
+                "index_weighing_observation_campaignId_campaignShedId_scannedIdentifier" in indices,
+            )
+            assertTrue(
+                "the animalId-keyed unique index must be gone, got $indices",
+                "index_weighing_observation_campaignId_campaignShedId_animalId" !in indices,
+            )
+
+            // 6. THE CAPTURE-DROP DEFECT: two different scanned tags in the SAME bucket must both
+            //    persist. Under the old (campaignId, campaignShedId, animalId) unique index both
+            //    collided on animalId = "" and the DAO's OnConflictStrategy.IGNORE silently threw
+            //    the second capture away -- a weight taken in a shed, gone with no error.
+            dao.insert(observationRow("obs-new-a", "RFID-NEW-A", 20.0, capturedAtMs = 1_000))
+            dao.insert(observationRow("obs-new-b", "RFID-NEW-B", 21.0, capturedAtMs = 1_001))
+            val afterTwoScans = dao.observeForScope("campaign-1:work-1:shed-1", 20).first()
+            assertEquals(
+                listOf("RFID-V25-1", "RFID-V25-2", "RFID-NEW-A", "RFID-NEW-B"),
+                afterTwoScans.map { it.scannedIdentifier },
+            )
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    /**
+     * Builds a genuine on-disk v25 database: the real v1 schema, then every real migration object
+     * up to 24->25, then [seed], closed at user_version = 25 with Room's identity row written so
+     * the file is indistinguishable from one a shipped v25 APK left behind.
+     */
+    private fun seedV25DatabaseFile(seed: (SupportSQLiteDatabase) -> Unit) {
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(DB_NAME)
+            .callback(object : SupportSQLiteOpenHelper.Callback(25) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `bootstrap_cache` " +
+                            "(`id` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                            "PRIMARY KEY(`id`))",
+                    )
+                    V25_MIGRATIONS.forEach { it.migrate(db) }
+                    // Room's own bookkeeping, as a shipped APK would have left it.
+                    db.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
+                    db.execSQL(
+                        "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '$V25_IDENTITY_HASH')",
+                    )
+                    seed(db)
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            })
+            .build()
+        FrameworkSQLiteOpenHelperFactory().create(configuration).use { helper ->
+            helper.writableDatabase // force onCreate + seed
+        }
+    }
+
+    private fun observationRow(
+        observationId: String,
+        scannedIdentifier: String,
+        weightKg: Double,
+        capturedAtMs: Long,
+    ) = WeighingObservationEntity(
+        observationId = observationId,
+        scopeKey = "campaign-1:work-1:shed-1",
+        tenantId = "tenant-1",
+        campaignId = "campaign-1",
+        workGroupId = "work-1",
+        campaignShedId = "shed-1",
+        expectedLocationId = "loc-1",
+        expectedLocationLabel = "Gandhi 1",
+        actualLocationId = "loc-1",
+        actualLocationLabel = "Gandhi 1",
+        scannedIdentifier = scannedIdentifier,
+        weightKg = weightKg,
+        proofCaptureId = null,
+        serverProofId = null,
+        syncStatus = "PENDING_LOCAL",
+        idempotencyKey = "weighing:individual:$observationId",
+        capturedAtMs = capturedAtMs,
+        lastError = null,
+    )
+
     private companion object {
         const val DB_NAME = "upgrade-crash-goat.db"
         const val SEEDED_BOOTSTRAP_JSON = "{\"probe\":\"pre-upgrade\"}"
         const val SEEDED_AT = 111L
+
+        /** The v25 identity hash, from schemas/<db>/25.json — what a shipped v25 APK wrote. */
+        const val V25_IDENTITY_HASH = "9caa0d79deccc9a2ea32c22de09aa909"
+
+        /** Every real migration object, in order — the chain DatabaseFactory installs. */
+        val ALL_TEST_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+            MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+            MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
+            MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
+        )
+
+        /** The chain that produces a v25 file: everything except MIGRATION_25_26. */
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(1)
     }
 }
 

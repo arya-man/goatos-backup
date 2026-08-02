@@ -424,13 +424,16 @@ interface AppApi {
         idempotencyKey: String,
     ): WeighingCampaignResponseDto
 
-    /** GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster — active scope RFID roster. */
+    /**
+     * GET .../roster — the active scope's SCAN HISTORY. Free-flow weighing has no expected-animal
+     * roster (`weighing_expected_animals` dropped by 000079), so the response's `items` array is
+     * permanently empty and the roster cursor/`include_roster` gate are gone with it: this read
+     * pages `observations` only.
+     */
     suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
-        cursor: String? = null,
         observationsCursor: String? = null,
-        includeRoster: Boolean = true,
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingRosterResponseDto
 
@@ -1168,9 +1171,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
-        cursor: String?,
         observationsCursor: String?,
-        includeRoster: Boolean,
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
 
