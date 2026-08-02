@@ -5339,6 +5339,144 @@ WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, closedBatchID
 	}
 }
 
+// TestCalendarOpenParkDriveRollsOnlyOntoToday pins the BOUNDS of the "open drive keeps showing on
+// the current date" rollover. The rolled card belongs to TODAY and to today alone:
+//   - it must NOT bleed into any window AFTER today (the D+1/D+2 leak: the phone showed the same
+//     cards when tapping tomorrow as when tapping today, still labelled with today's due_at),
+//   - it must NOT appear on days BEFORE its original planned date, and per the same contract it no
+//     longer sits on its original planned date either (it moved to today),
+//   - and a FUTURE-planned drive must be left completely alone on its own planned date -- the
+//     regression most likely to be caused by widening inclusion bounds to make the roll work.
+func TestCalendarOpenParkDriveRollsOnlyOntoToday(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	loc := biztime.DefaultLocation()
+
+	today := biztime.BusinessDayStart(time.Now())
+	dayD := today.AddDate(0, 0, -1)     // open drive's ORIGINAL planned date
+	tomorrow := today.AddDate(0, 0, 1)  // must stay clean
+	futureDay := today.AddDate(0, 0, 3) // forward-scheduled drive's own planned date
+	beforeDayD := today.AddDate(0, 0, -3)
+
+	// --- Open (in_progress) drive planned on day D, i.e. already in the past. ---
+	openProtocolID := "86000000-0000-4000-8000-000000009201"
+	openVersionID := "86000000-0000-4000-8000-000000009202"
+	openRuleID := "86000000-0000-4000-8000-000000009203"
+	openObligationID := "86000000-0000-4000-8000-000000009204"
+	openBatchID := "86000000-0000-4000-8000-000000009205"
+	openGoatID := "86000000-0000-4000-8000-000000009206"
+
+	seedVaccinationObligation(t, ctx, pool, openProtocolID, openVersionID, openRuleID, openObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, openGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, openGoatID, testParkA, testShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, openObligationID, openGoatID); err != nil {
+		t.Fatalf("seed open obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, openBatchID, openVersionID, testParkA, testShedA, dayD, openObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'in_progress', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, openBatchID); err != nil {
+		t.Fatalf("mark open batch in_progress: %v", err)
+	}
+	setDriveObligationStatus(t, ctx, pool, openObligationID, "in_progress")
+
+	// --- Forward-scheduled drive on a FUTURE day. Untouched by the rollover. ---
+	futureProtocolID := "86000000-0000-4000-8000-000000009211"
+	futureVersionID := "86000000-0000-4000-8000-000000009212"
+	futureRuleID := "86000000-0000-4000-8000-000000009213"
+	futureObligationID := "86000000-0000-4000-8000-000000009214"
+	futureBatchID := "86000000-0000-4000-8000-000000009215"
+	futureGoatID := "86000000-0000-4000-8000-000000009216"
+
+	seedVaccinationObligation(t, ctx, pool, futureProtocolID, futureVersionID, futureRuleID, futureObligationID, futureDay)
+	seedCalendarGoat(t, ctx, pool, futureGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, futureGoatID, testParkB, testShedB)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, futureObligationID, futureGoatID); err != nil {
+		t.Fatalf("seed future obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, futureBatchID, futureVersionID, testParkB, testShedB, futureDay, futureObligationID)
+
+	// ListEvents treats DateTo as an INCLUSIVE day (repository.go adds 24h to get the exclusive
+	// bound), so DateTo == DateFrom is a single-day window -- the same shape as the reported
+	// `?date_from=D&date_to=D` request.
+	listDay := func(t *testing.T, from time.Time) []domain.CalendarEvent {
+		t.Helper()
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID,
+			OwnerKey: domain.OwnerAll,
+			DateFrom: from,
+			DateTo:   from,
+			Limit:    50,
+			Scope:    domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("ListEvents(%s): %v", from.In(loc).Format("2006-01-02"), err)
+		}
+		return resp.Items
+	}
+	findPark := func(items []domain.CalendarEvent, parkID string) *domain.CalendarEvent {
+		for i := range items {
+			if items[i].EventType == "vaccination_drive" && items[i].ParkID != nil && *items[i].ParkID == parkID {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	// Sanity anchor: the open drive IS on today (the behaviour the rollover exists to provide).
+	todayItems := listDay(t, today)
+	if got := findPark(todayItems, testParkA); got == nil {
+		t.Fatalf("open drive missing from today's window (%s); items=%v",
+			today.In(loc).Format("2006-01-02"), eventIDs(todayItems))
+	}
+
+	// 1) TOMORROW must be clean. This is the reported bug: the rolled card, still carrying today's
+	//    due_at, materialised inside every future window.
+	tomorrowItems := listDay(t, tomorrow)
+	if got := findPark(tomorrowItems, testParkA); got != nil {
+		t.Errorf("open drive leaked into the TOMORROW window (%s) as %s due_at=%s -- a rolled drive belongs to today only",
+			tomorrow.In(loc).Format("2006-01-02"), got.EventID, got.DueAt.In(loc).Format("2006-01-02"))
+	}
+
+	// 2) The original planned day D, and a day BEFORE it, must not carry the drive: it rolled onto
+	//    today and lives there.
+	for _, day := range []time.Time{dayD, beforeDayD} {
+		items := listDay(t, day)
+		if got := findPark(items, testParkA); got != nil {
+			t.Errorf("open drive appeared on %s as %s due_at=%s -- want it only on today %s",
+				day.In(loc).Format("2006-01-02"), got.EventID, got.DueAt.In(loc).Format("2006-01-02"),
+				today.In(loc).Format("2006-01-02"))
+		}
+	}
+
+	// 3) A future-planned drive still shows on its OWN planned date, unrolled.
+	futureItems := listDay(t, futureDay)
+	futureEvent := findPark(futureItems, testParkB)
+	if futureEvent == nil {
+		t.Fatalf("future-planned drive missing from its own planned date %s; items=%v",
+			futureDay.In(loc).Format("2006-01-02"), eventIDs(futureItems))
+	}
+	if gotDay := futureEvent.DueAt.In(loc).Format("2006-01-02"); gotDay != futureDay.In(loc).Format("2006-01-02") {
+		t.Errorf("future-planned drive due_at = %s, want its own planned date %s",
+			gotDay, futureDay.In(loc).Format("2006-01-02"))
+	}
+	// ...and it must not have been dragged onto today by the rollover's widened bounds.
+	if got := findPark(todayItems, testParkB); got != nil {
+		t.Errorf("future-planned drive appeared on TODAY as %s due_at=%s", got.EventID, got.DueAt.In(loc).Format("2006-01-02"))
+	}
+}
+
 func eventIDs(items []domain.CalendarEvent) []string {
 	ids := make([]string, len(items))
 	for i, item := range items {
