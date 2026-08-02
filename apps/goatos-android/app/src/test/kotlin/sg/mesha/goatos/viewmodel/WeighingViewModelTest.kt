@@ -647,7 +647,11 @@ class WeighingViewModelTest {
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
 
-        override suspend fun listAssignments(cursor: String?, scope: String): AppResult<WeighingPage<WeighingAssignment>> =
+        override suspend fun listAssignments(
+            cursor: String?,
+            scope: String,
+            parkId: String?,
+        ): AppResult<WeighingPage<WeighingAssignment>> =
             AppResult.Ok(WeighingPage(emptyList(), null))
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
