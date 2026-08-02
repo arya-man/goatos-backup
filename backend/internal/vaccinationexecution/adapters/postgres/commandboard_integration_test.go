@@ -1279,15 +1279,32 @@ func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets
 		}
 	})
 
-	t.Run("CohortMatrixPendingCoversUntouchedHerd", func(t *testing.T) {
-		// OneToMany: pending_count is obligation grain; both parks have one obligation per animal,
-		// so pending must cover the untouched herd AND the recorded-unverified herd.
-		pending := 0
+	t.Run("CohortMatrixSeparatesUntouchedHerdFromSubmittedHerd", func(t *testing.T) {
+		// OneToMany + CrossSurfaceParity: the buckets are obligation grain and both parks have one
+		// obligation per animal, so the matrix must place the UNTOUCHED herd in pending and the
+		// SUBMITTED herd in submitted, and each must reconcile with its KPI. Previously both herds
+		// landed in a single "pending" number, so a fully vaccinated park was indistinguishable from
+		// one nobody had touched.
+		pending, submitted, verified := 0, 0, 0
 		for _, cell := range resp.CohortMatrix {
 			pending += cell.PendingCount
+			submitted += cell.SubmittedCount
+			verified += cell.VerifiedCount
 		}
-		if pending != 2*herdPerPark {
-			t.Fatalf("cohort matrix pending_count total = %d, want %d (both parks still pending)", pending, 2*herdPerPark)
+		if pending != herdPerPark {
+			t.Fatalf("cohort matrix pending_count total = %d, want %d (only the untouched park still owes field work)",
+				pending, herdPerPark)
+		}
+		if submitted != herdPerPark || submitted != k.AwaitingVerification {
+			t.Fatalf("cohort matrix submitted_count total = %d, want %d and must equal KPI awaiting_verification = %d",
+				submitted, herdPerPark, k.AwaitingVerification)
+		}
+		if verified != k.DosesVerified {
+			t.Fatalf("cohort matrix verified_count total = %d but KPI doses_verified = %d", verified, k.DosesVerified)
+		}
+		if pending != k.OverdueNotGiven+k.ScheduledAhead {
+			t.Fatalf("cohort matrix pending_count total = %d but KPI overdue_not_given + scheduled_ahead = %d",
+				pending, k.OverdueNotGiven+k.ScheduledAhead)
 		}
 	})
 }

@@ -1420,7 +1420,20 @@ park_drive_events AS (
         'total_count', obl_summary.total_count,
         'completed_count', obl_summary.completed_count,
         'submitted_count', obl_summary.submitted_count,
-        'remaining_count', obl_summary.total_count - obl_summary.completed_count,
+        -- remaining_count = WORK STILL OWED BY THE OPERATOR, summed from the three open buckets so
+        -- it is the SAME arithmetic the card already ships beside it. It was
+        -- total_count - completed_count, a numerator that excludes submitted work, while
+        -- progress_completed below is FIELD WORK DONE = completed + submitted. On a fully submitted
+        -- drive the one object then carried two contradictory answers to "how much is left"
+        -- (progress_pct 100 next to remaining_count 20), and a client picking remaining_count for an
+        -- "N left" label disagreed with the ring beside it -- the cross-surface failure mode that
+        -- produced the 200-vs-400 incident. Under the OLD "progress = verified only" rule the two
+        -- agreed; after the 2026-08-03 progress-semantics decision they cannot, so remaining_count
+        -- follows the progress numerator. The outstanding verifier review is carried by
+        -- submitted_count and the verification_pending status, never by inflating "remaining".
+        -- Identical to total_count - completed_count - submitted_count, because the five buckets are
+        -- a disjoint, total partition (invariant asserted directly above in obligation_drive_summary).
+        'remaining_count', obl_summary.due_count + obl_summary.overdue_count + obl_summary.deferred_count,
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,

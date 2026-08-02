@@ -34,17 +34,29 @@ function cohortBucket(managementStage: string, ladder: string[]): string {
 interface CohortPivotRow {
   cohort: string;
   animals: number;
+  // Three DISJOINT buckets from the backend, by WHO OWES THE NEXT MOVE: the operator (pending),
+  // the verifier (submitted), nobody (verified). The cell must show all three — showing only
+  // "pending" is what made a fully vaccinated, fully submitted park read identically to a park
+  // nobody had touched, and left the CEO with "40 pending" under "40 awaiting verification".
   pending: Record<string, number>;
+  submitted: Record<string, number>;
   verified: Record<string, number>;
   // The real management stages that fold into this rung, kept as their own sub-rows so the
   // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
-  members: Array<{ label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }>;
+  members: Array<{
+    label: string;
+    animals: number;
+    pending: Record<string, number>;
+    submitted: Record<string, number>;
+    verified: Record<string, number>;
+  }>;
 }
 
 interface CohortCellInput {
   cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
+  submittedCount: number;
   verifiedCount: number;
 }
 
@@ -73,10 +85,17 @@ function buildCohortPivot(
   const vaccines = Array.from(new Set(matrix.map((c) => c.vaccineLabel).filter(Boolean))).sort();
   const rows = ladder.map((cohort) => {
     const pending: Record<string, number> = {};
+    const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const members = new Map<
       string,
-      { label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }
+      {
+        label: string;
+        animals: number;
+        pending: Record<string, number>;
+        submitted: Record<string, number>;
+        verified: Record<string, number>;
+      }
     >();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
@@ -87,6 +106,7 @@ function buildCohortPivot(
       if (cohortBucket(cell.cohort.managementStage, ladder) !== cohort) return;
       const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+      submitted[cell.vaccineLabel] = (submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
       verified[cell.vaccineLabel] = (verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
 
       let member = members.get(key);
@@ -95,11 +115,14 @@ function buildCohortPivot(
           label: `${cell.cohort.managementStage} · ${cell.cohort.sex}`,
           animals: 0,
           pending: {},
+          submitted: {},
           verified: {},
         };
         members.set(key, member);
       }
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
+      member.submitted[cell.vaccineLabel] =
+        (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
       member.verified[cell.vaccineLabel] = (member.verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
 
       if (!counted.has(key)) {
@@ -112,6 +135,7 @@ function buildCohortPivot(
       cohort,
       animals,
       pending,
+      submitted,
       verified,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
@@ -166,6 +190,7 @@ interface CohortCell {
   cohort: { parkId: string; parkName: string; managementStage: string; sex: string; animalCount: number };
   vaccineLabel: string;
   pendingCount: number;
+  submittedCount: number;
   verifiedCount: number;
 }
 interface ShedDoseCell {
@@ -444,8 +469,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                         </thead>
                         <tbody>
                           {rows.flatMap((row) => {
+                            // Three DISJOINT buckets, rendered together: the big number is what
+                            // the OPERATOR still owes, and the sub-line carries what the VERIFIER
+                            // owes (submitted) plus what is closed (verified). Showing pending
+                            // alone made a fully vaccinated, fully submitted park read identically
+                            // to an untouched one, and contradicted the "awaiting verification"
+                            // KPI directly above this table.
                             const cells = (
                               pendingOf: Record<string, number>,
+                              submittedOf: Record<string, number>,
                               verifiedOf: Record<string, number>,
                               label: string,
                               present: boolean,
@@ -455,16 +487,20 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                                 if (!present || pending === undefined) {
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
+                                const awaiting = submittedOf[v] ?? 0;
                                 const done = verifiedOf[v] ?? 0;
+                                const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
+                                const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
+                                const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
                                 return (
                                   <td
                                     key={v}
-                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : "cbm-clear"}`}
-                                    title={`${label} · ${v} · ${pending} ${copy(pageContract, "command_board.cohort_matrix.pending_word")}, ${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`}
+                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}`}
+                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}`}
                                   >
                                     {pending}
                                     <small>
-                                      {done} {copy(pageContract, "command_board.cohort_matrix.verified_word")}
+                                      {awaiting} {submittedWord} · {done} {verifiedWord}
                                     </small>
                                   </td>
                                 );
@@ -473,7 +509,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                             return [
                               <tr key={`${farm}-${row.cohort}`}>
                                 <th className="cbm-rowh">{row.cohort}</th>
-                                {cells(row.pending, row.verified, row.cohort, row.animals > 0)}
+                                {cells(row.pending, row.submitted, row.verified, row.cohort, row.animals > 0)}
                                 <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
                               </tr>,
                               // The live stages inside this rung, so folding onto the ladder never
@@ -482,7 +518,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                                 ? row.members.map((member) => (
                                     <tr key={`${farm}-${row.cohort}-${member.label}`} className="cbm-cohort-sub">
                                       <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
-                                      {cells(member.pending, member.verified, member.label, true)}
+                                      {cells(member.pending, member.submitted, member.verified, member.label, true)}
                                       <td className="cbm-cell cbm-na">{member.animals}</td>
                                     </tr>
                                   ))
