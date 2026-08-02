@@ -4798,6 +4798,16 @@ export interface components {
             pendingCount: number;
             /** @description Count of animals in this cohort whose dose for this vaccine is verifier-accepted. Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor recorded-but-unverified — so the two may be displayed side by side. */
             verifiedCount: number;
+            /**
+             * Format: date-time
+             * @description Earliest actual operator-administered date among accepted vaccinations in this cohort cell.
+             */
+            minAdministeredDate?: string;
+            /**
+             * Format: date-time
+             * @description Latest actual operator-administered date among accepted vaccinations in this cohort cell.
+             */
+            maxAdministeredDate?: string;
         };
         ShedDoseMatrixCell: {
             /** Format: uuid */

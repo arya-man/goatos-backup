@@ -1847,6 +1847,8 @@ select:disabled { opacity: .45; }
 .cbm-future-table tbody tr:last-child td { border-bottom: 0; }
 .cbm-future-table tbody tr.is-selected { background: var(--infox); }
 .cbm-future-table th:last-child, .cbm-future-table td:last-child { text-align: right; white-space: nowrap; }
+.cbm-future-table .cbm-campaign-cell { min-width: 220px; vertical-align: middle; border-right: 1px solid var(--line2); }
+.cbm-future-table .cbm-campaign-cell small { display: block; margin-top: 4px; color: var(--muted); font-weight: 500; white-space: nowrap; }
 
 /* Farmwise cohort matrix: one block per farm so two farms never merge into one row set. */
 .cbm-farm-block { margin-top: 14px; }

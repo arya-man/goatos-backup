@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  formatDateSpan,
   formatScheduledDriveDates,
+  scheduledDriveCampaigns,
   scheduledDriveRows,
 } from "./command-board-future-drives.ts";
 
@@ -70,7 +72,42 @@ test("combined vaccines keep head count separate from vaccination count", () => 
   assert.equal(rows[0].doseCount, 458);
 });
 
+test("sheep and goat treatments roll up to one common adult annual campaign", () => {
+  const rows = scheduledDriveRows([
+    option({
+      driveBatchId: "pox-sheep",
+      driveName: "Blue Tongue + Sheep Pox",
+      plannedDate: "2027-07-24T00:00:00+05:30",
+      windowStart: "2027-07-24T00:00:00+05:30",
+      windowEnd: "2027-07-31T00:00:00+05:30",
+      targetCount: 229,
+      doseCount: 458,
+    }),
+    option({
+      driveBatchId: "pox-goat",
+      driveName: "Goat Pox",
+      plannedDate: "2027-07-26T00:00:00+05:30",
+      windowStart: "2027-07-24T00:00:00+05:30",
+      windowEnd: "2027-07-31T00:00:00+05:30",
+      targetCount: 95,
+      doseCount: 95,
+    }),
+  ]);
+  const campaigns = scheduledDriveCampaigns(rows);
+
+  assert.equal(campaigns.length, 1);
+  assert.equal(campaigns[0].name, "CPT Adult Annual Pox + Blue Tongue");
+  assert.equal(campaigns[0].targetCount, 324);
+  assert.equal(campaigns[0].doseCount, 553);
+  assert.equal(campaigns[0].treatments.length, 2);
+});
+
 test("future drive date labels compress consecutive operator days", () => {
   assert.equal(formatScheduledDriveDates(["2027-01-06", "2027-01-07"]), "6–7 Jan 2027");
   assert.equal(formatScheduledDriveDates(["2027-07-26"]), "26 Jul 2027");
+});
+
+test("actual vaccination date spans use leadership-readable dates", () => {
+  assert.equal(formatDateSpan("2026-07-24T00:00:00+05:30", "2026-07-26T00:00:00+05:30"), "24–26 Jul 2026");
+  assert.equal(formatDateSpan("2026-03-19T00:00:00+05:30", "2026-04-07T00:00:00+05:30"), "19 Mar–7 Apr 2026");
 });
