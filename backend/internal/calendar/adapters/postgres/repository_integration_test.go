@@ -5200,3 +5200,139 @@ INSERT INTO vaccination_completions (
 		}
 	})
 }
+
+func TestCalendarBatchedParkDriveRollsForwardUntilClosed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	loc := biztime.DefaultLocation()
+
+	today := biztime.BusinessDayStart(time.Now())
+	dayD := today.AddDate(0, 0, -1) // "yesterday" business day -- the drive's original planned date
+
+	// --- Open drive: submitted but not yet verified (matches the live 00:03 IST symptom). ---
+	openProtocolID := "86000000-0000-4000-8000-000000009101"
+	openVersionID := "86000000-0000-4000-8000-000000009102"
+	openRuleID := "86000000-0000-4000-8000-000000009103"
+	openObligationID := "86000000-0000-4000-8000-000000009104"
+	openBatchID := "86000000-0000-4000-8000-000000009105"
+	openGoatID := "86000000-0000-4000-8000-000000009106"
+
+	seedVaccinationObligation(t, ctx, pool, openProtocolID, openVersionID, openRuleID, openObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, openGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, openGoatID, testParkA, testShedA)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, openObligationID, openGoatID); err != nil {
+		t.Fatalf("seed open obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, openBatchID, openVersionID, testParkA, testShedA, dayD, openObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'in_progress', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, openBatchID); err != nil {
+		t.Fatalf("mark open batch in_progress: %v", err)
+	}
+	// verification_pending is a READ-TIME label, not a stored obligation_instances.status value
+	// (obligation_instances_status_check does not permit it). It is derived from a 'recorded'
+	// vaccination_completions row against an otherwise-open obligation -- see
+	// TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred's fixture for the
+	// same pattern. Leave the obligation itself 'in_progress' (open, not completed/canceled).
+	setDriveObligationStatus(t, ctx, pool, openObligationID, "in_progress")
+	if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::timestamptz, 'recorded', $2::text || ':recorded')`,
+		testTenantID, openObligationID, openGoatID, dayD); err != nil {
+		t.Fatalf("seed recorded completion for open drive: %v", err)
+	}
+
+	// --- Closed drive: same original day D, but completed. Must NOT roll forward. ---
+	closedProtocolID := "86000000-0000-4000-8000-000000009111"
+	closedVersionID := "86000000-0000-4000-8000-000000009112"
+	closedRuleID := "86000000-0000-4000-8000-000000009113"
+	closedObligationID := "86000000-0000-4000-8000-000000009114"
+	closedBatchID := "86000000-0000-4000-8000-000000009115"
+	closedGoatID := "86000000-0000-4000-8000-000000009116"
+
+	seedVaccinationObligation(t, ctx, pool, closedProtocolID, closedVersionID, closedRuleID, closedObligationID, dayD)
+	seedCalendarGoat(t, ctx, pool, closedGoatID)
+	setCalendarGoatCurrentShed(t, ctx, pool, closedGoatID, testParkB, testShedB)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_instances
+SET target_type = 'goat', target_id = $3::uuid
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`,
+		testTenantID, closedObligationID, closedGoatID); err != nil {
+		t.Fatalf("seed closed obligation target: %v", err)
+	}
+	seedVaccinationBatchForShed(t, ctx, pool, closedBatchID, closedVersionID, testParkB, testShedB, dayD, closedObligationID)
+	if _, err := pool.Exec(ctx, `
+UPDATE obligation_batches SET status = 'completed', updated_at = now()
+WHERE tenant_id = $1::uuid AND batch_id = $2::uuid`, testTenantID, closedBatchID); err != nil {
+		t.Fatalf("mark closed batch completed: %v", err)
+	}
+	setDriveObligationStatus(t, ctx, pool, closedObligationID, domain.StatusCompleted)
+
+	// Query the calendar for TODAY only (D+1 relative to the drives' original planned date).
+	resp, err := repo.ListEvents(ctx, domain.Query{
+		TenantID: testTenantID,
+		OwnerKey: domain.OwnerAll,
+		DateFrom: today,
+		DateTo:   today.AddDate(0, 0, 1),
+		Limit:    50,
+		Scope:    domain.ScopeFilter{TenantWide: true},
+	})
+	if err != nil {
+		t.Fatalf("ListEvents(today): %v", err)
+	}
+
+	openTodayEventID := parkDriveEventID(testParkA, today)
+	closedTodayEventID := parkDriveEventID(testParkB, today)
+	closedOriginalDayEventID := parkDriveEventID(testParkB, dayD)
+
+	var openEvent, closedTodayEvent, closedOriginalDayEvent *domain.CalendarEvent
+	for i := range resp.Items {
+		switch resp.Items[i].EventID {
+		case openTodayEventID:
+			openEvent = &resp.Items[i]
+		case closedTodayEventID:
+			closedTodayEvent = &resp.Items[i]
+		case closedOriginalDayEventID:
+			closedOriginalDayEvent = &resp.Items[i]
+		}
+	}
+
+	// POSITIVE: the open, submitted-but-unverified drive must be SURFACED under today's date --
+	// not merely present in the result set while still keyed under its original planned date D.
+	if openEvent == nil {
+		t.Fatalf("open verification_pending drive not surfaced under today (%s); items=%#v",
+			today.In(loc).Format("2006-01-02"), eventIDs(resp.Items))
+	}
+	if gotDay := openEvent.DueAt.In(loc).Format("2006-01-02"); gotDay != today.In(loc).Format("2006-01-02") {
+		t.Fatalf("open drive due_at grouped under %s, want today %s -- returned but not surfaced on D+1",
+			gotDay, today.In(loc).Format("2006-01-02"))
+	}
+	if openEvent.Status != domain.StatusVerificationPending {
+		t.Fatalf("open drive status = %q, want verification_pending", openEvent.Status)
+	}
+
+	// NEGATIVE: a CLOSED (completed) drive on day D must not roll forward onto today, and must not
+	// appear at all in a today-only query (its original day D is outside [today, today+1)).
+	if closedTodayEvent != nil {
+		t.Fatalf("closed/completed drive rolled forward onto today; a blanket 45-day lookback with no closed-status guard would produce this false positive: %#v", closedTodayEvent)
+	}
+	if closedOriginalDayEvent != nil {
+		t.Fatalf("closed/completed drive from day D leaked into a today-only query result: %#v", closedOriginalDayEvent)
+	}
+}
+
+func eventIDs(items []domain.CalendarEvent) []string {
+	ids := make([]string, len(items))
+	for i, item := range items {
+		ids[i] = item.EventID
+	}
+	return ids
+}

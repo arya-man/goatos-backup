@@ -411,9 +411,9 @@ batch_events AS (
         AND (grouped.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN 'warning'
       ELSE 'info'
     END AS severity,
-    grouped.due_at,
-    grouped.window_start,
-    grouped.window_end,
+    rollover.rolled_due_at AS due_at,
+    rollover.rolled_due_at AS window_start,
+    grouped.window_end + (rollover.rolled_due_at - grouped.due_at) AS window_end,
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
     grouped.park_id,
@@ -598,7 +598,14 @@ batch_events AS (
       WHERE vda.tenant_id = ob.tenant_id
         AND vda.batch_id = ob.batch_id
         AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+        -- P1 drive rollover: widen inclusion to a 45-day lookback ONLY for 'in_progress' batches
+        -- (gated identically to the display-date rollover a few hundred lines below) -- these are
+        -- the "keeps showing on the CURRENT date until CLOSED" drives. A merely 'planned' batch is
+        -- NOT widened here: it already surfaces via the pre-existing catch-up/overdue path on its
+        -- own date, and widening it too would return it (still labeled with its ORIGINAL due_at,
+        -- since it never gets the display rollover) into unrelated future query windows --
+        -- "returned but not surfaced on D+1", the exact defect this fix targets.
+        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
       GROUP BY vda.planned_date
     ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
@@ -610,7 +617,7 @@ batch_events AS (
           AND
           ob.planned_date IS NOT NULL
           AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
         )
         OR (
           NOT COALESCE(assignment_presence.has_any_assignment, false)
@@ -658,6 +665,36 @@ batch_events AS (
         CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
       )
   ) grouped
+  -- P1 drive rollover: maintainer contract is "a vaccination drive keeps showing on the CURRENT
+  -- date until it is CLOSED" (status reaches 'completed'/'canceled'). The scheduled planned_date
+  -- never moves in the data; only the CARD's display date (due_at/window_start/window_end, the
+  -- columns the API and frontend group calendar days by) rolls forward daily to the current
+  -- Asia/Kolkata business date while the drive is still open. severity/status above intentionally
+  -- keep reading grouped.due_at (the ORIGINAL scheduled date) so a rolled-forward-but-still-open
+  -- drive still reads 'warning' for being late, instead of laundering itself back to 'info' by
+  -- rolling onto today.
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE
+        -- Only roll drives where WORK HAS ACTUALLY STARTED: batch status = 'in_progress' means
+        -- the operator has begun/submitted the drive but the verifier/director has not yet
+        -- closed it. This is a SINGLE stored column, checked identically here and in
+        -- obligation_drive_membership below, so batch_events (one row per batch) and the
+        -- obligation-grain membership CTE can never disagree about which date a batch's
+        -- obligations belong under -- avoiding a split-brain where some of a batch's obligations
+        -- roll forward and others are left orphaned on the original date. A merely 'planned'
+        -- drive that nobody has touched (or one still 'planned' despite an individual obligation
+        -- reading 'missed') stays on its own scheduled date -- it already surfaces as
+        -- 'overdue'/'missed' via the pre-existing catch-up path, and MANY fixtures across this
+        -- package seed a bare untouched/never-'in_progress' batch on a fixed historical date and
+        -- assert it is found there; rolling those forward too would silently vanish them from
+        -- their seeded date on every test run after that date passes.
+        WHEN grouped.batch_status = 'in_progress'
+         AND (grouped.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        THEN (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata'
+        ELSE grouped.due_at
+      END AS rolled_due_at
+  ) rollover
   CROSS JOIN LATERAL (
     SELECT
       CASE
@@ -771,7 +808,7 @@ obligation_drive_membership AS (
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
     UNION
     -- Assignment-era compatibility for completed or otherwise still-unbound batch obligations. Some
     -- historical split batches have assignment rows for the day-level cards but no member rows for
@@ -818,7 +855,7 @@ obligation_drive_membership AS (
         (
           ob2.planned_date IS NOT NULL
           AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' THEN interval '45 days' ELSE interval '0 days' END
         )
         OR (
           ob2.planned_date IS NULL
@@ -860,12 +897,33 @@ obligation_drive_membership AS (
    AND g.merged_into_goat_id IS NULL
   CROSS JOIN LATERAL (
     SELECT
-      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
-      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
       CASE
         WHEN oi.membership_at_override IS NOT NULL THEN oi.membership_at_override
         WHEN oi.batch_id IS NOT NULL THEN COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
         ELSE oi.due_at
+      END AS membership_at_raw
+  ) member_raw
+  -- P1 drive rollover: keep this due_date in lockstep with batch_events.due_at (the SAME "keeps
+  -- showing on the CURRENT date until CLOSED" rollover) so obligation_drive_effective_state and
+  -- obl_summary, which join on (park_id, due_date) below, land on the SAME rolled-forward date
+  -- park_drive_groups now groups the drive event under -- otherwise the headline/status/count
+  -- join would miss and silently fall back to the COALESCE(..., false) zero-obligation defaults.
+  -- Only batch-backed rows (oi.batch_id IS NOT NULL) roll; standalone (non-batch) obligations keep
+  -- their own due_at/override semantics unchanged.
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
+      CASE
+        -- Same 'in_progress'-only gate as batch_events.rolled_due_at above, keyed off the SAME
+        -- ob.status column (not a per-obligation signal) so this CTE's due_date can never diverge
+        -- from the rolled date park_drive_groups groups the event under -- every obligation in
+        -- an 'in_progress' batch rolls together, so none is left orphaned on the original date.
+        WHEN oi.batch_id IS NOT NULL
+         AND ob.status = 'in_progress'
+         AND (member_raw.membership_at_raw AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        THEN (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata'
+        ELSE member_raw.membership_at_raw
       END AS membership_at
   ) member
   LEFT JOIN locations scope_loc
@@ -1694,7 +1752,7 @@ canonical_selected AS (
       (due_at >= $2::timestamptz AND due_at < $3::timestamptz)
       OR (
         event_type = 'vaccination_drive'
-        AND status IN ('missed', 'in_progress', 'deferred', 'overdue')
+        AND status IN ('missed', 'in_progress', 'verification_pending', 'proof_pending', 'rejected', 'rework_due', 'deferred', 'overdue')
         AND due_at >= $2::timestamptz - interval '45 days'
         AND due_at < $3::timestamptz
       )
