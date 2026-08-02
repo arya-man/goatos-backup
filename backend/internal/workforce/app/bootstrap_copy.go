@@ -187,18 +187,19 @@ var soonModuleKeys = []string{"feed_direction", "breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A standalone verifier with verify duties on multiple features shows the active module's
-	// bottom bar (user-selected, defaulting to the first feature). A single-feature verifier
-	// shows the generic verification bar. Leadership principals may also hold review
-	// permission, but they still land in their leadership module rather than the
-	// verifier-only app.
+	// A standalone verifier shows the active module's bottom bar -- the first feature from
+	// verifierFeatureKeys, same resolution modulesFor uses for the drawer, so
+	// visible_navigation always equals modules[0].NavItems. Built via
+	// verificationModuleForFeature (not the static registry) so the bar carries the
+	// feature-scoped [Verify, Alerts, You] items, never the registry's bare
+	// "verification" entry. Leadership principals may also hold review permission, but
+	// they still land in their leadership module rather than the verifier-only app.
 	if isStandaloneVerifierPrincipal(grants) {
-		// Multi-feature verifier: use the first grantedModule (from position_module_duties/verify duties)
-		// as the active module. Single-feature (empty grantedModules) falls back to "verification".
-		if len(grantedModules) > 0 {
-			return composeNavigationFromModules([]string{grantedModules[0]}, grants, localeTag)
+		features := verifierFeatureKeys(grantedModules)
+		if len(features) == 0 {
+			return []domain.BootstrapNavigationItem{}
 		}
-		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
+		return verificationModuleForFeature(features[0], grants, localeTag).NavItems
 	}
 
 	// Leadership principals default to their curated module set. There is no synthetic
@@ -283,12 +284,15 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 //   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
 	if isStandaloneVerifierPrincipal(grants) {
-		// Verifier with multiple verify duties: offer each feature they verify.
-		// Verifier with single/no duties: fall back to generic verification module.
-		if len(grantedModules) > 1 {
-			return grantedModules
+		// Every standalone verifier is scoped to the feature(s) their verify duties name,
+		// or -- for a coarse department-level "verification" grant / no duties at all --
+		// every built feature. See verifierFeatureKeys.
+		features := verifierFeatureKeys(grantedModules)
+		normalized := make([]string, 0, len(features))
+		for _, key := range features {
+			normalized = append(normalized, normalizeModuleFeatureKey(key))
 		}
-		return []string{"verification"}
+		return normalized
 	}
 	if !isLeadershipPrincipal(grants) {
 		return grantedModules
@@ -434,29 +438,67 @@ func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) stri
 	return best
 }
 
+// normalizeModuleFeatureKey maps a raw feature/module key to its base module id.
+// Keys may come as "vaccination", "pc.vaccination", "weighing", "feed.direction", etc.
+// ("pc." prefix stripped, dots converted to underscores, e.g. "feed.direction" →
+// "feed_direction"). Shared by verificationModuleForFeature and the verifier feature
+// resolution in candidateModuleKeys/modulesFor/visibleNavigationFor so all three agree
+// on the same module identity for a given raw key.
+func normalizeModuleFeatureKey(key string) string {
+	if strings.HasPrefix(key, "pc.") {
+		key = strings.TrimPrefix(key, "pc.")
+	}
+	key = strings.ReplaceAll(key, ".", "_")
+	return key
+}
+
+// builtVerifiableFeatures lists the shipped feature modules a verifier's [Verify, Alerts]
+// bar can be scoped to, in drawer priority order. Only "available" (built) modules are
+// eligible -- verifiers review evidence for shipped features, not roadmap ones.
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts"}
+
+// verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
+// into the feature keys their per-module [Verify, Alerts] bar is built for.
+// grantedModules mixes two sources:
+//   - feature-specific verify duties from position_module_duties, e.g. "vaccination" or
+//     "pc.vaccination" -- these carry real feature identity.
+//   - a coarse department-level "verification" grant (department_module_grants.module_key
+//     = "verification") with no feature attached.
+//
+// The literal "verification" key carries no feature identity, so it is dropped here. If
+// nothing feature-specific remains -- a department-level grant only, or no duties
+// recorded at all -- the verifier is scoped to every built feature, the same "review
+// everything shipped" default a CEO gets. This is the only way to honor the binding
+// [Verify, Alerts]-per-module ruling (drawer + per-feature bar, never a merged/un-scoped
+// Alerts tab) for a verifier whose grant does not itself name a feature.
+func verifierFeatureKeys(grantedModules []string) []string {
+	out := make([]string, 0, len(grantedModules))
+	seen := make(map[string]bool, len(grantedModules))
+	for _, key := range grantedModules {
+		if key == "verification" {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		return append([]string(nil), builtVerifiableFeatures...)
+	}
+	return out
+}
+
 // verificationModuleForFeature builds a per-feature verification module for a verifier
 // who has verify duty on that feature. It uses the feature's label and contributes:
 //   - Verify: the verify/video queue for that feature
-//   - Alerts: role-scoped alerts for that feature (FUTURE: backend support needed)
+//   - Alerts: the process-integrity alerts feed for that feature, scoped via
+//     verificationCategoryForFeature so the category the nav emits matches the category
+//     the /verify/alerts endpoint actually filters on
 //   - You: the account tab (shared across all modules)
-//
-// The href points to /verify, and the backend will filter the queue by category/module.
-// The alerts href is a PLACEHOLDER and requires a future per-feature alerts API endpoint.
 func verificationModuleForFeature(featureKey string, grants []domain.GrantSummary, localeTag string) domain.BootstrapModule {
-	// Map feature keys to their display labels and locale keys.
-	// Keys may come as "vaccination", "pc.vaccination", "weighing", "feed.direction", etc.
-	// Normalize to the base module key first (e.g., "pc.vaccination" → "vaccination",
-	// "feed.direction" → "feed_direction").
-	normalizeKey := func(key string) string {
-		// Strip "pc." prefix if present (e.g., "pc.vaccination" → "vaccination")
-		if strings.HasPrefix(key, "pc.") {
-			key = strings.TrimPrefix(key, "pc.")
-		}
-		// Convert dots to underscores (e.g., "feed.direction" → "feed_direction")
-		key = strings.ReplaceAll(key, ".", "_")
-		return key
-	}
-	normalized := normalizeKey(featureKey)
+	normalized := normalizeModuleFeatureKey(featureKey)
 
 	labelKeys := map[string]string{
 		"vaccination":    "module.vaccination",
@@ -469,14 +511,13 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 		labelKey = "module." + normalized
 	}
 
-	// Compose nav items: verify + alerts + you
-	// The alerts href is currently a placeholder. Per-feature alerts endpoints do not exist yet;
-	// this nav item will render but the route may not be available. This is a FUTURE enhancement
-	// once the backend supports module-scoped process integrity / alerts endpoints.
-	// Per-feature alert labels are mapped by alertsLabelKeyForFeature to match the feature.
+	// Compose nav items: verify + alerts + you. Alerts hits the real /verify/alerts
+	// endpoint (internal/verification/adapters/http/handler.go ListAlerts), scoped with
+	// the category verificationCategoryForFeature maps THIS feature to -- that mapping
+	// must match the category value the feature's own verification-bridge writes onto
+	// verification_items.category, or the tab renders 200-with-empty-list forever.
 	items := []moduleNavContribution{
 		{key: "verify", labelKey: "nav.verify", href: "/verify?module=" + normalized, shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
-		// FUTURE: alerts per feature. Currently /alerts is vaccination-only. When per-feature alerts
 		{key: "alerts", labelKey: alertsLabelKeyForFeature(normalized), href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
 		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "", priority: 100, requiredPermission: ""},
 	}
@@ -523,30 +564,22 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 // composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
 // For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
-	keys := candidateModuleKeys(grants, grantedModules)
-
-	// Special case: multi-module verifier. Compose per-feature verification modules
-	// rather than looking up registry modules. Only include modules that are "available"
-	// in the registry; verifiers only verify built features, not "soon" roadmap modules.
-	// Exclude the generic "verification" module from the feature list.
-	if isStandaloneVerifierPrincipal(grants) && len(grantedModules) > 1 {
-		out := make([]domain.BootstrapModule, 0, len(grantedModules))
-		normalizeKey := func(key string) string {
-			if strings.HasPrefix(key, "pc.") {
-				key = strings.TrimPrefix(key, "pc.")
-			}
-			// Convert dots to underscores (e.g., "feed.direction" → "feed_direction")
-			key = strings.ReplaceAll(key, ".", "_")
-			return key
-		}
-		for _, featureKey := range grantedModules {
-			normalized := normalizeKey(featureKey)
-			// Skip the generic "verification" module; verifiers get per-feature modules instead.
-			if normalized == "verification" {
-				continue
-			}
-			// Check if the module exists in the registry. Verifiers can verify both available
-			// and "soon" modules if they have explicit duties on them.
+	// Standalone verifier: ALWAYS compose per-feature verification modules (one drawer
+	// entry per feature, each with its own [Verify, Alerts, You] bar) rather than looking
+	// up registry modules. This applies uniformly regardless of how many verify duties the
+	// principal holds -- one, several, or a coarse department-level "verification" grant
+	// with none named -- because the binding nav ruling bans a merged/un-scoped Alerts
+	// tab (docs: maintainer ruling "Alerts are NOT one merged tab"; see
+	// verifierFeatureKeys for how the feature set is resolved). Verifiers only verify
+	// built features, not "soon" roadmap modules.
+	if isStandaloneVerifierPrincipal(grants) {
+		features := verifierFeatureKeys(grantedModules)
+		out := make([]domain.BootstrapModule, 0, len(features))
+		for _, featureKey := range features {
+			normalized := normalizeModuleFeatureKey(featureKey)
+			// Check if the module exists in the registry. Verifiers can verify both
+			// available and "soon" modules if they have explicit duties on them (unchanged
+			// from the pre-existing multi-module verifier behavior this generalizes).
 			_, ok := moduleNavRegistry[normalized]
 			if !ok {
 				continue
@@ -557,12 +590,12 @@ func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag
 				out = append(out, module)
 			}
 		}
-		// Verifier drawer should not show "soon" modules; they only verify what's built.
 		return out
 	}
 
-	// Standard path: look up modules in the registry (for operators, leadership, and
-	// single-module verifiers).
+	keys := candidateModuleKeys(grants, grantedModules)
+
+	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
 	for _, key := range keys {
@@ -861,7 +894,13 @@ func verificationCategoryForFeature(normalizedFeatureKey string) string {
 	case "weighing":
 		return "weighing_proof"
 	case "counts":
-		return "counts_proof"
+		// NOT "counts_proof" -- counts has no such category. The only counts write path
+		// that goes through verification is shifting execution
+		// (internal/countsbridge/shifting_verification_enqueue.go), which enqueues with
+		// counts/domain.VerificationCategoryShifting = "shifting_move". Emitting
+		// "counts_proof" here matched nothing in verification_items.category and made
+		// the counts Alerts tab silently, permanently empty (HTTP 200, zero rows).
+		return "shifting_move"
 	case "feed_direction":
 		return "feed_distribution"
 	default:

@@ -238,6 +238,13 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 }
 
+// TestBootstrapVerifierGetsStandaloneVerificationNav is the end-to-end regression guard
+// for the "Alerts silently missing" defect found live on 2026-08-02: a verifier with no
+// module-specific grant (no position_module_duties row, no department feature grant --
+// exactly a bare RoleVerifier grant, as ListGrantedModuleKeys returns for a principal
+// whose only department grant is the generic "verification" key) must still get a
+// feature-scoped [Verify, Alerts, You] bar per built feature, never the old bare
+// [Verify, You] with no Alerts tab.
 func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -247,8 +254,56 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
+	// No named duties -> scoped to every built feature; the active/default bar is the
+	// first feature (vaccination, drawer priority 1).
 	want := []domain.BootstrapNavigationItem{
-		{Key: "verify", Label: "Verify", Href: "/verify"},
+		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+		{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
+		{Key: "you", Label: "You", Href: "/you"},
+	}
+	if len(got.VisibleNavigation) != len(want) {
+		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+	}
+	for i := range want {
+		if got.VisibleNavigation[i] != want[i] {
+			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
+		}
+	}
+	// >=2 built features -> expanded drawer (Vaccination / Weighing / Counts / You / Sign
+	// out), same shape as the CEO app per the binding maintainer ruling.
+	if got.NavChrome != domain.NavChromeExpanded {
+		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
+	}
+	foundAlerts := false
+	for _, m := range got.Modules {
+		for _, item := range m.NavItems {
+			if item.Key == "alerts" {
+				foundAlerts = true
+			}
+		}
+	}
+	if !foundAlerts {
+		t.Fatalf("no module in the drawer carries an Alerts item; modules=%#v", got.Modules)
+	}
+}
+
+// TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts covers the common real-world
+// shape: a verifier with exactly one verify duty gets a minimal-chrome bar scoped to
+// THAT feature, with a correctly-categorized Alerts item -- never the generic merged
+// "verification" module the pre-fix code fell back to for len(grantedModules) <= 1.
+func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
+	svc := NewService(&fakeRepo{
+		profile:        profile("active"),
+		grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+		grantedModules: []string{"weighing"},
+	})
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v", err)
+	}
+	want := []domain.BootstrapNavigationItem{
+		{Key: "verify", Label: "Verify", Href: "/verify?module=weighing"},
+		{Key: "alerts", Label: "Weighing alerts", Href: "/verify/alerts?category=weighing_proof"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
@@ -260,7 +315,10 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 		}
 	}
 	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeMinimal)
+		t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
+	}
+	if len(got.Modules) != 1 || got.Modules[0].Key != "verify_weighing" {
+		t.Fatalf("Modules=%#v want single verify_weighing module", got.Modules)
 	}
 }
 
@@ -368,11 +426,24 @@ func TestVisibleNavigationFor(t *testing.T) {
 			},
 		},
 		{
-			name:    "verifier",
+			// No duties named -> scoped to every built feature; the default/active bar
+			// is the first (vaccination), with a correctly-categorized Alerts item.
+			name:    "verifier with no duties",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
-				{Key: "verify", Label: "Verify", Href: "/verify"},
+				{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+				{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
+				{Key: "you", Label: "You", Href: "/you"},
+			},
+		},
+		{
+			name:    "single-feature verifier",
+			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			modules: []string{"counts"},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "verify", Label: "Verify", Href: "/verify?module=counts"},
+				{Key: "alerts", Label: "Counts alerts", Href: "/verify/alerts?category=shifting_move"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -510,9 +581,18 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:   "verifier minimal",
+			// No verify duties/module grant at all -> scoped to every built feature
+			// (verifierFeatureKeys fallback), so >=2 modules -> expanded drawer, same as
+			// a multi-feature verifier.
+			name:   "verifier with no duties expands to every built feature",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
-			want:   domain.NavChromeMinimal,
+			want:   domain.NavChromeExpanded,
+		},
+		{
+			name:           "single-feature verifier minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			grantedModules: []string{"vaccination"},
+			want:           domain.NavChromeMinimal,
 		},
 	}
 	for _, tc := range tests {
