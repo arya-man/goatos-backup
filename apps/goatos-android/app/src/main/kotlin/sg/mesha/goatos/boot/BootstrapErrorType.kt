@@ -15,4 +15,10 @@ enum class BootstrapErrorType {
      * Action: "Retry" → retry loading the bootstrap.
      */
     CONNECTIVITY_FAILURE,
+
+    /**
+     * Token is valid but access is not provisioned (403: no roster profile / no grant).
+     * Action: "Retry" -- never sign-out, which would wipe unsynced offline writes.
+     */
+    ACCESS_NOT_PROVISIONED,
 }

@@ -50,6 +50,8 @@ class DefaultBootstrapRepository(
             val bootstrapError = t.asBootstrapError()
             when (bootstrapError) {
                 is BootstrapError.AuthSessionExpired -> throw bootstrapError
+                // Access not provisioned yet: surface it, but never destroy local work.
+                is BootstrapError.AccessNotProvisioned -> throw bootstrapError
                 is BootstrapError.ConnectivityFailure -> {
                     // Try to fall back to cached bootstrap on connectivity failure only.
                     cache?.load()?.toNavState() ?: throw bootstrapError

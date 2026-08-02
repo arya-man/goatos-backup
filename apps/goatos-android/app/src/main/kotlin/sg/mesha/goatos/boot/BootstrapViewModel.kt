@@ -99,6 +99,7 @@ class BootstrapViewModel @Inject constructor(
                     // Distinguish auth failures (401/expired token) from connectivity failures.
                     val errorType = when (throwable) {
                         is BootstrapError.AuthSessionExpired -> BootstrapErrorType.AUTH_SESSION_EXPIRED
+                        is BootstrapError.AccessNotProvisioned -> BootstrapErrorType.ACCESS_NOT_PROVISIONED
                         is BootstrapError.ConnectivityFailure -> BootstrapErrorType.CONNECTIVITY_FAILURE
                         else -> {
                             // Fallback for unexpected errors (should not occur with the new mapping).
