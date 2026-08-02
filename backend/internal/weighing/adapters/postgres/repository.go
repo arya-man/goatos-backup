@@ -2019,12 +2019,41 @@ WHERE tenant_id=$1::uuid
 			return nil, err
 		}
 	}
+	// F6: restore the PARENT campaign to a capturable status too, not just the
+	// bucket. CloseCampaign can leave the campaign itself in 'closed' (cascade
+	// close) or 'completed' (every bucket finished on its own). A reopened
+	// bucket needs its parent campaign back in a status the capture gate
+	// (campaign.status IN ('published','in_progress','delayed'), checked in
+	// RecordAnimalObservation/RecordShedObservation and their classify*
+	// helpers) accepts, or the bucket flip above is cosmetic: capture stays
+	// rejected forever.
+	//
+	// Only 'closed' and 'completed' are eligible - both are states this same
+	// campaign reaches ONLY via completeCampaignIfDone or CloseCampaign, i.e.
+	// derived from bucket state, never a deliberate terminal decision distinct
+	// from "all buckets are done". 'canceled' is excluded on purpose: that is
+	// a genuine terminal outcome (the whole campaign was withdrawn) and must
+	// never be resurrected by a single bucket's reopen.
+	//
+	// Reopening one bucket out of several closed/completed buckets does NOT
+	// misrepresent the others: this UPDATE only ever touches the
+	// weighing_campaigns row (one row, campaign-grain status), never cascades
+	// to sibling weighing_campaign_sheds rows, which keep whatever status they
+	// were already in. The campaign simply becomes 'in_progress' again, which
+	// is a truthful "this campaign has open work" - correct whether one
+	// bucket or all of them are reopened.
+	//
+	// Re-closing afterwards stays consistent for free: CloseCampaign's own
+	// gate re-evaluates the LIVE bucket set (pending verification, terminal
+	// status) at close time, and completeCampaignIfDone re-derives 'completed'
+	// once every non-canceled bucket is terminal again - neither function
+	// trusts anything cached from before this reopen.
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaigns
-SET status='in_progress', completed_at=NULL, updated_at=now(), row_version=row_version+1
+SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, updated_at=now(), row_version=row_version+1
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
-  AND status='completed'`, tenantID, campaignID); err != nil {
+  AND status IN ('completed','closed')`, tenantID, campaignID); err != nil {
 		return nil, err
 	}
 	if err := r.enqueueShedReopened(ctx, tx, tenantID, campaignShedID, actorID, reason); err != nil {
