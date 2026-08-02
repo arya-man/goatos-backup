@@ -84,6 +84,12 @@ func TestListCampaignsOneToManyShedFanOutDoesNotMultiplyCampaignRows(t *testing.
 	// Sibling campaign in a SECOND park, same operator: proves the park label is
 	// resolved per campaign and that two parks do not cross-multiply.
 	otherPark := lcpUUID(11002)
+	// Seed grant for repoOperator to the CPT park before inserting buckets.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOperator, lcpParkCPT)
 	lcpInsertCampaign(t, ctx, pool, otherPark, lcpParkCPT, "2026-09-21", domain.StatusPublished, repoOperator)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(11021), otherPark, lcpShedCPT, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
 
@@ -282,6 +288,12 @@ func TestListCampaignsParkScopeHierarchyOperatorSeesOnlyOwnBuckets(t *testing.T)
 
 	// A campaign in the OTHER park with no bucket for this operator at all.
 	otherParkCampaign := lcpUUID(13003)
+	// Seed grant for repoOtherOp to the CPT park before inserting buckets.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOtherOp, lcpParkCPT)
 	lcpInsertCampaign(t, ctx, pool, otherParkCampaign, lcpParkCPT, "2026-10-01", domain.StatusPublished, repoOtherOp)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(13031), otherParkCampaign, lcpShedCPT, domain.CategoryIndividualAnimal, repoOtherOp, 4, "pending")
 
@@ -377,6 +389,12 @@ func TestListCampaignsStatusMatrixCoversEveryStatusBucket(t *testing.T) {
 
 	// One campaign carrying every BUCKET status at once, on distinct sheds.
 	bucketMatrix := lcpUUID(14201)
+	// Seed grant for repoOperator to the CPT park before inserting the campaign.
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOperator, lcpParkCPT)
 	lcpInsertCampaign(t, ctx, pool, bucketMatrix, lcpParkCPT, "2026-12-21", domain.StatusInProgress, repoOperator)
 	bucketSheds := []string{lcpShedCPT, lcpShedOne, lcpShedTwo, lcpShedThree, lcpShedFour, lcpShedFive, lcpShedSix}
 	if len(bucketStatuses) > len(bucketSheds) {
