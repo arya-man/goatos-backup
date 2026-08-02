@@ -410,3 +410,101 @@ wrong: false-green compiles, silently-skipped tests, migrations never applied,
 fixtures that swallowed errors with `_, _ = pool.Exec(...)`, and unrelated test
 output pasted as proof. Re-run the named command yourself before believing any
 claim, including the ones in this document.
+
+---
+
+## Uncommitted work waiting in the QA worktree
+
+Not on `main`. `git status` in the `goatos-main-qa` worktree shows all of it.
+Four independent workstreams — review and land them separately, not as one blob.
+
+**1. Calendar headline — the corrected rework (see "Required approach" above).**
+Replaces the rejected patch. Adds an `obligation_drive_effective_state` CTE
+computing `has_submitted` / `genuine_missed` / `genuine_overdue` **always-on**,
+independent of the optional `obl_summary`, joined into `park_drive_events`.
+Precedence: genuine_missed → missed/critical; else submitted/review →
+verification_pending/**warning**; else genuine_overdue → overdue/critical.
+Tests cover all-submitted and mixed (5 submitted + 5 genuinely missed → still
+missed/critical), each on **both** `include_drive_summary=true` and `false`.
+Reported green. **Not independently re-verified by me** — re-run before landing.
+
+```
+backend/internal/calendar/adapters/postgres/canonical_read.go
+backend/internal/calendar/adapters/postgres/repository_integration_test.go
+```
+
+**2. Privilege escalation fix (NEW-1).** `hasWeighingAuthorityTenantWide()`,
+fail-closed on empty grants, 4 new tests. Carries the role-whitelist caveat above.
+
+```
+backend/internal/weighing/app/service.go
+backend/internal/weighing/app/checkparkscope_privesc_test.go   (new)
+backend/internal/weighing/app/service_test.go
+backend/internal/weighing/app/close_test.go
+backend/internal/weighing/app/reopen_scope_withdrawal_test.go
+```
+
+**3. FCM dead-token pruning.** 8 of 11 sends returned `404 UNREGISTERED` and
+nothing removed them.
+
+```
+backend/internal/notification/adapters/postgres/repository.go
+backend/internal/notification/app/service.go
+backend/internal/notification/adapters/gateway/gateway_test.go
+backend/internal/notification/adapters/postgres/repository_integration_test.go
+```
+
+**4. Android: honest auth-failure copy + verifier video controls.** An expired
+session was rendering "Couldn't load your workspace. Check your connection" —
+blaming the network for an auth failure. Typed bootstrap errors replace it.
+`VerifyDetailScreen` wraps `VideoFullscreenButton` in `if (controlsEnabled)`.
+
+```
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/boot/BootstrapViewModel.kt
+apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/boot/BootstrapErrorType.kt        (new)
+apps/goatos-android/core/core-network/.../BootstrapError.kt                               (new)
+apps/goatos-android/core/core-network/.../BootstrapErrorMapper.kt                         (new)
+apps/goatos-android/core/core-network/.../BootstrapErrorMapperTest.kt                     (new)
+apps/goatos-android/core/core-data/.../DefaultBootstrapRepository.kt
+apps/goatos-android/feature/feature-verify/.../VerifyDetailScreen.kt
+apps/goatos-android/app/src/main/res/values{,-hi,-kn,-te}/strings.xml
+```
+
+## Maintainer rulings given during this session
+
+Binding. They are why several of the fixes above look the way they do.
+
+**Verifier UX.** Drawer = the module list (`Vaccination`, `Weighing`, future
+modules) + `You` + `Sign out`. Per-module bottom bar = `[Verify, Alerts]`. Same
+shape as the CEO app; the verifier only ever watches that feature's videos and
+accepts/rejects, with alerts scoped per feature. Alerts are **not** one merged
+tab. Implemented backend-side in `workforce/app/bootstrap_copy.go` —
+`Href: "/verify?module=" + normalized` plus `verificationCategoryForFeature()`.
+
+**Permission gate.** Accepting the role's permissions is **mandatory**.
+Operators: location, camera, BLE, notifications. Others: notifications. Re-show
+the OS dialog until granted, or send the user to app settings once Android stops
+showing it. **No top chips, no widgets** — a single non-closeable dialog.
+
+**Translation.** Never delete a feature because a translation is missing. Use the
+English word transliterated into that script — "Vaccination"/"Weighing" spelled
+in Telugu, Hindi, Kannada letters. (This came after I removed
+`withVerifierVideoNavigation()` instead of replacing it. Don't repeat that.)
+
+**Verifier video controls.** Play and pause only. Everything else disabled.
+
+**Notification copy.** Name the actual vaccines — "ET+TT", "PPR" — never a bare
+count. Backed by `make notification-specificity-guard` and
+`docs/decisions/2026-08-02-meaningful-notification-copy.md`. Note that
+finding NEW-3 above means this is **currently dead at runtime**.
+
+## Unexplained — worth chasing before the E2E
+
+- The Calendar screenshot showed `total=120 / submitted=120 / overdue=120`, which
+  fresh `main` cannot produce (the buckets are disjoint). So it came from a
+  deployed build or a cached response that is not fresh `main`. **Check the
+  deployed stg SHA against `origin/main`** before treating any stg screenshot as
+  evidence.
+- 8 of 11 FCM tokens dead. Pruning is written (uncommitted, above) but the
+  devices still need re-registration before a push E2E means anything.
