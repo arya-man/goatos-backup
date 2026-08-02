@@ -348,7 +348,7 @@ class VerifyQueueViewModel @Inject constructor(
                     java.time.format.FormatStyle.SHORT
                 )
                 .withLocale(locale)
-                .withZone(java.time.ZoneId.systemDefault())
+                .withZone(java.time.ZoneId.of("Asia/Kolkata"))
                 .format(instant)
         }.getOrDefault(raw)
     }

@@ -738,7 +738,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
                 Text(text = contextKindLabel(row.kind), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 val displayValue = remember(row.value, row.kind, locale) {
                     if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                        formatCapturedAt(row.value, locale, ZoneId.systemDefault())
+                        formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
                     } else {
                         row.value
                     }

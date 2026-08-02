@@ -174,7 +174,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     private companion object {
         const val LIST_PREFETCH_DISTANCE = 3
         val timestampFormatter: DateTimeFormatter =
-            DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a").withZone(ZoneId.systemDefault())
+            DateTimeFormatter.ofPattern("dd MMM yyyy, h:mm a").withZone(ZoneId.of("Asia/Kolkata"))
         val periodFormatter: DateTimeFormatter =
             DateTimeFormatter.ofPattern("d MMM", Locale.US)
     }
