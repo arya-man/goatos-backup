@@ -425,50 +425,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           </div>
         </div>
 
-        {futureCampaigns.length > 0 && (
-          <div className="cbm-future-section">
-            <div className="cbm-section-head">
-              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
-              <span className="cbm-meta">
-                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
-              </span>
-            </div>
-            <div className="cbm-future-table-wrap">
-              <table className="cbm-future-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
-                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
-                      {index === 0 && (
-                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
-                          <strong>{campaign.name}</strong>
-                          <small>
-                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
-                          </small>
-                        </td>
-                      )}
-                      <td><strong>{drive.driveName}</strong></td>
-                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
-                      <td>{drive.shedNames.join(", ") || "—"}</td>
-                      <td><strong>{drive.targetCount}</strong></td>
-                      <td><strong>{drive.doseCount}</strong></td>
-                    </tr>
-                  )))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
         {/* Vaccine × Shed status - colored grid heatmap */}
         {view.shedDoseMatrix.length > 0 && (() => {
           const grid = buildShedGrid(view.shedDoseMatrix);
@@ -545,6 +501,50 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
             </div>
           );
         })()}
+
+        {futureCampaigns.length > 0 && (
+          <div className="cbm-future-section">
+            <div className="cbm-section-head">
+              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
+              <span className="cbm-meta">
+                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
+              </span>
+            </div>
+            <div className="cbm-future-table-wrap">
+              <table className="cbm-future-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
+                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
+                      {index === 0 && (
+                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
+                          <strong>{campaign.name}</strong>
+                          <small>
+                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
+                          </small>
+                        </td>
+                      )}
+                      <td><strong>{drive.driveName}</strong></td>
+                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
+                      <td>{drive.shedNames.join(", ") || "—"}</td>
+                      <td><strong>{drive.targetCount}</strong></td>
+                      <td><strong>{drive.doseCount}</strong></td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
             across the top, pending count in the cell (red when > 0) with the verified count
