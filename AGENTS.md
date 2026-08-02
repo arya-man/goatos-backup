@@ -258,6 +258,33 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
+Confirmed vaccination progress rule (maintainer decision 2026-08-03): drive
+progress is **FIELD WORK DONE = completed + submitted**, never completed-only.
+The operator vaccinated the animal, so it counts: a drive whose animals are all
+vaccinated and whose proofs are submitted reads **100%** and **"4 of 4 sheds
+done"**, and the outstanding video review is carried by the
+`verification_pending` status and its chip — never by holding the ring below
+100%. The backend owns the single number (`progress_basis`,
+`progress_completed`, `progress_total`, `progress_pct`, and `sheds_completed`);
+admin-web and Android render it verbatim and must not derive their own.
+Pinned by `TestDriveSummaryEmitsBackendOwnedProgressContract` and
+`TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred`.
+
+**Why this is a lock, not a preference:** an earlier session found admin-web and
+Android showing different completion numbers for the same drive and resolved the
+parity defect by adopting the stricter surface — making the numerator
+completed-only. That silently redefined "done" as "verified" and showed an
+operator who had finished every animal in every shed a 0% ring with "0 of 4
+sheds done". The choice was then written into two tests and a code comment, so it
+read to every later author as intentional. Do NOT revert to completed-only.
+
+**General rule this establishes:** a cross-surface disagreement about a business
+number is a MAINTAINER QUESTION, not an implementation detail. Both surfaces may
+be wrong, and picking the stricter one is still a product decision. When two
+surfaces disagree about what a count means, stop and surface the conflict per the
+maintainer-lock rule above; fix parity by making the backend own one number, not
+by choosing a client's semantics.
+
 Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
 2026-07-29, SUPERSEDING the 2026-07-20 destination `shed_profiles` authority rule):
 a shed may contain multiple management stages. Every newly raised shifting must choose one
