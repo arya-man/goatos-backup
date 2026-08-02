@@ -1495,7 +1495,15 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, animal_id_text, weigh
 		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
 	if err != nil {
-		return domain.Observation{}, err
+		// A concurrent capture of the SAME tag in the SAME bucket, with a
+		// DIFFERENT idempotency key, can win the "updated" CTE's race and
+		// insert first; this transaction's own insert then trips
+		// weighing_observations_one_open_tag_uidx (added in migration 000072)
+		// instead of silently creating a second "current" open row for the
+		// tag. Map it to the same typed conflict a same-bucket submitted
+		// duplicate already returns, so the loser reads as a clean domain
+		// conflict, never a raw 500.
+		return domain.Observation{}, mapObservationUniqueViolation(err)
 	}
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
@@ -2423,6 +2431,24 @@ func mapShedUniqueViolation(err error, weighDate, displayName string) error {
 	case "weighing_shed_observations_one_active_scope_uidx",
 		"weighing_shed_observations_one_open_scope_uidx":
 		return ports.ErrImmutable
+	}
+	return err
+}
+
+// mapObservationUniqueViolation converts a race on
+// weighing_observations_one_open_tag_uidx (tenant_id, campaign_shed_id,
+// lower(btrim(scanned_identifier))) WHERE submitted_at IS NULL into
+// ports.ErrDuplicateScan -- the same typed conflict a same-bucket submitted
+// duplicate already returns via classifyFreeFlowObservationRejection -- instead
+// of letting the raw 23505 escape as an opaque 500. Any other error (including
+// a different constraint) passes through unchanged.
+func mapObservationUniqueViolation(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		return err
+	}
+	if pgErr.ConstraintName == "weighing_observations_one_open_tag_uidx" {
+		return ports.ErrDuplicateScan
 	}
 	return err
 }
