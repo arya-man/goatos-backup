@@ -26,6 +26,10 @@ export type WeighingScopeRow = {
   partitionName: string;
   category: WeighingCategory;
   completedCount: number;
+  /** True if completedCount is backed by a real per-shed captured count from the backend.
+   *  False if it is fabricated (e.g., status="completed" → 1, else → 0).
+   *  When false, render the element disabled-with-reason per AGENTS.md binding rules. */
+  capturedCountIsBacked: boolean;
   wrongShedCount: number;
   proofPendingCount: number;
   readyToClose: boolean;
@@ -134,6 +138,7 @@ export type WeighingPlanner = {
   duplicateBlocked: boolean;
   parks: WeighingPlannerPark[];
   sheds: WeighingPlannerShed[];
+  shedListTruncated: boolean;
   operators: WeighingPlannerOperator[];
   selectedParkId: string;
   selectedOperatorId: string;
@@ -152,6 +157,7 @@ export async function getWeighingPageData(
   role: WeighingRole,
   selectedWeek?: string,
   selectedCampaignId?: string,
+  selectedParkId?: string,
 ): Promise<ApiResult<WeighingPageData>> {
   const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
@@ -166,18 +172,20 @@ export async function getWeighingPageData(
   // The catalog is PARK grain and carries no sheds. The planner only ever renders the
   // SELECTED park's buckets, so read exactly that park's page instead of every shed of
   // every park (which is what the flattened catalog used to hand back).
-  const selectedPark = selectPlannerPark(catalogResult.data.parks, selectedItem);
+  const selectedPark = selectPlannerPark(catalogResult.data.parks, selectedItem, selectedParkId);
   const bucketsResult = selectedPark
     ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek)
-    : ({ ok: true, data: [] } as ApiResult<ApiWeighingPlannerShed[]>);
+    : ({ ok: true, data: { sheds: [], truncated: false } } as ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>);
   if (!bucketsResult.ok) return bucketsResult;
   const planner = plannerFromCatalog(
     catalogResult.data,
-    bucketsResult.data,
+    bucketsResult.data.sheds,
+    bucketsResult.data.truncated,
     plannerWeek,
     selectedItem,
     campaign,
     selectedCampaignId,
+    selectedParkId,
   );
   const weeks = weeksFromCampaigns(result.data.items, campaign);
   return {
@@ -197,17 +205,21 @@ export async function getWeighingPageData(
 async function getSelectedParkBuckets(
   parkId: string,
   periodStartDate: string,
-): Promise<ApiResult<ApiWeighingPlannerShed[]>> {
+): Promise<ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>> {
   const sheds: ApiWeighingPlannerShed[] = [];
   let cursor: string | undefined;
+  let truncated = false;
   for (let page = 0; page < 5; page += 1) { // scale-guard:ignore: bounded to ONE park's sheds (76+ in the real data) with a 5-page hard cap; this is the planner's selection list, not a KPI drained from a paginated endpoint; serial-await: allow cursor pagination must stay sequential
     const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor);
     if (!result.ok) return result;
     sheds.push(...(result.data.sheds ?? []));
     cursor = result.data.next_cursor || undefined;
     if (!cursor) break;
+    if (page === 4) { // loop exits on page 5, if cursor still exists, we hit the cap
+      truncated = true;
+    }
   }
-  return { ok: true, data: sheds };
+  return { ok: true, data: { sheds, truncated } };
 }
 
 async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighingCampaign[] }>> {
@@ -279,12 +291,14 @@ function parseYmd(value: string): Date | null {
 function plannerFromCatalog(
   catalog: WeighingPlannerCatalogResponse,
   parkSheds: ApiWeighingPlannerShed[],
+  shedListTruncated: boolean,
   periodStartDate: string,
   selectedItem: ApiWeighingCampaign | undefined,
   campaign: WeighingCampaign,
   selectedCampaignId?: string,
+  selectedParkId?: string,
 ): WeighingPlanner {
-  const selectedPark = selectPlannerPark(catalog.parks, selectedItem);
+  const selectedPark = selectPlannerPark(catalog.parks, selectedItem, selectedParkId);
   const selectedShedIds = new Set((selectedItem?.sheds ?? []).map((shed) => shed.location_id));
   const selectedOperatorId = selectedItem?.operator_user_id || catalog.operators[0]?.user_id || "";
   // parkSheds are the SELECTED park's buckets only, so every row here belongs to it.
@@ -335,6 +349,7 @@ function plannerFromCatalog(
       selected: park.park_id === selectedPark?.park_id,
     })),
     sheds,
+    shedListTruncated,
     operators: catalog.operators.map((operator) => ({
       id: operator.user_id,
       name: operator.display_name,
@@ -351,7 +366,12 @@ function plannerFromCatalog(
 function selectPlannerPark(
   parks: ApiWeighingPlannerPark[],
   selectedItem: ApiWeighingCampaign | undefined,
+  selectedParkId?: string,
 ): ApiWeighingPlannerPark | undefined {
+  // User-selected park (from form/URL) takes precedence over campaign/default.
+  if (selectedParkId) {
+    return parks.find((park) => park.park_id === selectedParkId) ?? parks[0];
+  }
   if (selectedItem) {
     return parks.find((park) => park.park_id === selectedItem.park_id) ?? parks[0];
   }
@@ -396,6 +416,18 @@ function campaignFromApi(
   // Aggregate campaign-level attention state from real bucket values.
   const proofPending = scopes.reduce((sum, scope) => sum + scope.proofPendingCount, 0);
 
+  // Campaign-level operator: use the first shed's operator if available.
+  // If no sheds, or operator_display_name is empty, use a fallback based on whether
+  // a campaign operator_user_id exists (roster gap) or not (unassigned).
+  let campaignOperatorName = "";
+  if (scopes.length > 0 && scopes[0].operatorName) {
+    campaignOperatorName = scopes[0].operatorName;
+  } else if (item.operator_user_id) {
+    campaignOperatorName = "Roster gap (operator not found)";
+  } else {
+    campaignOperatorName = "Unassigned";
+  }
+
   return {
     id: item.campaign_id,
     weekLabel: weekRangeLabel(item.period_start_date, item.period_end_date),
@@ -404,7 +436,7 @@ function campaignFromApi(
     startBusinessDate: item.start_business_date,
     state: item.status === "canceled" ? "delayed" : item.status,
     laneLabel: "Weekly kids",
-    operatorName: "Operator not reported by API",
+    operatorName: campaignOperatorName,
     selectedScopes: scopes.length,
     individualCompleted,
     shedPartitionCompleted,
@@ -428,6 +460,17 @@ function scopeFromApi(
   // Weighing is free-flow: only show completion status, not expected vs actual.
   // completedCount is derived from status, not from API count fields.
   const completedCount = shed.status === "completed" ? 1 : 0; // 1 = scope is done, 0 = still open
+
+  // operator_display_name is backend-resolved. Empty WITH a non-empty operator_user_id means roster gap.
+  let operatorDisplay = shed.operator_display_name?.trim() || "";
+  if (!operatorDisplay) {
+    if (shed.operator_user_id) {
+      operatorDisplay = "Roster gap (operator not found)";
+    } else {
+      operatorDisplay = "Unassigned";
+    }
+  }
+
   return {
     id: shed.campaign_shed_id,
     parkName: "Park not reported by API",
@@ -435,6 +478,11 @@ function scopeFromApi(
     partitionName: shed.location_type,
     category: shed.weighing_category,
     completedCount,
+    // Weighing is free-flow: no per-shed captured count exists on WeighingCampaignShed.
+    // expected_animal_count exists but was explicitly rejected (maintainer 2026-07-31).
+    // The count is fabricated (status="completed" → 1, else → 0) and should render
+    // disabled-with-reason per AGENTS.md binding rule for un-backed UI.
+    capturedCountIsBacked: false,
     wrongShedCount: 0,
     proofPendingCount: shed.pending_verification_count,
     readyToClose: shed.ready_to_close,
@@ -444,7 +492,7 @@ function scopeFromApi(
         : shed.status === "canceled"
           ? "delayed"
           : shed.status,
-    operatorName: "Operator not reported by API",
+    operatorName: operatorDisplay,
     plannedDate: campaign.start_business_date,
     effectiveDate: campaign.start_business_date,
   };
