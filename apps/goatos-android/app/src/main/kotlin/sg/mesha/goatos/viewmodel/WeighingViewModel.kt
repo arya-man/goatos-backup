@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -1585,8 +1587,10 @@ class WeighingViewModel @Inject constructor(
         actionInFlight.value = true
         proofCaptureAnimalId = row.animalId
         proofCaptureVideoCaptured = false
-        val myAnimalId = row.animalId
-        val job = viewModelScope.launch {
+        // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
+        // compares job identity, and a body that completed before the assignment would compare
+        // against the previous job and skip its own cleanup.
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 when (val proof = captureProofForRow(key, row)) {
                     is AppResult.Ok -> {
@@ -1600,10 +1604,13 @@ class WeighingViewModel @Inject constructor(
                     }
                 }
             } finally {
-                // Only the job that still OWNS the open camera may clear it. A job cancelled
-                // because a later scan retargeted the camera must not clear state that now belongs
-                // to the animal that superseded it.
-                if (proofCaptureAnimalId == myAnimalId) {
+                // Only the job that still OWNS the open camera may clear it. Guard on JOB
+                // identity, not animal identity: an A -> B -> A rescan makes an animal-id guard
+                // pass again for the DEAD first job, so that stale job would tear down the live
+                // second capture of the same animal — clearing `actionInFlight` (unblocking
+                // concurrent saves), orphaning the live camera, and leaving the row stuck
+                // uploading. Job identity is unique per capture and cannot be aliased by a rescan.
+                if (proofCaptureJob === coroutineContext.job) {
                     actionInFlight.value = false
                     proofCaptureAnimalId = null
                     proofCaptureJob = null
@@ -1612,6 +1619,7 @@ class WeighingViewModel @Inject constructor(
             }
         }
         proofCaptureJob = job
+        job.start()
     }
 
     private suspend fun captureProofForRow(key: String, row: WeighingRosterRowEntity): AppResult<ProofCaptureRow> {

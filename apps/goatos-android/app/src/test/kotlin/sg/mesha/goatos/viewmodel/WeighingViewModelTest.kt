@@ -26,7 +26,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.capture.CapturedVideo
+import sg.mesha.goatos.capture.ChannelBackedProofCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -604,6 +606,61 @@ class WeighingViewModelTest {
     }
 
     /**
+     * The same defect one layer down, on the shared singleton `DelegatingProofCaptureSource`.
+     * [FakeProofCaptureSource]'s per-call gates cannot express it; production shares ONE buffered
+     * result channel across every capture request (`VideoCaptureLauncher.kt:38/52/87`), so animal
+     * A's clip -- finalized by CameraX only after the operator turned to animal B -- is left in
+     * that buffer and handed to B's capture, and saved as B's weighing proof. Weighing has no
+     * roster to falsify the binding: `service.go` takes the client binding verbatim.
+     */
+    @Test
+    fun `a cancelled recording finalized late is never handed to the animal scanned next`() = runTest(dispatcher) {
+        val proofs = FakeProofCaptureRepository()
+        val proofSource = ChannelBackedProofCaptureSource()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("animal A's camera opened", 1, proofSource.captureCount)
+
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("a fresh camera must open for animal B", 2, proofSource.captureCount)
+
+        // A's recording finalizes now -- it belongs to the cancelled request #1.
+        proofSource.deliverRecorderResult(
+            requestOrdinal = 1,
+            video = CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2),
+        )
+        advanceUntilIdle()
+        assertEquals(
+            "animal A's clip must never become animal B's weighing proof",
+            0,
+            proofs.captureCalls.size,
+        )
+
+        proofSource.deliverRecorderResult(
+            requestOrdinal = 2,
+            video = CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4),
+        )
+        advanceUntilIdle()
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+    }
+
+    /**
      * The weight is the other half of the same window: the dropped scan also left the selected
      * animal pointing at A, so the next weight the operator typed — standing at B — was recorded
      * against A's tag.
@@ -652,6 +709,8 @@ class WeighingViewModelTest {
             repository.lastCapture?.animalId,
         )
         assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
+    }
+
     @Test
     fun `park chips survive selecting a park and All parks is reachable again`() = runTest(dispatcher) {
         // A22: listAssignments is server-filtered by parkId, so once a park is selected
@@ -713,7 +772,7 @@ class WeighingViewModelTest {
         surface: String? = null,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
-        proofCaptureSource: FakeProofCaptureSource = FakeProofCaptureSource(),
+        proofCaptureSource: ProofCaptureSource = FakeProofCaptureSource(),
         bootstrapRepository: BootstrapRepository = LeadershipBootstrapRepository,
         weighingCategory: String = "individual_animal",
     ): WeighingViewModel =
