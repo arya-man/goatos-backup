@@ -258,6 +258,42 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
+Confirmed "You" / profile nav placement rule (maintainer decision 2026-08-03,
+stated THREE times and implemented wrong twice before this — read it exactly):
+
+> **"You" belongs in the NAVIGATION DRAWER for any principal with 2 or more
+> features/modules — CEO, leadership, and a verifier who verifies more than one
+> feature. It must NOT be sent as a bottom-bar tab in every feature's bar.**
+
+- **2+ modules** → "You" appears ONCE, in the drawer. Never in the per-module
+  bottom bar. Repeating it in vaccination's bar, then weighing's bar, then every
+  future verifiable feature's bar is the exact defect being banned.
+- **Exactly 1 module** → that principal has no meaningful drawer, so "You" stays
+  reachable in their bottom bar.
+- "You" must ALWAYS be reachable. Deleting it outright is a regression (that was
+  the first wrong implementation).
+- This is the same shape as the existing nav-chrome rule: drawer/sidebar when
+  there are 2+ modules, bottom bar when there is one. See
+  `docs/decisions/role-module-nav-composition.md`.
+
+Two traps recorded so the next author does not repeat them:
+1. `shared_key: "you"` does NOT enforce this. `shared_key` has exactly one
+   reader, `composeNavigationFromModules`; `verificationModuleForFeature` builds
+   its nav items by hand and never calls it, and `visibleNavigationFor` returns
+   those items directly. Setting it there was mutation-tested — flipping it back
+   to `""` passed the entire suite and changed no served payload. Any mechanism
+   used for this rule MUST be mutation-tested: break it deliberately and confirm
+   a test goes red.
+2. The verifier alerts tab is titled just **"Alerts"** in every locale. The alerts
+   stay feature-scoped through `?category=` on the href
+   (`vaccination_proof`, `weighing_proof`, `shifting_move`); only the LABEL
+   stopped naming the module the verifier is already inside. The per-feature
+   label keys (`nav.alerts.vaccination` etc.) and their resolver are deleted —
+   do not reintroduce them. The Alerts SCREEN title is likewise just "Alerts";
+   it was previously hardcoded to "Vaccination alerts" in
+   `AlertsViewModel.kt`, which is also a violation of the backend-owns-labels
+   rule.
+
 Confirmed vaccination progress rule (maintainer decision 2026-08-03): drive
 progress is **FIELD WORK DONE = completed + submitted**, never completed-only.
 The operator vaccinated the animal, so it counts: a drive whose animals are all
