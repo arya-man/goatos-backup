@@ -546,6 +546,18 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrDuplicateScan):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "duplicate_scan", Message: "this tag was already captured and submitted earlier today for this shed", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrWriteConflict):
+		// Every ErrWriteConflict is retried internally inside
+		// RecordAnimalObservation before it can ever reach this handler (see
+		// recordAnimalObservationMaxSerializationRetries); a caller only sees
+		// this after every retry ALSO lost a SERIALIZABLE race, which is a
+		// transient contention signal, not a claim that anything is wrong
+		// with the request itself. 503 (not the 409 duplicate_scan uses)
+		// because this says "retry the exact same request", never "this
+		// request cannot proceed as issued" -- collapsing it into
+		// duplicate_scan would tell the operator they double-scanned an
+		// animal they never scanned twice.
+		httpresponse.WriteError(w, r, h.log, http.StatusServiceUnavailable, errorEnvelope{Code: "write_conflict", Message: "this capture is being retried due to a momentary conflict; please try again", TraceID: traceID(r)}, nil)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
 	}
