@@ -62,11 +62,16 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				if m.Href != "/vaccination" {
 					t.Fatalf("vaccination row lands on %q, want /vaccination", m.Href)
 				}
+				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// "You" lives in the drawer, and the alerts tab label never names the
+				// feature (the href's category still scopes it).
+				// Leadership/registry modules are NOT the verifier bar: they legitimately
+				// keep their own "you" entry. Only the generic "Alerts" label is shared.
 				wantItems := []domain.BootstrapNavigationItem{
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/verify/action"},
-					{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}
 				if len(m.NavItems) != len(wantItems) {
@@ -167,13 +172,16 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		if verify.Key != "verify_vaccination" {
 			t.Fatalf("verifier module key = %q, want verify_vaccination", verify.Key)
 		}
-		// Per-module bar is [Verify, Alerts, You] (binding ruling: "Alerts are NOT one
+		// Per-module bar is [Verify, Alerts] (binding ruling: "Alerts are NOT one
 		// merged tab"), with the alerts category matching what the vaccination
 		// verification-bridge actually writes (vaccination_proof).
+		//
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it).
 		wantItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
-			{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
-			{Key: "you", Label: "You", Href: "/you"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 		}
 		if len(verify.NavItems) != len(wantItems) {
 			t.Fatalf("verifier nav items = %+v want %+v", verify.NavItems, wantItems)
@@ -241,21 +249,25 @@ func TestBootstrapCopyCatalogCoversSupportedLocales(t *testing.T) {
 	}
 }
 
-// TestAlertsNavLabelNamesTheVaccinationScope locks the honest naming of the /alerts
-// destination. That screen is fed by ONE upstream — the vaccination control-tower
-// summary — so it can only ever show vaccination alerts. It is nevertheless
-// contributed to the Weighing bottom bar as well, where a bare "Alerts" promises a
-// weighing operator that a weighing alert is reachable there. It is not: a weighing
-// push exists only as a system-tray entry, and swiping it away loses it.
+// TestAlertsNavLabelIsGenericInEveryLocale locks the alerts tab label.
 //
-// Until a module-scoped notification history exists, the label must say which
-// module's alerts these are, in every language, so the tab does not over-promise.
-func TestAlertsNavLabelNamesTheVaccinationScope(t *testing.T) {
+// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"
+// lives in the drawer, and the alerts tab label never names the feature (the href's
+// category still scopes it).
+//
+// This test previously asserted the OPPOSITE (per-feature labels "Vaccination
+// alerts" / "Weighing alerts" / ... from the now-deleted alertsLabelKeyForFeature
+// resolver and the now-deleted "nav.alerts.<feature>" keys). It is repointed, not
+// deleted, because the coverage that still matters is that the single generic
+// "nav.alerts" key resolves in ALL FOUR locales -- a missing translation would ship
+// an English tab title to a Kannada operator. Feature scoping is asserted where it
+// actually lives now: the href category, see TestBootstrapAlertsPerModule.
+func TestAlertsNavLabelIsGenericInEveryLocale(t *testing.T) {
 	wantByLocale := map[string]string{
-		"en": "Vaccination alerts",
-		"hi": "टीकाकरण अलर्ट",
-		"kn": "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
-		"te": "టీకా అలర్ట్లు",
+		"en": "Alerts",
+		"hi": "अलर्ट",
+		"kn": "ಎಚ್ಚರಿಕೆಗಳು",
+		"te": "అలర్ట్లు",
 	}
 	grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
 	for locale, want := range wantByLocale {
@@ -377,21 +389,27 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 			t.Fatalf("vaccination module landing href = %q, want /verify", vaccModule.Href)
 		}
 
-		// Check vaccination nav items: verify + alerts + you
-		if len(vaccModule.NavItems) != 3 {
-			t.Fatalf("vaccination nav items count = %d, want 3; got %v", len(vaccModule.NavItems), vaccModule.NavItems)
+		// Check vaccination nav items: verify + alerts.
+		//
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it).
+		wantVaccItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 		}
-		if vaccModule.NavItems[0].Key != "verify" || vaccModule.NavItems[0].Label != "Verify" {
-			t.Fatalf("vaccination bar item 0 = %+v, want {verify, Verify}", vaccModule.NavItems[0])
+		if len(vaccModule.NavItems) != len(wantVaccItems) {
+			t.Fatalf("vaccination nav items = %+v, want %+v", vaccModule.NavItems, wantVaccItems)
 		}
-		if vaccModule.NavItems[1].Key != "alerts" || vaccModule.NavItems[1].Label != "Vaccination alerts" {
-			t.Fatalf("vaccination bar item 1 = %+v, want {alerts, Vaccination alerts}", vaccModule.NavItems[1])
-		}
-		if vaccModule.NavItems[2].Key != "you" || vaccModule.NavItems[2].Label != "You" {
-			t.Fatalf("vaccination bar item 2 = %+v, want {you, You}", vaccModule.NavItems[2])
+		for i := range wantVaccItems {
+			if vaccModule.NavItems[i] != wantVaccItems[i] {
+				t.Fatalf("vaccination bar item[%d] = %+v, want %+v", i, vaccModule.NavItems[i], wantVaccItems[i])
+			}
 		}
 
-		// Check weighing module
+		// Check weighing module. Same bar shape, SAME generic "Alerts" label, but a
+		// DIFFERENT href category -- that category is the load-bearing part of the
+		// scoping: a mismatch renders a permanently-empty 200 tab.
 		weighModule := modules[1]
 		if weighModule.Key != "verify_weighing" {
 			t.Fatalf("second module key = %q, want verify_weighing", weighModule.Key)
@@ -399,8 +417,26 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if weighModule.Label != "Weighing" {
 			t.Fatalf("weighing module label = %q, want Weighing", weighModule.Label)
 		}
-		if len(weighModule.NavItems) != 3 {
-			t.Fatalf("weighing nav items count = %d, want 3; got %v", len(weighModule.NavItems), weighModule.NavItems)
+		wantWeighItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=weighing_proof"},
+		}
+		if len(weighModule.NavItems) != len(wantWeighItems) {
+			t.Fatalf("weighing nav items = %+v, want %+v", weighModule.NavItems, wantWeighItems)
+		}
+		for i := range wantWeighItems {
+			if weighModule.NavItems[i] != wantWeighItems[i] {
+				t.Fatalf("weighing bar item[%d] = %+v, want %+v", i, weighModule.NavItems[i], wantWeighItems[i])
+			}
+		}
+
+		// The two features must NOT collapse onto one alerts feed: identical label,
+		// different category.
+		if vaccModule.NavItems[1].Label != weighModule.NavItems[1].Label {
+			t.Fatalf("alerts label must be identical across features; got %q vs %q", vaccModule.NavItems[1].Label, weighModule.NavItems[1].Label)
+		}
+		if vaccModule.NavItems[1].Href == weighModule.NavItems[1].Href {
+			t.Fatalf("alerts href must stay feature-scoped; both features got %q", vaccModule.NavItems[1].Href)
 		}
 	})
 
@@ -412,7 +448,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 
 		// The generic merged "verification" module never appears for a verifier -- per
 		// the binding ruling, Alerts is never a merged/un-scoped tab, so a single-feature
-		// verifier gets the SAME feature-scoped [Verify, Alerts, You] module a
+		// verifier gets the SAME feature-scoped [Verify, Alerts] module a
 		// multi-feature verifier gets for each of their features (chrome collapses to
 		// minimal below the 2-module threshold, but the module itself is still
 		// feature-scoped).
@@ -425,10 +461,12 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		if modules[0].Key != "verify_vaccination" {
 			t.Fatalf("single-module verifier module key = %q, want verify_vaccination", modules[0].Key)
 		}
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it).
 		wantItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
-			{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
-			{Key: "you", Label: "You", Href: "/you"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 		}
 		if len(modules[0].NavItems) != len(wantItems) {
 			t.Fatalf("nav items = %+v want %+v", modules[0].NavItems, wantItems)
@@ -491,6 +529,15 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 		"verify_weighing":    "weighing_proof",
 		"verify_counts":      "shifting_move", // NOT "counts_proof" -- see verificationCategoryForFeature.
 	}
+	// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"
+	// lives in the drawer, and the alerts tab label never names the feature (the
+	// href's category still scopes it). This test is where that scoping is proven:
+	// all three features must produce the IDENTICAL label "Alerts" but three DIFFERENT
+	// href categories. A category mismatch renders a permanently-empty 200 tab, so the
+	// category assertion below must never be relaxed just because the label stopped
+	// varying.
+	const wantAlertsLabel = "Alerts"
+	seenHrefs := make(map[string]string, len(modules))
 	seen := make(map[string]bool, len(modules))
 	for _, m := range modules {
 		seen[m.Key] = true
@@ -498,7 +545,7 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 		if !known {
 			t.Fatalf("unexpected verifier module %q; got modules %v", m.Key, moduleKeySet(modules))
 		}
-		var verify, alerts, you *domain.BootstrapNavigationItem
+		var verify, alerts *domain.BootstrapNavigationItem
 		for i := range m.NavItems {
 			switch m.NavItems[i].Key {
 			case "verify":
@@ -506,22 +553,32 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 			case "alerts":
 				alerts = &m.NavItems[i]
 			case "you":
-				you = &m.NavItems[i]
+				t.Fatalf("module %q must NOT carry a You bottom-bar item -- \"You\" lives in the nav drawer; got %+v", m.Key, m.NavItems)
 			}
 		}
 		if verify == nil {
 			t.Fatalf("module %q missing Verify item; got %+v", m.Key, m.NavItems)
 		}
 		if alerts == nil {
-			t.Fatalf("module %q missing Alerts item -- per-module bottom bar must be [Verify, Alerts], never [Verify, You] alone; got %+v", m.Key, m.NavItems)
+			t.Fatalf("module %q missing Alerts item -- per-module bottom bar must be [Verify, Alerts], never [Verify] alone; got %+v", m.Key, m.NavItems)
 		}
-		if you == nil {
-			t.Fatalf("module %q missing You item; got %+v", m.Key, m.NavItems)
+		if len(m.NavItems) != 2 {
+			t.Fatalf("module %q bar = %+v, want exactly [Verify, Alerts]", m.Key, m.NavItems)
+		}
+		if alerts.Label != wantAlertsLabel {
+			t.Fatalf("module %q alerts label = %q, want the generic %q (the tab must not name the feature the verifier is already inside)", m.Key, alerts.Label, wantAlertsLabel)
 		}
 		wantHref := "/verify/alerts?category=" + wantCategory
 		if alerts.Href != wantHref {
 			t.Fatalf("module %q alerts href = %q, want %q (category must match what the feature's verification-bridge writes to verification_items.category, not just the module name)", m.Key, alerts.Href, wantHref)
 		}
+		if other, dup := seenHrefs[alerts.Href]; dup {
+			t.Fatalf("modules %q and %q share alerts href %q -- the generic label must not have collapsed the feature scoping", other, m.Key, alerts.Href)
+		}
+		seenHrefs[alerts.Href] = m.Key
+	}
+	if len(seenHrefs) != len(wantCategories) {
+		t.Fatalf("expected one distinct alerts category per feature; got %v", seenHrefs)
 	}
 	for key := range wantCategories {
 		if !seen[key] {
