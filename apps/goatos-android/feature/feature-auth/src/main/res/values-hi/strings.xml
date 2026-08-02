@@ -47,6 +47,7 @@
     <string name="mandatory_permissions_grant">अनुमतियाँ दें</string>
     <string name="mandatory_permissions_settings">सेटिंग्स खोलें</string>
     <string name="mandatory_permissions_settings_help">आपका फ़ोन दोबारा नहीं पूछेगा। नीचे सेटिंग्स ऐप खोलें। Mesha खोजें, अनुमतियों पर टैप करें, और आवश्यक अनुमतियाँ सक्षम करें। जब हो जाए तो इस ऐप पर वापस लौटें।</string>
+    <string name="mandatory_permissions_retry_help">आपका फ़ोन अब भी पूछ सकता है। ऊपर बटन दबाएँ और अनुमति दें चुनें — जब तक सभी अनुमतियाँ चालू नहीं होतीं, काम शुरू नहीं हो सकता।</string>
     <string name="perm_label_location">लोकेशन</string>
     <string name="perm_rationale_location">काम किस पार्क और शेड में हुआ, यह दिखाता है।</string>
 </resources>
