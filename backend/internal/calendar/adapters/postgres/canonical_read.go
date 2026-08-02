@@ -890,6 +890,13 @@ obligation_drive_membership AS (
     loc.park_code,
     loc.shed_id,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
+    -- The ORIGINAL scheduled business date, BEFORE the "keeps showing on the current date until
+    -- CLOSED" rollover below rewrites membership_at to today. Grouping and display must use the
+    -- rolled due_date, but LATENESS must not: comparing a rolled date against today is always
+    -- false, which laundered a drive with zero completions from 'overdue' back to 'in_progress'.
+    -- genuine_overdue/genuine_missed read THIS column, so a rolled-forward drive still reports
+    -- that it is late.
+    (member_raw.membership_at_raw AT TIME ZONE 'Asia/Kolkata')::date AS original_due_date,
     CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id,
     EXISTS (
       SELECT 1
@@ -1195,7 +1202,10 @@ obligation_drive_effective_state AS (
     bool_or(
       m.status NOT IN ('completed', 'deferred', 'missed')
       AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
-      AND m.due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+      -- original_due_date, NOT due_date: due_date may have been rolled forward to today by the
+      -- "keeps showing until CLOSED" rollover, and a rolled date is never < today, so using it
+      -- here reported an untouched past-due drive as merely in_progress.
+      AND m.original_due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
       AND NOT m.submitted_for_verification
     ) AS genuine_overdue,
     -- Bucket COUNTS at obligation grain, carrying the SAME disjoint predicates obl_summary
