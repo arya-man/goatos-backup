@@ -67,7 +67,7 @@ import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.feature.auth.NotificationAlertsGate
+import sg.mesha.goatos.feature.auth.RoleBasedPermissionGate
 import sg.mesha.goatos.core.designsystem.R as DesignSystemR
 import sg.mesha.goatos.core.model.nav.NavChrome
 import sg.mesha.goatos.core.model.nav.NavItem
@@ -308,28 +308,24 @@ fun GoatOsShell(navState: NavState) {
         // Pinned above screen content on every route; non-blocking, auto-hides on reconnect.
         OfflineBanner(visible = showOffline, onOpenDetails = { showSyncSheet = true })
 
-        // Alerts gate — deliberately HERE, not on a capture screen.
+        // Mandatory role-based permission gate — NON-DISMISSIBLE dialog shown after bootstrap.
+        // Blocks the app until all required permissions (based on role) are granted.
         //
-        // The permission card only ever existed on scan/record surfaces, so a director, a park
-        // head or the CEO was never asked for notification access at all: on Android 13+ that
-        // permission starts DENIED, the push gateway still accepted every alert addressed to their
-        // phone and reported it delivered, and the OS dropped it. The roles whose alerts matter
-        // most were the ones receiving nothing.
+        // Operators require: camera (proof capture), BLE (RFID reader), notifications (alerts)
+        // All other roles require: notifications (alerts) only
         //
-        // The shell is the only surface EVERY role passes through after bootstrap — start
-        // destination varies by role (startDestinationFor: /vaccination, /weighing, /verify,
-        // /calendar, /counts...), so no single route would have covered everyone. Renders nothing
-        // once alerts are on, and never blocks the screen below it.
-        NotificationAlertsGate(
-            modifier = Modifier.padding(
-                horizontal = MeshaDimens.space4,
-                vertical = MeshaDimens.space2,
-            ),
-            // Re-report this device the moment alerts come back on, so the backend stops treating
-            // it as push-muted without waiting for the next app launch.
-            onAlertsTurnedOn = pushStateVm::reportNow,
+        // Derives requirements from the backend-composed module list (featureFlags indicate
+        // vaccination_execute, weighing_execute, etc.) rather than hardcoding role strings,
+        // following the nav-composition guard pattern (AGENTS.md: do NOT hardcode per-role
+        // arrays). If OS stops showing prompts ("Don't ask again"), redirects to app settings.
+        // Re-checks on resume and auto-dismisses when all required permissions are granted.
+        RoleBasedPermissionGate(
+            navState = visibleNavState,
+            onAllPermissionsGranted = { pushStateVm.reportNow() },
             onPermissionPrompted = moduleVm::recordNotificationPrompt,
-            onPermissionAnswered = moduleVm::recordNotificationPermissionAnswer,
+            onPermissionAnswered = { _, granted ->
+                if (granted) moduleVm.recordNotificationPermissionAnswer(true)
+            },
         )
         UnavailableAlertNotice(
             visible = showUnavailableAlertNotice,
@@ -521,7 +517,11 @@ fun GoatOsShellChrome(
  * not inherit root chrome from a similar path prefix.
  */
 internal fun isTopLevelRoute(currentRoute: String?, topLevelRoutes: Collection<String>): Boolean =
-    currentRoute?.routeBase() in topLevelRoutes
+    // Normalise BOTH sides. A backend root href may carry a scoping query arg — the verifier's
+    // per-feature drawer entries are "/verify?module=weighing" — and comparing a stripped current
+    // route against an unstripped href silently dropped the drawer and bottom bar. Membership is
+    // still EXACT on the path; only the query is ignored, so a real drill still gets no chrome.
+    currentRoute?.routeBase() in topLevelRoutes.map { it.routeBase() }
 
 /**
  * Whether the destination on screen offers the module drawer — the single rule behind every

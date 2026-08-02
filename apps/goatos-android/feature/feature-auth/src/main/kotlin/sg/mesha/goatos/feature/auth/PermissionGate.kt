@@ -157,7 +157,7 @@ private fun PermissionRow(
         )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = labelFor(permission), color = MeshaColors.Ink, style = MeshaType.body.copy(fontWeight = FontWeight.W600))
+            Text(text = labelFor(permission), color = MeshaColors.Ink, style = MeshaType.bodyStrong)
             Text(text = rationaleFor(permission), color = MeshaColors.Faint, style = MeshaType.caption)
         }
         Spacer(Modifier.width(8.dp))
@@ -170,7 +170,7 @@ private fun PermissionRow(
                 Text(
                     text = stringResource(R.string.perm_status_open_settings),
                     color = MeshaColors.Danger,
-                    style = MeshaType.caption.copy(fontWeight = FontWeight.W700),
+                    style = MeshaType.pill,
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
                         .clickable(onClick = onOpenSettings),
@@ -189,6 +189,7 @@ private fun iconFor(permission: AppPermission): ImageVector = when (permission) 
     AppPermission.CAMERA -> MeshaIcons.Video
     AppPermission.BLUETOOTH_CONNECT -> MeshaIcons.Bluetooth
     AppPermission.NOTIFICATIONS -> MeshaIcons.Bell
+    AppPermission.LOCATION -> MeshaIcons.Home
 }
 
 @Composable
@@ -196,6 +197,7 @@ private fun labelFor(permission: AppPermission): String = when (permission) {
     AppPermission.CAMERA -> stringResource(R.string.perm_label_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_label_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_label_notifications)
+    AppPermission.LOCATION -> stringResource(R.string.perm_label_location)
 }
 
 @Composable
@@ -203,4 +205,5 @@ private fun rationaleFor(permission: AppPermission): String = when (permission) 
     AppPermission.CAMERA -> stringResource(R.string.perm_rationale_camera)
     AppPermission.BLUETOOTH_CONNECT -> stringResource(R.string.perm_rationale_bluetooth)
     AppPermission.NOTIFICATIONS -> stringResource(R.string.perm_rationale_notifications)
+    AppPermission.LOCATION -> stringResource(R.string.perm_rationale_location)
 }

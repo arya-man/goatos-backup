@@ -251,12 +251,12 @@ class ShedsViewModel @Inject constructor(
             when {
                 !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
-                // Today folds in the deep backlog (due strictly before the visible yesterday
-                // tab) plus today's own open/review work; completed rows stay on their actual
-                // scheduled day so finished shed cards do not disappear or flood today's list.
+                // Today folds in the deep backlog (due strictly before today) plus today's own
+                // open/review work; completed rows stay on their actual scheduled day so finished
+                // shed cards do not disappear or flood today's list.
                 selectedDay == workWindow.today ->
                     dueDate.isEqual(workWindow.today) ||
-                        (dueDate.isBefore(workWindow.firstDay) && row.hasOpenOrReviewWork())
+                        (dueDate.isBefore(workWindow.today) && row.hasOpenOrReviewWork())
                 else -> dueDate == selectedDay
             }
         }

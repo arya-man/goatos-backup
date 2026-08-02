@@ -2,6 +2,7 @@ package app
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
@@ -186,10 +187,17 @@ var soonModuleKeys = []string{"feed_direction", "breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A standalone verifier sees only the generic media-verification module.
-	// Leadership principals may also hold review permission, but they still land
-	// in their leadership module rather than the verifier-only app.
+	// A standalone verifier with verify duties on multiple features shows the active module's
+	// bottom bar (user-selected, defaulting to the first feature). A single-feature verifier
+	// shows the generic verification bar. Leadership principals may also hold review
+	// permission, but they still land in their leadership module rather than the
+	// verifier-only app.
 	if isStandaloneVerifierPrincipal(grants) {
+		// Multi-feature verifier: use the first grantedModule (from position_module_duties/verify duties)
+		// as the active module. Single-feature (empty grantedModules) falls back to "verification".
+		if len(grantedModules) > 0 {
+			return composeNavigationFromModules([]string{grantedModules[0]}, grants, localeTag)
+		}
 		return composeNavigationFromModules([]string{"verification"}, grants, localeTag)
 	}
 
@@ -267,8 +275,19 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 // of a department, so gating them on department_module_grants would hide every module
 // from them. Their access is decided by permission alone. Everyone else is limited to
 // the modules their department is granted.
+//
+// For a verifier:
+//   - Multi-module verifier (≥2 verify duties): grantedModules contains the features they verify.
+//     The returned keys are the module keys as they appear in grantedModules (e.g. "vaccination",
+//     "weighing", etc.), and modulesFor will compose per-feature verification modules for each.
+//   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
 	if isStandaloneVerifierPrincipal(grants) {
+		// Verifier with multiple verify duties: offer each feature they verify.
+		// Verifier with single/no duties: fall back to generic verification module.
+		if len(grantedModules) > 1 {
+			return grantedModules
+		}
 		return []string{"verification"}
 	}
 	if !isLeadershipPrincipal(grants) {
@@ -415,13 +434,135 @@ func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) stri
 	return best
 }
 
+// verificationModuleForFeature builds a per-feature verification module for a verifier
+// who has verify duty on that feature. It uses the feature's label and contributes:
+//   - Verify: the verify/video queue for that feature
+//   - Alerts: role-scoped alerts for that feature (FUTURE: backend support needed)
+//   - You: the account tab (shared across all modules)
+//
+// The href points to /verify, and the backend will filter the queue by category/module.
+// The alerts href is a PLACEHOLDER and requires a future per-feature alerts API endpoint.
+func verificationModuleForFeature(featureKey string, grants []domain.GrantSummary, localeTag string) domain.BootstrapModule {
+	// Map feature keys to their display labels and locale keys.
+	// Keys may come as "vaccination", "pc.vaccination", "weighing", "feed.direction", etc.
+	// Normalize to the base module key first (e.g., "pc.vaccination" → "vaccination",
+	// "feed.direction" → "feed_direction").
+	normalizeKey := func(key string) string {
+		// Strip "pc." prefix if present (e.g., "pc.vaccination" → "vaccination")
+		if strings.HasPrefix(key, "pc.") {
+			key = strings.TrimPrefix(key, "pc.")
+		}
+		// Convert dots to underscores (e.g., "feed.direction" → "feed_direction")
+		key = strings.ReplaceAll(key, ".", "_")
+		return key
+	}
+	normalized := normalizeKey(featureKey)
+
+	labelKeys := map[string]string{
+		"vaccination":    "module.vaccination",
+		"weighing":       "module.weighing",
+		"counts":         "module.counts",
+		"feed_direction": "module.feed_direction",
+	}
+	labelKey, ok := labelKeys[normalized]
+	if !ok {
+		labelKey = "module." + normalized
+	}
+
+	// Compose nav items: verify + alerts + you
+	// The alerts href is currently a placeholder. Per-feature alerts endpoints do not exist yet;
+	// this nav item will render but the route may not be available. This is a FUTURE enhancement
+	// once the backend supports module-scoped process integrity / alerts endpoints.
+	// Per-feature alert labels are mapped by alertsLabelKeyForFeature to match the feature.
+	items := []moduleNavContribution{
+		{key: "verify", labelKey: "nav.verify", href: "/verify?module=" + normalized, shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
+		// FUTURE: alerts per feature. Currently /alerts is vaccination-only. When per-feature alerts
+		{key: "alerts", labelKey: alertsLabelKeyForFeature(normalized), href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
+		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "", priority: 100, requiredPermission: ""},
+	}
+
+	// Filter to permitted items
+	permittedItems := make([]moduleNavContribution, 0, len(items))
+	for _, item := range items {
+		if grantsHavePermission(grants, item.requiredPermission) {
+			permittedItems = append(permittedItems, item)
+		}
+	}
+
+	// Build nav items in order
+	navItems := make([]domain.BootstrapNavigationItem, 0, len(permittedItems))
+	for _, item := range permittedItems {
+		navItems = append(navItems, domain.BootstrapNavigationItem{
+			Key:   item.key,
+			Label: localizedBootstrapLabel(localeTag, item.labelKey),
+			Href:  item.href,
+		})
+	}
+
+	// Use a distinct key for the verifier's per-feature module (e.g., "verify_vaccination"
+	// instead of "vaccination") to avoid colliding with operator/leadership modules.
+	// The drawer shows the feature name as the label, but the key uniquely identifies
+	// this as a verification module.
+	verifyModuleKey := "verify_" + normalized
+
+	return domain.BootstrapModule{
+		Key:      verifyModuleKey,
+		Label:    localizedBootstrapLabel(localeTag, labelKey),
+		Href:     "/verify?module=" + normalized,
+		Status:   moduleStatusAvailable,
+		NavItems: navItems,
+	}
+}
+
 // modulesFor builds the drawer: every module the principal can render (with its own
 // permission-filtered, module-scoped bar), followed by the declared "soon" modules as
 // disabled rows. A module the registry does not know, or whose every page is gated away
 // from this principal, contributes nothing.
+//
+// For a multi-module verifier (≥2 verify duties), per-feature verification modules are
+// composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
+// For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
 	keys := candidateModuleKeys(grants, grantedModules)
 
+	// Special case: multi-module verifier. Compose per-feature verification modules
+	// rather than looking up registry modules. Only include modules that are "available"
+	// in the registry; verifiers only verify built features, not "soon" roadmap modules.
+	// Exclude the generic "verification" module from the feature list.
+	if isStandaloneVerifierPrincipal(grants) && len(grantedModules) > 1 {
+		out := make([]domain.BootstrapModule, 0, len(grantedModules))
+		normalizeKey := func(key string) string {
+			if strings.HasPrefix(key, "pc.") {
+				key = strings.TrimPrefix(key, "pc.")
+			}
+			// Convert dots to underscores (e.g., "feed.direction" → "feed_direction")
+			key = strings.ReplaceAll(key, ".", "_")
+			return key
+		}
+		for _, featureKey := range grantedModules {
+			normalized := normalizeKey(featureKey)
+			// Skip the generic "verification" module; verifiers get per-feature modules instead.
+			if normalized == "verification" {
+				continue
+			}
+			// Check if the module exists in the registry. Verifiers can verify both available
+			// and "soon" modules if they have explicit duties on them.
+			_, ok := moduleNavRegistry[normalized]
+			if !ok {
+				continue
+			}
+			module := verificationModuleForFeature(featureKey, grants, localeTag)
+			// Only include the module if it has at least one permitted nav item.
+			if len(module.NavItems) > 0 {
+				out = append(out, module)
+			}
+		}
+		// Verifier drawer should not show "soon" modules; they only verify what's built.
+		return out
+	}
+
+	// Standard path: look up modules in the registry (for operators, leadership, and
+	// single-module verifiers).
 	available := make([]moduleDefinition, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
 	for _, key := range keys {
@@ -562,21 +703,25 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.verify":      "Verify",
-		"nav.overview":    "Overview",
-		"nav.calendar":    "Calendar",
-		"nav.alerts":      "Vaccination alerts",
-		"nav.drives":      "Drives",
-		"nav.counts":      "Counts",
-		"nav.birth_death": "Birth/Death",
-		"nav.shifting":    "Shifting",
-		"nav.approval":    "Approval",
-		"nav.weighing":    "Weighing",
-		"nav.my_work":     "My work",
-		"nav.tasks":       "Tasks",
-		"nav.operators":   "Operators",
-		"nav.videos":      "Videos",
-		"nav.you":         "You",
+		"nav.verify":                "Verify",
+		"nav.overview":              "Overview",
+		"nav.calendar":              "Calendar",
+		"nav.alerts":                "Vaccination alerts",
+		"nav.alerts.vaccination":    "Vaccination alerts",
+		"nav.alerts.weighing":       "Weighing alerts",
+		"nav.alerts.counts":         "Counts alerts",
+		"nav.alerts.feed_direction": "Feed alerts",
+		"nav.drives":                "Drives",
+		"nav.counts":                "Counts",
+		"nav.birth_death":           "Birth/Death",
+		"nav.shifting":              "Shifting",
+		"nav.approval":              "Approval",
+		"nav.weighing":              "Weighing",
+		"nav.my_work":               "My work",
+		"nav.tasks":                 "Tasks",
+		"nav.operators":             "Operators",
+		"nav.videos":                "Videos",
+		"nav.you":                   "You",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
@@ -589,21 +734,25 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.verify":      "सत्यापित करें",
-		"nav.overview":    "अवलोकन",
-		"nav.calendar":    "कैलेंडर",
-		"nav.alerts":      "टीकाकरण अलर्ट",
-		"nav.drives":      "ड्राइव",
-		"nav.counts":      "गिनती",
-		"nav.birth_death": "जन्म/मृत्यु",
-		"nav.shifting":    "शिफ्टिंग",
-		"nav.approval":    "अनुमोदन",
-		"nav.weighing":    "वजन",
-		"nav.my_work":     "मेरा काम",
-		"nav.tasks":       "कार्य",
-		"nav.operators":   "ऑपरेटर",
-		"nav.videos":      "वीडियो",
-		"nav.you":         "आप",
+		"nav.verify":                "सत्यापित करें",
+		"nav.overview":              "अवलोकन",
+		"nav.calendar":              "कैलेंडर",
+		"nav.alerts":                "टीकाकरण अलर्ट",
+		"nav.alerts.vaccination":    "टीकाकरण अलर्ट",
+		"nav.alerts.weighing":       "वजन अलर्ट",
+		"nav.alerts.counts":         "गणना अलर्ट",
+		"nav.alerts.feed_direction": "फ़ीड अलर्ट",
+		"nav.drives":                "ड्राइव",
+		"nav.counts":                "गिनती",
+		"nav.birth_death":           "जन्म/मृत्यु",
+		"nav.shifting":              "शिफ्टिंग",
+		"nav.approval":              "अनुमोदन",
+		"nav.weighing":              "वजन",
+		"nav.my_work":               "मेरा काम",
+		"nav.tasks":                 "कार्य",
+		"nav.operators":             "ऑपरेटर",
+		"nav.videos":                "वीडियो",
+		"nav.you":                   "आप",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
@@ -616,21 +765,25 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
-		"nav.overview":    "ಅವಲೋಕನ",
-		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
-		"nav.alerts":      "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
-		"nav.counts":      "ಎಣಿಕೆ",
-		"nav.birth_death": "ಜನನ/ಮರಣ",
-		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
-		"nav.approval":    "ಅನುಮೋದನೆ",
-		"nav.weighing":    "ತೂಕ",
-		"nav.my_work":     "ನನ್ನ ಕೆಲಸ",
-		"nav.tasks":       "ಕಾರ್ಯಗಳು",
-		"nav.operators":   "ಆಪರೇಟರ್‌ಗಳು",
-		"nav.videos":      "ವೀಡಿಯೊಗಳು",
-		"nav.you":         "ನೀವು",
+		"nav.verify":                "ಪರಿಶೀಲಿಸಿ",
+		"nav.overview":              "ಅವಲೋಕನ",
+		"nav.calendar":              "ಕ್ಯಾಲೆಂಡರ್",
+		"nav.alerts":                "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.alerts.vaccination":    "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.alerts.weighing":       "ತೂಕ ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.alerts.counts":         "ಎಣಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.alerts.feed_direction": "ಆಹಾರ ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.drives":                "ಡ್ರೈವ್‌ಗಳು",
+		"nav.counts":                "ಎಣಿಕೆ",
+		"nav.birth_death":           "ಜನನ/ಮರಣ",
+		"nav.shifting":              "ಸ್ಥಳಾಂತರ",
+		"nav.approval":              "ಅನುಮೋದನೆ",
+		"nav.weighing":              "ತೂಕ",
+		"nav.my_work":               "ನನ್ನ ಕೆಲಸ",
+		"nav.tasks":                 "ಕಾರ್ಯಗಳು",
+		"nav.operators":             "ಆಪರೇಟರ್‌ಗಳು",
+		"nav.videos":                "ವೀಡಿಯೊಗಳು",
+		"nav.you":                   "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
@@ -643,21 +796,25 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.verify":      "ధృవీకరించండి",
-		"nav.overview":    "అవలోకనం",
-		"nav.calendar":    "క్యాలెండర్",
-		"nav.alerts":      "టీకా అలర్ట్లు",
-		"nav.drives":      "డ్రైవ్‌లు",
-		"nav.counts":      "లెక్కలు",
-		"nav.birth_death": "జననం/మరణం",
-		"nav.shifting":    "షిఫ్టింగ్",
-		"nav.approval":    "ఆమోదం",
-		"nav.weighing":    "బరువు",
-		"nav.my_work":     "నా పని",
-		"nav.tasks":       "పనులు",
-		"nav.operators":   "ఆపరేటర్లు",
-		"nav.videos":      "వీడియోలు",
-		"nav.you":         "మీరు",
+		"nav.verify":                "ధృవీకరించండి",
+		"nav.overview":              "అవలోకనం",
+		"nav.calendar":              "క్యాలెండర్",
+		"nav.alerts":                "టీకా అలర్ట్లు",
+		"nav.alerts.vaccination":    "టీకా అలర్ట్లు",
+		"nav.alerts.weighing":       "బరువు అలర్ట్లు",
+		"nav.alerts.counts":         "లెక్కల అలర్ట్లు",
+		"nav.alerts.feed_direction": "ఫీడ్ అలర్ట్లు",
+		"nav.drives":                "డ్రైవ్‌లు",
+		"nav.counts":                "లెక్కలు",
+		"nav.birth_death":           "జననం/మరణం",
+		"nav.shifting":              "షిఫ్టింగ్",
+		"nav.approval":              "ఆమోదం",
+		"nav.weighing":              "బరువు",
+		"nav.my_work":               "నా పని",
+		"nav.tasks":                 "పనులు",
+		"nav.operators":             "ఆపరేటర్లు",
+		"nav.videos":                "వీడియోలు",
+		"nav.you":                   "మీరు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
@@ -669,4 +826,45 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",
 	},
+}
+
+// alertsLabelKeyForFeature maps a feature key to its per-feature alerts label key
+// in bootstrapLabels. Each feature's alerts tab gets its own localized label:
+// Vaccination, Weighing, Counts, Feed, etc.
+func alertsLabelKeyForFeature(normalizedFeatureKey string) string {
+	switch normalizedFeatureKey {
+	case "vaccination":
+		return "nav.alerts.vaccination"
+	case "weighing":
+		return "nav.alerts.weighing"
+	case "counts":
+		return "nav.alerts.counts"
+	case "feed_direction":
+		return "nav.alerts.feed_direction"
+	default:
+		return "nav.alerts"
+	}
+}
+
+// verificationCategoryForFeature maps a MODULE key (the vocabulary nav and
+// position_module_duties speak: "vaccination", "weighing", "feed_direction",
+// "counts") to the VERIFICATION CATEGORY the /verify/alerts endpoint filters on
+// ("vaccination_proof", "weighing_proof", ...). The two vocabularies are not the
+// same, and getting this wrong is silent: the endpoint answers 200 with an empty
+// list rather than an error, so the Alerts tab would look permanently empty
+// instead of broken. An unmapped module falls back to "<module>_proof", which is
+// the convention every current category follows.
+func verificationCategoryForFeature(normalizedFeatureKey string) string {
+	switch normalizedFeatureKey {
+	case "vaccination":
+		return "vaccination_proof"
+	case "weighing":
+		return "weighing_proof"
+	case "counts":
+		return "counts_proof"
+	case "feed_direction":
+		return "feed_distribution"
+	default:
+		return normalizedFeatureKey + "_proof"
+	}
 }

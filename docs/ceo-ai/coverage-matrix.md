@@ -669,3 +669,14 @@ read existing label/location rows and return display strings to the
 notification builder — one batched query per event, never per recipient. No
 aggregate, no metric, no leadership-facing read: leadership sees the same
 vaccines and places through the existing vaccination and weighing read APIs.
+
+**EXCLUDED — `func:ListAlerts`** (verification HTTP adapter) — the verifier's
+per-feature alerts list, `GET /verify/alerts?category=<verification category>`.
+It returns the pending verification items of ONE module (vaccination, weighing,
+feed, counts) for the verifier who must action them, so the drawer's per-feature
+Alerts tab shows that feature's own work (maintainer decision 2026-08-02:
+"alerts per feature wise", role-specific). It is an operator-facing worklist
+scoped to a single role, not an aggregate or KPI: same rows, same grain, and the
+same `verification_items` source the existing verification queue already serves.
+Leadership continues to see verification health through the module read APIs and
+the Control Tower process-state summary, not through this endpoint.

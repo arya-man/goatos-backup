@@ -332,3 +332,92 @@ func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
 		}
 	})
 }
+
+// TestMultiModuleVerifierDrawer locks the verifier nav composition for ≥2 verify duties.
+// A verifier with VerificationReview permission and verify duty on multiple features
+// gets a drawer with one entry per feature, following the CEO/leadership pattern.
+func TestMultiModuleVerifierDrawer(t *testing.T) {
+	const en = localization.DefaultTag
+
+	t.Run("multi-module verifier (vaccination+weighing) gets expanded drawer with feature-scoped modules", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{"pc.vaccination", "weighing"}
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		// Should have two modules: one for each feature the verifier has a verify duty on
+		if len(modules) != 2 {
+			t.Fatalf("multi-module verifier should see 2 modules; got %d: %v", len(modules), keys)
+		}
+
+		// Check vaccination module
+		vaccModule := modules[0]
+		if vaccModule.Key != "verify_vaccination" {
+			t.Fatalf("first module key = %q, want verify_vaccination", vaccModule.Key)
+		}
+		if vaccModule.Label != "Vaccination" {
+			t.Fatalf("vaccination module label = %q, want Vaccination", vaccModule.Label)
+		}
+		if vaccModule.Status != moduleStatusAvailable {
+			t.Fatalf("vaccination module status = %q, want available", vaccModule.Status)
+		}
+		// The module href carries the feature so the drawer's tap scopes the verify queue to
+		// THAT feature; plain "/verify" made every drawer entry land on vaccination.
+		if vaccModule.Href != "/verify?module=vaccination" {
+			t.Fatalf("vaccination module landing href = %q, want /verify", vaccModule.Href)
+		}
+
+		// Check vaccination nav items: verify + alerts + you
+		if len(vaccModule.NavItems) != 3 {
+			t.Fatalf("vaccination nav items count = %d, want 3; got %v", len(vaccModule.NavItems), vaccModule.NavItems)
+		}
+		if vaccModule.NavItems[0].Key != "verify" || vaccModule.NavItems[0].Label != "Verify" {
+			t.Fatalf("vaccination bar item 0 = %+v, want {verify, Verify}", vaccModule.NavItems[0])
+		}
+		if vaccModule.NavItems[1].Key != "alerts" || vaccModule.NavItems[1].Label != "Vaccination alerts" {
+			t.Fatalf("vaccination bar item 1 = %+v, want {alerts, Vaccination alerts}", vaccModule.NavItems[1])
+		}
+		if vaccModule.NavItems[2].Key != "you" || vaccModule.NavItems[2].Label != "You" {
+			t.Fatalf("vaccination bar item 2 = %+v, want {you, You}", vaccModule.NavItems[2])
+		}
+
+		// Check weighing module
+		weighModule := modules[1]
+		if weighModule.Key != "verify_weighing" {
+			t.Fatalf("second module key = %q, want verify_weighing", weighModule.Key)
+		}
+		if weighModule.Label != "Weighing" {
+			t.Fatalf("weighing module label = %q, want Weighing", weighModule.Label)
+		}
+		if len(weighModule.NavItems) != 3 {
+			t.Fatalf("weighing nav items count = %d, want 3; got %v", len(weighModule.NavItems), weighModule.NavItems)
+		}
+	})
+
+	t.Run("single-module verifier gets minimal chrome with generic verification module", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{"pc.vaccination"}
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		// Single module verifier should still use the generic "verification" module
+		// (handled by candidateModuleKeys returning ["verification"] when len(grantedModules) <= 1)
+		if keys["verification"] != moduleStatusAvailable {
+			t.Fatalf("single-module verifier should see generic verification module; got %v", keys)
+		}
+		if len(modules) != 1 {
+			t.Fatalf("single-module verifier should have 1 module; got %d", len(modules))
+		}
+	})
+
+	t.Run("verifier with no modules gets generic verification module", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{} // No verify duties
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		if keys["verification"] != moduleStatusAvailable {
+			t.Fatalf("verifier with no duties should see generic verification; got %v", keys)
+		}
+	})
+}

@@ -1918,8 +1918,15 @@ fun AppNavHost(
         // drills to VERIFY_DETAIL with both the item id and ITS category threaded through, so
         // the detail VM re-observes that exact Room cache scope (no second network round trip).
         composable(
-            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}",
-            arguments = listOf(navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false }),
+            // `module` scopes the queue to ONE feature. The verifier drawer is composed per
+            // feature by the backend (href "/verify?module=<feature>"), and VerifyQueueViewModel
+            // reads this arg; without it every drawer entry fell back to vaccination, so
+            // switching to Weighing showed an empty queue while weighing proofs sat pending.
+            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}&module={module}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
+                navArgument("module") { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
         ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -2094,11 +2101,12 @@ private fun WorkflowListDestination(
  */
 internal fun startDestinationFor(navState: NavState): String {
     navState.availableModules().firstOrNull()?.href
-        ?.takeIf { it in supportedRootDestinations }
+        ?.takeIf { isRootDestination(it) }
         ?.let { return it }
-    return navState.items.firstOrNull { it.href in supportedRootDestinations }?.href
+    return navState.items.firstOrNull { isRootDestination(it.href) }?.href
         ?: Routes.CALENDAR
 }
+
 
 // How long the feed-distribution capture screen lingers on its success tone before
 // auto-returning to the Feed Direction list. Long enough to confirm the submit
