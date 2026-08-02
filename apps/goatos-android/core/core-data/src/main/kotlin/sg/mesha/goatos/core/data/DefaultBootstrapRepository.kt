@@ -1,5 +1,7 @@
 package sg.mesha.goatos.core.data
 
+import sg.mesha.goatos.core.network.BootstrapError
+
 import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.AppApi
@@ -7,6 +9,7 @@ import sg.mesha.goatos.core.network.BootstrapDto
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.core.network.HeartbeatDeviceRequestDto
 import sg.mesha.goatos.core.network.RegisterDeviceRequestDto
+import sg.mesha.goatos.core.network.asBootstrapError
 import sg.mesha.goatos.core.network.toNavState
 
 /**
@@ -39,12 +42,19 @@ class DefaultBootstrapRepository(
             cache?.save(dto)
             reconcileDevice(dto)
             dto.toNavState()
-        } catch (t: java.io.IOException) {
-            // Offline-first fallback is ONLY for transport/connectivity failures. An
-            // auth/permission failure (401/403 arrives as retrofit HttpException, NOT an
-            // IOException) and any other error propagate — so a stale cached shell can
-            // never mask a rejected token / revoked device / missing grant / switched user.
-            cache?.load()?.toNavState() ?: throw t
+        } catch (t: Throwable) {
+            // Map network-layer errors to domain-level bootstrap errors.
+            // Auth/permission failures (401/403) must NOT fall back to cache — a stale
+            // cached shell can never mask a rejected/expired token, revoked device, missing
+            // grant, or switched user. Connectivity failures may fall back and retry.
+            val bootstrapError = t.asBootstrapError()
+            when (bootstrapError) {
+                is BootstrapError.AuthSessionExpired -> throw bootstrapError
+                is BootstrapError.ConnectivityFailure -> {
+                    // Try to fall back to cached bootstrap on connectivity failure only.
+                    cache?.load()?.toNavState() ?: throw bootstrapError
+                }
+            }
         }
 
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =

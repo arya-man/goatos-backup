@@ -43,4 +43,8 @@
     <string name="weighing_assignment_summary_individual">%1$d ಮಕ್ಕಳು ವ್ಯಾಪ್ತಿಯಲ್ಲಿ · ಪ್ರಾಣಿ ವೀಡಿಯೊಗಳು</string>
     <string name="weighing_action_view_result">ಫಲಿತಾಂಶ ನೋಡಿ →</string>
     <string name="weighing_action_record_shed">ಶೆಡ್ ಫಲಿತಾಂಶ ದಾಖಲಿಸಿ →</string>
+    <string name="bootstrap_error_auth_session_expired">ನಿಮ್ಮ ಅಧಿವೇಶನ ಕೊನೆಗೊಂಡಿದೆ. ಮುಂದುವರೆಸಲು ಮತ್ತೆ ಸೈನ್ ಇನ್ ಮಾಡಿ.</string>
+    <string name="bootstrap_error_connectivity">ಸರ್ವರನ್ನು ತಲುಪಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ ಮತ್ತು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.</string>
+    <string name="bootstrap_action_sign_in_again">ಮತ್ತೆ ಸೈನ್ ಇನ್ ಮಾಡಿ</string>
+    <string name="bootstrap_action_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
 </resources>

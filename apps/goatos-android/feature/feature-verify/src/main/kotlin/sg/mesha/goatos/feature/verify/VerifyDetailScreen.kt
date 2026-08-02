@@ -402,9 +402,14 @@ private fun VerifyVideoPlayer(
             },
             modifier = Modifier.align(Alignment.Center),
         )
-        VideoFullscreenButton(
-            onClick = {
-                currentOnPlayback(
+        // Maintainer decision 2026-08-02: a verifier gets PLAY/PAUSE ONLY. They must watch the
+        // proof as recorded — no scrubbing (useController stays false for them) and no fullscreen
+        // re-frame. Everyone else who may see the video keeps both. `controlsEnabled` is the same
+        // bootstrap-driven flag that governs the seek controller, so the two can never disagree.
+        if (controlsEnabled) {
+            VideoFullscreenButton(
+                onClick = {
+                    currentOnPlayback(
                     VerifyDetailEvent.VideoPlayback(
                         proofSubject = media.proofSubject,
                         mimeType = media.mimeType,
@@ -413,11 +418,12 @@ private fun VerifyVideoPlayer(
                         positionMs = player.currentPosition.coerceAtLeast(0L),
                     ),
                 )
-                player.playWhenReady = false
-                isFullscreen = true
-            },
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-        )
+                    player.playWhenReady = false
+                    isFullscreen = true
+                },
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            )
+        }
     }
 
     if (isFullscreen) {
