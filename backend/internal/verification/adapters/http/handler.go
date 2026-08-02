@@ -42,28 +42,31 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 }
 
 type queueItemResponse struct {
-	ItemID            string             `json:"item_id"`
-	Vertical          string             `json:"vertical"`
-	Module            string             `json:"module"`
-	Category          string             `json:"category"`
-	SubjectLabel      *string            `json:"subject_label,omitempty"`
-	Status            string             `json:"status"`
-	VerdictReason     *string            `json:"verdict_reason,omitempty"`
-	OperatorID        *string            `json:"operator_id,omitempty"`
-	OperatorName      *string            `json:"operator_name,omitempty"` // backend-owned display label
-	ShedID            *string            `json:"shed_id,omitempty"`
-	ShedLabel         *string            `json:"shed_label,omitempty"` // backend-owned display label
-	ParkID            *string            `json:"park_id,omitempty"`
-	ParkLabel         *string            `json:"park_label,omitempty"` // backend-owned display label
-	CapturedAt        string             `json:"captured_at"`
-	VerifiedBy        *string            `json:"verified_by,omitempty"`
-	VerifiedAt        *string            `json:"verified_at,omitempty"`
-	ClosedBy          *string            `json:"closed_by,omitempty"`
-	ClosedAt          *string            `json:"closed_at,omitempty"`
-	RowVersion        int                `json:"row_version"`
-	Media             []domain.MediaItem `json:"media"`
-	EvidenceAvailable bool               `json:"evidence_available"`
-	Source            sourceResponse     `json:"source"`
+	ItemID        string             `json:"item_id"`
+	Vertical      string             `json:"vertical"`
+	Module        string             `json:"module"`
+	Category      string             `json:"category"`
+	SubjectLabel  *string            `json:"subject_label,omitempty"`
+	Status        string             `json:"status"`
+	VerdictReason *string            `json:"verdict_reason,omitempty"`
+	OperatorID    *string            `json:"operator_id,omitempty"`
+	OperatorName  *string            `json:"operator_name,omitempty"` // backend-owned display label
+	ShedID        *string            `json:"shed_id,omitempty"`
+	ShedLabel     *string            `json:"shed_label,omitempty"` // backend-owned display label
+	ParkID        *string            `json:"park_id,omitempty"`
+	ParkLabel     *string            `json:"park_label,omitempty"` // backend-owned display label
+	CapturedAt    string             `json:"captured_at"`
+	VerifiedBy    *string            `json:"verified_by,omitempty"`
+	VerifiedAt    *string            `json:"verified_at,omitempty"`
+	ClosedBy      *string            `json:"closed_by,omitempty"`
+	ClosedAt      *string            `json:"closed_at,omitempty"`
+	RowVersion    int                `json:"row_version"`
+	Media         []domain.MediaItem `json:"media"`
+	// evidence_available means "a signed download link was resolved for every media_ref" — it does
+	// NOT assert the bytes are retrievable (see domain.QueueRow.EvidenceLinkResolved). A link that
+	// later 410s with proof_object_missing is the terminal signal clients must render.
+	EvidenceAvailable bool           `json:"evidence_available"`
+	Source            sourceResponse `json:"source"`
 }
 
 type sourceResponse struct {
@@ -118,7 +121,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		ClosedAt:          closedAt,
 		RowVersion:        row.Item.RowVersion,
 		Media:             media,
-		EvidenceAvailable: row.EvidenceAvailable,
+		EvidenceAvailable: row.EvidenceLinkResolved,
 		Source: sourceResponse{
 			Module:       row.Item.Source.Module,
 			TaskID:       row.Item.Source.TaskID,
