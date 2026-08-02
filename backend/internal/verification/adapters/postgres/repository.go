@@ -464,10 +464,25 @@ WHERE vc.tenant_id = $2::uuid
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances oi
 SET status = 'completed',
-    completed_at = COALESCE(oi.completed_at, now()),
+    completed_at = COALESCE(
+      oi.completed_at,
+      (
+        -- projection-review: membership=accepted vaccination_completions attached to this exact obligation and submission; group_key=the outer obligation row; join_cardinality=sop_submission_items is one row per completion item and min(administered_at) collapses any same-obligation accepted retries to one medical instant; pagination=n/a single-row closeout mutation; scope=tenant+obligation+submission, with no park/shed inference
+        SELECT min(vc.administered_at)
+        FROM vaccination_completions vc
+        JOIN sop_submission_items si
+          ON si.tenant_id = vc.tenant_id
+         AND si.item_id = vc.sop_submission_item_id
+        WHERE vc.tenant_id = oi.tenant_id
+          AND vc.obligation_id = oi.obligation_id
+          AND vc.status = 'accepted'
+          AND si.submission_id = $2::uuid
+      ),
+      now()
+    ),
     updated_at = now()
 WHERE oi.tenant_id = $1::uuid
-  AND oi.status <> 'completed'
+  AND oi.status IN ('scheduled', 'due', 'in_progress')
   AND EXISTS (
     SELECT 1
     FROM vaccination_completions vc
@@ -618,36 +633,66 @@ func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, para
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
-WITH expected AS (
+WITH batch_scope AS (
+  SELECT vda.batch_id, vda.park_id, vda.shed_id
+  FROM vaccination_drive_assignments vda
+  WHERE vda.tenant_id = $1::uuid
+  UNION
+  SELECT vc.batch_id, vi.park_id, vi.shed_id
+  FROM vaccination_completions vc
+  JOIN sop_submission_items si
+    ON si.tenant_id = vc.tenant_id
+   AND si.item_id = vc.sop_submission_item_id
+  JOIN verification_items vi
+    ON vi.tenant_id = vc.tenant_id
+   AND vi.source_submission_id = si.submission_id
+   AND (
+     (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+     OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+   )
+  WHERE vc.tenant_id = $1::uuid
+    AND vi.category = $2
+    AND vc.status IN ('recorded', 'accepted')
+),
+expected AS (
   SELECT
-    oi.batch_id,
-    COUNT(*)::int AS total_count,
+    ob.batch_id,
+	completion_counts.completion_count,
+    completion_counts.total_count,
     ob.protocol_version_id::text AS protocol_version_id,
-	    COALESCE(MIN(vda.park_id::text), '') AS park_id,
-	    COALESCE(MIN(park.name), '') AS park_label,
-	    string_agg(DISTINCT NULLIF(vda.physical_shed, ''), ', ' ORDER BY NULLIF(vda.physical_shed, '')) AS shed_labels,
-	    COUNT(DISTINCT NULLIF(vda.physical_shed, ''))::int AS planned_shed_count,
-	    MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
-	    MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
-  FROM obligation_instances oi
-  JOIN obligation_batches ob
-    ON ob.tenant_id = oi.tenant_id
-   AND ob.batch_id = oi.batch_id
+    COALESCE(MIN(vda.park_id::text), '') AS park_id,
+    COALESCE(MIN(park.name), '') AS park_label,
+    string_agg(DISTINCT NULLIF(vda.physical_shed, ''), ', ' ORDER BY NULLIF(vda.physical_shed, '')) AS shed_labels,
+    COUNT(DISTINCT NULLIF(vda.physical_shed, ''))::int AS planned_shed_count,
+    MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
+    MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
+  FROM obligation_batches ob
+  JOIN (
+    SELECT
+      vc.batch_id,
+      COUNT(*)::int AS completion_count,
+      COUNT(DISTINCT vc.goat_id)::int AS total_count
+    FROM vaccination_completions vc
+    WHERE vc.tenant_id = $1::uuid
+      AND vc.batch_id IS NOT NULL
+      AND vc.status IN ('recorded', 'accepted')
+    GROUP BY vc.batch_id
+  ) completion_counts
+    ON completion_counts.batch_id = ob.batch_id
   LEFT JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = oi.tenant_id
-   AND vda.batch_id = oi.batch_id
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
   LEFT JOIN locations park
     ON park.tenant_id = vda.tenant_id
    AND park.location_id = vda.park_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.batch_id IS NOT NULL
-    AND ($8 = '' OR vda.park_id = $8::uuid)
-    AND ($9 = '' OR vda.shed_id = $9::uuid)
-  GROUP BY oi.batch_id, ob.protocol_version_id
+  WHERE ob.tenant_id = $1::uuid
+  GROUP BY ob.batch_id, completion_counts.completion_count, completion_counts.total_count, ob.protocol_version_id
 ),
 proofs AS (
   SELECT
     vc.batch_id,
+	vc.completion_id,
+	vc.goat_id,
     vi.item_id,
     vi.status,
     vi.closed_at,
@@ -665,6 +710,7 @@ proofs AS (
      OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
    )
   WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'recorded'
     AND vi.category = $2
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
@@ -672,7 +718,48 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+  UNION ALL
+  SELECT
+    vc.batch_id,
+	vc.completion_id,
+	vc.goat_id,
+    NULL::uuid AS item_id,
+    'approved'::text AS status,
+    now() AS closed_at,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id
+  FROM vaccination_completions vc
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND (
+      NOT $5::boolean
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.park_id = ANY($6::uuid[])
+      )
+    )
+    AND (
+      $8 = ''
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.park_id = $8::uuid
+      )
+    )
+    AND (
+      $9 = ''
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.shed_id = $9::uuid
+      )
+    )
 ),
+-- projection-review: membership=vaccination_completions with non-null batch_id is the executed medical membership, independent of later obligation reassignment; group_key=batch_id; join_cardinality=verification_items may be one-to-many per submission/completion, so readiness counts DISTINCT completion_id while user-facing totals and status buckets count DISTINCT goat_id, and assignment rows are pre-aggregated inside expected; pagination=all completion/proof rows are reduced to one whole-batch rollup before the final LIMIT 20 closure page; scope=park/shed filters use explicit batch_scope rows from assignment or verification facts, never a generic hierarchy COALESCE
 rollup AS (
   SELECT
     e.batch_id::text,
@@ -706,11 +793,15 @@ rollup AS (
     e.park_label,
     COALESCE(e.start_date::text, '') AS start_date,
     COALESCE(e.end_date::text, '') AS end_date,
+	e.completion_count,
     e.total_count,
-    COUNT(p.*)::int AS proof_count,
-    COUNT(*) FILTER (WHERE p.status = 'approved')::int AS approved_count,
-    COUNT(*) FILTER (WHERE p.status = 'rejected')::int AS rejected_count,
-    COUNT(*) FILTER (WHERE p.status = 'pending')::int AS pending_count,
+	COUNT(DISTINCT p.completion_id)::int AS proof_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'approved')::int AS approved_completion_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_completion_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'pending')::int AS pending_completion_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'approved')::int AS approved_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'pending')::int AS pending_count,
     COUNT(DISTINCT p.item_id)::int AS video_count,
     COUNT(DISTINCT p.item_id) FILTER (WHERE p.status = 'approved')::int AS approved_videos,
     COUNT(DISTINCT p.item_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_videos,
@@ -718,16 +809,16 @@ rollup AS (
     COUNT(DISTINCT p.shed_id)::int AS shed_count
   FROM expected e
   JOIN proofs p ON p.batch_id = e.batch_id
-	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.total_count
+	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.completion_count, e.total_count
 )
 SELECT batch_id, drive_key, drive_label, batch_label, park_id, park_label, start_date, end_date,
        total_count, approved_count, rejected_count, pending_count,
        video_count, approved_videos, rejected_videos, pending_videos, shed_count
 FROM rollup
-WHERE proof_count = total_count
-  AND approved_count = total_count
-  AND rejected_count = 0
-  AND pending_count = 0
+WHERE proof_count = completion_count
+  AND approved_completion_count = completion_count
+  AND rejected_completion_count = 0
+  AND pending_completion_count = 0
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
@@ -783,9 +874,10 @@ func (r *Repository) CloseVaccinationBatch(ctx context.Context, in domain.CloseV
 	var expectedCount int
 	if err := tx.QueryRow(ctx, `
 SELECT COUNT(*)::int
-FROM obligation_instances
+FROM vaccination_completions
 WHERE tenant_id = $1::uuid
-  AND batch_id = $2::uuid`, in.TenantID, in.BatchID).Scan(&expectedCount); err != nil {
+  AND batch_id = $2::uuid
+  AND status IN ('recorded', 'accepted')`, in.TenantID, in.BatchID).Scan(&expectedCount); err != nil {
 		return nil, err
 	}
 	if expectedCount == 0 {
@@ -805,6 +897,7 @@ WHERE vi.tenant_id = $1::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $2::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -835,29 +928,30 @@ FOR UPDATE`, in.TenantID, in.BatchID)
 		if err := tx.QueryRow(ctx, `
 SELECT COUNT(*)::int
 FROM vaccination_completions vc
-JOIN sop_submission_items si
+LEFT JOIN sop_submission_items si
   ON si.tenant_id = vc.tenant_id
  AND si.item_id = vc.sop_submission_item_id
 WHERE vc.tenant_id = $1::uuid
   AND vc.batch_id = $2::uuid
-  AND EXISTS (
-    SELECT 1
-    FROM verification_items vi
-    WHERE vi.tenant_id = vc.tenant_id
-      AND vi.source_submission_id = si.submission_id
-      AND (
-        (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
-        OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
-      )
+  AND vc.status IN ('recorded', 'accepted')
+  AND (
+    vc.status = 'accepted'
+    OR EXISTS (
+      SELECT 1
+      FROM verification_items vi
+      WHERE vi.tenant_id = vc.tenant_id
+        AND vi.source_submission_id = si.submission_id
+        AND (
+          (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+          OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+        )
+    )
   )`, in.TenantID, in.BatchID).Scan(&coveredCount); err != nil {
 			return nil, err
 		}
 		if coveredCount != expectedCount {
 			return nil, ports.ErrConflict
 		}
-	}
-	if len(items) == 0 {
-		return nil, ports.ErrConflict
 	}
 	allClosed := true
 	for _, item := range items {
@@ -901,6 +995,7 @@ WHERE vi.tenant_id = $2::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $3::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -926,6 +1021,7 @@ WHERE vi.tenant_id = $1::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $2::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -1012,23 +1108,30 @@ WHERE vc.tenant_id = $2::uuid
 	    ),
 	    updated_at = now()
 	WHERE oi.tenant_id = $1::uuid
-	  AND oi.batch_id = $2::uuid
-  AND oi.status <> 'completed'
-  AND EXISTS (
-    SELECT 1
-    FROM vaccination_completions vc
-    WHERE vc.tenant_id = oi.tenant_id
-      AND vc.obligation_id = oi.obligation_id
-      AND vc.status = 'accepted'
-  )`, tenantID, batchID); err != nil {
+	  AND oi.status IN ('scheduled', 'due', 'in_progress')
+	  AND EXISTS (
+	    SELECT 1
+	    FROM vaccination_completions vc
+	    WHERE vc.tenant_id = oi.tenant_id
+	      AND vc.obligation_id = oi.obligation_id
+	      AND vc.batch_id = $2::uuid
+	      AND vc.status = 'accepted'
+	  )`, tenantID, batchID); err != nil {
 		return err
 	}
 	rows, err := tx.Query(ctx, `
 SELECT obligation_id::text
 FROM obligation_instances
 WHERE tenant_id = $1::uuid
-  AND batch_id = $2::uuid
-  AND status = 'completed'`, tenantID, batchID)
+  AND status = 'completed'
+  AND EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    WHERE vc.tenant_id = obligation_instances.tenant_id
+      AND vc.obligation_id = obligation_instances.obligation_id
+      AND vc.batch_id = $2::uuid
+      AND vc.status = 'accepted'
+  )`, tenantID, batchID)
 	if err != nil {
 		return err
 	}
@@ -1457,6 +1560,7 @@ WITH item_batch AS (
     ON si.tenant_id = vc.tenant_id
    AND si.item_id = vc.sop_submission_item_id
   WHERE vc.tenant_id = $1::uuid
+    AND vc.status IN ('recorded', 'accepted')
     AND si.submission_id = $2::uuid
     AND (
       ($4 = 'sop_submission' AND si.submission_id = $3::uuid)
@@ -1465,10 +1569,12 @@ WITH item_batch AS (
   LIMIT 1
 ),
 expected AS (
+  -- projection-review: membership=active recorded/accepted vaccination_completions for the one batch resolved from item_batch; group_key=batch_id; join_cardinality=item_batch is one row and each active completion contributes exactly one count, while rejected/reversed audit attempts are excluded; pagination=n/a readiness check for one verdict; scope=tenant+batch from the verified submission item
   SELECT COUNT(*)::int AS total_count
-  FROM obligation_instances oi
-  JOIN item_batch ib ON ib.batch_id = oi.batch_id
-  WHERE oi.tenant_id = $1::uuid
+  FROM vaccination_completions vc
+  JOIN item_batch ib ON ib.batch_id = vc.batch_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status IN ('recorded', 'accepted')
 ),
 proofs AS (
   SELECT vi.status
@@ -1476,6 +1582,7 @@ proofs AS (
   JOIN vaccination_completions vc
     ON vc.tenant_id = $1::uuid
    AND vc.batch_id = ib.batch_id
+   AND vc.status IN ('recorded', 'accepted')
   JOIN sop_submission_items si
     ON si.tenant_id = vc.tenant_id
    AND si.item_id = vc.sop_submission_item_id

@@ -176,6 +176,14 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 		}
 		choice := bestOperatorForBlock(loads, total)
 		if choice < 0 {
+			// A physical shed that fits the standing per-operator cap is indivisible. Residual
+			// capacity on the current day is not permission to peel off some of its partitions;
+			// carry the entire shed to the next available operator-day instead. Partitions are a
+			// fallback only when the physical shed itself is larger than one operator's full cap.
+			if configuredOperatorCap > 0 && total <= configuredOperatorCap {
+				unscheduled = append(unscheduled, group.blocks...)
+				continue
+			}
 			for _, block := range group.blocks {
 				if block.Animals <= 0 {
 					continue
@@ -212,9 +220,6 @@ func (p OperatorDrivePlanner) planOneDay(date string, operators []DriveOperator,
 }
 
 func configuredOperatorCap(req DrivePlanRequest) int {
-	if req.ConfiguredOperatorCap > 0 {
-		return req.ConfiguredOperatorCap
-	}
 	maxCap := 0
 	for _, day := range req.Availability {
 		for _, op := range day.Operators {
@@ -228,6 +233,9 @@ func configuredOperatorCap(req DrivePlanRequest) int {
 	}
 	if maxCap > 0 {
 		return maxCap
+	}
+	if req.ConfiguredOperatorCap > 0 {
+		return req.ConfiguredOperatorCap
 	}
 	return maxOperatorCap(req.Availability)
 }

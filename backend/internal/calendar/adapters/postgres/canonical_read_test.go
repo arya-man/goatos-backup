@@ -431,6 +431,22 @@ func TestDriveSummaryEmitsBackendOwnedProgressContract(t *testing.T) {
 	}
 }
 
+func TestDriveSummaryEmitsSharedLogicalDriveNameAndTotal(t *testing.T) {
+	for _, fragment := range []string{
+		"obligation_logical_drive_full_membership AS (",
+		"obligation_logical_drive_rollup AS (",
+		") = k.logical_window_start",
+		") = k.logical_window_end",
+		"count(DISTINCT m.animal_id)",
+		"'drive_name', obl_summary.drive_name",
+		"'drive_total', obl_summary.drive_total",
+	} {
+		if !strings.Contains(calendarCanonicalListSQL, fragment) {
+			t.Fatalf("logical multi-day drive contract lost production SQL fragment %q", fragment)
+		}
+	}
+}
+
 // TestDriveSummarySubmittedBucketCarriesExplicitStatusWhitelist pins that submitted_count ranges
 // over the SAME explicit status key set as total_count. Leaning on the membership CTE's
 // hand-maintained NOT IN ('superseded','canceled','waived') pre-filter instead would mean a newly

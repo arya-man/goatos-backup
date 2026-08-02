@@ -673,6 +673,8 @@ private fun CalendarFilterOptionsDto.toUi(): CalendarMonthFilterOptions = Calend
 /** Straight field mapping — see [DriveSummaryDto] / [CalendarDriveSummary] docs. */
 internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = CalendarDriveSummary(
     parkName = parkName,
+    driveName = driveName,
+    driveTotal = driveTotal,
     dueDateLabel = formatDriveDueDate(currentScheduleDate),
     shedCount = shedCount,
     shedsCompleted = shedsCompleted,

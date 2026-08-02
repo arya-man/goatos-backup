@@ -30,9 +30,18 @@ vaccination operator seat or animal capacity.
 rules still come from the backend vaccination rule engine. Adult vaccination
 generation must not use `entry_date` / `post_arrival` as a due-date anchor:
 accepted same-vaccine history drives adult booster/repeat timing, and adult
-blank-history animals enter the reviewed manual campaign/catch-up cohort packed
-by whole physical shed/partition. Kid/young DOB and age-window timing remains
-strict.
+blank-history animals automatically join the normal adult drive for that vaccine;
+they do not require a separate manual-campaign trigger or approval. Repeat versus
+initial/catch-up is an animal-level dose instruction inside one logical drive, not
+a reason to split the roster into separate drives. When repeat-history readiness
+dates differ but their safe windows overlap, use the latest readiness date inside
+the shared window for both repeat-history and blank-history obligations; do not
+create an earlier partial drive. If repeat history arrives after a stable
+blank-history obligation was already generated, reschedule that same open row
+onto the shared cohort date; never leave the old split date or mint a duplicate.
+Pack work by whole physical
+shed; partition is only a fallback when the physical shed itself exceeds the full
+per-operator cap. Kid/young DOB and age-window timing remains strict.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
@@ -178,6 +187,20 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- A physical shed at or below one operator's full configured cap is indivisible,
+  even when it does not fit the current day's residual slots. Carry the complete
+  shed to the next operator-day; do not peel off partitions to fill a remainder.
+  Enforce this in park pre-batching as well as operator planning and group
+  compatible blank-history catch-up and history-backed repeat rule rows by the
+  same physical shed before applying the cap. For CPT, preserve the canonical
+  route `Gandhi`, `Godel 1`, `Godel 2`, `Mandela 2`, `Old Yashoda`, yielding
+  `193 + 131 = 324` with one 200-animal operator for the full adult cohort.
+- Operator submission time is the medical `administered_at` anchor. Delayed
+  verifier/director approval may set `verified_at`/`closed_at`, but must never
+  replace the administration date used for booster and repeat scheduling.
+- Batch readiness and closure count only active `recorded`/`accepted`
+  vaccination completions. Retained `rejected`/`reversed` attempts are audit
+  history and must not block a later successful retry.
 - STG operator grants are park-scoped, never tenant-scoped. Leadership/director
   visibility may get tenant scope, but field execution accounts (`operator`,
   weighing operators) must declare a park and materialize `user_scope_grants`

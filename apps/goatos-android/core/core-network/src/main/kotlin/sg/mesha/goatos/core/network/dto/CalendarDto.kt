@@ -90,6 +90,9 @@ data class CalendarDateMarkerDto(
 @Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
+    @SerialName("drive_name") val driveName: String = "",
+    // Nullable for mixed-version Room cache rows written before logical multi-day totals shipped.
+    @SerialName("drive_total") val driveTotal: Int? = null,
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,

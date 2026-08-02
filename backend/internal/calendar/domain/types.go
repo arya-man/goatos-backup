@@ -62,6 +62,8 @@ const (
 // DriveSummary holds park-level drive progress data for vaccination drive events.
 type DriveSummary struct {
 	ParkName         string             `json:"park_name"`
+	DriveName        string             `json:"drive_name"`
+	DriveTotal       int                `json:"drive_total"`
 	DueDate          string             `json:"due_date"`
 	ShedCount        int                `json:"shed_count"`
 	ShedsCompleted   int                `json:"sheds_completed"`

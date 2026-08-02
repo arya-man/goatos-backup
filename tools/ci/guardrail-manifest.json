@@ -112,6 +112,17 @@
       "ciStep": "frontend-foundations-guard"
     },
     {
+      "id": "vaccination-adult-drive-contract",
+      "script": "tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
+      "makeTarget": "vaccination-adult-drive-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": true,
+      "ciStep": "vaccination-adult-drive-contract-guard",
+      "notes": "Blocks coupled vaccination regressions: blank-history adults disappearing unless a manual campaign is fired, repeat windows being contaminated by primary-course rows, sub-cap physical sheds being partition-split in park pre-batching or operator planning, CPT route order drifting from the 193/131 whole-shed calendar, completion totals multiplying by assignment rows, and delayed verification/director closeout replacing the operator-submitted administered_at medical anchor."
+    },
+    {
       "id": "vaccination-shed-ack-not-form",
       "script": "tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
       "makeTarget": "vaccination-shed-ack-guard",

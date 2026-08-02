@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
@@ -270,7 +271,7 @@ WHERE tenant_id = $1::uuid
 	}
 }
 
-func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *testing.T) {
+func TestCloseVaccinationBatchMultipleDimensionsPaginationExecutionDateParkScopeStatusBuckets_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -282,15 +283,21 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	protocolID := "00000000-0000-4000-8000-000000000201"
 	versionID := "00000000-0000-4000-8000-000000000202"
 	ruleID := "00000000-0000-4000-8000-000000000203"
+	secondRuleID := "00000000-0000-4000-8000-000000000222"
 	sopID := "00000000-0000-4000-8000-000000000204"
 	sopVersionID := "00000000-0000-4000-8000-000000000205"
 	taskID := "00000000-0000-4000-8000-000000000206"
 	submissionID := "00000000-0000-4000-8000-000000000207"
+	secondSubmissionID := "00000000-0000-4000-8000-000000000221"
 	goatID := "00000000-0000-4000-8000-000000000208"
 	batchID := "00000000-0000-4000-8000-000000000209"
 	obligationID := "00000000-0000-4000-8000-000000000210"
+	secondObligationID := "00000000-0000-4000-8000-000000000218"
 	itemID := "00000000-0000-4000-8000-000000000211"
+	secondItemID := "00000000-0000-4000-8000-000000000219"
 	completionID := "00000000-0000-4000-8000-000000000212"
+	rejectedCompletionID := "00000000-0000-4000-8000-000000000223"
+	secondCompletionID := "00000000-0000-4000-8000-000000000220"
 	parkID := "00000000-0000-4000-8000-000000000213"
 	shedID := "00000000-0000-4000-8000-000000000214"
 	otherShedID := "00000000-0000-4000-8000-000000000215"
@@ -311,16 +318,27 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	seedExec("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
 	seedExec("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vaccination_close_submission', 'Vaccination close submission', 'vaccination', 'active')`, protocolID, tenantID)
 	seedExec("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
-	seedExec("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'primary', 1, 'manual_campaign', '{}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seedExec("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seedExec("second-protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'hs_primary', 2, 'manual_campaign', '{"vaccine":{"code":"HS"}}'::jsonb, '{}'::jsonb)`, secondRuleID, tenantID, versionID)
 	seedExec("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vaccination_close_submission', 'Vaccination close submission', 'active')`, sopID, tenantID)
 	seedExec("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
 	seedExec("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'tenant', $2::uuid)`, taskID, tenantID, sopID, sopVersionID)
 	seedExec("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female')`, goatID, tenantID, actorID)
 	seedExec("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', $2::uuid, 'in_progress', 1, $4::uuid)`, batchID, tenantID, versionID, taskID)
 	seedExec("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'tenant', $2::uuid, now(), 'in_progress', $7::uuid, 'verify-close-obligation')`, obligationID, tenantID, versionID, ruleID, batchID, goatID, taskID)
+	// A completed animal may have its obligation membership cleared by a later batch-membership
+	// sync while vaccination_completions.batch_id still correctly names the executed logical drive.
+	// Drive verification must count the completion, not only currently attached obligations.
+	seedExec("detached-obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat', $5::uuid, 'tenant', $2::uuid, now(), 'in_progress', $6::uuid, 'verify-close-detached-obligation')`, secondObligationID, tenantID, versionID, secondRuleID, goatID, taskID)
 	seedExec("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'verify-close-submission', '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID)
+	seedExec("accepted-submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state, accepted_at) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'verify-close-accepted-submission', '{}'::jsonb, 'accepted', now())`, secondSubmissionID, tenantID, taskID, sopVersionID, actorID)
 	seedExec("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'dose', 'needs_review')`, itemID, tenantID, submissionID, taskID, goatID)
+	seedExec("second-submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'dose-2', 'accepted')`, secondItemID, tenantID, secondSubmissionID, taskID, goatID)
 	seedExec("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'recorded', 'verify-close-completion', $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, itemID, administeredAt, actorID)
+	// Retain the rejected historical attempt beside the active successful retry. Closure membership
+	// must count only recorded/accepted attempts or this valid retry can never become ready.
+	seedExec("rejected-completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'rejected', 'verify-close-rejected-completion', $8::uuid)`, rejectedCompletionID, tenantID, obligationID, batchID, goatID, itemID, administeredAt.Add(-time.Hour), actorID)
+	seedExec("second-completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), 'verify-close-second-completion', $8::uuid)`, secondCompletionID, tenantID, secondObligationID, batchID, goatID, secondItemID, administeredAt.Add(time.Hour), actorID)
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit seed vaccination close submission: %v", err)
 	}
@@ -330,8 +348,8 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 		Source: domain.SourceRef{
 			Module:       "vaccination",
 			SubmissionID: &submissionID,
-			RefType:      "vaccination_goat",
-			RefID:        goatID,
+			RefType:      "sop_submission",
+			RefID:        submissionID,
 		},
 		MediaRefs: []string{"proof-close-submission"}, CapturedAt: time.Now().In(biztime.DefaultLocation()),
 		ParkID: &parkID, ShedID: &shedID,
@@ -352,8 +370,8 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	if err != nil {
 		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
 	}
-	if len(closures) != 1 || closures[0].BatchID != batchID || !closures[0].Ready {
-		t.Fatalf("closures=%+v, want ready batch %s", closures, batchID)
+	if len(closures) != 1 || closures[0].BatchID != batchID || !closures[0].Ready || closures[0].TotalCount != 1 || closures[0].ApprovedCount != 1 || closures[0].VideoCount != 1 {
+		t.Fatalf("closures=%+v, want ready batch %s with one distinct animal across two vaccine completions", closures, batchID)
 	}
 	parkClosures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
 		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: true, ParkID: parkID,
@@ -390,6 +408,18 @@ func TestCloseVaccinationBatchAcceptsVaccinationCompletions_RealPostgres(t *test
 	}
 	if len(otherShedClosures) != 0 {
 		t.Fatalf("other-shed closures=%+v, want none", otherShedClosures)
+	}
+	if _, err := repo.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID: tenantID, SubmissionID: submissionID, ActorID: actorID,
+	}); err != nil {
+		t.Fatalf("CloseSubmission before batch close: %v", err)
+	}
+	var submissionClosedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT completed_at FROM obligation_instances WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid`, tenantID, obligationID).Scan(&submissionClosedAt); err != nil {
+		t.Fatalf("read CloseSubmission completed_at: %v", err)
+	}
+	if !submissionClosedAt.Equal(administeredAt) {
+		t.Fatalf("CloseSubmission completed_at=%s, want operator administered_at %s", submissionClosedAt, administeredAt)
 	}
 	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
 		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
@@ -430,6 +460,25 @@ WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
 	if !obligationCompletedAt.Equal(administeredAt) {
 		t.Fatalf("obligation completed_at = %s, want operator administered_at %s", obligationCompletedAt, administeredAt)
 	}
+	var secondCompletionStatus, secondObligationStatus string
+	var secondObligationCompletedAt time.Time
+	if err := pool.QueryRow(ctx, `
+SELECT vc.status, oi.status, oi.completed_at
+FROM vaccination_completions vc
+JOIN obligation_instances oi ON oi.tenant_id = vc.tenant_id AND oi.obligation_id = vc.obligation_id
+WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`, tenantID, secondCompletionID).Scan(
+		&secondCompletionStatus,
+		&secondObligationStatus,
+		&secondObligationCompletedAt,
+	); err != nil {
+		t.Fatalf("read detached accepted completion state: %v", err)
+	}
+	if secondCompletionStatus != "accepted" || secondObligationStatus != "completed" {
+		t.Fatalf("detached completion/obligation states = %s/%s, want accepted/completed", secondCompletionStatus, secondObligationStatus)
+	}
+	if want := administeredAt.Add(time.Hour); !secondObligationCompletedAt.Equal(want) {
+		t.Fatalf("detached obligation completed_at = %s, want operator administered_at %s", secondObligationCompletedAt, want)
+	}
 	var outboxCount int
 	if err := pool.QueryRow(ctx, `
 SELECT count(*)
@@ -465,30 +514,33 @@ SET status = 'in_progress',
     updated_at = now()
 WHERE tenant_id = $1::uuid
   AND obligation_id = $4::uuid;
+UPDATE obligation_instances
+SET status = 'canceled',
+    completed_at = NULL,
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND obligation_id = $9::uuid;
 UPDATE obligation_batches
 SET status = 'in_progress',
     updated_at = now()
 WHERE tenant_id = $1::uuid
   AND batch_id = $5::uuid;
 UPDATE sop_submission_items
-SET state = 'needs_review',
-    accepted_at = NULL,
-    accepted_by = NULL
+SET state = 'needs_review'
 WHERE tenant_id = $1::uuid
   AND item_id = $6::uuid;
 UPDATE sop_submissions
 SET state = 'submitted',
-    accepted_at = NULL,
-    accepted_by = NULL
+    accepted_at = NULL
 WHERE tenant_id = $1::uuid
   AND submission_id = $7::uuid;
 UPDATE sop_tasks
 SET state = 'submitted',
-    accepted_at = NULL,
-    accepted_by = NULL
+    verified_at = NULL,
+    verified_by = NULL
 WHERE tenant_id = $1::uuid
   AND task_id = $8::uuid`,
-		tenantID, created.Item.ItemID, completionID, obligationID, batchID, itemID, submissionID, taskID); err != nil {
+		pgx.QueryExecModeSimpleProtocol, tenantID, created.Item.ItemID, completionID, obligationID, batchID, itemID, submissionID, taskID, secondObligationID); err != nil {
 		t.Fatalf("reset closed state for replay repair: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
@@ -528,6 +580,15 @@ WHERE vc.tenant_id = $1::uuid AND vc.completion_id = $2::uuid`,
 		submissionItemState != "accepted" || submissionState != "accepted" || taskState != "accepted" {
 		t.Fatalf("replay-repaired states completion/obligation/batch/submission_item/submission/task = %s/%s/%s/%s/%s/%s, want accepted/completed/completed/accepted/accepted/accepted",
 			completionStatus, obligationStatus, batchStatus, submissionItemState, submissionState, taskState)
+	}
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM obligation_instances
+WHERE tenant_id = $1::uuid AND obligation_id = $2::uuid`, tenantID, secondObligationID).Scan(&secondObligationStatus); err != nil {
+		t.Fatalf("read terminal detached obligation after replay repair: %v", err)
+	}
+	if secondObligationStatus != "canceled" {
+		t.Fatalf("terminal detached obligation status=%s, want canceled; verification replay must not mutate terminal history", secondObligationStatus)
 	}
 }
 

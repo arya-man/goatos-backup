@@ -4073,6 +4073,10 @@ export interface components {
         DriveSummary: {
             /** @description Park name or code */
             park_name: string;
+            /** @description Shared logical drive name across every operator-day in the same vaccine campaign */
+            drive_name: string;
+            /** @description Total distinct animals across all operator-days carrying this logical drive name */
+            drive_total: number;
             /**
              * Format: date
              * @description Drive due date

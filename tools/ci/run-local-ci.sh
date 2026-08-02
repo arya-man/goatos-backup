@@ -222,6 +222,7 @@ run_backend() {
   step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
   step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
+  step "vaccination-adult-drive-contract-guard" make vaccination-adult-drive-contract-guard
   step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard

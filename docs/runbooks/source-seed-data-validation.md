@@ -72,9 +72,11 @@ partition label separately.
 
 Adult vaccination scheduling must not use source `entry_date` / `post_arrival`
 as a due-date anchor. For adults, accepted same-vaccine history is the timing
-authority; if no same-vaccine history exists, the animal joins the reviewed
-manual campaign/catch-up cohort for that vaccine instead of getting a private
-arrival-derived singleton date. Adult ET+TT dose 2 is a post-seed hard gate:
+authority; if no same-vaccine history exists, the animal automatically joins
+the next compatible normal generated adult drive for that vaccine instead of
+waiting for manual approval or getting a private arrival-derived singleton date.
+`manual_campaign` may remain rule metadata; it is not an operational gate.
+Adult ET+TT dose 2 is a post-seed hard gate:
 accepted `et_tt_adult_w1` history without a same-goat `et_tt_adult_w2`
 obligation or completion is an invalid seed/generation output, even if later
 unrelated drive rows exist.
@@ -322,7 +324,7 @@ transform may repair surrounding mock metadata but must never change a dated,
   birthday merely to make a check green.
 - A missing DOB retains the reviewed source kid/adult stage fallback. Runtime
   uses accepted same-vaccine history for adults when present; adult blank-history
-  animals join the reviewed campaign/catch-up cohort rather than using
+  animals automatically join the normal generated drive rather than using
   `entry_date` as a vaccination due-date anchor. Kid/young timing remains strict
   under the published DOB/age rules.
 - If vaccination occurs after a mock death/sale, keep the vaccination and remove
@@ -486,3 +488,4 @@ a divergence is a preflight that does not predict the seed.
 <!-- Coupling review 2026-07-25: vaccination_operator_assignment_config.selected_operator_ids is saved by the admin People / HRMS operator screen and is empty by default for seed. It selects explicit parallel operators for runtime reassignment of open planned drive rows only; it does not alter source spreadsheets, raw fixture hashes, SOP config, proof history, or vaccination due-date generation. -->
 <!-- Coupling review 2026-07-25: migration 000002 restores selected_operator_ids on already-migrated live databases whose collapsed baseline predated that column. It is schema convergence for runtime admin config only; backfilling from default_operator_id preserves the previous one-operator behavior and changes no source fixture bytes, hashes, or validation inputs. -->
 <!-- Coupling review 2026-08-01: seed-position-duties now emits a VERIFY duty per notification module (module codes taken from notificationbridge.PendingNotificationDutyModules, so seeder and consumer cannot drift) and skips the video_verifier seat before the module-prefix match, which previously made -strict abort before inserting anything. position_module_duties held ZERO rows, and ResolveModuleDutyRecipients joins duty_type=verify -- so every verifier pending-proof push for every module resolved to no devices and notification_requests stayed empty. Seed completeness therefore now includes notification reachability: a module that enqueues a verification item must have an active verify-duty holder in scope. No source spreadsheet bytes, fixture hashes, row counts, vaccination schedules, capacity config or proof history change. -->
+<!-- Coupling review 2026-08-02: Adult blank-history animals are ordinary generated schedule work and automatically join the next compatible normal adult drive; manual_campaign is metadata, not an approval gate. Operator vaccination_completions.administered_at is the medical repeat anchor, while verifier/director verified_at/closed_at are workflow timestamps only. Raw fixture bytes, hashes, counts and HRMS rows are unchanged. -->

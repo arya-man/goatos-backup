@@ -97,6 +97,12 @@ export function DriveProgressCard({ event, pageContract }: { event: CalendarEven
           ) : null}
         </div>
       ) : null}
+      <div className="dft">
+        {copy(pageContract, "calendar.drive.name")} · {summary.drive_name}
+      </div>
+      <div className="dft">
+        {copy(pageContract, "calendar.drive.total")} · {summary.drive_total} {copy(pageContract, "calendar.drive.animals")}
+      </div>
       {chips.length > 0 ? (
         <div className="chips">
           {chips.map((chip) => (
