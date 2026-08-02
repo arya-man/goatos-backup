@@ -1371,8 +1371,21 @@ WITH campaign AS (
     AND campaign_id=$2::uuid
     AND status IN ('published','in_progress','delayed')
 ), assigned_shed AS (
+  -- F8: lock the bucket row BEFORE evaluating its status, closing the race
+  -- where a plain SELECT (no row lock) reads 'pending/in_progress' just
+  -- ahead of a concurrent CloseScope/CloseCampaign commit, then this
+  -- transaction's INSERT into weighing_observations lands anyway because it
+  -- is a different table the close's row lock never covered. FOR NO KEY
+  -- UPDATE (not FOR UPDATE) matches CloseCampaign's own lock mode on this
+  -- same table (see close.go) for the identical reason: a plain FOR UPDATE
+  -- here would conflict with the FOR KEY SHARE a concurrent FK check takes,
+  -- so NO KEY UPDATE avoids a spurious deadlock while still serialising
+  -- against any closer. Lock ordering: this only ever locks its OWN single
+  -- bucket, never more than one row, so it cannot participate in a
+  -- lock-ordering cycle against CloseCampaign's campaign-then-buckets-by-id
+  -- ordering or against ReopenScope (which also locks only its own bucket).
   SELECT campaign_shed_id, location_id, display_name
-  FROM weighing_campaign_sheds
+  FROM weighing_campaign_sheds AS cs
   WHERE tenant_id=$1::uuid
     AND campaign_id=$2::uuid
     AND campaign_shed_id=$8::uuid
@@ -1389,6 +1402,7 @@ WITH campaign AS (
     AND weighing_category='individual_animal'
   ORDER BY created_at, campaign_shed_id
   LIMIT 1
+  FOR NO KEY UPDATE OF cs
 ), proof_ok AS (
   SELECT proof.proof_id
   FROM assigned_shed s
@@ -1624,6 +1638,11 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	    AND campaign_id=$2::uuid
 	    AND status IN ('published','in_progress','delayed')
 	), scope AS (
+	  -- F8: same fix as RecordAnimalObservation's assigned_shed CTE above -
+	  -- lock the bucket before trusting its status, using CloseCampaign's own
+	  -- FOR NO KEY UPDATE lock mode. See the assigned_shed comment for the full
+	  -- rationale and the lock-ordering argument (this locks only its own
+	  -- single bucket, so no cycle with CloseCampaign or ReopenScope).
 	  SELECT cs.campaign_shed_id, cs.location_id
 	  FROM campaign c
 	  JOIN weighing_campaign_sheds cs
@@ -1635,6 +1654,7 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	   -- Terminal-state gate: a lump-sum write must NEVER resurrect a
 	   -- completed/closed/canceled bucket back to completed.
 	   AND cs.status IN ('pending','in_progress')
+	  FOR NO KEY UPDATE OF cs
 	), proof_bundle AS (
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
@@ -1693,10 +1713,19 @@ WHERE tenant_id=$1::uuid
 	if err != nil {
 		return domain.Observation{}, err
 	}
-	if completed.RowsAffected() > 0 {
-		if err := r.enqueueShedSubmissionCompleted(ctx, tx, cmd.TenantID, cmd.CampaignShedID); err != nil {
-			return domain.Observation{}, err
-		}
+	// F8 defense in depth: the `scope` CTE above now takes FOR NO KEY UPDATE OF
+	// cs on this exact row before the INSERT, so a concurrent CloseScope/
+	// CloseCampaign can no longer commit between that read and this UPDATE -
+	// RowsAffected()==0 here should therefore be structurally unreachable.
+	// Treat it as an error anyway rather than silently swallowing it: a
+	// mismatch here would otherwise mean the caller is told the capture
+	// succeeded while the bucket's own status transition silently failed,
+	// leaving a 'pending' verification row nothing will ever surface as done.
+	if completed.RowsAffected() == 0 {
+		return domain.Observation{}, fmt.Errorf("record shed observation: bucket %s did not transition to completed after accepting observation %s: %w", cmd.CampaignShedID, obs.ObservationID, ports.ErrImmutable)
+	}
+	if err := r.enqueueShedSubmissionCompleted(ctx, tx, cmd.TenantID, cmd.CampaignShedID); err != nil {
+		return domain.Observation{}, err
 	}
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
