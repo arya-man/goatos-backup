@@ -42,7 +42,14 @@ test("weighing UI uses product labels without fabricating live API labels", () =
   assert.match(page, /Needs review/);
   assert.match(page, /Shed total/);
   assert.doesNotMatch(page, /replaceAll\("_", " "\)/);
-  assert.match(data, /Operator not reported by API/);
+  // NEW-6: the operator name is BACKEND-RESOLVED (operator_display_name). The UI must read it
+  // rather than re-deriving from a client catalog -- the old hardcoded "Operator not reported by
+  // API" printed even when the API HAD reported it. The honest-fallback intent of this assertion
+  // is preserved below: an empty name is still distinguished, never fabricated.
+  assert.match(data, /operator_display_name/);
+  assert.match(data, /Roster gap \(operator not found\)/);
+  assert.match(data, /Unassigned/);
+  assert.doesNotMatch(data, /operatorName: "Operator not reported by API"/);
   assert.match(data, /Park not reported by API/);
   assert.doesNotMatch(data, /operatorName: "Assigned operator"/);
   assert.doesNotMatch(data, /parkName: "Selected park"/);
@@ -80,7 +87,11 @@ test("weighing leadership planner covers park-week task creation and duplicate e
   assert.doesNotMatch(data, /Amit Kumar/);
   assert.match(page, /Create weekly kids weighing task/);
   assert.match(page, /Edit weekly kids weighing task/);
-  assert.match(page, /Step 2 · Park/);
+  // NEW-8: the park step moved into the ParkSelector client component, because the radios had
+  // no onChange and selecting a non-default park silently produced an empty shed list and a
+  // failing submit. The step still exists -- it just lives in the component that can react to it.
+  assert.match(page, /<ParkSelector/);
+  assert.match(source("park-selector.tsx"), /Step 2 · Park/);
   assert.match(page, /Step 3 · Sheds/);
   assert.match(page, /Individual/);
   assert.match(page, /Lumpsum/);
@@ -115,8 +126,12 @@ test("DEFECT B14 FIX: weighing UI reads real pending_verification_count and read
   assert.match(data, /readyToClose: shed\.ready_to_close/);
   // Verify that campaign-level proofPending aggregates from scopes, not hardcoded
   assert.match(data, /const proofPending = scopes\.reduce\(\(sum, scope\) => sum \+ scope\.proofPendingCount/);
-  // Verify that UI gates "linked" label on readyToClose, not just proofPendingCount === 0
-  assert.match(page, /!row\.readyToClose && row\.proofPendingCount > 0/);
+  // Finding 9: "linked" is now gated on readyToClose ALONE. The old expression treated
+  // "nothing submitted yet" (proofPendingCount === 0) as verified, rendering it identically to
+  // genuinely-verified proof. Three distinct states are now required.
+  assert.match(page, /row\.readyToClose \? \(/);
+  assert.match(page, /not submitted/);
+  assert.doesNotMatch(page, /!row\.readyToClose && row\.proofPendingCount > 0 \? "warn" : "ok"/);
   assert.doesNotMatch(data, /proofPendingCount: 0[,\n]/);
 });
 
