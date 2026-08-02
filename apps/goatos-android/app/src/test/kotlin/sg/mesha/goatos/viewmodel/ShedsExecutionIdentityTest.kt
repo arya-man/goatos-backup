@@ -123,7 +123,10 @@ class ShedsExecutionIdentityTest {
         assertEquals(43, summary?.submittedCount)
         assertEquals(11, summary?.acceptedCount)
         assertEquals(1, summary?.reviewItemCount)
-        assertEquals(1, summary?.overdueItemCount)
+        // Submitted-and-awaiting-verification is NOT overdue, even with a long-past dueDate.
+        // The row is already counted once as review; counting it again as overdue is the same
+        // double-count that painted "In review" + "Overdue" together on the shed card.
+        assertEquals(0, summary?.overdueItemCount)
         assertEquals(25, summary?.acceptedPercent)
     }
 
