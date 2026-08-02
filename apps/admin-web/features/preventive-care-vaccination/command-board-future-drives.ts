@@ -21,11 +21,43 @@ export interface ScheduledDriveRow {
   batchIds: string[];
 }
 
+export interface ScheduledDriveCampaign {
+  key: string;
+  name: string;
+  dateKeys: string[];
+  targetCount: number;
+  doseCount: number;
+  shedNames: string[];
+  batchIds: string[];
+  treatments: ScheduledDriveRow[];
+}
+
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function dateKey(value?: string | null): string {
   const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
+}
+
+function datePart(key: string): { year: number; month: number; day: number } | null {
+  const [year, month, day] = key.split("-").map(Number);
+  return year && month && day ? { year, month, day } : null;
+}
+
+export function formatDateSpan(min?: string | null, max?: string | null): string {
+  const firstKey = dateKey(min);
+  const lastKey = dateKey(max) || firstKey;
+  const first = datePart(firstKey);
+  const last = datePart(lastKey);
+  if (!first) return last ? `${last.day} ${MONTH_NAMES[last.month - 1]} ${last.year}` : "";
+  if (!last || firstKey === lastKey) return `${first.day} ${MONTH_NAMES[first.month - 1]} ${first.year}`;
+  if (first.year === last.year && first.month === last.month) {
+    return `${first.day}–${last.day} ${MONTH_NAMES[first.month - 1]} ${first.year}`;
+  }
+  if (first.year === last.year) {
+    return `${first.day} ${MONTH_NAMES[first.month - 1]}–${last.day} ${MONTH_NAMES[last.month - 1]} ${first.year}`;
+  }
+  return `${first.day} ${MONTH_NAMES[first.month - 1]} ${first.year}–${last.day} ${MONTH_NAMES[last.month - 1]} ${last.year}`;
 }
 
 export function formatScheduledDriveDates(keys: string[]): string {
@@ -63,5 +95,61 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     ...row,
     dateKeys: row.dateKeys.sort(),
     shedNames: row.shedNames.sort(),
+  })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
+}
+
+export function commonDriveName(driveName: string): string {
+  const isAnnualPoxTreatment = driveName === "Blue Tongue + Sheep Pox" || driveName === "Goat Pox";
+  return isAnnualPoxTreatment ? "CPT Adult Annual Pox + Blue Tongue" : `CPT Adult ${driveName}`;
+}
+
+function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string } {
+  const isAnnualPoxTreatment = row.driveName === "Blue Tongue + Sheep Pox" || row.driveName === "Goat Pox";
+  if (isAnnualPoxTreatment) {
+    const month = (row.dateKeys[0] ?? "").slice(0, 7);
+    return {
+      key: `cpt-adult-annual-pox-blue-tongue|${month}`,
+      name: commonDriveName(row.driveName),
+    };
+  }
+  return { key: row.key, name: commonDriveName(row.driveName) };
+}
+
+export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDriveCampaign[] {
+  const campaigns = new Map<string, ScheduledDriveCampaign>();
+  rows.forEach((row) => {
+    const identity = campaignIdentity(row);
+    let campaign = campaigns.get(identity.key);
+    if (!campaign) {
+      campaign = {
+        key: identity.key,
+        name: identity.name,
+        dateKeys: [],
+        targetCount: 0,
+        doseCount: 0,
+        shedNames: [],
+        batchIds: [],
+        treatments: [],
+      };
+      campaigns.set(identity.key, campaign);
+    }
+    campaign.treatments.push(row);
+    campaign.targetCount += row.targetCount;
+    campaign.doseCount += row.doseCount;
+    row.dateKeys.forEach((date) => {
+      if (!campaign!.dateKeys.includes(date)) campaign!.dateKeys.push(date);
+    });
+    row.shedNames.forEach((shed) => {
+      if (!campaign!.shedNames.includes(shed)) campaign!.shedNames.push(shed);
+    });
+    row.batchIds.forEach((batchID) => {
+      if (!campaign!.batchIds.includes(batchID)) campaign!.batchIds.push(batchID);
+    });
+  });
+  return Array.from(campaigns.values()).map((campaign) => ({
+    ...campaign,
+    dateKeys: campaign.dateKeys.sort(),
+    shedNames: campaign.shedNames.sort(),
+    treatments: campaign.treatments.sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? "")),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }

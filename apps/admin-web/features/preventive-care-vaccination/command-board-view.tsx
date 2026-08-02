@@ -4,7 +4,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 import {
+  commonDriveName,
+  formatDateSpan,
   formatScheduledDriveDates,
+  scheduledDriveCampaigns,
   scheduledDriveRows,
   type CommandBoardDriveOption,
 } from "./command-board-future-drives";
@@ -25,12 +28,24 @@ interface ShedGridRow {
   cells: Record<string, GridCell>;
 }
 
-function matrixDateRange(min?: string | null, max?: string | null): string {
-  const first = min?.slice(0, 10) ?? "";
-  const last = max?.slice(0, 10) ?? "";
-  if (!first) return last;
-  if (!last || last === first) return first;
-  return `${first} – ${last}`;
+interface AdministeredDateRange {
+  min?: string | null;
+  max?: string | null;
+}
+
+function mergeAdministeredDateRange(
+  ranges: Record<string, AdministeredDateRange>,
+  vaccine: string,
+  min?: string | null,
+  max?: string | null,
+) {
+  const nextMin = min?.slice(0, 10) ?? "";
+  const nextMax = (max ?? min)?.slice(0, 10) ?? "";
+  if (!nextMin && !nextMax) return;
+  const current = ranges[vaccine] ?? {};
+  if (nextMin && (!current.min || nextMin < current.min.slice(0, 10))) current.min = min;
+  if (nextMax && (!current.max || nextMax > current.max.slice(0, 10))) current.max = max ?? min;
+  ranges[vaccine] = current;
 }
 
 // The cohort ladder comes from the backend option group so the row set stays
@@ -51,9 +66,16 @@ interface CohortPivotRow {
   animals: number;
   pending: Record<string, number>;
   verified: Record<string, number>;
+  administeredDates: Record<string, AdministeredDateRange>;
   // The real management stages that fold into this rung, kept as their own sub-rows so the
   // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
-  members: Array<{ label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }>;
+  members: Array<{
+    label: string;
+    animals: number;
+    pending: Record<string, number>;
+    verified: Record<string, number>;
+    administeredDates: Record<string, AdministeredDateRange>;
+  }>;
 }
 
 interface CohortCellInput {
@@ -61,6 +83,8 @@ interface CohortCellInput {
   vaccineLabel: string;
   pendingCount: number;
   verifiedCount: number;
+  minAdministeredDate?: string | null;
+  maxAdministeredDate?: string | null;
 }
 
 // One matrix per FARM: leadership reads this farmwise, so Channapatna and Coimbatore never
@@ -89,9 +113,16 @@ function buildCohortPivot(
   const rows = ladder.map((cohort) => {
     const pending: Record<string, number> = {};
     const verified: Record<string, number> = {};
+    const administeredDates: Record<string, AdministeredDateRange> = {};
     const members = new Map<
       string,
-      { label: string; animals: number; pending: Record<string, number>; verified: Record<string, number> }
+      {
+        label: string;
+        animals: number;
+        pending: Record<string, number>;
+        verified: Record<string, number>;
+        administeredDates: Record<string, AdministeredDateRange>;
+      }
     >();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
@@ -103,6 +134,12 @@ function buildCohortPivot(
       const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       verified[cell.vaccineLabel] = (verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
+      mergeAdministeredDateRange(
+        administeredDates,
+        cell.vaccineLabel,
+        cell.minAdministeredDate,
+        cell.maxAdministeredDate,
+      );
 
       let member = members.get(key);
       if (!member) {
@@ -111,11 +148,18 @@ function buildCohortPivot(
           animals: 0,
           pending: {},
           verified: {},
+          administeredDates: {},
         };
         members.set(key, member);
       }
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.verified[cell.vaccineLabel] = (member.verified[cell.vaccineLabel] ?? 0) + cell.verifiedCount;
+      mergeAdministeredDateRange(
+        member.administeredDates,
+        cell.vaccineLabel,
+        cell.minAdministeredDate,
+        cell.maxAdministeredDate,
+      );
 
       if (!counted.has(key)) {
         counted.add(key);
@@ -128,6 +172,7 @@ function buildCohortPivot(
       animals,
       pending,
       verified,
+      administeredDates,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
   });
@@ -186,6 +231,8 @@ interface CohortCell {
   vaccineLabel: string;
   pendingCount: number;
   verifiedCount: number;
+  minAdministeredDate?: string | null;
+  maxAdministeredDate?: string | null;
 }
 interface ShedDoseCell {
   shedId?: string;
@@ -231,6 +278,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
   const searchParams = useSearchParams();
   const driveOptions = board.driveOptions ?? [];
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
+  const futureCampaigns = useMemo(() => scheduledDriveCampaigns(futureDrives), [futureDrives]);
+  const completedDriveOptions = useMemo(
+    () => driveOptions.filter((drive) => drive.status !== "planned"),
+    [driveOptions],
+  );
 
   const selectDrive = (next: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -277,7 +329,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           ))}
         </select>
         <label className="cbm-filter-label" htmlFor="cbm-drive">
-          {copy(pageContract, "command_board.filter.drive")}
+          {copy(pageContract, "command_board.filter.operator_day")}
         </label>
         <select
           id="cbm-drive"
@@ -288,10 +340,31 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           aria-disabled={driveOptions.length === 0}
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
-          <option value="">{copy(pageContract, "command_board.filter.all_drives")}</option>
-          {driveOptions.map((d) => (
-            <option key={d.driveBatchId} value={d.driveBatchId}>{d.label}</option>
+          <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
+          {futureCampaigns.map((campaign) => (
+            <optgroup
+              key={campaign.key}
+              label={`${campaign.name} · ${formatScheduledDriveDates(campaign.dateKeys)} · ${campaign.targetCount} animals`}
+            >
+              {driveOptions
+                .filter((drive) => campaign.batchIds.includes(drive.driveBatchId))
+                .sort((a, b) => (a.plannedDate ?? "").localeCompare(b.plannedDate ?? ""))
+                .map((drive, index) => (
+                  <option key={drive.driveBatchId} value={drive.driveBatchId}>
+                    {`Operator day ${index + 1} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
+                  </option>
+                ))}
+            </optgroup>
           ))}
+          {completedDriveOptions.length > 0 && (
+            <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
+              {completedDriveOptions.map((drive) => (
+                <option key={drive.driveBatchId} value={drive.driveBatchId}>
+                  {`${commonDriveName(drive.driveName || drive.label)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
       </div>
       <div className="cbm-filter-row">
@@ -352,18 +425,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           </div>
         </div>
 
-        {futureDrives.length > 0 && (
+        {futureCampaigns.length > 0 && (
           <div className="cbm-future-section">
             <div className="cbm-section-head">
               <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
               <span className="cbm-meta">
-                {futureDrives.length} {copy(pageContract, "command_board.future_drives.count_suffix")}
+                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
               </span>
             </div>
             <div className="cbm-future-table-wrap">
               <table className="cbm-future-table">
                 <thead>
                   <tr>
+                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
                     <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
                     <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
                     <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
@@ -372,15 +446,23 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                   </tr>
                 </thead>
                 <tbody>
-                  {futureDrives.map((drive) => (
+                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
                     <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
+                      {index === 0 && (
+                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
+                          <strong>{campaign.name}</strong>
+                          <small>
+                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
+                          </small>
+                        </td>
+                      )}
                       <td><strong>{drive.driveName}</strong></td>
                       <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
                       <td>{drive.shedNames.join(", ") || "—"}</td>
                       <td><strong>{drive.targetCount}</strong></td>
                       <td><strong>{drive.doseCount}</strong></td>
                     </tr>
-                  ))}
+                  )))}
                 </tbody>
               </table>
             </div>
@@ -427,8 +509,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                           // can happen days later and must never replace the medical date. Scheduled and
                           // overdue cells continue to show their rule-derived due date.
                           const dateStr = cell.state === "verified" || cell.state === "awaiting"
-                            ? matrixDateRange(cell.minAdministeredDate, cell.maxAdministeredDate)
-                            : matrixDateRange(cell.minDueDate, cell.maxDueDate);
+                            ? formatDateSpan(cell.minAdministeredDate, cell.maxAdministeredDate)
+                            : formatDateSpan(cell.minDueDate, cell.maxDueDate);
                           // An awaiting cell also carries how long it has been sitting with the
                           // verifier — the one fact the removed queue table added.
                           const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${row.shedName}|${dose}`) : undefined;
@@ -498,6 +580,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                             const cells = (
                               pendingOf: Record<string, number>,
                               verifiedOf: Record<string, number>,
+                              administeredDatesOf: Record<string, AdministeredDateRange>,
                               label: string,
                               present: boolean,
                             ) =>
@@ -511,17 +594,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                                   return <td key={v} className="cbm-cell cbm-na">—</td>;
                                 }
                                 const hasPending = pending > 0;
+                                const administered = administeredDatesOf[v];
+                                const administeredDate = formatDateSpan(administered?.min, administered?.max);
                                 return (
                                   <td
                                     key={v}
                                     className={`cbm-cell ${hasPending ? "cbm-pending" : "cbm-verified"}`}
-                                    title={`${label} · ${v} · ${pending} ${copy(pageContract, "command_board.cohort_matrix.pending_word")}, ${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`}
+                                    title={`${label} · ${v} · ${pending} ${copy(pageContract, "command_board.cohort_matrix.pending_word")}, ${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}${administeredDate ? ` · ${administeredDate}` : ""}`}
                                   >
                                     {hasPending ? pending : done}
                                     <small>
                                       {hasPending
-                                        ? `${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}`
-                                        : copy(pageContract, "command_board.cohort_matrix.verified_word")}
+                                        ? `${done} ${copy(pageContract, "command_board.cohort_matrix.verified_word")}${administeredDate ? ` · ${administeredDate}` : ""}`
+                                        : administeredDate || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
                                     </small>
                                   </td>
                                 );
@@ -530,7 +615,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                             return [
                               <tr key={`${farm}-${row.cohort}`}>
                                 <th className="cbm-rowh">{row.cohort}</th>
-                                {cells(row.pending, row.verified, row.cohort, row.animals > 0)}
+                                {cells(row.pending, row.verified, row.administeredDates, row.cohort, row.animals > 0)}
                                 <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
                               </tr>,
                               // The live stages inside this rung, so folding onto the ladder never
@@ -539,7 +624,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
                                 ? row.members.map((member) => (
                                     <tr key={`${farm}-${row.cohort}-${member.label}`} className="cbm-cohort-sub">
                                       <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
-                                      {cells(member.pending, member.verified, member.label, true)}
+                                      {cells(member.pending, member.verified, member.administeredDates, member.label, true)}
                                       <td className="cbm-cell cbm-na">{member.animals}</td>
                                     </tr>
                                   ))

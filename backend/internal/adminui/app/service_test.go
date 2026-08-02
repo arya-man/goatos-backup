@@ -61,6 +61,37 @@ func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
 	}
 }
 
+func TestVaccinationLeadershipCopyUsesActionableShedAndDateLanguage(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "vaccination")
+	if got := page.Copy["note.sheds_counts"]; got != "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above." {
+		t.Fatalf("vaccination shed note = %q", got)
+	}
+	if page.Copy["command_board.cohort_matrix.date_unavailable"] == "" {
+		t.Fatal("vaccination cohort matrix must publish explicit unavailable-date copy")
+	}
+	if page.Copy["command_board.filter.operator_day"] != "Operator day (optional)" {
+		t.Fatalf("operator-day filter copy = %q", page.Copy["command_board.filter.operator_day"])
+	}
+
+	var found bool
+	for _, table := range page.Tables {
+		if table.ID != "shed-summary" {
+			continue
+		}
+		found = true
+		labels := map[string]string{}
+		for _, column := range table.Columns {
+			labels[column.Key] = column.Label
+		}
+		if labels["due"] != "Needs action" || labels["done"] != "Up to date" {
+			t.Fatalf("shed status labels = %#v", labels)
+		}
+	}
+	if !found {
+		t.Fatal("vaccination shed-summary table missing")
+	}
+}
+
 func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
 	group := optionGroupByID(t, page.OptionGroups, "park_display_chips")

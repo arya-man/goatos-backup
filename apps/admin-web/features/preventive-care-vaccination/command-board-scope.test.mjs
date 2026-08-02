@@ -29,12 +29,15 @@ test("vaccination command board forwards top-bar park scope to the backend read"
 
 test("command board defaults to all drives and renders the complete future programme", () => {
   assert.match(commandBoardViewSource, /params\.delete\("cb_drive"\)/);
-  assert.match(commandBoardViewSource, /command_board\.filter\.all_drives/);
+  assert.match(commandBoardViewSource, /command_board\.filter\.all_common_drives/);
   assert.match(commandBoardViewSource, /scheduledDriveRows\(driveOptions\)/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.dates/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.animals/);
   assert.match(commandBoardViewSource, /command_board\.future_drives\.column\.doses/);
-  assert.match(commandBoardViewSource, /matrixDateRange\(cell\.minAdministeredDate, cell\.maxAdministeredDate\)/);
+  assert.match(commandBoardViewSource, /scheduledDriveCampaigns\(futureDrives\)/);
+  assert.match(commandBoardViewSource, /command_board\.filter\.operator_day/);
+  assert.match(commandBoardViewSource, /formatDateSpan\(cell\.minAdministeredDate, cell\.maxAdministeredDate\)/);
+  assert.match(commandBoardViewSource, /formatDateSpan\(administered\?\.min, administered\?\.max\)/);
   assert.match(commandBoardViewSource, /pending === 0 && done === 0/);
   assert.match(commandBoardViewSource, /hasPending \? "cbm-pending" : "cbm-verified"/);
 });

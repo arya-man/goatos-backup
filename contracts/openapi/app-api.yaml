@@ -12896,6 +12896,14 @@ components:
             Count of animals in this cohort whose dose for this vaccine is verifier-accepted.
             Disjoint from pendingCount — an accepted obligation is neither still-scheduled nor
             recorded-but-unverified — so the two may be displayed side by side.
+        minAdministeredDate:
+          type: string
+          format: date-time
+          description: Earliest actual operator-administered date among accepted vaccinations in this cohort cell.
+        maxAdministeredDate:
+          type: string
+          format: date-time
+          description: Latest actual operator-administered date among accepted vaccinations in this cohort cell.
     ShedDoseMatrixCell:
       type: object
       additionalProperties: false

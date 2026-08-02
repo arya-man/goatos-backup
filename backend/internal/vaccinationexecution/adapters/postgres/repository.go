@@ -3847,7 +3847,9 @@ WITH comp AS (
   SELECT
     obligation_id,
     bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified,
-    bool_or(status = 'accepted') AS has_accepted
+    bool_or(status = 'accepted') AS has_accepted,
+    MIN(CASE WHEN status = 'accepted' THEN administered_at END) AS min_administered_at,
+    MAX(CASE WHEN status = 'accepted' THEN administered_at END) AS max_administered_at
   FROM vaccination_completions
   WHERE tenant_id = $1::uuid
   GROUP BY obligation_id
@@ -3860,7 +3862,9 @@ SELECT
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
   COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
-  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count
+  COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count,
+  MIN(CASE WHEN comp.has_accepted THEN comp.min_administered_at END) as min_administered_at,
+  MAX(CASE WHEN comp.has_accepted THEN comp.max_administered_at END) as max_administered_at
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
@@ -3893,7 +3897,8 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 	for cohortRows.Next() {
 		var parkID, parkName, stage, sex, doseCode string
 		var animalCount, pendingCount, verifiedCount int
-		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount); err != nil {
+		var minAdministeredAt, maxAdministeredAt pgtype.Timestamptz
+		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount, &minAdministeredAt, &maxAdministeredAt); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
@@ -3919,6 +3924,14 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 		}
 		cell.PendingCount += pendingCount
 		cell.VerifiedCount += verifiedCount
+		if minAdministeredAt.Valid && (cell.MinAdministeredDate == nil || minAdministeredAt.Time.Before(*cell.MinAdministeredDate)) {
+			administeredAt := minAdministeredAt.Time
+			cell.MinAdministeredDate = &administeredAt
+		}
+		if maxAdministeredAt.Valid && (cell.MaxAdministeredDate == nil || maxAdministeredAt.Time.After(*cell.MaxAdministeredDate)) {
+			administeredAt := maxAdministeredAt.Time
+			cell.MaxAdministeredDate = &administeredAt
+		}
 	}
 	if err := cohortRows.Err(); err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort rows: %w", err)

@@ -167,11 +167,19 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 	if resp.KPIs.Targets != 1 {
 		t.Fatalf("KPI targets = %d, want 1 distinct animal", resp.KPIs.Targets)
 	}
+
+	t.Run("CohortAdministeredRangeOneToManyMultipleDimensions", func(t *testing.T) {
+		for _, cell := range resp.CohortMatrix {
+			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
+				t.Fatalf("unaccepted %s cell has administered range %v..%v", cell.VaccineLabel, cell.MinAdministeredDate, cell.MaxAdministeredDate)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate tests that
 // administered_at on different business day than due_at is correctly placed in weekly buckets.
-func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate(t *testing.T) {
+func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDateCohortAdministeredRange(t *testing.T) {
 	t.Log("DateShift ScheduledDate ExecutionDate: administered_at on different business day than due_at; weekly buckets follow administered_at")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -221,6 +229,25 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate(t *testing.T
 	if !foundWeekly {
 		t.Fatalf("weekly given row not found for ET+TT accepted")
 	}
+
+	// The CEO cohort matrix must carry the operator's actual vaccination date at the
+	// exact cohort × dose grain instead of forcing leadership to cross-reference another table.
+	foundCohortDate := false
+	for _, cell := range resp.CohortMatrix {
+		if cell.VaccineLabel != "ET+TT · Dose 1" || cell.VerifiedCount == 0 {
+			continue
+		}
+		foundCohortDate = true
+		if cell.MinAdministeredDate == nil || !cell.MinAdministeredDate.Equal(adminDateLater) {
+			t.Fatalf("cohort min administered date = %v, want %v", cell.MinAdministeredDate, adminDateLater)
+		}
+		if cell.MaxAdministeredDate == nil || !cell.MaxAdministeredDate.Equal(adminDateLater) {
+			t.Fatalf("cohort max administered date = %v, want %v", cell.MaxAdministeredDate, adminDateLater)
+		}
+	}
+	if !foundCohortDate {
+		t.Fatal("verified ET+TT cohort date not found")
+	}
 }
 
 // TestVaccinationCommandBoardParkScopeTenantIsolation tests that two parks with
@@ -269,6 +296,26 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 	if respAll.KPIs.Targets < 2 {
 		t.Fatalf("KPI targets without filter = %d, want >= 2", respAll.KPIs.Targets)
 	}
+
+	t.Run("CohortAdministeredRangeParkScope", func(t *testing.T) {
+		respPark, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+			TenantID:     cmdBoardTestTenant,
+			AsOf:         asOf,
+			DriveBatchID: stringPtr(cmdBoardBatch1),
+			ParkID:       stringPtr(cmdBoardPark1),
+		})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(park 1) error = %v", err)
+		}
+		if respPark.KPIs.Targets != 1 {
+			t.Fatalf("park 1 targets = %d, want 1", respPark.KPIs.Targets)
+		}
+		for _, cell := range respPark.CohortMatrix {
+			if cell.Cohort.ParkID != cmdBoardPark1 {
+				t.Fatalf("park-scoped cohort leaked park %s", cell.Cohort.ParkID)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets tests that every
@@ -367,6 +414,21 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 			t.Fatalf("scheduled count = %d, want 1", sumScheduled)
 		}
 	})
+
+	t.Run("CohortAdministeredRangeStatusMatrixEveryStatusStatusBuckets", func(t *testing.T) {
+		acceptedAt := asOf.Add(-2 * 24 * time.Hour)
+		for _, cell := range resp.CohortMatrix {
+			if cell.VerifiedCount == 0 {
+				continue
+			}
+			if cell.MinAdministeredDate == nil || !cell.MinAdministeredDate.Equal(acceptedAt) {
+				t.Fatalf("verified cohort min administered date = %v, want %v", cell.MinAdministeredDate, acceptedAt)
+			}
+			if cell.MaxAdministeredDate == nil || !cell.MaxAdministeredDate.Equal(acceptedAt) {
+				t.Fatalf("verified cohort max administered date = %v, want %v", cell.MaxAdministeredDate, acceptedAt)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardPaginationPageBoundaryMultiPage tests that the verification
@@ -443,6 +505,20 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 	if verifiedCount+awaitingCount == 0 {
 		t.Logf("Note: shed dose matrix states not populated; check fixture expectations")
 	}
+
+	t.Run("CohortAdministeredRangePaginationPageBoundaryMultiPage", func(t *testing.T) {
+		if len(resp.DriveOptions) != 1 {
+			t.Fatalf("drive options = %d, want one batch-level row", len(resp.DriveOptions))
+		}
+		if resp.DriveOptions[0].TargetCount != 1 || resp.DriveOptions[0].DoseCount != 3 {
+			t.Fatalf("drive option counts = %d animals/%d doses, want 1/3", resp.DriveOptions[0].TargetCount, resp.DriveOptions[0].DoseCount)
+		}
+		for _, cell := range resp.CohortMatrix {
+			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
+				t.Fatalf("recorded-only cohort has accepted administered range %v..%v", cell.MinAdministeredDate, cell.MaxAdministeredDate)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardStatusBucketsMultiCompletion tests that an obligation with

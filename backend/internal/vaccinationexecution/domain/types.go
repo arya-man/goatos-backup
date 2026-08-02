@@ -806,7 +806,9 @@ type CommandBoardCohortCell struct {
 	// VerifiedCount is DISJOINT from PendingCount: an accepted obligation is neither
 	// still-scheduled nor recorded-but-unverified, so the two can be shown side by side
 	// without double counting.
-	VerifiedCount int `json:"verifiedCount"`
+	VerifiedCount       int        `json:"verifiedCount"`
+	MinAdministeredDate *time.Time `json:"minAdministeredDate,omitempty"`
+	MaxAdministeredDate *time.Time `json:"maxAdministeredDate,omitempty"`
 }
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination.
