@@ -3792,11 +3792,33 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	// (c) all KPI numerators count distinct animals, not obligation/dose fan-out.
 	//     doses_verified numerator: bool_or(status='accepted');
 	//     awaiting_verification numerator: bool_or(recorded unverified) AND NOT bool_or(accepted);
-	//     overdue_not_given numerator: scheduled AND (due_at's IST business date)<(asOf's IST business
-	//     date) AND no completions; scheduled_ahead numerator: scheduled
+	//     overdue_not_given numerator: OPEN AND (due_at's IST business date)<(asOf's IST business
+	//     date) AND no completions; scheduled_ahead numerator: OPEN AND no completions
 	//     AND (due_at's IST business date)>=(asOf's IST business date), denominator: all obligations.
 	//     Vaccination time grain is the IST business DAY, never an instant — a dose due today at
 	//     00:00 IST must never read overdue merely because as_of is later the same day.
+	// (d) OPEN is the repo's canonical open-obligation set
+	//     ('scheduled','due','in_progress','deferred','missed') — the SAME set that defines
+	//     obligation_instances_open_logical_due_idx. It is NOT 'scheduled' alone: the sweeper flips
+	//     scheduled -> 'due' on the due business day, so a 'scheduled'-only predicate silently
+	//     dropped every currently-actionable obligation out of BOTH overdue_not_given and
+	//     scheduled_ahead (live CEO board read targets=40 but bucketed only 20 — the other park's
+	//     20 animals, with zero work done, were invisible to leadership).
+	// (e) BUCKET CONTRACT (docs/architecture/operational-read-model-contract.md,
+	//     "GET /vaccination/command — Grain and Buckets (disjoint unless noted)" + Bucket
+	//     Invariant): the four numerator buckets are a DISJOINT and EXHAUSTIVE partition of
+	//     targets, evaluated as a priority chain on the SAME obligation row —
+	//       verified   = has_accepted
+	//       awaiting   = has_recorded_unverified AND NOT has_accepted
+	//       overdue    = no completion AND OPEN AND due business date <  as_of business date
+	//       scheduled  = no completion AND OPEN AND due business date >= as_of business date
+	//     so verified+awaiting+overdue+scheduled = targets. scheduled_ahead carries the same
+	//     `comp.obligation_id IS NULL` guard overdue_not_given already had; without it an
+	//     obligation recorded-but-unverified and due today counted in awaiting AND scheduled_ahead.
+	//     Residual (stated, not silently hidden): targets is ANIMAL grain (COUNT DISTINCT
+	//     target_id), so an animal holding two obligations in different buckets can still appear
+	//     in two buckets; the partition is exact at one-obligation-per-animal, which is the drive
+	//     grain every live vaccination drive uses.
 	kpiSQL := `
 WITH comp AS (
   SELECT
@@ -3811,8 +3833,8 @@ SELECT
   COUNT(DISTINCT oi.target_id) as targets,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.target_id END) as doses_verified,
   COUNT(DISTINCT CASE WHEN comp.has_recorded_unverified AND NOT comp.has_accepted THEN oi.target_id END) as awaiting_verification,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
-  COUNT(DISTINCT CASE WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN oi.target_id END) as scheduled_ahead
+  COUNT(DISTINCT CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as overdue_not_given,
+  COUNT(DISTINCT CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date >= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AND comp.obligation_id IS NULL THEN oi.target_id END) as scheduled_ahead
 FROM obligation_instances oi
 LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
 WHERE oi.tenant_id = $1::uuid
@@ -3859,7 +3881,7 @@ SELECT
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE WHEN (oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
@@ -3963,14 +3985,14 @@ shed_dose_obligations AS (
     CASE
       WHEN comp.has_accepted THEN 'verified'
       WHEN comp.has_recorded_unverified THEN 'awaiting'
-      WHEN oi.status = 'scheduled' AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
-      WHEN oi.status = 'scheduled' THEN 'scheduled'
+      WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date THEN 'overdue'
+      WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN 'scheduled'
       ELSE 'other'
     END as state,
     oi.target_id,
     comp.min_administered_at,
     comp.max_administered_at,
-    CASE WHEN oi.status = 'scheduled' THEN oi.due_at END as due_at
+    CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN oi.due_at END as due_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id

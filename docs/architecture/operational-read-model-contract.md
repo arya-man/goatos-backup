@@ -484,12 +484,26 @@ Status: Implemented; grain and bucket definitions below.
 
 **Grain and Buckets** (disjoint unless noted):
 
-- **KPIs (all-history scope, park-scoped)**:
-  - `targets`: `COUNT(DISTINCT obligation_id)` for all open + completed + overdue obligations
-  - `doses_verified`: `COUNT(DISTINCT completion_id WHERE status='accepted')` from all verified completions
-  - `awaiting_verification`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` from all pending-verification completions
-  - `overdue_not_given`: `COUNT(DISTINCT obligation_id WHERE status='overdue')` for open overdue obligations at current as-of date
-  - `scheduled_ahead`: `COUNT(DISTINCT obligation_id WHERE due_at > current_as_of_date)` for open future-scheduled obligations
+- **KPIs (all-history scope, park-scoped)** — ANIMAL grain (`COUNT(DISTINCT target_id)`), and a
+  **DISJOINT and EXHAUSTIVE** partition of `targets`: the four buckets are evaluated as a priority
+  chain over the SAME obligation row, so
+  `doses_verified + awaiting_verification + overdue_not_given + scheduled_ahead = targets`.
+  The UI may therefore render them side by side and as a share of `targets`.
+  - `targets`: `COUNT(DISTINCT target_id)` over all open + completed obligations in scope
+  - `doses_verified`: animals with an `accepted` completion
+  - `awaiting_verification`: animals with a `recorded`-unverified completion AND no `accepted` one
+  - `overdue_not_given`: animals with NO completion, an OPEN obligation, and IST business due date
+    **earlier than** the as-of IST business date
+  - `scheduled_ahead`: animals with NO completion, an OPEN obligation, and IST business due date
+    **on or after** the as-of IST business date
+  - **OPEN** is the repo's canonical open-obligation status set
+    `('scheduled','due','in_progress','deferred','missed')` — the same set behind
+    `obligation_instances_open_logical_due_idx`. It is **not** `'scheduled'` alone: the sweeper
+    flips `scheduled -> due` on the due business day, so a `'scheduled'`-only predicate drops every
+    currently-actionable obligation out of both the overdue and the scheduled bucket.
+  - Known residual: because the grain is ANIMAL, an animal carrying two obligations in different
+    buckets can appear in two buckets. The partition is exact at one-obligation-per-animal, the
+    grain every live vaccination drive uses.
 
 - **Active Batch Status (current drive scope, per park)**:
   - `targets`: `COUNT(DISTINCT animal_id)` assigned in current active `vaccination_drive_assignments` batch
@@ -509,6 +523,25 @@ Status: Implemented; grain and bucket definitions below.
   - `total_count`: `COUNT(DISTINCT completion_id WHERE status IN ('verification_pending', 'accepted', 'rejected'))` for shed×rule
   - `days_in_queue`: `DATEDIFF(current_business_date, MIN(created_date WHERE status='verification_pending'))` for oldest pending in shed×rule
   - Ordered: `days_in_queue DESC` (oldest first, most urgent)
+
+### GET /calendar/vaccination/events — park drive card summary
+
+Status: Implemented; buckets below.
+
+The drive card's `summary` counts are OBLIGATION grain and are read from the **same**
+`(park_id, due_date)` membership rows that decide the card's headline `status`, so counts and
+status can never disagree:
+
+- `scheduled_count`: open, **not submitted**, not deferred (the "still to do" bucket)
+- `review_count`: **submitted for verification** and not yet completed — an obligation COUNT, not a
+  boolean flag. It must never be derived from `obligation_batches.status`: a batch sitting in
+  `in_progress` while all its obligations are submitted made this render `0` under a
+  `verification_pending` headline, and simultaneously left the same animals inside
+  `scheduled_count`.
+- `deferred_count`: deferred and not submitted
+- `target_count`: roster size for the park-day; `scheduled_count`, `review_count` and
+  `deferred_count` are disjoint and must not be summed against `target_count` when completed work
+  exists (completed obligations are reported only in the optional `drive_summary` block).
 
 **Contract**: See backend `VaccinationCommandBoardResponse` OpenAPI schema and generated TypeScript client in `lib/api/vaccination-command-board.ts`.
 

@@ -1197,7 +1197,35 @@ obligation_drive_effective_state AS (
       AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
       AND m.due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
       AND NOT m.submitted_for_verification
-    ) AS genuine_overdue
+    ) AS genuine_overdue,
+    -- Bucket COUNTS at obligation grain, carrying the SAME disjoint predicates obl_summary
+    -- already proves total = completed + submitted + due + overdue + deferred. They live here,
+    -- not in obl_summary, because the calendar CARD renders them unconditionally while
+    -- obl_summary is gated on goatos.include_drive_summary='true'. Before this, the card's
+    -- scheduled_count/review_count were derived from the BATCH status in park_drive_groups —
+    -- a different grain and a different source of truth from the headline status, which reads
+    -- eff_state.has_submitted. That split is what made a fully-submitted drive render
+    -- status='verification_pending' with review_count=0 and scheduled_count=20: batch status
+    -- 'in_progress' is not in the review list (-> has_review false -> review_count 0) yet IS in
+    -- the scheduled list (-> the same 20 submitted animals counted as still scheduled). Both
+    -- numbers now come from the same membership rows the headline does, so card counts and card
+    -- status can no longer disagree, and submitted work is in exactly one bucket.
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status <> 'completed'
+        AND m.submitted_for_verification
+        AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+          'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed', 'deferred')
+    )::int AS submitted_count,
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status <> 'completed'
+        AND NOT m.submitted_for_verification
+        AND m.status <> 'deferred'
+        AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+          'verification_pending', 'rejected', 'rework_due')
+    )::int AS due_count,
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status = 'deferred' AND NOT m.submitted_for_verification
+    )::int AS deferred_count
   FROM obligation_drive_membership m
   GROUP BY m.park_id, m.due_date
 ),
@@ -1313,7 +1341,7 @@ park_drive_events AS (
       'summary', jsonb_build_object(
         'owner', 'PC',
         'target_count', grouped.target_count,
-        'summary_primary', COALESCE(grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
+        'summary_primary', COALESCE(eff_state.due_count, grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(eff_state.due_count, grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
         'summary_secondary', cardinality(shed_meta.labels)::text ||
           CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
           cardinality(vaccine_meta.labels)::text ||
@@ -1328,10 +1356,14 @@ park_drive_events AS (
         'vaccine_count', cardinality(vaccine_meta.labels),
         'drive_count', grouped.drive_count,
         'catch_up_count', COALESCE(grouped.catch_up_count, 0),
-        'scheduled_count', COALESCE(grouped.scheduled_count, 0),
+        'scheduled_count', COALESCE(eff_state.due_count, grouped.scheduled_count, 0),
         'queue_count', grouped.queue_count,
-        'deferred_count', COALESCE(grouped.deferred_count, 0),
-        'review_count', CASE WHEN grouped.has_review THEN 1 ELSE 0 END,
+        'deferred_count', COALESCE(eff_state.deferred_count, grouped.deferred_count, 0),
+        -- review_count is an OBLIGATION COUNT, not a boolean flag. It previously rendered
+        -- CASE WHEN has_review THEN 1 ELSE 0 END -- grain-incompatible with its siblings
+        -- target_count/scheduled_count/deferred_count, which are work counts, and sourced from
+        -- the batch status rather than the submission truth the card's own status uses.
+        'review_count', COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0),
         'shed_labels', to_jsonb(shed_meta.labels),
         'vaccine_labels', to_jsonb(vaccine_meta.labels)
       ),
