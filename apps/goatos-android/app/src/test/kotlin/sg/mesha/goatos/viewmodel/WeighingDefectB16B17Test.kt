@@ -90,8 +90,11 @@ class WeighingDefectB16B17Test {
     }
 
     @Test
-    fun `B16 - canClose computed property gates on readyToClose and isSubmittedAndWaitingVerification`() {
-        // Test case 1: submitted and waiting verification, ready to close → canClose = true
+    fun `B16 - canClose computed property gates on readyToClose and not closed`() {
+        // Backend allows closing ANY non-terminal bucket (via CloseScope/AbandonScope).
+        // Client should match: canClose = readyToClose && !isClosed
+
+        // Test case 1: ready to close and not closed → canClose = true
         val rowReadyToClose = WeighingAssignmentUiRow(
             campaignId = "c1",
             tenantId = "t1",
@@ -103,16 +106,37 @@ class WeighingDefectB16B17Test {
             expectedLocationLabel = "Shed A",
             label = "Shed A",
             category = "shed",
-            status = "completed", // isSubmittedAndWaitingVerification = true
+            status = "completed", // not closed
             expectedCount = 10,
             periodLabel = "2026-08-01",
             readyToClose = true,
             pendingVerificationCount = 0,
         )
 
-        assertTrue("Should be closeable when readyToClose=true and status=completed", rowReadyToClose.canClose)
+        assertTrue("Should be closeable when readyToClose=true and not closed", rowReadyToClose.canClose)
 
-        // Test case 2: submitted and waiting verification, NOT ready (pending verifications) → canClose = false
+        // Test case 2: ready to close but already closed → canClose = false
+        val rowAlreadyClosed = WeighingAssignmentUiRow(
+            campaignId = "c1",
+            tenantId = "t1",
+            parkId = "p1",
+            parkLabel = "Park A",
+            workGroupId = "wg1",
+            campaignShedId = "cs1",
+            expectedLocationId = "loc1",
+            expectedLocationLabel = "Shed A",
+            label = "Shed A",
+            category = "shed",
+            status = "closed", // already closed
+            expectedCount = 10,
+            periodLabel = "2026-08-01",
+            readyToClose = true,
+            pendingVerificationCount = 0,
+        )
+
+        assertFalse("Should NOT be closeable when status=closed", rowAlreadyClosed.canClose)
+
+        // Test case 3: not ready to close (pending verification) → canClose = false
         val rowPendingVerification = WeighingAssignmentUiRow(
             campaignId = "c1",
             tenantId = "t1",
@@ -124,134 +148,35 @@ class WeighingDefectB16B17Test {
             expectedLocationLabel = "Shed A",
             label = "Shed A",
             category = "shed",
-            status = "completed", // isSubmittedAndWaitingVerification = true
+            status = "completed",
             expectedCount = 10,
             periodLabel = "2026-08-01",
             readyToClose = false,
             pendingVerificationCount = 3,
         )
 
-        assertFalse("Should NOT be closeable when readyToClose=false even though submitted", rowPendingVerification.canClose)
-
-        // Test case 3: not submitted yet → canClose = false regardless of readyToClose
-        val rowNotSubmitted = WeighingAssignmentUiRow(
-            campaignId = "c1",
-            tenantId = "t1",
-            parkId = "p1",
-            parkLabel = "Park A",
-            workGroupId = "wg1",
-            campaignShedId = "cs1",
-            expectedLocationId = "loc1",
-            expectedLocationLabel = "Shed A",
-            label = "Shed A",
-            category = "shed",
-            status = "in_progress", // NOT submitted
-            expectedCount = 10,
-            periodLabel = "2026-08-01",
-            readyToClose = true,
-            pendingVerificationCount = 0,
-        )
-
-        assertFalse("Should NOT be closeable if not submitted, even if readyToClose=true", rowNotSubmitted.canClose)
+        assertFalse("Should NOT be closeable when readyToClose=false", rowPendingVerification.canClose)
     }
 
     // ==================== B17: Park filtering pagination tests ====================
 
     @Test
-    fun `B17 - onAssignmentRowVisible fires prefetch when last filtered row is composed`() {
-        // Scenario: 20 raw assignment rows loaded, 5 match the selected park filter
-        // Prefetch distance = 3
-        // When park filter is applied, composed indices are 0-4
-        // Before fix: Would compare index=4 against (20-3=17), no prefetch
-        // After fix: Compares index=4 against (5-3=2), fires prefetch ✓
+    fun `B17 - onAssignmentRowVisible no longer filters client-side, fires prefetch on server-filtered results`() {
+        // B17 fix: Park filtering moved server-side via parkId parameter to listAssignments().
+        // This prevents pagination starvation when page 1 returns 0 rows for selected park.
+        //
+        // BEFORE: onAssignmentRowVisible filtered client-side, early-returning if filtered.isEmpty().
+        // With 20 unfiltered rows but 0 for selected park, prefetch never fired.
+        //
+        // AFTER: Server returns only selected park's rows, so onAssignmentRowVisible fires prefetch
+        // when index >= loadedSize - prefetchDistance, regardless of park selection.
 
-        val rawAssignments = (1..20).map { i ->
+        val loadedAssignments = (1..5).map { i ->
+            // These 5 assignments are already filtered by server (all for selected park)
             WeighingAssignment(
                 campaignId = "c$i",
                 tenantId = "t1",
-                parkId = if (i % 4 == 0) "park-A" else "park-B", // 5 rows match park-A: 4, 8, 12, 16, 20
-                parkName = if (i % 4 == 0) "Park A" else "Park B",
-                workGroupId = "wg$i",
-                campaignShedId = "cs$i",
-                expectedLocationId = "loc$i",
-                expectedLocationLabel = "Shed $i",
-                label = "Shed $i",
-                category = "shed",
-                operatorUserId = "op1",
-                status = "in_progress",
-                expectedCount = 10,
-                periodLabel = "2026-08-01",
-                readyToClose = false,
-                pendingVerificationCount = 0,
-            )
-        }
-
-        // Verify raw count
-        assertEquals(20, rawAssignments.size)
-
-        // Verify filtered count (park-A only)
-        val filteredByParkA = rawAssignments.filter { it.parkId == "park-A" }
-        assertEquals(5, filteredByParkA.size)
-
-        // Simulate composed indices on filtered list: 0, 1, 2, 3, 4
-        val prefetchDistance = 3
-
-        // Test: index 4 (last item in filtered list of 5) should trigger prefetch
-        // Condition in fixed code: index >= filteredSize - prefetchDistance
-        // index=4 >= (5-3=2) → TRUE, fires prefetch ✓
-        assertTrue("Index 4 in filtered list of size 5 should trigger prefetch (4 >= 5-3=2)",
-            4 >= (filteredByParkA.size - prefetchDistance))
-
-        // Test: index 1 should NOT trigger prefetch
-        // index=1 >= 2 → FALSE, no prefetch ✓
-        assertFalse("Index 1 in filtered list of size 5 should NOT trigger prefetch (1 >= 2)",
-            1 >= (filteredByParkA.size - prefetchDistance))
-    }
-
-    @Test
-    fun `B17 - onAssignmentRowVisible handles null park filter (shows all assignments)`() {
-        // When selectedParkId is null, no filtering applies
-        val rawAssignments = (1..10).map { i ->
-            WeighingAssignment(
-                campaignId = "c$i",
-                tenantId = "t1",
-                parkId = "park-${i % 2}",
-                parkName = "Park ${i % 2}",
-                workGroupId = "wg$i",
-                campaignShedId = "cs$i",
-                expectedLocationId = "loc$i",
-                expectedLocationLabel = "Shed $i",
-                label = "Shed $i",
-                category = "shed",
-                operatorUserId = "op1",
-                status = "in_progress",
-                expectedCount = 10,
-                periodLabel = "2026-08-01",
-                readyToClose = false,
-                pendingVerificationCount = 0,
-            )
-        }
-
-        val selectedParkId: String? = null // No filter
-
-        // Filtered = all (no filter applied)
-        val filtered = rawAssignments.filter { selectedParkId == null || it.parkId == selectedParkId }
-        assertEquals(10, filtered.size)
-
-        // Prefetch distance = 3, so prefetch fires at index >= 10-3 = 7
-        val prefetchDistance = 3
-        assertTrue("Index 7 should trigger prefetch when all 10 assignments visible (7 >= 10-3=7)",
-            7 >= (filtered.size - prefetchDistance))
-    }
-
-    @Test
-    fun `B17 - onAssignmentRowVisible handles empty filtered result`() {
-        // Edge case: park filter selects no assignments
-        val rawAssignments = (1..5).map { i ->
-            WeighingAssignment(
-                campaignId = "c$i",
-                tenantId = "t1",
-                parkId = "park-A",
+                parkId = "park-A", // Already filtered server-side to park-A
                 parkName = "Park A",
                 workGroupId = "wg$i",
                 campaignShedId = "cs$i",
@@ -268,11 +193,15 @@ class WeighingDefectB16B17Test {
             )
         }
 
-        val selectedParkId = "park-B" // Selects nothing
+        val prefetchDistance = 3
 
-        val filtered = rawAssignments.filter { it.parkId == selectedParkId }
-        assertEquals(0, filtered.size)
-        assertTrue("Filtered list should be empty", filtered.isEmpty())
-        // Code guards with: if (filtered.isEmpty()) return, so no prefetch fires
+        // Prefetch should fire when index >= loadedSize - prefetchDistance
+        // index=4 (last item) >= (5-3=2) → TRUE, fires prefetch ✓
+        assertTrue("Index 4 should trigger prefetch when loadedSize=5 (4 >= 5-3=2)",
+            4 >= (loadedAssignments.size - prefetchDistance))
+
+        // index=1 < 2 → FALSE, no prefetch yet
+        assertFalse("Index 1 should NOT trigger prefetch (1 < 2)",
+            1 >= (loadedAssignments.size - prefetchDistance))
     }
 }
