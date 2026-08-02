@@ -157,7 +157,11 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -187,7 +191,10 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
-		{Key: "alerts", Label: "टीकाकरण अलर्ट", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). The Hindi label went generic with it.
+		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -221,7 +228,11 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -243,8 +254,8 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 // module-specific grant (no position_module_duties row, no department feature grant --
 // exactly a bare RoleVerifier grant, as ListGrantedModuleKeys returns for a principal
 // whose only department grant is the generic "verification" key) must still get a
-// feature-scoped [Verify, Alerts, You] bar per built feature, never the old bare
-// [Verify, You] with no Alerts tab.
+// feature-scoped [Verify, Alerts] bar per built feature, never a bare [Verify] with
+// no Alerts tab.
 func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
@@ -256,10 +267,12 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	}
 	// No named duties -> scoped to every built feature; the active/default bar is the
 	// first feature (vaccination, drawer priority 1).
+	// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"
+	// lives in the drawer, and the alerts tab label never names the feature (the href's
+	// category still scopes it).
 	want := []domain.BootstrapNavigationItem{
 		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
-		{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
-		{Key: "you", Label: "You", Href: "/you"},
+		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -291,34 +304,68 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 // shape: a verifier with exactly one verify duty gets a minimal-chrome bar scoped to
 // THAT feature, with a correctly-categorized Alerts item -- never the generic merged
 // "verification" module the pre-fix code fell back to for len(grantedModules) <= 1.
+//
+// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You" lives
+// in the drawer, and the alerts tab label never names the feature (the href's category
+// still scopes it).
+//
+// The scoping this test is named for did NOT move to the label -- it lives in the href
+// category, and that is what is asserted per feature below: three single-duty verifiers
+// get the IDENTICAL tab label "Alerts" but three DIFFERENT categories. Note counts maps
+// to "shifting_move", not "counts_proof" (see verificationCategoryForFeature); a wrong
+// category renders a permanently-empty 200 tab, so these values must never be relaxed.
 func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
-	svc := NewService(&fakeRepo{
-		profile:        profile("active"),
-		grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
-		grantedModules: []string{"weighing"},
-	})
-	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
-	if err != nil {
-		t.Fatalf("Bootstrap() error=%v", err)
+	const wantAlertsLabel = "Alerts"
+
+	cases := []struct {
+		feature      string
+		wantModule   string
+		wantCategory string
+	}{
+		{feature: "weighing", wantModule: "verify_weighing", wantCategory: "weighing_proof"},
+		{feature: "vaccination", wantModule: "verify_vaccination", wantCategory: "vaccination_proof"},
+		{feature: "counts", wantModule: "verify_counts", wantCategory: "shifting_move"},
 	}
-	want := []domain.BootstrapNavigationItem{
-		{Key: "verify", Label: "Verify", Href: "/verify?module=weighing"},
-		{Key: "alerts", Label: "Weighing alerts", Href: "/verify/alerts?category=weighing_proof"},
-		{Key: "you", Label: "You", Href: "/you"},
+
+	seenCategories := make(map[string]string, len(cases))
+	for _, tc := range cases {
+		t.Run(tc.feature, func(t *testing.T) {
+			svc := NewService(&fakeRepo{
+				profile:        profile("active"),
+				grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+				grantedModules: []string{tc.feature},
+			})
+			got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("Bootstrap() error=%v", err)
+			}
+			want := []domain.BootstrapNavigationItem{
+				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature},
+				{Key: "alerts", Label: wantAlertsLabel, Href: "/verify/alerts?category=" + tc.wantCategory},
+			}
+			if len(got.VisibleNavigation) != len(want) {
+				t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+			}
+			for i := range want {
+				if got.VisibleNavigation[i] != want[i] {
+					t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
+				}
+			}
+			if got.NavChrome != domain.NavChromeMinimal {
+				t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
+			}
+			if len(got.Modules) != 1 || got.Modules[0].Key != tc.wantModule {
+				t.Fatalf("Modules=%#v want single %s module", got.Modules, tc.wantModule)
+			}
+			if prev, dup := seenCategories[tc.wantCategory]; dup {
+				t.Fatalf("features %q and %q share alerts category %q -- the generic label must not have collapsed the feature scoping", prev, tc.feature, tc.wantCategory)
+			}
+			seenCategories[tc.wantCategory] = tc.feature
+		})
 	}
-	if len(got.VisibleNavigation) != len(want) {
-		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
-	}
-	for i := range want {
-		if got.VisibleNavigation[i] != want[i] {
-			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
-		}
-	}
-	if got.NavChrome != domain.NavChromeMinimal {
-		t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
-	}
-	if len(got.Modules) != 1 || got.Modules[0].Key != "verify_weighing" {
-		t.Fatalf("Modules=%#v want single verify_weighing module", got.Modules)
+
+	if len(seenCategories) != len(cases) {
+		t.Fatalf("expected one distinct alerts category per feature; got %v", seenCategories)
 	}
 }
 
@@ -336,7 +383,11 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -400,7 +451,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	tests := []struct {
@@ -421,30 +476,43 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// "You" lives in the drawer, and the alerts tab label never names the feature
+				// (the href's category still scopes it). This is a leadership/registry bar, so
+				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
 			// No duties named -> scoped to every built feature; the default/active bar
 			// is the first (vaccination), with a correctly-categorized Alerts item.
+			//
+			// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+			// "You" lives in the drawer, and the alerts tab label never names the
+			// feature (the href's category still scopes it).
 			name:    "verifier with no duties",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
-				{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
-				{Key: "you", Label: "You", Href: "/you"},
+				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			},
 		},
 		{
+			// Same generic "Alerts" label as the vaccination case above, but a
+			// different href category (counts maps to shifting_move, NOT counts_proof)
+			// -- the label went generic, the SCOPING did not.
+			//
+			// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+			// "You" lives in the drawer, and the alerts tab label never names the
+			// feature (the href's category still scopes it).
 			name:    "single-feature verifier",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: []string{"counts"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=counts"},
-				{Key: "alerts", Label: "Counts alerts", Href: "/verify/alerts?category=shifting_move"},
-				{Key: "you", Label: "You", Href: "/you"},
+				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=shifting_move"},
 			},
 		},
 		{
@@ -457,7 +525,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
-				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// "You" lives in the drawer, and the alerts tab label never names the feature
+				// (the href's category still scopes it). This is a leadership/registry bar, so
+				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -469,7 +541,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Vaccination alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// "You" lives in the drawer, and the alerts tab label never names the feature
+				// (the href's category still scopes it). This is a leadership/registry bar, so
+				// it legitimately KEEPS its "you" entry -- only the label went generic.
+				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},

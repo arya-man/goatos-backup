@@ -511,15 +511,23 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 		labelKey = "module." + normalized
 	}
 
-	// Compose nav items: verify + alerts + you. Alerts hits the real /verify/alerts
+	// Compose nav items: verify + alerts. Alerts hits the real /verify/alerts
 	// endpoint (internal/verification/adapters/http/handler.go ListAlerts), scoped with
 	// the category verificationCategoryForFeature maps THIS feature to -- that mapping
 	// must match the category value the feature's own verification-bridge writes onto
 	// verification_items.category, or the tab renders 200-with-empty-list forever.
+	//
+	// Maintainer decision 2026-08-03, two parts:
+	//   1. The tab is titled just "Alerts". The alerts ARE feature-scoped -- the href still
+	//      carries the category -- but the LABEL must not name the feature. The verifier is
+	//      already standing in that module, so "Vaccination alerts" / "Weighing alerts" only
+	//      repeats it back at them.
+	//   2. "You" is NOT a bottom-bar tab. Repeating it across vaccination, weighing and every
+	//      future verifiable feature is redundant; it belongs in the nav drawer, exactly as it
+	//      does for leadership/CEO (see the registry entries that carry shared_key "you").
 	items := []moduleNavContribution{
 		{key: "verify", labelKey: "nav.verify", href: "/verify?module=" + normalized, shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
-		{key: "alerts", labelKey: alertsLabelKeyForFeature(normalized), href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
-		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "", priority: 100, requiredPermission: ""},
+		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
 	}
 
 	// Filter to permitted items
@@ -736,25 +744,21 @@ func localizedBootstrapLabel(localeTag, key string) string {
 
 var bootstrapLabels = map[string]map[string]string{
 	"en": {
-		"nav.verify":                "Verify",
-		"nav.overview":              "Overview",
-		"nav.calendar":              "Calendar",
-		"nav.alerts":                "Vaccination alerts",
-		"nav.alerts.vaccination":    "Vaccination alerts",
-		"nav.alerts.weighing":       "Weighing alerts",
-		"nav.alerts.counts":         "Counts alerts",
-		"nav.alerts.feed_direction": "Feed alerts",
-		"nav.drives":                "Drives",
-		"nav.counts":                "Counts",
-		"nav.birth_death":           "Birth/Death",
-		"nav.shifting":              "Shifting",
-		"nav.approval":              "Approval",
-		"nav.weighing":              "Weighing",
-		"nav.my_work":               "My work",
-		"nav.tasks":                 "Tasks",
-		"nav.operators":             "Operators",
-		"nav.videos":                "Videos",
-		"nav.you":                   "You",
+		"nav.verify":      "Verify",
+		"nav.overview":    "Overview",
+		"nav.calendar":    "Calendar",
+		"nav.alerts":      "Alerts",
+		"nav.drives":      "Drives",
+		"nav.counts":      "Counts",
+		"nav.birth_death": "Birth/Death",
+		"nav.shifting":    "Shifting",
+		"nav.approval":    "Approval",
+		"nav.weighing":    "Weighing",
+		"nav.my_work":     "My work",
+		"nav.tasks":       "Tasks",
+		"nav.operators":   "Operators",
+		"nav.videos":      "Videos",
+		"nav.you":         "You",
 
 		"module.verification":   "Verification",
 		"module.vaccination":    "Vaccination",
@@ -767,25 +771,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "Proof review",
 	},
 	"hi": {
-		"nav.verify":                "सत्यापित करें",
-		"nav.overview":              "अवलोकन",
-		"nav.calendar":              "कैलेंडर",
-		"nav.alerts":                "टीकाकरण अलर्ट",
-		"nav.alerts.vaccination":    "टीकाकरण अलर्ट",
-		"nav.alerts.weighing":       "वजन अलर्ट",
-		"nav.alerts.counts":         "गणना अलर्ट",
-		"nav.alerts.feed_direction": "फ़ीड अलर्ट",
-		"nav.drives":                "ड्राइव",
-		"nav.counts":                "गिनती",
-		"nav.birth_death":           "जन्म/मृत्यु",
-		"nav.shifting":              "शिफ्टिंग",
-		"nav.approval":              "अनुमोदन",
-		"nav.weighing":              "वजन",
-		"nav.my_work":               "मेरा काम",
-		"nav.tasks":                 "कार्य",
-		"nav.operators":             "ऑपरेटर",
-		"nav.videos":                "वीडियो",
-		"nav.you":                   "आप",
+		"nav.verify":      "सत्यापित करें",
+		"nav.overview":    "अवलोकन",
+		"nav.calendar":    "कैलेंडर",
+		"nav.alerts":      "अलर्ट",
+		"nav.drives":      "ड्राइव",
+		"nav.counts":      "गिनती",
+		"nav.birth_death": "जन्म/मृत्यु",
+		"nav.shifting":    "शिफ्टिंग",
+		"nav.approval":    "अनुमोदन",
+		"nav.weighing":    "वजन",
+		"nav.my_work":     "मेरा काम",
+		"nav.tasks":       "कार्य",
+		"nav.operators":   "ऑपरेटर",
+		"nav.videos":      "वीडियो",
+		"nav.you":         "आप",
 
 		"module.verification":   "सत्यापन",
 		"module.vaccination":    "टीकाकरण",
@@ -798,25 +798,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "प्रूफ समीक्षा",
 	},
 	"kn": {
-		"nav.verify":                "ಪರಿಶೀಲಿಸಿ",
-		"nav.overview":              "ಅವಲೋಕನ",
-		"nav.calendar":              "ಕ್ಯಾಲೆಂಡರ್",
-		"nav.alerts":                "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.alerts.vaccination":    "ಲಸಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.alerts.weighing":       "ತೂಕ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.alerts.counts":         "ಎಣಿಕೆ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.alerts.feed_direction": "ಆಹಾರ ಎಚ್ಚರಿಕೆಗಳು",
-		"nav.drives":                "ಡ್ರೈವ್‌ಗಳು",
-		"nav.counts":                "ಎಣಿಕೆ",
-		"nav.birth_death":           "ಜನನ/ಮರಣ",
-		"nav.shifting":              "ಸ್ಥಳಾಂತರ",
-		"nav.approval":              "ಅನುಮೋದನೆ",
-		"nav.weighing":              "ತೂಕ",
-		"nav.my_work":               "ನನ್ನ ಕೆಲಸ",
-		"nav.tasks":                 "ಕಾರ್ಯಗಳು",
-		"nav.operators":             "ಆಪರೇಟರ್‌ಗಳು",
-		"nav.videos":                "ವೀಡಿಯೊಗಳು",
-		"nav.you":                   "ನೀವು",
+		"nav.verify":      "ಪರಿಶೀಲಿಸಿ",
+		"nav.overview":    "ಅವಲೋಕನ",
+		"nav.calendar":    "ಕ್ಯಾಲೆಂಡರ್",
+		"nav.alerts":      "ಎಚ್ಚರಿಕೆಗಳು",
+		"nav.drives":      "ಡ್ರೈವ್‌ಗಳು",
+		"nav.counts":      "ಎಣಿಕೆ",
+		"nav.birth_death": "ಜನನ/ಮರಣ",
+		"nav.shifting":    "ಸ್ಥಳಾಂತರ",
+		"nav.approval":    "ಅನುಮೋದನೆ",
+		"nav.weighing":    "ತೂಕ",
+		"nav.my_work":     "ನನ್ನ ಕೆಲಸ",
+		"nav.tasks":       "ಕಾರ್ಯಗಳು",
+		"nav.operators":   "ಆಪರೇಟರ್‌ಗಳು",
+		"nav.videos":      "ವೀಡಿಯೊಗಳು",
+		"nav.you":         "ನೀವು",
 
 		"module.verification":   "ಪರಿಶೀಲನೆ",
 		"module.vaccination":    "ಲಸಿಕೆ",
@@ -829,25 +825,21 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
 	},
 	"te": {
-		"nav.verify":                "ధృవీకరించండి",
-		"nav.overview":              "అవలోకనం",
-		"nav.calendar":              "క్యాలెండర్",
-		"nav.alerts":                "టీకా అలర్ట్లు",
-		"nav.alerts.vaccination":    "టీకా అలర్ట్లు",
-		"nav.alerts.weighing":       "బరువు అలర్ట్లు",
-		"nav.alerts.counts":         "లెక్కల అలర్ట్లు",
-		"nav.alerts.feed_direction": "ఫీడ్ అలర్ట్లు",
-		"nav.drives":                "డ్రైవ్‌లు",
-		"nav.counts":                "లెక్కలు",
-		"nav.birth_death":           "జననం/మరణం",
-		"nav.shifting":              "షిఫ్టింగ్",
-		"nav.approval":              "ఆమోదం",
-		"nav.weighing":              "బరువు",
-		"nav.my_work":               "నా పని",
-		"nav.tasks":                 "పనులు",
-		"nav.operators":             "ఆపరేటర్లు",
-		"nav.videos":                "వీడియోలు",
-		"nav.you":                   "మీరు",
+		"nav.verify":      "ధృవీకరించండి",
+		"nav.overview":    "అవలోకనం",
+		"nav.calendar":    "క్యాలెండర్",
+		"nav.alerts":      "అలర్ట్లు",
+		"nav.drives":      "డ్రైవ్‌లు",
+		"nav.counts":      "లెక్కలు",
+		"nav.birth_death": "జననం/మరణం",
+		"nav.shifting":    "షిఫ్టింగ్",
+		"nav.approval":    "ఆమోదం",
+		"nav.weighing":    "బరువు",
+		"nav.my_work":     "నా పని",
+		"nav.tasks":       "పనులు",
+		"nav.operators":   "ఆపరేటర్లు",
+		"nav.videos":      "వీడియోలు",
+		"nav.you":         "మీరు",
 
 		"module.verification":   "ధృవీకరణ",
 		"module.vaccination":    "టీకా",
@@ -861,23 +853,11 @@ var bootstrapLabels = map[string]map[string]string{
 	},
 }
 
-// alertsLabelKeyForFeature maps a feature key to its per-feature alerts label key
-// in bootstrapLabels. Each feature's alerts tab gets its own localized label:
-// Vaccination, Weighing, Counts, Feed, etc.
-func alertsLabelKeyForFeature(normalizedFeatureKey string) string {
-	switch normalizedFeatureKey {
-	case "vaccination":
-		return "nav.alerts.vaccination"
-	case "weighing":
-		return "nav.alerts.weighing"
-	case "counts":
-		return "nav.alerts.counts"
-	case "feed_direction":
-		return "nav.alerts.feed_direction"
-	default:
-		return "nav.alerts"
-	}
-}
+// The per-feature alerts LABEL keys ("nav.alerts.vaccination", ".weighing", ".counts",
+// ".feed_direction") and their alertsLabelKeyForFeature resolver were removed by the
+// maintainer decision of 2026-08-03: every verifier alerts tab is titled just "Alerts".
+// The alerts themselves remain feature-scoped through verificationCategoryForFeature on
+// the href -- only the label stopped naming the module the verifier is already inside.
 
 // verificationCategoryForFeature maps a MODULE key (the vocabulary nav and
 // position_module_duties speak: "vaccination", "weighing", "feed_direction",
