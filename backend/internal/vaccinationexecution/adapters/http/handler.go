@@ -649,13 +649,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Limit = n
 	}
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if q.AuthorizedParkIDs == nil {
-			q.AuthorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope.
+	q.AuthorizedParkIDs = authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false
 	}
@@ -857,14 +853,10 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestTenantID := tenantID(r)
-	var authorizedParkIDs []string
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, requestTenantID) {
-		authorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if authorizedParkIDs == nil {
-			authorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope. Empty array means
+	// "access denied to any park" (fail-closed); nil means "unrestricted" (tenant-wide).
+	authorizedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), requestTenantID)
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=reschedule-decision-comparison-instant expiry=2026-12-31
 	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, h.now().UTC())
 	if err != nil {
@@ -1368,11 +1360,9 @@ func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		// -- silently picking one would let a CEO save a default operator for park A while reading a
 		// roster blended across A+B+C -- but the refusal carries the backend-owned options so the
 		// client renders a selector instead of dead-ending.
-		grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-		var scopedParkIDs []string
-		if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-			scopedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		}
+		// Use the proper vaccination-execution authority check that verifies the tenant-wide
+		// grant's role, not just its scope.
+		scopedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 		parks, err := h.reader.AuthorizedParkOptions(r.Context(), tenantID(r), scopedParkIDs)
 		if err != nil {
 			h.internal(w, r, err)
@@ -1605,6 +1595,43 @@ func (h *Handler) applyShedSummaryParkScope(w http.ResponseWriter, r *http.Reque
 func (h *Handler) allowParkID(w http.ResponseWriter, r *http.Request, parkID string) bool {
 	_, ok := h.authorizedParkID(w, r, parkID)
 	return ok
+}
+
+// hasVaccinationExecutionAuthorityTenantWide reports whether any grant is scoped to the whole
+// tenant AND carries a role that has vaccination-execution authority. A tenant-wide grant
+// for an unrelated role (e.g., growth_director for weighing only) returns false.
+//
+// This is the role-aware counterpart to HasTenantWideGrant, which checks scope only.
+// A caller must have BOTH tenant scope AND a role that carries VaccinationCampaign
+// (the write authority for vaccination scheduling) to be treated as tenant-wide for
+// vaccination execution.
+func hasVaccinationExecutionAuthorityTenantWide(grants []permissions.ActiveGrant, tenantID string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
+			// Check if this role carries vaccination-execution write authority
+			if permissions.RoleHasPermission(grant.Role, permissions.VaccinationCampaign) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// authorizedParkFilterVaccinationExecution returns the park IDs a park-scoped actor may access
+// for vaccination execution, or nil when the caller is tenant-wide with vaccination authority
+// (no restriction). Unlike the old HasTenantWideGrant check, this properly verifies that
+// the tenant-wide grant carries a vaccination-relevant role.
+// A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
+		return nil
+	}
+	parks := httpmiddleware.AuthorizedParkIDs(grants)
+	if parks == nil {
+		return []string{}
+	}
+	return parks
 }
 
 func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {

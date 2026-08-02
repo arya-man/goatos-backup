@@ -954,6 +954,60 @@ func TestRescheduleObligationMapsNotFoundTo404(t *testing.T) {
 	}
 }
 
+// TestRescheduleObligationPrivilegeEscalationUnrelatedTenantWideGrant demonstrates
+// the privilege escalation defect: a caller with a tenant-wide grant that carries
+// an UNRELATED role (e.g., growth_director for weighing only, without vaccination perms)
+// plus a park-scoped operator grant for park A should NOT be able to reschedule an
+// obligation in park B. However, the current buggy code at line 862 treats ANY
+// tenant-wide grant as authorization for ALL modules, allowing cross-park mutation.
+//
+// The defect: `HasTenantWideGrant` checks SCOPE only (tenant + tenantID) and NEVER
+// the ROLE the grant carries. So someone with a tenant-wide growth_director grant
+// (weighing only) plus a park-scoped operator grant gets treated as tenant-wide for
+// vaccination too, even though growth_director has no vaccination permissions.
+//
+// BEFORE fix: authorizedParkIDs remain empty (unrestricted), allowing reschedule
+// of obligations in any park.
+// AFTER fix: authorizedParkIDs are populated from the vaccination-scoped grant,
+// and the write correctly rejects obligations outside that park.
+func TestRescheduleObligationPrivilegeEscalationUnrelatedTenantWideGrant(t *testing.T) {
+	const parkA = "86000000-0000-4000-8000-000000000001"
+	const parkB = "86000000-0000-4000-8000-000000000002"
+	const tenantID = "11000000-0000-4000-8000-000000000000"
+
+	// Setup: actor holds a tenant-wide growth_director grant (weighing only)
+	// plus a park-scoped operator grant for park A only.
+	// Note: growth_director is the weighing-module role and does NOT have
+	// VaccinationCampaign (it has WeighingMonitor, WeighingExecute, etc.).
+	grants := []permissions.ActiveGrant{
+		{Role: permissions.RoleGrowthDirector, ScopeType: "tenant", ScopeID: tenantID},
+		{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: parkA},
+	}
+
+	// Mock writer that records the authorized park scope passed to it.
+	writer := &fakeWriter{rescheduleID: rescheduleObligationID}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(&fakeReader{}, writer))
+
+	future := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
+	req := buildRescheduleRequest(t, rescheduleObligationID, "idem-key-escalation", `{"due_at":"`+future+`"}`)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), tenantID))
+	req = req.WithContext(httpmiddleware.WithAuthGrants(req.Context(), grants))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d want 200 body=%s", rec.Code, rec.Body.String())
+	}
+
+	// CRITICAL CHECK: The authorized parks passed to the writer should be ONLY [parkA],
+	// NOT empty (unrestricted). An empty slice means "access any park", which is the bug.
+	if len(writer.lastAuthorizedParks) != 1 || writer.lastAuthorizedParks[0] != parkA {
+		t.Fatalf("authorized parks = %#v want [%s]\n\nBUG: unrelated tenant-wide grant (growth_director for weighing) "+
+			"allowed unrestricted access instead of constraining to park-scoped grant (parkA)", writer.lastAuthorizedParks, parkA)
+	}
+}
+
 func TestRescheduleObligationMapsIdempotencyConflictTo409(t *testing.T) {
 	writer := &fakeWriter{rescheduleErr: obligationports.ErrIdempotencyConflict}
 	mux := http.NewServeMux()
