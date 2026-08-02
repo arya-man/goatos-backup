@@ -51,6 +51,24 @@ var (
 	// Leadership scoped to the whole tenant (the growth director) legitimately spans parks and is
 	// unaffected.
 	ErrOperatorOutsidePark = errors.New("weighing: operator is not scoped to this park")
+
+	// ErrWriteConflict is a Postgres SERIALIZABLE (SSI) conflict, SQLSTATE
+	// 40001, on a write that touches no duplicate at all -- it means "this
+	// transaction lost a race against another that overlapped it in time",
+	// nothing more. It is deliberately NOT ErrDuplicateScan: RecordAnimalObservation
+	// runs at SERIALIZABLE because concurrent captures of the SAME bucket take a
+	// shared FOR NO KEY UPDATE row lock (weighing_campaign_sheds), so TWO
+	// DIFFERENT animals captured at overlapping instants in the SAME bucket are
+	// ordinary SSI-conflict candidates even though neither is a duplicate of
+	// anything. Collapsing 40001 into ErrDuplicateScan would tell an operator
+	// they double-scanned an animal they scanned exactly once, and DISCARD a
+	// real capture with a real video instead of retrying it -- worse than the
+	// race the SERIALIZABLE fix exists to close. This error is retried a bounded
+	// number of times INSIDE the repository (see RecordAnimalObservation); a
+	// caller should only ever see it if every retry also lost, which packages as
+	// a transient 409/503-class failure the client is expected to resubmit, not
+	// as "you already did this."
+	ErrWriteConflict = errors.New("weighing: write conflict, retry")
 )
 
 // ShedScheduleConflict names the buckets that blocked a create/update/publish so

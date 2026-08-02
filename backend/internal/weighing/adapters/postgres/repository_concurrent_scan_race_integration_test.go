@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -51,10 +52,15 @@ import (
 //     never conflicts under SERIALIZABLE and keeps updating in place exactly
 //     as before.
 //
-// Both 23505 (on the new index) and 40001 (serialization failure) are mapped
-// to the same typed conflict, ports.ErrDuplicateScan, by
-// mapObservationUniqueViolation, so the loser reads as a clean domain
-// conflict rather than a raw Postgres error.
+// 23505 (on the new index) maps to ports.ErrDuplicateScan -- a genuine
+// duplicate, never retried. 40001 (serialization failure) maps to the
+// DIFFERENT ports.ErrWriteConflict and is retried internally by
+// RecordAnimalObservation (bounded, see recordAnimalObservationMaxSerializationRetries):
+// it says nothing about duplication, only that this transaction lost a race,
+// so collapsing it into ErrDuplicateScan would falsely tell an operator they
+// double-scanned an animal and discard a real capture -- see
+// TestConcurrentRecordAnimalObservationDifferentTagsBothSucceed below, which
+// proves that specific failure mode does NOT happen.
 func TestConcurrentRecordAnimalObservationSameTagDifferentIdempotencyKeysLeavesOneOpenRow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -157,5 +163,95 @@ WHERE tenant_id=$1::uuid
 	}
 	if storedKey != keys[winner] {
 		t.Fatalf("stored idempotency_key=%q, want the winning caller's own key %q", storedKey, keys[winner])
+	}
+}
+
+// TestConcurrentRecordAnimalObservationDifferentTagsBothSucceed is the negative
+// half of the race test above, and it guards the FIELD case rather than the
+// pathological one: a shed is worked fast and two DIFFERENT animals are captured
+// at overlapping instants in the SAME bucket.
+//
+// Both captures must SUCCEED. Nothing about two different animals is a duplicate.
+//
+// This matters because the fix runs RecordAnimalObservation at SERIALIZABLE and
+// both transactions take FOR NO KEY UPDATE on the SAME bucket row, which makes
+// them candidates for an SSI conflict on a shared row. If the loser aborts with
+// 40001 and that is translated to ports.ErrDuplicateScan, the operator is told
+// they double-scanned an animal they scanned once, and a real weighing with a
+// real video is DISCARDED instead of retried -- worse than the two-open-rows bug
+// the fix exists to close. 40001 means "retry", 23505 means "duplicate"; they
+// must not collapse into the same caller-visible outcome.
+//
+// Repeated, because SSI conflicts are timing-dependent and a single green pass
+// proves very little.
+func TestConcurrentRecordAnimalObservationDifferentTagsBothSucceed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())
+ON CONFLICT DO NOTHING`,
+		repoTenant, repoOperator, repoPark)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const rounds = 10
+	for round := 0; round < rounds; round++ {
+		tagA := fmt.Sprintf("field-tag-a-%d", round)
+		tagB := fmt.Sprintf("field-tag-b-%d", round)
+		tags := [2]string{tagA, tagB}
+		keys := [2]string{
+			fmt.Sprintf("animal:field-a-%d", round),
+			fmt.Sprintf("animal:field-b-%d", round),
+		}
+
+		var wg sync.WaitGroup
+		var start sync.WaitGroup
+		start.Add(1)
+		results := make([]error, 2)
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				start.Wait()
+				_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+					TenantID:          repoTenant,
+					CampaignID:        repoCampaign,
+					CampaignShedID:    repoAnimalScope,
+					ScannedIdentifier: tags[i],
+					WeightKg:          30.0 + float64(i),
+					ProofArtifactID:   repoExpectedShedProof,
+					ActualLocationID:  repoActualShed,
+					IdempotencyKey:    keys[i],
+					RecordedBy:        repoOperator,
+				})
+				results[i] = err
+			}(i)
+		}
+		start.Done()
+		wg.Wait()
+
+		for i, err := range results {
+			if err != nil {
+				t.Fatalf("round %d: capture of DISTINCT animal %q failed: %v -- two different animals in one bucket are not a duplicate, and this capture would be lost in the field", round, tags[i], err)
+			}
+		}
+
+		var openRows int
+		if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM weighing_observations
+WHERE tenant_id = $1::uuid
+  AND campaign_shed_id = $2::uuid
+  AND submitted_at IS NULL
+  AND lower(btrim(scanned_identifier)) IN (lower(btrim($3)), lower(btrim($4)))`,
+			repoTenant, repoAnimalScope, tagA, tagB).Scan(&openRows); err != nil {
+			t.Fatalf("round %d: count open rows: %v", round, err)
+		}
+		if openRows != 2 {
+			t.Fatalf("round %d: open rows for two distinct animals = %d, want 2 (both captures must persist)", round, openRows)
+		}
 	}
 }

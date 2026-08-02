@@ -1322,38 +1322,123 @@ LIMIT $6`, tenantID, campaignID, campaignShedID,
 	return result, nil
 }
 
+// recordAnimalObservationMaxSerializationRetries bounds the internal retry of
+// a losing SERIALIZABLE transaction in RecordAnimalObservation. Every retry
+// only ever fires on ports.ErrWriteConflict (SQLSTATE 40001) -- a transaction
+// that PostgreSQL itself says lost a race, not a transaction that hit a real
+// duplicate (that returns ports.ErrDuplicateScan immediately, no retry). Five
+// is generous for this shape of conflict: the loser only ever needed to wait
+// for ONE bucket-lock holder to commit, so a retry either wins immediately
+// against now-quiescent state or the bucket is under contention heavy enough
+// that surfacing ErrWriteConflict to the caller (who is expected to resubmit)
+// is the honest answer.
+const recordAnimalObservationMaxSerializationRetries = 5
+
 func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	// SERIALIZABLE, not the pool default READ COMMITTED, is load-bearing here.
-	//
-	// recordUnknownAnimalObservationTx's "assigned_shed" CTE takes a
-	// FOR NO KEY UPDATE row lock on the bucket (F8, close-race fix) BEFORE the
-	// "updated"/"inserted" CTE pair decides whether this tag gets a fresh
-	// INSERT or an in-place UPDATE. That lock serialises two concurrent
-	// captures of the SAME bucket -- but under READ COMMITTED, serialising
-	// does NOT mean disambiguating: the loser, once unblocked, re-evaluates
-	// against the winner's now-committed row and silently takes the
-	// UPDATE-in-place branch, overwriting the winner's weight/proof with its
-	// own. Both callers get a 200: the winner's response already carries the
-	// weight it wrote, now stale, and the winner is never told a second
-	// capture clobbered it. That is the SAME data-integrity race the
-	// weighing_observations_one_open_tag_uidx partial index (000073) closes
-	// for the pure insert-vs-insert shape, but the index cannot see an
-	// UPDATE-vs-UPDATE race at all -- no INSERT means no 23505.
-	//
-	// A legitimate SEQUENTIAL rescan (the same client, tag still open,
-	// deliberately submitting a fresh idempotency key to replace a bad video
-	// before submit -- see TestRescanOfUnsubmittedTagUpdatesSameRowNoDuplicateRow)
-	// must keep updating in place: the two calls do not overlap in time, so
-	// there is nothing to disambiguate. SERIALIZABLE preserves exactly that
-	// case (no read-write conflict when the transactions do not overlap) while
-	// making PostgreSQL itself detect the TRUE overlap: the loser's implicit
-	// read of weighing_observations (via the "updated"/"submitted_duplicate"
-	// CTEs) is invalidated by the winner's commit, and PostgreSQL aborts the
-	// loser with serialization_failure (40001) instead of silently completing
-	// it against stale-then-refreshed state. mapObservationUniqueViolation
-	// below maps 40001 the same way it maps the sibling 23505.
+	var lastErr error
+	for attempt := 0; attempt < recordAnimalObservationMaxSerializationRetries; attempt++ {
+		obs, err := r.recordAnimalObservationAttempt(ctx, cmd)
+		if err == nil {
+			return obs, nil
+		}
+		if !errors.Is(err, ports.ErrWriteConflict) {
+			// A genuine outcome (success, ErrDuplicateScan, ErrForbidden, any
+			// other domain/plumbing error) is never retried -- only a
+			// SERIALIZABLE loser is, and only because losing tells us nothing
+			// by itself about whether this request was actually valid.
+			return domain.Observation{}, err
+		}
+		// A blind retry here is WRONG for the same-tag shape: by the time this
+		// attempt aborted, the winner it conflicted with has already committed,
+		// so a naive retry is a brand-new, non-overlapping transaction that
+		// would see the winner's row via a plain read and walk straight into
+		// the "updated" CTE's UPDATE-in-place branch -- silently overwriting
+		// the winner exactly the way the original update-vs-update bug did,
+		// just one retry later. SERIALIZABLE only guarantees THIS transaction
+		// didn't corrupt anything; it says nothing about whether the NEXT one
+		// should exist at all.
+		//
+		// So before retrying, ask the one question that discriminates the two
+		// real-world shapes a 40001 loser can be: is there now an open row for
+		// THIS SAME tag in THIS SAME bucket? If yes, some other capture
+		// genuinely landed on the animal we were trying to capture first --
+		// that is a real duplicate, not a retry-safe contention artifact, and
+		// retrying would only reproduce the clobber. If no, the conflict came
+		// from an UNRELATED transaction merely sharing this bucket's row lock
+		// (a different animal captured at an overlapping instant, the ordinary
+		// field case) and it is safe -- correct, even -- to retry.
+		dup, checkErr := r.observationTagHasOpenRow(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ScannedIdentifier)
+		if checkErr != nil {
+			return domain.Observation{}, checkErr
+		}
+		if dup {
+			return domain.Observation{}, ports.ErrDuplicateScan
+		}
+		lastErr = err
+	}
+	return domain.Observation{}, lastErr
+}
+
+// observationTagHasOpenRow reports whether ANY row -- regardless of which
+// caller wrote it -- is currently the open (submitted_at IS NULL) capture for
+// this tag in this bucket. Used only to disambiguate a losing SERIALIZABLE
+// transaction (ports.ErrWriteConflict) in the retry loop above: see the
+// comment there for why this check, not a blind retry, is what makes the
+// retry safe.
+func (r *Repository) observationTagHasOpenRow(ctx context.Context, tenantID, campaignShedID, tag string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM weighing_observations
+  WHERE tenant_id=$1::uuid
+    AND campaign_shed_id=$2::uuid
+    AND lower(btrim(scanned_identifier))=lower(btrim($3))
+    AND submitted_at IS NULL
+)`, tenantID, campaignShedID, tag).Scan(&exists)
+	return exists, err
+}
+
+// recordAnimalObservationAttempt is ONE SERIALIZABLE transaction attempt at
+// RecordAnimalObservation. SERIALIZABLE, not the pool default READ COMMITTED,
+// is load-bearing here.
+//
+// recordUnknownAnimalObservationTx's "assigned_shed" CTE takes a
+// FOR NO KEY UPDATE row lock on the bucket (F8, close-race fix) BEFORE the
+// "updated"/"inserted" CTE pair decides whether this tag gets a fresh
+// INSERT or an in-place UPDATE. That lock serialises two concurrent
+// captures of the SAME bucket -- but under READ COMMITTED, serialising
+// does NOT mean disambiguating: the loser, once unblocked, re-evaluates
+// against the winner's now-committed row and silently takes the
+// UPDATE-in-place branch, overwriting the winner's weight/proof with its
+// own. Both callers get a 200: the winner's response already carries the
+// weight it wrote, now stale, and the winner is never told a second
+// capture clobbered it. That is the SAME data-integrity race the
+// weighing_observations_one_open_tag_uidx partial index (000073) closes
+// for the pure insert-vs-insert shape, but the index cannot see an
+// UPDATE-vs-UPDATE race at all -- no INSERT means no 23505.
+//
+// A legitimate SEQUENTIAL rescan (the same client, tag still open,
+// deliberately submitting a fresh idempotency key to replace a bad video
+// before submit -- see TestRescanOfUnsubmittedTagUpdatesSameRowNoDuplicateRow)
+// must keep updating in place: the two calls do not overlap in time, so
+// there is nothing to disambiguate. SERIALIZABLE preserves exactly that
+// case (no read-write conflict when the transactions do not overlap) while
+// making PostgreSQL itself detect the TRUE overlap: the loser's implicit
+// read of weighing_observations (via the "updated"/"submitted_duplicate"
+// CTEs) is invalidated by the winner's commit, and PostgreSQL aborts the
+// loser with serialization_failure (40001) instead of silently completing
+// it against stale-then-refreshed state.
+//
+// BUT the same bucket-row lock also catches TWO DIFFERENT animals captured
+// at overlapping instants in the SAME bucket -- the ordinary field case, not
+// a race -- as SSI-conflict candidates. mapObservationUniqueViolation maps
+// 40001 to ports.ErrWriteConflict, never to ports.ErrDuplicateScan, and
+// RecordAnimalObservation retries that outcome (see the loop above) so a
+// cross-animal SSI loser keeps retrying until it wins rather than being told
+// it duplicated a scan it never made.
+func (r *Repository) recordAnimalObservationAttempt(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return domain.Observation{}, err
@@ -1364,7 +1449,10 @@ func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.Rec
 		if err != nil {
 			return domain.Observation{}, err
 		}
-		return existing, tx.Commit(ctx)
+		if err := tx.Commit(ctx); err != nil {
+			return domain.Observation{}, mapObservationUniqueViolation(err)
+		}
+		return existing, nil
 	}
 	// FREE-FLOW ONLY (maintainer decision 2026-07-31).
 	//
@@ -2473,29 +2561,32 @@ func mapShedUniqueViolation(err error, weighDate, displayName string) error {
 }
 
 // mapObservationUniqueViolation converts the two shapes a losing concurrent
-// per-animal capture can take into ports.ErrDuplicateScan -- the same typed
-// conflict a same-bucket submitted duplicate already returns via
-// classifyFreeFlowObservationRejection -- instead of letting a raw Postgres
-// error escape as an opaque 500:
+// per-animal capture can take into TWO DIFFERENT typed errors -- they are
+// different facts and must not collapse into one caller-visible outcome --
+// instead of letting a raw Postgres error escape as an opaque 500:
 //
 //   - 23505 on weighing_observations_one_open_tag_uidx (tenant_id,
 //     campaign_shed_id, lower(btrim(scanned_identifier))) WHERE submitted_at
-//     IS NULL: two captures raced the "inserted" CTE's WHERE NOT EXISTS check
-//     without either seeing the other's row first (pure insert-vs-insert).
-//   - 40001 serialization_failure: RecordAnimalObservation runs at
-//     SERIALIZABLE. The "assigned_shed" CTE's FOR NO KEY UPDATE bucket lock
-//     (F8) forces two concurrent captures of the same bucket to run
-//     sequentially, so by the time the loser is unblocked it would take the
-//     "updated" CTE's UPDATE-in-place branch against the winner's
-//     already-committed row instead of hitting the unique index at all
-//     (update-vs-update, not insert-vs-insert). SERIALIZABLE is what turns
-//     that into a detectable conflict: PostgreSQL's SSI machinery sees the
-//     loser's read of weighing_observations was invalidated by the winner's
-//     commit and aborts the loser with 40001 rather than silently completing
-//     it against refreshed state. A legitimate SEQUENTIAL rescan (same tag,
-//     no time overlap between the two calls -- see
-//     TestRescanOfUnsubmittedTagUpdatesSameRowNoDuplicateRow) never conflicts
-//     under SERIALIZABLE and keeps updating in place exactly as before.
+//     IS NULL means exactly what it says: this SAME tag already has an open
+//     capture in this bucket (insert-vs-insert, both transactions' "updated"
+//     CTE saw no existing row before either committed). This genuinely is a
+//     duplicate -- mapped to ports.ErrDuplicateScan, the same typed conflict a
+//     same-bucket submitted duplicate already returns via
+//     classifyFreeFlowObservationRejection. The caller must NOT retry: retrying
+//     would just collide with the same row again.
+//   - 40001 serialization_failure says NOTHING about duplication -- it means
+//     "this transaction's read was invalidated by a concurrent commit", full
+//     stop. RecordAnimalObservation runs at SERIALIZABLE, and the
+//     "assigned_shed" CTE's FOR NO KEY UPDATE bucket lock (F8) is taken on the
+//     SAME weighing_campaign_sheds row by every capture in that bucket --
+//     including two DIFFERENT animals captured at overlapping instants, the
+//     ordinary field case, not a race. Mapping 40001 to ErrDuplicateScan would
+//     tell that operator they double-scanned an animal they scanned once and
+//     DISCARD a real capture with a real video -- worse than the
+//     update-vs-update bug this fix exists to close. Mapped instead to
+//     ports.ErrWriteConflict, which RecordAnimalObservation retries internally
+//     (see the retry loop there) rather than surfacing to the caller at all,
+//     except after every retry has also lost.
 //
 // Any other error (including a different constraint or SQLSTATE) passes
 // through unchanged.
@@ -2508,7 +2599,7 @@ func mapObservationUniqueViolation(err error) error {
 	case pgErr.Code == "23505" && pgErr.ConstraintName == "weighing_observations_one_open_tag_uidx":
 		return ports.ErrDuplicateScan
 	case pgErr.Code == "40001":
-		return ports.ErrDuplicateScan
+		return ports.ErrWriteConflict
 	}
 	return err
 }
