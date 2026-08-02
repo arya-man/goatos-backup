@@ -110,11 +110,14 @@ func (r *Repository) OldestDueRequestedAt(ctx context.Context, tenantID string, 
 	return oldest.Time, true, nil
 }
 
-// SuppressInvalidRecipient removes a provider-rejected raw recipient reference from future push
-// fanout and suppresses still-pending rows already addressed to that reference. For FCM, Firebase
-// returns NotRegistered/UNREGISTERED when a token was rotated, deleted, or belongs to a dead install.
-// Keep the device row active: the Android heartbeat/register path can write the next live token for
-// the same device id/app install on the next launch or login.
+// SuppressInvalidRecipient marks a provider-rejected FCM token as dead and deactivates the device row.
+// Firebase returns NotRegistered/UNREGISTERED (404) when a token was rotated, deleted, or belongs to
+// a dead install, and INVALID_ARGUMENT (400) for malformed tokens. Both are permanent failures: retrying
+// will never succeed, so the device must be deactivated. The row is marked as revoked (not deleted)
+// for audit trail preservation. If the app re-installs or registers a new token later via the Android
+// heartbeat/register path, the device can be re-activated with a fresh token. Additionally, all pending
+// notification requests addressed to this dead token are suppressed to avoid wasting dispatch retries.
+// Deactivation is idempotent: if the device is already revoked, this call is a no-op.
 func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, recipientRef, reason string, now time.Time) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -135,14 +138,18 @@ func (r *Repository) SuppressInvalidRecipient(ctx context.Context, tenantID, rec
 	if _, err := tx.Exec(ctx, `
 UPDATE workforce_member_devices
 SET fcm_token = NULL,
+    status = 'revoked',
+    revoked_at = $3::timestamptz,
+    revoked_by = NULL,
     metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
       'fcm_invalidated_at', $3::timestamptz,
-      'fcm_invalidated_reason', $4
+      'fcm_invalidated_reason', $4::text
     ),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
-  AND fcm_token = $2`, tenantID, recipientRef, now, reason); err != nil {
-		return 0, fmt.Errorf("notification: clear invalid fcm token: %w", err)
+  AND fcm_token = $2
+  AND status = 'active'`, tenantID, recipientRef, now, reason); err != nil {
+		return 0, fmt.Errorf("notification: deactivate invalid fcm device: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
 UPDATE notification_requests

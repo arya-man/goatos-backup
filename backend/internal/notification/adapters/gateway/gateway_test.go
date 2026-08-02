@@ -458,3 +458,70 @@ func request(channel, recipientRef string) domain.Request {
 		Context:               []byte(`{"escalation_level":2}`),
 	}
 }
+
+func TestFCMUnregisteredTokenDetection(t *testing.T) {
+	tests := []struct {
+		name        string
+		errMsg      string
+		wantInvalid bool
+	}{
+		{
+			name:        "404 with UNREGISTERED",
+			errMsg:      "notification webhook status 404: {\"error\":{\"code\":404,\"message\":\"Requested entity was not found.\",\"status\":\"NOT_FOUND\",\"details\":[{\"errorCode\":\"UNREGISTERED\"}]}}",
+			wantInvalid: true,
+		},
+		{
+			name:        "404 with unregistered lowercase",
+			errMsg:      "notification webhook status 404: the token is unregistered",
+			wantInvalid: true,
+		},
+		{
+			name:        "404 with notregistered keyword",
+			errMsg:      "notification webhook status 404: errorcode=notregistered",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 with INVALID_ARGUMENT",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"Invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 with invalid argument",
+			errMsg:      "notification webhook status 400: the token is invalid argument",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 with invalid-registration-token",
+			errMsg:      "notification webhook status 400: invalid-registration-token",
+			wantInvalid: true,
+		},
+		{
+			name:        "503 server error (transient, not invalid)",
+			errMsg:      "notification webhook status 503: service unavailable",
+			wantInvalid: false,
+		},
+		{
+			name:        "404 without UNREGISTERED keyword",
+			errMsg:      "notification webhook status 404: not found",
+			wantInvalid: false,
+		},
+		{
+			name:        "nil error",
+			errMsg:      "",
+			wantInvalid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.errMsg != "" {
+				err = errors.New(tt.errMsg)
+			}
+			got := isInvalidFCMRecipientResponse(err)
+			if got != tt.wantInvalid {
+				t.Errorf("isInvalidFCMRecipientResponse() = %v, want %v\nError: %v", got, tt.wantInvalid, err)
+			}
+		})
+	}
+}

@@ -171,6 +171,7 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 		s.log.WarnContext(ctx, "notification_invalid_recipient_suppress_failed",
 			slog.String("notification_request_id", request.NotificationRequestID),
 			slog.String("channel", request.Channel),
+			slog.String("device_token", recipientRef),
 			slog.String("error", err.Error()),
 		)
 		return
@@ -178,7 +179,8 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 	s.log.InfoContext(ctx, "notification_invalid_recipient_suppressed",
 		slog.String("notification_request_id", request.NotificationRequestID),
 		slog.String("channel", request.Channel),
-		slog.Int("suppressed_rows", suppressed),
+		slog.String("device_token", recipientRef),
+		slog.Int("suppressed_notification_requests", suppressed),
 	)
 }
 
