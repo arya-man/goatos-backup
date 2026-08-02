@@ -406,7 +406,14 @@ private fun ScanZoneControl(field: FormFieldUi, onScan: (String) -> Unit) {
         Text(
             text = when {
                 field.scanning -> "Scanning… tap to stop"
-                hasScans -> "${field.scannedCount} scanned · last ${field.latestScanAtMs?.let(::formatTimeOnly).orEmpty()} · tap to add more"
+                // Drop the "last <time>" segment entirely when no scan time is known. An
+                // `.orEmpty()` here left an empty slot between two separators ("11 scanned ·
+                // last  · tap to add more"), which reads to the operator as a missing value.
+                hasScans -> listOfNotNull(
+                    "${field.scannedCount} scanned",
+                    field.latestScanAtMs?.let { "last ${formatTimeOnly(it)}" },
+                    "tap to add more",
+                ).joinToString(" · ")
                 else -> "Tap to scan goats"
             },
             color = MeshaColors.Ink,
