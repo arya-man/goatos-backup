@@ -55,20 +55,30 @@ test("weighing UI uses product labels without fabricating live API labels", () =
   assert.doesNotMatch(data, /parkName: "Selected park"/);
 });
 
-test("weighing UI keeps bucket language free-flow and avoids vaccination wrong-shed copy", () => {
+// REVIEW-26 (weighing isolation): weighing is free-flow and carries NO herd-gate concept. A scan
+// dumps whatever RFID the reader produces; the app never resolves it to a goat and never compares
+// against a herd-sourced "expected" location. The ONLY rule is the duplicate-identifier check
+// within a task's shed bucket. The former "Wrong-shed scans" / "Animal review notes" surfaces (and
+// their backend Progress.wrong_shed_count reads) reintroduced exactly the herd-gate the maintainer
+// rejected, so they are gone -- this test locks that removal in place.
+test("weighing UI carries no herd/clinical review surface (free-flow, duplicate-check only)", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
-  // Renamed from `expectedShed`: weighing is free-flow and has no expected roster, so
-  // the field names the bucket the scan was ASSIGNED to, not one it was expected in.
-  assert.match(data, /originalShed/);
-  assert.doesNotMatch(data, /expectedShed/);
-  assert.match(data, /originalPartition/);
-  assert.match(data, /actualShed/);
-  assert.match(data, /currentPartition/);
-  assert.match(page, /Bucket \/ original/);
-  assert.match(page, /Captured \/ current/);
-  assert.doesNotMatch(page, /wrong shed/);
+  assert.doesNotMatch(data, /WeighingWrongShedRow/);
+  assert.doesNotMatch(data, /WeighingMissingRow/);
+  assert.doesNotMatch(data, /wrongShedRows/);
+  assert.doesNotMatch(data, /missingRows/);
+  assert.doesNotMatch(data, /wrongShedScans/);
+  assert.doesNotMatch(data, /wrongShedCount/);
+  assert.doesNotMatch(data, /wrong_shed_count/);
+  assert.doesNotMatch(page, /Wrong-shed scans/);
+  assert.doesNotMatch(page, /Animal review notes/);
+  assert.doesNotMatch(page, /In ICU/);
+  assert.doesNotMatch(page, /Sold \/ transferred/);
+  assert.doesNotMatch(page, /reviewLabel/);
+  assert.doesNotMatch(page, /animalDisplayId/);
+  assert.doesNotMatch(page, /row\.rfid/);
 });
 
 test("weighing leadership planner covers park-week task creation and duplicate edit state", () => {
@@ -108,7 +118,7 @@ test("weighing leadership planner covers park-week task creation and duplicate e
 test("weighing week strip is derived from campaign response", () => {
   const data = source("data.ts");
 
-  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek, selectedCampaignId\)/);
+  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek, selectedCampaignId, selectedParkId\)/);
   assert.match(data, /weeksFromCampaigns\(result\.data\.items, campaign\)/);
   assert.match(data, /sort\(\(a, b\) => a\.period_start_date\.localeCompare\(b\.period_start_date\)\)/);
   assert.match(data, /weekRangeLabel\(item\.period_start_date, item\.period_end_date\)/);
@@ -147,4 +157,52 @@ test("DEFECT B18 FIX: weighing UI supports closed status in both campaign and sh
   assert.match(page, /closed: "ok"/);
   // Verify that closed status has a statusLabel mapping
   assert.match(page, /closed: "Closed"/);
+});
+
+test("W14 FIX: campaign selection is park-scoped, never crosses parks on a plain park switch", () => {
+  const data = source("data.ts");
+  const page = source("page.tsx");
+  const parkSelector = source("park-selector.tsx");
+
+  // selectCampaign is park-scoped: an explicit park filters the candidate campaigns
+  // before any week/campaign-id lookup, and never falls back to another park's row.
+  assert.match(data, /function selectCampaign\(/);
+  assert.match(data, /selectedParkId\?: string,/);
+  assert.match(data, /const scoped = selectedParkId/);
+  assert.match(data, /item\.park_id === selectedParkId/);
+
+  // ParkSelector must clear the stale campaign/week selection on every park switch so
+  // Park A's campaign can never be treated as "the current campaign" for Park B.
+  assert.match(parkSelector, /params\.delete\("campaign"\)/);
+  assert.match(parkSelector, /params\.delete\("week"\)/);
+
+  // editingCampaignId / existingCampaignId must derive from the (now park-scoped)
+  // selectedItem and campaign, so a plain park switch to an empty park offers CREATE.
+  assert.match(data, /editingCampaignId = selectedCampaignId && selectedItem\?\.campaign_id === selectedCampaignId/);
+  assert.match(page, /Create weekly kids weighing task/);
+});
+
+test("W15 FIX: truncated shed list disables Save draft and Publish with a visible reason", () => {
+  const page = source("page.tsx");
+
+  assert.match(page, /Shed list is truncated at the 500-shed display cap/);
+  assert.match(page, /disabled={planner\.shedListTruncated}/);
+  assert.match(page, /Save and Publish are disabled: the shed list is truncated/);
+  assert.match(page, /Disabled: shed list truncated at the 500-shed display cap/);
+});
+
+test("W20 FIX: unbacked captured count renders no fabricated digit", () => {
+  const page = source("page.tsx");
+
+  assert.doesNotMatch(page, /<b>\{row\.completedCount\}<\/b> \{row\.capturedCountIsBacked \? "captured" : "captured \(n\/a\)"\}/);
+  assert.match(page, /row\.capturedCountIsBacked \? <><b>\{row\.completedCount\}<\/b> captured<\/> : "captured \(n\/a\)"/);
+});
+
+test("W21-TS: operator name distinguishes genuine roster gap from unassigned using backend-resolved field", () => {
+  const data = source("data.ts");
+
+  assert.match(data, /shed\.operator_display_name\?\.trim\(\) \|\| ""/);
+  assert.match(data, /if \(shed\.operator_user_id\) \{/);
+  assert.match(data, /operatorDisplay = "Roster gap \(operator not found\)";/);
+  assert.match(data, /operatorDisplay = "Unassigned";/);
 });

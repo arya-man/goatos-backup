@@ -35,14 +35,57 @@ func TestBootstrapDeniesMissingGrant(t *testing.T) {
 	assertAppCode(t, err, "operator_grant_missing")
 }
 
-func TestBootstrapDeniesRevokedDevice(t *testing.T) {
-	svc := NewService(&fakeRepo{
+// TestBootstrapDeniesAdministrativelyRevokedDevice: a device revoked via the admin/security path
+// (workforce RevokeDevice, which stamps metadata["revocation_reason"]) must stay locked out and
+// must NEVER be silently reactivated by Bootstrap -- see isAdministrativelyRevoked.
+func TestBootstrapDeniesAdministrativelyRevokedDevice(t *testing.T) {
+	revoked := device("revoked")
+	revoked.Metadata = map[string]any{"revocation_reason": "lost phone"}
+	repo := &fakeRepo{
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grant()},
-		device:  device("revoked"),
-	})
+		device:  revoked,
+	}
+	svc := NewService(repo)
 	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
 	assertAppCode(t, err, "device_revoked")
+	if len(repo.registerDeviceCalls) != 0 {
+		t.Fatalf("RegisterDevice called %d times, want 0 (administrative revocation must never self-heal)", len(repo.registerDeviceCalls))
+	}
+}
+
+// TestBootstrapSelfHealsPushSuppressedDevice is the P0 regression test: a device left non-active
+// by a push-delivery side effect (SuppressInvalidRecipient, metadata["fcm_invalidated_reason"], NO
+// revocation_reason) must self-heal on Bootstrap via the same RegisterDevice upsert path a fresh
+// install uses, WITHOUT requiring the app to clear data / reinstall.
+func TestBootstrapSelfHealsPushSuppressedDevice(t *testing.T) {
+	suppressed := device("revoked")
+	suppressed.Metadata = map[string]any{"fcm_invalidated_reason": "FCM: UNREGISTERED"}
+	reactivated := device("active")
+	repo := &fakeRepo{
+		profile:               profile("active"),
+		grants:                []domain.GrantSummary{grant()},
+		device:                suppressed,
+		registerDeviceResult:  reactivated,
+	}
+	svc := NewService(repo)
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v, want self-heal to succeed", err)
+	}
+	if got.DeviceState.Status != "active" {
+		t.Fatalf("device state=%#v, want active after self-heal", got.DeviceState)
+	}
+	if len(repo.registerDeviceCalls) != 1 {
+		t.Fatalf("RegisterDevice called %d times, want 1 (self-heal must reactivate via the register path)", len(repo.registerDeviceCalls))
+	}
+	call := repo.registerDeviceCalls[0]
+	if call.TenantID != testTenant || call.ActorID != testActor {
+		t.Fatalf("RegisterDevice scoped to tenant=%q actor=%q, want tenant=%q actor=%q (must reactivate only the authenticated owner's device)", call.TenantID, call.ActorID, testTenant, testActor)
+	}
+	if call.Body.AppInstallID != suppressed.AppInstallID {
+		t.Fatalf("RegisterDevice app_install_id=%q, want %q (must re-key onto the same device row)", call.Body.AppInstallID, suppressed.AppInstallID)
+	}
 }
 
 func TestBootstrapAllowsFreshUnregisteredDevice(t *testing.T) {
@@ -949,6 +992,14 @@ type fakeRepo struct {
 	grantedModules []string
 	device         domain.DeviceSummary
 	deviceErr      error
+
+	// registerDeviceResult/registerDeviceErr let tests control what the reactivation self-heal
+	// path (reactivateRecoverableDevice -> repo.RegisterDevice) observes. registerDeviceCalls
+	// records every invocation so tests can assert the self-heal path was (or was not) taken, and
+	// with which tenant/actor -- reactivation must always be scoped to the authenticated caller.
+	registerDeviceResult domain.DeviceSummary
+	registerDeviceErr    error
+	registerDeviceCalls  []ports.RegisterDeviceCommand
 }
 
 func (f *fakeRepo) GetMemberForActor(context.Context, string, string) (domain.OperatorProfile, error) {
@@ -1019,7 +1070,14 @@ func (f *fakeRepo) MapSourceCandidate(context.Context, ports.MapSourceCandidateC
 func (f *fakeRepo) RejectSourceCandidate(context.Context, ports.RejectSourceCandidateCommand) (domain.SourceCandidate, error) {
 	return domain.SourceCandidate{}, ports.ErrNotFound
 }
-func (f *fakeRepo) RegisterDevice(context.Context, ports.RegisterDeviceCommand) (domain.DeviceSummary, error) {
+func (f *fakeRepo) RegisterDevice(_ context.Context, cmd ports.RegisterDeviceCommand) (domain.DeviceSummary, error) {
+	f.registerDeviceCalls = append(f.registerDeviceCalls, cmd)
+	if f.registerDeviceErr != nil {
+		return domain.DeviceSummary{}, f.registerDeviceErr
+	}
+	if f.registerDeviceResult.DeviceID != "" || f.registerDeviceResult.Status != "" {
+		return f.registerDeviceResult, nil
+	}
 	return f.device, nil
 }
 func (f *fakeRepo) HeartbeatDevice(context.Context, ports.HeartbeatDeviceCommand) (domain.DeviceSummary, error) {

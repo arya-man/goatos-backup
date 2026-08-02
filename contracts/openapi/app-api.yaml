@@ -15078,7 +15078,7 @@ components:
       additionalProperties: false
       required:
         - campaign_shed_id
-        - animal_id
+        - scanned_identifier
         - weight_kg
         - proof_artifact_id
         - actual_location_id
@@ -15086,9 +15086,12 @@ components:
         campaign_shed_id:
           type: string
           format: uuid
-        animal_id:
-          type: string
-          format: uuid
+        # Weighing is free-flow: the raw scanned identifier is the required
+        # identity. There is deliberately no animal_id field here at all --
+        # weighing never resolves a scan to herd identity (backend
+        # domain.RecordAnimalObservation carries no such field either), and the
+        # backing column was dropped by
+        # 000078_weighing_observations_drop_animal_id.sql.
         scanned_identifier:
           type: string
         weight_kg:
@@ -15147,9 +15150,14 @@ components:
         campaign_shed_id:
           type: string
           format: uuid
-        animal_id:
+        # The raw scanned identifier (RFID/ear tag) the scanner read. Weighing is
+        # free-flow: this is the ONLY identity an observation carries. There is
+        # deliberately no animal_id here -- weighing never resolves a scan to
+        # herd identity, and the backing column was dropped by
+        # 000078_weighing_observations_drop_animal_id.sql. NOT a uuid: a real
+        # RFID is not UUID-shaped.
+        scanned_identifier:
           type: string
-          format: uuid
         weight_kg:
           type: number
         average_weight_kg:

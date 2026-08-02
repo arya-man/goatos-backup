@@ -89,11 +89,7 @@ class WeighingViewModelTest {
                     id = "row-1",
                     animalId = "901007000504407",
                     displayAnimalId = "901007000504407",
-                    expectedLocationLabel = "Kid Shed B",
-                    actualLocationLabel = null,
                     status = "Scanned",
-                    availabilityStatus = null,
-                    wrongShed = false,
                     weightSaved = true,
                     proofUploadStatus = ProofUploadStatus.SYNCED,
                     backendSynced = false,
@@ -656,6 +652,57 @@ class WeighingViewModelTest {
             repository.lastCapture?.animalId,
         )
         assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
+    @Test
+    fun `park chips survive selecting a park and All parks is reachable again`() = runTest(dispatcher) {
+        // A22: listAssignments is server-filtered by parkId, so once a park is selected
+        // `assignments` collapses to that one park's rows -- deriving the chip list from that same
+        // collapsed list left only one chip and no way back to "All parks" or the other park.
+        fun assignment(parkId: String, parkName: String, shedId: String) = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = parkId,
+            parkName = parkName,
+            workGroupId = shedId,
+            campaignShedId = shedId,
+            expectedLocationId = shedId,
+            expectedLocationLabel = shedId,
+            label = shedId,
+            category = "individual_animal",
+            operatorUserId = "operator-1",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val parkA = assignment("park-a", "Park A", "shed-a")
+        val parkB = assignment("park-b", "Park B", "shed-b")
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(
+                null to listOf(parkA, parkB),
+                "park-a" to listOf(parkA),
+            ),
+        )
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Unfiltered load: both parks are known and both assignments show.
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertEquals(2, vm.state.value.assignments.size)
+
+        vm.selectAssignmentPark("park-a")
+        advanceUntilIdle()
+
+        // Server-filtered: assignments collapse to park A, but the chip list must NOT collapse --
+        // Park B (and the implicit "All parks" the screen always injects) must stay reachable.
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertTrue(vm.state.value.parkFilters.single { it.parkId == "park-a" }.selected)
+        assertFalse(vm.state.value.parkFilters.single { it.parkId == "park-b" }.selected)
+
+        vm.selectAssignmentPark(null)
+        advanceUntilIdle()
+
+        // Reachable again: selecting "All parks" (null) restores both assignments.
+        assertEquals(2, vm.state.value.assignments.size)
     }
 
     private fun weighingViewModel(
@@ -796,6 +843,11 @@ class WeighingViewModelTest {
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
         private val recordIndividualGate: CompletableDeferred<AppResult<IndividualWeighingDraft>>? = null,
         private val recordIndividualGates: ArrayDeque<CompletableDeferred<AppResult<IndividualWeighingDraft>>> = ArrayDeque(),
+        // A22 regression coverage: the backend filters `listAssignments` server-side by parkId, so
+        // a fake that mimics that (rather than always returning the same full list regardless of
+        // parkId) is needed to reproduce "selecting a park collapses the chip row".
+        // Keyed by parkId; `null` is the unfiltered ("All parks") page.
+        private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
     ) : WeighingRepository {
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
@@ -814,7 +866,7 @@ class WeighingViewModelTest {
             scope: String,
             parkId: String?,
         ): AppResult<WeighingPage<WeighingAssignment>> =
-            AppResult.Ok(WeighingPage(emptyList(), null))
+            AppResult.Ok(WeighingPage(assignmentsByPark[parkId] ?: emptyList(), null))
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
         //
@@ -939,7 +991,7 @@ class WeighingViewModelTest {
                 ?: AppResult.Err("not used")
         }
 
-        override suspend fun attachIndividualProof(scopeKey: String, animalId: String, proofCaptureId: String, serverProofId: String?) {}
+        override suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?) {}
 
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not used")
@@ -976,7 +1028,7 @@ class WeighingViewModelTest {
             reason: String,
         ): AppResult<Unit> = AppResult.Ok(Unit)
 
-        override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) {}
+        override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) {}
     }
 
     private companion object {

@@ -1,5 +1,5 @@
 import Link from "@/components/no-prefetch-link";
-import { AlertTriangle, CalendarDays, CheckCircle2, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
+import { CalendarDays, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -96,20 +96,6 @@ const categoryLabel: Record<WeighingCategory, string> = {
   individual_animal: "Individual",
   per_shed_partition: "Shed total",
 };
-
-function reviewLabel(value: string): string {
-  switch (value) {
-    case "icu":
-      return "In ICU";
-    case "sold_transferred":
-      return "Sold / transferred";
-    case "dead":
-      return "Dead";
-    default:
-      return "Unavailable";
-  }
-}
-
 
 function noticeFromSearch(value: string | undefined): { tone: "ok" | "warn" | "err"; title: string; body: string } | null {
   switch (value) {
@@ -275,9 +261,8 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
         </div>
         <div className="card pad weighing-metric">
           <div className="k">Needs attention</div>
-          <div className="v">{campaign.wrongShedScans + campaign.proofPending}</div>
+          <div className="v">{campaign.proofPending}</div>
           <div className="weighing-attention">
-            <Tag tone="warn">{campaign.wrongShedScans} bucket flags</Tag>
             <Tag tone="info">{campaign.proofPending} proof pending</Tag>
           </div>
         </div>
@@ -299,7 +284,6 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                 <th>Category</th>
                 <th>Progress</th>
                 <th>Proof</th>
-                <th>Wrong shed</th>
                 <th>Planned</th>
                 <th>Current date</th>
                 <th>Status</th>
@@ -319,7 +303,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                     style={{ opacity: row.capturedCountIsBacked ? 1 : 0.6 }}
                     title={!row.capturedCountIsBacked ? "Weighing is free-flow; backend field 'per_shed_captured_count' required for honest count" : undefined}
                   >
-                    <b>{row.completedCount}</b> {row.capturedCountIsBacked ? "captured" : "captured (n/a)"}
+                    {row.capturedCountIsBacked ? <><b>{row.completedCount}</b> captured</> : "captured (n/a)"}
                   </td>
                   <td>
                     {row.readyToClose ? (
@@ -330,7 +314,6 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                       <Tag tone="mut"><Video className="ic" aria-hidden="true" />not submitted</Tag>
                     )}
                   </td>
-                  <td>{row.wrongShedCount > 0 ? <Tag tone="warn">{row.wrongShedCount} visible</Tag> : <span className="muted">-</span>}</td>
                   <td>{fmtDate(row.plannedDate)}</td>
                   <td>{fmtDate(row.effectiveDate)}</td>
                   <td><Tag tone={statusTone[row.status]}>{statusLabel[row.status]}</Tag></td>
@@ -340,72 +323,6 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
           </table>
         </div>
       </section>
-
-      <div className="weighing-review-grid">
-        <section className="card">
-          <div className="hd">
-            <AlertTriangle className="ic" aria-hidden="true" />
-            <h3>Wrong-shed scans</h3>
-            <div className="sp" />
-            <Tag tone="warn">bucket assignment mismatch</Tag>
-          </div>
-          <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-            <table className="weighing-table compact">
-              <thead>
-                <tr>
-                  <th>Animal</th>
-                  <th>Bucket / original</th>
-                  <th>Captured / current</th>
-                  <th>Scan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {campaign.wrongShedRows.map((row) => (
-                  <tr key={row.id}>
-                    <td><b>{row.animalDisplayId}</b><span className="muted small blockish">{row.rfid}</span></td>
-                    <td>{row.originalShed}<span className="muted small blockish">{row.originalPartition}</span></td>
-                    <td>{row.actualShed}<span className="muted small blockish">{row.currentPartition}</span></td>
-                    <td>{fmtDate(row.scannedAt)}<span className="muted small blockish">{row.operatorName}</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {campaign.missingRows.length > 0 && (
-          <section className="card">
-            <div className="hd">
-              <CheckCircle2 className="ic" aria-hidden="true" />
-              <h3>Animal review notes</h3>
-              <div className="sp" />
-              <Tag tone="pur">as observed</Tag>
-            </div>
-            <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-              <table className="weighing-table compact">
-                <thead>
-                  <tr>
-                    <th>Animal</th>
-                    <th>Original shed</th>
-                    <th>Observation</th>
-                    <th>Noted</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {campaign.missingRows.map((row) => (
-                    <tr key={row.id}>
-                      <td><b>{row.animalDisplayId}</b></td>
-                      <td>{row.originalShed}</td>
-                      <td><Tag tone="pur">{reviewLabel(row.classification)}</Tag><span className="muted small blockish">{row.currentTruth}</span></td>
-                      <td>{fmtDate(row.checkedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-      </div>
 
       <section className="card weighing-integration">
         <div className="hd">
@@ -540,7 +457,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               ))}
               {planner.shedListTruncated && (
                 <div className="weighing-truncation-notice" style={{ padding: "8px 12px", marginTop: "8px", borderRadius: "4px", backgroundColor: "var(--bg-attention)", color: "var(--fg-warn)", fontSize: "12px" }}>
-                  <strong>Shed list is truncated:</strong> This park has more sheds than can be displayed. Contact admin if you need sheds beyond this list.
+                  <strong>Shed list is truncated at the 500-shed display cap:</strong> This park has more sheds than can be shown. Save and Publish are disabled below -- a partial shed list must never be saved or published, as it would silently drop sheds beyond the cap. Contact admin if you need sheds beyond this list.
                 </div>
               )}
               <div className="weighing-total-card">
@@ -582,10 +499,32 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             ) : (
               <>
                 <div className="weighing-action-note" aria-live="polite">
-                  Publish opens the selected operator&apos;s work queue. Save draft keeps it invisible to operators.
+                  {planner.shedListTruncated
+                    ? "Save and Publish are disabled: the shed list is truncated at the 500-shed display cap, and saving now would silently drop sheds beyond it."
+                    : "Publish opens the selected operator's work queue. Save draft keeps it invisible to operators."}
                 </div>
-                <button className="btn ghost" type="submit" name="publish" value="false">Save draft</button>
-                <button className="btn primary" type="submit" name="publish" value="true"><Send className="ic" aria-hidden="true" /> Publish</button>
+                <button
+                  className="btn ghost"
+                  type="submit"
+                  name="publish"
+                  value="false"
+                  disabled={planner.shedListTruncated}
+                  aria-disabled={planner.shedListTruncated}
+                  title={planner.shedListTruncated ? "Disabled: shed list truncated at the 500-shed display cap" : undefined}
+                >
+                  Save draft
+                </button>
+                <button
+                  className="btn primary"
+                  type="submit"
+                  name="publish"
+                  value="true"
+                  disabled={planner.shedListTruncated}
+                  aria-disabled={planner.shedListTruncated}
+                  title={planner.shedListTruncated ? "Disabled: shed list truncated at the 500-shed display cap" : undefined}
+                >
+                  <Send className="ic" aria-hidden="true" /> Publish
+                </button>
               </>
             )}
           </div>

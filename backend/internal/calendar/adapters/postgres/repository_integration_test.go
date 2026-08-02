@@ -5010,6 +5010,118 @@ INSERT INTO vaccination_completions (
 		}
 	})
 
+	// CASE (c-13) Mixed submitted + genuinely-overdue (unsubmitted, open status, past-due) ->
+	// headline MUST be 'overdue'/'critical', never 'verification_pending'. This is the C13 defect:
+	// has_submitted was checked before genuine_overdue in the headline CASE, so a drive with one
+	// submitted obligation and one genuinely overdue (open-status, unsubmitted, past-due)
+	// obligation reported headline='verification_pending' while severity (computed independently
+	// from genuine_overdue) still said 'critical' -- a self-contradictory event that hid real
+	// overdue work behind a "someone already submitted this" story. Unlike CASE (b) above (which
+	// uses 'missed' status to prove genuine_missed still outranks everything), this case uses the
+	// open 'scheduled' status for the unsubmitted half, so it exercises genuine_overdue
+	// specifically, not genuine_missed.
+	t.Run("MixedSubmittedAndGenuineOverdue_OverdueOutranksVerificationPending", func(t *testing.T) {
+		const (
+			protD  = "cd000000-0000-4000-8000-000000dd0001"
+			verD   = "cd000000-0000-4000-8000-000000dd0002"
+			ruleD  = "cd000000-0000-4000-8000-000000dd0003"
+			batchD = "cd000000-0000-4000-8000-000000de0001"
+		)
+		dayD := biztime.BusinessDayStart(time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC))
+		dayKeyD := dayD.In(loc).Format("2006-01-02")
+
+		obl1 := "cd000000-0000-4000-8000-000000df0001"
+		seedVaccinationObligation(t, ctx, pool, protD, verD, ruleD, obl1, dayD)
+		seedCalendarGoat(t, ctx, pool, obl1)
+		for i := 2; i <= 10; i++ {
+			oblID := fmt.Sprintf("cd000000-0000-4000-8000-000000df%04d", i)
+			seedAdditionalVaccinationObligation(t, ctx, pool, verD, ruleD, oblID, dayD)
+			seedCalendarGoat(t, ctx, pool, oblID)
+		}
+		seedProtocolRuleVaccineName(t, ctx, pool, verD, ruleD, "PPR")
+
+		var oblIDs []string
+		for i := 1; i <= 10; i++ {
+			oblIDs = append(oblIDs, fmt.Sprintf("cd000000-0000-4000-8000-000000df%04d", i))
+		}
+		seedVaccinationBatchForShed(t, ctx, pool, batchD, verD, testParkA, testShedA, dayD, oblIDs...)
+
+		// Leave status at the seeded default ('scheduled', an open status) for ALL obligations --
+		// genuine_overdue is a READ-TIME flag (open status AND due_date in the past AND NOT
+		// submitted), it never depends on a literal 'overdue' obligation status. Submit the first
+		// 5 (has_submitted=true for the group); leave the other 5 unsubmitted so
+		// genuine_overdue=true for the group.
+		for i, oblID := range oblIDs {
+			if i < 5 {
+				if _, err := pool.Exec(ctx, `
+INSERT INTO vaccination_completions (
+  completion_id, tenant_id, obligation_id, goat_id, administered_at, status, idempotency_key
+) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $2::uuid, $3::timestamptz, 'recorded', $2::text)`,
+					testTenantID, oblID, dayD); err != nil {
+					t.Fatalf("seed completion: %v", err)
+				}
+			}
+		}
+
+		resp, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayD.Add(-24 * time.Hour), DateTo: dayD.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true},
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (no summary): %v", err)
+		}
+
+		var event *domain.CalendarEvent
+		for i := range resp.Items {
+			if resp.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyD {
+				event = &resp.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("missing drive for %s without summary", dayKeyD)
+		}
+
+		// C13 FIX: overdue/critical, NOT verification_pending -- 5 unsubmitted obligations are
+		// genuinely overdue (open status, past-due, unsubmitted) despite 5 others being submitted.
+		if event.Status != domain.StatusOverdue {
+			t.Errorf("status=%s (no summary), want overdue (5 genuinely overdue present despite 5 submitted)", event.Status)
+		}
+		if event.Severity != domain.SeverityCritical {
+			t.Errorf("severity=%s (no summary), want critical -- headline and severity must never disagree", event.Severity)
+		}
+
+		// Same assertion WITH include_drive_summary, to prove headline consistency across both
+		// response shapes (see CASE (a)/(b) above for the same pattern).
+		resp2, err := repo.ListEvents(ctx, domain.Query{
+			TenantID: testTenantID, OwnerKey: domain.OwnerAll,
+			DateFrom: dayD.Add(-24 * time.Hour), DateTo: dayD.Add(24 * time.Hour), Limit: 50,
+			Scope: domain.ScopeFilter{TenantWide: true}, IncludeDriveSummary: true,
+		})
+		if err != nil {
+			t.Fatalf("ListEvents (with summary): %v", err)
+		}
+		event = nil
+		for i := range resp2.Items {
+			if resp2.Items[i].EventType == domain.EventVaccinationDrive &&
+				resp2.Items[i].DueAt.In(loc).Format("2006-01-02") == dayKeyD {
+				event = &resp2.Items[i]
+				break
+			}
+		}
+		if event == nil {
+			t.Fatalf("drive event for %s missing from IncludeDriveSummary response", dayKeyD)
+		}
+		if event.Status != domain.StatusOverdue {
+			t.Errorf("status=%s (with summary), want overdue", event.Status)
+		}
+		if event.Severity != domain.SeverityCritical {
+			t.Errorf("severity=%s (with summary), want critical", event.Severity)
+		}
+	})
+
 	// CASE (c) OneToMany + MultiPage + StatusBuckets, all on one fixture.
 	//
 	// Cardinality (OneToMany): 12 obligations across TWO rules collapse into ONE drive row for

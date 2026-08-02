@@ -25,7 +25,6 @@ func TestCompletedWeighingShedEnqueuesSubmissionEventInSameTransaction(t *testin
 					TenantID:         repoTenant,
 					CampaignID:       repoCampaign,
 					CampaignShedID:   repoAnimalScope,
-					AnimalID:         repoAnimal,
 					WeightKg:         12.4,
 					ProofArtifactID:  repoExpectedShedProof,
 					ActualLocationID: repoExpectedShed,

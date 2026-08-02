@@ -684,7 +684,13 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	}
 }
 
-func TestNotificationRepositorySuppressInvalidRecipientDeactivatesDevice(t *testing.T) {
+// TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice is the
+// regression test for the P0 device-lockout bug: SuppressInvalidRecipient must clear ONLY the dead
+// fcm_token. It must NEVER touch status/revoked_at/revoked_by -- those columns gate the device's
+// ability to authenticate and bootstrap, and flipping them here (the old behavior) meant a single
+// bad push (or a payload bug masquerading as a dead-recipient signal) could brick every addressed
+// phone's login with no self-heal path.
+func TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -723,35 +729,35 @@ RETURNING device_id::text`, tenantID, memberID, token).Scan(&deviceID); err != n
 		t.Fatalf("suppressed notification requests=%d want 0", suppressed)
 	}
 
-	// Verify the device is now revoked
-	var deviceStatus, revokedReason string
+	// Verify the token is cleared but the device stays active and able to authenticate.
+	var deviceStatus, invalidatedReason string
 	var deviceToken *string
 	var revokedAt *time.Time
 	var revokedBy *string
 	if err := pool.QueryRow(ctx, `
 SELECT status, fcm_token, revoked_at, revoked_by, COALESCE(metadata->>'fcm_invalidated_reason', '')
 FROM workforce_member_devices
-WHERE device_id = $1::uuid`, deviceID).Scan(&deviceStatus, &deviceToken, &revokedAt, &revokedBy, &revokedReason); err != nil {
+WHERE device_id = $1::uuid`, deviceID).Scan(&deviceStatus, &deviceToken, &revokedAt, &revokedBy, &invalidatedReason); err != nil {
 		t.Fatalf("query device: %v", err)
 	}
 
-	if deviceStatus != "revoked" {
-		t.Errorf("device status=%q want revoked", deviceStatus)
+	if deviceStatus != "active" {
+		t.Errorf("device status=%q want active (a push delivery failure must never revoke login)", deviceStatus)
 	}
 	if deviceToken != nil {
 		t.Errorf("fcm_token=%v want NULL", *deviceToken)
 	}
-	if revokedAt == nil || !revokedAt.Equal(now) {
-		t.Errorf("revoked_at=%v want %v", revokedAt, now)
+	if revokedAt != nil {
+		t.Errorf("revoked_at=%v want NULL (this is not an admin revocation)", *revokedAt)
 	}
 	if revokedBy != nil {
-		t.Errorf("revoked_by=%v want NULL (system action)", revokedBy)
+		t.Errorf("revoked_by=%v want NULL", *revokedBy)
 	}
-	if revokedReason != reason {
-		t.Errorf("metadata.fcm_invalidated_reason=%q want %q", revokedReason, reason)
+	if invalidatedReason != reason {
+		t.Errorf("metadata.fcm_invalidated_reason=%q want %q", invalidatedReason, reason)
 	}
 
-	// Verify idempotency: second call should be a no-op
+	// Verify idempotency: second call should be a no-op (token already cleared, nothing matches).
 	suppressed2, err := repo.SuppressInvalidRecipient(ctx, tenantID, token, reason, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("SuppressInvalidRecipient (second call): %v", err)
@@ -760,16 +766,16 @@ WHERE device_id = $1::uuid`, deviceID).Scan(&deviceStatus, &deviceToken, &revoke
 		t.Errorf("second suppress affected=%d want 0 (idempotent)", suppressed2)
 	}
 
-	// Verify the revoked_at is unchanged (not re-set on idempotent call)
-	var revokedAtAfterSecond *time.Time
+	// Verify device row is untouched by the idempotent replay.
+	var statusAfterSecond string
 	if err := pool.QueryRow(ctx, `
-SELECT revoked_at
+SELECT status
 FROM workforce_member_devices
-WHERE device_id = $1::uuid`, deviceID).Scan(&revokedAtAfterSecond); err != nil {
+WHERE device_id = $1::uuid`, deviceID).Scan(&statusAfterSecond); err != nil {
 		t.Fatalf("query device after second suppress: %v", err)
 	}
-	if revokedAtAfterSecond == nil || !revokedAtAfterSecond.Equal(now) {
-		t.Errorf("revoked_at after second suppress=%v want %v (unchanged)", revokedAtAfterSecond, now)
+	if statusAfterSecond != "active" {
+		t.Errorf("status after second suppress=%q want active (unchanged)", statusAfterSecond)
 	}
 }
 

@@ -497,7 +497,19 @@ func HasTenantWideGrant(grants []permissions.ActiveGrant, tenantID string) bool 
 	return false
 }
 
-// AuthorizedParkIDs returns the distinct, sorted park scope ids across the actor's grants.
+// AuthorizedParkIDs returns the distinct, sorted park scope ids across the actor's grants,
+// WITHOUT regard to what capability the grant's role actually carries.
+//
+// CAPABILITY-BLIND -- DO NOT USE FOR AUTHORIZATION DECISIONS. It only tells you which parks
+// the actor has ANY grant in, not which parks they may exercise a given capability in. A
+// caller that separately checks "does any role in my flat role list carry capability X" and
+// then intersects with this list is vulnerable to privilege escalation: an actor with an
+// unrelated park-A grant plus a capability-X-carrying grant scoped to park B gets capability X
+// in park A too, because the two checks were decoupled from each other's grant.
+//
+// Use AuthorizedParkIDsForCapability instead for any authorization/scoping decision. This
+// function is kept only for existing non-authorization callers (e.g. building a set of "parks
+// I have some presence in" for display purposes); it must never gate a capability.
 func AuthorizedParkIDs(grants []permissions.ActiveGrant) []string {
 	seen := map[string]struct{}{}
 	out := []string{}
@@ -513,4 +525,19 @@ func AuthorizedParkIDs(grants []permissions.ActiveGrant) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// AuthorizedParkIDsForCapability returns the distinct, sorted park scope ids across the
+// actor's grants, ONLY counting a grant's park if that grant's own role carries the given
+// capability (per the permissions role -> capability table, permissions.RoleHasPermission).
+//
+// This is the capability-aware replacement for AuthorizedParkIDs: it keeps each grant's role
+// and its scope bound together, so an actor cannot combine an unrelated park grant with a
+// capability-carrying grant scoped to a DIFFERENT park to gain that capability in the first
+// park. Every caller that authorizes a park-scoped action or read MUST use this function (or
+// permissions.ScopeIDsForPermission directly), never AuthorizedParkIDs.
+func AuthorizedParkIDsForCapability(grants []permissions.ActiveGrant, capability string) []string {
+	ids := permissions.ScopeIDsForPermission(grants, capability, "park")
+	sort.Strings(ids)
+	return ids
 }

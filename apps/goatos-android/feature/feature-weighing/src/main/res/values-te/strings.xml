@@ -113,9 +113,6 @@
     <string name="weighing_tab_done">పూర్తయింది</string>
     <string name="weighing_tab_pending">పెండింగ్</string>
     <string name="weighing_tab_proof">రుజువు</string>
-    <string name="weighing_expected_shed_fmt">అనుకున్నది: %1$s</string>
-    <string name="weighing_current_shed_fmt">ప్రస్తుతం: %1$s</string>
-    <string name="weighing_wrong_shed">తప్పు షెడ్</string>
     <string name="weighing_proof_ready">రుజువు సిద్ధం</string>
     <string name="weighing_proof_required">రుజువు కావాలి</string>
     <string name="weighing_ready">సిద్ధం</string>

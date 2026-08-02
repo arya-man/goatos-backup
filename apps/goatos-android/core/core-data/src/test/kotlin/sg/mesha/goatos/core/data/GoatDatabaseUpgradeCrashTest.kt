@@ -783,7 +783,9 @@ class GoatDatabaseUpgradeCrashTest {
                 lastError = null,
             ),
         )
-        assertEquals("obs-1", upgraded.weighingObservationDao().findByAnimal(scope, "animal-1")?.observationId)
+        // findByAnimal is keyed on scannedIdentifier (the real free-flow identity), not animalId --
+        // free-flow weighing has no expected-animal list, so animalId can be blank/absent.
+        assertEquals("obs-1", upgraded.weighingObservationDao().findByAnimal(scope, "RFID-1")?.observationId)
 
         upgraded.weighingShedObservationDao().insert(
             WeighingShedObservationEntity(
