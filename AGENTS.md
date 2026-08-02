@@ -33,9 +33,34 @@ Docker DB container: goatos-phone-qa
 Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
 ```
 
-The phone still reaches the laptop API through `adb reverse tcp:8080 tcp:8080`.
-Only the backend process behind `127.0.0.1:8080` changes database target. The
-fixture intentionally maps five physical vaccination RFIDs into ten goat
+**HARD RULE — phone/mobile QA must NEVER use or repoint the default ports.**
+`127.0.0.1:3300` (admin-web), `127.0.0.1:8080` (API), and `127.0.0.1:5433`
+(database) carry the maintainer's LOCAL REPLICA OF STG DATA. Phone QA is mock
+scan data (the throwaway 20-animal seed). Never start, stop, kill, restart, or
+repoint anything on `3300`, `8080`, or `5433` for mobile testing, and never free
+a default port by killing whatever holds it — parallel agent sessions (Claude
+and Codex) share this laptop, and the process you kill is another session's
+stack.
+
+Run the phone-QA API on a NON-DEFAULT port and remap the tunnel instead. The
+device always calls its own `localhost:8080`, so only the host side moves — no
+APK rebuild and no token re-mint are required:
+
+```bash
+# phone-QA API on 8081 -> throwaway DB 127.0.0.1:15544
+# set GOATOS_HTTP_ADDR=127.0.0.1:8081 for that backend process
+adb -s <serial> reverse tcp:8080 tcp:8081
+```
+
+This supersedes any earlier wording suggesting the backend behind `8080` may
+swap its database target. Taking `8080` for phone QA caused a real incident
+(2026-08-03): the maintainer's `5433`-backed API was killed to free the port,
+`8080` was pointed at the throwaway `15544` database, and admin-web then showed
+the 20-animal mock set in place of the 324 CPT adults — while the phone's
+`adb reverse` still aimed at `8080`, one port flip away from writing mobile scan
+data into the stg replica.
+
+The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
