@@ -709,6 +709,24 @@ val MIGRATION_24_25: Migration = object : Migration(24, 25) {
  *
  * Additive: one new table. The shed and cursor tables are untouched — their old date-keyed rows
  * simply stop matching the new park-scoped key and age out through the existing prune.
+ *
+ * v26 ALSO drops `weighing_observation.animalId` and re-keys the bucket's unique index onto
+ * `scannedIdentifier`, following the backend: migration `000078` dropped
+ * `weighing_observations.animal_id` and `000079` dropped `weighing_expected_animals` entirely.
+ * Weighing is free-flow — a capture is a scanned tag and a weight and never resolves to herd
+ * identity — so `animalId` is a column the server can no longer populate, and the unique index
+ * `(campaignId, campaignShedId, animalId)` was a uniqueness rule over a value that is always `""`:
+ * two different scanned tags in one bucket collided, and `WeighingObservationDao.insert` uses
+ * `OnConflictStrategy.IGNORE`, so the second capture was silently DROPPED.
+ *
+ * SQLite before 3.35 has no `DROP COLUMN` and the engines on supported devices predate it, so this
+ * is the canonical create/copy/drop/rename rebuild. It is NON-DESTRUCTIVE: every existing row is
+ * carried across with its syncStatus, idempotencyKey, capture time and proof ids intact — this
+ * table holds unsynced operator captures the outbox has not yet delivered, and losing one loses a
+ * real weight taken in a shed. `scannedIdentifier` is already NOT NULL on the old table so no
+ * backfill is needed; the copy is ordered by `capturedAtMs` and uses `INSERT OR IGNORE` so that
+ * legacy rows that DO collide on the new unique key (possible only for rows written under the old
+ * animalId-keyed index) keep the EARLIEST capture instead of failing the whole upgrade.
  */
 val MIGRATION_25_26: Migration = object : Migration(25, 26) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -720,6 +738,37 @@ val MIGRATION_25_26: Migration = object : Migration(25, 26) {
                 "PRIMARY KEY(`queryKey`, `parkId`))",
             "CREATE INDEX IF NOT EXISTS `index_weighing_planner_park_row_queryKey_sortIndex` " +
                 "ON `weighing_planner_park_row` (`queryKey`, `sortIndex`)",
+
+            // --- weighing_observation: drop animalId, re-key the unique index on scannedIdentifier.
+            "CREATE TABLE IF NOT EXISTS `weighing_observation_new` (" +
+                "`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, " +
+                "`campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, " +
+                "`expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, " +
+                "`actualLocationId` TEXT, `actualLocationLabel` TEXT, `scannedIdentifier` TEXT NOT NULL, " +
+                "`weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, " +
+                "`syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, " +
+                "`capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+            "INSERT OR IGNORE INTO `weighing_observation_new` (" +
+                "`observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, `campaignShedId`, " +
+                "`expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `syncStatus`, " +
+                "`idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                "SELECT `observationId`, `scopeKey`, `tenantId`, `campaignId`, `workGroupId`, `campaignShedId`, " +
+                "`expectedLocationId`, `expectedLocationLabel`, `actualLocationId`, `actualLocationLabel`, " +
+                "`scannedIdentifier`, `weightKg`, `proofCaptureId`, `serverProofId`, `syncStatus`, " +
+                "`idempotencyKey`, `capturedAtMs`, `lastError` " +
+                "FROM `weighing_observation` ORDER BY `capturedAtMs` ASC",
+            "DROP TABLE `weighing_observation`",
+            "ALTER TABLE `weighing_observation_new` RENAME TO `weighing_observation`",
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_idempotencyKey` " +
+                "ON `weighing_observation` (`idempotencyKey`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` " +
+                "ON `weighing_observation` (`scopeKey`, `capturedAtMs`)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS " +
+                "`index_weighing_observation_campaignId_campaignShedId_scannedIdentifier` " +
+                "ON `weighing_observation` (`campaignId`, `campaignShedId`, `scannedIdentifier`)",
+            "CREATE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_workGroupId_campaignShedId` " +
+                "ON `weighing_observation` (`campaignId`, `workGroupId`, `campaignShedId`)",
         ).forEach(db::execSQL)
     }
 }

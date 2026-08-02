@@ -1103,15 +1103,15 @@ class WeighingViewModel @Inject constructor(
         val pairedDrafts = drafts
             .filter { draft ->
                 draft.readyToSubmit &&
-                    scannedIdentifiers.contains(draft.scannedIdentifier.ifBlank { draft.animalId })
+                    scannedIdentifiers.contains(draft.scannedIdentifier)
             }
         val submittedIdentifiers = pairedDrafts.mapNotNull { draft ->
-            val proofReady = proofForAnimal(draft.animalId)?.let {
+            val proofReady = proofForAnimal(draft.scannedIdentifier)?.let {
                 it.syncStatus == CaptureSyncStatus.SYNCED &&
                     !it.serverProofId.isNullOrBlank()
             } == true || !draft.serverProofId.isNullOrBlank()
             if (proofReady) {
-                draft.scannedIdentifier.ifBlank { draft.animalId }.takeIf { it.isNotBlank() }
+                draft.scannedIdentifier.takeIf { it.isNotBlank() }
             } else {
                 null
             }
@@ -1164,7 +1164,6 @@ class WeighingViewModel @Inject constructor(
                         campaignId = campaignId,
                         workGroupId = workGroupId,
                         campaignShedId = campaignShedId,
-                        animalId = row.animalId,
                         // The identity of this weight is the ROW's own tag, never the shared scan
                         // box. scanInput is one ViewModel-wide field that every scan and the typed-
                         // scan box overwrite; the per-row save path runs WITHOUT the global busy
@@ -1514,7 +1513,7 @@ class WeighingViewModel @Inject constructor(
                 return@launch
             }
             val alreadyRecorded = scopeState.value?.individualDrafts.orEmpty().any { draft ->
-                normalizeFreeFlowTag(draft.scannedIdentifier.ifBlank { draft.animalId }) == normalizedTag
+                normalizeFreeFlowTag(draft.scannedIdentifier) == normalizedTag
             }
             if (alreadyRecorded || existingRow != null) {
                 scanInput.value = normalizedTag
@@ -1759,7 +1758,7 @@ class WeighingViewModel @Inject constructor(
             localScans + scope.individualDrafts.map { draft ->
                 unknownWeighingRow(
                     key = scopeKey.orEmpty(),
-                    tag = draft.scannedIdentifier.ifBlank { draft.animalId },
+                    tag = draft.scannedIdentifier,
                     capturedAtMs = draft.capturedAtMs,
                 )
             }
@@ -1796,12 +1795,12 @@ class WeighingViewModel @Inject constructor(
             ),
             individualDrafts = scope.individualDrafts.map { draft ->
                 val animalLabel = scope.rosterWindow
-                    .firstOrNull { it.animalId == draft.animalId }
+                    .firstOrNull { it.animalId == draft.scannedIdentifier }
                     ?.displayAnimalId
-                    ?: draft.animalId
+                    ?: draft.scannedIdentifier
                 WeighingDraftUiRow(
                     id = draft.observationId,
-                    animalId = draft.animalId,
+                    animalId = draft.scannedIdentifier,
                     label = "$animalLabel - ${draft.weightKg} kg",
                     proofReady = draft.proofReady,
                     readyToSubmit = draft.readyToSubmit,
@@ -1828,7 +1827,7 @@ class WeighingViewModel @Inject constructor(
         replacementAnimalId: String? = null,
     ): List<WeighingRosterUiRow> =
         map { row ->
-            val draft = drafts.firstOrNull { it.animalId == row.animalId }
+            val draft = drafts.firstOrNull { it.scannedIdentifier == row.primaryTag.ifBlank { row.animalId } }
             val savedWeight = draft?.weightKg?.toString()
             val weight = animalWeights[row.animalId] ?: savedWeight.orEmpty()
             val draftProofId = draft?.proofCaptureId?.takeIf { it.isNotBlank() }
@@ -1944,7 +1943,7 @@ class WeighingViewModel @Inject constructor(
 
     private fun proofForAnimal(animalId: String): ProofCaptureRow? {
         val draftProofId = scopeState.value?.individualDrafts
-            ?.firstOrNull { it.animalId == animalId }
+            ?.firstOrNull { it.scannedIdentifier == animalId }
             ?.proofCaptureId
             ?.takeIf { it.isNotBlank() }
         return observedProofs.value

@@ -102,7 +102,6 @@ class RoomScreenCacheStoreTest {
                     expectedLocationLabel = "Gandhi 1",
                     actualLocationId = "shed",
                     actualLocationLabel = "Gandhi 1",
-                    animalId = "animal",
                     scannedIdentifier = "TAG",
                     weightKg = 12.5,
                     proofCaptureId = null,

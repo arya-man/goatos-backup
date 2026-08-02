@@ -225,7 +225,7 @@ class WeighingViewModelTest {
         vm.recordIndividual(SECOND_TAG, "13.5")
         runCurrent()
 
-        assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.animalId })
+        assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.scannedIdentifier })
         val bothPendingState = vm.state.value.visibleRows.associateBy { it.animalId }
         assertTrue(bothPendingState.getValue(TEST_TAG).weightUpdating)
         assertTrue(bothPendingState.getValue(SECOND_TAG).weightUpdating)
@@ -278,7 +278,6 @@ class WeighingViewModelTest {
         vm.recordIndividual(TEST_TAG, "12.0")
         runCurrent()
 
-        assertEquals(TEST_TAG, repository.lastCapture?.animalId)
         assertEquals(TEST_TAG, repository.lastCapture?.scannedIdentifier)
 
         gate.complete(AppResult.Ok(acceptedDraft(weightKg = 12.0)))
@@ -440,7 +439,6 @@ class WeighingViewModelTest {
                 listOf(
                     IndividualWeighingDraft(
                         observationId = "observation-after-reset",
-                        animalId = TEST_TAG,
                         scannedIdentifier = TEST_TAG,
                         weightKg = 12.0,
                         capturedAtMs = 3_000,
@@ -478,7 +476,6 @@ class WeighingViewModelTest {
                 listOf(
                     IndividualWeighingDraft(
                         observationId = "local-observation",
-                        animalId = TEST_TAG,
                         scannedIdentifier = TEST_TAG,
                         weightKg = 12.0,
                         capturedAtMs = 3_000,
@@ -706,7 +703,7 @@ class WeighingViewModelTest {
         assertEquals(
             "the weight belongs to the animal the operator is standing at, not the one whose scan came first",
             SECOND_TAG,
-            repository.lastCapture?.animalId,
+            repository.lastCapture?.scannedIdentifier,
         )
         assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
     }
@@ -836,7 +833,6 @@ class WeighingViewModelTest {
         proofCaptureId: String = "proof-$animalId",
     ) = IndividualWeighingDraft(
         observationId = "observation-$animalId",
-        animalId = animalId,
         scannedIdentifier = animalId,
         weightKg = weightKg,
         capturedAtMs = capturedAtMs,

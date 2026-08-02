@@ -216,31 +216,15 @@ data class WeighingCampaignResponseDto(
     @SerialName("trace_id") val traceId: String? = null,
 )
 
-@Serializable
-data class WeighingRosterRowDto(
-    @SerialName("campaign_id") val campaignId: String = "",
-    @SerialName("campaign_shed_id") val campaignShedId: String = "",
-    @SerialName("animal_id") val animalId: String = "",
-    @SerialName("display_animal_id") val displayAnimalId: String = "",
-    @SerialName("primary_identifier") val primaryIdentifier: String = "",
-    @SerialName("secondary_identifier") val secondaryIdentifier: String? = null,
-    /** Assigned location from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
-    @SerialName("expected_location_id") val expectedLocationId: String = "",
-    /** Assigned location label from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
-    @SerialName("expected_location_label") val expectedLocationLabel: String = "",
-    @SerialName("status") val status: String = "",
-    @SerialName("availability_status") val availabilityStatus: String? = null,
-    @SerialName("current_location_id") val currentLocationId: String? = null,
-    @SerialName("current_location_label") val currentLocationLabel: String? = null,
-    @SerialName("current_lifecycle_status") val currentLifecycleStatus: String? = null,
-    @SerialName("seq") val seq: Long = 0,
-)
-
+/**
+ * The scope read. FREE-FLOW: there is NO expected-animal roster. The backend dropped
+ * `weighing_expected_animals` (000079) and its `items` array is now permanently `[]`, so this DTO
+ * deliberately does not bind it -- a client that mapped `items` into Room was writing nothing on
+ * every sync. The bucket's own scan/observation history is the whole payload.
+ */
 @Serializable
 data class WeighingRosterResponseDto(
-    @SerialName("items") val items: List<WeighingRosterRowDto> = emptyList(),
     @SerialName("observations") val observations: List<WeighingAcceptedObservationDto> = emptyList(),
-    @SerialName("next_cursor") val nextCursor: String? = null,
     // Independently paginates `observations` on a keyset of (accepted_at,
     // observation_id) scoped to this campaign_shed_id; absent/null means no
     // further observations page for this request.
@@ -253,7 +237,9 @@ data class WeighingAcceptedObservationDto(
     @SerialName("observation_id") val observationId: String = "",
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("campaign_shed_id") val campaignShedId: String = "",
-    @SerialName("animal_id") val animalId: String = "",
+    // FREE-FLOW: scanned_identifier is the ONLY identity an accepted observation carries. The
+    // backend dropped weighing_observations.animal_id (000078) and never sends the field, so a
+    // non-nullable `animalId` fallback here resolved to "" and ERASED the scanned tag.
     @SerialName("scanned_identifier") val scannedIdentifier: String = "",
     @SerialName("weight_kg") val weightKg: Double = 0.0,
     @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,
@@ -289,10 +275,8 @@ data class WeighingObservationDto(
     @SerialName("observation_id") val observationId: String = "",
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("campaign_shed_id") val campaignShedId: String? = null,
-    // animal_id is a legacy/optional field the backend is retiring (free-flow weighing has no
-    // expected-animal identity). scanned_identifier is the real free-flow identity and must be
-    // preferred everywhere this DTO is rendered; see scannedIdentifier below.
-    @SerialName("animal_id") val animalId: String? = null,
+    // FREE-FLOW: there is no animal_id. The backend dropped the column (000078) and weighing
+    // never resolves a scan to herd identity, so scanned_identifier is the whole identity.
     @SerialName("scanned_identifier") val scannedIdentifier: String? = null,
     @SerialName("weight_kg") val weightKg: Double = 0.0,
     @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,

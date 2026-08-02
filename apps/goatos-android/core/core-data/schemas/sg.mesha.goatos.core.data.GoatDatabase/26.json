@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 26,
-    "identityHash": "24501a4284553e142b8a4389ced5e3d2",
+    "identityHash": "cae5a49414f16ea5ed7c36ba003e08b2",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -2089,7 +2089,7 @@
       },
       {
         "tableName": "weighing_observation",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, `scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
         "fields": [
           {
             "fieldPath": "observationId",
@@ -2148,12 +2148,6 @@
             "fieldPath": "actualLocationLabel",
             "columnName": "actualLocationLabel",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "animalId",
-            "columnName": "animalId",
-            "affinity": "TEXT",
-            "notNull": true
           },
           {
             "fieldPath": "scannedIdentifier",
@@ -2228,15 +2222,15 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` ON `${TABLE_NAME}` (`scopeKey`, `capturedAtMs`)"
           },
           {
-            "name": "index_weighing_observation_campaignId_campaignShedId_animalId",
+            "name": "index_weighing_observation_campaignId_campaignShedId_scannedIdentifier",
             "unique": true,
             "columnNames": [
               "campaignId",
               "campaignShedId",
-              "animalId"
+              "scannedIdentifier"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` ON `${TABLE_NAME}` (`campaignId`, `campaignShedId`, `animalId`)"
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_scannedIdentifier` ON `${TABLE_NAME}` (`campaignId`, `campaignShedId`, `scannedIdentifier`)"
           },
           {
             "name": "index_weighing_observation_campaignId_workGroupId_campaignShedId",
@@ -3091,7 +3085,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '24501a4284553e142b8a4389ced5e3d2')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cae5a49414f16ea5ed7c36ba003e08b2')"
     ]
   }
 }
