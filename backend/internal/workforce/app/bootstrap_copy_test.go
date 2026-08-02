@@ -150,19 +150,29 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		}
 	})
 
-	t.Run("verifier sees verification only", func(t *testing.T) {
+	t.Run("verifier with a named feature duty sees that feature's module, never generic verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
 		modules := modulesFor(grants, []string{"vaccination"}, en)
 		keys := moduleKeySet(modules)
-		if _, ok := keys["verification"]; !ok {
-			t.Fatalf("verifier must see Verification; got %v", keys)
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("verifier with a named feature duty must NOT get the generic merged verification module; got %v", keys)
 		}
 		if _, ok := keys["leadership"]; ok {
 			t.Fatalf("verifier must NOT see leadership; got %v", keys)
 		}
+		if len(modules) != 1 {
+			t.Fatalf("single-feature verifier should see 1 module; got %d: %v", len(modules), keys)
+		}
 		verify := modules[0]
+		if verify.Key != "verify_vaccination" {
+			t.Fatalf("verifier module key = %q, want verify_vaccination", verify.Key)
+		}
+		// Per-module bar is [Verify, Alerts, You] (binding ruling: "Alerts are NOT one
+		// merged tab"), with the alerts category matching what the vaccination
+		// verification-bridge actually writes (vaccination_proof).
 		wantItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(verify.NavItems) != len(wantItems) {
@@ -394,30 +404,149 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		}
 	})
 
-	t.Run("single-module verifier gets minimal chrome with generic verification module", func(t *testing.T) {
+	t.Run("single-module verifier gets minimal chrome with a feature-scoped module, never generic verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
 		grantedModules := []string{"pc.vaccination"}
 		modules := modulesFor(grants, grantedModules, en)
 		keys := moduleKeySet(modules)
 
-		// Single module verifier should still use the generic "verification" module
-		// (handled by candidateModuleKeys returning ["verification"] when len(grantedModules) <= 1)
-		if keys["verification"] != moduleStatusAvailable {
-			t.Fatalf("single-module verifier should see generic verification module; got %v", keys)
+		// The generic merged "verification" module never appears for a verifier -- per
+		// the binding ruling, Alerts is never a merged/un-scoped tab, so a single-feature
+		// verifier gets the SAME feature-scoped [Verify, Alerts, You] module a
+		// multi-feature verifier gets for each of their features (chrome collapses to
+		// minimal below the 2-module threshold, but the module itself is still
+		// feature-scoped).
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("single-module verifier must NOT see generic verification module; got %v", keys)
 		}
 		if len(modules) != 1 {
-			t.Fatalf("single-module verifier should have 1 module; got %d", len(modules))
+			t.Fatalf("single-module verifier should have 1 module; got %d: %v", len(modules), keys)
+		}
+		if modules[0].Key != "verify_vaccination" {
+			t.Fatalf("single-module verifier module key = %q, want verify_vaccination", modules[0].Key)
+		}
+		wantItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "alerts", Label: "Vaccination alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(modules[0].NavItems) != len(wantItems) {
+			t.Fatalf("nav items = %+v want %+v", modules[0].NavItems, wantItems)
+		}
+		for i := range wantItems {
+			if modules[0].NavItems[i] != wantItems[i] {
+				t.Fatalf("nav item[%d]=%+v want %+v", i, modules[0].NavItems[i], wantItems[i])
+			}
 		}
 	})
 
-	t.Run("verifier with no modules gets generic verification module", func(t *testing.T) {
+	// TestBootstrapAlertsPerModule / grantedModules == ["verification"] below cover the
+	// department-level-grant case (no feature named at all) that this suite previously
+	// missed -- the exact shape of the real defect (a verifier with only a
+	// department_module_grants.module_key = "verification" row) reproduced against the
+	// live QA DB on 2026-08-02: grant_count=1, ListGrantedModuleKeys returns
+	// ["verification"], and the bar rendered [Verify, You] with no Alerts at all.
+	t.Run("verifier with no duties is scoped to every built feature, never generic verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
 		grantedModules := []string{} // No verify duties
 		modules := modulesFor(grants, grantedModules, en)
 		keys := moduleKeySet(modules)
 
-		if keys["verification"] != moduleStatusAvailable {
-			t.Fatalf("verifier with no duties should see generic verification; got %v", keys)
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("verifier with no duties must NOT see generic verification; got %v", keys)
+		}
+		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true}
+		if len(keys) != len(wantKeys) {
+			t.Fatalf("verifier with no duties should see one module per built feature; got %v", keys)
+		}
+		for k := range wantKeys {
+			if _, ok := keys[k]; !ok {
+				t.Fatalf("verifier with no duties missing module %q; got %v", k, keys)
+			}
 		}
 	})
+}
+
+// TestBootstrapAlertsPerModule reproduces the department-level "verification" grant
+// case found live on 2026-08-02 (Jyothi, user 90000000-0000-4000-8000-000000000104):
+// department_module_grants.module_key = "verification" with no position_module_duties
+// rows, so ListGrantedModuleKeys returns ["verification"] -- a literal module key that
+// names no feature. Before this fix, candidateModuleKeys treated any grantedModules with
+// len <= 1 as "single/no duties" and fell back to the generic, un-scoped "verification"
+// registry module, so the served bar was [Verify, You] with no Alerts item at all,
+// contradicting the binding ruling ("Per-module bottom bar = [Verify, Alerts] ...
+// Alerts are NOT one merged tab").
+func TestBootstrapAlertsPerModule(t *testing.T) {
+	const en = localization.DefaultTag
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+	grantedModules := []string{"verification"}
+
+	modules := modulesFor(grants, grantedModules, en)
+	if len(modules) == 0 {
+		t.Fatalf("verifier with only a department-level verification grant must still get per-module bars; got none")
+	}
+
+	wantCategories := map[string]string{
+		"verify_vaccination": "vaccination_proof",
+		"verify_weighing":    "weighing_proof",
+		"verify_counts":      "shifting_move", // NOT "counts_proof" -- see verificationCategoryForFeature.
+	}
+	seen := make(map[string]bool, len(modules))
+	for _, m := range modules {
+		seen[m.Key] = true
+		wantCategory, known := wantCategories[m.Key]
+		if !known {
+			t.Fatalf("unexpected verifier module %q; got modules %v", m.Key, moduleKeySet(modules))
+		}
+		var verify, alerts, you *domain.BootstrapNavigationItem
+		for i := range m.NavItems {
+			switch m.NavItems[i].Key {
+			case "verify":
+				verify = &m.NavItems[i]
+			case "alerts":
+				alerts = &m.NavItems[i]
+			case "you":
+				you = &m.NavItems[i]
+			}
+		}
+		if verify == nil {
+			t.Fatalf("module %q missing Verify item; got %+v", m.Key, m.NavItems)
+		}
+		if alerts == nil {
+			t.Fatalf("module %q missing Alerts item -- per-module bottom bar must be [Verify, Alerts], never [Verify, You] alone; got %+v", m.Key, m.NavItems)
+		}
+		if you == nil {
+			t.Fatalf("module %q missing You item; got %+v", m.Key, m.NavItems)
+		}
+		wantHref := "/verify/alerts?category=" + wantCategory
+		if alerts.Href != wantHref {
+			t.Fatalf("module %q alerts href = %q, want %q (category must match what the feature's verification-bridge writes to verification_items.category, not just the module name)", m.Key, alerts.Href, wantHref)
+		}
+	}
+	for key := range wantCategories {
+		if !seen[key] {
+			t.Fatalf("expected verifier module %q missing; got %v", key, moduleKeySet(modules))
+		}
+	}
+
+	// visible_navigation (the served bottom bar before any drawer switch) must match the
+	// first module's bar exactly, not the generic registry "verification" entry.
+	nav := visibleNavigationFor(grants, grantedModules, en)
+	if len(nav) != len(modules[0].NavItems) {
+		t.Fatalf("visible_navigation = %+v, want modules[0].NavItems = %+v", nav, modules[0].NavItems)
+	}
+	for i := range nav {
+		if nav[i] != modules[0].NavItems[i] {
+			t.Fatalf("visible_navigation[%d] = %+v, want %+v", i, nav[i], modules[0].NavItems[i])
+		}
+	}
+	foundAlerts := false
+	for _, item := range nav {
+		if item.Key == "alerts" {
+			foundAlerts = true
+		}
+	}
+	if !foundAlerts {
+		t.Fatalf("visible_navigation must include Alerts for a verifier; got %+v", nav)
+	}
 }
