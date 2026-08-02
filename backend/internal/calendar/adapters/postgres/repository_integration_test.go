@@ -3015,11 +3015,18 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	if s.CompletedCount != 3 {
 		t.Errorf("completed_count = %d, want 3", s.CompletedCount)
 	}
-	if s.DueCount != 1 {
-		t.Errorf("due_count = %d, want 1 (the one scheduled)", s.DueCount)
+	// due vs overdue is READ-TIME on the original scheduled business date, matching the card
+	// headline's genuine_overdue. driveDate is 2026-07-13, firmly in the past, so the obligation
+	// left in status 'scheduled' is past-due and belongs in overdue alongside the 'missed' one --
+	// nothing is still merely "due". This previously asserted 1/1 because overdue_count keyed off
+	// status IN ('overdue','missed'), and obligation_instances never carries a literal 'overdue'
+	// status (the baseline CHECK forbids it), so the bucket was structurally ~0 for real data
+	// while the same card's headline read "overdue". One card, two answers.
+	if s.DueCount != 0 {
+		t.Errorf("due_count = %d, want 0 (the scheduled one is past-due, so it is overdue)", s.DueCount)
 	}
-	if s.OverdueCount != 1 {
-		t.Errorf("overdue_count = %d, want 1 (the one missed)", s.OverdueCount)
+	if s.OverdueCount != 2 {
+		t.Errorf("overdue_count = %d, want 2 (the missed one plus the past-due scheduled one)", s.OverdueCount)
 	}
 	if s.DeferredCount != 1 {
 		t.Errorf("deferred_count = %d, want 1", s.DeferredCount)
