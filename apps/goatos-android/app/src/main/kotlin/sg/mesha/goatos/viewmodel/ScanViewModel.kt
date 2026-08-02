@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -1054,8 +1056,10 @@ class ScanViewModel @Inject constructor(
         proofCaptureGoatId = row.goatId
         strandedGoatTag = row.primaryTag
         proofCaptureVideoCaptured = false
-        val myGoatId = row.goatId
-        val job = viewModelScope.launch {
+        // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
+        // compares job identity, and a body that completed before the assignment would compare
+        // against the previous job and skip its own cleanup.
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -1090,11 +1094,14 @@ class ScanViewModel @Inject constructor(
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
             } finally {
-                // Only the job that still OWNS the in-flight state may clean it up. A cancelled job
-                // (superseded by a later scan of a different goat, handled above) must not clear
-                // state that already belongs to the goat that superseded it — classic
-                // use-after-cancel race if guarded only by a plain boolean.
-                if (proofCaptureGoatId == myGoatId) {
+                // Only the job that still OWNS the in-flight state may clean it up. Guard on JOB
+                // identity, not subject identity: an A -> B -> A rescan makes a subject-id guard
+                // pass again for the DEAD first job (`proofCaptureGoatId` is goat A once more),
+                // so that stale job would tear down the live second capture of the same goat —
+                // orphaning it, letting a later scan open a second concurrent camera, and leaving
+                // the row stuck showing "uploading". Job identity is unique per capture and so
+                // cannot be aliased by rescanning the same animal.
+                if (proofCaptureJob === coroutineContext.job) {
                     // Clear in `finally`: cancellation (navigating away, ViewModel recreation)
                     // between the capture and the delay would otherwise strand this goat's
                     // optimistic "uploading" marker forever, so a fully synced row keeps rendering
@@ -1116,6 +1123,7 @@ class ScanViewModel @Inject constructor(
             }
         }
         proofCaptureJob = job
+        job.start()
     }
 
     private fun retryGoatProof(goatId: String) {
