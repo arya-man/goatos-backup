@@ -3,6 +3,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -166,12 +168,17 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 	if !ok {
 		return
 	}
+	// An FCM registration token is a bearer-style push credential: anyone holding it can send
+	// to that device. Livestock identifiers are safe to log in this repo, secrets are not, and a
+	// push token sits on the secret side of that line -- so the token is fingerprinted, never
+	// logged whole. The fingerprint is still enough to correlate repeated failures for one device.
+	tokenFingerprint := fingerprintRecipientRef(recipientRef)
 	suppressed, err := repo.SuppressInvalidRecipient(ctx, request.TenantID, recipientRef, sanitizeError(sendErr), now)
 	if err != nil {
 		s.log.WarnContext(ctx, "notification_invalid_recipient_suppress_failed",
 			slog.String("notification_request_id", request.NotificationRequestID),
 			slog.String("channel", request.Channel),
-			slog.String("device_token", recipientRef),
+			slog.String("device_token_fp", tokenFingerprint),
 			slog.String("error", err.Error()),
 		)
 		return
@@ -179,7 +186,7 @@ func (s *Service) suppressInvalidRecipient(ctx context.Context, request domain.R
 	s.log.InfoContext(ctx, "notification_invalid_recipient_suppressed",
 		slog.String("notification_request_id", request.NotificationRequestID),
 		slog.String("channel", request.Channel),
-		slog.String("device_token", recipientRef),
+		slog.String("device_token_fp", tokenFingerprint),
 		slog.Int("suppressed_notification_requests", suppressed),
 	)
 }
@@ -258,4 +265,16 @@ func sanitizeError(err error) string {
 		return msg[:maxErrorLength]
 	}
 	return msg
+}
+
+// fingerprintRecipientRef renders a stable, non-reversible short fingerprint of a push
+// recipient reference so logs can correlate one device across failures without ever
+// carrying the credential itself.
+func fingerprintRecipientRef(recipientRef string) string {
+	recipientRef = strings.TrimSpace(recipientRef)
+	if recipientRef == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(recipientRef))
+	return hex.EncodeToString(sum[:8])
 }
