@@ -13,23 +13,48 @@ import (
 )
 
 // TestConcurrentRecordAnimalObservationSameTagDifferentIdempotencyKeysLeavesOneOpenRow
-// reproduces the check-then-act race in recordUnknownAnimalObservationTx.
+// reproduces the check-then-act race in recordUnknownAnimalObservationTx: two
+// concurrent captures of the SAME scanned tag in the SAME individual-animal
+// bucket, with DIFFERENT idempotency keys (a genuine double-scan, not a
+// client replay -- a replay of the SAME key short-circuits earlier via
+// observationByIdemTx and never reaches this race at all).
 //
-// Under READ COMMITTED, two concurrent captures of the SAME scanned tag in the
-// SAME individual-animal bucket, with DIFFERENT idempotency keys, each run the
-// "updated" CTE (which sees no existing open row for the tag) and then the
-// "inserted" CTE (WHERE NOT EXISTS (SELECT 1 FROM updated)). Before the fix,
-// the only unique index guarding the table is
-// weighing_observations_idempotency_uidx (tenant_id, idempotency_key), which
-// does not stop two DIFFERENT keys from both inserting. Both transactions can
-// commit, leaving two rows with submitted_at IS NULL for the same tag/bucket --
-// two videos are equally "current" proof for one animal.
+// The race has TWO possible shapes, and this repository has closed both:
 //
-// After the fix (partial unique index on
-// (tenant_id, campaign_shed_id, lower(btrim(scanned_identifier))) WHERE
-// submitted_at IS NULL), the loser's INSERT trips 23505, which the repository
-// must translate into a domain conflict (ports.ErrDuplicateScan) rather than
-// leaking a raw pgx/Postgres error. Exactly one row must be left open.
+//  1. Insert-vs-insert. Both transactions' "updated" CTE sees no existing
+//     open row, so both fall through to the "inserted" CTE's
+//     WHERE NOT EXISTS (SELECT 1 FROM updated). The only unique index that
+//     pre-dated this fix (weighing_observations_idempotency_uidx) only
+//     guards a retry of the SAME key, so both inserts could commit --
+//     two rows with submitted_at IS NULL for one animal, two videos
+//     equally "current". Closed by migration 000073's partial unique index
+//     weighing_observations_one_open_tag_uidx (tenant_id, campaign_shed_id,
+//     lower(btrim(scanned_identifier))) WHERE submitted_at IS NULL: the
+//     loser's INSERT trips 23505.
+//
+//  2. Update-vs-update. The bucket-row lock the "assigned_shed" CTE takes
+//     (FOR NO KEY UPDATE, the F8 close-race fix) serialises two concurrent
+//     captures of the SAME bucket. Serialising is not the same as
+//     disambiguating: under plain READ COMMITTED, the loser -- once
+//     unblocked -- sees the winner's now-committed row and silently takes
+//     the "updated" CTE's UPDATE-in-place branch, overwriting the winner's
+//     weight/proof with its own. Both callers get a 200; the winner's
+//     response is now a lie about what is actually stored, and the winner is
+//     never told a second capture clobbered it. No INSERT happens here, so
+//     the unique index above never fires. Closed by running
+//     RecordAnimalObservation at SERIALIZABLE: PostgreSQL's SSI machinery
+//     sees the loser's implicit read of weighing_observations was
+//     invalidated by the winner's commit and aborts it with
+//     serialization_failure (40001) instead of letting it complete against
+//     refreshed state. A legitimate SEQUENTIAL rescan (same tag, no time
+//     overlap -- see TestRescanOfUnsubmittedTagUpdatesSameRowNoDuplicateRow)
+//     never conflicts under SERIALIZABLE and keeps updating in place exactly
+//     as before.
+//
+// Both 23505 (on the new index) and 40001 (serialization failure) are mapped
+// to the same typed conflict, ports.ErrDuplicateScan, by
+// mapObservationUniqueViolation, so the loser reads as a clean domain
+// conflict rather than a raw Postgres error.
 func TestConcurrentRecordAnimalObservationSameTagDifferentIdempotencyKeysLeavesOneOpenRow(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -51,10 +76,14 @@ ON CONFLICT DO NOTHING`,
 
 	const raceTag = "concurrent-race-rfid"
 	const attempts = 2
+	weights := [attempts]float64{20.0, 21.0}
+	keys := [attempts]string{"animal:race-a", "animal:race-b"}
 
 	// Two independent goroutines, same tag, same bucket, DIFFERENT idempotency
 	// keys -- exactly the shape a duplicate offline-retry-with-a-fresh-key or
-	// two operators scanning the same animal at once produces.
+	// two operators scanning the same animal at once produces. `start` fires
+	// both goroutines from the same instant so their transactions genuinely
+	// overlap, rather than one finishing before the other begins.
 	var wg sync.WaitGroup
 	results := make([]error, attempts)
 	var start sync.WaitGroup
@@ -69,10 +98,10 @@ ON CONFLICT DO NOTHING`,
 				CampaignID:        repoCampaign,
 				CampaignShedID:    repoAnimalScope,
 				ScannedIdentifier: raceTag,
-				WeightKg:          20.0 + float64(i),
+				WeightKg:          weights[i],
 				ProofArtifactID:   repoExpectedShedProof,
 				ActualLocationID:  repoActualShed,
-				IdempotencyKey:    "animal:race-" + [2]string{"a", "b"}[i],
+				IdempotencyKey:    keys[i],
 				RecordedBy:        repoOperator,
 			})
 			results[i] = err
@@ -82,15 +111,17 @@ ON CONFLICT DO NOTHING`,
 	wg.Wait()
 
 	successes := 0
+	var winner int
 	var conflicts int
-	for _, err := range results {
+	for i, err := range results {
 		switch {
 		case err == nil:
 			successes++
+			winner = i
 		case errors.Is(err, ports.ErrDuplicateScan):
 			conflicts++
 		default:
-			t.Fatalf("unexpected error from concurrent capture: %v", err)
+			t.Fatalf("unexpected error from concurrent capture %d: %v", i, err)
 		}
 	}
 	if successes != 1 {
@@ -100,20 +131,31 @@ ON CONFLICT DO NOTHING`,
 		t.Fatalf("rejected-as-conflict concurrent captures = %d, want %d", conflicts, attempts-1)
 	}
 
-	// The data-integrity invariant under test: at most one OPEN (submitted_at IS
-	// NULL) row for this tag in this bucket. Two open rows means two videos are
-	// simultaneously "current" proof for the same animal -- the corruption this
-	// fix exists to prevent.
+	// The data-integrity invariant under test: at most one OPEN (submitted_at
+	// IS NULL) row for this tag in this bucket, AND its content must be
+	// exactly the WINNING caller's own write -- never a value that came from
+	// the rejected caller (that would mean the loser's data silently won even
+	// though the loser was told it lost, the same corruption in a different
+	// disguise).
 	var openRows int
+	var storedWeight float64
+	var storedKey string
 	if err := pool.QueryRow(ctx, `
-SELECT count(*) FROM weighing_observations
+SELECT count(*) OVER (), weight_kg::float8, idempotency_key
+FROM weighing_observations
 WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$2::uuid
   AND lower(btrim(scanned_identifier))=lower(btrim($3))
-  AND submitted_at IS NULL`, repoTenant, repoAnimalScope, raceTag).Scan(&openRows); err != nil {
-		t.Fatalf("count open rows for race tag: %v", err)
+  AND submitted_at IS NULL`, repoTenant, repoAnimalScope, raceTag).Scan(&openRows, &storedWeight, &storedKey); err != nil {
+		t.Fatalf("read open row for race tag: %v", err)
 	}
 	if openRows != 1 {
 		t.Fatalf("open rows for race tag=%d, want exactly 1 (data corruption: two videos both current for one animal)", openRows)
+	}
+	if storedWeight != weights[winner] {
+		t.Fatalf("stored weight=%v, want the winning caller's own write %v (a mismatch means the winner was told success while the loser's data actually persisted)", storedWeight, weights[winner])
+	}
+	if storedKey != keys[winner] {
+		t.Fatalf("stored idempotency_key=%q, want the winning caller's own key %q", storedKey, keys[winner])
 	}
 }
