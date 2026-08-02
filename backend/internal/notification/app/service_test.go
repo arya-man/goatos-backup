@@ -100,6 +100,42 @@ func TestServiceSuppressesInvalidFCMRecipientWithoutRetry(t *testing.T) {
 	}
 }
 
+// TestServiceKeepsFCMTokenOnTransientFailure is the negative half of
+// TestServiceSuppressesInvalidFCMRecipientWithoutRetry. Pruning must be driven
+// only by a PERMANENT recipient error (UNREGISTERED / INVALID_ARGUMENT, mapped
+// to ports.ErrInvalidRecipient by the gateway). A transient send failure
+// (UNAVAILABLE, timeout, quota, a misconfigured credential) must leave the
+// token registered and simply retry -- otherwise one bad-credentials window
+// would silently unregister every device in the tenant.
+func TestServiceKeepsFCMTokenOnTransientFailure(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	repo := &fakeRepo{requests: []domain.Request{
+		{
+			TenantID:              testTenant,
+			NotificationRequestID: "86000000-0000-4000-8000-000000000007",
+			LeaseToken:            "86000000-0000-4000-8000-000000000107",
+			Channel:               "push_fcm",
+			RecipientRef:          "live-fcm-token",
+			DeliveryAttempts:      1,
+		},
+	}}
+	service := NewService(repo, &fakeGateway{err: errors.New("fcm: 503 UNAVAILABLE")}, Config{MaxAttempts: 5, Now: func() time.Time { return now }}, nil)
+
+	result, err := service.RunOnce(context.Background(), testTenant)
+	if err != nil {
+		t.Fatalf("RunOnce: %v", err)
+	}
+	if len(repo.invalidRecipients) != 0 {
+		t.Fatalf("transient failure pruned a token: %#v, want no suppression calls", repo.invalidRecipients)
+	}
+	if result.FailedCount != 1 || result.ExhaustedCount != 0 {
+		t.Fatalf("result=%#v, want a retryable failure (FailedCount=1, ExhaustedCount=0)", result)
+	}
+	if len(repo.failed) != 1 || repo.failed[0].nextAttemptAt == nil {
+		t.Fatalf("failed=%#v, want a scheduled retry (non-nil nextAttemptAt)", repo.failed)
+	}
+}
+
 func TestServicePersistsProviderAcknowledgementWhenGatewayAndRepositorySupportIt(t *testing.T) {
 	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
 	baseRepo := &fakeRepo{requests: []domain.Request{{
