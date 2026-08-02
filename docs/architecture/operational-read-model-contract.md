@@ -484,12 +484,26 @@ Status: Implemented; grain and bucket definitions below.
 
 **Grain and Buckets** (disjoint unless noted):
 
-- **KPIs (all-history scope, park-scoped)**:
-  - `targets`: `COUNT(DISTINCT obligation_id)` for all open + completed + overdue obligations
-  - `doses_verified`: `COUNT(DISTINCT completion_id WHERE status='accepted')` from all verified completions
-  - `awaiting_verification`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` from all pending-verification completions
-  - `overdue_not_given`: `COUNT(DISTINCT obligation_id WHERE status='overdue')` for open overdue obligations at current as-of date
-  - `scheduled_ahead`: `COUNT(DISTINCT obligation_id WHERE due_at > current_as_of_date)` for open future-scheduled obligations
+- **KPIs (all-history scope, park-scoped)** — ANIMAL grain (`COUNT(DISTINCT target_id)`), and a
+  **DISJOINT and EXHAUSTIVE** partition of `targets`: the four buckets are evaluated as a priority
+  chain over the SAME obligation row, so
+  `doses_verified + awaiting_verification + overdue_not_given + scheduled_ahead = targets`.
+  The UI may therefore render them side by side and as a share of `targets`.
+  - `targets`: `COUNT(DISTINCT target_id)` over all open + completed obligations in scope
+  - `doses_verified`: animals with an `accepted` completion
+  - `awaiting_verification`: animals with a `recorded`-unverified completion AND no `accepted` one
+  - `overdue_not_given`: animals with NO completion, an OPEN obligation, and IST business due date
+    **earlier than** the as-of IST business date
+  - `scheduled_ahead`: animals with NO completion, an OPEN obligation, and IST business due date
+    **on or after** the as-of IST business date
+  - **OPEN** is the repo's canonical open-obligation status set
+    `('scheduled','due','in_progress','deferred','missed')` — the same set behind
+    `obligation_instances_open_logical_due_idx`. It is **not** `'scheduled'` alone: the sweeper
+    flips `scheduled -> due` on the due business day, so a `'scheduled'`-only predicate drops every
+    currently-actionable obligation out of both the overdue and the scheduled bucket.
+  - Known residual: because the grain is ANIMAL, an animal carrying two obligations in different
+    buckets can appear in two buckets. The partition is exact at one-obligation-per-animal, the
+    grain every live vaccination drive uses.
 
 - **Active Batch Status (current drive scope, per park)**:
   - `targets`: `COUNT(DISTINCT animal_id)` assigned in current active `vaccination_drive_assignments` batch
@@ -497,11 +511,38 @@ Status: Implemented; grain and bucket definitions below.
   - `awaiting`: `COUNT(DISTINCT completion_id WHERE status='verification_pending')` from active batch animals
   - `overdue`: `COUNT(DISTINCT obligation_id WHERE status='overdue')` from active batch animals
 
-- **Cohort Pending Matrix (obligation grain, per stage×sex×vaccine, disjoint)**:
-  - Key: `(management_stage, sex, vaccine_label)` from obligation eligibility
+- **Cohort Submission Matrix (obligation grain, per farm×stage×sex×dose-qualified-vaccine, disjoint)**:
+  - Key: `(park_id, management_stage, sex, vaccine_label)` from obligation eligibility. Read
+    FARMWISE — the same cohort on two farms stays two cells.
   - `animal_count`: `COUNT(DISTINCT animal_id)` in cohort across open + completed obligations
-  - `pending_count`: `COUNT(DISTINCT obligation_id WHERE status IN ('scheduled', 'due'))` in cohort
-  - Each obligation counted once per its (stage, sex, vaccine) tuple
+  - **Three DISJOINT buckets**, partitioned by *who owes the next move*. Each obligation is counted
+    in at most one, and `pending + submitted + verified <=` the cell's obligation total:
+    - `pending_count` — the **OPERATOR** owes field work:
+      `COUNT(DISTINCT obligation_id WHERE NOT has_accepted AND NOT has_recorded_unverified AND
+      status IN ('scheduled','due','in_progress','deferred','missed') AND due business date <=
+      as-of business date)`
+    - `submitted_count` — the **VERIFIER** owes review:
+      `COUNT(DISTINCT obligation_id WHERE NOT has_accepted AND has_recorded_unverified)`
+    - `verified_count` — nobody owes anything:
+      `COUNT(DISTINCT obligation_id WHERE has_accepted)`
+  - **Why `pending_count` changed.** It used to be
+    `COUNT(DISTINCT obligation_id WHERE status IN ('scheduled', 'due'))` — a definition the query
+    implemented faithfully. But obligation status advances only on **VERIFICATION**, never on
+    submission, so a park whose every animal had been vaccinated and whose proof was submitted
+    produced a byte-identical matrix to a park nobody had touched. The page then showed
+    "40 awaiting verification" in the KPI row and "40 pending" in the matrix directly below it,
+    with no column reconciling the two, and a CEO could not tell that all 40 animals had in fact
+    been vaccinated. The query was conformant; the **definition** was the defect. `pending` now
+    means field work NOT DONE, and `submitted_count` is the reconciling column.
+  - **Cross-surface reconciliation with the KPI row on the same page** (same tenant/batch/park
+    filter): `SUM(submitted_count) == kpis.awaiting_verification`,
+    `SUM(verified_count) == kpis.doses_verified`,
+    `SUM(pending_count) == kpis.overdue_not_given + kpis.scheduled_ahead`.
+  - **Grain**: these buckets are **obligation** grain; the KPI row is **animal** grain. They agree
+    exactly at one-obligation-per-animal-per-vaccine, the grain every live drive uses. The matrix
+    stays obligation grain by design so a multi-vaccine animal is visible once per vaccine.
+  - Business-day grain, Asia/Kolkata, on both sides of the due-date comparison.
+  - Each obligation counted once per its (farm, stage, sex, vaccine) tuple
 
 - **Verification Queue (shed-scoped backlog, per shed×dose-rule, ordered by age)**:
   - Key: `(shed_id, dose_rule)` from SOP task + dose rule origin
@@ -509,6 +550,47 @@ Status: Implemented; grain and bucket definitions below.
   - `total_count`: `COUNT(DISTINCT completion_id WHERE status IN ('verification_pending', 'accepted', 'rejected'))` for shed×rule
   - `days_in_queue`: `DATEDIFF(current_business_date, MIN(created_date WHERE status='verification_pending'))` for oldest pending in shed×rule
   - Ordered: `days_in_queue DESC` (oldest first, most urgent)
+
+### GET /calendar/vaccination/events — park drive card summary
+
+Status: Implemented; buckets below.
+
+The drive card's `summary` counts are OBLIGATION grain and are read from the **same**
+`(park_id, due_date)` membership rows that decide the card's headline `status`, so counts and
+status can never disagree:
+
+- `scheduled_count`: open, **not submitted**, not deferred (the "still to do" bucket)
+- `review_count`: **submitted for verification** and not yet completed — an obligation COUNT, not a
+  boolean flag. It must never be derived from `obligation_batches.status`: a batch sitting in
+  `in_progress` while all its obligations are submitted made this render `0` under a
+  `verification_pending` headline, and simultaneously left the same animals inside
+  `scheduled_count`.
+- `deferred_count`: deferred and not submitted
+- `target_count`: roster size for the park-day; `scheduled_count`, `review_count` and
+  `deferred_count` are disjoint and must not be summed against `target_count` when completed work
+  exists (completed obligations are reported only in the optional `drive_summary` block).
+
+#### `drive_summary` — progress and remaining (one answer per question)
+
+Drive progress is **FIELD WORK DONE = completed + submitted** (maintainer decision 2026-08-03). An
+operator who vaccinated every animal and submitted proof sees **100%** and **"4 of 4 sheds done"**;
+the outstanding video review is carried by the `verification_pending` status/chip and
+`submitted_count`, never by holding the ring below 100%. The backend owns the single number;
+admin-web and Android render `progress_completed` / `progress_total` / `progress_pct` verbatim on
+the `progress_basis` grain and MUST NOT derive their own numerator.
+
+- Buckets (obligation grain, five disjoint, total):
+  `total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count`
+- `remaining_count` = **work still owed by the OPERATOR** =
+  `due_count + overdue_count + deferred_count` = `total_count - completed_count - submitted_count`.
+  It **excludes** submitted work, exactly like the progress numerator, so a fully submitted drive
+  reports `progress_pct: 100` **and** `remaining_count: 0`.
+- **Why `remaining_count` changed.** It was `total_count - completed_count`. Under the OLD
+  "progress = verified only" rule that agreed with the ring; after the progress-semantics decision
+  it did not, and one object shipped `progress_pct: 100` next to `remaining_count: 20`. A client
+  picking `remaining_count` for an "N left" label disagreed with the ring beside it — the same
+  cross-surface failure mode as the 200-vs-400 incident. A payload must never carry two
+  contradictory answers to "how much is left".
 
 **Contract**: See backend `VaccinationCommandBoardResponse` OpenAPI schema and generated TypeScript client in `lib/api/vaccination-command-board.ts`.
 

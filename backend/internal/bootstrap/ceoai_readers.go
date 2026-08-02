@@ -281,7 +281,7 @@ func buildVerificationReader(svc verificationQueueLister) func(ctx context.Conte
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Verification Item",
-				Value: fmt.Sprintf("Status: %s, Evidence Available: %v", item.Item.Status, item.EvidenceAvailable),
+				Value: fmt.Sprintf("Status: %s, Evidence Available: %v", item.Item.Status, item.EvidenceLinkResolved),
 				Scope: scope,
 			})
 		}

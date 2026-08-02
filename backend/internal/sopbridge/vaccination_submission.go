@@ -88,20 +88,6 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 ) error {
 	mediaRefs := make([]string, 0)
 	goatProofs := make(map[string]struct{})
-	hasGroupProof := false
-	for _, ref := range submission.ProofRefs {
-		if ref.ProofID == "" {
-			continue
-		}
-		mediaRefs = append(mediaRefs, ref.ProofID)
-		if strings.EqualFold(ref.SubjectType, "goat") && ref.SubjectID != nil && strings.TrimSpace(*ref.SubjectID) != "" {
-			goatProofs[strings.TrimSpace(*ref.SubjectID)] = struct{}{}
-			continue
-		}
-		if !strings.EqualFold(ref.SubjectType, "goat") {
-			hasGroupProof = true
-		}
-	}
 	byGoat := make(map[string]vaccinationdomain.SubmissionCompletion)
 	var earliest time.Time
 	var shedID *string
@@ -137,6 +123,46 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 	}
 	if len(byGoat) == 0 {
 		return ErrNoVaccinationCompletions
+	}
+	// P0 shed leak: the Android client posts a CUMULATIVE payload -- by the Nth shed submission of a
+	// shared parent task, submission.ProofRefs re-carries every earlier shed's goat proofs. The
+	// server already narrows sop_submission_items to goats whose goats.shed_id matches the
+	// submission's shed subject (sop/adapters/postgres.filterSubmissionItemsToProofSheds); the same
+	// membership rule MUST be applied here, or verification_items.media_refs shows a verifier three
+	// other sheds' animals as the evidence for this shed. `completions` IS the server-filtered
+	// membership, so scope client refs to it: goat-subject refs must name a goat in this
+	// submission's completions, shed-subject refs must name a shed those completions belong to.
+	// Refs without a resolvable subject stay (task-level group proof).
+	hasGroupProof := false
+	for _, ref := range submission.ProofRefs {
+		if ref.ProofID == "" {
+			continue
+		}
+		subjectID := ""
+		if ref.SubjectID != nil {
+			subjectID = strings.TrimSpace(*ref.SubjectID)
+		}
+		isGoatRef := strings.EqualFold(ref.SubjectType, "goat")
+		if isGoatRef {
+			// A goat proof with no subject cannot be attributed to this shed -- drop it rather than
+			// let an unattributable clip stand in as another shed's evidence.
+			if subjectID == "" {
+				continue
+			}
+			if _, ok := byGoat[subjectID]; !ok {
+				continue
+			}
+			mediaRefs = append(mediaRefs, ref.ProofID)
+			goatProofs[subjectID] = struct{}{}
+			continue
+		}
+		if strings.EqualFold(ref.SubjectType, "shed") && subjectID != "" && len(shedLabels) > 0 {
+			if _, ok := shedLabels[subjectID]; !ok {
+				continue
+			}
+		}
+		mediaRefs = append(mediaRefs, ref.ProofID)
+		hasGroupProof = true
 	}
 	mediaRefs = uniqueStrings(mediaRefs)
 	if len(mediaRefs) == 0 {

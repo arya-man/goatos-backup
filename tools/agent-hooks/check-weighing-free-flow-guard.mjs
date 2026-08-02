@@ -9,7 +9,7 @@
 // See context/repo-audits/weighing-implementation-do-not-reopen-ledger.md (A-6, B-4, C-3)
 // and docs/features/weighing/TRD.md.
 //
-// Fails on TEN failure modes across weighing backend code
+// Fails on THIRTEEN failure modes across weighing backend code
 // (backend/internal/weighing/**, backend/migrations/postgres/*weighing*.sql),
 // the Android weighing write-request DTOs (apps/goatos-android/**), and the
 // weighing UI surfaces (Android Compose screens + admin-web weighing pages):
@@ -48,11 +48,30 @@
 //      computes a ratio against an expected/roster count (`x/expectedCount`-shaped division, a
 //      literal `N/N`, or a literal `/100`). Weighing has no expected-animal denominator; progress
 //      is reported only as plain counts.
+//  11. observations-animal-id-* — the weighing_observations.animal_id column itself must never
+//      exist again. This is stricter than mode 2 (which only forbids re-adding NOT NULL): the
+//      column was outright DROPPED by 000078_weighing_observations_drop_animal_id.sql (maintainer
+//      decision 2026-08-03 — "not good enough that animal_id is dead but harmless. Delete it."),
+//      so a migration after 000078 may never re-add it in any form
+//      (observations-animal-id-column-reintroduced), no weighing SQL string may reference
+//      weighing_observations together with animal_id (observations-animal-id-column-referenced),
+//      and no weighing Go struct outside the weighing_expected_animals roster catalog
+//      (ExpectedAnimal, rosterCursor) may declare an AnimalID field tagged `json:"animal_id"`
+//      (observations-animal-id-field-reintroduced).
+//  12. expected-animals-table-reintroduced — weighing_expected_animals (the SECOND expected-set/
+//      herd-roster model — CreateCampaign/UpdateCampaign populating it from goats +
+//      herd_register_is_kid, ListScopeRoster joining it to goats/goat_identifiers, a dead
+//      RefreshAvailability writing goats.health_status/lifecycle_status into it) was DROPPED
+//      OUTRIGHT by 000079_weighing_drop_expected_animals_table.sql (free-flow mandate,
+//      2026-08-03 — "delete it entirely"). A migration after 000079 may never CREATE this table
+//      again.
+//  13. expected-animals-table-referenced — no live (non-comment) weighing Go code anywhere in the
+//      module may reference weighing_expected_animals at all: the table does not exist.
 //
 // Modes:
 //   (default)     scan the real weighing backend tree + weighing migrations + Android/admin-web
 //                 weighing surfaces.
-//   --self-test   run adversarial good/bad fixtures for all ten failure modes and exit.
+//   --self-test   run adversarial good/bad fixtures for all eleven failure modes and exit.
 //
 // Blind spots (native Grep/Read must still catch these): dynamically built SQL strings
 // (string concatenation/fmt.Sprintf assembling table names), reflection-based query builders,
@@ -367,6 +386,156 @@ export function findingsForMigrationSource(rel, sql) {
       });
     }
   }
+
+  // Failure mode 11: the weighing_observations.animal_id column must never come
+  // back, in any migration AFTER the one that dropped it. It was removed
+  // outright by 000078_weighing_observations_drop_animal_id.sql (maintainer
+  // decision 2026-08-03, following the 2026-07-31 decision that first made it
+  // a permanently-NULL no-op): "not good enough that animal_id is dead but
+  // harmless. Delete it." A later migration re-adding the column — via a fresh
+  // CREATE TABLE, an ADD COLUMN, or any other DDL that leaves
+  // weighing_observations.animal_id existing at the end of this file's Up
+  // section — must fail the build.
+  //
+  // Gated to version > 78: migrations 000006/000007 (and any other pre-000078
+  // file) legitimately CREATED and then nullable-ified this column before it
+  // existed to drop, and must not be flagged for their own history. DROP
+  // COLUMN is explicitly exempt within 000078 itself (that is the state this
+  // rule protects), and 000078's own Down section (a documented, reviewed
+  // rollback) is exempt because upSection() already strips Down.
+  const versionMatch = /^(\d+)_/.exec(rel.split("/").pop() || "");
+  const version = versionMatch ? parseInt(versionMatch[1], 10) : 0;
+  if (version > 78) {
+    const withoutDrops = up.replace(/DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?animal_id\b/gi, "");
+    const reintroducesColumn =
+      /\bweighing_observations\b[\s\S]{0,2000}?\b(?:ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?animal_id\b|animal_id\s+uuid\b)/i.test(
+        withoutDrops,
+      );
+    if (reintroducesColumn) {
+      findings.push({
+        rule: "observations-animal-id-column-reintroduced",
+        message: `${rel}: Up section adds an animal_id column back onto weighing_observations — this column was deliberately dropped (000078_weighing_observations_drop_animal_id.sql) and must never exist on this table again`,
+      });
+    }
+  }
+
+  // Failure mode 12: weighing_expected_animals -- the second expected-set model
+  // (the herd/goats-linked roster catalog) -- was DROPPED OUTRIGHT by
+  // 000079_weighing_drop_expected_animals_table.sql (free-flow mandate,
+  // 2026-08-03: "delete it entirely" so the second model can never be selected
+  // again). Any LATER migration that CREATEs this table back must fail the
+  // build. 000079's OWN Down section legitimately recreates the empty table
+  // shape for rollback safety (schema only, no data — see that file's Down
+  // header) and is exempt, exactly like mode 11's exemption for 000078's own
+  // Down section.
+  // Gated to version > 79 for the same reason mode 11 gates on > 78: migration
+  // 000006 legitimately CREATED this table long before 000079 dropped it, and
+  // must not be flagged for its own history.
+  if (
+    version > 79 &&
+    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?weighing_expected_animals\b/i.test(up)
+  ) {
+    findings.push({
+      rule: "expected-animals-table-reintroduced",
+      message: `${rel}: Up section CREATEs weighing_expected_animals — this table was DROPPED OUTRIGHT (000079_weighing_drop_expected_animals_table.sql, free-flow mandate) because it was the second expected-set/herd-roster model that kept reintroducing herd coupling. It must never exist again; weighing has no expected set by definition.`,
+    });
+  }
+  return findings;
+}
+
+// Failure mode 13: weighing_expected_animals must not be referenced by any live
+// (non-comment) Go code anywhere in the weighing tree — not a query, not a Go
+// type, not a struct field, nothing. The table itself is gone
+// (000079_weighing_drop_expected_animals_table.sql); a reference to it in code
+// is either a compile-time-dead pointer at a nonexistent table or, worse, the
+// first line of code trying to bring the second expected-set model back.
+// Comments are explicitly allowed (and expected — the deletion is documented
+// inline throughout the write path) via stripComments().
+export function findingsForGoSourceExpectedAnimalsTableGone(rel, source) {
+  const findings = [];
+  const stripped = stripComments(source);
+  const lines = stripped.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (/\bweighing_expected_animals\b/i.test(lines[i])) {
+      findings.push({
+        rule: "expected-animals-table-referenced",
+        message: `${rel}:${i + 1}: references \`weighing_expected_animals\` in live code — this table was DROPPED OUTRIGHT (000079_weighing_drop_expected_animals_table.sql). Weighing has no expected set; this table must never be read, written, or joined again.`,
+      });
+    }
+  }
+  return findings;
+}
+
+// Failure mode 11b: no weighing Go source may select, filter, insert, or scan
+// weighing_observations.animal_id, and no weighing struct may declare an
+// AnimalID field carrying an `animal_id` JSON/db tag. The column does not
+// exist (dropped by 000078_weighing_observations_drop_animal_id.sql); a
+// caller/struct that still names it is either dead code pointing at a
+// nonexistent column (Go compile failure) or, worse, a reintroduction of the
+// exact coupling this guard exists to prevent.
+//
+// Scoped to weighing_observations specifically: weighing_expected_animals.
+// animal_id is a DIFFERENT table (the planner/roster catalog's own join to
+// goats for population counts and roster display, out of this guard's scope
+// per 000078's own migration header) and must not be flagged here.
+const OBSERVATIONS_ANIMAL_ID_STRUCT_FIELD_RE = /\bAnimalID\s+\*?string\s+`[^`]*json:"animal_id/;
+
+// Structs that legitimately own weighing_expected_animals.animal_id -- the
+// planner/roster catalog's own join to goats, a DIFFERENT table from
+// weighing_observations and out of this rule's scope (see the migration
+// header on 000078_weighing_observations_drop_animal_id.sql). Every other
+// weighing struct is fair game: if a future struct needs a roster-identity
+// field too, add it here deliberately rather than have this guard silently
+// stop checking everything.
+const OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS = new Set(["ExpectedAnimal", "rosterCursor"]);
+
+// Struct bodies, keyed by type name, via brace counting (Go struct field types
+// can themselves contain braces -- map[string]struct{} -- so a non-greedy
+// regex up to the first `}` is not safe here).
+function structBodies(source) {
+  const out = [];
+  const re = /\btype\s+(\w+)\s+struct\s*\{/g;
+  let m;
+  while ((m = re.exec(source)) !== null) {
+    let depth = 1;
+    let i = m.index + m[0].length;
+    while (i < source.length && depth > 0) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}") depth--;
+      i++;
+    }
+    out.push({ name: m[1], body: source.slice(m.index + m[0].length, i - 1) });
+  }
+  return out;
+}
+
+export function findingsForGoSourceObservationsAnimalId(rel, source) {
+  const findings = [];
+  const body = stripComments(source);
+  // Scan each string-literal SQL block individually so the proximity window
+  // stays tight to one query rather than spanning unrelated code between two
+  // functions in the same file.
+  const stringLiteralRe = /`([^`]*)`/g;
+  let sm;
+  while ((sm = stringLiteralRe.exec(body)) !== null) {
+    const literal = sm[1];
+    if (/\bweighing_observations\b/i.test(literal) && /\banimal_id\b/i.test(literal)) {
+      findings.push({
+        rule: "observations-animal-id-column-referenced",
+        message: `${rel}: a SQL string references weighing_observations together with animal_id — that column was dropped (000078_weighing_observations_drop_animal_id.sql) and must not be selected, inserted, or filtered on`,
+      });
+      break;
+    }
+  }
+  for (const { name, body: structBody } of structBodies(body)) {
+    if (OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS.has(name)) continue;
+    if (OBSERVATIONS_ANIMAL_ID_STRUCT_FIELD_RE.test(structBody)) {
+      findings.push({
+        rule: "observations-animal-id-field-reintroduced",
+        message: `${rel}: struct ${name} declares an AnimalID field with an "animal_id" tag — weighing_observations has no animal_id column and no weighing struct outside the roster catalog (${[...OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS].join(", ")}) may carry one`,
+      });
+    }
+  }
   return findings;
 }
 
@@ -525,6 +694,8 @@ function run() {
     const source = readFileSync(resolve(repo, rel), "utf8");
     for (const f of findingsForGoSource(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
     for (const f of findingsForGoSourceStructTags(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+    for (const f of findingsForGoSourceObservationsAnimalId(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+    for (const f of findingsForGoSourceExpectedAnimalsTableGone(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
   }
   for (const rel of migrationFiles) {
     const source = readFileSync(resolve(repo, rel), "utf8");
@@ -972,7 +1143,154 @@ private fun rosterSheetSubtitle(visibleCount: Int, totalExpected: Int): String =
     throw new Error("self-test failed: mode 10 false positive on an unrelated division");
   }
 
-  console.log("weighing-free-flow guard: self-test passed (10/10 failure modes + 3 demonstrated bypasses)");
+  // Mode 11: weighing_observations.animal_id must never come back.
+  //
+  // 11a: a migration AFTER 000078 re-adding the column.
+  const badMigration11a = `-- +goose Up
+ALTER TABLE public.weighing_observations
+  ADD COLUMN IF NOT EXISTS animal_id uuid REFERENCES public.goats(goat_id);
+-- +goose Down
+ALTER TABLE public.weighing_observations DROP COLUMN IF EXISTS animal_id;
+`;
+  const findings11a = findingsForMigrationSource(
+    "000079_reintroduce_animal_id.sql",
+    badMigration11a,
+  );
+  if (!findings11a.some((f) => f.rule === "observations-animal-id-column-reintroduced")) {
+    throw new Error(`self-test failed: mode 11a (migration re-adds column) not flagged. got: ${JSON.stringify(findings11a)}`);
+  }
+  // GOOD: 000078 itself dropping the column must NOT fire (it is the migration this
+  // rule protects, and its Down section legitimately re-adds the column as a
+  // documented rollback).
+  const goodMigration11a = `-- +goose Up
+ALTER TABLE public.weighing_observations DROP COLUMN IF EXISTS animal_id;
+-- +goose Down
+ALTER TABLE public.weighing_observations
+  ADD COLUMN IF NOT EXISTS animal_id uuid REFERENCES public.goats(goat_id);
+`;
+  if (
+    findingsForMigrationSource("000078_weighing_observations_drop_animal_id.sql", goodMigration11a).some(
+      (f) => f.rule === "observations-animal-id-column-reintroduced",
+    )
+  ) {
+    throw new Error("self-test failed: mode 11a false positive on 000078's own drop-then-rollback-in-Down shape");
+  }
+  // GOOD: 000006/000007 (pre-000078 history) creating/nullable-ifying the column
+  // must NOT fire -- that history is not a reintroduction.
+  const goodMigration11aHistory = `-- +goose Up
+ALTER TABLE public.weighing_observations ALTER COLUMN animal_id DROP NOT NULL;
+-- +goose Down
+ALTER TABLE public.weighing_observations ALTER COLUMN animal_id SET NOT NULL;
+`;
+  if (
+    findingsForMigrationSource("000007_weighing_free_flow_scanned_identifier.sql", goodMigration11aHistory).some(
+      (f) => f.rule === "observations-animal-id-column-reintroduced",
+    )
+  ) {
+    throw new Error("self-test failed: mode 11a false positive on pre-000078 history");
+  }
+
+  // 11b: a weighing SQL string still referencing weighing_observations.animal_id.
+  const badGoSource11b = `
+func (r *Repository) getObservation(ctx context.Context, tx pgx.Tx, id string) (domain.Observation, error) {
+  return tx.QueryRow(ctx, ` +
+    "`SELECT observation_id, animal_id FROM weighing_observations WHERE observation_id=$1`" +
+    `, id)
+}
+`;
+  const findings11b = findingsForGoSourceObservationsAnimalId("fake.go", badGoSource11b);
+  if (!findings11b.some((f) => f.rule === "observations-animal-id-column-referenced")) {
+    throw new Error(`self-test failed: mode 11b (SQL string) not flagged. got: ${JSON.stringify(findings11b)}`);
+  }
+  // GOOD: weighing_expected_animals.animal_id (the roster catalog's own table) must NOT fire.
+  const goodGoSource11b = `
+func (r *Repository) rosterRow(ctx context.Context, tx pgx.Tx) error {
+  _, err := tx.Query(ctx, ` +
+    "`SELECT animal_id FROM weighing_expected_animals WHERE campaign_id=$1`" +
+    `)
+  return err
+}
+`;
+  if (findingsForGoSourceObservationsAnimalId("fake.go", goodGoSource11b).length) {
+    throw new Error("self-test failed: mode 11b false positive on weighing_expected_animals.animal_id");
+  }
+
+  // 11c: a weighing struct declaring an AnimalID field tagged animal_id.
+  const badStruct11c = `
+type Observation struct {
+	ObservationID string ` + "`json:\"observation_id\"`" + `
+	AnimalID      string ` + "`json:\"animal_id,omitempty\"`" + `
+}
+`;
+  const findings11c = findingsForGoSourceObservationsAnimalId("fake.go", badStruct11c);
+  if (!findings11c.some((f) => f.rule === "observations-animal-id-field-reintroduced")) {
+    throw new Error(`self-test failed: mode 11c (struct field) not flagged. got: ${JSON.stringify(findings11c)}`);
+  }
+  // GOOD: ExpectedAnimal (the roster catalog struct) keeping AnimalID must NOT fire.
+  const goodStruct11c = `
+type ExpectedAnimal struct {
+	AnimalID string ` + "`json:\"animal_id\"`" + `
+}
+`;
+  if (findingsForGoSourceObservationsAnimalId("fake.go", goodStruct11c).length) {
+    throw new Error("self-test failed: mode 11c false positive on the allowed ExpectedAnimal roster struct");
+  }
+
+  // 12: a migration (other than 000079's own Down-exempt Up section) CREATEs
+  // weighing_expected_animals back.
+  const badMigration12 = `-- +goose Up
+CREATE TABLE IF NOT EXISTS public.weighing_expected_animals (
+  campaign_id uuid NOT NULL,
+  animal_id uuid
+);
+-- +goose Down
+DROP TABLE IF EXISTS public.weighing_expected_animals;
+`;
+  const findings12 = findingsForMigrationSource("000080_reintroduce.sql", badMigration12);
+  if (!findings12.some((f) => f.rule === "expected-animals-table-reintroduced")) {
+    throw new Error(`self-test failed: mode 12 not flagged. got: ${JSON.stringify(findings12)}`);
+  }
+  // GOOD: 000079's own file recreates the table ONLY in its Down section (schema-only
+  // rollback), and upSection() strips Down before this rule ever sees it, so it must not fire.
+  const goodMigration12 = `-- +goose Up
+DROP TABLE IF EXISTS public.weighing_expected_animals;
+-- +goose Down
+CREATE TABLE IF NOT EXISTS public.weighing_expected_animals (
+  campaign_id uuid NOT NULL,
+  animal_id uuid
+);
+`;
+  if (
+    findingsForMigrationSource("000079_weighing_drop_expected_animals_table.sql", goodMigration12).some(
+      (f) => f.rule === "expected-animals-table-reintroduced",
+    )
+  ) {
+    throw new Error("self-test failed: mode 12 false positive on 000079's own Up/Down shape");
+  }
+
+  // 13: any live (non-comment) Go reference to weighing_expected_animals anywhere in
+  // the weighing tree, not just the write path — the table does not exist at all.
+  const badGo13 = `
+func (r *Repository) leftoverRosterRead(ctx context.Context, tenantID string) error {
+	_, err := r.pool.Query(ctx, "SELECT animal_id FROM weighing_expected_animals WHERE tenant_id=$1", tenantID)
+	return err
+}
+`;
+  const findings13 = findingsForGoSourceExpectedAnimalsTableGone("fake.go", badGo13);
+  if (!findings13.some((f) => f.rule === "expected-animals-table-referenced")) {
+    throw new Error(`self-test failed: mode 13 not flagged. got: ${JSON.stringify(findings13)}`);
+  }
+  // GOOD: a comment documenting the deletion must not fire.
+  const goodGo13 = `
+// weighing_expected_animals was DROPPED (migration 000079); there is no
+// roster table left for this write to touch.
+func (r *Repository) noop(ctx context.Context) error { return nil }
+`;
+  if (findingsForGoSourceExpectedAnimalsTableGone("fake.go", goodGo13).length) {
+    throw new Error("self-test failed: mode 13 false positive on a comment-only mention");
+  }
+
+  console.log("weighing-free-flow guard: self-test passed (13/13 failure modes + 3 demonstrated bypasses)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file

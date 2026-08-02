@@ -289,7 +289,11 @@ data class WeighingObservationDto(
     @SerialName("observation_id") val observationId: String = "",
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("campaign_shed_id") val campaignShedId: String? = null,
+    // animal_id is a legacy/optional field the backend is retiring (free-flow weighing has no
+    // expected-animal identity). scanned_identifier is the real free-flow identity and must be
+    // preferred everywhere this DTO is rendered; see scannedIdentifier below.
     @SerialName("animal_id") val animalId: String? = null,
+    @SerialName("scanned_identifier") val scannedIdentifier: String? = null,
     @SerialName("weight_kg") val weightKg: Double = 0.0,
     @SerialName("average_weight_kg") val averageWeightKg: Double = 0.0,
     @SerialName("animal_count") val animalCount: Int = 0,

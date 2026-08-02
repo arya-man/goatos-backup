@@ -34,8 +34,8 @@ func seedLeadershipObservations(t *testing.T, ctx context.Context, pool *pgxpool
 	t.Helper()
 	for i := 0; i < n; i++ {
 		execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, $6, 10.0, $4::uuid, $5::uuid, $7, $8::timestamptz)`,
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $6, 10.0, $4::uuid, $5::uuid, $7, $8::timestamptz)`,
 			repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator,
 			fmt.Sprintf("page-tag-%03d", i), fmt.Sprintf("paging:%03d", i),
 			base.Add(time.Duration(i)*time.Second))
@@ -45,7 +45,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, $6, 10.0, $4::uuid, $5::uuid, $7, $8
 func leadershipTags(page domain.LeadershipShedVideos) []string {
 	out := make([]string, 0, len(page.Individual))
 	for _, observation := range page.Individual {
-		out = append(out, observation.AnimalID)
+		out = append(out, observation.ScannedIdentifier)
 	}
 	return out
 }
@@ -119,8 +119,8 @@ func TestGetLeadershipShedVideosCursorIsStableWhenARowLandsMidPage(t *testing.T)
 
 	// A fresh capture arrives between the two reads.
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'page-tag-late', 11.5, $4::uuid, $5::uuid, 'paging:late', $6::timestamptz)`,
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'page-tag-late', 11.5, $4::uuid, $5::uuid, 'paging:late', $6::timestamptz)`,
 		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator, base.Add(500*time.Second))
 
 	second, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, first.NextIndividualCursor, 10)
@@ -134,9 +134,9 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, 'page-tag-late', 11.5, $4::uuid, $5:
 			}
 		}
 	}
-	if second.Individual[0].AnimalID != "page-tag-010" {
+	if second.Individual[0].ScannedIdentifier != "page-tag-010" {
 		t.Fatalf("second page starts at %s, want page-tag-010 — the insert shifted the window",
-			second.Individual[0].AnimalID)
+			second.Individual[0].ScannedIdentifier)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestGetLeadershipShedVideosBreaksTiesOnObservationID(t *testing.T) {
 	same := time.Date(2026, 7, 29, 5, 0, 0, 0, time.UTC)
 	for i := 0; i < 4; i++ {
 		execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, animal_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, NULL, $6, 10.0, $4::uuid, $5::uuid, $7, $8::timestamptz)`,
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $6, 10.0, $4::uuid, $5::uuid, $7, $8::timestamptz)`,
 			repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator,
 			fmt.Sprintf("tie-%d", i), fmt.Sprintf("tie:%d", i), same)
 	}

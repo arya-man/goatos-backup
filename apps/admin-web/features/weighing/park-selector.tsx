@@ -10,6 +10,12 @@ export function ParkSelector({ planner }: { planner: WeighingPlanner }) {
   const handleParkChange = (parkId: string) => {
     const params = new URLSearchParams(searchParams);
     params.set("park", parkId);
+    // A campaign (and its week) belongs to the park it was created under. Switching
+    // parks must never carry a stale campaign/week selection into the new park's view
+    // (W14) -- the server re-derives the correct campaign-less/edit state from the
+    // park alone.
+    params.delete("campaign");
+    params.delete("week");
     router.push(`?${params.toString()}`);
   };
 

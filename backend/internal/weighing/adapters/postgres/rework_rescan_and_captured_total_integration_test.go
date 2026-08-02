@@ -300,14 +300,10 @@ func TestCampaignCapturedTotalCountsFreeFlowScansWithZeroExpectedAnimalRows(t *t
 	lcpInsertCampaign(t, ctx, pool, campaignID, repoPark, "2026-08-10", domain.StatusPublished, repoOperator)
 	lcpInsertBucket(t, ctx, pool, bucketID, campaignID, repoExpectedShed, domain.CategoryIndividualAnimal, repoOperator, 0, "pending")
 
-	var expectedAnimalRows int
-	if err := pool.QueryRow(ctx, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, campaignID).Scan(&expectedAnimalRows); err != nil {
-		t.Fatalf("read expected-animal row count: %v", err)
-	}
-	if expectedAnimalRows != 0 {
-		t.Fatalf("fresh campaign %s already carries %d expected-animal rows, want 0 for this regression", campaignID, expectedAnimalRows)
-	}
-
+	// FREE-FLOW: the weighing_expected_animals table was DROPPED (migration
+	// 000079) -- there is no expected-animal roster to assert zero rows in.
+	// Free-flow has no expected set by construction; this regression is now
+	// proven purely by the capture/list assertions below.
 	const capturedCount = 8
 	for i := 0; i < capturedCount; i++ {
 		tag := "b15-freeflow-" + string(rune('a'+i))

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1622,15 +1623,35 @@ func hasVaccinationExecutionAuthorityTenantWide(grants []permissions.ActiveGrant
 // (no restriction). Unlike the old HasTenantWideGrant check, this properly verifies that
 // the tenant-wide grant carries a vaccination-relevant role.
 // A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+// vaccinationExecutionParkCapabilities are the capabilities that make a park-scoped grant
+// relevant to vaccination execution: an operator's own TaskExecute authority (they scan/submit
+// their assigned shed's roster and reschedule their own obligations) and a director/park-head's
+// read-only VaccinationOverseeExecution oversight authority. A grant's park counts toward the
+// authorized set ONLY if that SAME grant's role carries one of these -- an unrelated grant (say,
+// a growth_director weighing grant) in a park must never leak vaccination-execution access there.
+var vaccinationExecutionParkCapabilities = []string{permissions.TaskExecute, permissions.VaccinationOverseeExecution}
+
 func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
 		return nil
 	}
-	parks := httpmiddleware.AuthorizedParkIDs(grants)
-	if parks == nil {
-		return []string{}
+	// Capability-aware: only count a grant's park if that SAME grant's role carries one of
+	// vaccinationExecutionParkCapabilities. AuthorizedParkIDs (capability-blind) would let an
+	// actor combine an unrelated park-A grant with a vaccination-relevant grant scoped to park
+	// B to see/act on park A's vaccination execution data too.
+	seen := map[string]struct{}{}
+	parks := []string{}
+	for _, capability := range vaccinationExecutionParkCapabilities {
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			parks = append(parks, parkID)
+		}
 	}
+	sort.Strings(parks)
 	return parks
 }
 

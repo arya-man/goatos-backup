@@ -113,9 +113,6 @@
     <string name="weighing_tab_done">पूर्ण</string>
     <string name="weighing_tab_pending">बाकी</string>
     <string name="weighing_tab_proof">प्रमाण</string>
-    <string name="weighing_expected_shed_fmt">अपेक्षित: %1$s</string>
-    <string name="weighing_current_shed_fmt">मौजूदा: %1$s</string>
-    <string name="weighing_wrong_shed">ग़लत शेड</string>
     <string name="weighing_proof_ready">प्रमाण तैयार</string>
     <string name="weighing_proof_required">प्रमाण ज़रूरी</string>
     <string name="weighing_ready">तैयार</string>

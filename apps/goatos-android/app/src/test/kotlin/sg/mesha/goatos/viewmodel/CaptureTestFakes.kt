@@ -154,6 +154,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val fieldKey: String,
         val subject: ProofSubject,
         val subjectId: String?,
+        // Free-flow weighing does NOT resolve an RFID tag to an animal id, so its proof rows carry
+        // subjectId = null and identify the animal by CAPTION (the scanned tag). Attribution tests
+        // for that module need the caption, not just the subject id.
+        val caption: String?,
         val localUri: String,
         val capturedStartMs: Long,
         val capturedEndMs: Long,
@@ -187,7 +191,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> {
-        captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
         // because the whole shed is the proof subject.

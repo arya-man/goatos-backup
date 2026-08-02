@@ -2,6 +2,8 @@ package local
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/proof/domain"
+	"github.com/vgoats/goatos/backend/internal/proof/ports"
 )
 
 const (
@@ -79,5 +82,49 @@ func TestLocalPathStaysInsideBaseDir(t *testing.T) {
 	}
 	if _, err := storage.Store(context.Background(), domain.Artifact{ObjectKey: "../../escape.mp4"}, strings.NewReader("proof"), "video/mp4"); err == nil {
 		t.Fatal("Store accepted an escaping object key")
+	}
+}
+
+// A relocated/absent media root must surface as the terminal ErrObjectMissing class, never as a
+// raw *fs.PathError that the HTTP boundary would classify as an unexpected 500.
+func TestOpenMissingObjectReturnsErrObjectMissing(t *testing.T) {
+	storage := New(t.TempDir(), "local-proof-secret")
+	proof := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/gone.mp4",
+	}
+
+	reader, err := storage.Open(context.Background(), proof)
+	if err == nil {
+		reader.Close()
+		t.Fatal("Open() on a missing object returned no error")
+	}
+	if !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("Open() error = %v, want ports.ErrObjectMissing", err)
+	}
+}
+
+func TestOpenPresentObjectStreams(t *testing.T) {
+	dir := t.TempDir()
+	storage := New(dir, "local-proof-secret")
+	proof := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/present.mp4",
+		MimeType:  "video/mp4",
+	}
+	if _, err := storage.Store(context.Background(), proof, strings.NewReader("bytes"), "video/mp4"); err != nil {
+		t.Fatalf("Store() error = %v", err)
+	}
+
+	reader, err := storage.Open(context.Background(), proof)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer reader.Close()
+	got, err := io.ReadAll(reader)
+	if err != nil || string(got) != "bytes" {
+		t.Fatalf("read = %q err = %v", got, err)
 	}
 }

@@ -440,22 +440,55 @@ func (g *Gateway) sendFCMWithResult(ctx context.Context, request domain.Request)
 	return ports.DeliveryResult{ProviderMessageID: strings.TrimSpace(acknowledgement.Name)}, nil
 }
 
+// isInvalidFCMRecipientResponse reports whether err signals that the FCM RECIPIENT itself is
+// permanently dead -- never whether the request payload was malformed. This distinction is load
+// bearing: FCM returns HTTP 400 INVALID_ARGUMENT both for a dead/malformed registration token AND
+// for a well-formed token but a bad *message* (wrong field, bad data block, oversized payload). A
+// bug in OUR payload construction produces the exact same "notification webhook status 400
+// ... invalid_argument" text for every recipient in the fleet. Treating bare INVALID_ARGUMENT as a
+// dead-token signal previously caused SuppressInvalidRecipient to mass-revoke every addressed
+// device on a single bad push (see P0 device-lockout incident): a payload bug looked identical to
+// every recipient being unregistered.
+//
+// Only two classes of signal may suppress a recipient:
+//  1. UNREGISTERED / NOT_REGISTERED (FCM's own errorCode for "this token is gone" -- HTTP 404 or
+//     400, unambiguous, provider-defined) -- see
+//     https://firebase.google.com/docs/reference/fcm/rest/v1/ErrorCode
+//  2. A message body that explicitly names the TOKEN as invalid ("registration token is not a
+//     valid fcm registration token", or the errorCode detail spelled
+//     "invalid-registration-token"/"registration-token-not-registered"), i.e. FCM is talking about
+//     the token, not the envelope.
+//
+// A bare "invalid_argument" / "invalid argument" with no token-specific wording is AMBIGUOUS by
+// design -- it is exactly as likely to be our payload bug as a dead token -- and per the fix
+// contract for this bug class, ambiguous signals must NOT suppress. Callers must instead log it as
+// a send/payload error and leave the device row untouched.
 func isInvalidFCMRecipientResponse(err error) bool {
 	if err == nil {
 		return false
 	}
 	text := strings.ToLower(err.Error())
-	return (strings.Contains(text, "notification webhook status 404") ||
-		strings.Contains(text, "notification webhook status 400")) &&
-		(strings.Contains(text, "notregistered") ||
-			strings.Contains(text, "unregistered") ||
-			strings.Contains(text, "registration-token-not-registered") ||
-			// A malformed / unparseable target is permanent too: no amount of retrying repairs it.
-			strings.Contains(text, "invalid_argument") ||
-			strings.Contains(text, "invalid argument") ||
-			strings.Contains(text, "invalid registration token") ||
-			strings.Contains(text, "invalid-registration-token") ||
-			strings.Contains(text, "invalid-argument"))
+	isFCMError := strings.Contains(text, "notification webhook status 404") ||
+		strings.Contains(text, "notification webhook status 400")
+	if !isFCMError {
+		return false
+	}
+	// Unambiguous: FCM's own "this token no longer exists" signal.
+	if strings.Contains(text, "notregistered") ||
+		strings.Contains(text, "unregistered") ||
+		strings.Contains(text, "registration-token-not-registered") {
+		return true
+	}
+	// Unambiguous: the error text names the TOKEN specifically, not just the request envelope.
+	if strings.Contains(text, "invalid registration token") ||
+		strings.Contains(text, "invalid-registration-token") ||
+		strings.Contains(text, "not a valid fcm registration token") ||
+		strings.Contains(text, "registration token is not valid") {
+		return true
+	}
+	// Everything else -- including bare "invalid_argument" / "invalid argument" -- is ambiguous
+	// (could be a payload/envelope bug affecting every recipient) and must NOT suppress.
+	return false
 }
 
 // minDeviceTokenLength is a conservative floor for a real device registration token (live tokens run

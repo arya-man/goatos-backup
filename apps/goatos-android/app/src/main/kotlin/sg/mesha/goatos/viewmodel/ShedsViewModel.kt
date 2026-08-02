@@ -569,10 +569,22 @@ private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
         sopStatus.equals("needs_review", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)
 
+/**
+ * Overdue-ness is BACKEND-OWNED: `workState` already carries `overdue`/`missed`
+ * (vaccinationexecution/app/service.go compares dueAt to as_of and, crucially, returns
+ * verification_pending BEFORE it can ever return overdue). The local date comparison
+ * below is only a stale-cache safety net for rows served from Room whose workState was
+ * computed against an older as_of.
+ *
+ * That net must carry the same submission term the backend uses — and that the calendar
+ * `canonical_read.go` genuine_overdue predicate uses: work that has been SUBMITTED and is
+ * awaiting verification is not late. Dropping that term is what painted a red "Overdue"
+ * chip next to "In review" on already-submitted sheds after the IST midnight rollover.
+ */
 private fun VaccinationExecutionRowDto.isOverdueWork(): Boolean {
     val work = workState.lowercase()
     if (work.contains("overdue") || work.contains("missed")) return true
-    if (isFinalClosed()) return false
+    if (isFinalClosed() || isVerificationPending()) return false
     val scheduleDate = currentScheduleDate
         ?.takeIf { it.isNotBlank() }
         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }

@@ -141,7 +141,6 @@ type Repository interface {
 	// records itself distinguishably so it can never read as a verified close.
 	AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
-	RefreshAvailability(ctx context.Context, tenantID, campaignID string) error
 	// CampaignParkID resolves the park a campaign runs in. It exists because the park is the
 	// ROUTING key of a weighing verification item (the notification consumer resolves the park's
 	// verify-duty holders from it), while an observation row itself only knows its shed. One

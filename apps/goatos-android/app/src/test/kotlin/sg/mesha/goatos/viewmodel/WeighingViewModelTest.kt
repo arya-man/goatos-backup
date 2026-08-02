@@ -25,6 +25,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
@@ -88,11 +89,7 @@ class WeighingViewModelTest {
                     id = "row-1",
                     animalId = "901007000504407",
                     displayAnimalId = "901007000504407",
-                    expectedLocationLabel = "Kid Shed B",
-                    actualLocationLabel = null,
                     status = "Scanned",
-                    availabilityStatus = null,
-                    wrongShed = false,
                     weightSaved = true,
                     proofUploadStatus = ProofUploadStatus.SYNCED,
                     backendSynced = false,
@@ -236,6 +233,54 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         assertFalse(vm.state.value.visibleRows.any { it.weightUpdating })
+    }
+
+    /**
+     * The per-row weight save must bind the weight to the ROW it was typed against, not to whatever
+     * tag the shared scan box happens to be holding.
+     *
+     * recordIndividualRow built its capture with `scannedIdentifier = scanInput.value.ifBlank {
+     * row.primaryTag }`. scanInput is a single ViewModel-wide field written by every scan and by
+     * the typed-scan box; the per-row save path deliberately runs WITHOUT the global busy gate
+     * (`useGlobalBusyGate = false`), so nothing holds that field still while the save is dispatched.
+     * The operator scans the next animal, then goes back and saves the weight for the previous row:
+     * that row's weight leaves the phone under the OTHER animal's tag.
+     *
+     * The backend cannot catch this. RecordAnimalObservation clears AnimalID outright and takes
+     * scanned_identifier verbatim (service.go:419-426) -- free-flow has no roster to cross-check
+     * against, so the client's binding IS the record.
+     */
+    @Test
+    fun `per-row weight save binds to its own row not the shared scan box`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow(), rosterRow(animalId = SECOND_TAG, rowId = "row-2")),
+                emptyList(),
+                emptyList(),
+                0,
+            ),
+            recordIndividualGate = gate,
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG)
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, SECOND_TAG)
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // The operator has moved on: the scan box now holds the SECOND animal's tag.
+        vm.onScanInputChange(SECOND_TAG)
+        // ...and now saves the weight typed against the FIRST animal's row.
+        vm.onAnimalWeightInputChange(TEST_TAG, "12.0")
+        vm.recordIndividual(TEST_TAG, "12.0")
+        runCurrent()
+
+        assertEquals(TEST_TAG, repository.lastCapture?.animalId)
+        assertEquals(TEST_TAG, repository.lastCapture?.scannedIdentifier)
+
+        gate.complete(AppResult.Ok(acceptedDraft(weightKg = 12.0)))
+        advanceUntilIdle()
     }
 
     @Test
@@ -496,6 +541,170 @@ class WeighingViewModelTest {
         assertTrue(vm.state.value.isShedPartition)
     }
 
+    /**
+     * Free-flow weighing has the SAME wrong-animal capture window vaccination had (fixed in
+     * 2db1eb207): scanning animal A opened the camera bound to A, and a scan of animal B while A's
+     * recording was still in progress was dropped on the floor with no camera, no message and no
+     * retarget — so footage actually shot at B was saved under A's tag, and the weight typed next
+     * landed on A too. Free-flow does not make this safe: it just means the wrong SCANNED TAG is
+     * written instead of the wrong animal id.
+     */
+    @Test
+    fun `scanning a second animal while the first video is recording never saves that video under the first animal`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        val proofs = FakeProofCaptureRepository()
+        val scans = FakeScanCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Animal A is scanned; its camera opens and is still recording (captureVideo() has not
+        // returned — nothing written yet) when the operator walks to animal B and scans it.
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("animal A's camera opened", 1, proofSource.captureCount)
+        assertEquals(0, proofs.captureCalls.size)
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        assertEquals(
+            "scanning animal B must cancel A's unfinished recording and reopen the camera for B",
+            2,
+            proofSource.captureCount,
+        )
+        assertEquals("no video may be saved until a recording actually finishes", 0, proofs.captureCalls.size)
+        assertTrue(
+            "the operator must be told animal A was left without its video, not silently ignored",
+            vm.state.value.message.orEmpty().contains(TEST_TAG),
+        )
+
+        // A's cancelled recording finishing late must never be saved under anyone.
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+        assertEquals("a cancelled recording's late result must never be saved", 0, proofs.captureCalls.size)
+
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+    }
+
+    /**
+     * The weight is the other half of the same window: the dropped scan also left the selected
+     * animal pointing at A, so the next weight the operator typed — standing at B — was recorded
+     * against A's tag.
+     */
+    @Test
+    fun `weight typed after scanning a second animal mid-recording is recorded against that second animal`() = runTest(dispatcher) {
+        val recordGate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            recordIndividualGates = ArrayDeque(listOf(recordGate)),
+        )
+        val proofSource = FakeProofCaptureSource()
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        vm.onWeightInputChange("14.5")
+        vm.recordIndividual()
+        advanceUntilIdle()
+        recordGate.complete(AppResult.Ok(acceptedDraft(animalId = SECOND_TAG, weightKg = 14.5)))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the weight belongs to the animal the operator is standing at, not the one whose scan came first",
+            SECOND_TAG,
+            repository.lastCapture?.animalId,
+        )
+        assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
+    @Test
+    fun `park chips survive selecting a park and All parks is reachable again`() = runTest(dispatcher) {
+        // A22: listAssignments is server-filtered by parkId, so once a park is selected
+        // `assignments` collapses to that one park's rows -- deriving the chip list from that same
+        // collapsed list left only one chip and no way back to "All parks" or the other park.
+        fun assignment(parkId: String, parkName: String, shedId: String) = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = parkId,
+            parkName = parkName,
+            workGroupId = shedId,
+            campaignShedId = shedId,
+            expectedLocationId = shedId,
+            expectedLocationLabel = shedId,
+            label = shedId,
+            category = "individual_animal",
+            operatorUserId = "operator-1",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val parkA = assignment("park-a", "Park A", "shed-a")
+        val parkB = assignment("park-b", "Park B", "shed-b")
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(
+                null to listOf(parkA, parkB),
+                "park-a" to listOf(parkA),
+            ),
+        )
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Unfiltered load: both parks are known and both assignments show.
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertEquals(2, vm.state.value.assignments.size)
+
+        vm.selectAssignmentPark("park-a")
+        advanceUntilIdle()
+
+        // Server-filtered: assignments collapse to park A, but the chip list must NOT collapse --
+        // Park B (and the implicit "All parks" the screen always injects) must stay reachable.
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertTrue(vm.state.value.parkFilters.single { it.parkId == "park-a" }.selected)
+        assertFalse(vm.state.value.parkFilters.single { it.parkId == "park-b" }.selected)
+
+        vm.selectAssignmentPark(null)
+        advanceUntilIdle()
+
+        // Reachable again: selecting "All parks" (null) restores both assignments.
+        assertEquals(2, vm.state.value.assignments.size)
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
@@ -634,6 +843,11 @@ class WeighingViewModelTest {
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
         private val recordIndividualGate: CompletableDeferred<AppResult<IndividualWeighingDraft>>? = null,
         private val recordIndividualGates: ArrayDeque<CompletableDeferred<AppResult<IndividualWeighingDraft>>> = ArrayDeque(),
+        // A22 regression coverage: the backend filters `listAssignments` server-side by parkId, so
+        // a fake that mimics that (rather than always returning the same full list regardless of
+        // parkId) is needed to reproduce "selecting a park collapses the chip row".
+        // Keyed by parkId; `null` is the unfiltered ("All parks") page.
+        private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
     ) : WeighingRepository {
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
@@ -652,7 +866,7 @@ class WeighingViewModelTest {
             scope: String,
             parkId: String?,
         ): AppResult<WeighingPage<WeighingAssignment>> =
-            AppResult.Ok(WeighingPage(emptyList(), null))
+            AppResult.Ok(WeighingPage(assignmentsByPark[parkId] ?: emptyList(), null))
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
         //
@@ -777,7 +991,7 @@ class WeighingViewModelTest {
                 ?: AppResult.Err("not used")
         }
 
-        override suspend fun attachIndividualProof(scopeKey: String, animalId: String, proofCaptureId: String, serverProofId: String?) {}
+        override suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?) {}
 
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not used")
@@ -814,7 +1028,7 @@ class WeighingViewModelTest {
             reason: String,
         ): AppResult<Unit> = AppResult.Ok(Unit)
 
-        override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) {}
+        override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) {}
     }
 
     private companion object {

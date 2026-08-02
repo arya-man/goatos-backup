@@ -33,9 +33,34 @@ Docker DB container: goatos-phone-qa
 Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
 ```
 
-The phone still reaches the laptop API through `adb reverse tcp:8080 tcp:8080`.
-Only the backend process behind `127.0.0.1:8080` changes database target. The
-fixture intentionally maps five physical vaccination RFIDs into ten goat
+**HARD RULE — phone/mobile QA must NEVER use or repoint the default ports.**
+`127.0.0.1:3300` (admin-web), `127.0.0.1:8080` (API), and `127.0.0.1:5433`
+(database) carry the maintainer's LOCAL REPLICA OF STG DATA. Phone QA is mock
+scan data (the throwaway 20-animal seed). Never start, stop, kill, restart, or
+repoint anything on `3300`, `8080`, or `5433` for mobile testing, and never free
+a default port by killing whatever holds it — parallel agent sessions (Claude
+and Codex) share this laptop, and the process you kill is another session's
+stack.
+
+Run the phone-QA API on a NON-DEFAULT port and remap the tunnel instead. The
+device always calls its own `localhost:8080`, so only the host side moves — no
+APK rebuild and no token re-mint are required:
+
+```bash
+# phone-QA API on 8081 -> throwaway DB 127.0.0.1:15544
+# set GOATOS_HTTP_ADDR=127.0.0.1:8081 for that backend process
+adb -s <serial> reverse tcp:8080 tcp:8081
+```
+
+This supersedes any earlier wording suggesting the backend behind `8080` may
+swap its database target. Taking `8080` for phone QA caused a real incident
+(2026-08-03): the maintainer's `5433`-backed API was killed to free the port,
+`8080` was pointed at the throwaway `15544` database, and admin-web then showed
+the 20-animal mock set in place of the 324 CPT adults — while the phone's
+`adb reverse` still aimed at `8080`, one port flip away from writing mobile scan
+data into the stg replica.
+
+The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
@@ -232,6 +257,69 @@ between parks — shed moves exist only within one park; leaving a park is a
 terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
+
+Confirmed "You" / profile nav placement rule (maintainer decision 2026-08-03,
+stated THREE times and implemented wrong twice before this — read it exactly):
+
+> **"You" belongs in the NAVIGATION DRAWER for any principal with 2 or more
+> features/modules — CEO, leadership, and a verifier who verifies more than one
+> feature. It must NOT be sent as a bottom-bar tab in every feature's bar.**
+
+- **2+ modules** → "You" appears ONCE, in the drawer. Never in the per-module
+  bottom bar. Repeating it in vaccination's bar, then weighing's bar, then every
+  future verifiable feature's bar is the exact defect being banned.
+- **Exactly 1 module** → that principal has no meaningful drawer, so "You" stays
+  reachable in their bottom bar.
+- "You" must ALWAYS be reachable. Deleting it outright is a regression (that was
+  the first wrong implementation).
+- This is the same shape as the existing nav-chrome rule: drawer/sidebar when
+  there are 2+ modules, bottom bar when there is one. See
+  `docs/decisions/role-module-nav-composition.md`.
+
+Two traps recorded so the next author does not repeat them:
+1. `shared_key: "you"` does NOT enforce this. `shared_key` has exactly one
+   reader, `composeNavigationFromModules`; `verificationModuleForFeature` builds
+   its nav items by hand and never calls it, and `visibleNavigationFor` returns
+   those items directly. Setting it there was mutation-tested — flipping it back
+   to `""` passed the entire suite and changed no served payload. Any mechanism
+   used for this rule MUST be mutation-tested: break it deliberately and confirm
+   a test goes red.
+2. The verifier alerts tab is titled just **"Alerts"** in every locale. The alerts
+   stay feature-scoped through `?category=` on the href
+   (`vaccination_proof`, `weighing_proof`, `shifting_move`); only the LABEL
+   stopped naming the module the verifier is already inside. The per-feature
+   label keys (`nav.alerts.vaccination` etc.) and their resolver are deleted —
+   do not reintroduce them. The Alerts SCREEN title is likewise just "Alerts";
+   it was previously hardcoded to "Vaccination alerts" in
+   `AlertsViewModel.kt`, which is also a violation of the backend-owns-labels
+   rule.
+
+Confirmed vaccination progress rule (maintainer decision 2026-08-03): drive
+progress is **FIELD WORK DONE = completed + submitted**, never completed-only.
+The operator vaccinated the animal, so it counts: a drive whose animals are all
+vaccinated and whose proofs are submitted reads **100%** and **"4 of 4 sheds
+done"**, and the outstanding video review is carried by the
+`verification_pending` status and its chip — never by holding the ring below
+100%. The backend owns the single number (`progress_basis`,
+`progress_completed`, `progress_total`, `progress_pct`, and `sheds_completed`);
+admin-web and Android render it verbatim and must not derive their own.
+Pinned by `TestDriveSummaryEmitsBackendOwnedProgressContract` and
+`TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred`.
+
+**Why this is a lock, not a preference:** an earlier session found admin-web and
+Android showing different completion numbers for the same drive and resolved the
+parity defect by adopting the stricter surface — making the numerator
+completed-only. That silently redefined "done" as "verified" and showed an
+operator who had finished every animal in every shed a 0% ring with "0 of 4
+sheds done". The choice was then written into two tests and a code comment, so it
+read to every later author as intentional. Do NOT revert to completed-only.
+
+**General rule this establishes:** a cross-surface disagreement about a business
+number is a MAINTAINER QUESTION, not an implementation detail. Both surfaces may
+be wrong, and picking the stricter one is still a product decision. When two
+surfaces disagree about what a count means, stop and surface the conflict per the
+maintainer-lock rule above; fix parity by making the backend own one number, not
+by choosing a client's semantics.
 
 Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
 2026-07-29, SUPERSEDING the 2026-07-20 destination `shed_profiles` authority rule):

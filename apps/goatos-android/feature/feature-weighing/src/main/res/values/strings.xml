@@ -120,9 +120,6 @@
     <string name="weighing_tab_done">Done</string>
     <string name="weighing_tab_pending">Pending</string>
     <string name="weighing_tab_proof">Proof</string>
-    <string name="weighing_expected_shed_fmt">Expected: %1$s</string>
-    <string name="weighing_current_shed_fmt">Current: %1$s</string>
-    <string name="weighing_wrong_shed">Wrong shed</string>
     <string name="weighing_proof_ready">Proof ready</string>
     <string name="weighing_proof_required">Proof required</string>
     <string name="weighing_ready">Ready</string>

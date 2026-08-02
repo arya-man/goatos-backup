@@ -799,14 +799,41 @@ type CommandBoardCohort struct {
 	AnimalCount     int    `json:"animalCount"`
 }
 
+// CommandBoardCohortCell is one farm × cohort × dose-qualified-vaccine cell of the CEO board's
+// cohort matrix, at OBLIGATION grain.
+//
+// The three counts are a DISJOINT partition of the cell's obligations along the operational
+// question "who owes the next move":
+//
+//	PendingCount   -- the OPERATOR owes field work: an open obligation with NO completion recorded
+//	SubmittedCount -- the VERIFIER owes review: a completion is recorded but not yet accepted
+//	VerifiedCount  -- nobody owes anything: the completion is verifier-accepted
+//
+// PendingCount previously fused the first two states, because obligation status advances only on
+// VERIFICATION, never on submission. A park whose every animal had been vaccinated and submitted
+// therefore rendered byte-identically to a park nobody had touched, and the same 40 animals were
+// reported as "40 awaiting verification" in the KPI row and "40 pending" in the matrix directly
+// below it, with no column reconciling the two. SubmittedCount is that missing column; it
+// reconciles with CommandBoardKPI.AwaitingVerification (see the grain note below).
+//
+// GRAIN NOTE: these counts are DISTINCT obligation_id; CommandBoardKPI counts DISTINCT animal.
+// The two agree exactly at one-obligation-per-animal-per-vaccine, the grain every live vaccination
+// drive uses. An animal carrying several vaccines the same day contributes one obligation to each
+// of its vaccine cells and one animal to the KPI row.
 type CommandBoardCohortCell struct {
 	Cohort       CommandBoardCohort `json:"cohort"`
 	VaccineLabel string             `json:"vaccineLabel"`
 	PendingCount int                `json:"pendingCount"`
-	// VerifiedCount is DISJOINT from PendingCount: an accepted obligation is neither
-	// still-scheduled nor recorded-but-unverified, so the two can be shown side by side
-	// without double counting.
-	VerifiedCount       int        `json:"verifiedCount"`
+	// SubmittedCount is field work DONE and awaiting a verifier. Disjoint from PendingCount and
+	// VerifiedCount.
+	SubmittedCount int `json:"submittedCount"`
+	// VerifiedCount is DISJOINT from PendingCount and SubmittedCount: an accepted obligation is
+	// neither still-open-unrecorded nor recorded-but-unverified, so the three can be shown side by
+	// side without double counting.
+	VerifiedCount int `json:"verifiedCount"`
+	// MinAdministeredDate/MaxAdministeredDate are the real medical dates of the VERIFIED doses in
+	// this cell (never the drive's planned date), so a clubbed adult drive still reports when the
+	// dose actually went in.
 	MinAdministeredDate *time.Time `json:"minAdministeredDate,omitempty"`
 	MaxAdministeredDate *time.Time `json:"maxAdministeredDate,omitempty"`
 }

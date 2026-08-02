@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -105,9 +106,10 @@ type downloadURLResponse struct {
 }
 
 type errorEnvelope struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	TraceID string `json:"trace_id"`
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	TraceID   string `json:"trace_id"`
+	Retryable bool   `json:"retryable"`
 }
 
 func (h *Handler) CreateUpload(w http.ResponseWriter, r *http.Request) {
@@ -272,6 +274,12 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 	case errors.Is(err, ports.ErrNotFound):
 		httpresponse.WriteError(w, r, h.log, http.StatusNotFound,
 			errorEnvelope{Code: "not_found", Message: "proof was not found", TraceID: traceID(r)}, nil)
+	// The proof row exists but its bytes are gone/unreadable: a KNOWN terminal condition, not a
+	// server fault. 410 Gone + retryable=false tells the client to stop retrying and render
+	// "evidence unavailable" (a 500 caused a ~5x retry storm per proof on 2026-08-02).
+	case errors.Is(err, ports.ErrObjectMissing), errors.Is(err, fs.ErrNotExist), errors.Is(err, fs.ErrPermission):
+		httpresponse.WriteError(w, r, h.log, http.StatusGone,
+			errorEnvelope{Code: "proof_object_missing", Message: "proof media is no longer retrievable from storage", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrUnsupported):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict,
 			errorEnvelope{Code: "unsupported_storage_operation", Message: "storage provider does not support this operation", TraceID: traceID(r)}, err)
@@ -286,7 +294,7 @@ func (h *Handler) respondErr(w http.ResponseWriter, r *http.Request, err error) 
 			errorEnvelope{Code: "idempotency_key_conflict", Message: "idempotency key already belongs to a different proof upload request", TraceID: traceID(r)}, nil)
 	default:
 		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError,
-			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r)}, err)
+			errorEnvelope{Code: "internal_error", Message: "internal server error", TraceID: traceID(r), Retryable: true}, err)
 	}
 }
 

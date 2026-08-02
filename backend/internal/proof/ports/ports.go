@@ -14,7 +14,11 @@ var (
 	ErrNotFound          = errors.New("proof: not found")
 	ErrUnsupported       = errors.New("proof: unsupported storage operation")
 	ErrIntegrityMismatch = errors.New("proof: storage object integrity mismatch")
-	ErrInUse             = errors.New("proof: artifact is already attached")
+	// ErrObjectMissing is returned when the proof ROW exists but its stored object is missing or
+	// unreadable. This is a KNOWN, terminal failure class (evidence unavailable) — distinct from
+	// ErrNotFound (no such proof row) and from an unexpected server fault. Callers must NOT retry.
+	ErrObjectMissing = errors.New("proof: stored object is missing or unreadable")
+	ErrInUse         = errors.New("proof: artifact is already attached")
 	// ErrIdempotencyConflict is returned when a CreateProof call reuses an Idempotency-Key
 	// already bound to a different logical request (different scope/subject/mime/type) —
 	// a same-key exact replay is NOT an error, it returns the original Artifact.

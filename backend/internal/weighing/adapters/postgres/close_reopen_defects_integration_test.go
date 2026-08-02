@@ -156,15 +156,7 @@ WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
   AND cs.campaign_shed_id=$3::uuid
   AND cs.weighing_category='individual_animal'
-  AND cs.status NOT IN ('completed','closed','canceled')
-  AND NOT EXISTS (
-    SELECT 1
-    FROM weighing_expected_animals ea
-    WHERE ea.tenant_id=cs.tenant_id
-      AND ea.campaign_id=cs.campaign_id
-      AND ea.campaign_shed_id=cs.campaign_shed_id
-      AND ea.status NOT IN ('weighed', 'unavailable', 'canceled', 'closed_by_override')
-  )`, repoTenant, repoCampaign, repoAnimalScope)
+  AND cs.status NOT IN ('completed','closed','canceled')`, repoTenant, repoCampaign, repoAnimalScope)
 	if err != nil {
 		t.Fatalf("completion-flip update: %v", err)
 	}
