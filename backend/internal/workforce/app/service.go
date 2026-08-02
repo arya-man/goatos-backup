@@ -391,18 +391,7 @@ func (s *Service) Bootstrap(ctx context.Context, tenantID, actorID, deviceID, lo
 	bootstrapModules := modulesFor(grants, grantedModules, localeTag)
 	navChrome := navChromeFor(grants, bootstrapModules)
 	visibleNav := visibleNavigationFor(grants, grantedModules, localeTag)
-	// "You" is the account, not a feature. A principal with the module DRAWER reaches it there,
-	// beside Sign out, so repeating it in every module's bottom bar is the same destination shown
-	// once per feature. A principal WITHOUT a drawer keeps it on the bar -- that is their only way
-	// to reach it.
-	// Exception: verifiers always keep "You" in each module because their drawer is a module selector,
-	// not a chrome drawer with "You + Sign out".
-	if navChrome == domain.NavChromeExpanded && !isStandaloneVerifierPrincipal(grants) {
-		visibleNav = withoutNavItem(visibleNav, navItemKeyYou)
-		for i := range bootstrapModules {
-			bootstrapModules[i].NavItems = withoutNavItem(bootstrapModules[i].NavItems, navItemKeyYou)
-		}
-	}
+	visibleNav, bootstrapModules = applyProfileEntryPlacement(navChrome, visibleNav, bootstrapModules)
 	return &domain.BootstrapResponse{
 		Actor:                  domain.BootstrapActor{ActorID: actorID, TenantID: tenantID},
 		OperatorProfile:        profile,
@@ -685,6 +674,43 @@ func isLeadershipPrincipal(grants []domain.GrantSummary) bool {
 
 // navItemKeyYou is the account destination's stable key in the nav registry.
 const navItemKeyYou = "you"
+
+// applyProfileEntryPlacement is THE decision about where the account entry ("You") lives,
+// made once for every principal. MAINTAINER RULING 2026-08-03, stated three times:
+//
+//	"You option should be on navigation bar for CEO and verifier and whoever got >=2
+//	 features, instead of sending that in bottom bar for every feature."
+//
+// "You" is the person, not a feature, so it must appear exactly ONCE -- not once per
+// module the principal happens to hold.
+//
+//   - >=2 modules  -> navChrome is "expanded", which means the client renders the module
+//     drawer. The drawer footer owns the account row (GoatOsShell.kt DrawerFooter,
+//     beside Sign out), so the entry is stripped from the served bar AND from every
+//     module's own bar. Stripping the per-module bars too is what makes switching
+//     modules in the drawer unable to resurrect a second You.
+//   - exactly 1 module -> navChrome is "minimal", there is no drawer, and the bottom bar
+//     is the ONLY route to /you. The entry stays.
+//
+// The >=2 test is not re-derived here: it is navChromeFor's count of AVAILABLE composed
+// modules, the same threshold docs/decisions/role-module-nav-composition.md uses to
+// decide the drawer exists at all. Keying off chrome instead of a second count is
+// deliberate -- the drawer's existence and the account entry's home cannot drift apart.
+//
+// There is NO role exception, and specifically no verifier exception. A verifier who
+// verifies vaccination AND weighing has a drawer like anyone else with two features; the
+// carve-out that used to sit here is exactly what put You in both the drawer footer and
+// the bottom bar of every verify feature.
+func applyProfileEntryPlacement(navChrome string, visibleNav []domain.BootstrapNavigationItem, modules []domain.BootstrapModule) ([]domain.BootstrapNavigationItem, []domain.BootstrapModule) {
+	if navChrome != domain.NavChromeExpanded {
+		return visibleNav, modules
+	}
+	visibleNav = withoutNavItem(visibleNav, navItemKeyYou)
+	for i := range modules {
+		modules[i].NavItems = withoutNavItem(modules[i].NavItems, navItemKeyYou)
+	}
+	return visibleNav, modules
+}
 
 // withoutNavItem drops one contribution from a composed bar.
 func withoutNavItem(items []domain.BootstrapNavigationItem, key string) []domain.BootstrapNavigationItem {

@@ -267,14 +267,20 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	}
 	// No named duties -> scoped to every built feature; the active/default bar is the
 	// first feature (vaccination, drawer priority 1).
-	// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
-	// carries shared_key "you" so it dedupes across modules like the leadership entries
-	// -- the objection was the per-feature REPETITION, not its presence. The alerts tab
-	// label never names the feature; the href's category still scopes it.
+	//
+	// MAINTAINER RULING 2026-08-03: this verifier holds THREE features, so he has a
+	// drawer, and "You" lives in that drawer -- not in this bar, and not repeated in each
+	// feature's bar. The served bar is therefore [Verify, Alerts] exactly. You was not
+	// deleted, it was MOVED (applyProfileEntryPlacement); that the >=2-module principal
+	// still has exactly one route to /you is asserted in
+	// TestProfileEntryPlacementFollowsModuleCount. A verifier with ONE feature has no
+	// drawer and keeps You on the bar -- see
+	// TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts, which still expects it.
+	//
+	// The alerts tab label never names the feature; the href's category still scopes it.
 	want := []domain.BootstrapNavigationItem{
 		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
 		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
-		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)

@@ -444,25 +444,25 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 			t.Fatalf("alerts href must stay feature-scoped; both features got %q", vaccModule.NavItems[1].Href)
 		}
 
-		// THE NO-REPETITION PROPERTY. "You" stays in the bar, but a verifier holding
-		// vaccination AND weighing must see exactly ONE You -- not one per feature. That
-		// per-feature repetition is what the maintainer objected to on 2026-08-03.
+		// THE NO-REPETITION PROPERTY, at the COMPOSITION layer.
 		//
-		// HOW it is actually prevented, precisely, because the comment on the production
-		// contribution overstates it: verificationModuleForFeature builds its NavItems by
-		// hand and never calls composeNavigationFromModules, which is the ONLY reader of
-		// shared_key. So `shared_key: "you"` on that contribution is currently inert
-		// documentation-by-declaration -- flipping it back to "" does not change any
-		// served payload. What actually keeps You single is that the verifier bar is
-		// MODULE-SCOPED: the client renders one module's bar at a time (VisibleNavigation
-		// = features[0]'s bar), so a second feature adds a drawer row, not a second You.
+		// Read the layering before reading the numbers below. modulesFor and
+		// visibleNavigationFor compose a module's OWN bar and still carry the "you"
+		// contribution; the placement rule runs AFTER them, in Bootstrap
+		// (applyProfileEntryPlacement), and is what decides whether the served payload
+		// keeps that entry or hands it to the drawer. So "exactly one You" here is the
+		// pre-placement composition invariant -- no module may contribute You twice, and
+		// the served bar is one module's bar rather than a merged one -- NOT a claim that
+		// this verifier's phone shows You in the bottom bar. He holds two features, so it
+		// is moved to the drawer; that is asserted on the SERVED payload immediately
+		// after this block, and across every principal shape in
+		// TestProfileEntryPlacementFollowsModuleCount.
 		//
-		// These assertions therefore pin the observable invariant -- one You in the served
-		// bar, one per module bar, and no duplicated key anywhere in it -- which is what
-		// the maintainer's complaint was about. They will NOT catch a regression that
-		// reintroduces repetition by merging verifier bars through composeNavigationFromModules
-		// while dropping the shared_key; that path is unreachable today, and if it is ever
-		// wired up the shared_key becomes load-bearing and needs its own test.
+		// Note also, precisely: verificationModuleForFeature builds its NavItems by hand
+		// and never calls composeNavigationFromModules, the ONLY reader of shared_key, so
+		// `shared_key: "you"` on that contribution is inert here -- it is not what keeps
+		// You single. The composition stays single because the bar is MODULE-SCOPED, and
+		// the served payload stays single because of the placement rule.
 		nav := visibleNavigationFor(grants, grantedModules, en)
 		youCount := 0
 		seenKeys := make(map[string]bool, len(nav))
@@ -487,6 +487,24 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 			}
 			if perModule != 1 {
 				t.Fatalf("module %q carries %d You items, want exactly 1; got %+v", m.Key, perModule, m.NavItems)
+			}
+		}
+
+		// ...and now the SERVED payload, which is what the phone actually renders. Two
+		// features means a drawer, and the drawer owns You: it must be gone from the
+		// served bar and from BOTH module bars, so no drawer selection can bring it back.
+		// Without this, the composition assertions above read as an endorsement of a You
+		// tab per verify feature -- the exact thing the maintainer rejected three times.
+		served := bootstrapFor(t, grants, grantedModules)
+		if served.NavChrome != domain.NavChromeExpanded {
+			t.Fatalf("two-feature verifier NavChrome=%q want %q (he must have a drawer to hold You)", served.NavChrome, domain.NavChromeExpanded)
+		}
+		if n := countProfileEntries(served.VisibleNavigation); n != 0 {
+			t.Fatalf("two-feature verifier served bar still carries %d You item(s); it belongs in the drawer: %+v", n, served.VisibleNavigation)
+		}
+		for _, m := range served.Modules {
+			if n := countProfileEntries(m.NavItems); n != 0 {
+				t.Fatalf("two-feature verifier module %q still carries %d You item(s); switching to it would show You twice: %+v", m.Key, n, m.NavItems)
 			}
 		}
 	})
