@@ -49,10 +49,11 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
   vaccination: {
     "command_board.kpi.targets": "Animals",
     "command_board.kpi.targets_dl": "Distinct animals in program",
-    "command_board.cohort_matrix.meta": "Per farm · per dose: pending / verified · red when pending",
+    "command_board.cohort_matrix.meta": "Per farm · per dose: pending / submitted / verified · red when the operator still owes work",
     "command_board.cohort_matrix.empty": "No cohort obligations in this scope",
     "command_board.cohort_matrix.no_farm": "Farm not set",
     "command_board.cohort_matrix.pending_word": "pending",
+    "command_board.cohort_matrix.submitted_word": "submitted",
     "command_board.cohort_matrix.verified_word": "verified",
     "command_board.filter.vaccine": "Vaccine",
     "command_board.filter.all_vaccines": "All vaccines",

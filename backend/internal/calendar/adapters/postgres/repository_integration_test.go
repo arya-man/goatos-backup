@@ -3043,9 +3043,16 @@ func TestDriveSummaryComputesCountsAndInvariants(t *testing.T) {
 	if sum != s.TotalCount {
 		t.Errorf("invariant violated: buckets sum %d != total_count %d (expected %d+%d+%d+%d+%d)", sum, s.TotalCount, s.CompletedCount, s.SubmittedCount, s.DueCount, s.OverdueCount, s.DeferredCount)
 	}
-	// remaining = total - completed.
-	if s.RemainingCount != s.TotalCount-s.CompletedCount {
-		t.Errorf("remaining_count = %d, want %d", s.RemainingCount, s.TotalCount-s.CompletedCount)
+	// remaining = work still owed by the OPERATOR = due + overdue + deferred, i.e.
+	// total - completed - submitted. It must exclude submitted-but-unverified work so it can never
+	// contradict progress_pct (FIELD WORK DONE = completed + submitted) on the same payload.
+	if s.RemainingCount != s.DueCount+s.OverdueCount+s.DeferredCount {
+		t.Errorf("remaining_count = %d, want %d (due %d + overdue %d + deferred %d)",
+			s.RemainingCount, s.DueCount+s.OverdueCount+s.DeferredCount, s.DueCount, s.OverdueCount, s.DeferredCount)
+	}
+	if s.RemainingCount != s.TotalCount-s.CompletedCount-s.SubmittedCount {
+		t.Errorf("remaining_count = %d, want %d (total %d - completed %d - submitted %d)",
+			s.RemainingCount, s.TotalCount-s.CompletedCount-s.SubmittedCount, s.TotalCount, s.CompletedCount, s.SubmittedCount)
 	}
 	// park_name must be the PARK code/name, never a shed code.
 	if s.ParkName == "" {

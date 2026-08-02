@@ -3852,18 +3852,49 @@ WHERE oi.tenant_id = $1::uuid
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
-	// 2. Cohort matrix query (management_stage × sex × vaccine × pending count)
+	// 2. Cohort matrix query (management_stage × sex × vaccine × pending/submitted/verified)
+	//
+	// THREE disjoint buckets, partitioned by WHO OWES THE NEXT MOVE. pending_count used to fuse the
+	// first two, because obligation status advances only on VERIFICATION and never on submission:
+	// a park whose every animal had been vaccinated and submitted rendered byte-identically to a
+	// park nobody had touched, so the page showed "40 awaiting verification" in the KPI row and
+	// "40 pending" in the matrix directly below it with no column reconciling them, and a CEO could
+	// not tell that all 40 animals had in fact been vaccinated. The query was conformant to its
+	// written contract; the DEFINITION was the defect. Contract updated in the same change
+	// (docs/architecture/operational-read-model-contract.md, "Cohort Submission Matrix").
+	//
 	// projection-review:
-	// (a) producer: obligation_id, status, due_at, target_id, rule_id, dose_code | consumer: management_stage, sex, dose_code GROUP BY
-	// (b) completions pre-aggregated per obligation (1:1 after CTE), goat lookup 1:1, protocol rule 1:1
-	// (c) pending_count numerator: (scheduled AND (due_at's IST business date)<=(asOf's IST business
-	//     date)) OR (has_recorded_unverified), denominator: all obligations per cohort — due-today
-	//     counts pending (matches CEO pending semantics; IST business-day grain, never an instant);
-	//     animal_count numerator: DISTINCT target_id per cohort, denominator: all active animals;
-	//     verified_count numerator: bool_or(status='accepted'), denominator: all obligations per
-	//     cohort. pending_count and verified_count are DISJOINT: an accepted obligation is neither
-	//     still-scheduled nor recorded-unverified, so the two may be read side by side without
-	//     double counting, and pending + verified <= animal-level obligation total per cohort.
+	// (a) PRODUCER unique column list: obligation_instances is unique on (obligation_id); the comp
+	//     CTE is pre-aggregated to exactly one row per obligation_id. Every bucket counts
+	//     DISTINCT oi.obligation_id, so one obligation contributes at most 1 to at most one bucket.
+	//     CONSUMER match/group column list: GROUP BY (park.location_id, park.name,
+	//     g.management_stage, g.sex, pr.dose_code) — the identical key set for all three buckets and
+	//     for animal_count; no bucket carries an extra or missing WHERE dimension.
+	// (b) Join multiplicity: comp is 1:1 on obligation_id (GROUP BY obligation_id in the CTE);
+	//     goats 1:1 on (target_id, tenant_id) (PK); protocol_rules 1:1 on (rule_id, tenant_id) (PK);
+	//     locations shed 1:1 on (scope_id, tenant_id) and park 1:1 on shed.parent_location_id. No
+	//     join fans the obligation grain out, so animal_count (DISTINCT goat_id) cannot multiply by
+	//     the number of vaccines or doses.
+	// (c) DISJOINT + TOTAL partition over the cell's obligations, evaluated per row from columns of
+	//     the SAME row (oi.status, oi.due_at, comp.has_accepted, comp.has_recorded_unverified), so
+	//     bucketing is a pure per-row partition with no cross-grain dependency:
+	//       verified  = comp.has_accepted                                  (nobody owes anything)
+	//       submitted = NOT has_accepted AND has_recorded_unverified       (the VERIFIER owes review)
+	//       pending   = NOT has_accepted AND NOT has_recorded_unverified
+	//                   AND status IN (open set) AND due business date <= as-of business date
+	//                                                                     (the OPERATOR owes work)
+	//     has_accepted is checked first in every branch, so no obligation lands in two buckets, and
+	//     pending + submitted + verified <= the cell's obligation total.
+	//     Reconciliation key sets, shown identical: submitted_count's key set is
+	//     {obligation_id : has_recorded_unverified AND NOT has_accepted}, the obligation-grain image
+	//     of the KPI row's awaiting_verification key set {target_id : has_recorded_unverified AND
+	//     NOT has_accepted} computed over the SAME tenant/batch/park filter as the KPI query above;
+	//     the two agree exactly at one-obligation-per-animal-per-vaccine (the grain every live drive
+	//     uses), and the matrix stays obligation grain BY DESIGN so a multi-vaccine animal is
+	//     visible once per vaccine. Business-day grain, Asia/Kolkata, on both sides of the due-date
+	//     comparison — never an instant, never now()±N.
+	//     animal_count numerator: DISTINCT target_id per cohort; denominator: all non-terminated
+	//     animals in the cohort.
 	cohortSQL := `
 WITH comp AS (
   SELECT
@@ -3881,7 +3912,15 @@ SELECT
   g.sex,
   pr.dose_code,
   COUNT(DISTINCT g.goat_id) as animal_count,
-  COUNT(DISTINCT CASE WHEN (oi.status IN ('scheduled','due','in_progress','deferred','missed') AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date) OR (comp.has_recorded_unverified) THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE
+    WHEN NOT COALESCE(comp.has_accepted, false)
+     AND NOT COALESCE(comp.has_recorded_unverified, false)
+     AND oi.status IN ('scheduled','due','in_progress','deferred','missed')
+     AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date <= ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
+    THEN oi.obligation_id END) as pending_count,
+  COUNT(DISTINCT CASE
+    WHEN NOT COALESCE(comp.has_accepted, false) AND COALESCE(comp.has_recorded_unverified, false)
+    THEN oi.obligation_id END) as submitted_count,
   COUNT(DISTINCT CASE WHEN comp.has_accepted THEN oi.obligation_id END) as verified_count
 FROM obligation_instances oi
 JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
@@ -3906,7 +3945,9 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 
 	// Build cohort matrix cells. SQL rows arrive per dose_code; the board cell grain is
 	// cohort (stage × sex) × VACCINE, so fold dose rows into their vaccine label here
-	// (pending counts sum across doses; animal count is per-cohort and identical per row).
+	// (pending/submitted/verified counts sum across doses -- they stay disjoint under summation
+	// because each bucket is disjoint within every dose row; animal count is per-cohort and
+	// identical per row).
 	// Farm (park) is part of the cell key: leadership reads this matrix farmwise, so a cohort in
 	// Channapatna must never merge with the same cohort in Coimbatore.
 	type cohortKey struct{ parkID, stage, sex, vaccine string }
@@ -3914,8 +3955,8 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 	cohortOrder := []cohortKey{}
 	for cohortRows.Next() {
 		var parkID, parkName, stage, sex, doseCode string
-		var animalCount, pendingCount, verifiedCount int
-		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &verifiedCount); err != nil {
+		var animalCount, pendingCount, submittedCount, verifiedCount int
+		if err := cohortRows.Scan(&parkID, &parkName, &stage, &sex, &doseCode, &animalCount, &pendingCount, &submittedCount, &verifiedCount); err != nil {
 			return resp, fmt.Errorf("vaccination command board: cohort scan: %w", err)
 		}
 
@@ -3940,6 +3981,7 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 			cohortOrder = append(cohortOrder, key)
 		}
 		cell.PendingCount += pendingCount
+		cell.SubmittedCount += submittedCount
 		cell.VerifiedCount += verifiedCount
 	}
 	if err := cohortRows.Err(); err != nil {
