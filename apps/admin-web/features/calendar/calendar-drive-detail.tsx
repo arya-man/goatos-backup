@@ -194,7 +194,7 @@ export async function VaccinationDriveDetail({
               {chips.map((chip) => (
                 <span key={chip.key} className={`sc ${driveStatusClass(chip.key)}`}>
                   <span className={`d c-${driveStatusClass(chip.key)}`} />
-                  {chip.count} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
+                  {chip.count} {copy(pageContract, "calendar.drive.doses").toLowerCase()} {optionLabel(pageContract, "calendar_status", chip.key).toLowerCase()}
                 </span>
               ))}
             </div>
