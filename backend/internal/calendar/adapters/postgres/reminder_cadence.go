@@ -37,6 +37,11 @@ type reminderCadenceCandidate struct {
 	ShedName    string // human shed/partition label (may be empty if shed-scoped obligation has no shed)
 	VaccineName string // protocol/vaccine name (may be empty)
 	DoseCode    string // dose code, paired with VaccineName for display via vaccination.DoseDisplayLabel
+	// ShedLabels/VaccineLabels are the exact per-source label sets from detail->'summary'. They are
+	// the AUTHORITATIVE enrichment input; ShedName/VaccineName/DoseCode are single-value display
+	// scalars that a multi-shed or multi-vaccine drive deliberately blanks or collapses.
+	ShedLabels    []string
+	VaccineLabels []string
 }
 
 // SweepReminderCadence implements ports.Repository.SweepReminderCadence. It is the legacy 2-value
@@ -158,6 +163,10 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 	// skipped slots as still-pending and burst a stale reminder for each one.
 	groups := map[groupKey]*ports.ReminderCadenceFire{}
 	var order []groupKey
+	// candidateGroups[i] is the group candidate i landed in (nil when it produced no pending fire).
+	// Recorded here, where membership is actually decided, so enrichment can attribute EVERY
+	// candidate's sheds/vaccines to its own fire instead of guessing from the representative.
+	candidateGroups := make([]*groupKey, len(candidates))
 	for i, c := range candidates {
 		fire, ok := domain.LatestDueReminderFire(c.DueAt, now, ladder, func(k string) bool {
 			return firedSet[c.ParkID+":"+k]
@@ -166,6 +175,7 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 			continue
 		}
 		gk := groupKey{parkID: c.ParkID, fireDayKey: fire.FireDayKey}
+		candidateGroups[i] = &gk
 		g, exists := groups[gk]
 		if !exists {
 			fireDay := biztime.BusinessDayStart(c.DueAt).AddDate(0, 0, fire.OffsetDays)
@@ -207,7 +217,7 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 	// query per sweep page, not per-fire (scale-guard compliant: no N+1 fan-out). Extract the
 	// underlying obligation IDs from candidates that made it into fires, then fetch their shed/vaccine
 	// metadata to enrich each fire with human-readable labels.
-	enrichedFires := r.enrichReminderCadenceFiresWithDetails(ctx, in.TenantID, candidates, groups, fires)
+	enrichedFires := r.enrichReminderCadenceFiresWithDetails(candidates, candidateGroups, fires)
 	// Enrichment failures are non-fatal: shed/vaccine details are decoration on an already-correct
 	// notification. If enrichment fails, the push still goes out with the park name and count, just
 	// without shed/vaccine specificity.
@@ -231,6 +241,15 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 // These are used to populate ShedLabels and VaccineLabels so the notification names the actual sheds
 // and vaccines involved, not just an abstract count.
 //
+// The shed_labels / vaccine_labels ARRAYS are selected alongside them, and the enrichment prefers the
+// arrays. The scalars alone are NOT sufficient and silently lost the very names this feature exists
+// to show: a park-day drive spanning more than one shed deliberately emits shed_name = NULL (there is
+// no single shed to attribute the aggregate to, see the shed_count = 1 collapse in canonical_read.go),
+// and its vaccine_name/dose_code collapse to display strings ("3 vaccines", "A, B +1 more") rather
+// than names. The canonical list/detail reads already project these same two arrays out of
+// detail->'summary'; reading a display-collapsed scalar here while the list read used the array was a
+// cross-surface parity break (docs/decisions/scale-anti-patterns.md -> cross-surface count parity).
+//
 // CAL-MAIN-02 FIX (keyset paging): the candidate scan is a stable keyset page over (due_at, event_id).
 // $5/$6 are the resume cursor (cursorDueAt, cursorEventID); an empty $6 starts from the beginning
 // (same "cursor sentinel = empty" guard the CAL-MAIN-03 reconciler uses). The previous coarse
@@ -243,7 +262,9 @@ func (r *Repository) SweepReminderCadencePage(ctx context.Context, in ports.Remi
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCTE + `
 SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, ''),
-       COALESCE(shed_name, ''), COALESCE(vaccine_name, ''), COALESCE(dose_code, '')
+       COALESCE(shed_name, ''), COALESCE(vaccine_name, ''), COALESCE(dose_code, ''),
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
 FROM source_events
 WHERE system = false
   AND event_type <> 'vaccination_dose_due'
@@ -255,64 +276,57 @@ LIMIT $4`
 
 // enrichReminderCadenceFiresWithDetails populates ShedLabels and VaccineLabels for each fire by
 // extracting unique sheds and vaccines from the underlying obligations. Uses the candidates already
-// fetched in the same sweep pass (memory-only join, no additional I/O). The representative obligation
-// ID in each fire is used as a lookup key to identify which candidate(s) it represents, then all
-// candidates in the same group are scanned to extract shed/vaccine detail.
+// fetched in the same sweep pass (memory-only join, no additional I/O). candidateGroups is the exact
+// candidate-index -> fire-group mapping recorded while the fires were being grouped, so EVERY
+// candidate that landed in a fire contributes its labels. The previous version matched only the
+// candidate whose source_target_id happened to equal the fire's representative id and dropped the
+// rest, on the false premise that "all candidates in a group share the same shed/vaccine dimensions"
+// -- a park-day fire collapses several sheds and vaccines by construction.
 //
 // Returns a new slice of enriched fires. The original fires are not modified.
 //
 // This is safe to call after fires are computed: all necessary data is already in-memory from the
 // single source_events scan.
-func (r *Repository) enrichReminderCadenceFiresWithDetails(ctx context.Context, tenantID string, candidates []reminderCadenceCandidate, groups map[groupKey]*ports.ReminderCadenceFire, fires []ports.ReminderCadenceFire) []ports.ReminderCadenceFire {
-	// Build a reverse map: representative obligation ID -> fire group key, so we can find which
-	// fire a candidate belongs to. Fires are grouped by (parkID, fireDayKey), and each fire
-	// deterministically picks the first candidate in (due_at, event_id) order as its representative.
-	// Since candidates arrive in due_at/event_id order, we can identify the representative and use
-	// it to anchor the grouping.
-	repIDToGroupKey := make(map[string]groupKey)
-	for gk, fire := range groups {
-		if fire != nil {
-			repIDToGroupKey[fire.RepresentativeObligationID] = gk
+func (r *Repository) enrichReminderCadenceFiresWithDetails(candidates []reminderCadenceCandidate, candidateGroups []*groupKey, fires []ports.ReminderCadenceFire) []ports.ReminderCadenceFire {
+	shedsByGroupKey := make(map[groupKey]*orderedLabelSet)
+	vaccinesByGroupKey := make(map[groupKey]*orderedLabelSet)
+
+	addLabel := func(dst map[groupKey]*orderedLabelSet, gk groupKey, label string) {
+		if label == "" {
+			return
 		}
+		if dst[gk] == nil {
+			dst[gk] = newOrderedLabelSet()
+		}
+		dst[gk].add(label)
 	}
 
-	// Scan candidates to extract shed and vaccine details. For each candidate that belongs to a fire,
-	// accumulate its shed name and vaccine labels. Because candidates are scanned in order and
-	// representatives are the first candidate in each group, this will correctly assign all candidates
-	// to their fires.
-	shedsByGroupKey := make(map[groupKey]map[string]bool)
-	vaccinesByGroupKey := make(map[groupKey]map[string]bool)
-
-	for _, c := range candidates {
-		// Compute which group this candidate belongs to. Since the representative was the first
-		// candidate in group order, we can identify its group by checking if its obligation ID matches
-		// a representative.
-		gk, found := repIDToGroupKey[c.TargetID]
-		if !found {
-			// This candidate doesn't match a representative directly. Skip it; only the representative's
-			// group is used for enrichment. In practice, all candidates in a group share the same
-			// shed/vaccine dimensions, so this is correct.
+	for i, c := range candidates {
+		if i >= len(candidateGroups) || candidateGroups[i] == nil {
+			// This candidate produced no pending fire this tick, so it belongs to no group.
 			continue
 		}
+		gk := *candidateGroups[i]
 
-		// Accumulate shed label (deduplicated per group).
-		if c.ShedName != "" {
-			if shedsByGroupKey[gk] == nil {
-				shedsByGroupKey[gk] = make(map[string]bool)
+		// Sheds: prefer the exact per-source label array. Fall back to the scalar only when the
+		// source carries no array (non-drive obligation rows), never in addition to it.
+		if len(c.ShedLabels) > 0 {
+			for _, label := range c.ShedLabels {
+				addLabel(shedsByGroupKey, gk, label)
 			}
-			shedsByGroupKey[gk][c.ShedName] = true
+		} else {
+			addLabel(shedsByGroupKey, gk, c.ShedName)
 		}
 
-		// Accumulate vaccine labels (deduplicated per group). Use the vaccination domain's
-		// DoseDisplayLabel to render human-readable vaccine names (e.g., "ET+TT", "PPR · Booster").
-		if c.VaccineName != "" {
-			vaccineLabel := vaccinationdomain.DoseDisplayLabel(c.VaccineName, c.DoseCode)
-			if vaccineLabel != "" {
-				if vaccinesByGroupKey[gk] == nil {
-					vaccinesByGroupKey[gk] = make(map[string]bool)
-				}
-				vaccinesByGroupKey[gk][vaccineLabel] = true
+		// Vaccines: the label array is already display-ready (built from the rule's vaccine name or
+		// the protocol name). Only the scalar fallback needs DoseDisplayLabel to render a
+		// human-readable name (e.g. "ET+TT", "PPR · Booster") from (protocol name, dose code).
+		if len(c.VaccineLabels) > 0 {
+			for _, label := range c.VaccineLabels {
+				addLabel(vaccinesByGroupKey, gk, label)
 			}
+		} else if c.VaccineName != "" {
+			addLabel(vaccinesByGroupKey, gk, vaccinationdomain.DoseDisplayLabel(c.VaccineName, c.DoseCode))
 		}
 	}
 
@@ -326,8 +340,8 @@ func (r *Repository) enrichReminderCadenceFiresWithDetails(ctx context.Context, 
 	copy(enrichedFires, fires)
 	for i := range enrichedFires {
 		gk := groupKey{parkID: enrichedFires[i].ParkID, fireDayKey: enrichedFires[i].FireKey[len(enrichedFires[i].ParkID)+1:]}
-		enrichedFires[i].ShedLabels = formatLabelsWithCap(dedupeAndSort(shedsByGroupKey[gk]), maxDisplaySheds)
-		enrichedFires[i].VaccineLabels = formatLabelsWithCap(dedupeAndSort(vaccinesByGroupKey[gk]), maxDisplayVaccines)
+		enrichedFires[i].ShedLabels = formatLabelsWithCap(shedsByGroupKey[gk].labels(), maxDisplaySheds)
+		enrichedFires[i].VaccineLabels = formatLabelsWithCap(vaccinesByGroupKey[gk].labels(), maxDisplayVaccines)
 	}
 
 	return enrichedFires
@@ -339,17 +353,33 @@ type groupKey struct {
 	fireDayKey string
 }
 
-// dedupeAndSort returns a sorted slice of unique strings from a set.
-func dedupeAndSort(m map[string]bool) []string {
-	if len(m) == 0 {
+// orderedLabelSet dedupes labels while preserving FIRST-ENCOUNTER order. It replaces a
+// map[string]bool accumulator whose values were then ranged over: a Go map has no order, so the
+// label list -- and therefore WHICH names survived the display cap -- differed from sweep to sweep
+// for the same drive. Two pushes about the same drive could name different sheds/vaccines. The
+// source arrays arrive already sorted from the projection, so first-encounter order is that order.
+type orderedLabelSet struct {
+	seen  map[string]bool
+	order []string
+}
+
+func newOrderedLabelSet() *orderedLabelSet {
+	return &orderedLabelSet{seen: map[string]bool{}}
+}
+
+func (s *orderedLabelSet) add(label string) {
+	if s.seen[label] {
+		return
+	}
+	s.seen[label] = true
+	s.order = append(s.order, label)
+}
+
+func (s *orderedLabelSet) labels() []string {
+	if s == nil {
 		return nil
 	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	// Keep in insertion order rather than sorting, to match the order items were encountered.
-	return out
+	return s.order
 }
 
 // formatLabelsWithCap formats a list of labels with a cap: if len > cap, return first (cap-1) items
@@ -374,7 +404,7 @@ func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenant
 	var out []reminderCadenceCandidate
 	for rows.Next() {
 		var c reminderCadenceCandidate
-		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode); err != nil {
+		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode, &c.ShedLabels, &c.VaccineLabels); err != nil {
 			return nil, err
 		}
 		out = append(out, c)

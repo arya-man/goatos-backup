@@ -1220,9 +1220,19 @@ func TestCalendarVaccinationProjectionCollapsesMultipleRulesInBatchIntoSingleDri
 		"86000000-0000-4000-8000-000000000a36",
 		"86000000-0000-4000-8000-000000000a37",
 	}
+	goatIDs := []string{
+		"86000000-0000-4000-8000-000000000a3a",
+		"86000000-0000-4000-8000-000000000a3b",
+	}
 	dueAt := stableSameLocalDayDueAt(time.Now().In(biztime.DefaultLocation()))
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[0], versionIDs[0], ruleIDs[0], obligationIDs[0], dueAt)
 	seedVaccinationObligation(t, ctx, pool, protocolIDs[1], versionIDs[1], ruleIDs[1], obligationIDs[1], dueAt.Add(15*time.Minute))
+	// Each rule targets its OWN animal. The drive's target_count is count(DISTINCT oi.target_id)
+	// (canonical_read.go, cross-surface count parity with the operator schedule), so two rules aimed
+	// at the same target are one animal's work, not two. Two distinct goats is what "a multi-rule
+	// batch drive covering 2 animals" actually means.
+	attachObligationToGoatScope(t, ctx, pool, obligationIDs[0], goatIDs[0], "shed", testShedA)
+	attachObligationToGoatScope(t, ctx, pool, obligationIDs[1], goatIDs[1], "shed", testShedA)
 	seedVaccinationBatch(t, ctx, pool, batchID, versionIDs[0], dueAt, obligationIDs...)
 
 	list, err := repo.ListEvents(ctx, domain.Query{
