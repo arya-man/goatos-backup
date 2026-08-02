@@ -25,12 +25,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
+import sg.mesha.goatos.boot.BootstrapErrorType
 import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
@@ -139,8 +141,26 @@ class MainActivity : ComponentActivity() {
                     when (val s = bootstrap) {
                         BootstrapUiState.Loading -> BootstrapLoading()
                         is BootstrapUiState.Ready -> GoatOsShell(navState = s.navState)
-                        is BootstrapUiState.Error ->
-                            BootstrapError(message = s.message, onRetry = bootstrapViewModel::load)
+                        is BootstrapUiState.Error -> {
+                            when (s.errorType) {
+                                BootstrapErrorType.AUTH_SESSION_EXPIRED -> {
+                                    // Auth failure: sign out and return to login screen.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_auth_session_expired),
+                                        actionLabel = stringResource(R.string.bootstrap_action_sign_in_again),
+                                        onAction = { sessionViewModel.signOut() }
+                                    )
+                                }
+                                BootstrapErrorType.CONNECTIVITY_FAILURE -> {
+                                    // Connectivity failure: show retryable error.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_connectivity),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                     } // UpdateGateUiState.Allowed
@@ -245,7 +265,11 @@ private fun BootstrapLoading() {
 }
 
 @Composable
-private fun BootstrapError(message: String, onRetry: () -> Unit) {
+private fun BootstrapError(
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -261,7 +285,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Retry",
+            text = actionLabel,
             color = MaterialTheme.colorScheme.primary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
@@ -270,7 +294,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
                 .padding(top = 20.dp)
                 .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onRetry)
+                .clickable(onClick = onAction)
                 .padding(horizontal = 24.dp, vertical = 10.dp),
         )
     }

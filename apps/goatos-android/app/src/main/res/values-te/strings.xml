@@ -43,4 +43,8 @@
     <string name="weighing_assignment_summary_individual">%1$d పిల్లలు పరిధిలో · జంతు వీడియోలు</string>
     <string name="weighing_action_view_result">ఫలితం చూడండి →</string>
     <string name="weighing_action_record_shed">షెడ్ ఫలితం రికార్డ్ చేయండి →</string>
+    <string name="bootstrap_error_auth_session_expired">మీ సెషన్ ముగిసిపోయింది. కొనసాగించడానికి మళ్లీ సైన్ ఇన్ చేయండి.</string>
+    <string name="bootstrap_error_connectivity">సర్వర్‌ను చేరుకోలేకపోయాం. మీ కనెక్షన్‌ను చెక్ చేసి మళ్లీ ప్రయత్నించండి.</string>
+    <string name="bootstrap_action_sign_in_again">మళ్లీ సైన్ ఇన్ చేయండి</string>
+    <string name="bootstrap_action_retry">మళ్లీ ప్రయత్నించండి</string>
 </resources>
