@@ -114,9 +114,6 @@
     <!-- Disabled-with-reason for the lump-sum Submit. Farm language: no HTTP codes, no
          "API"/"backend"/"payload". An operator standing in a shed needs to know whether to wait
          or to act. -->
-    <string name="weighing_submit_blocked_uploading">Waiting for the video to finish saving. You can submit as soon as one video is saved.</string>
-    <string name="weighing_submit_blocked_failed">The video could not be saved. Tap Replace on the video above to record it again.</string>
-    <string name="weighing_submit_blocked_no_video">Record a group video before submitting.</string>
     <string name="weighing_video_index_fmt">Video %1$d</string>
     <string name="weighing_replace">Replace</string>
     <string name="weighing_remove">Remove</string>

@@ -146,27 +146,6 @@ data class WeighingUiState(
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
 
     /**
-     * Lump-sum-only view of the proof blocker.
-     *
-     * MERGE NOTE (2026-08-03): superseded for RENDERING by [submitBlockedReason], which also
-     * covers the individual path and the no-shed/saving states. Kept because it is the
-     * narrower, proof-specific contract its own tests pin. Only [submitBlockedReason] reaches
-     * the screen; collapsing the two is a follow-up, not a merge-time change.
-     */
-    val shedProofBlockReasonRes: Int? get() {
-        if (!isShedPartition || canRecordShedPartition) return null
-        val numbersReady = weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
-            animalCountInput.toIntOrNull()?.let { it > 0 } == true
-        if (!numbersReady) return null
-        if (shedProofs.any { it.status == ProofUploadStatus.SYNCED }) return null
-        return when {
-            shedProofs.isEmpty() -> R.string.weighing_submit_blocked_no_video
-            shedProofs.any { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_submit_blocked_failed
-            else -> R.string.weighing_submit_blocked_uploading
-        }
-    }
-
-    /**
      * Why Submit cannot be pressed yet, in farm language — or null when it can.
      *
      * A blocked action must always state its REASON. A greyed-out Submit next to a video that
