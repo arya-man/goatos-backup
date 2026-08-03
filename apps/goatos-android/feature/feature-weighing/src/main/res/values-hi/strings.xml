@@ -61,6 +61,14 @@
     <string name="weighing_no_matching_rows_body">कोई दूसरा टैग या शेड नाम आज़माएँ।</string>
     <string name="weighing_submit_lump_sum">कुल वज़न भेजें</string>
     <string name="weighing_submit">भेजें</string>
+    <string name="weighing_blocked_saving">आपकी दर्ज जानकारी सहेजी जा रही है। एक पल रुकें।</string>
+    <string name="weighing_blocked_no_shed_open">यह तौल दर्ज करने से पहले एक शेड खोलें।</string>
+    <string name="weighing_blocked_need_weight">भेजने से पहले वज़न दर्ज करें।</string>
+    <string name="weighing_blocked_need_count">तराजू पर कितने पशु थे, वह संख्या दर्ज करें।</string>
+    <string name="weighing_blocked_need_video">भेजने से पहले इस तौल का वीडियो रिकॉर्ड करें।</string>
+    <string name="weighing_blocked_video_uploading">वीडियो अभी भेजा जा रहा है। पूरा होते ही भेजें बटन चालू हो जाएगा।</string>
+    <string name="weighing_blocked_video_failed">वीडियो नहीं गया। वीडियो पर फिर कोशिश करें दबाएँ, फिर भेजें।</string>
+    <string name="weighing_blocked_nothing_captured">भेजने से पहले एक टैग स्कैन करें और वज़न सहेजें।</string>
     <string name="weighing_animals_captured_one">%1$d पशु लिया गया</string>
     <string name="weighing_animals_captured_other">%1$d पशु लिए गए</string>
     <string name="weighing_scan_to_begin">शुरू करने के लिए RFID टैग स्कैन करें</string>
