@@ -229,17 +229,15 @@ func (h *AppWriteHandler) PromoteTemporaryIdentifier(w http.ResponseWriter, r *h
 // ---------------------------------------------------------------------------
 
 type appShiftingEventRequest struct {
-	SourceParkID          *string                    `json:"source_park_id,omitempty"`
-	SourceShedID          *string                    `json:"source_shed_id,omitempty"`
-	DestinationParkID     string                     `json:"destination_park_id"`
-	DestinationShedID     string                     `json:"destination_shed_id"`
-	ManagementStageMode   string                     `json:"management_stage_mode"`
-	TargetManagementStage string                     `json:"target_management_stage,omitempty"`
-	EffectiveAt           *time.Time                 `json:"effective_at,omitempty"`
-	Priority              string                     `json:"priority,omitempty"`
-	Category              string                     `json:"category,omitempty"`
-	ProofRef              *string                    `json:"proof_ref,omitempty"`
-	Impacts               []appShiftingImpactRequest `json:"impacts"`
+	SourceParkID      *string                    `json:"source_park_id,omitempty"`
+	SourceShedID      *string                    `json:"source_shed_id,omitempty"`
+	DestinationParkID string                     `json:"destination_park_id"`
+	DestinationShedID string                     `json:"destination_shed_id"`
+	EffectiveAt       *time.Time                 `json:"effective_at,omitempty"`
+	Priority          string                     `json:"priority,omitempty"`
+	Category          string                     `json:"category,omitempty"`
+	ProofRef          *string                    `json:"proof_ref,omitempty"`
+	Impacts           []appShiftingImpactRequest `json:"impacts"`
 
 	// Comment is the raiser's OPTIONAL note on why the animals are moving (maintainer decision
 	// 2026-07-31). It is read by the approving park head and by the verifier reviewing the
@@ -342,38 +340,37 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		h.writeAppError(w, r, err)
 		return
 	}
-	// Validate against the same backend-owned catalog the form renders. A destination_stage choice
-	// must name one of the (possibly several) stages represented in that exact destination shed;
-	// select_stage may use any active stage. This is raise-time validation and snapshotting, not a
-	// completion-time inference from residents.
-	if normalized.ManagementStageMode != "keep_current" {
+	// The movement adopts the DESTINATION SHED's cohort. The operator is not asked (maintainer
+	// decision 2026-08-03, superseding the three-mode chooser): the raise resolves one concrete
+	// answer from the same backend-owned catalog the form already renders, and snapshots it.
+	//
+	// Resolving HERE, at raise time, rather than at completion is deliberate and unchanged from the
+	// superseded design: the snapshot is what the park head approves and what the audit trail
+	// shows. A completion-time re-read would let the destination shed's residents drift between
+	// approval and application, so the stage actually applied would be one nobody approved.
+	//
+	// domain.ResolveShiftingDestinationStage owns the rule and its fallbacks; "" means preserve each
+	// animal's current stage, which is the relocation path's existing behaviour for an empty target.
+	stageMode, targetStage := "keep_current", ""
+	{
 		catalog, catalogErr := h.shifting.ShiftingDestinations(r.Context(), tenantID)
 		if catalogErr != nil {
 			h.writeCountsError(w, r, catalogErr)
 			return
 		}
-		allowed := catalog.ManagementStages
-		if normalized.ManagementStageMode == "destination_stage" {
-			allowed = nil
-			for _, park := range catalog.Parks {
-				for _, shed := range park.Sheds {
-					if shed.ShedID == normalized.DestinationShedID {
-						allowed = shed.ManagementStages
-					}
+		var destinationStages []string
+		for _, park := range catalog.Parks {
+			for _, shed := range park.Sheds {
+				if shed.ShedID == normalized.DestinationShedID {
+					destinationStages = shed.ManagementStages
 				}
 			}
 		}
-		valid := false
-		for _, stage := range allowed {
-			if strings.EqualFold(stage, normalized.TargetManagementStage) {
-				normalized.TargetManagementStage = stage
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			h.writeAppError(w, r, identityapp.BadRequest("invalid_target_management_stage", "target_management_stage is not available for this choice"))
-			return
+		if resolved := domain.ResolveShiftingDestinationStage(destinationStages, catalog.ManagementStages); resolved != "" {
+			// Recorded as the existing 'destination_stage' mode: the column's meaning ("this target
+			// came from the destination shed") is exactly what the resolver produced, so no schema
+			// change is needed and pre-existing rows keep their recorded raise-time intent.
+			stageMode, targetStage = "destination_stage", resolved
 		}
 	}
 
@@ -487,8 +484,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		SourceShedID:            sourceShedID,
 		DestinationParkID:       normalized.DestinationParkID,
 		DestinationShedID:       normalized.DestinationShedID,
-		ManagementStageMode:     normalized.ManagementStageMode,
-		TargetManagementStage:   normalized.TargetManagementStage,
+		ManagementStageMode:     stageMode,
+		TargetManagementStage:   targetStage,
 		RaisedAt:                raisedAt,
 		EffectiveAt:             effectiveAt,
 		SourceSystem:            appShiftingSourceSystem,
@@ -544,8 +541,8 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		SourceShedID:          sourceShedID,
 		Priority:              normalized.Priority,
 		Category:              normalized.Category,
-		ManagementStageMode:   normalized.ManagementStageMode,
-		TargetManagementStage: normalized.TargetManagementStage,
+		ManagementStageMode:   stageMode,
+		TargetManagementStage: targetStage,
 		Comment:               normalized.Comment,
 		GoatIDs:               normalized.GoatIDs,
 	})
@@ -585,8 +582,6 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	req.DestinationShedID = strings.TrimSpace(req.DestinationShedID)
 	req.Priority = strings.ToLower(strings.TrimSpace(req.Priority))
 	req.Category = strings.ToLower(strings.TrimSpace(req.Category))
-	req.ManagementStageMode = strings.ToLower(strings.TrimSpace(req.ManagementStageMode))
-	req.TargetManagementStage = strings.TrimSpace(req.TargetManagementStage)
 	if req.EffectiveAt != nil {
 		// Normalize to UTC so two representations of the same instant are the same request.
 		utc := req.EffectiveAt.UTC()
@@ -597,15 +592,6 @@ func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEven
 	}
 	if req.DestinationShedID == "" {
 		return req, identityapp.BadRequest("missing_destination_shed_id", "destination_shed_id is required")
-	}
-	if req.ManagementStageMode != "keep_current" && req.ManagementStageMode != "select_stage" && req.ManagementStageMode != "destination_stage" {
-		return req, identityapp.BadRequest("invalid_management_stage_mode", "management_stage_mode must be keep_current, select_stage, or destination_stage")
-	}
-	if req.ManagementStageMode != "keep_current" && req.TargetManagementStage == "" {
-		return req, identityapp.BadRequest("missing_target_management_stage", "target_management_stage is required for the selected management stage option")
-	}
-	if req.ManagementStageMode == "keep_current" && req.TargetManagementStage != "" {
-		return req, identityapp.BadRequest("unexpected_target_management_stage", "target_management_stage must be omitted when keeping the current stage")
 	}
 	// P0-1: Cross-park move prevention. Goats never move between parks; shed moves exist only
 	// within one park. Validate that source_park_id == destination_park_id when a source is supplied.

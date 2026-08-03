@@ -16848,7 +16848,6 @@ components:
       required:
         - destination_park_id
         - destination_shed_id
-        - management_stage_mode
         - goat_ids
       properties:
         source_park_id:
@@ -16868,13 +16867,6 @@ components:
         destination_shed_id:
           type: string
           format: uuid
-        management_stage_mode:
-          description: Mandatory raise-time decision for the post-shift management stage.
-          type: string
-          enum: [keep_current, select_stage, destination_stage]
-        target_management_stage:
-          description: Required for select_stage/destination_stage; omitted for keep_current.
-          type: string
         effective_at:
           description: >-
             When the movement actually took effect. Defaults to the time the event is recorded.

@@ -92,8 +92,6 @@ class ShiftingViewModel @Inject constructor(
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
             is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId)
-            is ShiftingEvent.SelectManagementStageMode -> onSelectManagementStageMode(event.mode)
-            is ShiftingEvent.SelectTargetManagementStage -> onSelectTargetManagementStage(event.stage)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             is ShiftingEvent.EditComment -> onEditComment(event.value)
@@ -117,7 +115,6 @@ class ShiftingViewModel @Inject constructor(
         viewModelScope.launch {
             countsRepository.observeShiftingDestinations().collect { resource ->
                 val parks = resource.data?.parks?.map(CountsDestinationParkDto::toShiftingParkUi).orEmpty()
-				val managementStages = resource.data?.managementStages.orEmpty()
                 _state.update { current ->
                     // A refresh that drops the currently-chosen park or shed must not leave a
                     // stale id selected: the submit would name a destination the catalog no longer
@@ -130,7 +127,6 @@ class ShiftingViewModel @Inject constructor(
                         ?.any { it.shedId == current.destinationShedId } == true
                     current.copy(
                         destinationParks = parks,
-						managementStages = managementStages,
                         destinationParkId = parkId,
                         destinationShedId = if (shedStillOffered) current.destinationShedId else "",
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
@@ -288,27 +284,11 @@ class ShiftingViewModel @Inject constructor(
             // Guard the pairing at the point of selection too: only a shed that belongs to the
             // chosen park may be stored.
             val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(destinationShedId = shedId, targetManagementStage = "") else current
+            if (belongsToPark) current.copy(destinationShedId = shedId) else current
         }
         recomputeSubmitGate()
     }
 
-    private fun onSelectManagementStageMode(mode: String) {
-        if (!beginEdit() || mode !in setOf("keep_current", "select_stage", "destination_stage")) return
-        _state.update { it.copy(managementStageMode = mode, targetManagementStage = "") }
-        recomputeSubmitGate()
-    }
-
-    private fun onSelectTargetManagementStage(stage: String) {
-        if (!beginEdit()) return
-        _state.update { current ->
-            val allowed = if (current.managementStageMode == "destination_stage")
-                current.shedsForSelectedPark.firstOrNull { it.shedId == current.destinationShedId }?.managementStages.orEmpty()
-            else current.managementStages
-            if (stage in allowed) current.copy(targetManagementStage = stage) else current
-        }
-        recomputeSubmitGate()
-    }
 
     private fun onSelectPriority(priority: String) {
         if (!beginEdit()) return
@@ -386,8 +366,6 @@ class ShiftingViewModel @Inject constructor(
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
-        managementStageMode = managementStageMode,
-        targetManagementStage = targetManagementStage.takeIf { managementStageMode != "keep_current" },
         priority = priority,
         category = category,
         // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
@@ -438,7 +416,6 @@ class ShiftingViewModel @Inject constructor(
         _state.update { current ->
             ShiftingUiState(
                 destinationParks = current.destinationParks,
-				managementStages = current.managementStages,
                 lastRecordedMessage = null,
                 returnToActions = true,
                 submissionNotice = confirmation,
@@ -474,8 +451,6 @@ class ShiftingViewModel @Inject constructor(
             return "This animal's current farm is unavailable. Refresh and try again."
         }
         if (state.destinationShedId.isBlank()) return "Choose the shed the animal moved to."
-        if (state.managementStageMode.isBlank()) return "Choose what should happen to the animal's management stage."
-        if (state.managementStageMode != "keep_current" && state.targetManagementStage.isBlank()) return "Choose the new management stage."
         return null
     }
 
@@ -545,5 +520,5 @@ internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
 internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = ShiftingParkUi(
     parkId = parkId,
     name = name,
-    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name, managementStages = it.managementStages) },
+    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name) },
 )

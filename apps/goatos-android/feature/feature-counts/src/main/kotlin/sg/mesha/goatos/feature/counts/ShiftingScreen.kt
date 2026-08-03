@@ -96,7 +96,6 @@ data class ShiftingAnimalUi(
 data class ShiftingShedUi(
     val shedId: String,
     val name: String,
-    val managementStages: List<String> = emptyList(),
 )
 
 /** One park a movement may target, with the sheds that belong to it. */
@@ -125,10 +124,6 @@ data class ShiftingUiState(
     val destinationShedId: String = "",
     /** Set when the catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
-
-    val managementStages: List<String> = emptyList(),
-    val managementStageMode: String = "",
-    val targetManagementStage: String = "",
 
     // --- 4/5. classification -----------------------------------------------------------------
     val priority: String = SHIFTING_PRIORITY_LOW,
@@ -185,8 +180,6 @@ sealed interface ShiftingEvent {
     /** Compatibility event only; the ViewModel accepts only the selected animal's current park. */
     data class SelectDestinationPark(val parkId: String) : ShiftingEvent
     data class SelectDestinationShed(val shedId: String) : ShiftingEvent
-    data class SelectManagementStageMode(val mode: String) : ShiftingEvent
-    data class SelectTargetManagementStage(val stage: String) : ShiftingEvent
 
     data class SelectPriority(val priority: String) : ShiftingEvent
     data class SelectCategory(val category: String) : ShiftingEvent
@@ -311,43 +304,6 @@ fun ShiftingScreen(
             state.destinationsMessage?.let { message ->
                 item(key = "destinations-message") {
                     Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
-                }
-            }
-
-            item(key = "management-stage") {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CountsFieldGroupTitle(text = stringResource(R.string.counts_shifting_after_title))
-                    CountsDropdownField(
-                        label = stringResource(R.string.counts_shifting_stage_label),
-                        selectedLabel = when (state.managementStageMode) {
-                            "keep_current" -> stringResource(R.string.counts_shifting_stage_keep)
-                            "select_stage" -> stringResource(R.string.counts_shifting_stage_select)
-                            "destination_stage" -> stringResource(R.string.counts_shifting_stage_destination)
-                            else -> null
-                        },
-                        placeholder = stringResource(R.string.counts_shifting_stage_placeholder),
-                        options = listOf(
-                            CountsDropdownOption("keep_current", stringResource(R.string.counts_shifting_stage_keep)),
-                            CountsDropdownOption("select_stage", stringResource(R.string.counts_shifting_stage_select)),
-                            CountsDropdownOption("destination_stage", stringResource(R.string.counts_shifting_stage_destination)),
-                        ),
-                        onSelect = { onEvent(ShiftingEvent.SelectManagementStageMode(it)) },
-                        enabled = true,
-                    )
-                    if (state.managementStageMode == "select_stage" || state.managementStageMode == "destination_stage") {
-                        val options = if (state.managementStageMode == "destination_stage") {
-                            state.shedsForSelectedPark.firstOrNull { it.shedId == state.destinationShedId }?.managementStages.orEmpty()
-                        } else state.managementStages
-                        CountsDropdownField(
-                            label = stringResource(R.string.counts_shifting_new_stage),
-                            selectedLabel = state.targetManagementStage.ifBlank { null },
-                            placeholder = if (options.isEmpty()) stringResource(R.string.counts_shifting_no_stage) else stringResource(R.string.counts_shifting_select_stage),
-                            options = options.map { CountsDropdownOption(it, it) },
-                            onSelect = { onEvent(ShiftingEvent.SelectTargetManagementStage(it)) },
-                            enabled = options.isNotEmpty(),
-                        )
-                    }
-                    Text(stringResource(R.string.counts_shifting_stage_notice), color = MeshaColors.Muted, fontSize = 11.sp)
                 }
             }
 

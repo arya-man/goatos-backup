@@ -99,8 +99,6 @@ class ShiftingViewModelEligibilityTest {
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
         vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
-        assertFalse(vm.state.value.canSubmit)
-        vm.onEvent(ShiftingEvent.SelectManagementStageMode("keep_current"))
         vm.onEvent(ShiftingEvent.Submit)
         advanceUntilIdle()
 
@@ -117,22 +115,26 @@ class ShiftingViewModelEligibilityTest {
         assertFalse(vm.state.value.returnToActions)
     }
 
+    /**
+     * The operator picks an animal and a destination — nothing else. Submit must unlock on those
+     * two facts alone.
+     *
+     * Before the 2026-08-03 rule the form also demanded a management-stage choice, so `canSubmit`
+     * stayed false after selecting a shed and the operator had to answer a third dropdown. This
+     * asserts that gate is gone, which is the whole point of the change from the operator's side.
+     */
     @Test
-    fun `Mother is sent only as the selected management stage`() = runTest(dispatcher) {
-        val sync = NoopShiftingSyncRepository()
-        val vm = newViewModel(listOf(animal(lifecycle = "alive")), sync)
+    fun `animal plus destination is enough to submit`() = runTest(dispatcher) {
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")))
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
         vm.onEvent(ShiftingEvent.LookupAnimals)
         advanceUntilIdle()
         vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+        assertFalse(vm.state.value.canSubmit)
+
         vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID))
-        vm.onEvent(ShiftingEvent.SelectManagementStageMode("select_stage"))
-        vm.onEvent(ShiftingEvent.SelectTargetManagementStage("Mother"))
-        vm.onEvent(ShiftingEvent.Submit)
-        advanceUntilIdle()
-        assertEquals("select_stage", sync.lastShiftingRequest?.managementStageMode)
-        assertEquals("Mother", sync.lastShiftingRequest?.targetManagementStage)
+        assertTrue(vm.state.value.canSubmit)
     }
 
     private fun newViewModel(
