@@ -3,9 +3,12 @@ export const INTERNAL_LOGIN_PATH = "/login";
 export const LOGIN_PATH = `${DASHBOARD_BASE_PATH}${INTERNAL_LOGIN_PATH}`;
 export const SESSION_ROUTE = `${DASHBOARD_BASE_PATH}/api/auth/session`;
 export const FIREBASE_CONFIG_ROUTE = `${DASHBOARD_BASE_PATH}/api/auth/firebase-config`;
+export const GOOGLE_REDIRECT_ROUTE = `${DASHBOARD_BASE_PATH}/api/auth/google-redirect`;
 export const COOKIE_PATH = "/";
 export const FIREBASE_ID_TOKEN_COOKIE = "goatos_firebase_id_token";
 export const FIREBASE_ID_TOKEN_MAX_AGE_SECONDS = 60 * 60;
+export const GOOGLE_REDIRECT_CREDENTIAL_COOKIE = "goatos_google_redirect_credential";
+export const GOOGLE_REDIRECT_CREDENTIAL_MAX_AGE_SECONDS = 60;
 
 // Long-lived Firebase refresh token. Persisted httpOnly so SSR can mint a fresh
 // ID token after the short-lived id-token cookie lapses — this is what removes
