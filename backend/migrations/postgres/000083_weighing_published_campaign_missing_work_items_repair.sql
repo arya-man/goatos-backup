@@ -37,34 +37,55 @@
 -- happened, and the kernel sweeper only ever advances rows that exist.
 --
 -- FIX: re-materialise the MISSING work items for campaigns that are published
--- (any non-draft, non-canceled status), using the byte-identical planner that
--- createWorkItemsForPublishTx uses -- the same greedy day-offset window
--- (running EXCLUSIVE bucket size over GREATEST(expected_animal_count, 1),
--- partitioned per (tenant_id, campaign_id, operator_user_id) because capacity
--- is operator-business-date grain, divided by GREATEST(planned_cap_per_day, 1),
--- ordered by display_name then campaign_shed_id). The window is computed over
--- the campaign's FULL non-canceled bucket set and only THEN filtered to the
--- missing buckets, rather than restarting the offset from zero.
+-- (any non-draft, non-canceled status), ANCHORED ON THE SURVIVING SIBLINGS'
+-- ACTUAL planned_business_date.
 --
--- HONEST LIMIT, measured rather than assumed. That window is the bucket set as it
--- stands AT REPAIR TIME, not as it stood at publish time, so it reproduces the
--- publish planner only for a campaign whose shape has not changed since. A
--- post-publish cancel shrinks the running sum and pulls every later bucket one day
--- earlier: with cap 100 and buckets A/B/C/D of 100 animals each, publish gives
--- D = start+3; cancel B afterwards and this repair regenerates D at start+2, where
--- its surviving sibling C already sits -- 200 animals booked on one operator-day
--- against a cap of 100. The same divergence follows any post-publish change to
--- planned_cap_per_day, start_business_date, expected_animal_count, or the bucket
--- set.
+-- A previous revision re-derived createWorkItemsForPublishTx's day-offset window
+-- from scratch at repair time. That is wrong, and measurably so: the window ranged
+-- over the bucket set AS IT STANDS NOW, while the rows it had to line up with were
+-- dated from the set as it stood AT PUBLISH. Any post-publish edit slid the two
+-- apart. With cap 100 and buckets A/B/C/D of 100 animals each, publish gives
+-- D = start+3; cancel B afterwards and the recomputed window regenerated D at
+-- start+2, on top of its surviving sibling C -- 200 animals booked on one
+-- operator-day against a cap of 100.
 --
--- An earlier version of this header claimed the regenerated dates 'line up with the
--- dates its surviving siblings already carry'. That claim was FALSE and is
--- withdrawn: this migration never reads a surviving sibling's actual
--- planned_business_date, so alignment is not something it can guarantee. Anchoring
--- on a surviving sibling is the real fix and is deliberately NOT attempted here --
--- it changes what the repair computes, and this file is meant to restore rows, not
--- to re-plan a campaign. A regenerated date that collides is visible and
--- correctable; the missing row it replaces was not.
+-- The surviving work items ARE the record of what publish decided, so they are the
+-- anchor rather than something to be re-derived around. Buckets are walked in the
+-- publish planner's own order (display_name, campaign_shed_id) within an operator
+-- partition, and each missing bucket is placed relative to the nearest EARLIER
+-- bucket that still has a work item:
+--
+--   date = anchor.planned_business_date + (animals already booked on the anchor's
+--          operator-day) / GREATEST(planned_cap_per_day, 1)
+--
+-- That integer division IS the publish planner's `floor(running_sum / cap)`,
+-- re-expressed as the carry out of a day whose load is read from the surviving
+-- rows instead of recomputed. Where the campaign has not changed the two agree
+-- exactly, because the animals standing on the anchor's day are precisely the
+-- publish-time running sum's remainder within that day's band -- including the
+-- deliberate overflow publish allows when a bucket straddles the cap. Where the
+-- campaign HAS changed, the survivors still win, so a regenerated bucket lands
+-- after the day its siblings occupy instead of on top of it.
+--
+-- The anchor search deliberately does NOT skip canceled buckets. A bucket canceled
+-- after publish keeps its work item, and that row is still holding the operator-day
+-- it was given; stepping over it would drop its animals from the carry and place
+-- the regenerated bucket straight onto it.
+--
+-- WHAT THIS NOW GUARANTEES: a regenerated bucket never lands on an operator-day
+-- whose surviving load already meets planned_cap_per_day. Cap overflow can still
+-- appear on a day, but only in the one shape publish itself produces -- a single
+-- bucket larger than the remaining room, placed on a day that was under cap.
+--
+-- RESIDUAL, honestly stated. When NO earlier bucket in the operator partition has a
+-- surviving work item there is nothing to anchor on, and the walk falls back to
+-- start_business_date and packs forward -- which reproduces the publish window over
+-- the CURRENT bucket set, carrying exactly the divergence described above if the
+-- campaign changed after publish. A wholly destroyed campaign has no better
+-- evidence available anywhere in the database. Anchoring also cannot recover a
+-- publish-time date that no surviving row ever witnessed: if the buckets flanking a
+-- gap were themselves edited after publish, the repair reproduces the schedule the
+-- survivors now describe, not the one publish wrote.
 --
 -- WORK STATE is inferred from the bucket's CURRENT status rather than blindly
 -- 'scheduled' (which is all publish-time knows): a bucket that has since been
@@ -102,10 +123,11 @@
 -- which contributes no rows of its own -- the join is 1:1 per bucket and
 -- nothing can fan out. Consumer = weighing_work_items (tenant_id,
 -- campaign_shed_id), the exact unique key of weighing_work_items_bucket_uidx.
--- Day-offset numerator (running bucket size) and denominator
--- (planned_cap_per_day) both range over the same
--- (tenant_id, campaign_id, operator_user_id) key set, so no ratio is compared
--- across mismatched grains.
+-- The occupancy sum joins weighing_work_items back to its bucket on that same
+-- unique key, so a day's load counts each bucket once. Carry numerator (animals
+-- standing on the anchor's day) and denominator (planned_cap_per_day) both range
+-- over the same (tenant_id, campaign_id, operator_user_id) key set, so no ratio is
+-- compared across mismatched grains.
 
 CREATE OR REPLACE PROCEDURE public.weighing_repair_published_missing_work_items(
   batch_size int DEFAULT 50,
@@ -118,6 +140,11 @@ DECLARE
   repaired bigint := 0;
   slice_campaigns bigint;
   slice_inserted bigint;
+  bucket record;
+  anchor_date date;
+  booked_animals bigint;
+  placed_date date;
+  bucket_inserted bigint;
 BEGIN
   INSERT INTO public.weighing_repair_batch_progress (repair_key)
   VALUES ('000083_weighing_published_campaign_missing_work_items_repair')
@@ -146,6 +173,12 @@ BEGIN
         WHERE cs.tenant_id = c.tenant_id
           AND cs.campaign_id = c.campaign_id
           AND cs.status <> 'canceled'
+          -- An unassigned bucket is work nobody has been given yet: publish could
+          -- not have written a work item for it (operator_user_id is NOT NULL
+          -- there), so it is not damage. It MUST also stay out of this predicate
+          -- or the slice would re-select the same campaign forever and trip the
+          -- max_slices guard.
+          AND cs.operator_user_id IS NOT NULL
           AND NOT EXISTS (
             SELECT 1
             FROM public.weighing_work_items wi
@@ -159,27 +192,15 @@ BEGIN
 
     GET DIAGNOSTICS slice_campaigns = ROW_COUNT;
 
-    INSERT INTO public.weighing_work_items (
-      tenant_id, campaign_id, campaign_shed_id, park_id, operator_user_id,
-      weighing_category, shed_label, shed_location_id,
-      planned_business_date, due_business_date, work_state
-    )
-    SELECT planned.tenant_id,
-           planned.campaign_id,
-           planned.campaign_shed_id,
-           planned.park_id,
-           planned.operator_user_id,
-           planned.weighing_category,
-           planned.display_name,
-           planned.location_id,
-           planned.start_business_date + planned.day_offset,
-           planned.start_business_date + planned.day_offset,
-           CASE planned.status
-             WHEN 'completed' THEN 'completed'
-             WHEN 'closed' THEN 'closed'
-             ELSE 'scheduled'
-           END
-    FROM (
+    slice_inserted := 0;
+
+    -- Bucket-at-a-time ON PURPOSE, in the publish planner's own order. Each
+    -- placement reads the operator-day load that the placements before it have
+    -- already written, so a run of consecutive missing buckets packs forward off
+    -- one another exactly as publish packed them. A single set-based statement
+    -- cannot see its own inserts, which is what forced the earlier revision to
+    -- recompute a window instead of anchoring on one.
+    FOR bucket IN
       SELECT cs.tenant_id,
              cs.campaign_id,
              cs.campaign_shed_id,
@@ -190,15 +211,7 @@ BEGIN
              cs.location_id,
              cs.status,
              c.start_business_date,
-             floor(
-               COALESCE(
-                 sum(GREATEST(cs.expected_animal_count, 1)) OVER (
-                   PARTITION BY cs.tenant_id, cs.campaign_id, cs.operator_user_id
-                   ORDER BY cs.display_name, cs.campaign_shed_id
-                   ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                 ), 0
-               )::numeric / GREATEST(c.planned_cap_per_day, 1)::numeric
-             )::int AS day_offset
+             GREATEST(c.planned_cap_per_day, 1) AS cap_per_day
       FROM public.weighing_campaign_sheds cs
       JOIN weighing_missing_wi_slice s
         ON s.tenant_id = cs.tenant_id
@@ -206,20 +219,82 @@ BEGIN
       JOIN public.weighing_campaigns c
         ON c.tenant_id = cs.tenant_id
        AND c.campaign_id = cs.campaign_id
-      -- The window MUST see every non-canceled bucket of the campaign, not just
-      -- the missing ones, or a partial repair would re-plan surviving siblings'
-      -- days on top of itself.
       WHERE cs.status <> 'canceled'
-    ) planned
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM public.weighing_work_items wi
-      WHERE wi.tenant_id = planned.tenant_id
-        AND wi.campaign_shed_id = planned.campaign_shed_id
-    )
-    ON CONFLICT (tenant_id, campaign_shed_id) DO NOTHING;
+        AND cs.operator_user_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM public.weighing_work_items wi
+          WHERE wi.tenant_id = cs.tenant_id
+            AND wi.campaign_shed_id = cs.campaign_shed_id
+        )
+      ORDER BY cs.tenant_id, cs.campaign_id, cs.operator_user_id,
+               cs.display_name, cs.campaign_shed_id
+    LOOP
+      -- The nearest EARLIER bucket of this operator that still holds a work item.
+      -- Canceled buckets count here: their work item survives and is still
+      -- standing on the operator-day publish gave it.
+      SELECT wi.planned_business_date
+        INTO anchor_date
+      FROM public.weighing_campaign_sheds p
+      JOIN public.weighing_work_items wi
+        ON wi.tenant_id = p.tenant_id
+       AND wi.campaign_shed_id = p.campaign_shed_id
+      WHERE p.tenant_id = bucket.tenant_id
+        AND p.campaign_id = bucket.campaign_id
+        AND p.operator_user_id = bucket.operator_user_id
+        AND (p.display_name, p.campaign_shed_id) < (bucket.display_name, bucket.campaign_shed_id)
+      ORDER BY p.display_name DESC, p.campaign_shed_id DESC
+      LIMIT 1;
 
-    GET DIAGNOSTICS slice_inserted = ROW_COUNT;
+      -- Nothing earlier survived, so there is no witness to what publish decided
+      -- and start_business_date is the only floor left. See the header's RESIDUAL.
+      IF anchor_date IS NULL THEN
+        anchor_date := bucket.start_business_date;
+      END IF;
+
+      SELECT COALESCE(sum(GREATEST(p.expected_animal_count, 1)), 0)
+        INTO booked_animals
+      FROM public.weighing_work_items wi
+      JOIN public.weighing_campaign_sheds p
+        ON p.tenant_id = wi.tenant_id
+       AND p.campaign_shed_id = wi.campaign_shed_id
+      WHERE wi.tenant_id = bucket.tenant_id
+        AND wi.campaign_id = bucket.campaign_id
+        AND wi.operator_user_id = bucket.operator_user_id
+        AND wi.planned_business_date = anchor_date;
+
+      -- This integer division IS createWorkItemsForPublishTx's
+      -- floor(running_sum / cap), read off the surviving rows rather than
+      -- recomputed: it is the carry out of the anchor's day.
+      placed_date := anchor_date + (booked_animals / bucket.cap_per_day)::int;
+
+      INSERT INTO public.weighing_work_items (
+        tenant_id, campaign_id, campaign_shed_id, park_id, operator_user_id,
+        weighing_category, shed_label, shed_location_id,
+        planned_business_date, due_business_date, work_state
+      )
+      VALUES (
+        bucket.tenant_id,
+        bucket.campaign_id,
+        bucket.campaign_shed_id,
+        bucket.park_id,
+        bucket.operator_user_id,
+        bucket.weighing_category,
+        bucket.display_name,
+        bucket.location_id,
+        placed_date,
+        placed_date,
+        CASE bucket.status
+          WHEN 'completed' THEN 'completed'
+          WHEN 'closed' THEN 'closed'
+          ELSE 'scheduled'
+        END
+      )
+      ON CONFLICT (tenant_id, campaign_shed_id) DO NOTHING;
+
+      GET DIAGNOSTICS bucket_inserted = ROW_COUNT;
+      slice_inserted := slice_inserted + bucket_inserted;
+    END LOOP;
     repaired := repaired + slice_inserted;
 
     UPDATE public.weighing_repair_batch_progress
