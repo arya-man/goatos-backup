@@ -28,6 +28,10 @@ type Service interface {
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
 	GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error)
+	// CampaignCapabilities takes the RESOLVED campaign, not an id: the buttons are park-scoped
+	// and must be answered for the park on the row that was just authorized and returned, never
+	// for a park fetched again afterwards.
+	CampaignCapabilities(ctx context.Context, actor domain.Actor, campaign domain.Campaign) domain.CampaignCapabilities
 	ListParks(ctx context.Context, actor domain.Actor) ([]domain.WeighingPark, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
 	ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error)
@@ -208,12 +212,15 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
 }
 
-// campaignCapabilities names which task-level writes THIS caller may attempt. Publish and end
-// are held by DIFFERENT permissions (plan vs monitor), so a client that gates only on status
-// shows a live button that 403s -- a growth director holds monitor and not plan.
+// campaignCapabilities names which task-level writes THIS caller may attempt SOMEWHERE. Publish
+// and end are held by DIFFERENT permissions (plan vs monitor), so a client that gates only on
+// status shows a live button that 403s -- a growth director holds monitor and not plan.
 //
-// Shared by the list and the single-task read so the two can never disagree about the same
-// caller's buttons depending on how they arrived at the task.
+// It is the LIST envelope's answer only, and it is deliberately park-blind: the envelope is one
+// object over a page whose rows may span several parks, so it cannot carry a per-park answer.
+// It is therefore an upper bound -- "you hold this permission somewhere on this surface" -- and
+// a client must not treat it as per-row authority. The single-task read answers at row grain
+// (Service.CampaignCapabilities) and is what a task screen gates its buttons on.
 func campaignCapabilities(caller domain.Actor) map[string]bool {
 	return map[string]bool{
 		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
@@ -274,13 +281,20 @@ func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
 // list is a keyset page with no id filter, so without this a cold tap on a task outside the
 // first pages could only be answered by walking the keyset and giving up.
 //
-// It returns the same `capabilities` map the list does. A client that reached the task through
-// a push never saw the list response, so gating its buttons on status alone showed a live
-// Publish to a monitor (publish is WeighingPlan, ending is WeighingMonitor) that then 403'd.
+// It returns `capabilities` because a client that reached the task through a push never saw the
+// list response, so gating its buttons on status alone showed a live Publish to a monitor
+// (publish is WeighingPlan, ending is WeighingMonitor) that then 403'd.
+//
+// Those capabilities are computed for the RESOLVED campaign, not for the caller in the
+// abstract. The park-blind version was the same defect one level down: end/reopen are
+// park-scoped writes that answer ErrNotFound outside the caller's parks, so a monitor scoped
+// elsewhere saw a live Abandon/Close button that failed on tap. Passing the campaign the read
+// just returned also means the park the buttons are computed against is the park that was
+// authorized, with no extra lookup to disagree with.
 func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
 	caller := actor(r)
 	campaign, err := h.service.GetCampaign(r.Context(), caller, r.PathValue("campaign_id"))
-	h.respond(w, r, map[string]any{"campaign": campaign, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+	h.respond(w, r, map[string]any{"campaign": campaign, "capabilities": h.service.CampaignCapabilities(r.Context(), caller, campaign), "trace_id": traceID(r)}, err)
 }
 
 // ListParks serves the oversight park chips. A separate read rather than a field on the task

@@ -271,7 +271,7 @@ func (r *multiParkScenarioRepo) PublishCampaign(context.Context, string, string,
 	return domain.Campaign{}, nil
 }
 
-func (r *multiParkScenarioRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+func (r *multiParkScenarioRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
 

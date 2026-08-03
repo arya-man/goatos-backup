@@ -211,7 +211,7 @@ func (r *parkScopeCheckRepo) PublishCampaign(ctx context.Context, tenantID, camp
 	return domain.Campaign{}, nil
 }
 
-func (r *parkScopeCheckRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+func (r *parkScopeCheckRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
 
