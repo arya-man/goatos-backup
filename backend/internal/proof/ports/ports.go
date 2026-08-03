@@ -30,7 +30,7 @@ type Repository interface {
 	GetProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error)
 	GetProofsByIDs(ctx context.Context, tenantID string, proofIDs []string) (map[string]domain.Artifact, error)
 	CompleteProof(ctx context.Context, in domain.CompleteUpload) (domain.Artifact, error)
-	DeleteUnattachedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error)
+	DeleteUnattachedProof(ctx context.Context, tenantID, proofID, actorID string) (domain.Artifact, error)
 	ApplyRetention(ctx context.Context, tenantID string, proofIDs []string, policy string, expiresAt *time.Time) (int, error)
 	BackfillSubmissionRetention(ctx context.Context, before time.Time, limit int) (int, error)
 	PurgeExpired(ctx context.Context, before time.Time, limit int) (int, error)

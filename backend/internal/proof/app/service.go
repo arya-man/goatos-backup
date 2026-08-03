@@ -135,11 +135,14 @@ func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID strin
 	return proof, reader, nil
 }
 
-func (s *Service) DeleteUpload(ctx context.Context, tenantID, proofID string) error {
+func (s *Service) DeleteUpload(ctx context.Context, tenantID, proofID, actorID string) error {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
 		return ErrInvalid
 	}
-	proof, err := s.repo.DeleteUnattachedProof(ctx, tenantID, proofID)
+	if !uuidutil.IsUUIDString(actorID) {
+		return ErrInvalid
+	}
+	proof, err := s.repo.DeleteUnattachedProof(ctx, tenantID, proofID, actorID)
 	if err != nil {
 		return err
 	}

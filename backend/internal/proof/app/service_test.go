@@ -74,7 +74,7 @@ func TestDeleteUploadRemovesRepositoryAcceptedArtifactFromStorage(t *testing.T) 
 	storage := &fakeProofStorage{}
 	service := NewService(repo, storage)
 
-	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID); err != nil {
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID, proofTestActor); err != nil {
 		t.Fatalf("DeleteUpload() error = %v", err)
 	}
 	if storage.deleted.ProofID != proofTestID {
@@ -82,10 +82,20 @@ func TestDeleteUploadRemovesRepositoryAcceptedArtifactFromStorage(t *testing.T) 
 	}
 }
 
+// DeleteUpload is owner-scoped, so a caller with no resolvable actor identity must be rejected
+// outright rather than falling through to an unscoped delete.
+func TestDeleteUploadRefusesMissingActor(t *testing.T) {
+	service := NewService(&fakeProofRepo{proof: baseProof()}, &fakeProofStorage{})
+
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, proofTestID, ""); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("DeleteUpload() error = %v, want ErrInvalid", err)
+	}
+}
+
 func TestDeleteUploadRefusesInvalidProofID(t *testing.T) {
 	service := NewService(&fakeProofRepo{}, &fakeProofStorage{})
 
-	if err := service.DeleteUpload(context.Background(), proofTestTenant, "not-a-uuid"); !errors.Is(err, ErrInvalid) {
+	if err := service.DeleteUpload(context.Background(), proofTestTenant, "not-a-uuid", proofTestActor); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("DeleteUpload() error = %v, want ErrInvalid", err)
 	}
 }
@@ -380,7 +390,7 @@ func (r *fakeProofRepo) CompleteProof(_ context.Context, in domain.CompleteUploa
 	return out, nil
 }
 
-func (r *fakeProofRepo) DeleteUnattachedProof(context.Context, string, string) (domain.Artifact, error) {
+func (r *fakeProofRepo) DeleteUnattachedProof(context.Context, string, string, string) (domain.Artifact, error) {
 	return r.proof, nil
 }
 
