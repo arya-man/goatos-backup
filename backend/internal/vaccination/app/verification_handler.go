@@ -3,8 +3,10 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 // Verification event types: a SOP verify outcome for a recorded vaccination completion. The SOP
@@ -27,6 +29,14 @@ type VerificationEvent struct {
 }
 
 type genericVerificationEvent struct {
+	// Status is the verification item's terminal status as the producer recorded it. It is
+	// the DISAMBIGUATOR for verification.item.closed, which is polysemous: the verification
+	// module reuses that one event type for both an operational CLOSURE (a verifier finished
+	// with the item) and a RETRACTION (WithdrawItemsBySource -- the producing module
+	// superseded its own source record, so the review is cancelled). A new event type was not
+	// minted because the outbox partial unique index enumerates types and would need a
+	// migration; the cost of that choice is that EVERY consumer must read this field.
+	Status     string `json:"status"`
 	Reason     string `json:"reason"`
 	VerifiedBy string `json:"verified_by"`
 	ClosedBy   string `json:"closed_by"`
@@ -123,6 +133,15 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 		}
 	}
 	if p.Source.Module != "vaccination" || p.Source.SubmissionID == "" {
+		return nil
+	}
+	// A WITHDRAWN item is a retraction of the review request, NOT a verdict. Treating it as
+	// one would apply outcome "closed" to the goat/submission and then tell the SOP closure
+	// projector to ACCEPT the submission item -- accepting work that was explicitly taken
+	// back, with an empty actor (a withdrawal carries no closed_by). There is nothing for
+	// vaccination to apply: the producing module already superseded its own record and will
+	// raise a fresh verification item for the replacement.
+	if strings.TrimSpace(p.Status) == verificationdomain.StatusWithdrawn {
 		return nil
 	}
 	outcome := "rejected"
