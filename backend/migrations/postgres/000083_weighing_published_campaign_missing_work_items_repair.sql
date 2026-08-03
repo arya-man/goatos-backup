@@ -44,9 +44,27 @@
 -- is operator-business-date grain, divided by GREATEST(planned_cap_per_day, 1),
 -- ordered by display_name then campaign_shed_id). The window is computed over
 -- the campaign's FULL non-canceled bucket set and only THEN filtered to the
--- missing buckets, so a partially-damaged campaign's regenerated dates line up
--- with the dates its surviving siblings already carry instead of restarting the
--- offset from zero.
+-- missing buckets, rather than restarting the offset from zero.
+--
+-- HONEST LIMIT, measured rather than assumed. That window is the bucket set as it
+-- stands AT REPAIR TIME, not as it stood at publish time, so it reproduces the
+-- publish planner only for a campaign whose shape has not changed since. A
+-- post-publish cancel shrinks the running sum and pulls every later bucket one day
+-- earlier: with cap 100 and buckets A/B/C/D of 100 animals each, publish gives
+-- D = start+3; cancel B afterwards and this repair regenerates D at start+2, where
+-- its surviving sibling C already sits -- 200 animals booked on one operator-day
+-- against a cap of 100. The same divergence follows any post-publish change to
+-- planned_cap_per_day, start_business_date, expected_animal_count, or the bucket
+-- set.
+--
+-- An earlier version of this header claimed the regenerated dates 'line up with the
+-- dates its surviving siblings already carry'. That claim was FALSE and is
+-- withdrawn: this migration never reads a surviving sibling's actual
+-- planned_business_date, so alignment is not something it can guarantee. Anchoring
+-- on a surviving sibling is the real fix and is deliberately NOT attempted here --
+-- it changes what the repair computes, and this file is meant to restore rows, not
+-- to re-plan a campaign. A regenerated date that collides is visible and
+-- correctable; the missing row it replaces was not.
 --
 -- WORK STATE is inferred from the bucket's CURRENT status rather than blindly
 -- 'scheduled' (which is all publish-time knows): a bucket that has since been
@@ -206,7 +224,12 @@ BEGIN
 
     UPDATE public.weighing_repair_batch_progress
     SET batches_run = batches_run + 1,
-        rows_repaired = repaired,
+        -- ACCUMULATE, do not assign. `repaired` is call-local, so on a RESUMED run it
+        -- restarts at zero: a run that repaired 5,000 rows, was killed, then resumed and
+        -- repaired 200 would overwrite the true total with 200. That is precisely the
+        -- under-reporting 000081's progress table exists to prevent, and 000082 already
+        -- accumulates for this reason -- this file kept the wrong form.
+        rows_repaired = weighing_repair_batch_progress.rows_repaired + slice_inserted,
         last_batch_at = now(),
         completed_at = CASE WHEN slice_campaigns = 0 THEN now() ELSE NULL END
     WHERE repair_key = '000083_weighing_published_campaign_missing_work_items_repair';

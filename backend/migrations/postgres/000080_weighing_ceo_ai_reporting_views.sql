@@ -16,11 +16,26 @@
 --
 -- CONSEQUENCE, and the remediation. Environments that DID apply the old file (local and
 -- dev, which have no reader roles and so skipped the failing grant) now hold the old
--- checksum and will fail on the next migrate. Repair one of two ways:
---   * local only: re-run with -allow-local-checksum-drift (the flag validates
---     GOATOS_ENV=local and refuses anything else), or
---   * update the recorded checksum for version 000080 in
---     public.goatos_schema_migrations to the new file's SHA-256.
+-- checksum and will fail on the next migrate.
+--
+-- THE REMEDY IS TO MAKE IT RE-RUN. Delete its row, then migrate:
+--
+--   DELETE FROM public.goatos_schema_migrations
+--    WHERE version = '000080_weighing_ceo_ai_reporting_views';
+--
+-- This file is CREATE OR REPLACE VIEW only -- no table DDL, no backfill, no data movement --
+-- so re-applying it is safe and idempotent, and it is the ONLY remedy that actually installs
+-- the corrected views.
+--
+-- DO NOT use -allow-local-checksum-drift, and DO NOT hand-edit the recorded checksum. An
+-- earlier version of this header recommended both. Both are WRONG, and wrong in the worst
+-- way: the drift branch in cmd/migrate logs a warning and CONTINUES -- it SKIPS the
+-- migration -- and an updated checksum makes the runner consider it already applied. Either
+-- way the runner goes green while the database keeps the OLD, BROKEN views: the bucket
+-- fan-out, animals_weighed reading 2 for a sixty-animal shed, and scan_count counting
+-- captures instead of animals. All three defects this rewrite exists to kill stay live, and
+-- the migration table reports success. That was measured, not theorised.
+--
 -- Neither is needed on staging or production, which never applied it.
 --
 -- There is precedent for this exception on main: b67c26413 ("guard 000080 ceo_ai grants
