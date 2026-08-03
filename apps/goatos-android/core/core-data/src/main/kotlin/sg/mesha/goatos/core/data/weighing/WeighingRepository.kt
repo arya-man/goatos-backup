@@ -1478,6 +1478,29 @@ class DefaultWeighingRepository(
         ) {
             return@withContext
         }
+        // REDELIVERY, NOT A REVISION. This method has two callers for the same row: the
+        // capture screen attaches the proof as soon as the upload completes, and the
+        // observeReadyProofs() reconciler independently replays every ready proof (that
+        // replay is deliberate -- it is how a capture survives the screen being closed
+        // mid-upload). When the replay carries the SAME serverProofId for a row whose write
+        // is ALREADY queued, nothing about the capture changed: same tag, same weight, same
+        // proof. Minting a `:proof:` key for it posts the identical capture a second time
+        // under a second idempotency key, and the backend -- which can only compare keys --
+        // classifies it as an EDIT, withdrawing the pending verification item and raising a
+        // fresh round. The first real device run produced 20 verification items and 20
+        // accepted events for 10 captures this way.
+        //
+        // The `:proof:` suffix stays for what it was built for: a row whose base key changed
+        // (a weight correction on an already-accepted capture) or a genuinely re-shot proof.
+        // Both of those still have no queued write under the row's CURRENT key, so both still
+        // enqueue below.
+        val alreadyQueuedForThisProof = row.serverProofId == serverProofId &&
+            !serverProofId.isNullOrBlank() &&
+            syncRepository?.findOutboxItemByIdempotencyKey(row.idempotencyKey)
+                .let { it is AppResult.Ok && it.value != null }
+        if (alreadyQueuedForThisProof) {
+            return@withContext
+        }
         val isProofRevision = !row.serverProofId.isNullOrBlank()
         val revisionIdempotencyKey = if (isProofRevision && !serverProofId.isNullOrBlank()) {
             "${row.idempotencyKey.substringBefore(":proof:")}:proof:$serverProofId"
