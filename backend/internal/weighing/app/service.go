@@ -304,7 +304,18 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 	// park's task list, and it arrives from the client. Clamp it to the actor's authority:
 	// a named park must be one they hold plan-or-monitor in, and an unnamed one resolves to
 	// their own park rather than defaulting to "all parks".
-	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
+	// The park set MUST be resolved against the SAME capability that admitted this scope, not
+	// against plan-or-monitor for every scope. Using the wider set here reintroduced the exact
+	// bug this branch exists to kill, one level up: an actor holding WeighingOverseeOperators in
+	// park A and WeighingPlan in park B passed the ScopeOperators role gate on A's grant and
+	// then got B in the park set from the unrelated planning grant -- reading somebody else's
+	// operator work in a park they have no oversight authority in. Each grant's role stays bound
+	// to its own scope only if the capability asked for is the one the scope requires.
+	scopeCapabilities := planOrMonitorParkCapabilities
+	if scope == domain.CampaignListScopeOperators {
+		scopeCapabilities = []string{permissions.WeighingOverseeOperators}
+	}
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, scopeCapabilities...)
 	if !tenantWide {
 		if parkID != "" {
 			if _, ok := authorizedParks[parkID]; !ok {
