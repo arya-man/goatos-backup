@@ -147,6 +147,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve ONE Weighing task by id.
+         * @description The single-task read behind a notification deep link. The task list is a keyset page with no id filter, so a cold tap on a task further down the keyset could not be resolved: the client walked a few pages and then reported "not found" for work that exists.
+         *
+         *     Authority is the SAME split the task's bucket page applies, and the two branches are bounded differently on purpose. A planner or monitor (`weighing.plan` or `weighing.monitor`) resolves the task UNFILTERED, so the task's own park is resolved first and the caller must hold plan or monitor IN THAT PARK -- naming another park's task id returns 404, not that park's task. An assignee (`weighing.execute`) is instead bounded by their OWN assignment: the task must carry a live bucket assigned to them, and they see only their own buckets on it. That branch runs NO park check and needs none, because an assignment is already park-bound -- nobody is assigned work in a park they do not work in.
+         *     Both misses are 404, so neither branch confirms that a task it refused exists.
+         */
+        get: operations["appGetWeighingCampaign"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/parks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the parks whose Weighing this caller may look at.
+         * @description Park VOCABULARY for the oversight surfaces' filter chips: identity only, no weigh date and no counts. It exists because the only other park list is the planner catalog, which is gated on `weighing.plan` -- CEO-only -- so a Growth Director (`weighing.monitor` + `weighing.oversee_operators`, never `weighing.plan`) had no park list they could read and the client fell back to whichever parks appeared on the rows it happened to have loaded. A vocabulary derived from the filtered data loses a park as soon as that park's tasks page out. The list is the caller's CAPABILITY-SCOPED parks, never every park in the tenant. Unpaged: parks are a handful and a chip row that pages cannot offer the parks it has not reached.
+         */
+        get: operations["appListWeighingParks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/planner/catalog": {
         parameters: {
             query?: never;
@@ -5626,6 +5669,16 @@ export interface components {
             campaign: components["schemas"]["WeighingCampaign"];
             trace_id?: string;
         };
+        WeighingParkListResponse: {
+            parks: components["schemas"]["WeighingPark"][];
+            trace_id?: string;
+        };
+        /** @description One park the caller may filter weighing by. Identity only -- anything date-scoped or count-bearing belongs on the planner catalog, which is a different grain and a different gate. */
+        WeighingPark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
+        };
         WeighingPlannerCampaignSummary: {
             /** Format: uuid */
             campaign_id: string;
@@ -7286,6 +7339,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingCampaignListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task, with its buckets and progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingParks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's authorized weighing parks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingParkListResponse"];
                 };
             };
             401: components["responses"]["Unauthorized"];

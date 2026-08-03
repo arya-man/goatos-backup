@@ -925,6 +925,12 @@ func (f fakeRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign)
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
+func (f fakeRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+func (f fakeRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
 func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
@@ -1092,6 +1098,12 @@ func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ do
 	return r.campaign, nil
 }
 
+func (r *scenarioRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+	return r.campaign, nil
+}
+func (r *scenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
 func (r *scenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }

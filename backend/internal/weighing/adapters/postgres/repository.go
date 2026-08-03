@@ -343,14 +343,32 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 }
 
 func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, "", parkID, cursor, limit)
+	return r.listCampaigns(ctx, tenantID, "", parkID, "", cursor, limit)
 }
 
 func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, cursor, limit)
+	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, "", cursor, limit)
 }
 
-func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
+// CampaignByID resolves ONE task by id, through the SAME query the list uses rather than a
+// second hand-written campaign read. That is the point of routing it here: the list query
+// already carries the operator predicate, the park-grant defence-in-depth inside it, the park
+// name join and the bucket/progress hydration, and a parallel single-row copy would have to
+// re-derive all four and would drift from them on the next change.
+func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID, operatorUserID string) (domain.Campaign, error) {
+	page, err := r.listCampaigns(ctx, tenantID, operatorUserID, "", campaignID, "", 1)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if len(page.Items) == 0 {
+		return domain.Campaign{}, ports.ErrNotFound
+	}
+	return page.Items[0], nil
+}
+
+// campaignID is an EXACT-id filter, not a search: when it is set the read answers one task and
+// the whole-filter tab counts are skipped, because a single task has no tabs to number.
+func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID, campaignID string, cursor string, limit int) (domain.CampaignPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -365,7 +383,8 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 	}
 	operatorFilter := strings.TrimSpace(operatorUserID)
 	parkFilter := strings.TrimSpace(parkID)
-	// projection-review: membership=weighing_campaigns rows for one tenant, with per-campaign bucket detail and progress rollups attached afterwards by hydrateCampaigns keyed on campaign_id; group_key=(tenant_id,campaign_id) with keyset order key (period_start_date,created_at,campaign_id); join_cardinality=locations park is at most one row per campaign (locations PK location_id, matched on tenant_id+location_id) and weighing_campaign_sheds is 1:N but only reached through an EXISTS semijoin so it cannot multiply campaign rows; pagination=keyset on (period_start_date,created_at,campaign_id) DESC with tenant and operator predicates inside WHERE so filtering happens before LIMIT, and LIMIT $5 is limit+1 purely for cursor lookahead; scope=tenant_id=$1 always, plus the operator predicate $6 restricting the tenant to campaigns holding a non-canceled weighing_campaign_sheds bucket assigned to that operator.
+	campaignFilter := strings.TrimSpace(campaignID)
+	// projection-review: membership=weighing_campaigns rows for one tenant, with per-campaign bucket detail and progress rollups attached afterwards by hydrateCampaigns keyed on campaign_id; group_key=(tenant_id,campaign_id) with keyset order key (period_start_date,created_at,campaign_id); join_cardinality=locations park is at most one row per campaign (locations PK location_id, matched on tenant_id+location_id) and weighing_campaign_sheds is 1:N but only reached through an EXISTS semijoin so it cannot multiply campaign rows; pagination=keyset on (period_start_date,created_at,campaign_id) DESC with tenant and operator predicates inside WHERE so filtering happens before LIMIT, and LIMIT $5 is limit+1 purely for cursor lookahead; scope=tenant_id=$1 always, plus the operator predicate $6 restricting the tenant to campaigns holding a non-canceled weighing_campaign_sheds bucket assigned to that operator, plus the optional exact-id predicate $8 which serves the single-task read (CampaignByID) off the primary key without changing the grain -- one campaign_id can match at most one row, so it narrows and never multiplies.
 	//
 	// Grain proof (a) producer unique columns vs consumer match/group columns:
 	//   producer weighing_campaigns   unique: (campaign_id) PK, tenant-scoped (tenant_id, campaign_id)
@@ -429,12 +448,13 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
     )
   )
   AND ($7::uuid IS NULL OR weighing_campaigns.park_id=$7::uuid)
+  AND ($8::uuid IS NULL OR weighing_campaigns.campaign_id=$8::uuid)
   AND (
     $2::date IS NULL
     OR (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
   )
 ORDER BY weighing_campaigns.period_start_date DESC, weighing_campaigns.created_at DESC, weighing_campaigns.campaign_id DESC
-LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter))
+LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter), nullableString(campaignFilter))
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -461,6 +481,11 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	}
 	if err := r.hydrateCampaigns(ctx, tenantID, ids, out, operatorFilter); err != nil {
 		return domain.CampaignPage{}, err
+	}
+	if campaignFilter != "" {
+		// One named task carries no Active/Completed tabs, so the whole-filter count query is
+		// pure cost on this path.
+		return domain.CampaignPage{Items: out, NextCursor: nextCursor}, nil
 	}
 	counts, err := r.campaignCounts(ctx, tenantID, operatorFilter, parkID)
 	if err != nil {

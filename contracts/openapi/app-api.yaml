@@ -328,11 +328,19 @@ paths:
         The single-task read behind a notification deep link. The task list is a keyset page
         with no id filter, so a cold tap on a task further down the keyset could not be
         resolved: the client walked a few pages and then reported "not found" for work that
-        exists. Authority is the SAME split the task's bucket page applies -- an assignee
-        (`weighing.execute`) resolves the task only through their own assignment and sees only
-        their own buckets, while a planner or monitor resolves it unfiltered. Either way the
-        task's OWN park is resolved and authorized first, so naming another park's task id
-        returns 404, not that park's task.
+        exists.
+
+
+        Authority is the SAME split the task's bucket page applies, and the two branches are
+        bounded differently on purpose. A planner or monitor (`weighing.plan` or
+        `weighing.monitor`) resolves the task UNFILTERED, so the task's own park is resolved
+        first and the caller must hold plan or monitor IN THAT PARK -- naming another park's task
+        id returns 404, not that park's task. An assignee (`weighing.execute`) is instead bounded
+        by their OWN assignment: the task must carry a live bucket assigned to them, and they see
+        only their own buckets on it. That branch runs NO park check and needs none, because an
+        assignment is already park-bound -- nobody is assigned work in a park they do not work in.
+
+        Both misses are 404, so neither branch confirms that a task it refused exists.
       parameters:
         - $ref: "#/components/parameters/WeighingCampaignId"
       responses:

@@ -271,6 +271,14 @@ func (r *multiParkScenarioRepo) PublishCampaign(context.Context, string, string,
 	return domain.Campaign{}, nil
 }
 
+func (r *multiParkScenarioRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *multiParkScenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
 func (r *multiParkScenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
