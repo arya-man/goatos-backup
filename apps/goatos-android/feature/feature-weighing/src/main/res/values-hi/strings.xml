@@ -98,6 +98,7 @@
     <string name="weighing_videos_saved_and_uploading_fmt">%1$d सहेजे गए · %2$d अभी अपलोड हो रहे हैं</string>
     <string name="weighing_videos_uploading_only_fmt">%1$d अपलोड हो रहा है</string>
     <string name="weighing_videos_limit_reached">अधिकतम 5 वीडियो रिकॉर्ड किए गए</string>
+    <string name="weighing_videos_uploaded_fmt">%1$d अपलोड हुए</string>
     <string name="weighing_video_index_fmt">वीडियो %1$d</string>
     <string name="weighing_replace">बदलें</string>
     <string name="weighing_remove">हटाएँ</string>
@@ -166,7 +167,7 @@
     <string name="weighing_task_publishing">काम प्रकाशित हो रहा है</string>
     <string name="weighing_task_publish">काम प्रकाशित करें</string>
     <string name="weighing_task_ending">काम खत्म हो रहा है</string>
-    <string name="weighing_task_close_open_fmt">काम बंद करें · %1$d अभी बाकी</string>
+    <string name="weighing_task_close_open_fmt">काम बंद करें · %1$d जमा नहीं हुए</string>
     <string name="weighing_task_mark_complete">काम पूर्ण करें</string>
     <string name="weighing_task_reopen">काम फिर खोलें</string>
     <string name="weighing_task_reopen_blocked">पूरे हो चुके काम को दोबारा योजना में लाना अभी उपलब्ध नहीं है। एक शेड समूह को नीचे उसके अपने कार्ड से फिर खोला जा सकता है।</string>
@@ -313,4 +314,15 @@
     <string name="weighing_shed_reopen_action">यह शेड फिर खोलें</string>
     <string name="weighing_shed_loading">लोड हो रहा है</string>
     <string name="weighing_shed_loading_more_records">और रिकॉर्ड लोड हो रहे हैं</string>
+    <string name="weighing_task_close_awaiting_fmt">काम बंद करें · %1$d जाँच के इंतज़ार में</string>
+    <string name="weighing_task_close_split_fmt">काम बंद करें · %1$d जमा नहीं हुए · %2$d जाँच के इंतज़ार में</string>
+    <string name="weighing_bucket_state_not_started">अभी कुछ दर्ज नहीं</string>
+    <string name="weighing_bucket_state_in_progress">तौल जारी है</string>
+    <string name="weighing_bucket_state_submitted">जमा किया गया</string>
+    <string name="weighing_bucket_state_accepted">स्वीकृत</string>
+    <string name="weighing_bucket_state_rework">ऑपरेटर को वापस भेजा गया</string>
+    <string name="weighing_bucket_weighed_fmt">%1$d तौले गए</string>
+    <string name="weighing_videos_none">अभी कोई वीडियो नहीं</string>
+    <string name="weighing_videos_uploading_fmt">%1$d अपलोड हो रहे हैं</string>
+    <string name="weighing_videos_failed_fmt">%1$d विफल</string>
 </resources>
