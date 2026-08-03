@@ -117,7 +117,6 @@
     <string name="push_msg_weighing_verdict_approved">%1$s वज़न प्रूफ़ स्वीकृत हुआ।</string>
     <string name="push_msg_weighing_verdict_rework">%1$s वज़न प्रूफ़ को दोबारा करना होगा। कृपया फिर से रिकॉर्ड करें।</string>
     <string name="push_msg_weighing_shed_closed">%1$s का वज़न बंद कर दिया गया।</string>
-    <string name="push_msg_weighing_shed_abandoned">%1$s का वज़न रद्द कर दिया गया।</string>
     <string name="push_msg_weighing_work_item_due_today">%1$s पर वज़न आज देय है।</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s पर वज़न अगले कार्य दिवस के लिए टाल दिया गया।</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s पर वज़न में देरी हो रही है। कृपया इसे जल्द पूरा करें।</string>

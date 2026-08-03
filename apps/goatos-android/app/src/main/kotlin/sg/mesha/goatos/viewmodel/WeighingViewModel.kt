@@ -1070,32 +1070,6 @@ class WeighingViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Ends a shed scope that will never be completed. Guarded by the SERVER's own capability flag
-     * and refused on an already-closed bucket, so the action is only offered where it can succeed.
-     */
-    fun abandonAssignment(row: WeighingAssignmentUiRow, reason: String) {
-        if (scopeKey != null || actionInFlight.value || row.isClosed) return
-        if (!assignmentCapabilities.value.canEnd) {
-            message.value = "You do not have permission to abandon weighing work."
-            return
-        }
-        actionInFlight.value = true
-        viewModelScope.launch {
-            try {
-                when (val abandoned = repository.abandonScope(row.campaignId, row.campaignShedId, reason)) {
-                    is AppResult.Ok -> {
-                        message.value = "${row.label} abandoned."
-                        refreshAssignments()
-                    }
-                    is AppResult.Err -> message.value = abandoned.message
-                }
-            } finally {
-                actionInFlight.value = false
-            }
-        }
-    }
-
     fun closeCampaign(reason: String) {
         if (scopeKey != null || actionInFlight.value) return
         if (assignments.value.isEmpty()) {
@@ -2023,7 +1997,7 @@ class WeighingViewModel @Inject constructor(
             // collapsed this to one chip with no way back to "All parks".
             parkFilters = knownParks.toParkFilters(selectedParkId),
             // Server truth about this viewer's oversight authority, so the screen offers close /
-            // reopen / abandon exactly where the write would be accepted.
+            // reopen exactly where the write would be accepted.
             canEndWeighing = capabilities.canEnd,
             canReopenWeighing = capabilities.canReopen,
             // Backend-owned per-person tallies, handed to the screen untouched. Deliberately NOT

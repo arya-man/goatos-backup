@@ -982,62 +982,6 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `abandoning a shed calls the abandon write when the backend grants the authority`() = runTest(dispatcher) {
-        val repository = FakeWeighingRepository(
-            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
-            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
-        )
-        val vm = weighingViewModel(repository, surface = "operators")
-        backgroundScope.launch(dispatcher) { vm.state.collect {} }
-        advanceUntilIdle()
-
-        assertTrue(vm.state.value.canEndWeighing)
-        vm.abandonAssignment(vm.state.value.assignments.single(), "animals moved")
-        advanceUntilIdle()
-
-        assertEquals(
-            listOf(Triple("campaign-1", "shed-a", "animals moved")),
-            repository.abandonCalls.toList(),
-        )
-    }
-
-    @Test
-    fun `abandon is refused when the backend grants no ending authority`() = runTest(dispatcher) {
-        val repository = FakeWeighingRepository(
-            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
-        )
-        val vm = weighingViewModel(repository, surface = "operators")
-        backgroundScope.launch(dispatcher) { vm.state.collect {} }
-        advanceUntilIdle()
-
-        assertFalse(vm.state.value.canEndWeighing)
-        vm.abandonAssignment(vm.state.value.assignments.single(), "animals moved")
-        advanceUntilIdle()
-
-        assertTrue("no write may leave the client without the server-stated authority", repository.abandonCalls.isEmpty())
-    }
-
-    private fun oversightAssignment() = WeighingAssignment(
-        campaignId = "campaign-1",
-        tenantId = "tenant-1",
-        parkId = "park-cpt",
-        parkName = "CPT - Channapatna",
-        workGroupId = "shed-a",
-        campaignShedId = "shed-a",
-        expectedLocationId = "shed-a",
-        expectedLocationLabel = "shed-a",
-        label = "Gandhi 1",
-        category = "individual_animal",
-        operatorUserId = "operator-2",
-        status = "in_progress",
-        periodLabel = "2026-08-01 - 2026-08-07",
-    )
-
-    // The CEO splits four sheds 2/2 between two people and opens the task. The screen he lands on
-    // is the only place that split is visible, so every bucket row has to name its own operator --
-    // four identically-shaped cards with the assignment reachable only by tapping a filter chip is
-    // the task detail hiding the one fact it exists to show.
-    @Test
     fun `each shed bucket on a task detail names the operator it is assigned to`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
         val vm = weighingViewModel(repository)
@@ -1269,8 +1213,6 @@ class WeighingViewModelTest {
         private val taskLookups: Map<String, WeighingTaskLookup> = emptyMap(),
         private val parks: List<WeighingParkRef> = emptyList(),
     ) : WeighingRepository {
-        /** Every abandon this fake was asked for, as (campaignId, campaignShedId, reason). */
-        val abandonCalls = mutableListOf<Triple<String, String, String>>()
 
         /** Every single-task read this fake was asked for, in order. */
         val taskLookupCalls = mutableListOf<String>()
@@ -1308,14 +1250,6 @@ class WeighingViewModelTest {
                 ),
             )
 
-        override suspend fun abandonScope(
-            campaignId: String,
-            campaignShedId: String,
-            reason: String,
-        ): AppResult<Unit> {
-            abandonCalls += Triple(campaignId, campaignShedId, reason)
-            return AppResult.Ok(Unit)
-        }
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
         //

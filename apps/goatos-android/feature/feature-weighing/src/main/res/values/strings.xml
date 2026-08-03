@@ -218,7 +218,6 @@
     <string name="weighing_leadership_refresh">Refresh weighing</string>
     <string name="weighing_leadership_tap_to_reopen">Tap to reopen</string>
     <string name="weighing_leadership_close">Close</string>
-    <string name="weighing_leadership_abandon">Abandon</string>
     <string name="weighing_leadership_awaiting_verification">Waiting for video check · %1$d</string>
     <string name="weighing_leadership_close_pending">Not ready to close yet</string>
     <string name="weighing_leadership_loading">Loading scheduled work</string>
@@ -336,11 +335,6 @@
     <string name="weighing_shed_reopen_action">Reopen this shed</string>
     <string name="weighing_shed_loading">Loading</string>
     <string name="weighing_shed_loading_more_records">Loading more records</string>
-    <string name="weighing_abandon_dialog_title">Abandon %1$s?</string>
-    <string name="weighing_abandon_dialog_subtitle">This ends the weighing work permanently and cannot be undone. Say why.</string>
-    <string name="weighing_abandon_dialog_placeholder">Reason for abandoning</string>
-    <string name="weighing_abandon_dialog_error_required">A reason is required.</string>
-    <string name="weighing_abandon_dialog_cancel">Cancel</string>
     <string name="weighing_close_dialog_title">Close %1$s?</string>
     <string name="weighing_close_dialog_subtitle">This ends the shed bucket. It can be reopened, and the reason stays on the record either way. Say why.</string>
     <string name="weighing_close_dialog_placeholder">Reason for closing</string>
@@ -384,4 +378,6 @@
     <string name="weighing_shed_weighed_by_nobody">Not assigned to anyone yet</string>
     <string name="weighing_weighed_submitted_fmt">%1$d weighed · %2$d submitted</string>
     <string name="weighing_not_submitted_chip">Not submitted</string>
+    <string name="weighing_reason_dialog_error_required">A reason is required.</string>
+    <string name="weighing_reason_dialog_cancel">Cancel</string>
 </resources>

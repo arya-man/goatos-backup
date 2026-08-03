@@ -22,7 +22,7 @@ import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
-// telemetry:exempt This card renders backend read-model state; the close/reopen/abandon writes it
+// telemetry:exempt This card renders backend read-model state; the close/reopen writes it
 // offers are instrumented by the weighing service that owns them.
 
 /**
@@ -39,16 +39,14 @@ internal fun WeighingOversightCard(
     canEnd: Boolean = false,
     canReopen: Boolean = false,
     /**
-     * All three REQUEST a transition; none performs one.
+     * Both REQUEST a transition; neither performs one.
      *
      * Every one of these writes an audit action carrying a REASON, and the reason belongs to the
-     * person making the call -- the card cannot invent it. Close is reversible via reopen and
-     * abandon is not, but a fabricated sentence is unacceptable in either record, so all three
-     * take the same route: the host confirms and collects the reason.
+     * person making the call -- the card cannot invent it. A fabricated sentence is unacceptable in
+     * either record, so both take the same route: the host confirms and collects the reason.
      */
     onReopen: () -> Unit = {},
     onClose: () -> Unit = {},
-    onAbandon: () -> Unit = {},
 ) {
     val complete = row.isClosed
     Column(
@@ -117,24 +115,6 @@ internal fun WeighingOversightCard(
                             color = MeshaColors.Muted,
                             style = MeshaType.caption,
                             modifier = Modifier.padding(top = 4.dp),
-                        )
-                    }
-                    // Abandon is NOT gated on readyToClose: it exists precisely for work that will
-                    // never reach that state (the animals moved, the day was rained off). Close and
-                    // abandon record different outcomes, so they are offered as separate actions.
-                    if (canEnd) {
-                        Text(
-                            text = stringResource(R.string.weighing_leadership_abandon),
-                            color = MeshaColors.Danger,
-                            style = MeshaType.caption,
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .minimumInteractiveComponentSize()
-                                .clip(RoundedCornerShape(4.dp))
-                                .clickable(
-                                    role = Role.Button,
-                                    onClick = onAbandon,
-                                ),
                         )
                     }
                 }

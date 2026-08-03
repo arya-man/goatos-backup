@@ -1102,7 +1102,6 @@ fun AppNavHost(
                 // surface: its scope carries closed buckets, so reopen has rows to act on here.
                 onReopenAssignment = vm::reopenAssignment,
                 onCloseAssignment = vm::closeShedCampaign,
-                onAbandonAssignment = vm::abandonAssignment,
                 onAssignmentRowVisible = vm::onAssignmentRowVisible,
             )
         }
