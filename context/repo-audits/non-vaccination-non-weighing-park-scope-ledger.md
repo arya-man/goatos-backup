@@ -135,3 +135,77 @@ the scanned tag string and never resolves to a goat record.
 **Practical consequence:** fixing park scope in these modules cannot break
 weighing or vaccination execution, and vice versa. No shared code, no shared
 tables. Whenever this is picked up, it is safely a separate PR.
+
+---
+
+# Addendum — counts / feed findings from the 2026-08-03 external counter-review
+
+A second, independent review of PR #26 raised further counts- and
+feed-direction-adjacent items. Same parking rule applies: vaccination and
+weighing stabilise first. Recorded here rather than fixed.
+
+Note these are a **different class** from the park-scope sweep above — they are
+about counts/feed *verification and reporting plumbing*, not about who may read
+which park.
+
+## C1 — Counts/feed verifier links can open an empty Android queue
+
+The backend now emits a module- and category-scoped verify href (fixed in
+PR #26 for `/verify` and `/verify/alerts`, e.g. `category=shifting_move`). The
+report claims the Android Verify route discards `category`, so the app cannot
+translate the `counts` module and renders an unsupported/empty queue.
+
+- `apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppNavHost.kt`
+  (route declaration)
+- `apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/VerifyQueueViewModel.kt`
+  (module mapping)
+
+**Contested.** The Android work in PR #26 claims the category is now passed
+through verbatim and that an unrecognised module resolves to NO category and an
+honest "not available in the app yet" empty state, rather than silently falling
+back to vaccination. Being re-verified. If the client half is genuinely fine,
+the backend href is already correct and C1 is closed; if not, the backend fix is
+inert for counts and feed.
+
+**This is the one item here that is NOT purely a counts concern** — it is the
+client half of a vaccination/weighing-era fix, so it may be resolved inside the
+current stabilisation rather than waiting.
+
+## C2 — Verify queue category is client-supplied with no module-duty check
+
+`internal/verification/adapters/http/handler.go` accepts `category` verbatim,
+gated only on the flat `permissions.VerificationReview`. There is no
+`position_module_duties` check anywhere in `internal/verification`. A Counts
+verifier can substitute `category=vaccination_proof` and read vaccination
+proofs.
+
+Park scope IS correctly enforced on this path (`verificationParkScope` uses
+`ScopeIDsForPermission`), so this is **module-crossing within already-authorized
+parks**, not cross-park. Pre-existing — but PR #26 made `category` a
+first-class client-controlled parameter, which is what raises it from theoretical
+to worth closing.
+
+Fix shape when picked up: gate the requested category on the actor's own module
+duties, the same way the bootstrap decides which verify entries to show them.
+
+## C3 — `ceo_ai.verification_queue_status` has a dead `accepted` column
+
+Found while judging PR #26's weighing verification view. The sibling view
+counts `accepted` as `status IN ('accepted','verified')` — and
+`verification_items.status` permits NEITHER (`CHECK` allows
+`pending`/`approved`/`rejected`/`withdrawn`, per 000001 + 000067). So that
+column returns **0 always**, for every module including counts and feed.
+
+PR #26's new weighing view correctly uses `'approved'`. The old shared view was
+left alone deliberately: it is cross-module, and changing it changes numbers for
+vaccination too, which is exactly what stabilisation means to avoid.
+
+Anyone reading `verification_queue_status.accepted` for counts or feed today is
+reading a zero that means "column is broken", not "nothing accepted".
+
+## Not carried forward
+
+Two further items from that review are **weighing/vaccination**, already handled
+in PR #26, and are recorded here only so nobody re-files them against counts:
+the drive-option park identity (fixed backend-side, frontend selection being
+finished) and the KPI animal-grain fold.
