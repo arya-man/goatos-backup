@@ -56,7 +56,7 @@ import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailUiState
-import sg.mesha.goatos.feature.weighing.WeighingFilterChipUiRow
+import sg.mesha.goatos.feature.weighing.WeighingTaskOperatorFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTasksTab
@@ -2236,17 +2236,22 @@ private fun WeighingTask?.toTaskDetailUiState(
     }
     // Chip counts range over the WHOLE task, not the cached page, so they do not move as the
     // reader scrolls.
+    //
+    // The count is handed over as a NUMBER, never folded into the label here: the screen owns the
+    // noun, so the unit gets named ("2 sheds") and translates with the rest of the chrome. Building
+    // "Dinakar 2" in this layer left an unlabelled number on a screen whose cards count animals.
     val operatorFilters = sheds
         .groupBy { it.operatorUserId }
         .map { (operatorUserId, rows) ->
             val id = operatorUserId.ifBlank { "unassigned" }
-            WeighingFilterChipUiRow(
+            WeighingTaskOperatorFilterUiRow(
                 id = id,
-                label = "${labelFor(operatorUserId, rows)} ${rows.size}",
+                operatorLabel = labelFor(operatorUserId, rows),
+                shedCount = rows.size,
                 selected = selectedOperatorId == id,
             )
         }
-        .sortedBy { it.label }
+        .sortedBy { it.operatorLabel }
     val visibleSheds = pagedSheds
         .filter { selectedOperatorId == null || it.operatorUserId.ifBlank { "unassigned" } == selectedOperatorId }
         .map { it.toTaskShedUiRow(this, labelFor(it.operatorUserId, listOf(it))) }

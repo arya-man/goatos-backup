@@ -171,6 +171,14 @@
     <string name="weighing_task_repeat">Repeat this task on another date</string>
     <string name="weighing_task_repeat_blocked">This task has no shed bucket that can be placed on another date</string>
     <string name="weighing_task_all_operators">All operators</string>
+    <!-- Who a shed bucket belongs to. %1$s is the operator's display name, resolved by the backend
+         (operator_display_name); this app never renders a user id and never invents a name. -->
+    <string name="weighing_task_shed_operator_fmt">Operator · %1$s</string>
+    <!-- Operator filter chip: the name, then the unit it counts. %1$s is the operator's display
+         name, %2$s the shed-bucket noun. The unit is spelled out because the cards below the chips
+         talk about animals captured, so a bare number beside a name would leave two different units
+         on one screen with neither of them labelled. -->
+    <string name="weighing_task_operator_chip_fmt">%1$s · %2$s</string>
     <string name="weighing_task_summary_fmt">%1$s · %2$s</string>
     <string name="weighing_task_view_shed">View shed →</string>
     <string name="weighing_shed_one">%1$d shed</string>

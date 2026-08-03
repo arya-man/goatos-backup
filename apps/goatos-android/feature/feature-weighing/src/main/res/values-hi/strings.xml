@@ -164,6 +164,8 @@
     <string name="weighing_task_repeat">यह काम किसी और तारीख़ पर दोहराएँ</string>
     <string name="weighing_task_repeat_blocked">इस काम में ऐसा कोई शेड समूह नहीं है जिसे किसी और तारीख़ पर रखा जा सके</string>
     <string name="weighing_task_all_operators">सभी ऑपरेटर</string>
+    <string name="weighing_task_shed_operator_fmt">ऑपरेटर · %1$s</string>
+    <string name="weighing_task_operator_chip_fmt">%1$s · %2$s</string>
     <string name="weighing_task_summary_fmt">%1$s · %2$s</string>
     <string name="weighing_task_view_shed">शेड देखें →</string>
     <string name="weighing_shed_one">%1$d शेड</string>

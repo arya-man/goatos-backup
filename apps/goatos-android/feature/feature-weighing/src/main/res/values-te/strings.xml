@@ -164,6 +164,8 @@
     <string name="weighing_task_repeat">ఈ పనిని వేరే తేదీలో పునరావృతం చేయండి</string>
     <string name="weighing_task_repeat_blocked">వేరే తేదీలో ఉంచదగిన షెడ్ సమూహం ఈ పనిలో లేదు</string>
     <string name="weighing_task_all_operators">అన్ని ఆపరేటర్లు</string>
+    <string name="weighing_task_shed_operator_fmt">ఆపరేటర్ · %1$s</string>
+    <string name="weighing_task_operator_chip_fmt">%1$s · %2$s</string>
     <string name="weighing_task_summary_fmt">%1$s · %2$s</string>
     <string name="weighing_task_view_shed">షెడ్ చూడండి →</string>
     <string name="weighing_shed_one">%1$d షెడ్</string>

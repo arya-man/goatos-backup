@@ -85,6 +85,73 @@ class WeighingRouteIdentityTest {
         )
     }
 
+    // The assignment is the reason a weighing task exists, and the task detail screen is where the
+    // planner reads it back. Carrying the operator name all the way onto `WeighingTaskShedUiRow`
+    // and then not drawing it left four identically-shaped cards whose only difference -- who is
+    // doing them -- was recoverable solely by tapping a filter chip and watching the list shrink.
+    @Test
+    fun `each task detail shed card renders the operator it is assigned to`() {
+        val card = taskDetailScreen().substringAfter("private fun TaskShedCard(")
+            .substringBefore("private fun TaskBanner(")
+
+        assertTrue(
+            "the shed card must render the operator name the row already carries",
+            card.contains("R.string.weighing_task_shed_operator_fmt, row.operatorLabel"),
+        )
+        // Farm-language chrome, not a raw id and not an invented name.
+        assertFalse("a user id must never be rendered on the card", card.contains("operatorUserId"))
+    }
+
+    // The chip counts SHED BUCKETS; the card body underneath it ("Nothing captured yet") is about
+    // animals. A bare "Dinakar 2" put two different units on one screen with neither of them
+    // labelled, so the count reaches the screen as a number and the screen names the unit.
+    @Test
+    fun `task detail operator chips name the unit they count`() {
+        val screen = taskDetailScreen()
+
+        assertTrue(
+            "the chip must render the operator name and the shed noun as separate parts",
+            screen.contains("R.string.weighing_task_operator_chip_fmt") && screen.contains("shedNoun(filter.shedCount)"),
+        )
+        assertFalse(
+            "the count must not be concatenated into the operator label without its unit",
+            screen.contains("\${filter.operatorLabel} \${filter.shedCount}"),
+        )
+
+        val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
+        assertTrue(
+            "the ViewModel must hand the count over as a number, leaving the noun to the screen",
+            viewModel.contains("shedCount = rows.size"),
+        )
+        assertFalse(
+            "the ViewModel must not pre-bake an unlabelled count into the chip label",
+            viewModel.contains("\${labelFor(operatorUserId, rows)} \${rows.size}"),
+        )
+    }
+
+    // Publish / end are the actions this task is FOR and stay above the work. Everything else on
+    // this screen is a disabled-with-reason ghost about some other date or some other version of
+    // the task -- "Repeat this task on another date" asked the reader to consider repeating a task
+    // before they had seen a single shed in it.
+    @Test
+    fun `task detail secondary actions sit below the shed list, not above it`() {
+        val screen = taskDetailScreen()
+        val shedList = screen.indexOf("key = { index -> \"shed-\${state.sheds[index].campaignShedId}\" }")
+
+        assertTrue("the shed list must still be rendered", shedList > 0)
+        assertTrue("Repeat must come after the shed list", screen.indexOf("key = \"task-repeat\"") > shedList)
+        assertTrue("Edit must come after the shed list", screen.indexOf("key = \"task-edit\"") > shedList)
+        assertTrue("Reopen must come after the shed list", screen.indexOf("key = \"task-reopen\"") > shedList)
+        // The filter chips still belong ABOVE the list they filter.
+        assertTrue("operator chips must stay above the shed list", screen.indexOf("key = \"operator-filters\"") < shedList)
+    }
+
+    // Weighing lives in its own feature module, so these guards read across a module boundary.
+    // A NoSuchFileException means the screen moved -- update the path rather than deleting the
+    // guard, or the assignment silently disappears off the card again.
+    private fun taskDetailScreen(): String =
+        Path.of("../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt").readText()
+
     @Test
     fun `operator weighing work list does not render stale week strip`() {
         // Weighing now lives in its own feature module, so this guard reads across module
