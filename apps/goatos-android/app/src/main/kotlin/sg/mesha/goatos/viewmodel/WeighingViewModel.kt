@@ -127,6 +127,11 @@ class WeighingViewModel @Inject constructor(
     private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
     private val rawProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
     private val sessionProofIds = MutableStateFlow<Set<String>>(emptySet())
+    // De-duplication for proof-upload telemetry: Room re-emits the same failed row on every
+    // observation pass, so without these a single stuck upload would spam the funnel. Bounded by
+    // the number of proofs one scope can hold (<= 5 shed videos + the per-animal captures).
+    private val reportedProofUploadTrouble = mutableSetOf<String>()
+    private val proofUploadAttempts = mutableMapOf<String, Int>()
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)
@@ -1474,6 +1479,53 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Makes a struggling proof upload VISIBLE.
+     *
+     * The 2026-08-03 phone-QA blocker (a Growth Director's shed proof 403'd on every
+     * `POST /app/proofs/uploads`, so Submit stayed disabled forever) produced ZERO app-side log
+     * lines across 6000 lines of logcat: the retry loop lived entirely inside the outbox, and the
+     * only UI was the word "uploading". Diagnosis needed the server log and manual DB forensics.
+     *
+     * A proof row that is still non-terminal but already carries a `lastError` IS a retry — that
+     * is the signal that was invisible. Emitting it (once per DISTINCT failure, keyed by proof id
+     * + message, so a Room re-emission of the same state does not inflate the funnel) plus a
+     * Crashlytics non-fatal on the terminal FAILED state gives enough context to diagnose from a
+     * dashboard: which lane (shed vs per-animal), which campaign shed, which attempt, what cause.
+     *
+     * Goat identifiers are livestock data and are safe to carry; no token or credential is ever
+     * put in props, and the reason string is truncated like every other reason field here.
+     */
+    private fun reportProofUploadTrouble(proofs: List<ProofCaptureRow>) {
+        proofs.forEach { proof ->
+            val reason = proof.lastError?.takeIf { it.isNotBlank() } ?: return@forEach
+            val terminal = proof.syncStatus == CaptureSyncStatus.FAILED
+            val signature = "${proof.id}|$reason|$terminal"
+            if (!reportedProofUploadTrouble.add(signature)) return@forEach
+            val attempt = proofUploadAttempts.merge(proof.id, 1, Int::plus) ?: 1
+            val props = buildMap {
+                put(AnalyticsEvents.Params.PROOF_ID, proof.id)
+                put(
+                    AnalyticsEvents.Params.SUBJECT_TYPE,
+                    if (proof.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY) "shed" else "other",
+                )
+                put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+                put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
+                put(AnalyticsEvents.Params.ATTEMPT, attempt.toString())
+                put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
+            }
+            if (terminal) {
+                crashReporter.recordException(
+                    IllegalStateException(reason),
+                    "weighing proof upload failed",
+                )
+                analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED, props)
+            } else {
+                analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_RETRY, props)
+            }
+        }
+    }
+
     private fun weighingCaptureProps(captureCategory: String): Map<String, String> =
         buildMap {
             put(AnalyticsEvents.Params.CATEGORY, captureCategory)
@@ -1920,6 +1972,7 @@ class WeighingViewModel @Inject constructor(
 
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
         val activeProofs = activeWeighingProofs(proofs, scopeState.value)
+        reportProofUploadTrouble(activeProofs)
         observedProofs.value = activeProofs
         val shedProofIds = syncedShedProofIds(activeProofs)
         activeProofs.forEach { proof ->

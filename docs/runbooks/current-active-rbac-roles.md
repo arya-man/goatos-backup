@@ -81,6 +81,15 @@ a verification item MUST have a profile there AND at least one `verify` duty hol
 Weighing tasks across parks, scan/capture, submit, monitor videos, and reopen a
 completed weighing shed bucket. It must not get Vaccination.
 
+It holds `weighing.execute` and deliberately **not** `task.execute`. Because it
+executes weighing, it also reaches the `/app/proofs` write routes — those accept
+`task.execute` OR `weighing.execute`, since capturing the mandatory video is part
+of doing the work, not a separate task-execution act. Never "fix" a proof-upload
+403 for this role by granting it `task.execute`: that carries vaccination SOP
+submission (`POST /app/tasks/{task_id}/submissions`) with it. See
+`docs/decisions/proof-capture-authorization.md`; enforced by
+`make proof-capture-authorization-guard`.
+
 ## Hard Rule
 
 Real operators must never get tenant-scoped `operator` grants. Operators are

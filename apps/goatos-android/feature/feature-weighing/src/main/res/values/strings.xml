@@ -93,7 +93,22 @@
     <string name="weighing_field_total_weight">Total weight</string>
     <string name="weighing_field_animal_count">Animal count</string>
     <string name="weighing_average_per_animal_fmt">Average %1$s kg per animal</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d videos uploaded</string>
+    <!-- NO INVENTED DENOMINATOR. This used to read "%1$d / 5 videos uploaded", where the
+         numerator counted videos ADDED (a video still uploading was reported as uploaded) and the
+         5 was the MAXIMUM, not a requirement. On a shed with one recorded video it read
+         "1 / 5 videos uploaded" — claiming a success that had not happened and implying four
+         were missing when none were. Free-flow weighing requires no video count: one saved video
+         is enough. These state only what is true. -->
+    <string name="weighing_videos_saved_fmt">%1$d saved</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d saved · %2$d still uploading</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d uploading</string>
+    <string name="weighing_videos_limit_reached">Maximum 5 videos recorded</string>
+    <!-- Disabled-with-reason for the lump-sum Submit. Farm language: no HTTP codes, no
+         "API"/"backend"/"payload". An operator standing in a shed needs to know whether to wait
+         or to act. -->
+    <string name="weighing_submit_blocked_uploading">Waiting for the video to finish saving. You can submit as soon as one video is saved.</string>
+    <string name="weighing_submit_blocked_failed">The video could not be saved. Tap Replace on the video above to record it again.</string>
+    <string name="weighing_submit_blocked_no_video">Record a group video before submitting.</string>
     <string name="weighing_video_index_fmt">Video %1$d</string>
     <string name="weighing_replace">Replace</string>
     <string name="weighing_remove">Remove</string>
