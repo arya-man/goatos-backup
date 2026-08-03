@@ -276,6 +276,16 @@ func (fakeMedia) ResolveMedia(_ context.Context, _ string, proofIDs []string) ([
 	return out, nil
 }
 
+// EnsureEvidenceAvailable: the default fake stands for "every proof object is still in storage".
+func (fakeMedia) EnsureEvidenceAvailable(_ context.Context, _ string, proofIDs []string) error {
+	if len(proofIDs) == 0 {
+		return ports.ErrEvidenceMissing
+	}
+	return nil
+}
+
+var _ ports.EvidenceAvailabilityChecker = fakeMedia{}
+
 func newTestService() (*Service, *fakeRepo) {
 	repo := newFakeRepo()
 	svc := NewService(repo, fakeMedia{})

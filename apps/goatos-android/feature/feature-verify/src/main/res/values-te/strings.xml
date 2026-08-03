@@ -60,4 +60,9 @@
     <string name="verify_status_approved">ఆమోదించబడింది</string>
     <string name="verify_status_rejected">తిరస్కరించబడింది</string>
     <string name="verify_category_all">అన్నీ</string>
+    <string name="verify_detail_media_unavailable_send_back">ఈ వీడియో ప్లే కాదు, కాబట్టి దీన్ని ఆమోదించలేరు. బృందం మళ్లీ రికార్డ్ చేసేలా దీన్ని వెనక్కి పంపండి.</string>
+    <string name="verify_approve_dialog_title">ఈ రుజువును ఆమోదించాలా?</string>
+    <string name="verify_approve_dialog_subtitle">ఆమోదం తుది నిర్ణయం — తర్వాత వెనక్కి తీసుకోలేరు.</string>
+    <string name="verify_approve_dialog_confirm">ఆమోదం ఖరారు చేయండి</string>
+    <string name="verify_approve_dialog_cancel">రద్దు చేయండి</string>
 </resources>

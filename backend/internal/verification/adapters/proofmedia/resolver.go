@@ -5,10 +5,14 @@ package proofmedia
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	proofdomain "github.com/vgoats/goatos/backend/internal/proof/domain"
+	proofports "github.com/vgoats/goatos/backend/internal/proof/ports"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
+	vports "github.com/vgoats/goatos/backend/internal/verification/ports"
 )
 
 // Downloader is the minimal slice of proof/app.Service this adapter needs. proofapp.Service already
@@ -19,6 +23,12 @@ type Downloader interface {
 
 type ArtifactDownloader interface {
 	DownloadArtifact(ctx context.Context, tenantID, proofID string) (proofdomain.Artifact, string, error)
+}
+
+// ObjectAvailabilityChecker is the slice of proof/app.Service that proves a stored object still
+// exists. proofapp.Service satisfies it via EnsureObjectAvailable.
+type ObjectAvailabilityChecker interface {
+	EnsureObjectAvailable(ctx context.Context, tenantID, proofID string) error
 }
 
 // ActionPresentationResolver resolves backend-authored task titles and recorded operator answers
@@ -95,4 +105,35 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 		}
 	}
 	return out, nil
+}
+
+// EnsureEvidenceAvailable stats each of this ONE item's proof objects (verification/ports.
+// EvidenceAvailabilityChecker). It is called only from RecordVerdict on an approve — never from the
+// queue read, where one stat per proof per row would be an N+1 on a hot operator page. Do not
+// "optimise" this back into ResolveMedia: signing a URL proves nothing about the bytes, which is
+// exactly how an approve could previously be recorded against evidence that no longer existed.
+func (r *Resolver) EnsureEvidenceAvailable(ctx context.Context, tenantID string, proofIDs []string) error {
+	if r == nil || r.proof == nil {
+		return fmt.Errorf("verification proof resolver is unavailable")
+	}
+	checker, ok := r.proof.(ObjectAvailabilityChecker)
+	if !ok {
+		return fmt.Errorf("verification proof storage cannot confirm evidence availability")
+	}
+	if len(proofIDs) == 0 {
+		return vports.ErrEvidenceMissing
+	}
+	for _, id := range proofIDs {
+		if strings.TrimSpace(id) == "" {
+			return vports.ErrEvidenceMissing
+		}
+		switch err := checker.EnsureObjectAvailable(ctx, tenantID, id); {
+		case err == nil:
+		case errors.Is(err, proofports.ErrObjectMissing), errors.Is(err, proofports.ErrNotFound):
+			return fmt.Errorf("%w: proof %s", vports.ErrEvidenceMissing, id)
+		default:
+			return fmt.Errorf("confirm verification proof %s: %w", id, err)
+		}
+	}
+	return nil
 }
