@@ -52,12 +52,24 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 	}
 	defer tx.Rollback(ctx)
 
+	// EvidenceProofID belongs in the fingerprint because it is an INPUT to the
+	// decision, not decoration: it is the only thing checkVerdictEvidenceCurrent
+	// below adjudicates on. Left out, two verdicts that share an event id but name
+	// DIFFERENT evidence looked like an exact replay, so the second one short-
+	// circuited on the first one's stored snapshot and returned "applied" for a
+	// proof this code never compared against the observation -- the stale-evidence
+	// guard was bypassed entirely because the replay path returns before it. In the
+	// fingerprint, that pair is what it actually is: the same key with a different
+	// request, which is ErrIdempotencyConflict and is refused rather than answered
+	// from cache. A genuine at-least-once redelivery carries the same evidence id
+	// and still fingerprints identically, so exact replay stays free.
 	fingerprint := idempotencyFingerprint(map[string]any{
-		"observation_id": verdict.ObservationID,
-		"ref_type":       verdict.RefType,
-		"status":         verdict.Status,
-		"verified_by":    verdict.VerifiedBy,
-		"reason":         verdict.Reason,
+		"observation_id":    verdict.ObservationID,
+		"ref_type":          verdict.RefType,
+		"status":            verdict.Status,
+		"verified_by":       verdict.VerifiedBy,
+		"reason":            verdict.Reason,
+		"evidence_proof_id": verdict.EvidenceProofID,
 	})
 	if result, ok, err := r.verdictByIdempotency(ctx, tx, verdict, fingerprint); err != nil || ok {
 		if err != nil {
@@ -156,6 +168,18 @@ type observationScope struct {
 	// (FOR UPDATE OF observation), so it cannot change out from under the
 	// comparison in checkVerdictEvidenceCurrent below.
 	ProofArtifactID string
+	// Withdrawn is true when the observation row has been superseded --
+	// leadership reopened the bucket (ReopenScope stamps withdrawn_at) or a
+	// prior rework verdict retired the attempt. Read under the SAME
+	// FOR UPDATE OF observation lock as ProofArtifactID: a reopen that has
+	// not committed yet cannot be seen half-done, and once it has committed
+	// this read blocks behind it rather than racing it.
+	//
+	// Always false on the per-animal grain: weighing_observations has no
+	// withdrawn_at column (a superseded individual capture is expressed by a
+	// re-capture that moves proof_artifact_id, which the evidence-id
+	// comparison already catches).
+	Withdrawn bool
 }
 
 func (r *Repository) lockObservationScope(ctx context.Context, tx pgx.Tx, verdict domain.VerificationVerdict) (observationScope, error) {
@@ -170,7 +194,8 @@ SELECT observation.campaign_id::text,
   COALESCE(cs.display_name, ''),
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.proof_artifact_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, ''),
+  false
 FROM weighing_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -189,7 +214,8 @@ SELECT observation.campaign_id::text,
   cs.display_name,
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.proof_artifact_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, ''),
+  (observation.withdrawn_at IS NOT NULL)
 FROM weighing_shed_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -211,6 +237,7 @@ FOR UPDATE OF observation`
 		&scope.ParkID,
 		&scope.OperatorID,
 		&scope.ProofArtifactID,
+		&scope.Withdrawn,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return observationScope{}, ports.ErrNotFound
@@ -227,7 +254,24 @@ FOR UPDATE OF observation`
 // mismatch -- crashing or rejecting a legitimate in-flight verdict over a
 // field it predates would be worse than the gap it closes. It is logged so
 // the skip stays visible without breaking delivery.
+//
+// The evidence-ID comparison alone did NOT cover a leadership reopen. ReopenScope
+// withdraws the submission and asks verification to retire the item in a SECOND
+// step that runs after the reopen commits (weighing/app/service.go), and it
+// leaves proof_artifact_id untouched -- the withdrawn row keeps naming the very
+// video the verifier is looking at. So a verifier who lands in that gap presented
+// the CURRENT evidence id, passed the comparison, and approved a submission the
+// bucket no longer counts. Supersession is therefore checked here as well, on the
+// same locked read: "is this still the live round" is the same question as "is
+// this still the evidence", and answering only half of it left the other half
+// open. Same ErrStaleEvidence class, because the remedy is identical -- the
+// verdict is not retried against this row, it is dropped as decided against a
+// round that no longer exists, and the reopen's own withdrawal removes the queue
+// item a moment later.
 func checkVerdictEvidenceCurrent(verdict domain.VerificationVerdict, scope observationScope) error {
+	if scope.Withdrawn {
+		return ErrStaleEvidence
+	}
 	if verdict.EvidenceProofID == "" {
 		slog.Default().Warn("weighing: verification verdict has no evidence id, skipping stale-evidence check",
 			"observation_id", verdict.ObservationID,
