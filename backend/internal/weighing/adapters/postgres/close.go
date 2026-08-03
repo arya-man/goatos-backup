@@ -75,7 +75,12 @@ const (
 // Both are plain counts and NEVER numerators: weighing is free-flow, so there is no
 // expected-animal roster to divide by. No client may turn either into a percentage
 // or a progress-bar fill.
-const readyToCloseCountsSQL = `(
+// closure_kind rides on this fragment rather than on each of the three call
+// sites' own select lists for the same reason the counts do: all three read the
+// SAME bucket facts, and a fact added to only two of them is the cross-surface
+// parity defect this fragment exists to prevent.
+const readyToCloseCountsSQL = `COALESCE(cs.closure_kind, '') AS closure_kind,
+(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
 ) AS submitted_count,
@@ -87,6 +92,10 @@ const readyToCloseCountsSQL = `(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
 ) AS rework_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'verified')
+) AS verified_count,
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id)
   + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
@@ -216,6 +225,15 @@ FOR UPDATE OF cs`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&categ
 		return domain.CloseResult{}, err
 	}
 
+	// closureKind records WHICH exception path ended this bucket. Neither value is
+	// 'verified': that kind belongs exclusively to the normal completion path in
+	// verified_closure.go, which no human performs. Keeping them apart in the
+	// column is the whole reason the column exists — the status alone cannot say
+	// whether work finished or was cut short.
+	closureKind := domain.ClosureKindEarly
+	if abandon {
+		closureKind = domain.ClosureKindAbandoned
+	}
 	var closedAt time.Time
 	if err := tx.QueryRow(ctx, `
 UPDATE weighing_campaign_sheds
@@ -224,12 +242,13 @@ SET status='closed',
   closed_by=$4::uuid,
   close_reason=$5,
   closed_not_accepted_count=$6,
+  closure_kind=$7,
   updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND campaign_shed_id=$3::uuid
   AND status NOT IN ('closed','canceled')
-RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ClosedBy, cmd.Reason, notAcceptedCount).Scan(&closedAt); err != nil {
+RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ClosedBy, cmd.Reason, notAcceptedCount, closureKind).Scan(&closedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.CloseResult{}, ports.ErrImmutable
 		}
@@ -398,6 +417,7 @@ SET status='closed',
   closed_at=now(),
   closed_by=$3::uuid,
   close_reason=$4,
+  closure_kind='early',
   updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
@@ -414,6 +434,7 @@ SET status='closed',
   closed_by=$3::uuid,
   close_reason=$4,
   closed_not_accepted_count=$5,
+  closure_kind='early',
   updated_at=now(),
   row_version=row_version+1
 WHERE tenant_id=$1::uuid
