@@ -119,6 +119,27 @@ type Repository interface {
 	// scope and are deliberately NOT narrowed by it (see domain.CampaignCounts).
 	ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
 	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
+	// CampaignByID is the SINGLE-task read behind a notification deep link. The task
+	// list is keyset-paged with no id filter, so a cold tap on a task that is not on
+	// the first page or two could not be resolved at all: the client walked a few
+	// pages and then reported "not found" for work that exists.
+	//
+	// operatorUserID applies the SAME predicate ListCampaignsForOperator uses -- the
+	// task must hold a non-canceled bucket assigned to that operator, in a park they
+	// are granted -- and narrows the returned buckets to theirs. Empty means the
+	// unfiltered read, which the app layer only reaches after a park-scope check.
+	// ErrNotFound when the task does not exist OR the operator predicate excludes it,
+	// so the two are indistinguishable to a caller probing ids.
+	CampaignByID(ctx context.Context, tenantID, campaignID, operatorUserID string) (domain.Campaign, error)
+	// WeighingParks is the park VOCABULARY behind the oversight surfaces' park chips:
+	// identity only, no date scope and no counts (that is PlannerCatalog, which is
+	// gated on the CEO-only WeighingPlan).
+	//
+	// parkIDs is the caller's capability-scoped park set and is part of the QUERY, the
+	// same contract ListLeadershipSheds declares: a nil/empty slice means unrestricted
+	// (tenant-wide authority or an internal caller), NOT "authorized for nothing" --
+	// this port cannot tell those apart and the service is the layer that knows.
+	WeighingParks(ctx context.Context, tenantID string, parkIDs []string) ([]domain.WeighingPark, error)
 	// PlannerCatalog is the PARK-grain planner read for ONE weigh date: EVERY park
 	// the planner may use, each with a park-grain shed COUNT (not shed rows), plus
 	// the operator picker. Bounded by domain.MaxPlannerParks; there is no park

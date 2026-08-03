@@ -586,3 +586,19 @@ type RecordShedObservation struct {
 	IdempotencyKey   string
 	RecordedBy       string
 }
+
+// WeighingPark is the park VOCABULARY a weighing oversight surface renders as chips.
+//
+// It is deliberately a separate, cheap grain from PlannerPark: the planner's park carries a
+// weigh date's shed counts and that date's existing task, and its read is gated on
+// WeighingPlan, which is CEO-only. An oversight actor (a Growth Director holds
+// WeighingMonitor / WeighingOverseeOperators, never WeighingPlan) 403s on that read, so
+// their park chips silently degraded to whichever parks happened to appear on the rows the
+// current page had loaded -- a filter vocabulary derived from the data being filtered, which
+// loses a park the moment its tasks fall off the page.
+//
+// Identity only. Anything date-scoped or count-bearing belongs on the planner catalog.
+type WeighingPark struct {
+	ParkID string `json:"park_id"`
+	Name   string `json:"name"`
+}

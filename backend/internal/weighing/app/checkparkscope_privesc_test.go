@@ -211,6 +211,14 @@ func (r *parkScopeCheckRepo) PublishCampaign(ctx context.Context, tenantID, camp
 	return domain.Campaign{}, nil
 }
 
+func (r *parkScopeCheckRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *parkScopeCheckRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
 func (r *parkScopeCheckRepo) ListCampaigns(ctx context.Context, tenantID, parkID, cursor string, limit int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }

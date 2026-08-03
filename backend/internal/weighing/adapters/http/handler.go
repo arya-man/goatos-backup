@@ -26,6 +26,8 @@ type Service interface {
 	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
+	GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error)
+	ListParks(ctx context.Context, actor domain.Actor) ([]domain.WeighingPark, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
 	ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
@@ -69,6 +71,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/planner/parks/{park_id}/buckets", h.PlannerParkBuckets)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
+	// Registered BEFORE the {campaign_id} pattern is irrelevant to net/http's precedence (it
+	// picks the most specific pattern), but the two are listed together so the literal
+	// "/app/weighing/parks" segment is visibly not a campaign id.
+	mux.HandleFunc("GET /app/weighing/parks", h.ListParks)
+	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}", h.GetCampaign)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds", h.ListCampaignSheds)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", h.GetLeadershipShedVideos)
@@ -197,15 +204,21 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
 	caller := actor(r)
 	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
-	// Which task-level writes THIS caller may attempt. Publish and end are held by
-	// DIFFERENT permissions (plan vs monitor), so a client that gates only on status
-	// shows a live button that 403s -- a growth director holds monitor and not plan.
-	capabilities := map[string]bool{
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+}
+
+// campaignCapabilities names which task-level writes THIS caller may attempt. Publish and end
+// are held by DIFFERENT permissions (plan vs monitor), so a client that gates only on status
+// shows a live button that 403s -- a growth director holds monitor and not plan.
+//
+// Shared by the list and the single-task read so the two can never disagree about the same
+// caller's buttons depending on how they arrived at the task.
+func campaignCapabilities(caller domain.Actor) map[string]bool {
+	return map[string]bool{
 		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
 		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
 		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
 	}
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": capabilities, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -254,6 +267,28 @@ func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
 		limit,
 	)
 	h.respond(w, r, map[string]any{"park_id": page.ParkID, "sheds": page.Sheds, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
+}
+
+// GetCampaign resolves ONE task by id, which is what a notification deep link names. The task
+// list is a keyset page with no id filter, so without this a cold tap on a task outside the
+// first pages could only be answered by walking the keyset and giving up.
+//
+// It returns the same `capabilities` map the list does. A client that reached the task through
+// a push never saw the list response, so gating its buttons on status alone showed a live
+// Publish to a monitor (publish is WeighingPlan, ending is WeighingMonitor) that then 403'd.
+func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
+	caller := actor(r)
+	campaign, err := h.service.GetCampaign(r.Context(), caller, r.PathValue("campaign_id"))
+	h.respond(w, r, map[string]any{"campaign": campaign, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+}
+
+// ListParks serves the oversight park chips. A separate read rather than a field on the task
+// list envelope, because the list can refuse to answer at all until a park is NAMED
+// (ErrParkSelectionRequired for a multi-park actor) -- so an envelope-carried vocabulary would
+// be missing in precisely the case the client needs it to pick a park.
+func (h *Handler) ListParks(w http.ResponseWriter, r *http.Request) {
+	parks, err := h.service.ListParks(r.Context(), actor(r))
+	h.respond(w, r, map[string]any{"parks": parks, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {
