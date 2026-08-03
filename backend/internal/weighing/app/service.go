@@ -568,7 +568,15 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 		//
 		// The operator branch needs no park check -- it is already narrowed to the actor's own
 		// assignments, and nobody is assigned work in a park they do not work in.
-		if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		//
+		// The capability set must match the one the ROLE GATE above admits: plan-or-monitor.
+		// This used to call checkParkScope, which hardcodes WeighingMonitor, so an actor
+		// holding WeighingPlan WITHOUT WeighingMonitor could resolve the task header via
+		// GetCampaign and then get 404 on its buckets -- the header and its own contents
+		// disagreeing, which is the hardest kind of failure to diagnose. Unreachable today
+		// (only the CEO role holds plan, and it holds monitor too), so this is closing it
+		// before a permission split makes it real rather than after.
+		if err := s.checkCampaignParkScopeForAny(ctx, actor.TenantID, campaignID, planOrMonitorParkCapabilities...); err != nil {
 			return domain.CampaignShedPage{}, err
 		}
 	}
