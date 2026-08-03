@@ -376,9 +376,16 @@ function selfTest() {
   if (findingsForSource(excused, facts).length) throw new Error("self-test: nav-placement:ignore was not honored");
 
   // The registry parser must actually find the real hrefs/labels, or every rule silently no-ops.
+  // Pinned to a route the registry really serves. It used to assert "/alerts",
+  // the generic vaccination feed, which was DELETED when alerts became
+  // feature-scoped (docs/decisions/module-alerts-tab.md) -- at which point this
+  // self-test failed for a reason that had nothing to do with nav placement.
+  // Assert the LABEL plus a feature-scoped alerts href, so the parse is still
+  // proven without pinning one module's address.
   const real = registryFacts(readFileSync(join(repo, REGISTRY), "utf8"));
-  if (!real.hrefs.has("/alerts") || !real.labels.has("Alerts")) {
-    throw new Error("self-test: registry parse did not recover /alerts + \"Alerts\" from bootstrap_copy.go");
+  const anyAlertsHref = [...real.hrefs].some((href) => href.endsWith("/alerts"));
+  if (!anyAlertsHref || !real.labels.has("Alerts")) {
+    throw new Error("self-test: registry parse did not recover a */alerts href + \"Alerts\" from bootstrap_copy.go");
   }
 
   console.log("nav-entry-point-placement self-test: ok (3 adversarial, 4 compliant, registry parse verified)");

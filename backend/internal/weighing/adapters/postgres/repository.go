@@ -237,11 +237,8 @@ WHERE weighing_campaign_sheds.tenant_id=$1::uuid
 		// ON CONFLICT DO UPDATE cannot report the old row in RETURNING, and a CTE is
 		// not visible from that RETURNING either. Reviving a canceled bucket carries a
 		// second obligation (B09) that must fire ONLY when a revive actually happened.
-		//
-		// scale-guard:ignore: bounded planner shed list; one single-row lookup by the
-		// (tenant, campaign, location) unique key per selected bucket, same grain as
-		// the upsert it precedes
 		var priorStatus string
+		// scale-guard:ignore: bounded planner shed list; one single-row unique-key lookup per selected bucket, same grain as the upsert it precedes
 		if err := tx.QueryRow(ctx, `
 SELECT status FROM weighing_campaign_sheds
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`,
