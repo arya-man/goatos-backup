@@ -100,7 +100,6 @@ Plain-language first, because these are the ones someone will pick up cold.
 
 | # | In plain terms | Where it lives |
 |---|---|---|
-| W-38 | **A shed being worked on looks untouched.** Nothing marks a shed "in progress" while an operator is scanning it — it reads as not-started until he submits. A director watching cannot tell someone is mid-shed, and the Operators screen has a "capturing" column that is therefore always zero. | No capture path writes `status='in_progress'`; only reopen/verdict paths do. `operator_summaries.go`'s `count(*) FILTER (WHERE cs.status='in_progress')` is structurally always 0. Decide: write it on first capture, or drop the column. |
 | W-41 | **Approving may still be invisible to leadership.** The closure work added `verified_count` and `closure_kind` to the reads, but no screen was updated to render them. | Backend exposes them; Android DTOs and any leadership surface still need to display them. Unverified end to end. |
 
 ---

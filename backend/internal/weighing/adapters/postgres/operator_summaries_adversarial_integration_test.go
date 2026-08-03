@@ -152,10 +152,13 @@ func TestOperatorSummaryOneToManyJoinsDoNotMultiply(t *testing.T) {
 		OperatorUserID:      operatorB,
 		OperatorDisplayName: "BBB Bela",
 		ShedCount:           2,
-		// Both buckets are still 'pending': free-flow captures do not move a bucket's
-		// status, Submit does. That is precisely the mid-shift state the two animal
-		// facts below exist to make visible.
-		NotStartedCount:     2,
+		// bucketB1 took three captures, so it reads 'in_progress' — being worked,
+		// not finished. Submit is still what completes it; capture is what makes it
+		// stop looking untouched. (This used to expect NotStartedCount:2 because no
+		// capture path ever wrote 'in_progress', which made the CapturingCount column
+		// structurally always 0 — a state the card rendered but could not occur.)
+		NotStartedCount:     1, // bucketB2, untouched
+		CapturingCount:      1, // bucketB1, mid-shift
 		AnimalsWeighedCount: 3,
 		// The mid-shift state: recorded, NOT submitted.
 		AnimalsSubmittedCount: 0,

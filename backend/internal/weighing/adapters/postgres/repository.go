@@ -1614,6 +1614,14 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 		// conflict, never a raw 500.
 		return domain.Observation{}, mapObservationUniqueViolation(err)
 	}
+	// A bucket that has taken a scan is being WORKED ON, and must stop reading as
+	// untouched. Same transaction as the capture: the write above and this status
+	// are one fact, and the bucket row is already held FOR NO KEY UPDATE by the
+	// assigned_shed CTE of that same statement, so no new lock is taken and no new
+	// lock ordering is introduced.
+	if err := r.markScopeInProgressOnCapture(ctx, tx, cmd.TenantID, obs.CampaignShedID); err != nil {
+		return domain.Observation{}, err
+	}
 	if err := r.completeCampaignIfDone(ctx, tx, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.Observation{}, err
 	}
@@ -1849,6 +1857,13 @@ ON CONFLICT (shed_observation_id, proof_position) DO NOTHING`,
 		obs.ObservationID, cmd.TenantID, cmd.ProofArtifactIDs); err != nil {
 		return domain.Observation{}, err
 	}
+	// NO markScopeInProgressOnCapture here, deliberately. On the lump-sum path the
+	// capture IS the submit: one RecordShedObservation carries the total weight, the
+	// count and the whole video bundle, and weighing_shed_observations_one_open_scope_uidx
+	// admits exactly one open row per bucket, so there is no second lump-sum capture
+	// to be "mid-shed" between. This bucket goes pending -> completed in one
+	// transaction and has no in-progress window to report. Writing 'in_progress'
+	// three lines above this UPDATE would be a status no reader could ever observe.
 	completed, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds
 SET status='completed', completed_at=COALESCE(completed_at, now()), updated_at=now()
@@ -1882,6 +1897,56 @@ WHERE tenant_id=$1::uuid
 		return domain.Observation{}, err
 	}
 	return obs, tx.Commit(ctx)
+}
+
+// markScopeInProgressOnCapture moves a bucket from 'pending' to 'in_progress' the
+// moment the FIRST capture lands in it.
+//
+// WHY. weighing_campaign_sheds.status has always admitted 'in_progress', but no
+// capture path ever wrote it: only ReopenScope and the rework/reactivate verdict
+// paths did. A shed with scans in it therefore read 'pending' — indistinguishable
+// from one nobody had touched — right up until the operator pressed Submit. A
+// director watching the Operators screen could not tell anyone was mid-shed, and
+// operator_summaries' `count(*) FILTER (WHERE cs.status='in_progress')` column was
+// structurally always 0: it rendered a state that could not occur.
+//
+// ONLY pending -> in_progress. The WHERE clause names the source status
+// explicitly rather than excluding the terminal ones, which buys two properties at
+// once:
+//
+//   - A completed/closed/canceled bucket is untouched. A late capture must not
+//     resurrect a submitted bucket. The capture statement itself already refuses
+//     those buckets (its assigned_shed / scope CTE gates on status IN
+//     ('pending','in_progress')), and this must not become a second, laxer door
+//     into the same table.
+//   - It is idempotent by construction. The second, third and tenth capture find
+//     the bucket already 'in_progress', match no row, and write nothing — no
+//     status rewrite, no updated_at churn, no event. RowsAffected is therefore
+//     deliberately NOT checked: zero rows is the normal, expected answer for
+//     every capture after the first.
+//
+// NOT a work_state write. work_state on weighing_work_items has a single writer,
+// the kernel sweeper (see kernel.go). pending -> in_progress is not a terminal
+// transition either way, so reconcileTerminalWorkItems does not act on it and
+// ReactivateWorkItemsForBucket has nothing to undo — the item was and stays
+// 'scheduled'.
+//
+// NO EVENT. Every reader of this state — operatorSummaries, the campaign-sheds
+// page, the leadership sheds page, close.go's readiness fragments — reads
+// cs.status live from this table. There is no derived projection row to keep in
+// step, so an outbox event would have no consumer, and this repo bans a producer
+// without one.
+func (r *Repository) markScopeInProgressOnCapture(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) error {
+	if campaignShedID == "" {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds
+SET status='in_progress', updated_at=now()
+WHERE tenant_id=$1::uuid
+  AND campaign_shed_id=$2::uuid
+  AND status='pending'`, tenantID, campaignShedID)
+	return err
 }
 
 func (r *Repository) completeIndividualScopeIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID, campaignShedID string) error {
