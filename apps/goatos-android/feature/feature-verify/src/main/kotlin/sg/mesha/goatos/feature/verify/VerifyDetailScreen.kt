@@ -54,7 +54,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 import androidx.media3.ui.PlayerView
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -320,12 +320,15 @@ private fun VerifyVideoPlayer(
     controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
+    // Telemetry-instrumented player (W-22): media3 must fetch over the app's OkHttp client, or a
+    // 403 on an expired signed URL is invisible everywhere except the server log.
+    val playerFactory = LocalProofPlayerFactory.current
     val view = LocalView.current
     var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
-        ExoPlayer.Builder(context).build().apply {
+        playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             prepare()
             playWhenReady = false
@@ -508,10 +511,11 @@ private fun FullscreenVideoDialog(
     controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
+    val playerFactory = LocalProofPlayerFactory.current
     var isPlaying by remember { mutableStateOf(true) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
-        ExoPlayer.Builder(context).build().apply {
+        playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             prepare()
             playWhenReady = true
