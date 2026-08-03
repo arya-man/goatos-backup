@@ -61,6 +61,14 @@
     <string name="weighing_no_matching_rows_body">వేరే ట్యాగ్ లేదా షెడ్ పేరు ప్రయత్నించండి.</string>
     <string name="weighing_submit_lump_sum">మొత్తం బరువు సమర్పించండి</string>
     <string name="weighing_submit">సమర్పించండి</string>
+    <string name="weighing_blocked_saving">మీరు నమోదు చేసినది భద్రపరుస్తున్నాం. ఒక క్షణం ఆగండి.</string>
+    <string name="weighing_blocked_no_shed_open">ఈ తూకం నమోదు చేసే ముందు ఒక షెడ్ తెరవండి.</string>
+    <string name="weighing_blocked_need_weight">సమర్పించే ముందు బరువు నమోదు చేయండి.</string>
+    <string name="weighing_blocked_need_count">త్రాసుపై ఎన్ని జంతువులు ఉన్నాయో నమోదు చేయండి.</string>
+    <string name="weighing_blocked_need_video">సమర్పించే ముందు ఈ తూకం వీడియో రికార్డ్ చేయండి.</string>
+    <string name="weighing_blocked_video_uploading">వీడియో ఇంకా పైకి వెళ్తోంది. పూర్తయిన వెంటనే సమర్పించు అందుబాటులోకి వస్తుంది.</string>
+    <string name="weighing_blocked_video_failed">వీడియో వెళ్లలేదు. వీడియోపై మళ్లీ ప్రయత్నించు నొక్కి, ఆపై సమర్పించండి.</string>
+    <string name="weighing_blocked_nothing_captured">సమర్పించే ముందు ఒక ట్యాగ్ స్కాన్ చేసి బరువు భద్రపరచండి.</string>
     <string name="weighing_animals_captured_one">%1$d జంతువు సేకరించబడింది</string>
     <string name="weighing_animals_captured_other">%1$d జంతువులు సేకరించబడ్డాయి</string>
     <string name="weighing_scan_to_begin">ప్రారంభించడానికి RFID ట్యాగ్ స్కాన్ చేయండి</string>

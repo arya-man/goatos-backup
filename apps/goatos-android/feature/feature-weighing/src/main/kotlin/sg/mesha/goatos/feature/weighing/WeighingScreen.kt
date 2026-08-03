@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -143,6 +144,40 @@ data class WeighingUiState(
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
             animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
+
+    /**
+     * Why Submit cannot be pressed yet, in farm language — or null when it can.
+     *
+     * A blocked action must always state its REASON. A greyed-out Submit next to a video that
+     * is still uploading (or that failed) left an operator standing in the shed with a retry
+     * button, a dead button, and nothing on screen saying which one was the hold-up.
+     *
+     * Ordered most-blocking first, so the operator is told the ONE thing to do next.
+     */
+    @get:StringRes
+    val submitBlockedReason: Int? get() = when {
+        !hasScope -> R.string.weighing_blocked_no_shed_open
+        !isShedPartition -> individualSubmitBlockedReason
+        actionInFlight -> R.string.weighing_blocked_saving
+        weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
+        animalCountInput.toIntOrNull()?.let { it > 0 } != true -> R.string.weighing_blocked_need_count
+        shedProofs.isEmpty() -> R.string.weighing_blocked_need_video
+        shedProofs.any { it.status == ProofUploadStatus.SYNCED } -> null
+        shedProofs.any { it.status == ProofUploadStatus.UPLOADING } -> R.string.weighing_blocked_video_uploading
+        shedProofs.all { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_blocked_video_failed
+        else -> R.string.weighing_blocked_need_video
+    }
+
+    private val individualSubmitBlockedReason: Int? get() = when {
+        visibleRows.isEmpty() -> R.string.weighing_blocked_nothing_captured
+        visibleRows.any { !it.weightSaved } -> R.string.weighing_blocked_need_weight
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.UPLOADING } ->
+            R.string.weighing_blocked_video_uploading
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.FAILED } ->
+            R.string.weighing_blocked_video_failed
+        visibleRows.all { it.proofUploadStatus == ProofUploadStatus.SYNCED } -> null
+        else -> R.string.weighing_blocked_need_video
+    }
 }
 
 data class WeighingProofUiRow(
@@ -1040,20 +1075,38 @@ private fun WeighingExecutionScanScreen(
             )
         },
         bottomBar = {
-            ActionButton(
-                text = if (state.isShedPartition) {
-                    stringResource(R.string.weighing_submit_lump_sum)
-                } else {
-                    stringResource(R.string.weighing_submit)
-                },
-                enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
-                onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MeshaColors.PageBg)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                primary = true,
-            )
+                    .background(MeshaColors.PageBg),
+            ) {
+                // Disabled-with-reason: never a dead button on its own. The line says which
+                // single thing is holding the submission up (usually a video still going up).
+                state.submitBlockedReason?.let { reason ->
+                    Text(
+                        text = stringResource(reason),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.bodyStrong,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    )
+                }
+                ActionButton(
+                    text = if (state.isShedPartition) {
+                        stringResource(R.string.weighing_submit_lump_sum)
+                    } else {
+                        stringResource(R.string.weighing_submit)
+                    },
+                    enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
+                    onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    primary = true,
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
