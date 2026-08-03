@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -494,7 +495,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err := s.reviseVerificationRound(ctx, cmd.TenantID, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, "individual animal weight"); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, individualSubjectLabel(obs)); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
@@ -543,7 +544,7 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
 		mediaRefs = []string{obs.ProofArtifactID}
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, "lump-sum shed weight"); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, lumpSumSubjectLabel(obs)); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
@@ -579,6 +580,41 @@ func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, 
 		return nil
 	}
 	return s.verificationWithdrawer.WithdrawWeighingVerification(ctx, tenantID, domain.VerificationRefTypeAnimal, []string{obs.ObservationID})
+}
+
+// individualSubjectLabel / lumpSumSubjectLabel compose the sentence the VERIFIER reads.
+//
+// These used to be the hardcoded literals "individual animal weight" and "lump-sum shed
+// weight", so every item in a shed's queue rendered identically and the weight under review
+// was never shown to the person reviewing it. The verifier's whole job is deciding whether
+// the video matches the weight; a mistyped 120 kg looks exactly like a correct 12 kg when
+// all she is handed is a video. Both facts are already on the observation this enqueue site
+// holds, so the label is composed here -- backend owns it, the clients only render it.
+//
+// Free-flow rule: the scanned tag IS the identity. Nothing here resolves it to a goat, and
+// lump-sum carries no per-animal identity at all, so it names only what the operator
+// actually entered: the total on the scale and how many animals it covered.
+func individualSubjectLabel(obs domain.Observation) string {
+	parts := make([]string, 0, 2)
+	if tag := strings.TrimSpace(obs.ScannedIdentifier); tag != "" {
+		parts = append(parts, "Tag "+tag)
+	}
+	parts = append(parts, formatWeightKg(obs.WeightKg))
+	return strings.Join(parts, " · ")
+}
+
+func lumpSumSubjectLabel(obs domain.Observation) string {
+	label := "Whole shed · " + formatWeightKg(obs.WeightKg)
+	if obs.AnimalCount > 0 {
+		label += " · " + strconv.Itoa(obs.AnimalCount) + " goats"
+	}
+	return label
+}
+
+// formatWeightKg always carries the unit -- a bare number on a verification screen is the
+// exact ambiguity this change exists to remove.
+func formatWeightKg(weightKg float64) string {
+	return strconv.FormatFloat(weightKg, 'f', 1, 64) + " kg"
 }
 
 func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {

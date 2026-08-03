@@ -1072,6 +1072,15 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	if p.Reason != "" {
 		body = profile.reworkReasonPrefix + p.Reason + profile.reworkReasonSuffix
 	}
+	// Name WHAT has to be redone. The body used to identify only the module ("a weighing
+	// proof"), so an operator holding fifteen bounced captures was told to redo something,
+	// somewhere. The item already carries the producing module's own subject sentence --
+	// the animal's tag and weight for a weighing capture, the shed/partition for a
+	// vaccination one -- and the pending and withdrawn pushes already lead with it. This
+	// closes the one lifecycle push that did not.
+	if subject := strings.TrimSpace(p.SubjectLabel); subject != "" {
+		body = subject + " — " + body
+	}
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
 		CalendarEventID:  verificationCalendarEventID(itemID),

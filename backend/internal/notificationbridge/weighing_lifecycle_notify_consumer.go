@@ -96,20 +96,26 @@ type weighingCampaignPublishedPayload struct {
 }
 
 type weighingObservationVerdictPayload struct {
-	TenantID           string `json:"tenant_id"`
-	CampaignID         string `json:"campaign_id"`
-	CampaignShedID     string `json:"campaign_shed_id"`
-	ObservationID      string `json:"observation_id"`
-	RefType            string `json:"ref_type"`
-	ParkID             string `json:"park_id"`
-	ShedID             string `json:"shed_id"`
-	ShedLabel          string `json:"shed_label"`
-	OperatorID         string `json:"operator_id"`
-	VerifiedBy         string `json:"verified_by"`
-	Reason             string `json:"reason"`
-	VerificationStatus string `json:"verification_status"`
-	OperatorActionable bool   `json:"operator_actionable"`
-	DecidedAt          string `json:"decided_at"`
+	TenantID       string `json:"tenant_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ObservationID  string `json:"observation_id"`
+	RefType        string `json:"ref_type"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	// ScannedIdentifier / WeightKg name the capture the verifier bounced. Weighing is
+	// free-flow, so the scanned tag IS the animal's identity and there is nothing to
+	// resolve it against; a lump-sum shed capture has no per-animal identity at all and
+	// leaves ScannedIdentifier empty on purpose.
+	ScannedIdentifier  string  `json:"scanned_identifier"`
+	WeightKg           float64 `json:"weight_kg"`
+	OperatorID         string  `json:"operator_id"`
+	VerifiedBy         string  `json:"verified_by"`
+	Reason             string  `json:"reason"`
+	VerificationStatus string  `json:"verification_status"`
+	OperatorActionable bool    `json:"operator_actionable"`
+	DecidedAt          string  `json:"decided_at"`
 }
 
 type weighingShedClosedPayload struct {
@@ -370,9 +376,14 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 	reworkReason := ""
 	if rework {
 		title = "Weighing proof needs redo"
-		body = shedLabel + " weighing proof was sent back. Please capture it again."
+		// Name the capture, not just the shed. "Godel 1 weighing proof was sent back" tells
+		// an operator who weighed fifteen animals in Godel 1 nothing about which one to redo.
+		// The scanned tag and the recorded weight travel on the verdict event for exactly
+		// this; a lump-sum capture has no tag, so it falls back to naming the shed's total.
+		subject := weighingReworkSubject(payload)
+		body = subject + " weighing proof was sent back. Please capture it again."
 		if reason := strings.TrimSpace(payload.Reason); reason != "" {
-			body = shedLabel + " weighing proof was sent back: " + reason
+			body = subject + " weighing proof was sent back: " + reason
 			reworkReason = reason
 		}
 		notificationType = NotificationTypeRework
@@ -825,4 +836,24 @@ func weighingPlanPublishedBody(shedLabels []string, startBusinessDate string) st
 		suffix = fmt.Sprintf(" and %d more", remaining)
 	}
 	return fmt.Sprintf("Weighing starts %s: %s%s.", when, strings.Join(named, ", "), suffix)
+}
+
+// weighingReworkSubject names the bounced capture for the operator who must re-shoot it.
+//
+// Individual: the scanned tag and the weight the verifier rejected, inside the shed --
+// "Tag 901007000504407 (12.0 kg) in Godel 1". Lump-sum: no per-animal identity exists in
+// free-flow, so it names the shed's total instead of inventing one.
+func weighingReworkSubject(payload weighingObservationVerdictPayload) string {
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	weight := strconv.FormatFloat(payload.WeightKg, 'f', 1, 64) + " kg"
+	if tag := strings.TrimSpace(payload.ScannedIdentifier); tag != "" {
+		return "Tag " + tag + " (" + weight + ") in " + shedLabel
+	}
+	if payload.WeightKg > 0 {
+		return shedLabel + " total " + weight
+	}
+	return shedLabel
 }
