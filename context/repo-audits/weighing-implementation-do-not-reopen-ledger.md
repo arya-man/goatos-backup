@@ -491,3 +491,39 @@ Handler expects: verification.ProofRef to match /verification/ path pattern
 
 **Generated:** 2026-07-31  
 **Applies to:** Any upcoming weighing feature work (new commands, reports, reconciliation, multi-operator collaboration, etc.)
+
+---
+
+## B-5 — Verification queue grain is PER PIECE OF EVIDENCE. Do not "batch" it.
+
+**Status: CLOSED, NOT A BUG. Maintainer ruling 2026-08-03. Do not reopen.**
+
+Raised during the 2026-08-03 device-E2E review as a scale/operating-model defect
+("the weighing verifier queue is per-animal; at 5k kids that is ~5,000 videos a
+week for one human"). It was raised by a review agent and repeated by the
+orchestrator. **Both were wrong.**
+
+The grain follows the EVIDENCE, and it is already consistent across every module:
+
+| Path | Evidence the operator records | Verification items |
+|---|---|---|
+| weighing — individual | one video PER ANIMAL | one per animal |
+| weighing — lump-sum | one video per SHED | one per shed |
+| vaccination (SOP) | one proof per SUBMISSION | one per submission |
+
+One review per piece of evidence, everywhere. The modules differ in what evidence
+is captured, not in the rule applied to it. The "weighing is inconsistent with
+vaccination" argument is false: vaccination is one-per-submission *because it has
+one proof per submission*, not because submission is the universal grain.
+
+What remains is arithmetic, not a defect: 5,000 individually-weighed kids means
+5,000 videos to review **because 5,000 videos were recorded**. The work exists
+because the evidence exists.
+
+**If review volume becomes an operational problem**, the question is whether
+per-animal video is still required — a product decision about what to capture.
+It is NEVER a reason to batch separately-captured evidence into one review item,
+which would mean a verifier approving footage they did not watch.
+
+Related bans: B-0 (no clinical gate on the weighing write path), and the free-flow
+mandate that forbids an expected-animal denominator.

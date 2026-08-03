@@ -40,6 +40,18 @@ func (e *Enqueuer) WithdrawWeighingVerification(ctx context.Context, tenantID, r
 	return err
 }
 
+// EnqueueWeighingVerification raises ONE verification item per piece of EVIDENCE, which for
+// individual weighing means one per animal (each animal has its own video) and for lump-sum means
+// one per shed (one video covers the shed).
+//
+// DO NOT "batch" this to one item per submission. It has been raised twice as a scale defect —
+// "5k kids means 5,000 videos for one verifier" — and ruled NOT A BUG both times (maintainer,
+// 2026-08-03; see context/repo-audits/weighing-implementation-do-not-reopen-ledger.md → B-5).
+// The grain is consistent across the whole product: vaccination is one item per SOP submission
+// because it records one proof per submission, not because submission is the universal grain.
+// Batching separately-recorded videos into one review item would mean a verifier approving
+// footage they never watched. If the volume is a problem, the question is whether per-animal
+// video is still required — a decision about what to CAPTURE, never about how to queue it.
 func (e *Enqueuer) EnqueueWeighingVerification(ctx context.Context, in weighingapp.VerificationEnqueueRequest) error {
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
