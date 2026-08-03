@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  commonDriveName,
   formatDateSpan,
   formatScheduledDriveDates,
   scheduledDriveCampaigns,
@@ -13,6 +14,8 @@ function option(overrides) {
     driveBatchId: "batch",
     driveName: "FMD",
     label: "FMD",
+    parkId: "park-cpt",
+    parkName: "CPT",
     status: "planned",
     plannedDate: "2027-01-06T00:00:00+05:30",
     windowStart: "2027-01-06T00:00:00+05:30",
@@ -110,4 +113,55 @@ test("future drive date labels compress consecutive operator days", () => {
 test("actual vaccination date spans use leadership-readable dates", () => {
   assert.equal(formatDateSpan("2026-07-24T00:00:00+05:30", "2026-07-26T00:00:00+05:30"), "24–26 Jul 2026");
   assert.equal(formatDateSpan("2026-03-19T00:00:00+05:30", "2026-04-07T00:00:00+05:30"), "19 Mar–7 Apr 2026");
+});
+
+test("same-name same-window drives from two parks stay separate rows with their own park labels", () => {
+  const rows = scheduledDriveRows([
+    option({ driveBatchId: "fmd-cpt" }),
+    option({
+      driveBatchId: "fmd-cbe",
+      parkId: "park-cbe",
+      parkName: "CBE",
+      targetCount: 131,
+      doseCount: 131,
+      shedNames: ["Castro 1"],
+    }),
+  ]);
+
+  assert.equal(rows.length, 2);
+  const byPark = Object.fromEntries(rows.map((row) => [row.parkName, row]));
+  assert.equal(byPark.CPT.targetCount, 193);
+  assert.equal(byPark.CBE.targetCount, 131);
+  assert.deepEqual(byPark.CBE.batchIds, ["fmd-cbe"]);
+  assert.deepEqual(byPark.CBE.shedNames, ["Castro 1"]);
+
+  const campaigns = scheduledDriveCampaigns(rows);
+  assert.equal(campaigns.length, 2);
+  assert.deepEqual(campaigns.map((campaign) => campaign.name).sort(), ["CBE Adult FMD", "CPT Adult FMD"]);
+});
+
+test("annual pox campaigns from two parks do not collapse into one park's campaign", () => {
+  const poxOption = (overrides) => option({
+    driveName: "Blue Tongue + Sheep Pox",
+    plannedDate: "2027-07-24T00:00:00+05:30",
+    windowStart: "2027-07-24T00:00:00+05:30",
+    windowEnd: "2027-07-31T00:00:00+05:30",
+    ...overrides,
+  });
+  const rows = scheduledDriveRows([
+    poxOption({ driveBatchId: "pox-cpt", targetCount: 229, doseCount: 458 }),
+    poxOption({ driveBatchId: "pox-cbe", parkId: "park-cbe", parkName: "CBE", targetCount: 95, doseCount: 95 }),
+  ]);
+  const campaigns = scheduledDriveCampaigns(rows);
+
+  assert.equal(campaigns.length, 2);
+  const byName = Object.fromEntries(campaigns.map((campaign) => [campaign.name, campaign]));
+  assert.equal(byName["CPT Adult Annual Pox + Blue Tongue"].targetCount, 229);
+  assert.equal(byName["CBE Adult Annual Pox + Blue Tongue"].targetCount, 95);
+});
+
+test("a drive with no park from the API is labelled without inventing one", () => {
+  assert.equal(commonDriveName("FMD"), "Adult FMD");
+  assert.equal(commonDriveName("Goat Pox", "   "), "Adult Annual Pox + Blue Tongue");
+  assert.equal(commonDriveName("FMD", "CBE"), "CBE Adult FMD");
 });

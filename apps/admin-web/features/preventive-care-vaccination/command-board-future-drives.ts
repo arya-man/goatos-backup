@@ -2,6 +2,10 @@ export interface CommandBoardDriveOption {
   driveBatchId: string;
   driveName: string;
   label: string;
+  // Park of the drive. Optional because the command-board API does not carry it yet; while it
+  // is absent the park stays out of the rendered label rather than being guessed.
+  parkId?: string | null;
+  parkName?: string | null;
   status: string;
   plannedDate?: string | null;
   windowStart?: string | null;
@@ -14,6 +18,8 @@ export interface CommandBoardDriveOption {
 export interface ScheduledDriveRow {
   key: string;
   driveName: string;
+  parkId: string;
+  parkName: string;
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
@@ -24,6 +30,8 @@ export interface ScheduledDriveRow {
 export interface ScheduledDriveCampaign {
   key: string;
   name: string;
+  parkId: string;
+  parkName: string;
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
@@ -76,10 +84,15 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   const rows = new Map<string, ScheduledDriveRow>();
   options.filter((option) => option.status === "planned").forEach((option) => {
     const name = option.driveName || option.label;
-    const key = `${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
+    // Park belongs in the key: two parks routinely run the same vaccine over the same window,
+    // and a park-less key summed CBE's and CPT's animal counts into a single row that was then
+    // shown under whichever park's name the label happened to hardcode.
+    const parkId = option.parkId ?? "";
+    const parkName = option.parkName ?? "";
+    const key = `${parkId}|${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
     let row = rows.get(key);
     if (!row) {
-      row = { key, driveName: name, dateKeys: [], targetCount: 0, doseCount: 0, shedNames: [], batchIds: [] };
+      row = { key, driveName: name, parkId, parkName, dateKeys: [], targetCount: 0, doseCount: 0, shedNames: [], batchIds: [] };
       rows.set(key, row);
     }
     const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
@@ -98,9 +111,14 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }
 
-export function commonDriveName(driveName: string): string {
+// The park prefix used to be the literal "CPT", which mislabelled every other park's drive.
+// It now comes from the drive row, and is simply omitted while the API does not supply it --
+// no park name is better than the wrong one.
+export function commonDriveName(driveName: string, parkName?: string | null): string {
   const isAnnualPoxTreatment = driveName === "Blue Tongue + Sheep Pox" || driveName === "Goat Pox";
-  return isAnnualPoxTreatment ? "CPT Adult Annual Pox + Blue Tongue" : `CPT Adult ${driveName}`;
+  const vaccineLabel = isAnnualPoxTreatment ? "Annual Pox + Blue Tongue" : driveName;
+  const prefix = parkName?.trim() ? `${parkName.trim()} ` : "";
+  return `${prefix}Adult ${vaccineLabel}`;
 }
 
 function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string } {
@@ -108,11 +126,11 @@ function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string }
   if (isAnnualPoxTreatment) {
     const month = (row.dateKeys[0] ?? "").slice(0, 7);
     return {
-      key: `cpt-adult-annual-pox-blue-tongue|${month}`,
-      name: commonDriveName(row.driveName),
+      key: `${row.parkId}|adult-annual-pox-blue-tongue|${month}`,
+      name: commonDriveName(row.driveName, row.parkName),
     };
   }
-  return { key: row.key, name: commonDriveName(row.driveName) };
+  return { key: row.key, name: commonDriveName(row.driveName, row.parkName) };
 }
 
 export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDriveCampaign[] {
@@ -124,6 +142,8 @@ export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDri
       campaign = {
         key: identity.key,
         name: identity.name,
+        parkId: row.parkId,
+        parkName: row.parkName,
         dateKeys: [],
         targetCount: 0,
         doseCount: 0,
