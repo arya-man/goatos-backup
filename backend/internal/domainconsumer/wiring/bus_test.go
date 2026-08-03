@@ -120,11 +120,13 @@ func TestVerdictReachesEveryApplierThroughThisBuilder(t *testing.T) {
 	feed := &fakeFeedStore{}
 	shifting := &fakeShiftingRepo{}
 	weighing := &fakeWeighingStore{}
+	weighingAck := &fakeWeighingAcker{}
 
 	bus := buildDomainBusOn(eventbus.NewInProcessBus(), nil, time.Second, nil, verificationStores{
-		feed:     feed,
-		shifting: shifting,
-		weighing: weighing,
+		feed:        feed,
+		shifting:    shifting,
+		weighing:    weighing,
+		weighingAck: weighingAck,
 	})
 
 	const tenant = "00000000-0000-4000-8000-000000000001"
@@ -161,6 +163,12 @@ func TestVerdictReachesEveryApplierThroughThisBuilder(t *testing.T) {
 		t.Fatalf("shifting applier never ran: %v", shifting.applied)
 	}
 	publish(t, "weighing", "weighing_observation", "wg-1")
+	// The apply-RECEIPT must travel with the apply. Without it the verdict lands on the
+	// observation but the verifier's item stays reading as "decided, not yet in effect"
+	// forever -- the same silent-drop shape as an unregistered applier, one hop later.
+	if len(weighingAck.acked) != 1 || weighingAck.acked[0] != "wg-1" {
+		t.Fatalf("weighing apply-receipt never sent: %v -- an applied verdict would read as still-being-applied forever", weighingAck.acked)
+	}
 	if len(weighing.applied) != 1 || weighing.applied[0] != "wg-1" {
 		t.Fatalf("weighing applier never ran: %v", weighing.applied)
 	}
@@ -177,4 +185,15 @@ func TestVerdictReachesEveryApplierThroughThisBuilder(t *testing.T) {
 	if len(feed.distributionBounced) != 1 || feed.distributionBounced[0] != "fd-2" {
 		t.Fatalf("feed-distribution rework applier never ran: %v", feed.distributionBounced)
 	}
+}
+
+// fakeWeighingAcker captures the apply-receipt weighing sends verification after a
+// verdict has landed on the observation.
+type fakeWeighingAcker struct {
+	acked []string
+}
+
+func (f *fakeWeighingAcker) AckWeighingVerificationApplied(_ context.Context, _, _ string, observationIDs []string) error {
+	f.acked = append(f.acked, observationIDs...)
+	return nil
 }

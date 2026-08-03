@@ -24,7 +24,10 @@ import (
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
+	weighingapp "github.com/vgoats/goatos/backend/internal/weighing/app"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -42,6 +45,10 @@ type verificationStores struct {
 	feed     eventwiring.FeedCompletionStore
 	shifting eventwiring.ShiftingVerificationRepo
 	weighing eventwiring.WeighingVerdictStore
+	// weighingAck is the apply-RECEIPT seam. Injectable for the same reason the stores are:
+	// the pool-less dispatch test must be able to exercise the real registration without a
+	// database, and a Postgres repository built on a nil pool panics the moment it is used.
+	weighingAck weighingapp.VerificationApplyAcker
 }
 
 // buildDomainBusOn is BuildDomainBus with the bus (and the verdict-applier stores) injected.
@@ -88,7 +95,13 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	if stores.weighing == nil {
 		stores.weighing = weighingpg.NewRepository(pool, queryTimeout)
 	}
-	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.weighing, logger)
+	// Weighing's apply-receipt seam: this consumer is one of the two processes where the weighing
+	// verdict applier actually runs, so it must also tell verification the verdict landed --
+	// otherwise every verdict it applies stays reading as "decided, not yet in effect" forever.
+	if stores.weighingAck == nil && pool != nil {
+		stores.weighingAck = weighingverificationbridge.New(verificationpg.NewRepository(pool, queryTimeout))
+	}
+	eventwiring.RegisterVerificationAppliers(bus, stores.feed, stores.shifting, stores.weighing, stores.weighingAck, logger)
 	calendarapp.NewObligationMissedHandler(calendarService).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Birth/death workflow consumers: the ONE shared registration (internal/eventwiring), same set on
