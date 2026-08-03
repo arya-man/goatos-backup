@@ -24,9 +24,6 @@ type Service struct {
 	media    ports.MediaResolver
 	registry *domain.Registry
 	now      func() time.Time
-	// duties is optional; nil means the module-duty gate is inert and the queue behaves
-	// exactly as it did before AuthorizeQueueModule existed.
-	duties ModuleDutyReader
 }
 
 func NewService(repo ports.Repository, media ports.MediaResolver) *Service {
