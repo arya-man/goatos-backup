@@ -15,6 +15,22 @@ var (
 	ErrIdempotencyConflict = errors.New("weighing: idempotency conflict")
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
+
+	// ErrCaptureIncomplete is the SERVER-side pair rule: an animal in an
+	// individual bucket is only submittable once BOTH its weight and its video
+	// exist. It is deliberately distinct from ErrScopeIncomplete (which means the
+	// submitted list OMITS a complete capture) and from ErrNotFound (which used
+	// to swallow this case and told the operator a shed they are standing in does
+	// not exist). Carried to the client as 409 weighing_capture_incomplete with
+	// one field error per animal, so the app can name the row to go back and fix.
+	ErrCaptureIncomplete = errors.New("weighing: capture incomplete")
+
+	// ErrProofNotReady is the lump-sum equivalent: the shed total was sent with a
+	// video that is not a usable, finished upload for this shed. Previously
+	// collapsed into ErrInvalidArgument, which renders as "request is invalid" --
+	// true of a malformed request, useless to an operator whose video is simply
+	// still uploading.
+	ErrProofNotReady = errors.New("weighing: proof not ready")
 	// ErrDuplicateScan is returned when a scanned_identifier was already
 	// captured AND SUBMITTED in an earlier round for the same campaign_shed_id
 	// and business day. It is deliberately distinct from ErrIdempotencyConflict:
@@ -87,6 +103,41 @@ func (c *ShedScheduleConflict) Error() string {
 }
 
 func (c *ShedScheduleConflict) Unwrap() error { return ErrShedAlreadyScheduled }
+
+// CaptureIncomplete names the animals whose (weight, video) PAIR is not
+// complete in the bucket the operator just tried to submit.
+//
+// One animal = one pair. The submit transaction already refuses to complete a
+// bucket where any scanned animal lacks a weight or a completed video (see
+// SubmitIndividualScope's NOT EXISTS gates), but that refusal used to fall
+// through the classifier as a bare ErrNotFound -- the operator was told
+// "weighing resource was not found" about a shed that plainly exists, which
+// names neither the problem nor the animal. The client gate is not enforcement
+// (a stale build, a replayed request, or a modified client all bypass it), so
+// the SERVER's rejection is the one that has to be readable.
+//
+// The identifiers here are exactly the ones the client submitted -- nothing is
+// derived from a roster, the herd register, or an expected count. Weighing has
+// no denominator.
+type CaptureIncomplete struct {
+	// MissingWeight are scanned identifiers with no recorded weight in this bucket.
+	MissingWeight []string `json:"missing_weight"`
+	// MissingVideo are scanned identifiers with a weight but no completed video.
+	MissingVideo []string `json:"missing_video"`
+}
+
+func (c *CaptureIncomplete) Error() string {
+	parts := make([]string, 0, 2)
+	if len(c.MissingWeight) > 0 {
+		parts = append(parts, "missing weight: "+strings.Join(c.MissingWeight, ", "))
+	}
+	if len(c.MissingVideo) > 0 {
+		parts = append(parts, "missing video: "+strings.Join(c.MissingVideo, ", "))
+	}
+	return "weighing: capture incomplete (" + strings.Join(parts, "; ") + ")"
+}
+
+func (c *CaptureIncomplete) Unwrap() error { return ErrCaptureIncomplete }
 
 type Repository interface {
 	CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error)
