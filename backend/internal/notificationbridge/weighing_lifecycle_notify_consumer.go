@@ -93,6 +93,12 @@ const (
 	EventWeighingWorkItemRolledForward = "weighing.work_item.rolled_forward"
 	EventWeighingWorkItemDelayed       = "weighing.work_item.delayed"
 
+	// A carry-over that landed on a shed another task already covered that day.
+	// The carried-over item was CLOSED; the task already planned for that day
+	// carries on. The operator whose item closed must hear it from the app rather
+	// than discover an empty day, so this is routed DOWNWARD to them.
+	EventWeighingWorkItemMergedOnCarryOver = "weighing.work_item.merged_on_carry_over"
+
 	// scopeTenant is the workforce position scope for tenant-wide leadership seats,
 	// matching the existing weighing/verification consumers.
 	scopeTenant = "tenant"
@@ -222,6 +228,7 @@ func (c *WeighingLifecycleEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventWeighingCampaignVerifiedClosed, c)
 	bus.Subscribe(EventWeighingWorkItemDayStart, c)
 	bus.Subscribe(EventWeighingWorkItemRolledForward, c)
+	bus.Subscribe(EventWeighingWorkItemMergedOnCarryOver, c)
 	bus.Subscribe(EventWeighingWorkItemDelayed, c)
 }
 
@@ -244,7 +251,8 @@ func (c *WeighingLifecycleEventConsumer) HandleEvent(ctx context.Context, event 
 		return c.handleCampaignClosed(ctx, event)
 	case EventWeighingShedVerifiedClosed, EventWeighingCampaignVerifiedClosed:
 		return c.handleVerifiedClosure(ctx, event)
-	case EventWeighingWorkItemDayStart, EventWeighingWorkItemRolledForward, EventWeighingWorkItemDelayed:
+	case EventWeighingWorkItemDayStart, EventWeighingWorkItemRolledForward, EventWeighingWorkItemDelayed,
+		EventWeighingWorkItemMergedOnCarryOver:
 		return c.handleWorkItemCadence(ctx, event)
 	default:
 		return nil
@@ -928,6 +936,16 @@ func (c *WeighingLifecycleEventConsumer) handleWorkItemCadence(ctx context.Conte
 		notificationType = "reminder"
 		contextType = "weighing_work_item_rolled_forward"
 		messageKey = "weighing.work_item.rolled_forward"
+	case EventWeighingWorkItemMergedOnCarryOver:
+		// NOT a transfer, and the copy must not imply one: nothing moved to anybody,
+		// the shed was simply already covered by the task planned for that day. What
+		// this operator needs to know is that the shed left THEIR list and who has it
+		// now, so they do not walk to a shed somebody else is standing at.
+		title = "Shed already covered today"
+		body = "Carried-over weighing closed — another task already covers " + shedList + " today."
+		notificationType = "reminder"
+		contextType = "weighing_work_item_merged_on_carry_over"
+		messageKey = "weighing.work_item.merged_on_carry_over"
 	case EventWeighingWorkItemDelayed:
 		title = "Weighing is running late"
 		body = "Weighing is past its planned day: " + shedList + "."

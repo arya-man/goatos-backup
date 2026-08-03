@@ -177,7 +177,7 @@ tracked as gaps below.
 | source_entry_health_status | draft | load_label (no stored load label) |
 | ops_exception_queue | draft | — (UNION across modules) |
 | sop_execution_status | draft | — |
-| verification_queue_status | draft | owner_label (always NULL — operator_id is sensitive, shed position holder not joined). `accepted` returned 0 unconditionally from the 000001 baseline until migration 000085: it filtered on status values the verification_items CHECK does not permit. Any accepted figure read before 000085 was broken, not empty. 000085 also appends `total` / `withdrawn` / `total_including_withdrawn` on 000080's rule — withdrawn rows are kept so an all-superseded scope still appears, and are excluded from `total` so pending + rejected + accepted = total. |
+| verification_queue_status | draft | owner_label (always NULL — operator_id is sensitive, shed position holder not joined). `accepted` returned 0 unconditionally from the 000001 baseline until migration 000089: it filtered on status values the verification_items CHECK does not permit. Any accepted figure read before 000085 was broken, not empty. 000085 also appends `total` / `withdrawn` / `total_including_withdrawn` on 000080's rule — withdrawn rows are kept so an all-superseded scope still appears, and are excluded from `total` so pending + rejected + accepted = total. |
 | inventory_stock_position | draft | reorder_flag (no threshold config — gap G1), last_reconciled_at (partial) |
 | workforce_coverage_status | draft | — |
 | action_center_current | draft | — (UNION) |
@@ -691,7 +691,7 @@ same `verification_items` source the existing verification queue already serves.
 Leadership continues to see verification health through the module read APIs and
 the Control Tower process-state summary, not through this endpoint.
 
-**EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000086) —
+**EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000090) —
 bookkeeping for the batched weighing data repairs. It records how far a one-time
 repair procedure has drained so an interrupted run can resume; it holds no
 business fact, no herd or weighing measurement, and nothing reads it for
@@ -725,3 +725,32 @@ aggregates for weighing are served by `ceo_ai.weighing_capture_activity` and
 `ceo_ai.weighing_verification_status`, which answer "how many animals were
 weighed, where, and how much verification is outstanding" without paging
 per-bucket video evidence.
+
+**EXCLUDED — `weighing_work_items.closed_reason`,
+`weighing_work_items.merged_into_work_item_id`,
+`event:weighing.work_item.merged_on_carry_over`,
+`func:SweepWorkItems` carry-over merge pass** (weighing kernel, migration
+000086) — the carry-over collision rule (maintainer decision 2026-08-03): when
+unfinished weighing rolls onto a day where another task already covers that
+(park, shed), the carried-over work item is CLOSED and linked to the surviving
+one, so two people can never owe the same shed on the same real day. Nothing is
+re-assigned and no capture moves.
+
+These are write-path state-transition columns and one cadence event consumed by
+the notification bridge, inside the owning transaction — not a read surface, no
+aggregate, no metric, no new KPI. `closed_reason` is a machine token
+(`merged_on_carry_over`); the farm-readable sentence is composed by the
+notification consumer. Leadership continues to read weighing progress through
+`GET /weighing/campaigns` and the Control Tower process-state summary, whose
+numbers are unchanged: a merged carry-over leaves exactly one open work item for
+that shed-day, which is what those surfaces already count.
+
+**EXCLUDED — `route:/vaccination/alerts`** (Android navigation) — the
+vaccination alerts feed's address, moved off the generic `/alerts` so every
+feature's alerts are addressed by the feature that owns them
+(`docs/decisions/module-alerts-tab.md`). Same feed, same rows, same
+`notification_requests` source and the same per-recipient scoping as before;
+only the route string changed, and the old generic route was deleted rather than
+aliased. It is an operator/leadership worklist for ONE feature, not an aggregate:
+leadership sees vaccination health through the existing vaccination read APIs and
+the Control Tower summary.

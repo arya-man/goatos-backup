@@ -279,12 +279,16 @@ private fun WeighingTaskCard(row: WeighingTaskUiRow, onOpen: () -> Unit) {
         )
         if (row.shedNames.isNotEmpty()) {
             Text(
-                text = row.shedNames.joinToString(" · ") +
-                    if (row.moreShedCount > 0) {
+                // The overflow count is another ITEM in the list, so it takes the same
+                // separator. Appending it bare rendered "Gandhi 2+2 more", which reads as a
+                // shed called "Gandhi 2+2" -- XML strips the leading space in the format
+                // string, so the separator cannot live there.
+                text = (
+                    row.shedNames + listOfNotNull(
                         stringResource(R.string.weighing_tasks_more_sheds_fmt, row.moreShedCount)
-                    } else {
-                        ""
-                    },
+                            .takeIf { row.moreShedCount > 0 },
+                    )
+                    ).joinToString(" · "),
                 color = MeshaColors.Muted,
                 style = MeshaType.cardSubtitle,
                 maxLines = 1,

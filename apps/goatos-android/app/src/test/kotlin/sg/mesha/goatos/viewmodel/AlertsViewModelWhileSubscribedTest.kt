@@ -76,9 +76,9 @@ class AlertsViewModelWhileSubscribedTest {
         repo.emit(ControlTowerResponseDto(alerts = emptyList()))
         val viewModel = AlertsViewModel(repo)
 
-        val state = viewModel.state.first { it.emptyLabel == "No vaccination alerts" }
+        val state = viewModel.state.first { it.emptyLabel == "" && it.rows.isEmpty() }
 
-        assertEquals("No vaccination alerts", state.emptyLabel)
+        assertEquals("", state.emptyLabel) // screen supplies the localized default
         assertEquals(emptyList<Any>(), state.rows)
     }
 
@@ -89,7 +89,7 @@ class AlertsViewModelWhileSubscribedTest {
 
         val state = viewModel.state.first { it.isOffline }
 
-        assertEquals("No vaccination alerts", state.emptyLabel)
+        assertEquals("", state.emptyLabel) // screen supplies the localized default
         assertEquals(emptyList<Any>(), state.rows)
     }
 
@@ -107,9 +107,9 @@ class AlertsViewModelWhileSubscribedTest {
             repo.emit(ControlTowerResponseDto(alerts = emptyList()))
             val viewModel = AlertsViewModel(repo)
 
-            val state = viewModel.state.first { it.emptyLabel == "No vaccination alerts" }
+            val state = viewModel.state.first { it.emptyLabel == "" && it.rows.isEmpty() }
 
-            assertEquals("Vaccination alerts", state.title)
+            assertEquals("", state.title) // screen titles itself "Alerts", localized
         }
 
     /** Fake repo whose observe flow tracks how many collectors are currently active. */

@@ -137,14 +137,14 @@
     <string name="weighing_bucket_one">%1$d షెడ్ సమూహం</string>
     <string name="weighing_bucket_other">%1$d షెడ్ సమూహాలు</string>
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
-    <string name="weighing_tasks_more_sheds_fmt"> +%1$d మరిన్ని</string>
+    <string name="weighing_tasks_more_sheds_fmt">+%1$d మరిన్ని</string>
     <string name="weighing_tasks_individual_fmt">%1$d వ్యక్తిగతం</string>
     <string name="weighing_tasks_lump_sum_fmt">%1$d మొత్తం బరువు</string>
     <string name="weighing_operator_one">%1$d ఆపరేటర్</string>
     <string name="weighing_operator_other">%1$d ఆపరేటర్లు</string>
     <string name="weighing_tasks_accepted_fmt">%2$d లో %1$d ఆమోదించబడ్డాయి →</string>
     <string name="weighing_tasks_repeat_last_fmt">గత పనిని పునరావృతం చేయండి · %1$s · %2$s</string>
-    <string name="weighing_tasks_repeat_blocked">పాత పని నుండి కొత్త పని ప్రారంభించడం ఇంకా అందుబాటులో లేదు</string>
+    <string name="weighing_tasks_repeat_blocked">పునరావృతం చేయడానికి మునుపటి పని లేదు</string>
     <string name="weighing_tasks_new_task">+ కొత్త పని</string>
     <string name="weighing_tasks_status_scheduled">షెడ్యూల్ చేయబడింది</string>
 
@@ -164,10 +164,6 @@
     <string name="weighing_task_ending">పని ముగుస్తోంది</string>
     <string name="weighing_task_close_open_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు</string>
     <string name="weighing_task_mark_complete">పని పూర్తిగా గుర్తించండి</string>
-    <string name="weighing_task_reopen">పని మళ్లీ తెరవండి</string>
-    <string name="weighing_task_reopen_blocked">ముగిసిన పనిని మళ్లీ ప్రణాళికలోకి తేవడం ఇంకా అందుబాటులో లేదు. ఒక షెడ్ సమూహాన్ని కింద దాని కార్డు నుండి మళ్లీ తెరవవచ్చు.</string>
-    <string name="weighing_task_edit">షెడ్‌లు మరియు కేటాయింపు మార్చండి</string>
-    <string name="weighing_task_edit_blocked">ఇప్పటికే సృష్టించిన పనిలో షెడ్‌లు లేదా కేటాయింపు మార్చడం ఇంకా అందుబాటులో లేదు</string>
     <string name="weighing_task_repeat">ఈ పనిని వేరే తేదీలో పునరావృతం చేయండి</string>
     <string name="weighing_task_repeat_blocked">వేరే తేదీలో ఉంచదగిన షెడ్ సమూహం ఈ పనిలో లేదు</string>
     <string name="weighing_task_all_operators">అన్ని ఆపరేటర్లు</string>
@@ -350,4 +346,7 @@
     <string name="weighing_not_submitted_chip">సమర్పించలేదు</string>
     <string name="weighing_reason_dialog_error_required">కారణం తప్పనిసరి.</string>
     <string name="weighing_reason_dialog_cancel">రద్దు చేయి</string>
+    <string name="weighing_wizard_summary_modes_fmt">%1$d విడిగా · %2$d కలిపి</string>
+    <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
+    <string name="weighing_wizard_add_remaining_fmt">మిగిలిన %1$d చేర్చండి</string>
 </resources>

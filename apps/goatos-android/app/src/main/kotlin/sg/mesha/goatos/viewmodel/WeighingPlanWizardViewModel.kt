@@ -29,6 +29,7 @@ import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardBucketRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardConfigRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardDateOption
+import sg.mesha.goatos.feature.weighing.plan.WeighingWizardOperatorLoad
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardOperatorOption
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardParkOption
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardReviewRow
@@ -159,8 +160,22 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     fun selectPark(parkId: String) {
         val current = raw.value
-        if (current.parkId == parkId) return
         val date = current.date ?: return
+        // Re-picking the SAME park is not a no-op. Availability is a live, date-scoped fact
+        // owned by other people's tasks: a shed can be taken, or finish and become free
+        // again, between two visits to this step. Returning early here meant a retained
+        // wizard kept showing the availability it saw the first time -- observed on device
+        // as "Available 0" for sheds whose weighing had just completed, until the app was
+        // killed. Re-entering the park re-reads it; the planner's own answers are kept.
+        if (current.parkId == parkId) {
+            // Re-read availability IN PLACE. loadParkBuckets would reset the keyset window
+            // to page 1 and the repository's reset path deletes the cached pages, which
+            // silently drops every bucket the planner already picked from a later page --
+            // out of the tray, out of configure/review, and out of the published task.
+            // This refreshes the pages already on screen and adds none.
+            refreshBucketAvailability(date, parkId)
+            return
+        }
         raw.value = current.copy(
             parkId = parkId,
             buckets = emptyList(),
@@ -451,6 +466,23 @@ class WeighingPlanWizardViewModel @Inject constructor(
             }
         }
         refreshParkBuckets(isoDate, parkId, reset = true)
+    }
+
+    /**
+     * Re-reads availability for the pages the wizard is currently showing.
+     *
+     * Deliberately NOT gated on [WizardRaw.loading]: that flag is owned by paging, and a
+     * skipped refresh here is exactly the stale-availability bug this exists to fix. It
+     * writes no loading state of its own, so it cannot fight the pager.
+     */
+    private fun refreshBucketAvailability(isoDate: String, parkId: String) {
+        val pages = (bucketWindow.value / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
+        viewModelScope.launch {
+            when (val result = repository.refreshPlannerParkBucketAvailability(isoDate, parkId, pages)) {
+                is AppResult.Ok -> Unit
+                is AppResult.Err -> raw.value = raw.value.copy(message = result.message)
+            }
+        }
     }
 
     private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean) {
@@ -757,20 +789,18 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         operators = operatorsForPark().map {
             WeighingWizardOperatorOption(userId = it.userId, displayName = it.displayName)
         },
-        configSummary = buildString {
-            append(individualCount)
-            append(" individual · ")
-            append(ordered.size - individualCount)
-            append(" lump-sum")
-            perOperator.entries
-                .filter { it.key.isNotBlank() }
-                .forEach { (userId, count) ->
-                    append(" · ")
-                    append(operatorNames[userId] ?: "Operator")
-                    append(' ')
-                    append(count)
-                }
-        },
+        // Counts stay NUMBERS. The screen names their unit and joins them, in the reader's
+        // own language -- a sentence built here can only ever be English.
+        configIndividualCount = individualCount,
+        configLumpSumCount = ordered.size - individualCount,
+        configPerOperator = perOperator.entries
+            .filter { it.key.isNotBlank() }
+            .map { (userId, count) ->
+                WeighingWizardOperatorLoad(
+                    displayName = operatorNames[userId].orEmpty(),
+                    shedCount = count,
+                )
+            },
         repeatSourceLabel = repeat?.let { "From ${it.parkName} · ${it.sourceDateLabel}" },
         repeatDroppedCount = repeatDropped,
         reviewRows = ordered.map { (locationId, selection) ->

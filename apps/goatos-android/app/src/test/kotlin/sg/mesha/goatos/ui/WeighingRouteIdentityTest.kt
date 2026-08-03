@@ -139,10 +139,10 @@ class WeighingRouteIdentityTest {
         )
     }
 
-    // Publish / end are the actions this task is FOR and stay above the work. Everything else on
-    // this screen is a disabled-with-reason ghost about some other date or some other version of
-    // the task -- "Repeat this task on another date" asked the reader to consider repeating a task
-    // before they had seen a single shed in it.
+    // Publish / end are the actions this task is FOR and stay above the work. What remains below
+    // it is the one secondary action that actually does something -- "Repeat this task on another
+    // date" -- which asked the reader to consider repeating a task before they had seen a single
+    // shed in it.
     @Test
     fun `task detail secondary actions sit below the shed list, not above it`() {
         val screen = taskDetailScreen()
@@ -150,8 +150,14 @@ class WeighingRouteIdentityTest {
 
         assertTrue("the shed list must still be rendered", shedList > 0)
         assertTrue("Repeat must come after the shed list", screen.indexOf("key = \"task-repeat\"") > shedList)
-        assertTrue("Edit must come after the shed list", screen.indexOf("key = \"task-edit\"") > shedList)
-        assertTrue("Reopen must come after the shed list", screen.indexOf("key = \"task-reopen\"") > shedList)
+        // "Edit sheds & assignment" and "Reopen task" are GONE, not merely moved below the list
+        // (maintainer decision 2026-08-03). Neither had a screen behind it, so onClick was always
+        // null and the pair rendered as two permanently dead cards of prose that pushed the one
+        // real action off the fold. A control that can never be pressed is decoration, not a
+        // disabled control. Reopening still lives on each shed's own card, which is where its
+        // grain is. Reinstate either one only WITH the screen that performs it.
+        assertFalse("Edit must not return without a screen behind it", screen.contains("key = \"task-edit\""))
+        assertFalse("Reopen must not return without a screen behind it", screen.contains("key = \"task-reopen\""))
         // The filter chips still belong ABOVE the list they filter.
         assertTrue("operator chips must stay above the shed list", screen.indexOf("key = \"operator-filters\"") < shedList)
     }

@@ -29,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
@@ -167,7 +168,16 @@ fun AlertsScreen(
             .background(AlertsTokens.Bg),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { AlertsHeader(title = state.title, markAllLabel = state.markAllLabel, onEvent = onEvent) }
+        // The screen is titled just "Alerts". It is opened from inside a feature's own bar,
+        // so naming the feature again tells the reader what they already know -- and a title
+        // hardcoded in a ViewModel cannot localize. A caller may still pass its own title.
+        item {
+            AlertsHeader(
+                title = state.title.ifBlank { stringResource(R.string.alerts_title_default) },
+                markAllLabel = state.markAllLabel,
+                onEvent = onEvent,
+            )
+        }
         item {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
@@ -180,7 +190,7 @@ fun AlertsScreen(
         if (state.rows.isEmpty()) {
             item {
                 EmptyState(
-                    title = state.emptyLabel,
+                    title = state.emptyLabel.ifBlank { stringResource(R.string.alerts_empty_default) },
                     icon = MeshaIcons.Bell,
                     tone = EmptyTone.Positive,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 48.dp),
@@ -213,8 +223,7 @@ private fun AlertsHeader(title: String, markAllLabel: String?, onEvent: (AlertsE
                 Text(
                     text = it,
                     color = AlertsTokens.BrandD,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.cta,
                     modifier = Modifier
                         .clickable { onEvent(AlertsEvent.MarkAllRead) }
                         .padding(vertical = 6.dp, horizontal = 4.dp),
@@ -251,22 +260,21 @@ private fun AlertCard(row: AlertRow, onEvent: (AlertsEvent) -> Unit) {
                     .background(pillBg, shape = RoundedCornerShape(999.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Text(text = toneLabel(row.tone), color = pillFg, fontSize = 11.sp, fontWeight = FontWeight.W700)
+                Text(text = toneLabel(row.tone), color = pillFg, style = MeshaType.pill)
             }
             Spacer(Modifier.weight(1f))
-            Text(text = row.timeLabel, color = AlertsTokens.Muted, fontSize = 10.5.sp, fontWeight = FontWeight.W700)
+            Text(text = row.timeLabel, color = AlertsTokens.Muted, style = MeshaType.pill)
         }
         Text(
             text = row.title,
             color = titleColor(row.tone, row.unread),
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.listTitle,
             modifier = Modifier.padding(top = 8.dp),
         )
         Text(
             text = row.body,
             color = AlertsTokens.Muted,
-            fontSize = 12.sp,
+            style = MeshaType.cardSubtitle,
             modifier = Modifier.padding(top = 3.dp),
         )
         if (row.channels.isNotEmpty()) {
@@ -281,7 +289,7 @@ private fun AlertCard(row: AlertRow, onEvent: (AlertsEvent) -> Unit) {
                             .background(bg, shape = RoundedCornerShape(999.dp))
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     ) {
-                        Text(text = channel.label, color = fg, fontSize = 10.5.sp, fontWeight = FontWeight.W700)
+                        Text(text = channel.label, color = fg, style = MeshaType.pill)
                     }
                 }
             }

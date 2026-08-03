@@ -137,14 +137,14 @@
     <string name="weighing_bucket_one">%1$d शेड समूह</string>
     <string name="weighing_bucket_other">%1$d शेड समूह</string>
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
-    <string name="weighing_tasks_more_sheds_fmt"> +%1$d और</string>
+    <string name="weighing_tasks_more_sheds_fmt">+%1$d और</string>
     <string name="weighing_tasks_individual_fmt">%1$d व्यक्तिगत</string>
     <string name="weighing_tasks_lump_sum_fmt">%1$d कुल वज़न</string>
     <string name="weighing_operator_one">%1$d ऑपरेटर</string>
     <string name="weighing_operator_other">%1$d ऑपरेटर</string>
     <string name="weighing_tasks_accepted_fmt">%2$d में से %1$d स्वीकृत →</string>
     <string name="weighing_tasks_repeat_last_fmt">पिछला काम दोहराएँ · %1$s · %2$s</string>
-    <string name="weighing_tasks_repeat_blocked">पुराने काम से नया काम शुरू करना अभी उपलब्ध नहीं है</string>
+    <string name="weighing_tasks_repeat_blocked">दोहराने के लिए पिछला काम नहीं</string>
     <string name="weighing_tasks_new_task">+ नया काम</string>
     <string name="weighing_tasks_status_scheduled">निर्धारित</string>
 
@@ -164,10 +164,6 @@
     <string name="weighing_task_ending">काम खत्म हो रहा है</string>
     <string name="weighing_task_close_open_fmt">काम बंद करें · %1$d जमा नहीं हुए</string>
     <string name="weighing_task_mark_complete">काम पूर्ण करें</string>
-    <string name="weighing_task_reopen">काम फिर खोलें</string>
-    <string name="weighing_task_reopen_blocked">पूरे हो चुके काम को दोबारा योजना में लाना अभी उपलब्ध नहीं है। एक शेड समूह को नीचे उसके अपने कार्ड से फिर खोला जा सकता है।</string>
-    <string name="weighing_task_edit">शेड और सौंपाई बदलें</string>
-    <string name="weighing_task_edit_blocked">बन चुके काम में शेड या सौंपाई बदलना अभी उपलब्ध नहीं है</string>
     <string name="weighing_task_repeat">यह काम किसी और तारीख़ पर दोहराएँ</string>
     <string name="weighing_task_repeat_blocked">इस काम में ऐसा कोई शेड समूह नहीं है जिसे किसी और तारीख़ पर रखा जा सके</string>
     <string name="weighing_task_all_operators">सभी ऑपरेटर</string>
@@ -350,4 +346,7 @@
     <string name="weighing_not_submitted_chip">नहीं भेजा गया</string>
     <string name="weighing_reason_dialog_error_required">कारण आवश्यक है।</string>
     <string name="weighing_reason_dialog_cancel">रद्द करें</string>
+    <string name="weighing_wizard_summary_modes_fmt">%1$d अलग-अलग · %2$d सामूहिक</string>
+    <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
+    <string name="weighing_wizard_add_remaining_fmt">बाकी %1$d जोड़ें</string>
 </resources>

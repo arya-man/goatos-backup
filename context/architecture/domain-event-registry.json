@@ -1147,6 +1147,33 @@
         "frontend",
         "mobile"
       ]
+    },
+    {
+      "eventType": "weighing.work_item.merged_on_carry_over",
+      "producer": "weighing kernel carry-over merge pass; a carried-over work item whose new due date lands on a (park, shed, date) another OPEN item already covers is CLOSED and linked to it via merged_into_work_item_id. Nothing is re-assigned and no capture is moved: the closed item keeps its own observations as history, and the task already planned for that day simply carries on. Fires only on collision; an ordinary carry-over rolls forward untouched.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "DOWNWARD to the operator whose item closed, so the shed leaving their day is told to them rather than discovered as an empty list. Copy states the shed is already covered today; it must never imply a transfer, because no work item changes hands."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [
