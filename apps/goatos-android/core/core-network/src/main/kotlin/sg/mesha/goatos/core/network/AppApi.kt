@@ -520,6 +520,21 @@ interface AppApi {
         request: WeighingScopeCloseRequestDto,
     )
 
+    /**
+     * POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon — leadership
+     * ABANDON action for a weighing shed scope. Requires permission weighing.monitor.
+     *
+     * Distinct from [closeShedWeighingCampaign]: close ends work that was DONE, abandon ends work
+     * that will never be done. The backend records different outcomes, so the client must not
+     * substitute one for the other.
+     */
+    suspend fun abandonWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    )
+
     /** POST /app/weighing/campaigns/{campaign_id}/close — leadership close action for an entire
      *  weighing campaign. Requires permission weighing.monitor. */
     suspend fun closeWeighingCampaign(
@@ -1232,6 +1247,13 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     ) = Unit
 
     override suspend fun closeShedWeighingCampaign(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = Unit
+
+    override suspend fun abandonWeighingScope(
         campaignId: String,
         campaignShedId: String,
         idempotencyKey: String,

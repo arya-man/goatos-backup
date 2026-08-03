@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
+import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
 import sg.mesha.goatos.core.data.weighing.WeighingPage
@@ -763,6 +764,102 @@ class WeighingViewModelTest {
         assertEquals(2, vm.state.value.assignments.size)
     }
 
+    @Test
+    fun `oversight park chips offer a park with no assignment on the loaded page`() = runTest(dispatcher) {
+        // The chip row used to be built only from the parks the loaded assignment PAGES happened to
+        // carry, so a park whose first row sits on page three had no chip -- and because selecting a
+        // park is the only way to fetch that park's rows, its work was unreachable entirely.
+        val onlyPagedPark = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            workGroupId = "shed-a",
+            campaignShedId = "shed-a",
+            expectedLocationId = "shed-a",
+            expectedLocationLabel = "shed-a",
+            label = "shed-a",
+            category = "individual_animal",
+            operatorUserId = "operator-2",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(onlyPagedPark)),
+            plannerCatalogResult = AppResult.Ok(
+                WeighingPlannerCatalog(
+                    parks = listOf(
+                        WeighingPlannerPark("park-cpt", "CPT - Channapatna", 278, 4, null),
+                        WeighingPlannerPark("park-cbe", "CBE - Coimbatore", 91, 3, null),
+                    ),
+                    operators = emptyList(),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(
+            "the authoritative park catalog, not the parks that happen to be on the loaded page",
+            setOf("park-cpt", "park-cbe"),
+            vm.state.value.parkFilters.map { it.parkId }.toSet(),
+        )
+    }
+
+    @Test
+    fun `abandoning a shed calls the abandon write when the backend grants the authority`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.canEndWeighing)
+        vm.abandonAssignment(vm.state.value.assignments.single(), "animals moved")
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf(Triple("campaign-1", "shed-a", "animals moved")),
+            repository.abandonCalls.toList(),
+        )
+    }
+
+    @Test
+    fun `abandon is refused when the backend grants no ending authority`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.canEndWeighing)
+        vm.abandonAssignment(vm.state.value.assignments.single(), "animals moved")
+        advanceUntilIdle()
+
+        assertTrue("no write may leave the client without the server-stated authority", repository.abandonCalls.isEmpty())
+    }
+
+    private fun oversightAssignment() = WeighingAssignment(
+        campaignId = "campaign-1",
+        tenantId = "tenant-1",
+        parkId = "park-cpt",
+        parkName = "CPT - Channapatna",
+        workGroupId = "shed-a",
+        campaignShedId = "shed-a",
+        expectedLocationId = "shed-a",
+        expectedLocationLabel = "shed-a",
+        label = "Gandhi 1",
+        category = "individual_animal",
+        operatorUserId = "operator-2",
+        status = "in_progress",
+        periodLabel = "2026-08-01 - 2026-08-07",
+    )
+
     // The CEO splits four sheds 2/2 between two people and opens the task. The screen he lands on
     // is the only place that split is visible, so every bucket row has to name its own operator --
     // four identically-shaped cards with the assignment reachable only by tapping a filter chip is
@@ -987,7 +1084,12 @@ class WeighingViewModelTest {
         // The leadership task list this fake's Room-backed stream answers with, so a test can put a
         // planner in front of a real task and read the detail state that task produces.
         private val taskListCache: WeighingTaskListCache = WeighingTaskListCache(),
+        // What the backend says this viewer may do to the assignment rows. Defaults to nothing, so
+        // a test that wants the oversight actions has to say so -- exactly like the real read.
+        private val assignmentCapabilities: WeighingCapabilities = WeighingCapabilities(),
     ) : WeighingRepository {
+        /** Every abandon this fake was asked for, as (campaignId, campaignShedId, reason). */
+        val abandonCalls = mutableListOf<Triple<String, String, String>>()
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
             private set
@@ -1005,7 +1107,22 @@ class WeighingViewModelTest {
             scope: String,
             parkId: String?,
         ): AppResult<WeighingPage<WeighingAssignment>> =
-            AppResult.Ok(WeighingPage(assignmentsByPark[parkId] ?: emptyList(), null))
+            AppResult.Ok(
+                WeighingPage(
+                    items = assignmentsByPark[parkId] ?: emptyList(),
+                    nextCursor = null,
+                    capabilities = assignmentCapabilities,
+                ),
+            )
+
+        override suspend fun abandonScope(
+            campaignId: String,
+            campaignShedId: String,
+            reason: String,
+        ): AppResult<Unit> {
+            abandonCalls += Triple(campaignId, campaignShedId, reason)
+            return AppResult.Ok(Unit)
+        }
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
         //

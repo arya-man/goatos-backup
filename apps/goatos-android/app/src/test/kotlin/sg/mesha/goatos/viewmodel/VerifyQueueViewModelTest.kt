@@ -15,6 +15,8 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
@@ -75,6 +77,45 @@ class VerifyQueueViewModelTest {
         assertFalse(vm.state.value.isRefreshing)
         assertEquals(2, repo.refreshQueueCalls) // once from init, once from this explicit Refresh
         assertEquals(listOf("vaccination_proof", "vaccination_proof"), repo.refreshedCategories)
+    }
+
+    @Test
+    fun `a module this client cannot serve reads nothing rather than vaccination proofs`() = runTest(dispatcher) {
+        // The backend composes a verify entry per feature the verifier holds duty on, including
+        // counts and feed. Coercing those to vaccination showed a Counts verifier another module's
+        // proofs and invited a verdict on work they were never asked to review.
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("module" to "counts")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(emptyList<String?>(), repo.refreshedCategories)
+        assertEquals(emptyList<String?>(), repo.observedCategories)
+        assertNull(vm.state.value.selectedModule)
+        assertTrue(vm.state.value.isUnsupportedModule)
+    }
+
+    @Test
+    fun `an alerts category is passed through verbatim`() = runTest(dispatcher) {
+        // /verify/alerts names the category outright; the client must not re-derive it.
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "shifting_move")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("shifting_move"), repo.observedCategories)
+        assertEquals(listOf("shifting_move"), repo.refreshedCategories)
+        assertFalse(vm.state.value.isUnsupportedModule)
     }
 }
 

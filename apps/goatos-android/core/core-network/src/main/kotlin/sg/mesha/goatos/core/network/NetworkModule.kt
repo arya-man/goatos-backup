@@ -353,6 +353,14 @@ interface AppApiService {
         @Body request: WeighingScopeCloseRequestDto,
     )
 
+    @POST("app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon")
+    suspend fun abandonWeighingScope(
+        @Path("campaign_id") campaignId: String,
+        @Path("campaign_shed_id") campaignShedId: String,
+        @Header("Idempotency-Key") idempotencyKey: String,
+        @Body request: WeighingScopeCloseRequestDto,
+    )
+
     @POST("app/weighing/campaigns/{campaign_id}/close")
     suspend fun closeWeighingCampaign(
         @Path("campaign_id") campaignId: String,
@@ -885,6 +893,13 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: WeighingScopeCloseRequestDto,
     ) = service.closeShedWeighingCampaign(campaignId, campaignShedId, idempotencyKey, request)
+
+    override suspend fun abandonWeighingScope(
+        campaignId: String,
+        campaignShedId: String,
+        idempotencyKey: String,
+        request: WeighingScopeCloseRequestDto,
+    ) = service.abandonWeighingScope(campaignId, campaignShedId, idempotencyKey, request)
 
     override suspend fun closeWeighingCampaign(
         campaignId: String,

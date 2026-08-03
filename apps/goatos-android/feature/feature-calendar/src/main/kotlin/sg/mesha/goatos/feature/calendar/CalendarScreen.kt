@@ -524,18 +524,32 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.size(8.dp))
-            Text(
-                // Park-level drives (v4) get the fixed "Vaccination drive · <park>" chrome
-                // (localized here); everything else keeps the backend-supplied item.title.
-                text = if (drive != null) {
-                    stringResource(R.string.calendar_drive_title, drive.parkName)
-                } else {
-                    item.title
-                },
-                color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.W700,
-            )
+            Column {
+                Text(
+                    // The drive's OWN name is what distinguishes one multi-day drive from the next.
+                    // The fixed "Vaccination drive · <park>" chrome is only a fallback: rendering it
+                    // for every row made every day of every drive read as the same untitled card.
+                    text = drive?.driveName?.takeIf { it.isNotBlank() }
+                        ?: if (drive != null) {
+                            stringResource(R.string.calendar_drive_title, drive.parkName)
+                        } else {
+                            item.title
+                        },
+                    color = if (drillable) MeshaColors.Ink else MeshaColors.Muted,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.W700,
+                )
+                // Park stays visible even when the drive name replaced the chrome above.
+                drive?.parkName?.takeIf { it.isNotBlank() && drive.driveName.isNotBlank() }?.let { park ->
+                    Text(
+                        text = park,
+                        color = MeshaColors.Muted,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.W600,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
         }
         // For drive rows the backend populates subtitle/summaryPrimary/summarySecondary with the
         // same sheds/vaccines/scheduled-dose metrics the option-A ring card now shows, so suppress
@@ -696,6 +710,18 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                     fontWeight = FontWeight.W600,
                     modifier = Modifier.padding(top = 3.dp),
                 )
+                // The counts above are THIS DAY's slice. A drive runs over several days, so the
+                // whole-drive herd total is the only number that answers "how big is this drive"
+                // -- the backend already sends it and the card simply dropped it on the floor.
+                summary.driveTotal?.takeIf { it > 0 }?.let { total ->
+                    Text(
+                        text = stringResource(R.string.calendar_drive_total_animals, total),
+                        color = MeshaColors.Faint,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.W600,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
             }
         }
         val chips = driveStatusChips(summary)

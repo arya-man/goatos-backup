@@ -92,6 +92,11 @@ data class WeighingUiState(
     // state fields are gone rather than sitting here populated and unrendered.
     val plannerMode: Boolean = false,
     val parkFilters: List<WeighingParkFilterUiRow> = emptyList(),
+    // Oversight authority as the BACKEND states it on the same read the rows came from. A screen
+    // renders close/reopen/abandon only when the write behind them would be accepted -- these are
+    // never inferred from which surface is on screen or from the viewer's role.
+    val canEndWeighing: Boolean = false,
+    val canReopenWeighing: Boolean = false,
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
     val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
