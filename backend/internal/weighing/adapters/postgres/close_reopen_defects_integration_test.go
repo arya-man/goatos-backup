@@ -120,14 +120,14 @@ ON CONFLICT DO NOTHING`, repoTenant, repoOperator, repoPark)
 	defer tx2.Rollback(ctx)
 
 	// Close the bucket
-	_, err = repo.closeScope(ctx, domain.CloseCommand{
+	_, err = repo.CloseScope(ctx, domain.CloseCommand{
 		TenantID:       repoTenant,
 		CampaignID:     repoCampaign,
 		CampaignShedID: repoAnimalScope,
 		Reason:         "emergency close",
 		ClosedBy:       repoVerifier2,
 		IdempotencyKey: "close:race-test",
-	}, false)
+	})
 	if err != nil {
 		t.Fatalf("close scope in race: %v", err)
 	}

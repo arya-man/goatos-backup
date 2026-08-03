@@ -47,11 +47,7 @@ const (
 	EventWeighingObservationVerified = "weighing.observation.verified"
 	EventWeighingObservationRework   = "weighing.observation.rework"
 	EventWeighingShedClosed          = "weighing.shed.closed"
-	// Abandon is a separate event so "ended without verification" is never
-	// mistaken for "verified and closed". It notifies the same audience as a
-	// close -- people still need to know the bucket ended -- but says so plainly.
-	EventWeighingShedAbandoned  = "weighing.shed.abandoned"
-	EventWeighingCampaignClosed = "weighing.campaign.closed"
+	EventWeighingCampaignClosed      = "weighing.campaign.closed"
 
 	// WEIGHING PHASE 2 kernel cadences. Same consumer, not a parallel one:
 	//
@@ -170,7 +166,6 @@ func (c *WeighingLifecycleEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventWeighingObservationVerified, c)
 	bus.Subscribe(EventWeighingObservationRework, c)
 	bus.Subscribe(EventWeighingShedClosed, c)
-	bus.Subscribe(EventWeighingShedAbandoned, c)
 	bus.Subscribe(EventWeighingCampaignClosed, c)
 	bus.Subscribe(EventWeighingWorkItemDayStart, c)
 	bus.Subscribe(EventWeighingWorkItemRolledForward, c)
@@ -188,7 +183,7 @@ func (c *WeighingLifecycleEventConsumer) HandleEvent(ctx context.Context, event 
 		return c.handlePublished(ctx, event)
 	case EventWeighingObservationVerified, EventWeighingObservationRework:
 		return c.handleVerdict(ctx, event)
-	case EventWeighingShedClosed, EventWeighingShedAbandoned:
+	case EventWeighingShedClosed:
 		return c.handleShedClosed(ctx, event)
 	case EventWeighingCampaignClosed:
 		return c.handleCampaignClosed(ctx, event)
@@ -467,17 +462,13 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 	if reason := strings.TrimSpace(payload.Reason); reason != "" {
 		body += " Reason: " + reason
 	}
-	abandoned := event.Type == EventWeighingShedAbandoned
-	title := "Weighing shed closed"
-	contextType := "weighing_shed_closed"
-	messageKey := "weighing.shed_closed"
-	if abandoned {
-		title = "Weighing shed ended early"
-		contextType = "weighing_shed_abandoned"
-		messageKey = "weighing.shed_abandoned"
-	}
-	// Keyed on the ACTUAL event type: a close and an abandon for the same bucket
-	// are different facts and must not collapse onto one notification key.
+	const (
+		title       = "Weighing shed closed"
+		contextType = "weighing_shed_closed"
+		messageKey  = "weighing.shed_closed"
+	)
+	// Keyed on the ACTUAL event type so two lifecycle facts about the same bucket
+	// can never collapse onto one notification key.
 	eventKey := event.Type + ":" + campaignShedID + ":" + event.ID
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,

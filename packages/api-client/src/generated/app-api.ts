@@ -401,23 +401,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Explicitly abandon one Weighing scope that will not be completed. */
-        post: operations["abandonWeighingScope"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/app/weighing/campaigns/{campaign_id}/close": {
         parameters: {
             query?: never;
@@ -5729,7 +5712,7 @@ export interface components {
         };
         WeighingCampaignResponse: {
             campaign: components["schemas"]["WeighingCampaign"];
-            /** @description Answered for THIS task's park. The single-task read is what a deep-linked task screen gates its buttons on, so the answer has to match what the write would allow: end and reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here put a live Abandon/Close button on a task whose write returns 404. */
+            /** @description Answered for THIS task's park. The single-task read is what a deep-linked task screen gates its buttons on, so the answer has to match what the write would allow: end and reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here put a live Close button on a task whose write returns 404. */
             capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             trace_id?: string;
         };
@@ -7836,41 +7819,6 @@ export interface operations {
         };
         responses: {
             /** @description Scope closed or idempotently replayed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCloseResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    abandonWeighingScope: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-                campaign_shed_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WeighingCloseRequest"];
-            };
-        };
-        responses: {
-            /** @description Scope abandoned or idempotently replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

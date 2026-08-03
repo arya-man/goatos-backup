@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,10 +33,7 @@ import (
 //     identifier sample) are written into the audit row, the idempotency result
 //     snapshot, and the outbox payload.
 const (
-	eventTypeScopeClosed = "weighing.shed.closed"
-	// Abandon is a DISTINCT event, never a flavour of closed: "ended without
-	// verification" must not be mistakable downstream for "verified and closed".
-	eventTypeScopeAbandoned = "weighing.shed.abandoned"
+	eventTypeScopeClosed    = "weighing.shed.closed"
 	eventTypeCampaignClosed = "weighing.campaign.closed"
 )
 
@@ -129,27 +125,16 @@ SELECT
 
 // CloseScope closes exactly one weighing bucket (campaign shed).
 //
-// NORMAL close is GATED (maintainer decision 2026-07-31): leadership may not close
-// a bucket while any submitted video is still waiting on the verifier. The gate is
-// only about closing EARLY — it never blocks the operator scanning or submitting,
-// and never blocks the verifier reviewing. Work that will genuinely never finish
-// ends through AbandonScope instead, which is explicit and reason-bearing.
+// Close is UNCONDITIONALLY GATED (maintainer decision 2026-08-03): leadership may
+// not close a bucket while any submitted video is still waiting on the verifier.
+// There is no bypass. The vocabulary is close or reopen — the former "abandon"
+// primitive, which was this same path with the gate skipped, has been removed, so
+// no caller can end a bucket that still holds unreviewed evidence.
+//
+// The gate is only about closing EARLY — it never blocks the operator scanning or
+// submitting, and never blocks the verifier reviewing. A bucket that must end
+// gets its pending evidence resolved by the verifier first.
 func (r *Repository) CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	return r.closeScope(ctx, cmd, false)
-}
-
-// AbandonScope ends a bucket whose work will never finish, WITHOUT the verification
-// gate. It is a separate primitive rather than a flag on close so the distinction
-// survives in the audit trail and on the bus: a reason is mandatory, the audit action
-// is weighing.scope_abandoned, and the event is weighing.shed.abandoned.
-func (r *Repository) AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	if strings.TrimSpace(cmd.Reason) == "" {
-		return domain.CloseResult{}, ports.ErrInvalidArgument
-	}
-	return r.closeScope(ctx, cmd, true)
-}
-
-func (r *Repository) closeScope(ctx context.Context, cmd domain.CloseCommand, abandon bool) (domain.CloseResult, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -164,12 +149,10 @@ func (r *Repository) closeScope(ctx context.Context, cmd domain.CloseCommand, ab
 		"closed_by":        cmd.ClosedBy,
 		"reason":           cmd.Reason,
 	})
-	eventType := eventTypeScopeClosed
-	auditAction := "weighing.scope_closed"
-	if abandon {
-		eventType = eventTypeScopeAbandoned
-		auditAction = "weighing.scope_abandoned"
-	}
+	const (
+		eventType   = eventTypeScopeClosed
+		auditAction = "weighing.scope_closed"
+	)
 	if result, ok, err := r.closeByIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed"); err != nil || ok {
 		if err != nil {
 			return domain.CloseResult{}, err
@@ -199,16 +182,16 @@ FOR UPDATE OF cs`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&categ
 		return domain.CloseResult{}, ports.ErrImmutable
 	}
 
-	// THE CLOSE GATE. Checked under the same row lock taken above, so a verdict
-	// landing concurrently cannot slip between the check and the status flip.
-	if !abandon {
-		_, pending, err := r.pendingVerificationCount(ctx, tx, cmd.TenantID, cmd.CampaignShedID)
-		if err != nil {
-			return domain.CloseResult{}, err
-		}
-		if pending > 0 {
-			return domain.CloseResult{}, ports.ErrVerificationPending
-		}
+	// THE CLOSE GATE. UNCONDITIONAL — there is no abandon flag, no force flag, and
+	// no caller-supplied way past it. Checked under the same row lock taken above,
+	// so a verdict landing concurrently cannot slip between the check and the
+	// status flip.
+	_, pending, err := r.pendingVerificationCount(ctx, tx, cmd.TenantID, cmd.CampaignShedID)
+	if err != nil {
+		return domain.CloseResult{}, err
+	}
+	if pending > 0 {
+		return domain.CloseResult{}, ports.ErrVerificationPending
 	}
 
 	notAcceptedCount, notAccepted, err := r.scopeNotAcceptedWork(ctx, tx, cmd, category)
@@ -252,7 +235,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.Clos
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.enqueueScopeClosed(ctx, tx, cmd, result, eventType); err != nil {
+	if err := r.enqueueScopeClosed(ctx, tx, cmd, result); err != nil {
 		return domain.CloseResult{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -327,9 +310,7 @@ FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID); err != nil {
 	// THE SAME CLOSE GATE, at campaign grain.
 	//
 	// CloseScope refuses to close one bucket with unreviewed videos, but this
-	// cascade is a SECOND door to status='closed': it requires no reason and is
-	// not the explicit abandon path, so it is a normal close and must obey the
-	// same rule.
+	// cascade is a SECOND door to status='closed', so it must obey the same rule.
 	//
 	// The predicate below deliberately includes 'completed' buckets. An earlier
 	// version excluded them by reasoning about which buckets the CASCADE rewrites
@@ -340,9 +321,9 @@ FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID); err != nil {
 	// is "does any bucket in this campaign hold unverified submitted evidence",
 	// NOT "which buckets would this UPDATE touch".
 	//
-	// Only genuinely terminal buckets are exempt: 'closed' was already settled
-	// (via the gated per-bucket close or an explicit abandon), and 'canceled' work
-	// was withdrawn and never needs a verdict.
+	// Only genuinely terminal buckets are exempt: 'closed' was already settled by
+	// the gated per-bucket close, and 'canceled' work was withdrawn and never
+	// needs a verdict.
 	var campaignPending int
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)

@@ -686,7 +686,7 @@ same `verification_items` source the existing verification queue already serves.
 Leadership continues to see verification health through the module read APIs and
 the Control Tower process-state summary, not through this endpoint.
 
-**EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000081) —
+**EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000086) —
 bookkeeping for the batched weighing data repairs. It records how far a one-time
 repair procedure has drained so an interrupted run can resume; it holds no
 business fact, no herd or weighing measurement, and nothing reads it for

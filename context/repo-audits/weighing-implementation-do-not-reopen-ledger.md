@@ -403,6 +403,45 @@ Handler expects: verification.ProofRef to match /verification/ path pattern
 
 ---
 
+### D-5: Weighing Vocabulary — Close/Reopen Only, No Abandon (Permanent Guardrail)
+
+**Maintainer Decision:** 2026-08-03  
+**Status:** ENFORCED by machine guard `check-weighing-abandon-guard.mjs`
+
+**The Rule:** Weighing workflow vocabulary is CLOSED (finish) or REOPEN (undo finish). No "abandon."
+
+**Context:** `AbandonScope` was a service method that closed a weighing bucket WITHOUT the verification gate—a code path, not a concept. Verification is the safety check that proof-ready submissions are reviewed by an authorized director before marking complete. Bypassing it (even with a reason field) was a seam that could allow incomplete work to be recorded. The decision: disallow that bypass.
+
+**Banned (New Write Paths):**
+- Service methods: `Service.AbandonScope()`, `Service.abandonScope()`
+- Repository methods: `Repository.AbandonScope()`, `Repository.abandonScope()`
+- HTTP routes: `POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon`
+- Event types: `weighing.shed.abandoned`, `weighing_shed_abandoned`, `EventWeighingShedAbandoned`
+- Audit actions: `weighing.scope_abandoned`
+- Android API/ViewModel/Repository methods: `abandonScope`, `AbandonScope`
+- String resources: `weighing_abandon_*` (button labels, dialog text, etc.)
+
+**Allowed (Read-Side Tolerance for Historical Data):**
+- Migrations (`.sql` files) may contain `'abandoned'` enum values or CHECK constraints on historical rows already written
+- Read-side consumers may tolerate a legacy `status = 'abandoned'` on old rows (for data reconciliation or reporting)
+- Comments explaining why abandon was removed
+- Test assertions on historical data (verifying the feature's absence, not writing new abandons)
+
+**If You Cannot Close Because Verification Is Pending:**  
+Resolve the verification (get a director's approval/rejection), then close. The answer is never "bypass verification."
+
+**How to Detect Regressions:**
+- Machine: `make weighing-abandon-guard` runs on every CI gate
+- Manual: Grep for `Abandon`, `abandon`, `weighing.shed.abandoned`, `weighing_scope_abandoned` in source code (non-comment, non-migration)
+- Test: Calls to abandon endpoints in your test suite indicate you're testing an old feature path — delete those tests
+
+**Related Docs:**
+- `AGENTS.md` → "Weighing vocabulary is close or reopen"
+- `backend/internal/weighing/adapters/postgres/close.go` — explanation of why the parameter was removed
+- `tools/agent-hooks/check-weighing-abandon-guard.mjs` — machine enforcement
+
+---
+
 ## Section E: TRAPS FROM RECENT COMMITS (Do Not Repeat)
 
 ### E-1: Operator Scoping at Shed Level, Not Park Level

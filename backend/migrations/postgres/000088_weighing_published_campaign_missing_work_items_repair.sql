@@ -4,7 +4,7 @@
 --
 -- FORWARD-REPAIR (M9, P1) for the damage 000076 could only PREVENT, not undo.
 --
--- 000069, 000072 and 000076 ARE NOT EDITED HERE (checksum drift; see 000081's
+-- 000069, 000072 and 000076 ARE NOT EDITED HERE (checksum drift; see 000086's
 -- header).
 --
 -- ROOT CAUSE -- the hole 000076 leaves open.
@@ -105,7 +105,7 @@
 -- missing row it is fixing.
 --
 -- BATCHED / LOCK-SAFE / RESUMABLE / IDEMPOTENT: per the contract documented
--- once in 000081. Campaigns are repaired in committed slices, so the FOR UPDATE
+-- once in 000086. Campaigns are repaired in committed slices, so the FOR UPDATE
 -- locks are held for one small slice at a time instead of across every damaged
 -- campaign in the database; lock_timeout and statement_timeout are re-armed
 -- inside each slice; the predicate is self-draining (a campaign with no missing
@@ -147,7 +147,7 @@ DECLARE
   bucket_inserted bigint;
 BEGIN
   INSERT INTO public.weighing_repair_batch_progress (repair_key)
-  VALUES ('000083_weighing_published_campaign_missing_work_items_repair')
+  VALUES ('000088_weighing_published_campaign_missing_work_items_repair')
   ON CONFLICT (repair_key) DO NOTHING;
 
   LOOP
@@ -302,12 +302,12 @@ BEGIN
         -- ACCUMULATE, do not assign. `repaired` is call-local, so on a RESUMED run it
         -- restarts at zero: a run that repaired 5,000 rows, was killed, then resumed and
         -- repaired 200 would overwrite the true total with 200. That is precisely the
-        -- under-reporting 000081's progress table exists to prevent, and 000082 already
+        -- under-reporting 000086's progress table exists to prevent, and 000087 already
         -- accumulates for this reason -- this file kept the wrong form.
         rows_repaired = weighing_repair_batch_progress.rows_repaired + slice_inserted,
         last_batch_at = now(),
         completed_at = CASE WHEN slice_campaigns = 0 THEN now() ELSE NULL END
-    WHERE repair_key = '000083_weighing_published_campaign_missing_work_items_repair';
+    WHERE repair_key = '000088_weighing_published_campaign_missing_work_items_repair';
 
     COMMIT;
 

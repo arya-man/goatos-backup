@@ -157,7 +157,7 @@ type CampaignCounts struct {
 // The capabilities used to be a role-only answer (RolesAuthorize with no park), while every
 // corresponding write runs a park-scope check and refuses an unauthorized park with
 // ErrNotFound. A monitor scoped to park A therefore received can_end/can_reopen = true on a
-// park-B task and rendered a live Abandon/Close button whose tap answered "not found" -- the
+// park-B task and rendered a live Close button whose tap answered "not found" -- the
 // same live-button-that-fails defect the capability map exists to prevent, only at park grain
 // instead of permission grain.
 type CampaignCapabilities struct {

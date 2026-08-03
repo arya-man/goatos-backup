@@ -888,46 +888,6 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
-  /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon:
-    post:
-      tags:
-        - Weighing
-      operationId: abandonWeighingScope
-      summary: Explicitly abandon one Weighing scope that will not be completed.
-      parameters:
-        - $ref: "#/components/parameters/WeighingCampaignId"
-        - name: campaign_shed_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-        - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/WeighingCloseRequest"
-      responses:
-        "200":
-          description: Scope abandoned or idempotently replayed.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/WeighingCloseResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFoundOrNotAllowed"
-        "409":
-          $ref: "#/components/responses/WriteConflict"
-        "500":
-          $ref: "#/components/responses/ServerError"
   /app/weighing/campaigns/{campaign_id}/close:
     post:
       tags:
@@ -15137,7 +15097,7 @@ components:
             Answered for THIS task's park. The single-task read is what a deep-linked task screen
             gates its buttons on, so the answer has to match what the write would allow: end and
             reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here
-            put a live Abandon/Close button on a task whose write returns 404.
+            put a live Close button on a task whose write returns 404.
         trace_id:
           type: string
     WeighingParkListResponse:

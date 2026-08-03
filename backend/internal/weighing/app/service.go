@@ -74,7 +74,7 @@ func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader
 
 // checkParkScope enforces park-scoped access control for mutation operations.
 // It resolves the campaign's park and verifies the actor is authorized to access it
-// for the WeighingMonitor capability -- the reopen/close/abandon authority.
+// for the WeighingMonitor capability -- the reopen/close authority.
 //
 // Authorization semantics:
 //   - Tenant-wide grant with weighing-relevant role = access all parks
@@ -94,7 +94,7 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 // campaign's park and then admits the actor if ANY of `capabilities` is held there.
 //
 // checkParkScope cannot serve those surfaces because it hardcodes WeighingMonitor, which is the
-// reopen/close/abandon authority. On a plan-OR-monitor read that hardcoding is a latent lockout:
+// reopen/close authority. On a plan-OR-monitor read that hardcoding is a latent lockout:
 // an actor holding weighing.plan without weighing.monitor is admitted by the role gate and then
 // refused by the park check -- as ErrNotFound, which is the hardest possible failure to diagnose
 // because it is indistinguishable from a task that does not exist.
@@ -690,7 +690,7 @@ func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignI
 // It is park-aware, and that is the whole point. The capabilities used to be a bare
 // RolesAuthorize answer with no park in it, while CloseCampaign/ReopenCampaign run a park-scope
 // check and refuse an unauthorized park with ErrNotFound. A monitor scoped to park A therefore
-// got can_end = true on a park-B task and rendered a live Abandon/Close button whose tap
+// got can_end = true on a park-B task and rendered a live Close button whose tap
 // answered "not found" -- the very failure the capability map exists to prevent, displaced from
 // permission grain to park grain.
 //
@@ -1082,32 +1082,6 @@ func (s *Service) CloseScope(ctx context.Context, actor domain.Actor, campaignID
 		return domain.CloseResult{}, err
 	}
 	return s.repo.CloseScope(ctx, domain.CloseCommand{
-		TenantID:       actor.TenantID,
-		CampaignID:     campaignID,
-		CampaignShedID: campaignShedID,
-		Reason:         reason,
-		ClosedBy:       actor.UserID,
-		IdempotencyKey: strings.TrimSpace(idempotencyKey),
-	})
-}
-
-// AbandonScope ends a bucket WITHOUT the verification gate, for work that will
-// never finish. Same permission and validation as CloseScope; the reason is what
-// justifies skipping verification, so it stays mandatory.
-func (s *Service) AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error) {
-	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
-		return domain.CloseResult{}, ports.ErrForbidden
-	}
-	reason = strings.TrimSpace(reason)
-	if !uuidutil.IsUUIDString(campaignID) || !uuidutil.IsUUIDString(campaignShedID) || strings.TrimSpace(idempotencyKey) == "" || reason == "" {
-		return domain.CloseResult{}, ports.ErrInvalidArgument
-	}
-	// Enforce park-scoped authorization. Actor must have a grant that covers the campaign's park.
-	// Returns ErrNotFound (not ErrForbidden) to hide existence of cross-park campaigns.
-	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
-		return domain.CloseResult{}, err
-	}
-	return s.repo.AbandonScope(ctx, domain.CloseCommand{
 		TenantID:       actor.TenantID,
 		CampaignID:     campaignID,
 		CampaignShedID: campaignShedID,
