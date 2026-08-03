@@ -411,3 +411,51 @@ func (s *Service) WithdrawItemsBySource(ctx context.Context, tenantID, sourceMod
 	}
 	return withdrawn, nil
 }
+
+// MarkVerdictApplied is the producing module's APPLY-RECEIPT seam, the mirror of
+// the retire seam above: the module that raised the items tells verification that
+// its applier has written the verdict's outcome onto its own record, so the item
+// stops reading as decided-but-not-yet-in-effect.
+//
+// Like the retire seam it is not a verdict and is not reachable from the
+// verifier-facing HTTP surface -- only a module's own applier may ack its own
+// items, and it may only ack that something happened, never what.
+func (s *Service) MarkVerdictApplied(
+	ctx context.Context,
+	tenantID, sourceModule, sourceRefType string,
+	sourceRefIDs []string,
+	appliedByModule string,
+) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	appliedByModule = strings.TrimSpace(appliedByModule)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	if appliedByModule == "" {
+		return 0, BadRequest("invalid_applied_by_module", "applied_by_module is required")
+	}
+	refs := make([]string, 0, len(sourceRefIDs))
+	for _, ref := range sourceRefIDs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(ref) {
+			return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+		}
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	applied, err := s.repo.MarkVerdictApplied(ctx, tenantID, sourceModule, sourceRefType, refs, appliedByModule)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return applied, nil
+}

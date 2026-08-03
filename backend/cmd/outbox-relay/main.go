@@ -39,7 +39,9 @@ import (
 	sopapp "github.com/vgoats/goatos/backend/internal/sop/app"
 	vaccinationpg "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres"
 	vaccinationapp "github.com/vgoats/goatos/backend/internal/vaccination/app"
+	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	weighingpg "github.com/vgoats/goatos/backend/internal/weighing/adapters/postgres"
+	weighingverificationbridge "github.com/vgoats/goatos/backend/internal/weighing/adapters/verificationbridge"
 	workforcepg "github.com/vgoats/goatos/backend/internal/workforce/adapters/postgres"
 	workforceapp "github.com/vgoats/goatos/backend/internal/workforce/app"
 )
@@ -162,6 +164,13 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		countsApprovalRepo := countspg.NewRepository(pool, pgCfg.QueryTimeout).WithIdentityTxWriter(identityRepo)
 		feedDirectionRepo := feeddirectionpg.NewRepository(pool, pgCfg.QueryTimeout)
 		weighingRepo := weighingpg.NewRepository(pool, pgCfg.QueryTimeout)
+		// Weighing's apply-receipt seam. The relay is where the weighing verdict applier ACTUALLY
+		// runs (the API's in-process bus does not receive verdict events at all), so this is the
+		// process that must tell verification the verdict landed -- without it every applied
+		// weighing verdict would stay stuck reading as "decided, not yet in effect".
+		weighingVerificationBridge := weighingverificationbridge.New(
+			verificationpg.NewRepository(pool, pgCfg.QueryTimeout),
+		)
 		obligationapp.NewGoatShiftedHandler(obligationRepo).Register(bus)
 		obligationapp.NewGoatExitedHandler(obligationRepo).Register(bus)
 		obligationapp.NewOperatorConfigReplanHandler(obligationRepo).Register(bus)
@@ -178,7 +187,7 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		// Shifting + feed verification appliers: the ONE shared registration (see bootstrap/api.go and
 		// cmd/domain-event-consumer). In local eventbus mode this in-process bus IS the delivery, so
 		// without these a verifier approval never applies locally either.
-		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, weighingRepo, logger)
+		eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, weighingRepo, weighingVerificationBridge, logger)
 		// Birth/death workflow consumers: in local eventbus mode this in-process bus IS the delivery,
 		// so without these an approved birth/death opens no follow-up work locally.
 		eventwiring.RegisterWorkflowConsumers(bus,

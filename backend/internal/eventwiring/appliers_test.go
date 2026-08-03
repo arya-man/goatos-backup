@@ -24,7 +24,7 @@ func (b *spyBus) Publish(_ context.Context, _ eventbus.Event) error {
 func TestRegisterVerificationAppliersRegistersAllFive(t *testing.T) {
 	bus := &spyBus{subs: map[string]int{}}
 
-	RegisterVerificationAppliers(bus, nil, nil, nil, nil)
+	RegisterVerificationAppliers(bus, nil, nil, nil, nil, nil)
 
 	// shifting + feed-distribution + feed-packing + feed-transport + weighing = 5 appliers,
 	// each subscribing to BOTH verdict types. Weighing joined this list because it enqueued a
