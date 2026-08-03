@@ -375,7 +375,7 @@ SET status='in_progress', completed_at=NULL, updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$2::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignShedID); err != nil {
-			// Since migration 000085 a COMPLETED bucket no longer holds its
+			// Since migration 000089 a COMPLETED bucket no longer holds its
 			// (park, weigh date, shed) slot, so that slot may already belong to a newer
 			// task by the time a verifier sends this one back for rework. Pulling this
 			// bucket back to 'in_progress' would then be the one thing still forbidden --
