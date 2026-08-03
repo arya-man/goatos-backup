@@ -130,8 +130,15 @@ class WeighingViewModel @Inject constructor(
     // De-duplication for proof-upload telemetry: Room re-emits the same failed row on every
     // observation pass, so without these a single stuck upload would spam the funnel. Bounded by
     // the number of proofs one scope can hold (<= 5 shed videos + the per-animal captures).
-    private val reportedProofUploadTrouble = mutableSetOf<String>()
-    private val proofUploadAttempts = mutableMapOf<String, Int>()
+    // mobile-guard:ignore: bounded by ONE scope's proofs. This ViewModel is constructed per
+    // (campaignId, workGroupId, campaignShedId) — see `scopeKey` above — so it is destroyed when
+    // the operator leaves the bucket, and these never outlive a single shed's capture session
+    // (<= 5 shed videos, or that shed's per-animal captures). They do NOT accumulate across a
+    // shift; a new bucket gets a new ViewModel and new empty collections.
+    private val reportedProofUploadTrouble = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
+
+    // mobile-guard:ignore: same per-scope lifetime as reportedProofUploadTrouble above.
+    private val proofUploadAttempts = mutableMapOf<String, Int>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)

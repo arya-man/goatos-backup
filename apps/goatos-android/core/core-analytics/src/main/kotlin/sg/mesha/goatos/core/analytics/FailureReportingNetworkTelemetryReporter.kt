@@ -53,7 +53,11 @@ class FailureReportingNetworkTelemetryReporter(
     private val logLine: (String) -> Unit = { Log.w(TAG, it) },
 ) : NetworkTelemetryReporter {
 
-    private val lastNonFatalMs = mutableMapOf<String, Long>()
+    // Bounded by ROUTE CARDINALITY, not by traffic: the route template is already collapsed
+    // upstream (UUID/numeric segments → "{id}"), so the key space is the app's endpoint list
+    // times a handful of status codes. A retry storm re-uses one key rather than adding entries —
+    // that is the whole point of the throttle.
+    private val lastNonFatalMs = mutableMapOf<String, Long>() // mobile-guard:ignore: keyed by (method, collapsed route template, status) — bounded by route cardinality, not traffic
 
     override fun onNetworkCall(event: NetworkTelemetryEvent) {
         // The delegate (Firebase Perf) runs for EVERY call, success or failure, and must not be

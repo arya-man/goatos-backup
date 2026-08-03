@@ -9,6 +9,10 @@ import sg.mesha.goatos.feature.scan.ProofUploadStatus
  * A disabled Submit must always name its own reason. Seen live: a lump-sum proof sat at
  * "uploading" indefinitely with a Retry offered, Submit greyed out, and nothing on screen
  * telling the operator which of the two was the hold-up.
+ *
+ * telemetry:exempt pure UI-state unit test — asserts a derived `String?` on a data class and
+ * renders no surface, so there is no user-facing event, funnel step, or error path to wire.
+ * The surface it covers (WeighingScreen) carries its own telemetry.
  */
 class WeighingSubmitBlockedReasonTest {
 
