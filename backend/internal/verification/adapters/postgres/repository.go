@@ -1835,22 +1835,75 @@ func mapWriteErr(err error) error {
 // Every actionable path in this repository is already gated on status='pending'
 // (the RecordVerdict UPDATE, the queue's status filter, the pending/approved/
 // rejected roll-ups), so 'withdrawn' drops the item out of all of them at once.
+//
+// A withdrawal is NOT silent. Every item retired here already published
+// verification.item.pending when it was raised, and consumers acted on it -- the
+// notification bridge turned it into a push telling a verifier to go review the
+// proof. Retiring the item with a bare UPDATE left those consumers holding work
+// that no longer exists. The withdrawal therefore publishes
+// verification.item.closed, the module's existing "this item is no longer
+// decidable" event, on the SAME transaction as the status change (state change +
+// outbox are one unit). It carries status/decision='withdrawn' so a consumer can
+// tell a retraction from a verdict; a withdrawn item has no verifier and no
+// reason, so verificationVerdictPayload simply omits those fields.
+//
+// A new event TYPE was deliberately not minted: verification.item.closed already
+// carries the identical routing fields, already has a registered consumer, and is
+// already enumerated in the outbox partial unique index that makes these inserts
+// idempotent. Reusing it keeps the retraction inside the existing contract instead
+// of adding a fourth lifecycle event that means the same thing.
+//
+// Replay-safe twice over: the UPDATE only matches status='pending', so a second
+// withdrawal of an already-withdrawn item matches no rows and publishes nothing,
+// and the event's idempotency key is versioned on the post-update row_version, so
+// even a retried transaction collides on that index and no-ops.
 func (r *Repository) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
 	if len(sourceRefIDs) == 0 {
 		return 0, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
 UPDATE verification_items
 SET status = 'withdrawn', row_version = row_version + 1, updated_at = now()
 WHERE tenant_id = $1::uuid
   AND source_module = $2
   AND source_ref_type = $3
   AND source_ref_id = ANY($4::uuid[])
-  AND status = 'pending'`, tenantID, sourceModule, sourceRefType, sourceRefIDs)
+  AND status = 'pending'
+RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 	if err != nil {
 		return 0, mapWriteErr(err)
 	}
-	return int(tag.RowsAffected()), nil
+	withdrawn := make([]domain.Item, 0, len(sourceRefIDs))
+	for rows.Next() {
+		item, scanErr := scanItemRow(rows)
+		if scanErr != nil {
+			rows.Close()
+			return 0, scanErr
+		}
+		withdrawn = append(withdrawn, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, mapWriteErr(err)
+	}
+	rows.Close()
+
+	for _, item := range withdrawn {
+		idempotencyKey := fmt.Sprintf("%s:%s:%d", EventItemClosed, item.ItemID, item.RowVersion)
+		if err := insertOutboxEvent(ctx, tx, tenantID, EventItemClosed, item.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return len(withdrawn), nil
 }

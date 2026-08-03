@@ -839,6 +839,45 @@ class WeighingRepositoryTest {
         assertEquals("weighing:individual:campaign-1:group-1:campaign-shed-1:TAG-1:local-2", corrected.value.idempotencyKey)
     }
 
+    // THE TWO-PHASE FAN-OUT DEFECT (first real device run): a capture is posted TWICE.
+    // attachIndividualProof is invoked once directly by the ViewModel and again by the
+    // observeReadyProofs() reconciler for the SAME row. The first call leaves the row's key
+    // at the base key; the second sees a row that now carries serverProofId and therefore
+    // treats the redelivery as a proof REVISION, minting `<base>:proof:<serverProofId>` and
+    // enqueueing a SECOND write for identical content. The backend cannot tell those two keys
+    // apart from a genuine edit, so it withdraws round 1's verification item and raises round
+    // 2 -- 20 verification_items and 20 accepted events for 10 real captures.
+    //
+    // A redelivery of the SAME proof for a row that is ALREADY queued is not a revision.
+    @Test
+    fun `redelivering the same proof does not queue a second write`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        // Phase 2: the ViewModel attaches the uploaded proof.
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        // The reconciler redelivers the very same ready proof for the very same row.
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        val queued = store.observeActive().first()
+        assertEquals(
+            "one capture must queue exactly one write; queued keys=" + queued.map { it.idempotencyKey },
+            1,
+            queued.size,
+        )
+        assertEquals(first.value.idempotencyKey, queued.single().idempotencyKey)
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(first.value.idempotencyKey, state.individualDrafts.single().idempotencyKey)
+    }
+
     @Test
     fun `correcting an accepted individual keeps proof and queues weight revision`() = runTest {
         val store = FakeOutboxStore()
