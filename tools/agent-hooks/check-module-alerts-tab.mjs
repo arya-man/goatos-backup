@@ -59,29 +59,98 @@ function read(relPath) {
   return readFileSync(resolve(repoRoot, relPath), "utf8");
 }
 
-/** Parse the module nav registry into {key, status, hasContributions, alerts:{key,href,labelKey}|null}. */
+/**
+ * Parse the module nav registry into {key, status, contributions, alerts}.
+ *
+ * FIELD ORDER IS NOT PART OF THE RULE. An earlier version anchored on the literal
+ * source order `key:` then `labelKey:` then `href:`, so simply declaring `labelKey`
+ * above `key` in a module entry (or `href` above `labelKey` in a nav item) made that
+ * entry INVISIBLE and the guard passed a module with no alerts tab at all. gofmt does
+ * not normalise field order, so the reordering is a legal, review-invisible edit.
+ * Parsing is now structural: balance the braces, then look each field up by NAME.
+ *
+ * Anything that fails to parse is reported as a shape error rather than skipped —
+ * silence is how a guard goes blind.
+ */
 export function parseModuleRegistry(source) {
   const modules = [];
-  // Each entry looks like:  "weighing": { key: ..., status: moduleStatusAvailable, contributions: []moduleNavContribution{ ... }, },
-  const entryRe = /"([a-z_]+)":\s*\{\s*\n\s*key:\s*"([a-z_]+)"/g;
-  let match;
-  while ((match = entryRe.exec(source)) !== null) {
-    const moduleKey = match[2];
-    const rest = source.slice(match.index);
-    const end = findEntryEnd(rest);
-    const body = rest.slice(0, end);
-    const status = /status:\s*(\w+)/.exec(body)?.[1] ?? "";
-    const contributions = [...body.matchAll(/\{key:\s*"([^"]+)",\s*labelKey:\s*"([^"]+)",\s*href:\s*"([^"]+)"/g)].map(
-      (c) => ({ key: c[1], labelKey: c[2], href: c[3] }),
+  const shapeErrors = [];
+  const declRe = /map\[string\]moduleDefinition\{/g;
+  let decl;
+  let sawDecl = false;
+  while ((decl = declRe.exec(source)) !== null) {
+    sawDecl = true;
+    const braceAt = decl.index + decl[0].length - 1;
+    const body = source.slice(braceAt, braceAt + findEntryEnd(source.slice(braceAt)));
+    parseRegistryBody(body, modules, shapeErrors);
+  }
+  if (!sawDecl) {
+    shapeErrors.push(
+      `${REGISTRY}: no "map[string]moduleDefinition{" declaration found — the registry shape changed and this guard is blind`,
     );
+  }
+  return { modules, shapeErrors };
+}
+
+function parseRegistryBody(body, modules, shapeErrors) {
+  const entryRe = /"([a-z_]+)":\s*\{/g;
+  let match;
+  while ((match = entryRe.exec(body)) !== null) {
+    const braceAt = match.index + match[0].length - 1;
+    const entry = body.slice(braceAt, braceAt + findEntryEnd(body.slice(braceAt)));
+    entryRe.lastIndex = braceAt + entry.length; // never re-scan inside an entry we consumed
+    const mapKey = match[1];
+    const head = entry.split("contributions:")[0];
+    const key = /(?:^|[\s{,])key:\s*"([a-z_]+)"/.exec(head)?.[1];
+    if (!key) {
+      shapeErrors.push(`${REGISTRY}: registry entry "${mapKey}" has no parseable key: field — this guard cannot see it`);
+      continue;
+    }
+    const status = /(?:^|[\s{,])status:\s*(\w+)/.exec(head)?.[1] ?? "";
+    const { contributions, hasBlock } = parseContributions(entry, mapKey, shapeErrors);
     modules.push({
-      key: moduleKey,
+      key,
       status,
       contributions,
+      hasContributionsBlock: hasBlock,
       alerts: contributions.find((c) => c.labelKey.startsWith("nav.alerts")) ?? null,
     });
   }
-  return modules;
+}
+
+function parseContributions(entry, mapKey, shapeErrors) {
+  const blockAt = /\[\]moduleNavContribution\{/.exec(entry);
+  if (!blockAt) return { contributions: [], hasBlock: false };
+  const braceAt = blockAt.index + blockAt[0].length - 1;
+  const block = entry.slice(braceAt, braceAt + findEntryEnd(entry.slice(braceAt)));
+  const contributions = [];
+  for (const literal of braceLiterals(block.slice(1, -1))) {
+    const field = (name) => new RegExp(`(?:^|[\\s{,])${name}:\\s*"([^"]*)"`).exec(literal)?.[1];
+    const key = field("key");
+    const labelKey = field("labelKey");
+    const href = field("href");
+    if (key === undefined && labelKey === undefined && href === undefined) continue;
+    if (key === undefined || labelKey === undefined || href === undefined) {
+      shapeErrors.push(
+        `${REGISTRY}: nav item in module "${mapKey}" is missing a parseable key/labelKey/href — this guard cannot see it`,
+      );
+      continue;
+    }
+    contributions.push({ key, labelKey, href });
+  }
+  return { contributions, hasBlock: true };
+}
+
+/** Top-level `{...}` literals inside a composite-literal body. */
+function braceLiterals(text) {
+  const out = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "{") continue;
+    const end = findEntryEnd(text.slice(i));
+    out.push(text.slice(i, i + end));
+    i += end - 1;
+  }
+  return out;
 }
 
 /** Balance braces from the start of a registry entry so one module's body cannot bleed into the next. */
@@ -98,11 +167,13 @@ function findEntryEnd(text) {
   return text.length;
 }
 
-/** Nav keys MeshaIcons.forNavKey resolves to the Bell glyph. */
+/** Nav keys MeshaIcons.forNavKey resolves to the Bell glyph. Every branch, not just the first. */
 export function bellNavKeys(iconSource) {
-  const line = /^\s*((?:"[^"]+",?\s*)+)->\s*Bell\s*$/m.exec(iconSource);
-  if (!line) return new Set();
-  return new Set([...line[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  const keys = new Set();
+  for (const line of iconSource.matchAll(/^\s*((?:"[^"]+",?\s*)+)->\s*Bell\s*$/gm)) {
+    for (const key of line[1].matchAll(/"([^"]+)"/g)) keys.add(key[1]);
+  }
+  return keys;
 }
 
 /** Route constants registered as bottom-bar roots. */
@@ -130,7 +201,8 @@ export function hostedRoutes(navHostSource, consts) {
 
 export function checkAll({ registry, icons, navHost }) {
   const failures = [];
-  const modules = parseModuleRegistry(registry);
+  const { modules, shapeErrors } = parseModuleRegistry(registry);
+  failures.push(...shapeErrors);
   if (modules.length === 0) failures.push(`${REGISTRY}: parsed zero modules — the registry shape changed and this guard is blind`);
 
   const bells = bellNavKeys(icons);
@@ -140,7 +212,17 @@ export function checkAll({ registry, icons, navHost }) {
   for (const module of modules) {
     if (module.status !== "moduleStatusAvailable") continue;
     if (RUNTIME_COMPOSED_MODULES.has(module.key)) continue;
-    if (module.contributions.length === 0) continue;
+    if (module.contributions.length === 0) {
+      // No nav items at all is fine (a module can be drawer-only). A contributions BLOCK
+      // that yielded nothing is not fine: the items exist in the file and this guard could
+      // not read them, which is exactly how a module with no alerts tab slips through.
+      if (module.hasContributionsBlock) {
+        failures.push(
+          `module "${module.key}" declares nav items but none of them parsed — this guard cannot see its bar, so it cannot certify the Alerts tab.`,
+        );
+      }
+      continue;
+    }
 
     const pendingReason = PENDING_ALERTS_FEED[module.key];
     if (!module.alerts) {
@@ -194,13 +276,23 @@ export function checkAll({ registry, icons, navHost }) {
 }
 
 function selfTest() {
-  const goodRegistry = `
+  const wrap = (entries) => `var moduleNavRegistry = map[string]moduleDefinition{${entries}}\n`;
+  const goodRegistry = wrap(`
 	"weighing": {
 		key:         "weighing",
 		status:      moduleStatusAvailable,
 		contributions: []moduleNavContribution{
 			{key: "tasks", labelKey: "nav.tasks", href: "/weighing/tasks", shared_key: "", priority: 1},
 			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 5},
+		},
+	},
+`);
+  // A second available module with nav items and no alerts item of its own.
+  const newModuleEntry = (fields, item) => `
+	"breeding_ops": {
+${fields}
+		contributions: []moduleNavContribution{
+			${item}
 		},
 	},
 `;
@@ -243,6 +335,90 @@ private val supportedRootDestinations = setOf(
       "feature-named label is caught",
       { registry: goodRegistry.replace('labelKey: "nav.alerts"', 'labelKey: "nav.alerts.weighing"'), icons, navHost },
       1,
+    ],
+    // --- adversarial: the guard must not be blinded by legal, gofmt-stable reshuffling ---
+    [
+      "a NEW available module with nav items and no alerts item is caught",
+      {
+        registry: goodRegistry.replace(
+          "}\n",
+          newModuleEntry(
+            '		key:         "breeding_ops",\n		status:      moduleStatusAvailable,',
+            '{key: "breeding_ops", labelKey: "nav.overview", href: "/breeding-ops", shared_key: "", priority: 1},',
+          ) + "}\n",
+        ),
+        icons,
+        navHost,
+      },
+      1,
+    ],
+    [
+      "a new module declaring labelKey ABOVE key is still seen (parser is field-order-blind)",
+      {
+        registry: goodRegistry.replace(
+          "}\n",
+          newModuleEntry(
+            '		labelKey:    "module.breeding_ops",\n		key:         "breeding_ops",\n		status:      moduleStatusAvailable,',
+            '{key: "breeding_ops", labelKey: "nav.overview", href: "/breeding-ops", shared_key: "", priority: 1},',
+          ) + "}\n",
+        ),
+        icons,
+        navHost,
+      },
+      1,
+    ],
+    [
+      "a new module whose nav item declares href ABOVE labelKey is still seen",
+      {
+        registry: goodRegistry.replace(
+          "}\n",
+          newModuleEntry(
+            '		key:         "breeding_ops",\n		status:      moduleStatusAvailable,',
+            '{key: "breeding_ops", href: "/breeding-ops", labelKey: "nav.overview", shared_key: "", priority: 1},',
+          ) + "}\n",
+        ),
+        icons,
+        navHost,
+      },
+      1,
+    ],
+    [
+      "weighing's alerts item reordered to href-before-labelKey is still seen",
+      {
+        registry: goodRegistry.replace(
+          '{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts"',
+          '{key: "weighing_alerts", href: "/weighing/alerts", labelKey: "nav.alerts"',
+        ),
+        icons,
+        navHost,
+      },
+      0,
+    ],
+    [
+      "an unreadable nav item is reported, not silently skipped",
+      {
+        registry: goodRegistry.replace(
+          '{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts"',
+          '{key: "weighing_alerts", labelKey: "nav.alerts", href: weighingAlertsRoute',
+        ),
+        icons,
+        navHost,
+      },
+      1,
+    ],
+    [
+      "a renamed/reshaped registry declaration is caught, not silently green",
+      { registry: goodRegistry.replace("map[string]moduleDefinition{", "moduleRegistryTable{"), icons, navHost },
+      1,
+    ],
+    [
+      "an alerts icon mapped on a SECOND Bell branch is accepted",
+      {
+        registry: goodRegistry,
+        icons: `        "alerts", "notifications" -> Bell\n        "weighing_alerts" -> Bell\n`,
+        navHost,
+      },
+      0,
     ],
   ];
   let bad = 0;
