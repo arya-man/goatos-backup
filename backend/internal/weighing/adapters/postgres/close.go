@@ -127,8 +127,7 @@ SELECT
 //
 // Close is UNCONDITIONALLY GATED (maintainer decision 2026-08-03): leadership may
 // not close a bucket while any submitted video is still waiting on the verifier.
-// There is no bypass. The vocabulary is close or reopen — the former "abandon"
-// primitive, which was this same path with the gate skipped, has been removed, so
+// There is no bypass and no force variant. The vocabulary is close or reopen, so
 // no caller can end a bucket that still holds unreviewed evidence.
 //
 // The gate is only about closing EARLY — it never blocks the operator scanning or
@@ -182,10 +181,11 @@ FOR UPDATE OF cs`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&categ
 		return domain.CloseResult{}, ports.ErrImmutable
 	}
 
-	// THE CLOSE GATE. UNCONDITIONAL — there is no abandon flag, no force flag, and
-	// no caller-supplied way past it. Checked under the same row lock taken above,
-	// so a verdict landing concurrently cannot slip between the check and the
-	// status flip.
+	// THE CLOSE GATE. UNCONDITIONAL — there is no force flag and no caller-supplied
+	// way past it. If a bucket will not close, the answer is to resolve its
+	// verification, never to add a path around this. Checked under the same row lock
+	// taken above, so a verdict landing concurrently cannot slip between the check and
+	// the status flip.
 	_, pending, err := r.pendingVerificationCount(ctx, tx, cmd.TenantID, cmd.CampaignShedID)
 	if err != nil {
 		return domain.CloseResult{}, err
