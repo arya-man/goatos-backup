@@ -4895,6 +4895,10 @@ export interface components {
              * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
              */
             driveBatchId: string;
+            /** @description Park the drive's work is in. Row grain is (batch, park), not batch alone: on an all-parks board two same-vaccine, same-window drives in different parks are two operator days and must be offered — and counted — separately. Empty when the drive's obligations resolve to no park. */
+            parkId?: string;
+            /** @description Display name of parkId, so the selector can label a drive without a second lookup. */
+            parkName?: string;
             /** @description Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed. */
             driveName: string;
             /** @description Operator-facing executable-day label: vaccine names, planned date, distinct animal count, and status. Never a raw config token such as et_tt_adult_w2. */

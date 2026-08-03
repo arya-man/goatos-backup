@@ -1,5 +1,31 @@
 -- +goose Up
 --
+-- !! THIS FILE WAS EDITED AFTER IT SHIPPED ON main. READ THIS BEFORE MIGRATING. !!
+--
+-- The migration runner tracks each file by SHA-256 (cmd/migrate/main.go: "migration
+-- %s was already applied with checksum %s, current %s") and HARD-FAILS on drift, so
+-- editing an applied migration in place is normally forbidden -- see 000081's header,
+-- which is why 000070/71/73 were superseded by new forward migrations instead.
+--
+-- This file is the documented exception, for the reason that forced it: as shipped, it
+-- ABORTED on every environment that has the ceo_ai reader roles provisioned (staging and
+-- production), because it granted SELECT on ceo_ai.weighing_verification_status before
+-- creating it -- SQLSTATE 42P01. Those environments therefore never recorded it as
+-- applied and CANNOT reach a later forward migration: 000080 fails first, every time.
+-- Fixing it forward is not available; the fix has to be in this file.
+--
+-- CONSEQUENCE, and the remediation. Environments that DID apply the old file (local and
+-- dev, which have no reader roles and so skipped the failing grant) now hold the old
+-- checksum and will fail on the next migrate. Repair one of two ways:
+--   * local only: re-run with -allow-local-checksum-drift (the flag validates
+--     GOATOS_ENV=local and refuses anything else), or
+--   * update the recorded checksum for version 000080 in
+--     public.goatos_schema_migrations to the new file's SHA-256.
+-- Neither is needed on staging or production, which never applied it.
+--
+-- There is precedent for this exception on main: b67c26413 ("guard 000080 ceo_ai grants
+-- on role existence") edited this same file in place, for this same grant block.
+--
 -- Leadership assistant coverage for Weighing (WEIGHING-COVERAGE-01).
 --
 -- Today the CEO/CXO assistant cannot answer a single weighing question:
@@ -145,7 +171,15 @@ LEFT JOIN LATERAL (
         SELECT DISTINCT ON (COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text))
                o.weight_kg
         FROM weighing_observations o
-        WHERE o.campaign_shed_id = cs.campaign_shed_id
+        -- tenant_id is NOT redundant. campaign_shed_id is globally unique (it is
+        -- weighing_campaign_sheds' PK) so this is not a leak today, but EVERY index on
+        -- weighing_observations leads with tenant_id, and PG17 has no skip scan: without
+        -- this predicate the correlated subquery seq-scans the whole table once per
+        -- bucket. Measured on 400 buckets x 300 observations: 3873ms/787k buffers
+        -- without it, 554ms/206 buffers with it, in a view that has no LIMIT and gets
+        -- scanned whole by its consumers.
+        WHERE o.tenant_id = cs.tenant_id
+          AND o.campaign_shed_id = cs.campaign_shed_id
         ORDER BY COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
                  o.accepted_at DESC, o.observation_id DESC
     ) latest
@@ -180,7 +214,7 @@ LEFT JOIN weighing_shed_observations sho
 --
 -- projection-review: membership=verification_items rows filtered to module = 'weighing' (the WHERE runs before the aggregate, so no other module's rows enter any bucket); group_key=(vi.tenant_id, pk.name, sh.name), exactly the GROUP BY list; join_cardinality=locations sh 0..1 per vi.shed_id and locations pk 0..1 per vi.park_id, both matching on locations.location_id which is that table's PK, so neither LEFT JOIN can duplicate a verification_items row and COUNT(*) stays at verification-item grain; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, grouped and exposed as vi.tenant_id
 --
--- Ratio key sets: pending, rework and verified are FILTER aggregates over the IDENTICAL grouped row set that produces total -- same FROM, same WHERE, same GROUP BY, no extra join on any branch. verification_items.status carries a CHECK restricting it to {'pending','approved','rejected','withdrawn'} (000001 baseline, extended with 'withdrawn' in 000067); the WHERE clause drops 'withdrawn' from the row set entirely, so the remaining three filters are disjoint and exhaustive and pending + rework + verified = total for every key, by constraint rather than by convention.
+-- Ratio key sets: pending, rework and verified are FILTER aggregates over the IDENTICAL grouped row set that produces total -- same FROM, same WHERE, same GROUP BY, no extra join on any branch. verification_items.status carries a CHECK restricting it to {'pending','approved','rejected','withdrawn'} (000001 baseline, extended with 'withdrawn' in 000067); `total` is itself a FILTER that excludes 'withdrawn' (the rows are KEPT, so an all-withdrawn shed still appears, counted in the separate `withdrawn` column), so the three displayed filters are disjoint and exhaustive against it and pending + rework + verified = total for every key, by constraint rather than by convention.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_verification_status AS
 SELECT
@@ -197,9 +231,13 @@ SELECT
     COUNT(*) FILTER (WHERE vi.status = 'pending')::bigint    AS pending,
     COUNT(*) FILTER (WHERE vi.status = 'rejected')::bigint   AS rework,
     COUNT(*) FILTER (WHERE vi.status = 'approved')::bigint   AS verified,
+    MIN(vi.captured_at) FILTER (WHERE vi.status = 'pending') AS oldest_pending_at,
+    -- APPENDED, deliberately. CREATE OR REPLACE VIEW may only ADD columns at the END:
+    -- inserting these two before oldest_pending_at aborts with `cannot change name of
+    -- view column "oldest_pending_at" to "withdrawn"` on any database that already holds
+    -- an earlier shape of this view.
     COUNT(*) FILTER (WHERE vi.status = 'withdrawn')::bigint  AS withdrawn,
-    COUNT(*)::bigint                                         AS total_including_withdrawn,
-    MIN(vi.captured_at) FILTER (WHERE vi.status = 'pending') AS oldest_pending_at
+    COUNT(*)::bigint                                         AS total_including_withdrawn
 FROM verification_items vi
 LEFT JOIN locations sh ON sh.location_id = vi.shed_id
 LEFT JOIN locations pk ON pk.location_id = vi.park_id

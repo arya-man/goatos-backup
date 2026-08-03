@@ -15,16 +15,11 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
-// ErrStaleEvidence is returned when a verdict's EvidenceProofID no longer
-// matches the proof currently attached to the observation -- the reviewer
-// approved/reworked evidence that has since been superseded (e.g. a rework
-// re-shoot swapped the video out from under an in-flight review). It is
-// deliberately distinct from ports.ErrIdempotencyConflict (same key,
-// different request) and ports.ErrImmutable (already terminal): this is
-// neither -- the verdict itself is well-formed, but it names evidence that
-// is no longer current, so applying it would silently bless whatever proof
-// happens to be attached NOW instead of what was actually reviewed.
-var ErrStaleEvidence = errors.New("weighing: stale verification evidence")
+// ErrStaleEvidence is the canonical ports error, re-exported so the existing
+// adapter-level callers and tests keep one name for it. The definition moved to
+// ports because the event consumer in weighing/app must classify it too, and app
+// must not import an adapter.
+var ErrStaleEvidence = ports.ErrStaleEvidence
 
 // Weighing side of the generic verification verdict.
 //
