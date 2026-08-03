@@ -69,6 +69,62 @@ type CampaignPage struct {
 	Items      []Campaign     `json:"items"`
 	NextCursor string         `json:"next_cursor,omitempty"`
 	Counts     CampaignCounts `json:"counts"`
+	// OperatorSummaries is the OPERATOR-grain roll-up behind the oversight surface:
+	// one row per person who holds weighing work in the requested scope, with the
+	// backend's own tallies of what that person's buckets hold. It is whole-filter,
+	// never page-derived — see Repository.operatorSummaries.
+	OperatorSummaries []OperatorSummary `json:"operator_summaries"`
+}
+
+// MaxOperatorSummaries bounds the operator roll-up.
+//
+// It is served WHOLE rather than paged, for the same reason PlannerCatalog serves
+// parks whole: a summary that pages cannot answer "who did what today" — the person
+// you are looking for is on page two. A park's weighing roster is a handful of
+// people, so the read is bounded by this hard cap instead of by a cursor.
+const MaxOperatorSummaries = 50
+
+// OperatorSummary is what ONE person's weighing work adds up to, as the backend
+// counts it.
+//
+// GRAIN: one row per operator_user_id over that person's non-canceled
+// weighing_campaign_sheds rows in scope. Every field is a PLAIN COUNT and none of
+// them is ever a numerator: weighing is free-flow (migration 000079 dropped the
+// expected-animal roster), so no share, percentage, or "x of y" can honestly be
+// rendered from any of these.
+//
+// The four bucket-state counts are DISJOINT and EXHAUSTIVE over the person's
+// buckets — NotStarted + Capturing + Submitted + Accepted == ShedCount — so a
+// renderer can lay them side by side without a bucket being counted twice or
+// vanishing. That disjointness is the fix for the oversight card that showed a
+// "Completed" badge and a "Scheduled" line at the same time: there is now ONE
+// place a bucket's state is decided, and it is here.
+type OperatorSummary struct {
+	// OperatorUserID is empty for the "nobody is assigned yet" row, which is real
+	// work leadership must see rather than a row to hide.
+	OperatorUserID string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name. Blank WITH a non-blank
+	// OperatorUserID is a roster gap, not "unassigned"; a client renders the gap,
+	// never the user id.
+	OperatorDisplayName string `json:"operator_display_name"`
+	// ShedCount is how many shed buckets this person holds in scope.
+	ShedCount int `json:"shed_count"`
+	// NotStartedCount holds nothing captured yet.
+	NotStartedCount int `json:"not_started_count"`
+	// CapturingCount is weighing under way but not submitted.
+	CapturingCount int `json:"capturing_count"`
+	// SubmittedCount is submitted and waiting for a verifier.
+	SubmittedCount int `json:"submitted_count"`
+	// AcceptedCount is verified and closed.
+	AcceptedCount int `json:"accepted_count"`
+	// ReworkCount is buckets a verifier bounced back. It OVERLAPS the four state
+	// counts on purpose (a bounced bucket is still in one of them) and is reported
+	// as its own flag-count, never added to them.
+	ReworkCount int `json:"rework_count"`
+	// AnimalsWeighedCount is how many ANIMALS this person's buckets account for:
+	// one per individual observation, and the recorded head count of a standing
+	// lump-sum weighing. A plain total of work done, never divided by anything.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
 }
 
 // CampaignCounts is the WHOLE-FILTER task tally behind the two task-list tabs.

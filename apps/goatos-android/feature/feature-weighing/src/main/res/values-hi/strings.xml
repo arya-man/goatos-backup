@@ -324,4 +324,26 @@
     <string name="weighing_videos_none">अभी कोई वीडियो नहीं</string>
     <string name="weighing_videos_uploading_fmt">%1$d अपलोड हो रहे हैं</string>
     <string name="weighing_videos_failed_fmt">%1$d विफल</string>
+
+    <string name="weighing_operators_people_heading">कौन तौल रहा है</string>
+    <string name="weighing_operators_sheds_heading">शेड दर शेड</string>
+    <string name="weighing_operators_unassigned">अभी किसी को नहीं सौंपा गया</string>
+    <string name="weighing_operators_roster_gap">सौंपा गया, पर रोस्टर में नहीं</string>
+    <string name="weighing_operators_sheds_one">%1$d शेड</string>
+    <string name="weighing_operators_sheds_other">%1$d शेड</string>
+    <string name="weighing_operators_animals_one">%1$d पशु तौला गया</string>
+    <string name="weighing_operators_animals_other">%1$d पशु तौले गए</string>
+    <string name="weighing_operators_nothing_weighed_yet">अभी कुछ नहीं तौला गया</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d शुरू नहीं हुआ</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d तौल जारी</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d जमा किया</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d स्वीकृत</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d वापस भेजा</string>
+    <string name="weighing_operators_no_people_title">अभी कोई तौल नहीं रहा</string>
+    <string name="weighing_shed_state_not_started">अभी कुछ दर्ज नहीं</string>
+    <string name="weighing_shed_state_capturing">तौल जारी है</string>
+    <string name="weighing_shed_state_submitted">जमा किया, जाँच बाकी</string>
+    <string name="weighing_shed_state_accepted">स्वीकृत</string>
+    <string name="weighing_shed_weighed_by_fmt">%1$s ने तौला</string>
+    <string name="weighing_shed_weighed_by_nobody">अभी किसी को नहीं सौंपा गया</string>
 </resources>

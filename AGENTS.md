@@ -64,6 +64,35 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
+## Shared-Resource Contention Is Reported IMMEDIATELY (Claude AND Codex)
+
+Gradle, Docker, a port, a physical device, and the local stack are SINGLE-HOLDER
+resources. Two agents using one at the same time do not go slower — they
+deadlock: each reaps the other's `GradleWorkerMain` JVMs, both retry, neither
+finishes. On 2026-08-03 two agents burned **90 minutes** this way while the
+orchestrator reported them as "still running" and the maintainer had to spot the
+stalled task cards himself.
+
+Rules, for every agent and orchestrator:
+
+1. **Never run two Gradle builds concurrently.** Serialize the work, or tell one
+   agent to skip Gradle and rely on targeted tests.
+2. **The moment contention is detected, TELL THE MAINTAINER.** Do not wait for a
+   completion notification, and do not fold it into a status line as "still
+   running". Name the resource and who is competing, so the maintainer can kill
+   one. A blocked agent is not progress.
+3. **A long-running agent is a signal to investigate, not to wait.** Check
+   whether it is working or polling in a `sleep` loop. Task cards also go STALE:
+   an agent shown as running may already be finished — verify against its branch
+   or task status rather than trusting the card.
+4. **Reap orphans after any killed build** (`pkill -f GradleWorkerMain`) and
+   re-check before starting another.
+5. **Gradle exit 137 is an OOM SIGKILL from contention, not a test failure.**
+   Re-run with `--max-workers=1`; never "fix" the test.
+
+This generalizes: any shared single-holder resource that blocks progress is
+surfaced to the maintainer immediately, never absorbed into a progress report.
+
 ## Fast Lane for Tiny Fixes
 
 When the maintainer asks to make a small, low-risk fix and land it on `main`,

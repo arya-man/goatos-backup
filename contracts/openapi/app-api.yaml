@@ -14845,8 +14845,80 @@ components:
           type: string
         counts:
           $ref: "#/components/schemas/WeighingCampaignCounts"
+        operator_summaries:
+          type: array
+          description: >-
+            OPERATOR-grain roll-up behind the weighing oversight surface: one row per person
+            holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`,
+            because the park chip is that screen's own filter. Served whole (capped at 50), not
+            paged: a roll-up that pages cannot answer "who did what".
+          items:
+            $ref: "#/components/schemas/WeighingOperatorSummary"
         trace_id:
           type: string
+    WeighingOperatorSummary:
+      type: object
+      additionalProperties: false
+      description: >-
+        What ONE person's weighing work adds up to. GRAIN: one row per operator_user_id over
+        that person's non-canceled shed buckets in scope. Every field is a PLAIN COUNT and none
+        is ever a numerator -- weighing is free-flow, there is no expected-animal roster, so no
+        share or percentage can honestly be rendered from any of these. not_started_count +
+        capturing_count + submitted_count + accepted_count == shed_count exactly (the four are
+        disjoint and exhaustive over the live bucket statuses), so a client may lay them out as
+        a discrete state ladder but must never draw a part-filled fraction.
+      required:
+        - operator_user_id
+        - operator_display_name
+        - shed_count
+        - not_started_count
+        - capturing_count
+        - submitted_count
+        - accepted_count
+        - rework_count
+        - animals_weighed_count
+      properties:
+        operator_user_id:
+          type: string
+          description: >-
+            Empty on the "nobody is assigned yet" row, which is real work leadership must see.
+        operator_display_name:
+          type: string
+          description: >-
+            Backend-resolved name. Blank WITH a non-blank operator_user_id is a roster gap, not
+            "unassigned"; clients render the gap and never fall back to the user id.
+        shed_count:
+          type: integer
+          minimum: 0
+        not_started_count:
+          type: integer
+          minimum: 0
+          description: Buckets holding nothing captured yet.
+        capturing_count:
+          type: integer
+          minimum: 0
+          description: Buckets where weighing is under way but nothing is submitted.
+        submitted_count:
+          type: integer
+          minimum: 0
+          description: Buckets submitted and waiting for a verifier.
+        accepted_count:
+          type: integer
+          minimum: 0
+          description: Buckets verified and closed.
+        rework_count:
+          type: integer
+          minimum: 0
+          description: >-
+            Buckets a verifier bounced back. OVERLAPS the four state counts on purpose (a
+            bounced bucket is still in one of them) and is never added to them.
+        animals_weighed_count:
+          type: integer
+          minimum: 0
+          description: >-
+            How many ANIMALS this person's buckets account for: one per individual observation
+            plus the recorded head count of a standing lump-sum weighing. A plain total of work
+            done; never a numerator.
     WeighingCampaignCounts:
       type: object
       additionalProperties: false
