@@ -295,11 +295,19 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   </td>
                   <td><Tag tone={categoryTone[row.category]}>{categoryLabel[row.category]}</Tag></td>
                   <td
-                    aria-disabled={!row.capturedCountIsBacked}
-                    style={{ opacity: row.capturedCountIsBacked ? 1 : 0.6 }}
-                    title={!row.capturedCountIsBacked ? "Weighing is free-flow; backend field 'captured_count' required for honest count" : undefined}
+                    aria-disabled={!row.weighedCountIsBacked}
+                    style={{ opacity: row.weighedCountIsBacked ? 1 : 0.6 }}
+                    title={!row.weighedCountIsBacked ? "Weighing is free-flow; backend fields 'animals_weighed_count' and 'animals_submitted_count' required for honest counts" : undefined}
                   >
-                    {row.capturedCountIsBacked ? <><b>{row.capturedCount}</b> captured</> : "captured (n/a)"}
+                    {/* TWO named facts, this order, these words, on every surface:
+                        what was put on the scale, and what has actually been submitted.
+                        Never one bare number — mid-shift they legitimately differ, and a
+                        reader cannot tell which one they are looking at. No ratio: free-flow
+                        weighing has no expected roster to divide by. */}
+                    {row.weighedCountIsBacked ? <><b>{row.weighedCount}</b> weighed · <b>{row.submittedCount}</b> submitted</> : "weighed / submitted (n/a)"}
+                    {row.weighedCountIsBacked && row.weighedCount > 0 && row.submittedCount === 0 ? (
+                      <span className="blockish"><Tag tone="warn">Not submitted</Tag></span>
+                    ) : null}
                   </td>
                   <td>
                     {row.readyToClose ? (

@@ -160,11 +160,16 @@ data class WeighingTaskShed(
     val reworkCount: Int,
     val readyToClose: Boolean,
     /**
-     * Backend-owned count of the weight records this bucket ACTUALLY holds, submitted or not.
-     * Reported as a plain count and never divided by anything: weighing is free-flow, so there is
-     * no expected-animal total that a share could be taken of.
+     * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a recorded weight for,
+     * submitted or not. A plain count, never divided by anything: weighing is free-flow, so there
+     * is no expected-animal total that a share could be taken of.
      */
-    val capturedCount: Int = 0,
+    val animalsWeighedCount: Int = 0,
+    /**
+     * FACT 2 of 2. The subset of [animalsWeighedCount] SUBMITTED for verification. Shown WITH the
+     * weighed count ("N weighed · N submitted"), never on its own.
+     */
+    val animalsSubmittedCount: Int = 0,
 )
 
 /**
@@ -369,7 +374,10 @@ data class WeighingOperatorSummary(
     val accepted: Int,
     /** Buckets a verifier bounced back. Overlaps the four state counts; never added to them. */
     val rework: Int,
+    /** FACT 1 of 2: animals this person has a recorded weight for, submitted or not. */
     val animalsWeighed: Int,
+    /** FACT 2 of 2: the subset of [animalsWeighed] submitted for verification. */
+    val animalsSubmitted: Int,
 )
 
 
@@ -1898,7 +1906,8 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
         pendingVerificationCount = pendingVerificationCount,
         reworkCount = reworkCount,
         readyToClose = readyToClose,
-        capturedCount = capturedCount,
+        animalsWeighedCount = animalsWeighedCount,
+        animalsSubmittedCount = animalsSubmittedCount,
     )
 
 
@@ -1989,7 +1998,8 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                     pendingVerificationCount = shed.pendingVerificationCount,
                     reworkCount = shed.reworkCount,
                     readyToClose = shed.readyToClose,
-                    capturedCount = shed.capturedCount,
+                    animalsWeighedCount = shed.animalsWeighedCount,
+                    animalsSubmittedCount = shed.animalsSubmittedCount,
                 )
             },
     )
@@ -2005,6 +2015,7 @@ private fun WeighingOperatorSummaryDto.toOperatorSummary(): WeighingOperatorSumm
         accepted = acceptedCount,
         rework = reworkCount,
         animalsWeighed = animalsWeighedCount,
+        animalsSubmitted = animalsSubmittedCount,
     )
 
 private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssignment> =

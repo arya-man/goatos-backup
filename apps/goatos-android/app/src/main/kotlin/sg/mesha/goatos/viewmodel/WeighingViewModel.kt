@@ -2093,6 +2093,7 @@ private fun WeighingOperatorSummary.toUiRow(): WeighingOperatorUiRow =
         name = operatorDisplayName,
         shedCount = shedCount,
         animalsWeighed = animalsWeighed,
+        animalsSubmitted = animalsSubmitted,
         notStarted = notStarted,
         capturing = capturing,
         submitted = submitted,
@@ -2422,10 +2423,12 @@ private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask, operatorLabel: 
         operatorLabel = operatorLabel,
         status = status,
         reworked = reworked,
-        // The plain backend count of weight records this bucket actually holds. It is reported
-        // as-is and is never a numerator: weighing is free-flow, so there is no expected-animal
-        // total a share could be taken of.
-        capturedCount = capturedCount,
+        // The TWO named backend facts: animals put on the scale, and the subset of those actually
+        // submitted for verification. Both reported as-is and neither is ever a numerator:
+        // weighing is free-flow, so there is no expected-animal total a share could be taken of,
+        // and one is never divided by the other.
+        animalsWeighedCount = animalsWeighedCount,
+        animalsSubmittedCount = animalsSubmittedCount,
         // How far along the bucket's own state ladder it stands, as a STEP out of
         // [WEIGHING_BUCKET_LADDER_STEPS] discrete states — not a fraction. A part-filled bar was
         // read on the farm as "70% of the animals done", which is a number weighing cannot have.

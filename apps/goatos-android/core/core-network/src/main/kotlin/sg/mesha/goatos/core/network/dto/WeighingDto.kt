@@ -48,13 +48,22 @@ data class WeighingCampaignShedDto(
     /** True only when this bucket is submitted and every observation on it is verified. */
     @SerialName("ready_to_close") val readyToClose: Boolean = false,
     /**
-     * Backend-owned count of the weight records this bucket ACTUALLY holds, submitted or not.
+     * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a RECORDED weight for,
+     * submitted or not: one per individual observation, plus the recorded head count of the
+     * standing lump-sum proof.
      *
      * A plain count, NEVER a numerator: weighing is free-flow, so there is no expected-animal
-     * total to divide it by. Render it as-is ("5 weighed") or not at all — never as a percentage
-     * and never as a progress-bar fill.
+     * total to divide it by. Render it as-is and never as a percentage or a progress-bar fill.
      */
-    @SerialName("captured_count") val capturedCount: Int = 0,
+    @SerialName("animals_weighed_count") val animalsWeighedCount: Int = 0,
+    /**
+     * FACT 2 of 2. The subset of [animalsWeighedCount] that has been SUBMITTED for verification.
+     *
+     * Always rendered WITH the weighed count, as "N weighed · N submitted" — never alone. Mid-shift
+     * the two legitimately differ (weighed 3, submitted 0), and that gap is exactly where work is
+     * silently lost when an operator walks away; a single number cannot say it.
+     */
+    @SerialName("animals_submitted_count") val animalsSubmittedCount: Int = 0,
 )
 
 /**
@@ -147,6 +156,12 @@ data class WeighingOperatorSummaryDto(
      * recorded head count of a standing lump-sum weighing. A plain total of work done.
      */
     @SerialName("animals_weighed_count") val animalsWeighedCount: Int = 0,
+    /**
+     * The subset of [animalsWeighedCount] this person has SUBMITTED for verification. Rendered
+     * with the weighed count as "N weighed · N submitted"; the same two facts, with the same two
+     * definitions, that the per-bucket task detail shows.
+     */
+    @SerialName("animals_submitted_count") val animalsSubmittedCount: Int = 0,
 )
 
 @Serializable

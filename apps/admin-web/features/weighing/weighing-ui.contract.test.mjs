@@ -213,11 +213,47 @@ test("W15 FIX: truncated shed list disables Save draft and Publish with a visibl
   assert.match(page, /Disabled: shed list truncated at the 500-shed display cap/);
 });
 
-test("W20 FIX: unbacked captured count renders no fabricated digit", () => {
+test("W20 FIX: unbacked weighed/submitted counts render no fabricated digit", () => {
   const page = source("page.tsx");
 
-  assert.doesNotMatch(page, /<b>\{row\.capturedCount\}<\/b> \{row\.capturedCountIsBacked \? "captured" : "captured \(n\/a\)"\}/);
-  assert.match(page, /row\.capturedCountIsBacked \? <><b>\{row\.capturedCount\}<\/b> captured<\/> : "captured \(n\/a\)"/);
+  assert.match(page, /row\.weighedCountIsBacked \? <><b>\{row\.weighedCount\}<\/b> weighed · <b>\{row\.submittedCount\}<\/b> submitted<\/> : "weighed \/ submitted \(n\/a\)"/);
+});
+
+// The two counts are DIFFERENT facts and mid-shift they legitimately differ. A bare
+// number is ambiguous — its meaning would depend on which screen you are on — so the
+// pair is always rendered together, in this order, with these words. Same words as the
+// mobile task-detail card and the director Operators screen.
+test("WEIGHED-VS-SUBMITTED: both named facts render together, in order, with no ratio", () => {
+  const page = source("page.tsx");
+  const data = source("data.ts");
+
+  // Both backend facts are read; neither is derived from the other.
+  assert.match(data, /shed\.animals_weighed_count/);
+  assert.match(data, /shed\.animals_submitted_count/);
+
+  // Rendered as the pair, weighed first.
+  assert.match(page, /weighed · <b>\{row\.submittedCount\}<\/b> submitted/);
+
+  // The old single ambiguous count is gone from every reader.
+  assert.doesNotMatch(page, /capturedCount/);
+  assert.doesNotMatch(data, /capturedCount|captured_count/);
+
+  // No invented denominator: free-flow weighing has no expected roster, so neither
+  // count may be divided by the other or by expected_animal_count.
+  assert.doesNotMatch(page, /submittedCount\s*\/\s*row\.weighedCount/);
+  assert.doesNotMatch(page, /weighedCount\s*\/\s*row\.submittedCount/);
+});
+
+// The chip mirrors the operator's own Submit button so there is zero translation in
+// their head between what they did and what the screen says.
+test("WEIGHED-VS-SUBMITTED: unsubmitted work carries a 'Not submitted' chip", () => {
+  const page = source("page.tsx");
+
+  assert.match(page, /row\.weighedCount > 0 && row\.submittedCount === 0/);
+  assert.match(page, /<Tag tone="warn">Not submitted<\/Tag>/);
+  // Never a synonym — "sent", "handed in", "dispatched" invent vocabulary the app
+  // does not otherwise use.
+  assert.doesNotMatch(page, /Not sent|handed in|dispatched/i);
 });
 
 test("W21-TS: operator name distinguishes genuine roster gap from unassigned using backend-resolved field", () => {

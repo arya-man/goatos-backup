@@ -125,17 +125,17 @@ class WeighingViewModelTest {
                     WeighingOperatorSummary(
                         operatorUserId = "user-Amit", operatorDisplayName = "Amit",
                         shedCount = 1, notStarted = 0, capturing = 0, submitted = 1, accepted = 0,
-                        rework = 0, animalsWeighed = 13,
+                        rework = 0, animalsWeighed = 13, animalsSubmitted = 13,
                     ),
                     WeighingOperatorSummary(
                         operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
-                        shedCount = 3, notStarted = 0, capturing = 0, submitted = 3, accepted = 0,
-                        rework = 0, animalsWeighed = 27,
+                        shedCount = 3, notStarted = 0, capturing = 3, submitted = 0, accepted = 0,
+                        rework = 0, animalsWeighed = 27, animalsSubmitted = 0,
                     ),
                     WeighingOperatorSummary(
                         operatorUserId = "user-Pramod", operatorDisplayName = "Pramod",
                         shedCount = 2, notStarted = 0, capturing = 0, submitted = 2, accepted = 0,
-                        rework = 0, animalsWeighed = 10,
+                        rework = 0, animalsWeighed = 10, animalsSubmitted = 10,
                     ),
                 ),
             ),
@@ -149,6 +149,10 @@ class WeighingViewModelTest {
         assertEquals(listOf("Amit", "Dinakar", "Pramod"), people.map { it.name })
         assertEquals(listOf(1, 3, 2), people.map { it.shedCount })
         assertEquals(listOf(13, 27, 10), people.map { it.animalsWeighed })
+        // The SECOND named fact, carried per person exactly as the backend reports it. Dinakar is
+        // mid-shift: 27 animals weighed and NOTHING submitted. One number could not say that --
+        // it would have read 27 here and 0 on the task detail for the same work at the same second.
+        assertEquals(listOf(13, 0, 10), people.map { it.animalsSubmitted })
         // Disjoint and exhaustive: the four state counts add up to the person's sheds, which is
         // what lets the card draw discrete segments instead of an invented fraction.
         assertTrue(
@@ -169,7 +173,7 @@ class WeighingViewModelTest {
             WeighingOperatorSummary(
                 operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
                 shedCount = 3, notStarted = 0, capturing = 0, submitted = 3, accepted = 0,
-                rework = 0, animalsWeighed = 27,
+                rework = 0, animalsWeighed = 27, animalsSubmitted = 27,
             ),
         )
         val repository = FakeWeighingRepository(
@@ -186,6 +190,7 @@ class WeighingViewModelTest {
 
         assertEquals(before, vm.state.value.operatorSummaries)
         assertEquals(27, vm.state.value.operatorSummaries.single().animalsWeighed)
+        assertEquals(27, vm.state.value.operatorSummaries.single().animalsSubmitted)
     }
 
     @Test
@@ -882,11 +887,11 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         val chips = vm.taskDetailState.value.operatorFilters
-        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.operatorLabel })
+        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.name })
         assertEquals(listOf(2, 2), chips.map { it.shedCount })
         // The bare number must NOT be pre-baked into the name: an unlabelled "Dinakar 2" is exactly
         // the ambiguity this carries a separate field to avoid.
-        assertTrue(chips.none { it.operatorLabel.contains(it.shedCount.toString()) })
+        assertTrue(chips.none { it.name.contains(it.shedCount.toString()) })
     }
 
     // The maintainer's exact scenario, straight off `weighing_campaign_sheds.operator_user_id` ->

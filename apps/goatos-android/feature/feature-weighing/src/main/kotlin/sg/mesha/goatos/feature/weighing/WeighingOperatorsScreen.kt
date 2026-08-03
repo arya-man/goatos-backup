@@ -168,8 +168,11 @@ internal fun WeighingOperatorCard(row: WeighingOperatorUiRow) {
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
-        // The two facts a director asks for first: how much work this person holds, and how many
-        // animals it has actually put on the scale. Both plain counts; neither divides the other.
+        // What a director asks for first: how much work this person holds, how many animals they
+        // have actually put on the scale, and — the part a single number could never say — how
+        // many of those they have SUBMITTED. Mid-shift "3 weighed · 0 submitted" is real and is
+        // exactly where work is silently lost when someone walks away. All plain counts; none
+        // divides another, because free-flow weighing has no expected roster to divide by.
         Text(
             text = listOf(
                 if (row.shedCount == 1) {
@@ -177,15 +180,28 @@ internal fun WeighingOperatorCard(row: WeighingOperatorUiRow) {
                 } else {
                     stringResource(R.string.weighing_operators_sheds_other, row.shedCount)
                 },
-                when {
-                    row.animalsWeighed <= 0 -> stringResource(R.string.weighing_operators_nothing_weighed_yet)
-                    row.animalsWeighed == 1 -> stringResource(R.string.weighing_operators_animals_one, row.animalsWeighed)
-                    else -> stringResource(R.string.weighing_operators_animals_other, row.animalsWeighed)
+                if (row.animalsWeighed <= 0) {
+                    stringResource(R.string.weighing_operators_nothing_weighed_yet)
+                } else {
+                    stringResource(
+                        R.string.weighing_weighed_submitted_fmt,
+                        row.animalsWeighed,
+                        row.animalsSubmitted,
+                    )
                 },
             ).joinToString(" · "),
             color = MeshaColors.Ink,
             style = MeshaType.cardSubtitle,
         )
+        // The chip mirrors the operator's own Submit button, so a director and the operator use
+        // the same word for the same act. Only shown when there is work AND none of it is in.
+        if (row.animalsWeighed > 0 && row.animalsSubmitted <= 0) {
+            Text(
+                text = stringResource(R.string.weighing_not_submitted_chip),
+                color = MeshaColors.Warn,
+                style = MeshaType.cardSubtitle,
+            )
+        }
         OperatorShedStrip(row)
         Text(
             text = operatorStateBreakdown(row),
