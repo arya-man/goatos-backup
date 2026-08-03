@@ -1,0 +1,151 @@
+package sg.mesha.goatos.feature.weighing
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
+
+// telemetry:exempt This card renders backend read-model state; the close/reopen writes it
+// offers are instrumented by the weighing service that owns them.
+
+/**
+ * One weighing shed row WITH the oversight writes the backend says this viewer may make.
+ *
+ * [canEnd] and [canReopen] are the server's own capability flags, not a role guess and not a
+ * property of which screen is hosting the card: the Growth Director oversees from the Operators
+ * surface while still executing their own sheds elsewhere, so every surface that can show these
+ * rows asks the same two flags rather than one screen owning the authority.
+ */
+@Composable
+internal fun WeighingOversightCard(
+    row: WeighingAssignmentUiRow,
+    canEnd: Boolean = false,
+    canReopen: Boolean = false,
+    /**
+     * Both REQUEST a transition; neither performs one.
+     *
+     * Every one of these writes an audit action carrying a REASON, and the reason belongs to the
+     * person making the call -- the card cannot invent it. A fabricated sentence is unacceptable in
+     * either record, so both take the same route: the host confirms and collects the reason.
+     */
+    onReopen: () -> Unit = {},
+    onClose: () -> Unit = {},
+) {
+    val complete = row.isClosed
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(8.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = row.label,
+                    color = MeshaColors.Ink,
+                    style = MeshaType.cardTitle,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (complete) {
+                    if (canReopen) {
+                        Text(
+                            text = stringResource(R.string.weighing_leadership_tap_to_reopen),
+                            color = MeshaColors.BrandD,
+                            style = MeshaType.caption,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(
+                                    role = Role.Button,
+                                    onClick = onReopen,
+                                ),
+                        )
+                    }
+                } else {
+                    if (canEnd && row.canClose) {
+                        Text(
+                            text = stringResource(R.string.weighing_leadership_close),
+                            color = MeshaColors.BrandD,
+                            style = MeshaType.caption,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(
+                                    role = Role.Button,
+                                    onClick = onClose,
+                                ),
+                        )
+                    } else {
+                        Text(
+                            text = if (row.pendingVerificationCount > 0) {
+                                stringResource(
+                                    R.string.weighing_leadership_awaiting_verification,
+                                    row.pendingVerificationCount,
+                                )
+                            } else {
+                                stringResource(R.string.weighing_leadership_close_pending)
+                            },
+                            color = MeshaColors.Muted,
+                            style = MeshaType.caption,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                }
+            }
+            // ONE state, said once: the same defect the oversight card carried. The badge used to
+            // print the raw backend status while the bar and the line below both asked `isClosed`,
+            // so a submitted bucket read "Completed" beside "Scheduled" beside an empty bar.
+            Text(
+                text = shedStateLabel(row),
+                color = if (complete) MeshaColors.Ok else MeshaColors.BrandD,
+                style = MeshaType.pillStrong,
+                modifier = Modifier.padding(start = 12.dp),
+            )
+        }
+        Text(
+            text = if (row.operatorName.isNotBlank()) {
+                stringResource(R.string.weighing_shed_weighed_by_fmt, row.operatorName)
+            } else {
+                stringResource(R.string.weighing_shed_weighed_by_nobody)
+            },
+            color = MeshaColors.Ink,
+            style = MeshaType.cardSubtitle,
+        )
+        Text(
+            text = if (row.category.equals("per_shed_partition", ignoreCase = true)) {
+                stringResource(R.string.weighing_lump_sum_weighing)
+            } else {
+                stringResource(R.string.weighing_individual_weighing)
+            },
+            color = MeshaColors.Muted,
+            style = MeshaType.cardSubtitle,
+        )
+    }
+}

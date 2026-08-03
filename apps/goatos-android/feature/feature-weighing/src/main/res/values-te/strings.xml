@@ -309,6 +309,13 @@
     <string name="weighing_shed_reopen_action">ఈ షెడ్ మళ్లీ తెరవండి</string>
     <string name="weighing_shed_loading">లోడ్ అవుతోంది</string>
     <string name="weighing_shed_loading_more_records">మరిన్ని రికార్డులు లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_close_dialog_title">%1$sను మూసివేయాలా?</string>
+    <string name="weighing_close_dialog_subtitle">ఇది షెడ్ బకెట్‌ను ముగిస్తుంది. దీన్ని మళ్లీ తెరవవచ్చు, కారణం రెండు సందర్భాల్లోనూ రికార్డులో ఉంటుంది. కారణం చెప్పండి.</string>
+    <string name="weighing_close_dialog_placeholder">మూసివేయడానికి కారణం</string>
+    <string name="weighing_reopen_dialog_title">%1$sను మళ్లీ తెరవాలా?</string>
+    <string name="weighing_reopen_dialog_subtitle">ఇది షెడ్ బకెట్‌ను తిరిగి తెరిచిన పనిలోకి చేరుస్తుంది. కారణం చెప్పండి.</string>
+    <string name="weighing_reopen_dialog_placeholder">మళ్లీ తెరవడానికి కారణం</string>
+    <string name="weighing_reopen_dialog_confirm">మళ్లీ తెరవండి</string>
     <string name="weighing_task_close_awaiting_fmt">పని మూసివేయండి · %1$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
     <string name="weighing_task_close_split_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు · %2$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
     <string name="weighing_bucket_state_not_started">ఇంకా ఏమీ నమోదు కాలేదు</string>
@@ -341,4 +348,6 @@
     <string name="weighing_shed_weighed_by_nobody">ఇంకా ఎవరికీ ఇవ్వలేదు</string>
     <string name="weighing_weighed_submitted_fmt">%1$d తూకం వేశారు · %2$d సమర్పించారు</string>
     <string name="weighing_not_submitted_chip">సమర్పించలేదు</string>
+    <string name="weighing_reason_dialog_error_required">కారణం తప్పనిసరి.</string>
+    <string name="weighing_reason_dialog_cancel">రద్దు చేయి</string>
 </resources>

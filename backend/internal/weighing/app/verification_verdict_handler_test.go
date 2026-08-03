@@ -218,3 +218,64 @@ type recordingBus struct{ subs map[string]int }
 
 func (b *recordingBus) Subscribe(eventType string, _ eventbus.Handler) { b.subs[eventType]++ }
 func (b *recordingBus) Publish(context.Context, eventbus.Event) error  { return nil }
+
+// verdictEventWithEvidence is verdictEvent plus the source.evidence_id the
+// verification module now publishes.
+func verdictEventWithEvidence(t *testing.T, eventID, refID, evidenceID string) eventbus.Event {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"verified_by": verdictVerifier,
+		"source": map[string]string{
+			"module":      domain.VerificationModuleWeighing,
+			"ref_type":    domain.VerificationRefTypeAnimal,
+			"ref_id":      refID,
+			"evidence_id": evidenceID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal verdict payload: %v", err)
+	}
+	return eventbus.Event{ID: eventID, Type: "verification.verdict.approved", TenantID: verdictTenant, Payload: payload}
+}
+
+// The store's stale-evidence guard can only fire if the verdict names the proof it
+// was rendered against. This consumer used to drop source.evidence_id on the floor,
+// so every production verdict reached the guard empty and took its skip branch: a
+// late verdict for an older video was applied to whichever video was attached when
+// it landed. The id must survive the payload -> store hop intact.
+func TestVerificationVerdictHandlerCarriesEvidenceIDToTheStore(t *testing.T) {
+	store := newVerdictStore()
+	handler := NewVerificationVerdictHandler(store, nil)
+	evidenceID := "00000000-0000-4000-8000-0000000009e1"
+
+	if err := handler.HandleEvent(context.Background(), verdictEventWithEvidence(t, "event-evidence", verdictObservation, evidenceID)); err != nil {
+		t.Fatalf("HandleEvent errored: %v", err)
+	}
+	if len(store.calls) != 1 {
+		t.Fatalf("store writes=%d, want 1", len(store.calls))
+	}
+	if got := store.calls[0].EvidenceProofID; got != evidenceID {
+		t.Fatalf("verdict EvidenceProofID=%q, want %q; without it the store cannot tell which proof was reviewed", got, evidenceID)
+	}
+}
+
+// A verdict whose evidence has been superseded can never become applicable: the
+// attached proof only moves further away from what was reviewed. It must fail
+// PERMANENTLY, and as its own typed class rather than as an unclassified store
+// error that the bus would retry forever.
+func TestVerificationVerdictHandlerFailsPermanentlyOnStaleEvidence(t *testing.T) {
+	store := newVerdictStore()
+	store.failWith = ports.ErrStaleEvidence
+	handler := NewVerificationVerdictHandler(store, nil)
+
+	err := handler.HandleEvent(context.Background(), verdictEventWithEvidence(t, "event-stale", verdictObservation, "00000000-0000-4000-8000-0000000009e2"))
+	if err == nil {
+		t.Fatal("stale evidence returned nil; the verdict must not be reported as applied")
+	}
+	if !eventbus.IsPermanentError(err) {
+		t.Fatalf("err=%v is retryable; a superseded proof never becomes current again", err)
+	}
+	if !errors.Is(err, ports.ErrStaleEvidence) {
+		t.Fatalf("err=%v does not unwrap to ErrStaleEvidence; the class must survive to the DLQ", err)
+	}
+}

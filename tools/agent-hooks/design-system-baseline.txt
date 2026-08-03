@@ -6,6 +6,13 @@
 # ScanScreen/CalendarScreen/RecordScreen/MainActivity entered the diff for RefreshOnResume and
 # module-extraction edits, bringing their pre-existing literals with them. Newly authored code
 # in that change (UnavailableAlertNotice) was tokenised properly instead of baselined.
+#
+# 2026-08-03, same shape: VerifyQueueScreen entered the diff for the verify-queue module
+# routing fix (a Counts verifier was being shown vaccination proofs). Its 24 literals are
+# ALL pre-existing -- the change added no fontSize/fontWeight line, verified against
+# `git diff origin/main...HEAD` on that file. The WeighingOversightCard entries below are a
+# pure RENAME of the LeadershipWeighingScreen ones, not new debt: that file was renamed when
+# its dead leadership screen was deleted and only the card survived.
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-size
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/MainActivity.kt:literal-font-weight
 apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt:literal-font-size
@@ -20,8 +27,8 @@ apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/featur
 apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/feature/sheds/ShedsScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyDetailScreen.kt:literal-font-size
 apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyDetailScreen.kt:literal-font-weight
-apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/LeadershipWeighingScreen.kt:literal-font-size
-apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/LeadershipWeighingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOversightCard.kt:literal-font-size
+apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOversightCard.kt:literal-font-weight
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt:literal-font-size
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingOperatorsScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt:literal-font-size
@@ -35,3 +42,5 @@ apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/fea
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/leadership/WeighingShedDetailScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/plan/WeighingPlanWizardScreen.kt:literal-font-size
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/plan/WeighingPlanWizardScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt:literal-font-weight

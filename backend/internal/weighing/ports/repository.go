@@ -16,6 +16,15 @@ var (
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
 
+	// ErrParkSelectionRequired is returned when the actor legitimately covers SEVERAL parks
+	// without a tenant grant and the surface can only answer for one. It is deliberately its
+	// own class rather than ErrInvalidArgument: the request was not malformed, the client
+	// simply has to name a park, and it needs a code it can act on. The vaccination side
+	// already answers this exact situation with park_selection_required plus the park list;
+	// weighing returning a bare "request is invalid" left the Android task list permanently
+	// blank with no way to discover the remedy.
+	ErrParkSelectionRequired = errors.New("weighing: park selection required")
+
 	// ErrCaptureIncomplete is the SERVER-side pair rule: an animal in an
 	// individual bucket is only submittable once BOTH its weight and its video
 	// exist. It is deliberately distinct from ErrScopeIncomplete (which means the
@@ -68,6 +77,19 @@ var (
 	// unaffected.
 	ErrOperatorOutsidePark = errors.New("weighing: operator is not scoped to this park")
 
+	// ErrStaleEvidence is returned when a verdict names a proof that is no longer
+	// the proof attached to the observation -- the reviewer decided on evidence that
+	// has since been superseded (a rework re-shoot swapped the video out from under
+	// an in-flight review). It lives HERE, not in the postgres adapter that raises
+	// it, because the event consumer in weighing/app has to recognise it: a verdict
+	// against superseded evidence can never become applicable no matter how many
+	// times the bus redelivers it, so the consumer must fail it permanently rather
+	// than retry it forever as an unclassified store error. Distinct from
+	// ErrIdempotencyConflict (same key, different request) and ErrImmutable (target
+	// already terminal): the verdict is well-formed and the target is writable --
+	// it is the EVIDENCE that moved on.
+	ErrStaleEvidence = errors.New("weighing: stale verification evidence")
+
 	// ErrWriteConflict is a Postgres SERIALIZABLE (SSI) conflict, SQLSTATE
 	// 40001, on a write that touches no duplicate at all -- it means "this
 	// transaction lost a race against another that overlapped it in time",
@@ -103,6 +125,50 @@ func (c *ShedScheduleConflict) Error() string {
 }
 
 func (c *ShedScheduleConflict) Unwrap() error { return ErrShedAlreadyScheduled }
+
+// CampaignAccess is the caller's authority over ONE task, expressed as data the single-task
+// query can evaluate against the row it is about to return. The arms are alternatives, in the
+// same either/or shape the service's role gate already has:
+//
+//	Unrestricted        -- tenant-wide plan-or-monitor authority, or an internal caller with no
+//	                       grants at all (CLI, seeder, integration test). Admits any park.
+//	AuthorizedParkIDs   -- the parks the actor holds plan-or-monitor in. Admits a task in one of
+//	                       them, unfiltered.
+//	AssigneeUserID      -- the actor's own user id, set when they hold weighing.execute. Admits a
+//	                       task they hold a live bucket on, narrowed to that bucket.
+//
+// The assignee arm is an OR and not an AND deliberately. A Growth Director holds
+// WeighingMonitor AND WeighingExecute at once; one who monitors park A while being ASSIGNED
+// work in park B is authorized for B through the assignment alone, and requiring both arms
+// would 404 them on their own task (the defect fixed in 2c78f87f1).
+//
+// A zero value admits nothing, which is the correct answer for an actor who passed a park-blind
+// role gate but holds no park here and is assigned nothing.
+type CampaignAccess struct {
+	Unrestricted      bool
+	AuthorizedParkIDs []string
+	AssigneeUserID    string
+}
+
+// AdmitsPark reports whether the actor's PARK authority -- as opposed to their assignment --
+// covers parkID.
+//
+// Callers evaluate it against the park_id the single-task query ALREADY RETURNED, never against
+// a separately fetched one, so it cannot disagree with the row it describes. It decides bucket
+// VISIBILITY only: a caller admitted by park authority reads the task's buckets unfiltered,
+// while one admitted solely because they are assigned on it reads their own bucket, which is
+// the same split the task list applies.
+func (a CampaignAccess) AdmitsPark(parkID string) bool {
+	if a.Unrestricted {
+		return true
+	}
+	for _, id := range a.AuthorizedParkIDs {
+		if id == parkID {
+			return true
+		}
+	}
+	return false
+}
 
 // CaptureIncomplete names the animals whose (weight, video) PAIR is not
 // complete in the bucket the operator just tried to submit.
@@ -148,6 +214,32 @@ type Repository interface {
 	// scope and are deliberately NOT narrowed by it (see domain.CampaignCounts).
 	ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
 	ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error)
+	// CampaignByID is the SINGLE-task read behind a notification deep link. The task
+	// list is keyset-paged with no id filter, so a cold tap on a task that is not on
+	// the first page or two could not be resolved at all: the client walked a few
+	// pages and then reported "not found" for work that exists.
+	//
+	// access carries the caller's authority INTO the query instead of being checked
+	// around it. The previous shape resolved the campaign's park with a separate
+	// CampaignParkID call, authorized that park, and then read the campaign in a second
+	// statement -- two reads of a mutable column with no transaction between them, so a
+	// task that moved park in the gap was authorized as park A and returned as park B.
+	// Authorization and retrieval are now one statement over one snapshot of the row,
+	// which is the only shape in which the park that was checked and the park that was
+	// returned cannot differ.
+	//
+	// ErrNotFound when the task does not exist OR no arm of access admits it, so the two
+	// are indistinguishable to a caller probing ids.
+	CampaignByID(ctx context.Context, tenantID, campaignID string, access CampaignAccess) (domain.Campaign, error)
+	// WeighingParks is the park VOCABULARY behind the oversight surfaces' park chips:
+	// identity only, no date scope and no counts (that is PlannerCatalog, which is
+	// gated on the CEO-only WeighingPlan).
+	//
+	// parkIDs is the caller's capability-scoped park set and is part of the QUERY, the
+	// same contract ListLeadershipSheds declares: a nil/empty slice means unrestricted
+	// (tenant-wide authority or an internal caller), NOT "authorized for nothing" --
+	// this port cannot tell those apart and the service is the layer that knows.
+	WeighingParks(ctx context.Context, tenantID string, parkIDs []string) ([]domain.WeighingPark, error)
 	// PlannerCatalog is the PARK-grain planner read for ONE weigh date: EVERY park
 	// the planner may use, each with a park-grain shed COUNT (not shed rows), plus
 	// the operator picker. Bounded by domain.MaxPlannerParks; there is no park
@@ -160,17 +252,53 @@ type Repository interface {
 	PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	// ListCampaignSheds is the task-DETAIL bucket page. The task list embeds a
 	// campaign's whole bucket set; the detail screen reads ~20 at a time instead.
-	ListCampaignSheds(ctx context.Context, tenantID, campaignID, operatorUserID, cursor string, limit int) (domain.CampaignShedPage, error)
+	//
+	// access carries the caller's authority INTO the page instead of being checked
+	// around it, for the same reason CampaignByID does. The previous shape resolved the
+	// campaign's park with a separate CampaignParkID call, authorized it, and then read
+	// the buckets in a second statement -- two reads of a MUTABLE column (UpdateCampaign
+	// moves a task between parks) with nothing spanning them, so a task that moved in the
+	// gap was authorized as its old park and paged as its new one, operator display names
+	// included. The access arms are now evaluated per returned row, in the same statement
+	// that returns it.
+	//
+	// It also replaces the old operatorUserID parameter: the assignee arm both ADMITS a
+	// bucket and NARROWS the page to the caller's own buckets, which is exactly what that
+	// parameter did, so keeping both would be two spellings of one rule.
+	//
+	// ErrNotFound when no arm of access can admit the campaign at all, matching what the
+	// preceding park check used to answer, so existence is still not leaked.
+	ListCampaignSheds(ctx context.Context, tenantID, campaignID, cursor string, limit int, access CampaignAccess) (domain.CampaignShedPage, error)
 	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	// cursor/limit page the shed's INDIVIDUAL observations on (accepted_at,
 	// observation_id). The lump-sum row is a single latest read and is not paged.
-	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
+	//
+	// access is the caller's PARK authority, evaluated against the campaign row the head
+	// query already joins rather than against a park fetched by a preceding statement.
+	// The old shape read park_id via CampaignParkID, authorized it, and then read the
+	// evidence: a task moved between parks in that gap was authorized as its old park and
+	// its proof footage served from its new one. Only the park arms are ever set here --
+	// this surface's role gate is WeighingMonitor alone, so there is no assignee arm to
+	// admit; an assignee reads their own evidence through the roster, not through
+	// leadership review.
+	//
+	// ErrNotFound when the bucket does not exist OR the access arms do not admit its
+	// campaign's park, so the two stay indistinguishable to a caller probing ids.
+	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int, access CampaignAccess) (domain.LeadershipShedVideos, error)
 	// ListLeadershipSheds is the gallery read: ONE keyset page of buckets across
 	// tasks, each with its own first page of evidence. It replaces the client
 	// pattern of expanding a task page into buckets and calling the single-shed
 	// read once per bucket.
-	ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
+	//
+	// parkIDs is the caller's capability-scoped park set and is part of the QUERY, not a
+	// post-filter: dropping unauthorized rows after the page was cut returned short (or
+	// empty) pages to a park-scoped monitor whenever another park's buckets happened to
+	// occupy the page, while authorized buckets sat unreachable further down the keyset.
+	// A nil/empty slice means unrestricted (tenant-wide authority or an internal caller);
+	// it is NOT "authorized for nothing", because this port has no way to tell the two
+	// apart and the service is the layer that knows.
+	ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
@@ -187,10 +315,6 @@ type Repository interface {
 	// exact-replay readback -> state change -> audit -> idempotency record ->
 	// outbox enqueue, all in ONE transaction).
 	CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
-	// AbandonScope ends a bucket whose work will never finish. Separate from
-	// CloseScope on purpose: it skips the verification gate, demands a reason, and
-	// records itself distinguishably so it can never read as a verified close.
-	AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	// CampaignParkID resolves the park a campaign runs in. It exists because the park is the
 	// ROUTING key of a weighing verification item (the notification consumer resolves the park's

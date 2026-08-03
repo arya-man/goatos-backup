@@ -181,7 +181,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		// entries -- the objection was the per-feature REPETITION, not its presence. The
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
 			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
@@ -387,7 +387,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		}
 		// The module href carries the feature so the drawer's tap scopes the verify queue to
 		// THAT feature; plain "/verify" made every drawer entry land on vaccination.
-		if vaccModule.Href != "/verify?module=vaccination" {
+		if vaccModule.Href != "/verify?module=vaccination&category=vaccination_proof" {
 			t.Fatalf("vaccination module landing href = %q, want /verify", vaccModule.Href)
 		}
 
@@ -398,7 +398,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		// entries -- the objection was the per-feature REPETITION, not its presence. The
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantVaccItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
 			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
@@ -422,7 +422,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 			t.Fatalf("weighing module label = %q, want Weighing", weighModule.Label)
 		}
 		wantWeighItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing&category=weighing_proof"},
 			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=weighing_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
@@ -535,7 +535,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		// entries -- the objection was the per-feature REPETITION, not its presence. The
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantItems := []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
 			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}

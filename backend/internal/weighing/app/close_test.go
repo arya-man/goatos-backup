@@ -122,8 +122,8 @@ func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 
 // Test P0 authorization hole: park-scoped WeighingMonitor must NOT be able to close
 // campaigns from parks outside their scope. This is a CONFIRMED defect — park scope
-// enforcement is missing from CloseScope, AbandonScope, CloseCampaign, ReopenScope.
-// All four mutations must deny cross-park access with ErrNotFound (not leaking existence).
+// enforcement is missing from CloseScope, CloseCampaign, ReopenScope.
+// All three mutations must deny cross-park access with ErrNotFound (not leaking existence).
 func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
 	const (
 		parkCBE     = "00000000-0000-4000-8000-000000000210" // CBE park
@@ -174,11 +174,6 @@ func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
 	// Try to close a CPT campaign with CBE-only access
 	if _, err := service.CloseScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "close-cpt", "test"); err != ports.ErrNotFound {
 		t.Errorf("CloseScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
-	}
-
-	// Try to abandon a CPT campaign with CBE-only access
-	if _, err := service.AbandonScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "abandon-cpt", "test"); err != ports.ErrNotFound {
-		t.Errorf("AbandonScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
 	}
 
 	// Try to reopen a CPT campaign with CBE-only access
@@ -271,6 +266,14 @@ func (r *multiParkScenarioRepo) PublishCampaign(context.Context, string, string,
 	return domain.Campaign{}, nil
 }
 
+func (r *multiParkScenarioRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *multiParkScenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
 func (r *multiParkScenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
@@ -279,15 +282,15 @@ func (r *multiParkScenarioRepo) ListCampaignsForOperator(context.Context, string
 	return domain.CampaignPage{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (r *multiParkScenarioRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (r *multiParkScenarioRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
@@ -325,10 +328,6 @@ func (r *multiParkScenarioRepo) ReopenScope(context.Context, string, string, str
 
 func (r *multiParkScenarioRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	r.closeScopeCalls = append(r.closeScopeCalls, domain.CloseCommand{})
-	return domain.CloseResult{Status: domain.StatusClosed}, nil
-}
-
-func (r *multiParkScenarioRepo) AbandonScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 

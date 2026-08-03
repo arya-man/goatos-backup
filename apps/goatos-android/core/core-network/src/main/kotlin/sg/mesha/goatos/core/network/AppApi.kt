@@ -79,7 +79,9 @@ import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
@@ -382,6 +384,25 @@ interface AppApi {
         limit: Int = WEIGHING_PAGE_SIZE,
         parkId: String? = null,
     ): WeighingCampaignListResponseDto
+
+    /**
+     * GET /app/weighing/campaigns/{campaign_id} — ONE task resolved by id.
+     *
+     * The read behind a notification deep link. The task list is a keyset page with no id filter,
+     * so a cold tap on a task further down the keyset could only be answered by walking pages;
+     * this answers it in one call. A 404 means "not yours or not there" and the two are
+     * deliberately indistinguishable -- the client must not report which.
+     */
+    suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto
+
+    /**
+     * GET /app/weighing/parks — the parks whose weighing this caller may look at.
+     *
+     * Identity-only park VOCABULARY, already capability-scoped by the backend and unpaged. It
+     * exists because the only other park list is the planner catalog, which is gated on the
+     * planning permission a Growth Director does not hold.
+     */
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
 
     /**
      * GET /app/weighing/campaigns/{campaign_id}/sheds — ONE task's shed buckets, keyset-paged on
@@ -1155,6 +1176,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         limit: Int,
         parkId: String?,
     ): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        WeighingCampaignDetailResponseDto()
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = WeighingParkListResponseDto()
 
     override suspend fun listWeighingCampaignSheds(
         campaignId: String,

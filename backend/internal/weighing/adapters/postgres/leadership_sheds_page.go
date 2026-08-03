@@ -64,12 +64,12 @@ func decodeLeadershipShedCursor(value string) (leadershipShedCursor, error) {
 // (tenant_id,user_id) uniqueness is the partial active index) — none can multiply the
 // bucket row; pagination=keyset on
 // (period_start_date, created_at, campaign_id, campaign_shed_id) DESC;
-// scope=tenant_id only, because this surface is monitor-authority (whole tenant).
+// scope=tenant_id, narrowed by the caller's capability-scoped parkIDs when it has any.
 //
 // Every evidence read below is bounded on BOTH axes: at most `limit` buckets, and at
 // most one page of observations per bucket, fetched with a LATERAL that the planner
 // walks through weighing_observations_shed_keyset_idx (migration 000060).
-func (r *Repository) ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error) {
+func (r *Repository) ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -111,6 +111,10 @@ LEFT JOIN workforce_members op
   ON op.tenant_id=cs.tenant_id AND op.user_id=cs.operator_user_id AND op.status='active'
 WHERE wc.tenant_id=$1::uuid
   AND cs.status <> 'canceled'
+  -- The park filter is IN the keyset walk, not applied to its result: a page cut before
+  -- authorization came back short or empty for a park-scoped monitor while their own
+  -- buckets sat further down the order, unreachable. NULL means unrestricted.
+  AND ($7::uuid[] IS NULL OR wc.park_id = ANY($7::uuid[]))
   AND (
     $2::date IS NULL
     OR (wc.period_start_date, wc.created_at, wc.campaign_id, cs.campaign_shed_id)
@@ -119,7 +123,8 @@ WHERE wc.tenant_id=$1::uuid
 ORDER BY wc.period_start_date DESC, wc.created_at DESC, wc.campaign_id DESC, cs.campaign_shed_id DESC
 LIMIT $6`,
 		tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt),
-		nullableString(cur.CampaignID), nullableString(cur.CampaignShedID), limit+1)
+		nullableString(cur.CampaignID), nullableString(cur.CampaignShedID), limit+1,
+		nullableStrings(parkIDs))
 	if err != nil {
 		return domain.LeadershipShedPage{}, err
 	}
@@ -267,6 +272,19 @@ CROSS JOIN LATERAL (
 	}
 
 	return page, nil
+}
+
+// nullableStrings sends an EMPTY id set to Postgres as NULL rather than as `{}`.
+//
+// The two are opposite answers to the park filter: `= ANY('{}')` is false for every row, which
+// would silently blank the gallery for callers the service means to leave unrestricted (a
+// tenant-wide monitor, a CLI/test context with no grants at all). NULL is the "no restriction"
+// arm the query is written around.
+func nullableStrings(values []string) any {
+	if len(values) == 0 {
+		return nil
+	}
+	return values
 }
 
 // periodLabel is backend-owned copy: the client must not invent the weigh-period
