@@ -140,11 +140,18 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		ctx = WithAuthGrants(ctx, grants)
 		roles := routeRoles(route, grants, tenantID)
 		if !permissions.AuthorizeRoute(route, roles) {
+			// required_* travel with the denial: `roles:""` alone says the caller
+			// held nothing, but not what the route WANTED — and that missing half
+			// is what turns a 403 into an actionable grant/seeding fix instead of
+			// a code-reading expedition.
 			a.logAuthFailure(r, http.StatusForbidden, "permission_denied",
 				slog.String("route", route.OperationID),
 				slog.String("actor_id", userID),
 				slog.String("tenant_id", tenantID),
 				slog.String("roles", strings.Join(roles, ",")),
+				slog.String("required_permissions", strings.Join(route.Permissions, ",")),
+				slog.String("required_any_permissions", strings.Join(route.AnyPermissions, ",")),
+				slog.Bool("required_admin_only", route.AdminOnly),
 			)
 			writeAuthError(w, r.WithContext(ctx), http.StatusForbidden, "permission_denied", "permission denied")
 			return

@@ -262,9 +262,31 @@ object AnalyticsEvents {
     /** The prompt was answered; [Params.REASON] is "granted" or "denied". */
     const val NOTIFICATION_PERMISSION_RESULT = "notification_permission_result"
 
+    /**
+     * A backend API call was REFUSED or FAILED (HTTP >= 400, or the call threw before any
+     * response arrived). Emitted once per call from the single OkHttp interceptor seam
+     * ([FailureReportingNetworkTelemetryReporter]) — never from per-screen call sites, so no
+     * surface can forget it and no surface needs boilerplate to have it.
+     *
+     * Carries [Params.METHOD], [Params.ROUTE] (bounded-cardinality template — never a raw
+     * goat/shed id), [Params.STATUS_CODE] and [Params.DURATION_MS]. Never the Authorization
+     * header, an FCM token, or any request/response body.
+     */
+    const val API_CALL_FAILURE = "api_call_failure"
+
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"
+
+        /**
+         * Bounded-cardinality request route TEMPLATE (`/app/weighing/campaigns/{id}/sheds`),
+         * produced by `TelemetryInterceptor.routeTemplate` — never a raw path.
+         */
+        const val ROUTE = "route"
+
+        /** HTTP status of a failed call; `-1` when the call threw before any response arrived. */
+        const val STATUS_CODE = "status_code"
+
         const val CHROME = "chrome"
         const val ACTION = "action"
         const val SHED_ID = "shed_id"
