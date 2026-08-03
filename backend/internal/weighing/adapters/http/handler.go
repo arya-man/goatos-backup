@@ -552,6 +552,38 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrCaptureIncomplete):
+		// One animal = one (weight, video) pair. The app renders code/message and
+		// walks field_errors to mark the rows to go back and fix, so this must name
+		// the ANIMALS -- a status line the operator cannot act on is what this
+		// replaced.
+		incomplete := &ports.CaptureIncomplete{}
+		if !errors.As(err, &incomplete) {
+			incomplete = &ports.CaptureIncomplete{}
+		}
+		fieldErrors := make([]conflictFieldError, 0, len(incomplete.MissingWeight)+len(incomplete.MissingVideo))
+		for _, identifier := range incomplete.MissingWeight {
+			fieldErrors = append(fieldErrors, conflictFieldError{
+				Field:   "scanned_identifiers",
+				Code:    "weighing_weight_missing",
+				Message: identifier + " has no weight yet. Enter its weight, then submit again.",
+			})
+		}
+		for _, identifier := range incomplete.MissingVideo {
+			fieldErrors = append(fieldErrors, conflictFieldError{
+				Field:   "scanned_identifiers",
+				Code:    "weighing_video_missing",
+				Message: identifier + " has no finished video yet. Record or finish uploading its video, then submit again.",
+			})
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
+			Code:        "weighing_capture_incomplete",
+			Message:     "Some animals still need a weight and a video. Every animal needs both before this shed can be submitted.",
+			FieldErrors: fieldErrors,
+			TraceID:     traceID(r),
+		}, nil)
+	case errors.Is(err, ports.ErrProofNotReady):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This shed's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
 		// Farm language, not a rule name: the planner picked someone who does not work that park.
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "operator_outside_park", Message: "One of the people chosen does not work in this park. Pick someone from this park, or a director who covers both.", TraceID: traceID(r)}, nil)
