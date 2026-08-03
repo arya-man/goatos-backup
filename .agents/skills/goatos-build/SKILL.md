@@ -680,3 +680,19 @@ one product; this skill is the navigation layer.
 <!-- Coupling review 2026-07-25: selected_operator_ids on vaccination_operator_assignment_config is an admin-selected parallel roster preference. Seed leaves it empty; saving config may reassign current/future open planned drive rows, but source fixture bytes, HRMS roster import, SOP definitions, and completed proofs remain unchanged. -->
 <!-- Coupling review 2026-07-25: migration 000002 restores selected_operator_ids on already-migrated DBs after the collapsed baseline gained the column. It is a runtime schema repair only; backfill from default_operator_id keeps previous scheduling behavior and does not alter fixture/source contracts. -->
 <!-- Coupling review 2026-08-01: a module that enqueues a verification item must declare BOTH ends -- an entry in notificationbridge.pendingModuleProfiles (its own recipients, wording and tap route; there is deliberately no fallback profile) AND at least one active verify-duty holder in position_module_duties. Missing either means the pending-proof push reaches nobody while every test stays green, which is exactly how the path looked wired for months while notification_requests stayed empty. Both are asserted by tests, not comments. -->
+
+## WEIGHING IS SCAN-AND-SUBMIT (do not re-derive rules)
+
+Assign sheds → individual: scan RFID + weight + video per animal; lump-sum: total
+weight + count + video(s) per shed → submit. **The only business rule is: no double
+scan of the same animal in a bucket before submit.**
+
+NO shed↔RFID validation · NO roster/expected count/denominator/percentage · NO herd
+or goat or clinical lookup · NO vaccine/protocol/obligation rules · NO "shed is empty"
+concept (free-flow cannot know what is in a shed).
+
+If a finding assumes any of those exist, it is invalid — close it and cite ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`. Real weighing
+findings are about PLUMBING: writes landing, evidence being reviewable, failures being
+visible, screens showing honest numbers. Full statement:
+`docs/features/weighing/TRD.md` → "What weighing IS".

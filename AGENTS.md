@@ -226,6 +226,41 @@ the exact source revision that produced it.
   cannot be verified, say that clearly instead of inferring from local `HEAD`,
   `origin/main`, or memory.
 
+## WEIGHING IS SCAN-AND-SUBMIT. Nothing else. (Claude AND Codex, every session)
+
+Maintainer statement, 2026-08-03. Sessions keep re-deriving weighing rules that do
+not exist, and the maintainer keeps re-explaining them. This is the WHOLE feature:
+
+```
+CEO assigns sheds to an operator or a director (the Growth Director executes too)
+individual  → scan RFID, enter weight, record video — per animal
+lump-sum    → total weight, animal count, video(s) — per shed
+submit
+```
+
+**The ONLY business rule: an animal cannot be scanned twice in the same bucket before
+submit.**
+
+There is **NO** shed↔RFID validation (a scanned tag is stored verbatim and is never
+checked against a shed), **NO** roster / expected animal count / denominator /
+progress percentage, **NO** herd, goat, clinical or lifecycle lookup, **NO** vaccine,
+protocol or obligation rules, and **NO** "shed is empty" concept — free-flow means the
+system cannot know what is in a shed and must not try to.
+
+**Do not invent problems that cannot exist in this model.** Two were raised and killed
+on 2026-08-03: an "empty shed outcome" (impossible — nothing knows a shed is empty),
+and the per-animal verifier queue called a grain bug (one video per animal means one
+review per animal; the grain follows the EVIDENCE — ban B-5).
+
+Legitimate weighing work is **plumbing, never rules**: do writes reach the server, is
+evidence reviewable, are failures visible, do screens show honest numbers.
+
+Machine-enforced by `make weighing-free-flow-guard` (in `make guardrails` and
+`make ci-local`), which blocks a herd/goat/vaccination join on the write path, a
+roster gate, a clinical-state read, and an expected-animal denominator in weighing UI.
+Canonical prose: `docs/features/weighing/TRD.md` → "What weighing IS"; bans and their
+history: `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
