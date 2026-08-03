@@ -31,6 +31,23 @@
 // reason. That list is the visible debt -- it is not a way to opt out quietly, and a NEW
 // module cannot be added to it without this file changing in the same commit.
 //
+// PARSING IS STRUCTURAL, NOT ORDER-BASED. Adversarial testing (2026-08-03) found the
+// original parser passed two REAL violations silently, because it anchored on the source
+// ORDER of struct fields: a new available module with no alerts tab was invisible if it
+// declared `labelKey` above `key`, and a nav item was invisible if it declared `href`
+// above `labelKey`. gofmt does not normalise field order, so both are legal edits that no
+// reviewer would flag. The parser now balances braces and looks fields up BY NAME, and
+// anything it cannot read is reported instead of skipped.
+//
+// Known remaining blind spots, stated so nobody mistakes green for proof:
+//   - the parser reads Go SOURCE TEXT, not the compiled registry. A module assembled at
+//     runtime (appended to the map, built by a helper) is invisible; that is why
+//     RUNTIME_COMPOSED_MODULES exists and why those modules carry their own Go tests.
+//   - permission gating is not modelled: an alerts item every principal is filtered out
+//     of still passes here.
+//   - it proves the ROUTE is hosted and rooted, not that the screen behind it renders a
+//     feed scoped to the caller.
+//
 // Usage: node tools/agent-hooks/check-module-alerts-tab.mjs [--self-test]
 
 import { readFileSync } from "node:fs";
