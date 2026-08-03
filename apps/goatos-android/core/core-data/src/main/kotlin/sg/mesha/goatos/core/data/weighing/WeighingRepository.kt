@@ -1153,7 +1153,8 @@ class DefaultWeighingRepository(
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
         runCatching {
-            val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:${draft.sheds.joinToString(",") { it.locationId }}"
+            val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:" +
+                weighingBucketSetDigest(draft.sheds.map { it.locationId })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1171,7 +1172,7 @@ class DefaultWeighingRepository(
             // The key names the WORK, not the attempt: the same date, park and bucket set is the
             // same task, so a retry after a dropped response cannot create a second one.
             val createIdem = "weighing:create:${draft.startBusinessDate}:${draft.parkId}:" +
-                draft.sheds.joinToString(",") { "${it.locationId}:${it.category}:${it.operatorUserId}" }
+                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.category}:${it.operatorUserId}" })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1978,6 +1979,30 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 pendingVerificationCount = shed.pendingVerificationCount,
             )
         }
+
+/**
+ * Collapses a campaign's bucket set into a fixed-width digest.
+ *
+ * The campaign-create key names the WORK ("same date, park and bucket set is the same task"), so
+ * it embedded the full bucket list verbatim. That makes the key grow without bound: the first real
+ * device run produced create keys of 249 and 431 characters. The domain-event envelope caps
+ * idempotency_key at 320 and trace_id at 200, so those events were written and then permanently
+ * rejected by the relay as invalid_event_envelope -- marked failed on attempt 1, never retried,
+ * never dead-lettered. Two of two campaign_created events died that way.
+ *
+ * A digest keeps the identity the comment promises (same bucket set -> same key) at a constant 64
+ * characters. Sorting first fixes a second, quieter bug in the same line: the list was in UI order,
+ * so selecting the same sheds in a different order produced a DIFFERENT key and could create a
+ * duplicate campaign.
+ *
+ * Note for rollout: this changes the key VALUE, so an in-flight create issued by the previous build
+ * and retried by this one would not deduplicate against it.
+ */
+internal fun weighingBucketSetDigest(buckets: List<String>): String {
+    val canonical = buckets.sorted().joinToString(",")
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
+    return digest.joinToString("") { "%02x".format(it) }
+}
 
 fun individualIdempotencyKey(
     campaignId: String,
