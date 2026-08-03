@@ -134,7 +134,19 @@ FROM weighing_work_items WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`
 		t.Fatalf("merged_into=%q reason=%q, want a link to the surviving item and the machine reason", mergedInto, closedReason)
 	}
 
+	// THE BUCKET CLOSES TOO. This is the half that matters to the person holding the
+	// phone: weighing_work_items has no operator-facing reader, so a bucket left
+	// 'pending' would keep the shed on their task and invite them to walk to a shed
+	// somebody else is standing at -- while the kernel, having closed the work item,
+	// no longer chases it at all.
+	assertScopeStatus(t, ctx, pool, slippedShedA, "closed")
+	assertScopeStatus(t, ctx, pool, slippedShedB, "closed")
+	// The surviving task's bucket is untouched: it is still today's work.
+	assertScopeStatus(t, ctx, pool, survivorA, "pending")
+	assertScopeStatus(t, ctx, pool, survivorB, "pending")
+
 	// CASE 2 — no collision: ordinary roll-forward, untouched by this rule.
+	assertScopeStatus(t, ctx, pool, lonelyShed, "pending") // still real work, nobody else has it
 	lonely := readWorkItem(t, ctx, pool, lonelyShed)
 	if lonely.state == "closed" {
 		t.Fatal("a carry-over with NO collision was closed; only a shed another task already covers may merge")
