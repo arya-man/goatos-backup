@@ -56,8 +56,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
@@ -761,6 +763,85 @@ class WeighingViewModelTest {
         assertEquals(2, vm.state.value.assignments.size)
     }
 
+    // The CEO splits four sheds 2/2 between two people and opens the task. The screen he lands on
+    // is the only place that split is visible, so every bucket row has to name its own operator --
+    // four identically-shaped cards with the assignment reachable only by tapping a filter chip is
+    // the task detail hiding the one fact it exists to show.
+    @Test
+    fun `each shed bucket on a task detail names the operator it is assigned to`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-cbe")
+        advanceUntilIdle()
+
+        val rows = vm.taskDetailState.value.sheds
+        assertEquals(listOf("Gandhi 1", "Gandhi 2", "Godel 1", "Yashoda 1"), rows.map { it.shedName })
+        assertEquals(
+            "every bucket must carry the name of the person it was assigned to",
+            listOf("Dinakar", "Dinakar", "Pramod", "Pramod"),
+            rows.map { it.operatorLabel },
+        )
+        // A user id is never what the reader sees.
+        assertTrue(rows.none { it.operatorLabel.startsWith("user-") })
+    }
+
+    // "Dinakar 2" cannot say whether the 2 is sheds or animals, and this screen shows both units:
+    // the chip counts shed buckets while every card under it talks about animals captured. The
+    // count therefore reaches the screen as a NUMBER so the screen can name the unit.
+    @Test
+    fun `operator chips carry the shed count as a number the screen can name a unit for`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-cbe")
+        advanceUntilIdle()
+
+        val chips = vm.taskDetailState.value.operatorFilters
+        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.operatorLabel })
+        assertEquals(listOf(2, 2), chips.map { it.shedCount })
+        // The bare number must NOT be pre-baked into the name: an unlabelled "Dinakar 2" is exactly
+        // the ambiguity this carries a separate field to avoid.
+        assertTrue(chips.none { it.operatorLabel.contains(it.shedCount.toString()) })
+    }
+
+    // The maintainer's exact scenario, straight off `weighing_campaign_sheds.operator_user_id` ->
+    // `workforce_members.display_name`: four individual buckets in park CBE, 2 for Dinakar and
+    // 2 for Pramod, none of them started yet.
+    private fun splitTaskCache(): WeighingTaskListCache {
+        fun bucket(shed: String, operatorUserId: String, operatorName: String) = WeighingTaskShed(
+            campaignShedId = "cs-${shed.lowercase().replace(' ', '-')}",
+            locationId = "loc-${shed.lowercase().replace(' ', '-')}",
+            displayName = shed,
+            category = "individual_animal",
+            operatorUserId = operatorUserId,
+            operatorDisplayName = operatorName,
+            status = "published",
+            pendingVerificationCount = 0,
+            reworkCount = 0,
+            readyToClose = false,
+        )
+        return WeighingTaskListCache(
+            items = listOf(
+                WeighingTask(
+                    campaignId = "campaign-cbe",
+                    tenantId = "tenant-1",
+                    parkId = "park-cbe",
+                    parkName = "CBE",
+                    weighDate = "2026-08-03",
+                    status = "published",
+                    sheds = listOf(
+                        bucket("Gandhi 1", "user-dinakar", "Dinakar"),
+                        bucket("Gandhi 2", "user-dinakar", "Dinakar"),
+                        bucket("Godel 1", "user-pramod", "Pramod"),
+                        bucket("Yashoda 1", "user-pramod", "Pramod"),
+                    ),
+                ),
+            ),
+            hasCache = true,
+        )
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
@@ -903,6 +984,9 @@ class WeighingViewModelTest {
         // parkId) is needed to reproduce "selecting a park collapses the chip row".
         // Keyed by parkId; `null` is the unfiltered ("All parks") page.
         private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
+        // The leadership task list this fake's Room-backed stream answers with, so a test can put a
+        // planner in front of a real task and read the detail state that task produces.
+        private val taskListCache: WeighingTaskListCache = WeighingTaskListCache(),
     ) : WeighingRepository {
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
@@ -933,7 +1017,7 @@ class WeighingViewModelTest {
             scope: String,
             parkId: String?,
             windowSize: Int,
-        ): Flow<WeighingTaskListCache> = MutableStateFlow(WeighingTaskListCache())
+        ): Flow<WeighingTaskListCache> = MutableStateFlow(taskListCache)
 
         override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
             AppResult.Ok(0)

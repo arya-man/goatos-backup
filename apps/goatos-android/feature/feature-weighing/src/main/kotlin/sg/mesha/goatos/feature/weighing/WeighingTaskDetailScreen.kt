@@ -76,6 +76,24 @@ data class WeighingTaskShedUiRow(
 }
 
 /**
+ * One operator chip on this task: WHO, and HOW MANY shed buckets are theirs.
+ *
+ * The count is carried as a NUMBER, never pre-baked into the label. A bare "Dinakar 2" cannot say
+ * whether the 2 is sheds or animals, and this screen shows both units — the chip counts sheds while
+ * every card below it talks about animals captured. Keeping the number separate lets the screen name
+ * the unit it is counting, in the reader's own language.
+ */
+data class WeighingTaskOperatorFilterUiRow(
+    /** Stable filter key: the operator's user id, or "unassigned" for the no-operator bucket. */
+    val id: String,
+    /** The operator's display NAME as the backend resolved it. A user id is never rendered. */
+    val operatorLabel: String,
+    /** Shed buckets this operator owns across the WHOLE task, never just the loaded page. */
+    val shedCount: Int,
+    val selected: Boolean,
+)
+
+/**
  * The buckets one operator owns on this task.
  *
  * Grouping is by operator identity; the header shows the operator's display NAME as the planner
@@ -118,7 +136,7 @@ data class WeighingTaskDetailUiState(
      * keyset page splits mid-operator and leaves a header showing part of someone's sheds with the
      * rest arriving pages later. Counts come from the whole task, never from the loaded page.
      */
-    val operatorFilters: List<WeighingFilterChipUiRow> = emptyList(),
+    val operatorFilters: List<WeighingTaskOperatorFilterUiRow> = emptyList(),
     /** Selected operator id, or null for every operator. */
     val selectedOperatorId: String? = null,
     /** One flat, uniformly paginated list of buckets, already narrowed by the chip. */
@@ -278,6 +296,42 @@ fun WeighingTaskDetailScreen(
                     )
                 }
             }
+            // Operator is a FILTER, not a section. One flat list pages uniformly however many
+            // operators the task has; a grouped list cannot, because a keyset page splits mid-group.
+            //
+            // The chip names its unit. It counts SHED BUCKETS while the cards below it talk about
+            // animals captured, so an unlabelled "Dinakar 2" would put two different units next to
+            // each other with nothing to tell them apart.
+            if (state.operatorFilters.size > 1) {
+                item(key = "operator-filters") {
+                    WeighingFilterChips(
+                        options = state.operatorFilters.map { filter ->
+                            WeighingFilterChipUiRow(
+                                id = filter.id,
+                                label = stringResource(
+                                    R.string.weighing_task_operator_chip_fmt,
+                                    filter.operatorLabel,
+                                    shedNoun(filter.shedCount),
+                                ),
+                                selected = filter.selected,
+                            )
+                        },
+                        allLabel = stringResource(R.string.weighing_task_all_operators),
+                        onSelect = onSelectOperator,
+                    )
+                }
+            }
+            items(
+                count = state.sheds.size,
+                key = { index -> "shed-${state.sheds[index].campaignShedId}" },
+            ) { index ->
+                val shed = state.sheds[index]
+                LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }
+                TaskShedCard(row = shed, onOpen = { onOpenShed(shed) })
+            }
+            // Secondary actions sit BELOW the work. Each of these is a disabled-with-reason ghost
+            // about some OTHER date or some other version of this task; above the list they asked
+            // the reader to consider repeating a task before they had seen what is in it.
             if (state.isClosed || state.isCompleted) {
                 item(key = "task-reopen") {
                     TaskGhostAction(
@@ -302,25 +356,6 @@ fun WeighingTaskDetailScreen(
                         stringResource(R.string.weighing_task_repeat_blocked)
                     },
                 )
-            }
-            // Operator is a FILTER, not a section. One flat list pages uniformly however many
-            // operators the task has; a grouped list cannot, because a keyset page splits mid-group.
-            if (state.operatorFilters.size > 1) {
-                item(key = "operator-filters") {
-                    WeighingFilterChips(
-                        options = state.operatorFilters,
-                        allLabel = stringResource(R.string.weighing_task_all_operators),
-                        onSelect = onSelectOperator,
-                    )
-                }
-            }
-            items(
-                count = state.sheds.size,
-                key = { index -> "shed-${state.sheds[index].campaignShedId}" },
-            ) { index ->
-                val shed = state.sheds[index]
-                LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }
-                TaskShedCard(row = shed, onOpen = { onOpenShed(shed) })
             }
         }
     }
@@ -403,6 +438,18 @@ private fun TaskShedCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        // WHO this shed belongs to, on the card itself. The assignment is the reason the task
+        // exists, so a planner who just split four sheds between two people must be able to read
+        // the split off the list -- not recover it by tapping a chip and watching the list shrink.
+        if (row.operatorLabel.isNotBlank()) {
+            Text(
+                text = stringResource(R.string.weighing_task_shed_operator_fmt, row.operatorLabel),
+                color = MeshaColors.BrandD,
+                style = MeshaType.cardSubtitle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Text(
             text = row.captureSummary,
             color = MeshaColors.Muted,
