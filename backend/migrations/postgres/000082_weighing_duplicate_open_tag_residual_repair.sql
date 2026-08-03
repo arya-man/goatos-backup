@@ -94,6 +94,50 @@
 -- on the first slice. A hard slice ceiling makes the loop non-infinite by
 -- construction.
 --
+-- TWO GAPS IN THAT CONTRACT, CLOSED HERE BEFORE THIS EVER RAN ANYWHERE.
+--
+-- (1) The timeouts were armed only INSIDE the loop, so the one statement that
+-- reads the whole observations table -- the candidate scan -- was the single
+-- statement in this migration running with the session's inherited (in
+-- practice unlimited) budget. On a large table that is an unbounded scan
+-- holding a deploy open with no ceiling and no way to fail fast, which is
+-- exactly the shape a migration must never have. The timeouts are now armed
+-- before the scan as well, with a budget stated for the scan specifically:
+-- large enough that an honest scan finishes, bounded enough that a pathological
+-- one fails instead of hanging.
+--
+-- (2) The candidate queue was a TEMP table, so an operator killing the run --
+-- or the new scan timeout firing -- threw the completed scan away and the next
+-- attempt paid it again from zero. On a table big enough for (1) to matter,
+-- that is a repair that can never finish under a maintenance window: every
+-- attempt spends its budget re-deriving work the previous attempt had already
+-- derived. The queue is now an ordinary table committed as soon as it is
+-- populated, and the loop pops from it transactionally, so a killed run resumes
+-- against the groups that are genuinely still queued and never rescans. It is
+-- dropped when the queue drains, so a finished (or never-damaged) database is
+-- left with no residue and a re-run scans once and exits.
+--
+-- The queue is a work list, not a decision: it is derived from live rows and
+-- every group it names is re-planned against live rows in the slice that
+-- repairs it, so losing it, truncating it, or resuming from it can only change
+-- how much work is REDONE, never what the repair concludes. That is what keeps
+-- (2) compatible with 000081's rule that progress bookkeeping is observability
+-- only.
+--
+-- LOCKED, NOT JUST SNAPSHOTTED: the slice plan is built from live rows and then
+-- used to write those same rows, so between the two an operator rescanning that
+-- animal could move accepted_at/submitted_at underneath it -- and phase 1
+-- writes submitted_at = the accepted_at it PLANNED on, so the repair would
+-- stamp a fresh capture with a stale value and retire evidence that had just
+-- become the current round. The slice therefore takes a row lock on every
+-- member of the popped groups BEFORE planning, in observation_id order (a
+-- stable order, so two slices can never lock each other in opposite directions)
+-- and holds it to the slice's COMMIT. A concurrent rescan then either lands
+-- before the lock -- and is read by the plan as the live truth it is -- or
+-- waits behind it and applies to a repaired group. lock_timeout bounds that
+-- wait: losing the race aborts the run rather than blocking the deploy, and the
+-- committed queue makes the retry cheap.
+--
 -- NO TRANSACTION is required: the batching procedure COMMITs between slices,
 -- which is only legal when the migration runner is not already holding an
 -- explicit transaction open around it.
@@ -119,66 +163,87 @@ DECLARE
   changed bigint := 0;
   slice_groups bigint;
   slice_changed bigint;
+  slice_total bigint;
 BEGIN
   INSERT INTO public.weighing_repair_batch_progress (repair_key)
   VALUES ('000082_weighing_duplicate_open_tag_residual_repair')
   ON CONFLICT (repair_key) DO NOTHING;
 
-  -- CANDIDATE SET, COMPUTED ONCE. The damaged groups are a closed historical
-  -- set -- the live write path can no longer create one (000073's index plus
-  -- the corrected submit path), and this procedure is the only thing repairing
-  -- them -- so the ranking scan is paid once here instead of once per slice.
-  -- Losing this table to a crash is harmless: it is rebuilt from live data on
-  -- the next run, and groups already repaired no longer qualify.
-  CREATE TEMP TABLE weighing_dup_candidates AS
-  WITH fingerprinted AS (
-    -- 000070's signature: submitted_at exactly equals this observation's own
-    -- latest capture-acceptance audit timestamp.
-    SELECT wo.observation_id
-    FROM public.weighing_observations wo
-    JOIN LATERAL (
-      SELECT max(a.created_at) AS last_accepted_at
-      FROM public.audit_log a
-      WHERE a.resource_type = 'weighing_observation'
-        AND a.action = 'weighing.observation_accepted'
-        AND a.resource_id = wo.observation_id
-    ) evidence ON TRUE
-    WHERE wo.campaign_shed_id IS NOT NULL
-      AND wo.submitted_at IS NOT NULL
-      AND wo.submitted_at = evidence.last_accepted_at
-  ),
-  -- projection-review: membership=weighing_observations rows of a duplicate open-tag group, ranked within their own group; group_key=(tenant_id, campaign_shed_id, tag_key), byte-identical to weighing_observations_one_open_tag_uidx's grain so the repair partitions exactly as the constraint it is restoring; join_cardinality=the evidence LATERAL is a scalar per observation (0..1) and adds no rows, so the count per group is the true row count; pagination=BATCHED, the candidate set is drained in committed slices rather than paged for display; scope=tenant_id, carried on every row and in the partition key
-  members AS (
-    SELECT wo.tenant_id,
-           wo.campaign_shed_id,
-           lower(btrim(wo.scanned_identifier)) AS tag_key,
-           wo.accepted_at,
-           wo.submitted_at,
-           (f.observation_id IS NOT NULL) AS is_fingerprinted,
-           row_number() OVER (
-             PARTITION BY wo.tenant_id, wo.campaign_shed_id, lower(btrim(wo.scanned_identifier))
-             ORDER BY wo.accepted_at DESC, wo.observation_id DESC
-           ) AS rn
-    FROM public.weighing_observations wo
-    LEFT JOIN fingerprinted f ON f.observation_id = wo.observation_id
-    WHERE wo.campaign_shed_id IS NOT NULL
-      AND btrim(wo.scanned_identifier) <> ''
-  )
-  SELECT tenant_id, campaign_shed_id, tag_key
-  FROM members
-  GROUP BY tenant_id, campaign_shed_id, tag_key
-  HAVING count(*) > 1
-     AND (
-          -- the exact 000074-skipped shape: the tie-break winner is the
-          -- mis-stamped row while a sibling holds the key open.
-          (bool_or(rn = 1 AND is_fingerprinted) AND bool_or(rn > 1 AND submitted_at IS NULL))
-          -- or a retired loser still carries 000070's fabricated capture
-          -- timestamp instead of the 000073 "superseded" marker.
-       OR bool_or(rn > 1 AND is_fingerprinted AND submitted_at IS DISTINCT FROM accepted_at)
-     );
+  -- Armed HERE, not only inside the loop: the candidate scan below is the one
+  -- statement that reads the whole table, and it used to be the only statement
+  -- in this migration with no ceiling on how long it could run or how long it
+  -- could wait for a lock. The scan budget is deliberately larger than a
+  -- slice's -- it is a single full pass, not a bounded write -- but it is a
+  -- budget, so a pathological plan fails the migration fast instead of holding
+  -- a deploy open indefinitely.
+  PERFORM set_config('lock_timeout', '2s', true);
+  PERFORM set_config('statement_timeout', '15min', true);
+
+  -- CANDIDATE SET, COMPUTED ONCE AND COMMITTED. The damaged groups are a closed
+  -- historical set -- the live write path can no longer create one (000073's
+  -- index plus the corrected submit path), and this procedure is the only thing
+  -- repairing them -- so the ranking scan is paid once here instead of once per
+  -- slice, and once per REPAIR rather than once per attempt: the queue is an
+  -- ordinary table, so an aborted run leaves the still-unrepaired groups behind
+  -- to resume from instead of forcing a full rescan. Existing means a prior
+  -- attempt was interrupted mid-drain; its contents are re-planned against live
+  -- rows before anything is written, so resuming cannot act on stale facts.
+  IF to_regclass('public.weighing_dup_candidates_000082') IS NULL THEN
+    CREATE TABLE public.weighing_dup_candidates_000082 AS
+    WITH fingerprinted AS (
+      -- 000070's signature: submitted_at exactly equals this observation's own
+      -- latest capture-acceptance audit timestamp.
+      SELECT wo.observation_id
+      FROM public.weighing_observations wo
+      JOIN LATERAL (
+        SELECT max(a.created_at) AS last_accepted_at
+        FROM public.audit_log a
+        WHERE a.resource_type = 'weighing_observation'
+          AND a.action = 'weighing.observation_accepted'
+          AND a.resource_id = wo.observation_id
+      ) evidence ON TRUE
+      WHERE wo.campaign_shed_id IS NOT NULL
+        AND wo.submitted_at IS NOT NULL
+        AND wo.submitted_at = evidence.last_accepted_at
+    ),
+    -- projection-review: membership=weighing_observations rows of a duplicate open-tag group, ranked within their own group; group_key=(tenant_id, campaign_shed_id, tag_key), byte-identical to weighing_observations_one_open_tag_uidx's grain so the repair partitions exactly as the constraint it is restoring; join_cardinality=the evidence LATERAL is a scalar per observation (0..1) and adds no rows, so the count per group is the true row count; pagination=BATCHED, the candidate set is drained in committed slices rather than paged for display; scope=tenant_id, carried on every row and in the partition key
+    members AS (
+      SELECT wo.tenant_id,
+             wo.campaign_shed_id,
+             lower(btrim(wo.scanned_identifier)) AS tag_key,
+             wo.accepted_at,
+             wo.submitted_at,
+             (f.observation_id IS NOT NULL) AS is_fingerprinted,
+             row_number() OVER (
+               PARTITION BY wo.tenant_id, wo.campaign_shed_id, lower(btrim(wo.scanned_identifier))
+               ORDER BY wo.accepted_at DESC, wo.observation_id DESC
+             ) AS rn
+      FROM public.weighing_observations wo
+      LEFT JOIN fingerprinted f ON f.observation_id = wo.observation_id
+      WHERE wo.campaign_shed_id IS NOT NULL
+        AND btrim(wo.scanned_identifier) <> ''
+    )
+    SELECT tenant_id, campaign_shed_id, tag_key
+    FROM members
+    GROUP BY tenant_id, campaign_shed_id, tag_key
+    HAVING count(*) > 1
+       AND (
+            -- the exact 000074-skipped shape: the tie-break winner is the
+            -- mis-stamped row while a sibling holds the key open.
+            (bool_or(rn = 1 AND is_fingerprinted) AND bool_or(rn > 1 AND submitted_at IS NULL))
+            -- or a retired loser still carries 000070's fabricated capture
+            -- timestamp instead of the 000073 "superseded" marker.
+         OR bool_or(rn > 1 AND is_fingerprinted AND submitted_at IS DISTINCT FROM accepted_at)
+       );
+    -- Make the scan durable before a single group is repaired. Without this the
+    -- work list would live and die with the transaction that built it, which is
+    -- the whole reason a killed run used to start over.
+    COMMIT;
+  END IF;
 
   LOOP
     slice_no := slice_no + 1;
+    slice_total := 0;
     IF slice_no > max_slices THEN
       RAISE EXCEPTION 'weighing duplicate-open-tag repair exceeded % slices; predicate is not draining', max_slices;
     END IF;
@@ -187,20 +252,45 @@ BEGIN
     PERFORM set_config('lock_timeout', '2s', true);
     PERFORM set_config('statement_timeout', '30s', true);
 
-    -- Pop one slice of candidate groups and, in the SAME read, build the plan
-    -- from LIVE rows. Popping (DELETE ... RETURNING) is what bounds the loop:
-    -- the candidate table strictly shrinks, so the loop cannot spin. Planning
-    -- both phases in one materialised read guarantees phase 1 and phase 2 act
-    -- on the same group set and the same winner choice.
-    CREATE TEMP TABLE weighing_dup_slice_plan ON COMMIT DROP AS
+    -- Pop one slice of candidate groups. Popping (DELETE ... RETURNING) is what
+    -- bounds the loop: the queue strictly shrinks, so the loop cannot spin. The
+    -- pop and the repair commit together, so an abort returns the groups to the
+    -- queue rather than dropping them unrepaired.
+    CREATE TEMP TABLE weighing_dup_slice_groups ON COMMIT DROP AS
     WITH popped AS (
-      DELETE FROM weighing_dup_candidates c
+      DELETE FROM public.weighing_dup_candidates_000082 c
       WHERE c.ctid IN (
-        SELECT ctid FROM weighing_dup_candidates
+        SELECT ctid FROM public.weighing_dup_candidates_000082
         ORDER BY tenant_id, campaign_shed_id, tag_key
         LIMIT batch_size
       )
       RETURNING c.tenant_id, c.campaign_shed_id, c.tag_key
+    )
+    SELECT tenant_id, campaign_shed_id, tag_key FROM popped;
+
+    -- LOCK BEFORE PLANNING. Everything below reads these rows and then writes
+    -- them, and phase 1 writes a value (accepted_at) it read here -- so an
+    -- operator rescan committing in between would be overwritten with the
+    -- pre-rescan capture time and its fresh evidence retired. Taking the lock
+    -- first turns that race into an ordering: a rescan is either already
+    -- visible to the plan or waits until the slice commits. observation_id
+    -- order keeps two slices from deadlocking each other; lock_timeout keeps a
+    -- lost race from blocking the deploy, and the committed queue above makes
+    -- the resulting retry cheap.
+    PERFORM 1
+    FROM public.weighing_observations wo
+    JOIN weighing_dup_slice_groups g
+      ON g.tenant_id = wo.tenant_id
+     AND g.campaign_shed_id = wo.campaign_shed_id
+     AND g.tag_key = lower(btrim(wo.scanned_identifier))
+    ORDER BY wo.observation_id
+    FOR UPDATE OF wo;
+
+    -- Plan both phases in ONE materialised read of the now-locked rows, so
+    -- phase 1 and phase 2 act on the same group set and the same winner choice.
+    CREATE TEMP TABLE weighing_dup_slice_plan ON COMMIT DROP AS
+    WITH popped AS (
+      SELECT tenant_id, campaign_shed_id, tag_key FROM weighing_dup_slice_groups
     ),
     fingerprinted AS (
       SELECT wo.observation_id
@@ -271,6 +361,7 @@ BEGIN
       AND wo.submitted_at IS DISTINCT FROM p.accepted_at;
     GET DIAGNOSTICS slice_changed = ROW_COUNT;
     changed := changed + slice_changed;
+    slice_total := slice_total + slice_changed;
 
     -- PHASE 2: reopen the rightful winner, now that the key is free.
     UPDATE public.weighing_observations wo
@@ -282,16 +373,21 @@ BEGIN
       AND wo.submitted_at IS NOT NULL;
     GET DIAGNOSTICS slice_changed = ROW_COUNT;
     changed := changed + slice_changed;
+    slice_total := slice_total + slice_changed;
 
     -- Loop control is the candidate table draining, NOT the number of rows a
     -- slice happened to change: a popped group that no longer qualifies (repaired
     -- out of band between the scan and now) legitimately plans zero rows, and
     -- exiting on that would abandon the candidates still queued behind it.
-    SELECT count(*) INTO slice_groups FROM weighing_dup_candidates;
+    SELECT count(*) INTO slice_groups FROM public.weighing_dup_candidates_000082;
 
+    -- Accumulated on the ROW, not assigned from this call's counter: now that a
+    -- killed run resumes, the counter restarts at zero while the repair does
+    -- not, and assigning it would report the resumed attempt's rows as the
+    -- whole repair's.
     UPDATE public.weighing_repair_batch_progress
     SET batches_run = batches_run + 1,
-        rows_repaired = changed,
+        rows_repaired = rows_repaired + slice_total,
         last_batch_at = now(),
         completed_at = CASE WHEN slice_groups = 0 THEN now() ELSE NULL END
     WHERE repair_key = '000082_weighing_duplicate_open_tag_residual_repair';
@@ -301,7 +397,10 @@ BEGIN
     EXIT WHEN slice_groups = 0;
   END LOOP;
 
-  DROP TABLE IF EXISTS weighing_dup_candidates;
+  -- The queue exists only to survive an aborted run. Once it is drained the
+  -- repair is done, and leaving an empty work list on a live schema would only
+  -- invite a future reader to mistake it for state something depends on.
+  DROP TABLE IF EXISTS public.weighing_dup_candidates_000082;
 END;
 $$;
 
