@@ -228,8 +228,11 @@ func TestSubmitIndividualScopeIncompleteRejectRejectsGenuinelyOmittedAnimalsNotC
 	if !errors.Is(err, ports.ErrScopeIncomplete) {
 		t.Fatalf("submit with genuinely omitted animal err=%v, want ErrScopeIncomplete", err)
 	}
-	// The scope must remain in 'pending' state after rejection.
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	// The scope must NOT have completed on a rejected submit. It reads
+	// 'in_progress' rather than 'pending' because two captures already landed in
+	// it -- the point of this assertion is that the failed submit did not advance
+	// it, not that capture leaves it untouched.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusInProgress)
 
 	// Case 2: Submit with BOTH identifiers — one in lowercase matching the captured value,
 	// and one in the SAME case as was captured (uppercase). Both should match case-insensitively.
