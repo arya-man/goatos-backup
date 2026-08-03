@@ -132,10 +132,22 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppTasks", Method: "GET", Pattern: "/app/tasks", Permissions: []string{TaskRead}},
 	{OperationID: "getAppTask", Method: "GET", Pattern: "/app/tasks/{task_id}", Permissions: []string{TaskRead}},
 	{OperationID: "getAppSOPVersion", Method: "GET", Pattern: "/app/sop-versions/{sop_version_id}", Permissions: []string{TaskRead}},
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", Permissions: []string{TaskExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", Permissions: []string{TaskExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", Permissions: []string{TaskExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", Permissions: []string{TaskExecute}},
+	// EITHER/OR, not task.execute alone. Capturing proof is not a separate act from doing the
+	// work: every write that MANDATES a video is unsubmittable until the proof handshake
+	// completes. Gating these four on task.execute alone silently broke every executor that
+	// holds a MODULE execute grant instead of the operator's general one -- a Growth Director
+	// holds weighing.execute and is authorized for appRecordWeighingShedObservation, but
+	// POST /app/proofs/uploads answered 403 permission_denied on every attempt, so no proof
+	// ever reached SYNCED and lump-sum Submit stayed permanently disabled (phone-QA 2026-08-03).
+	//
+	// Widening growth_director to task.execute would have been the wrong lever: task.execute is
+	// the operator's GENERAL task-execution grant and carries vaccination task execution with
+	// it, which this role must not have. So the ROUTE becomes either/or and the role keeps
+	// exactly the one module it owns.
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute}},
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},

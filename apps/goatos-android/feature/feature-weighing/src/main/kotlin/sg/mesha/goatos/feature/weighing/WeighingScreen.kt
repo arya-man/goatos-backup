@@ -143,6 +143,29 @@ data class WeighingUiState(
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
             animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
+
+    /**
+     * DISABLED-WITH-REASON for the lump-sum Submit.
+     *
+     * A greyed-out Submit with no stated cause is a dead end for an operator standing in a shed:
+     * during the 2026-08-03 phone-QA blocker the video re-uploaded for minutes while the screen
+     * said only "uploading" and Submit stayed grey with no explanation. This names the one
+     * remaining blocker whenever the weight and the count are already valid, so proof is the
+     * ONLY thing left. Null when Submit is enabled, when this is not lump-sum, or when the
+     * operator still has numbers to enter (the empty fields speak for themselves).
+     */
+    val shedProofBlockReasonRes: Int? get() {
+        if (!isShedPartition || canRecordShedPartition) return null
+        val numbersReady = weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
+            animalCountInput.toIntOrNull()?.let { it > 0 } == true
+        if (!numbersReady) return null
+        if (shedProofs.any { it.status == ProofUploadStatus.SYNCED }) return null
+        return when {
+            shedProofs.isEmpty() -> R.string.weighing_submit_blocked_no_video
+            shedProofs.any { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_submit_blocked_failed
+            else -> R.string.weighing_submit_blocked_uploading
+        }
+    }
 }
 
 data class WeighingProofUiRow(
@@ -1040,20 +1063,32 @@ private fun WeighingExecutionScanScreen(
             )
         },
         bottomBar = {
-            ActionButton(
-                text = if (state.isShedPartition) {
-                    stringResource(R.string.weighing_submit_lump_sum)
-                } else {
-                    stringResource(R.string.weighing_submit)
-                },
-                enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
-                onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MeshaColors.PageBg)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                primary = true,
-            )
+            Column(modifier = Modifier.background(MeshaColors.PageBg)) {
+                state.shedProofBlockReasonRes?.let { reasonRes ->
+                    Text(
+                        text = stringResource(reasonRes),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.cardSubtitle,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 10.dp),
+                    )
+                }
+                ActionButton(
+                    text = if (state.isShedPartition) {
+                        stringResource(R.string.weighing_submit_lump_sum)
+                    } else {
+                        stringResource(R.string.weighing_submit)
+                    },
+                    enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
+                    onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    primary = true,
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -1468,16 +1503,30 @@ private fun WeighingLumpSumCapture(
                 style = MeshaType.bodyStrong,
             )
         }
+        // Truth, not a ratio. `saved` counts videos actually durable server-side (SYNCED);
+        // everything else is still in flight. There is no denominator because free-flow weighing
+        // has no required video count -- one saved video is enough.
+        val savedVideos = state.shedProofs.count { it.status == ProofUploadStatus.SYNCED }
+        val inFlightVideos = state.shedProofs.size - savedVideos
         Text(
-            text = stringResource(
-                R.string.weighing_videos_uploaded_fmt,
-                state.shedProofs.size,
-                SHED_PROOF_VIDEO_LIMIT,
-            ),
-            color = if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) MeshaColors.Warn else MeshaColors.Muted,
+            text = when {
+                savedVideos > 0 && inFlightVideos > 0 ->
+                    stringResource(R.string.weighing_videos_saved_and_uploading_fmt, savedVideos, inFlightVideos)
+                savedVideos > 0 -> stringResource(R.string.weighing_videos_saved_fmt, savedVideos)
+                else -> stringResource(R.string.weighing_videos_uploading_only_fmt, inFlightVideos)
+            },
+            color = if (savedVideos > 0) MeshaColors.Ok else MeshaColors.Muted,
             style = MeshaType.bodyStrong,
             modifier = Modifier.fillMaxWidth(),
         )
+        if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) {
+            Text(
+                text = stringResource(R.string.weighing_videos_limit_reached),
+                color = MeshaColors.Warn,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         state.shedProofs.forEachIndexed { index, proof ->
             val proofColor = when (proof.status) {
                 ProofUploadStatus.SYNCED -> MeshaColors.Ok

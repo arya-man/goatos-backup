@@ -86,7 +86,13 @@
     <string name="weighing_field_total_weight">మొత్తం బరువు</string>
     <string name="weighing_field_animal_count">జంతువుల సంఖ్య</string>
     <string name="weighing_average_per_animal_fmt">ఒక్కో జంతువుకు సగటు %1$s కేజీ</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d వీడియోలు అప్‌లోడ్ అయ్యాయి</string>
+    <string name="weighing_videos_saved_fmt">%1$d సేవ్ అయ్యాయి</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d సేవ్ అయ్యాయి · %2$d ఇంకా అప్‌లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d అప్‌లోడ్ అవుతోంది</string>
+    <string name="weighing_videos_limit_reached">గరిష్ఠంగా 5 వీడియోలు రికార్డ్ చేయబడ్డాయి</string>
+    <string name="weighing_submit_blocked_uploading">వీడియో సేవ్ అయ్యే వరకు వేచి ఉంది. ఒక వీడియో సేవ్ అయిన వెంటనే మీరు సమర్పించవచ్చు.</string>
+    <string name="weighing_submit_blocked_failed">వీడియో సేవ్ కాలేదు. పైన ఉన్న వీడియోపై Replace నొక్కి మళ్లీ రికార్డ్ చేయండి.</string>
+    <string name="weighing_submit_blocked_no_video">సమర్పించే ముందు గ్రూప్ వీడియో రికార్డ్ చేయండి.</string>
     <string name="weighing_video_index_fmt">వీడియో %1$d</string>
     <string name="weighing_replace">మార్చండి</string>
     <string name="weighing_remove">తీసివేయండి</string>

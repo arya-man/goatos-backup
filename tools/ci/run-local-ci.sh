@@ -216,6 +216,7 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard

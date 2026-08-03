@@ -86,7 +86,13 @@
     <string name="weighing_field_total_weight">कुल वज़न</string>
     <string name="weighing_field_animal_count">पशु संख्या</string>
     <string name="weighing_average_per_animal_fmt">औसत %1$s किग्रा प्रति पशु</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d वीडियो अपलोड हुए</string>
+    <string name="weighing_videos_saved_fmt">%1$d सहेजे गए</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d सहेजे गए · %2$d अभी अपलोड हो रहे हैं</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d अपलोड हो रहा है</string>
+    <string name="weighing_videos_limit_reached">अधिकतम 5 वीडियो रिकॉर्ड किए गए</string>
+    <string name="weighing_submit_blocked_uploading">वीडियो सहेजे जाने की प्रतीक्षा है। एक वीडियो सहेजते ही आप जमा कर सकते हैं।</string>
+    <string name="weighing_submit_blocked_failed">वीडियो सहेजा नहीं जा सका। ऊपर वीडियो पर Replace दबाकर फिर से रिकॉर्ड करें।</string>
+    <string name="weighing_submit_blocked_no_video">जमा करने से पहले एक समूह वीडियो रिकॉर्ड करें।</string>
     <string name="weighing_video_index_fmt">वीडियो %1$d</string>
     <string name="weighing_replace">बदलें</string>
     <string name="weighing_remove">हटाएँ</string>
