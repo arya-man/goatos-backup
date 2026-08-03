@@ -1058,15 +1058,20 @@ LIMIT $8`,
 	return out, nil
 }
 
-func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", cursor, observationsCursor, limit, includeRoster)
+func (r *Repository) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, "", observationsCursor, limit)
 }
 
-func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
-	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, cursor, observationsCursor, limit, includeRoster)
+func (r *Repository) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, observationsCursor string, limit int) (domain.RosterPage, error) {
+	return r.listScopeRoster(ctx, tenantID, campaignID, campaignShedID, operatorUserID, observationsCursor, limit)
 }
 
-func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursorValue string, limit int, includeRoster bool) (domain.RosterPage, error) {
+// listScopeRoster is the free-flow scan/observation history read for one bucket.
+// There is no expected roster to read here -- identity is scanned_identifier
+// only. Items/NextCursor on the returned domain.RosterPage are always empty:
+// they are kept ONLY for wire compatibility with clients still reading those
+// keys, and nothing populates them.
+func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, observationsCursorValue string, limit int) (domain.RosterPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -1075,16 +1080,6 @@ func (r *Repository) listScopeRoster(ctx context.Context, tenantID, campaignID, 
 	if limit > 100 {
 		limit = 100
 	}
-	cur, err := decodeRosterCursor(cursor)
-	if err != nil {
-		return domain.RosterPage{}, ports.ErrInvalidArgument
-	}
-	// FREE-FLOW: there is no expected roster to read here. This surface serves the
-	// scan/observation history of the bucket ONLY -- never a goat/herd roster, and
-	// includeRoster / cur / cursor are retained solely as no-op cursor plumbing for
-	// callers that still pass them.
-	_ = cur
-	_ = includeRoster
 	operatorFilter := strings.TrimSpace(operatorUserID)
 	out := make([]domain.ExpectedAnimal, 0)
 	nextCursor := ""
@@ -3574,11 +3569,6 @@ type campaignCursor struct {
 	CampaignID      string    `json:"campaign_id"`
 }
 
-type rosterCursor struct {
-	CreatedAt time.Time `json:"created_at"`
-	AnimalID  string    `json:"animal_id"`
-}
-
 func encodeCampaignCursor(cursor campaignCursor) string {
 	raw, _ := json.Marshal(cursor)
 	return base64.RawURLEncoding.EncodeToString(raw)
@@ -3598,29 +3588,6 @@ func decodeCampaignCursor(value string) (campaignCursor, error) {
 	}
 	if cursor.PeriodStartDate == "" || cursor.CreatedAt.IsZero() || cursor.CampaignID == "" {
 		return campaignCursor{}, ports.ErrInvalidArgument
-	}
-	return cursor, nil
-}
-
-func encodeRosterCursor(cursor rosterCursor) string {
-	raw, _ := json.Marshal(cursor)
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
-
-func decodeRosterCursor(value string) (rosterCursor, error) {
-	if strings.TrimSpace(value) == "" {
-		return rosterCursor{}, nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return rosterCursor{}, err
-	}
-	var cursor rosterCursor
-	if err := json.Unmarshal(raw, &cursor); err != nil {
-		return rosterCursor{}, err
-	}
-	if cursor.CreatedAt.IsZero() || cursor.AnimalID == "" {
-		return rosterCursor{}, ports.ErrInvalidArgument
 	}
 	return cursor, nil
 }

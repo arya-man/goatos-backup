@@ -374,7 +374,7 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 		t.Fatalf("seed free-flow observation: %v", err)
 	}
 
-	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", "", 50, true)
+	page, err := repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOtherOp, "", 50)
 	if err != nil {
 		t.Fatalf("wrong operator roster read returned hard error: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestListScopeRosterForOperatorRejectsUnassignedShedVisibility(t *testing.T)
 	if len(page.Observations) != 0 {
 		t.Fatalf("wrong operator observations=%+v, want no free-flow observation rows", page.Observations)
 	}
-	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", "", 50, true)
+	page, err = repo.ListScopeRosterForOperator(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "", 50)
 	if err != nil {
 		t.Fatalf("assigned operator roster read: %v", err)
 	}

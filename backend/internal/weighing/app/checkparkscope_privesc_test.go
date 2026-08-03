@@ -235,11 +235,11 @@ func (r *parkScopeCheckRepo) PlannerParkBuckets(ctx context.Context, tenantID, p
 	return domain.PlannerParkBuckets{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, cursor, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+func (r *parkScopeCheckRepo) ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID, observationsCursor string, limit int) (domain.RosterPage, error) {
 	return domain.RosterPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID, cursor, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+func (r *parkScopeCheckRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID, observationsCursor string, limit int) (domain.RosterPage, error) {
 	return domain.RosterPage{}, nil
 }
 

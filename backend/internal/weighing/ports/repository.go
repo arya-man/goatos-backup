@@ -296,8 +296,8 @@ type Repository interface {
 	// ErrNotFound when no arm of access can admit the campaign at all, matching what the
 	// preceding park check used to answer, so existence is still not leaked.
 	ListCampaignSheds(ctx context.Context, tenantID, campaignID, cursor string, limit int, access CampaignAccess) (domain.CampaignShedPage, error)
-	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
-	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
+	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error)
+	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, observationsCursor string, limit int) (domain.RosterPage, error)
 	// cursor/limit page the shed's INDIVIDUAL observations on (accepted_at,
 	// observation_id). The lump-sum row is a single latest read and is not paged.
 	//

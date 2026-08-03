@@ -536,7 +536,7 @@ func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...str
 	return parks, false
 }
 
-func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingExecute}, false) {
 		return domain.RosterPage{}, ports.ErrForbidden
 	}
@@ -557,7 +557,7 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 	// Holding WeighingMonitor does not open someone else's scan roster: overseeing other people's
 	// work is a READ-ONLY surface of its own (WeighingOverseeOperators), and reviewing their
 	// captured evidence is GetLeadershipShedVideos. Neither route goes through here.
-	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(cursor), strings.TrimSpace(observationsCursor), limit, includeRoster)
+	return s.repo.ListScopeRosterForOperator(ctx, actor.TenantID, campaignID, campaignShedID, actor.UserID, strings.TrimSpace(observationsCursor), limit)
 }
 
 // ListCampaignSheds pages ONE task's buckets for the task-detail screen.

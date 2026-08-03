@@ -56,10 +56,10 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50, true); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
 	// GetLeadershipShedVideos additionally park-scopes on the campaign's park; a growth
@@ -670,12 +670,19 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
-	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", "", 50, true)
+	// Free-flow: there is no expected roster to serve. RosterPage.Items/NextCursor
+	// stay on the wire for compatibility with older clients, but nothing populates
+	// them, and no observations have been recorded yet at this point in the
+	// scenario -- so both Items and Observations come back empty.
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", 50)
 	if err != nil {
 		t.Fatalf("operator roster read: %v", err)
 	}
-	if len(roster.Items) != 1 || roster.Items[0].AnimalID != animalOne || roster.Items[0].PrimaryIdentifier != "RFID-ONE" {
-		t.Fatalf("roster = %+v, want animal one with RFID", roster.Items)
+	if len(roster.Items) != 0 {
+		t.Fatalf("roster.Items = %+v, want empty (free-flow has no expected roster)", roster.Items)
+	}
+	if len(roster.Observations) != 0 {
+		t.Fatalf("roster.Observations = %+v, want empty (nothing recorded yet)", roster.Observations)
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
@@ -954,11 +961,16 @@ func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.Planne
 func (f fakeRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
 	return domain.PlannerParkBuckets{}, nil
 }
-func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
-	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+
+// ListScopeRoster / ListScopeRosterForOperator return an empty RosterPage,
+// matching production: free-flow has no expected roster, so nothing ever
+// populates Items. The field stays on the wire only for older-client
+// compatibility.
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
 }
-func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
-	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
 }
 func (f fakeRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
@@ -1144,43 +1156,34 @@ func (r *scenarioRepo) PlannerParkBuckets(context.Context, string, string, strin
 	return domain.PlannerParkBuckets{}, nil
 }
 
-func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int, _ bool) (domain.RosterPage, error) {
+// ListScopeRoster is the free-flow scan/observation history read. There is no
+// expected roster to serve -- identity is scanned_identifier only -- so this
+// fake, like production, returns an empty RosterPage.Items/NextCursor. Those
+// fields are kept on the wire only for compatibility with older clients; this
+// fake never populates them, matching the real repository.
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, limit int) (domain.RosterPage, error) {
 	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
-	out := []domain.ExpectedAnimal{}
-	for _, animal := range r.expectedByAnimal {
-		shed := r.shedByLocation[animal.ExpectedLocationID]
-		if shed.CampaignShedID != campaignShedID {
-			continue
-		}
-		switch animal.AnimalID {
-		case animalOne:
-			animal.DisplayAnimalID = "KID-A-001"
-			animal.PrimaryIdentifier = "RFID-ONE"
-		case animalTwo:
-			animal.DisplayAnimalID = "KID-B-001"
-			animal.PrimaryIdentifier = "RFID-TWO"
-		}
-		animal.CampaignShedID = campaignShedID
-		animal.Seq = int64(len(out) + 1)
-		out = append(out, animal)
-		if limit > 0 && len(out) >= limit {
+	found := false
+	for _, shed := range r.campaign.Sheds {
+		if shed.CampaignShedID == campaignShedID {
+			found = true
 			break
 		}
 	}
-	if len(out) == 0 {
+	if !found {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
-	return domain.RosterPage{Items: out}, nil
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
 }
-func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, observationsCursor string, limit int) (domain.RosterPage, error) {
 	for _, shed := range r.campaign.Sheds {
 		if shed.CampaignShedID == campaignShedID {
 			if shed.OperatorUserID != operatorUserID {
 				return domain.RosterPage{}, ports.ErrForbidden
 			}
-			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, observationsCursor, limit, includeRoster)
+			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, observationsCursor, limit)
 		}
 	}
 	return domain.RosterPage{}, ports.ErrNotFound

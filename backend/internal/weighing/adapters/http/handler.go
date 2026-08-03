@@ -25,7 +25,7 @@ type Service interface {
 	ListCampaigns(ctx context.Context, actor domain.Actor, scope domain.CampaignListScope, parkID, cursor string, limit int) (domain.CampaignPage, error)
 	PlannerCatalog(ctx context.Context, actor domain.Actor, periodStartDate string) (domain.PlannerCatalog, error)
 	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
-	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
+	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, observationsCursor string, limit int) (domain.RosterPage, error)
 	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
 	GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error)
 	// CampaignCapabilities takes the RESOLVED campaign, not an id: the buttons are park-scoped
@@ -344,10 +344,13 @@ func (h *Handler) ListScopeRoster(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// cursor / include_roster are no longer read: the roster half of this
+	// response is always empty (weighing is free-flow, no expected roster
+	// exists to page or toggle). Accepted-and-ignored so an older client that
+	// still sends them keeps working unchanged.
 	page, err := h.service.ListScopeRoster(
 		r.Context(), actor(r), r.PathValue("campaign_id"), r.PathValue("campaign_shed_id"),
-		r.URL.Query().Get("cursor"), r.URL.Query().Get("observations_cursor"), limit,
-		r.URL.Query().Get("include_roster") != "false",
+		r.URL.Query().Get("observations_cursor"), limit,
 	)
 	h.respond(w, r, map[string]any{
 		"items":                    page.Items,
