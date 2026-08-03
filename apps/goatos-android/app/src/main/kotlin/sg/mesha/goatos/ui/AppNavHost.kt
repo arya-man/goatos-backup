@@ -211,14 +211,6 @@ object Routes {
      */
     const val VACCINATION_ALERTS = "/vaccination/alerts"
 
-    /**
-     * LEGACY alias for [VACCINATION_ALERTS]. It is still hosted, and still a root, because
-     * notifications already delivered to phones name it as their tap target and those rows
-     * are durable -- retiring the route would strand every alert sent before the rename.
-     * It is NOT a shared feed and must never be put in another feature's bar: doing that is
-     * what once gave a weighing operator a permanently-empty tab that 403'd.
-     */
-    const val ALERTS = "/alerts"
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
     const val TIMETABLE = "/timetable"
@@ -1449,8 +1441,11 @@ fun AppNavHost(
                     when (event) {
                         ProfileEvent.PairRfid ->
                             navController.navigate(Routes.RFID) { launchSingleTop = true }
+                        // There is no generic alerts feed to send anyone to: alerts are
+                        // feature-scoped. Profile sits inside the vaccination shell, so its
+                        // notifications action opens the vaccination feed by name.
                         ProfileEvent.ToggleNotifications ->
-                            navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                            navController.navigate(Routes.VACCINATION_ALERTS) { launchSingleTop = true }
                         ProfileEvent.OpenTimetable ->
                             navController.navigate(Routes.TIMETABLE) { launchSingleTop = true }
                         ProfileEvent.OpenLanguage -> showLanguage = true
@@ -1477,14 +1472,6 @@ fun AppNavHost(
         }
 
         composable(Routes.VACCINATION_ALERTS) {
-            val vm: AlertsViewModel = hiltViewModel()
-            val state by vm.state.collectAsStateWithLifecycle()
-            AlertsScreen(state = state, onEvent = vm::onEvent)
-        }
-
-        // Legacy alias, same screen and same ViewModel. Alerts already delivered to a phone
-        // carry "/alerts" as their tap target, so this stays hosted until those have aged out.
-        composable(Routes.ALERTS) {
             val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
@@ -2238,9 +2225,6 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY_ACTION,
     Routes.YOU,
     Routes.VACCINATION_ALERTS,
-    // Legacy alias for the vaccination feed. Still a root: an older notification naming
-    // "/alerts" must open the feed, not fall through to the "unavailable" notice.
-    Routes.ALERTS,
     // Weighing's OWN alerts feed is a BOTTOM-BAR destination, so it is a root exactly like
     // the vaccination feed above it. Registering the composable alone was not enough: a
     // notification or deep link naming a non-root route is treated as unhosted and lands on

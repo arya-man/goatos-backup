@@ -83,6 +83,8 @@ side is running.
 
 - **counts** — no counts notification feed exists on any branch. Waived in the
   guard, logged as ALERTS-001 in the consolidated bug ledger.
-- **vaccination route alias** — `/alerts` is still hosted as a legacy tap target for
-  alerts already delivered to phones; the bar points at `/vaccination/alerts`.
-  Logged as ALERTS-002.
+- **none for vaccination** — `/vaccination/alerts` is the only vaccination feed route.
+  The old generic `/alerts` was DELETED, not aliased: no notification ever named it
+  (the bridge emits only `/vaccination`, `/weighing`, `/counts`, `/feed`), and keeping
+  a generic address alive is what made the feed look shared in the first place.
+  ALERTS-002 is closed.

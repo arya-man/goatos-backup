@@ -1286,7 +1286,7 @@ and the existing guard then enforces it permanently.
 ID: ALERTS-002  
 Priority: P2  
 Title: Vaccination's alerts feed is still on the generic `/alerts` route  
-Status: FIXED — vaccination's bar now points at `/vaccination/alerts`; `/alerts` stays hosted as a legacy alias only  
+Status: FIXED — vaccination's feed is `/vaccination/alerts`; the generic `/alerts` route is DELETED, not aliased  
 Origin: maintainer question 2026-08-03 ("what is /alerts, the process-integrity feed?")  
 Verdict: CONFIRMED (registry + route table read at HEAD)  
 Prior mapping: same rule as ALERTS-001  
@@ -1309,9 +1309,11 @@ E2E / guardrail status: CLOSED with a guard. `module-alerts-tab-guard` now requi
 alerts href to start with its own module's prefix, with an adversarial self-test case for the
 generic-route regression. Backend nav tests updated to the new href; the locale label test now
 matches the alerts item by KEY rather than a hardcoded href, so it cannot pin a route again.  
-Fix applied: `/vaccination/alerts` is the bar's destination and is a hosted bottom-bar root;
-`/alerts` remains hosted (and a root) purely so alerts already delivered to phones still open
-the feed, and it appears in no bar.
+Fix applied: `/vaccination/alerts` is the bar's destination and a hosted bottom-bar root. The
+generic `/alerts` route, its composable and its root entry are DELETED. The alias was checked
+rather than assumed before removal: the notification bridge only ever emits `/vaccination`,
+`/weighing`, `/counts` and `/feed` as tap targets, so no delivered alert named `/alerts` and
+nothing is stranded. Profile's notifications action now names the vaccination feed directly.
 
 ## 7. Dropped / Countered / Out-of-Scope Findings
 
