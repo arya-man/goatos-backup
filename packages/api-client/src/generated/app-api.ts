@@ -5606,7 +5606,29 @@ export interface components {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
             counts?: components["schemas"]["WeighingCampaignCounts"];
+            /** @description OPERATOR-grain roll-up behind the weighing oversight surface: one row per person holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`, because the park chip is that screen's own filter. Served whole (capped at 50), not paged: a roll-up that pages cannot answer "who did what". */
+            operator_summaries?: components["schemas"]["WeighingOperatorSummary"][];
             trace_id?: string;
+        };
+        /** @description What ONE person's weighing work adds up to. GRAIN: one row per operator_user_id over that person's non-canceled shed buckets in scope. Every field is a PLAIN COUNT and none is ever a numerator -- weighing is free-flow, there is no expected-animal roster, so no share or percentage can honestly be rendered from any of these. not_started_count + capturing_count + submitted_count + accepted_count == shed_count exactly (the four are disjoint and exhaustive over the live bucket statuses), so a client may lay them out as a discrete state ladder but must never draw a part-filled fraction. */
+        WeighingOperatorSummary: {
+            /** @description Empty on the "nobody is assigned yet" row, which is real work leadership must see. */
+            operator_user_id: string;
+            /** @description Backend-resolved name. Blank WITH a non-blank operator_user_id is a roster gap, not "unassigned"; clients render the gap and never fall back to the user id. */
+            operator_display_name: string;
+            shed_count: number;
+            /** @description Buckets holding nothing captured yet. */
+            not_started_count: number;
+            /** @description Buckets where weighing is under way but nothing is submitted. */
+            capturing_count: number;
+            /** @description Buckets submitted and waiting for a verifier. */
+            submitted_count: number;
+            /** @description Buckets verified and closed. */
+            accepted_count: number;
+            /** @description Buckets a verifier bounced back. OVERLAPS the four state counts on purpose (a bounced bucket is still in one of them) and is never added to them. */
+            rework_count: number;
+            /** @description How many ANIMALS this person's buckets account for: one per individual observation plus the recorded head count of a standing lump-sum weighing. A plain total of work done; never a numerator. */
+            animals_weighed_count: number;
         };
         /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
         WeighingCampaignCounts: {

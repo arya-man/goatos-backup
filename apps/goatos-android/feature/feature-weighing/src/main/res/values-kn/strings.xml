@@ -316,4 +316,26 @@
     <string name="weighing_shed_reopen_action">ಈ ಶೆಡ್ ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_shed_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_shed_loading_more_records">ಇನ್ನಷ್ಟು ದಾಖಲೆಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ</string>
+
+    <string name="weighing_operators_people_heading">ಯಾರು ತೂಕ ಮಾಡುತ್ತಿದ್ದಾರೆ</string>
+    <string name="weighing_operators_sheds_heading">ಶೆಡ್ ವಾರು</string>
+    <string name="weighing_operators_unassigned">ಇನ್ನೂ ಯಾರಿಗೂ ನೀಡಿಲ್ಲ</string>
+    <string name="weighing_operators_roster_gap">ನೀಡಲಾಗಿದೆ, ಆದರೆ ರೋಸ್ಟರ್‌ನಲ್ಲಿ ಇಲ್ಲ</string>
+    <string name="weighing_operators_sheds_one">%1$d ಶೆಡ್</string>
+    <string name="weighing_operators_sheds_other">%1$d ಶೆಡ್‌ಗಳು</string>
+    <string name="weighing_operators_animals_one">%1$d ಪ್ರಾಣಿ ತೂಕ ಮಾಡಲಾಗಿದೆ</string>
+    <string name="weighing_operators_animals_other">%1$d ಪ್ರಾಣಿಗಳ ತೂಕ ಮಾಡಲಾಗಿದೆ</string>
+    <string name="weighing_operators_nothing_weighed_yet">ಇನ್ನೂ ಏನೂ ತೂಕ ಮಾಡಿಲ್ಲ</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d ಪ್ರಾರಂಭವಾಗಿಲ್ಲ</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d ತೂಕ ನಡೆಯುತ್ತಿದೆ</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_operators_no_people_title">ಈಗ ಯಾರೂ ತೂಕ ಮಾಡುತ್ತಿಲ್ಲ</string>
+    <string name="weighing_shed_state_not_started">ಇನ್ನೂ ಏನೂ ದಾಖಲಾಗಿಲ್ಲ</string>
+    <string name="weighing_shed_state_capturing">ತೂಕ ನಡೆಯುತ್ತಿದೆ</string>
+    <string name="weighing_shed_state_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ, ಪರಿಶೀಲನೆ ಬಾಕಿ</string>
+    <string name="weighing_shed_state_accepted">ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_shed_weighed_by_fmt">%1$s ತೂಕ ಮಾಡಿದರು</string>
+    <string name="weighing_shed_weighed_by_nobody">ಇನ್ನೂ ಯಾರಿಗೂ ನೀಡಿಲ್ಲ</string>
 </resources>
