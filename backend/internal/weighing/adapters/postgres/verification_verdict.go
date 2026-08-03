@@ -107,6 +107,26 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 		// snapshot below, so a redelivery replays this instant verbatim.
 		DecidedAt: decidedAt.In(biztime.DefaultLocation()),
 	}
+
+	// THE CLOSURE LOOP. An approval is not just a stamp on one video: when it is
+	// the LAST outstanding one, the bucket — and then the whole task — is
+	// finished, and until now nothing said so. Settling it HERE, in the verdict's
+	// own transaction, is what makes the completion atomic with the fact that
+	// caused it: there is no window in which the last item reads 'verified' while
+	// the shed still reads unfinished, and no second writer of verification
+	// outcomes is introduced (this is still the one durable-bus consumer).
+	//
+	// Only an approval can finish work. A 'rework' verdict is the opposite — it
+	// hands the bucket BACK to the operator (see markObservationRework) — so it
+	// never reaches this call.
+	if verdict.Status == domain.VerificationStatusVerified {
+		shedClosed, campaignClosed, err := r.settleVerifiedClosure(ctx, tx, verdict, scope)
+		if err != nil {
+			return domain.VerificationVerdictResult{}, err
+		}
+		result.ShedClosed = shedClosed
+		result.CampaignClosed = campaignClosed
+	}
 	if err := r.auditVerdict(ctx, tx, verdict, scope, result); err != nil {
 		return domain.VerificationVerdictResult{}, err
 	}
