@@ -78,18 +78,32 @@ next, not only by whoever wrote the code.
 | W-16 | Submit gate trusts a LOCAL draft for the weight but demands server confirmation for the proof | **P1** | The asymmetry is what lets a shed close over weights the server never received. W-02's fix made it rare; the gate is what allows it at all |
 | W-17 | Event spine has never run | **P1** | All 92 outbox rows were pending. `work_state` has exactly ONE writer (the sweeper), so the kernel's view and the observation tables disagree by design. Kernel worker also starts in SHADOW mode by default |
 | W-18 | Verifier flow unproven end to end | **P1** | Queue renders and approval flips the item, but with no relay the verdict handler never runs. It drains to empty and nothing changes — **reads as "works" and is the opposite**. Approval also never closes a bucket; that is a separate `CloseScope` |
-| W-19 | 12 pre-existing failures in `weighing/adapters/postgres` | **P1** | Broken `seedWeighingObservationFixture`. Gates the multi-task, rework-rescan and reopen tests — i.e. it is masking coverage of exactly the paths the run did not exercise. Package is permanently red, so it cannot distinguish a new regression |
-| W-21 | No "shed is empty" outcome | **P1** | Zero animals is rejected; the only escape is `AbandonScope`, which needs `WeighingMonitor` — leadership only. Day one, an operator at an empty shed must phone a park head |
 | W-22 | ExoPlayer bypasses the telemetry interceptor | **P1** | media3 uses its own HTTP stack. It is the verifier's playback engine, and the next act is video review — a dead player would produce no signal |
 | W-23 | Outbox/upload path has zero logging | **P1** | A stuck upload prints nothing. This is why the original blocker needed DB forensics |
-| W-24 | admin-web weighing is unreachable | **P2** | `/weighing` hard-redirects to `/vaccination`, nav filters it with client literals, backend has no page contract. Un-hiding is a product call |
-| W-25 | Proof delete/overwrite has no actor check | **P2** | Tenant-scoped only. Pre-existing; widened by one role. Mitigated by unguessable UUIDs and FKs on attached proofs |
 | W-26 | Both new guards are trivially evadeable | **P2** | Proof-auth: `parseRoutes` needs `OperationID` FIRST — reorder and it goes green. Only matches `*Execute`. Nav: baseline key is file+rule, so unlimited NEW violations pass in a baselined file |
 | W-27 | admin-web 409 test is a source-text grep | **P2** | Asserts on strings the same commit wrote. `plannerFromCatalog` never executes |
 | W-28 | Task header shows one operator | **P2** | CBE has two |
 | W-29 | "Lumpsum" vs "Lump-sum" | **P3** | Mock says `Lumpsum`, mobile says `Lump-sum`. Mock is UI truth — needs a maintainer call, not a silent edit |
 | W-30 | Only the newest task in a park-week is reachable | **P2** | `DISTINCT ON (park_id)` picks the latest. Lands the day leadership splits a park-week — which is what W-05 enabled |
 | W-31 | Edit sheds after publish | **P3** | Recommended shape: allow ADD, never REMOVE (a bucket may hold captures/proof/verification). W-05 gives a workaround: plan leftovers as a second task |
+
+
+### Closed by the device-E2E batch (verified in repo, 2026-08-03)
+
+- **W-19 — the 12 failures in `weighing/adapters/postgres`.** Fixed: 0 FAIL / 283 PASS
+  with real Postgres containers. The package can distinguish a regression again, and the
+  reopen / rework-rescan / multi-task park-week coverage it was masking now runs.
+- **W-21 — "no empty-shed outcome".** Not a bug. Free-flow cannot know a shed is empty;
+  there is no roster to compare against. See the NOT-A-BUG section.
+- **W-24 — admin-web weighing unreachable.** Resolved by deletion (−1,586 lines).
+  Weighing is mobile-only for now (maintainer ruling).
+- **W-25 — proof delete had no actor check.** Fixed: `DeleteUnattachedProof` is now
+  scoped to `uploaded_by`, and a non-owner gets the same 404 as a missing id so existence
+  is not leaked. NULL-owner rows fail closed.
+- **W-38 — no bucket ever read `in_progress`.** Fixed: the first individual capture moves
+  the bucket `pending -> in_progress` in the capture's own transaction, so the Operators
+  screen's capturing column reports real work. Lump-sum has no in-progress window by
+  construction (capture and completion are one transaction) and a test pins that.
 
 ---
 
