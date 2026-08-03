@@ -8,7 +8,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 today_sql="(now() AT TIME ZONE 'Asia/Kolkata')::date"
-scan_park="${GOATOS_PHONE_QA_SCAN_PARK:-CBE}"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 
@@ -22,11 +21,6 @@ esac
 case "${GOATOS_ENV:-}" in
   local|dev|test) ;;
   *) die "GOATOS_ENV must be local/dev/test for this seed" ;;
-esac
-
-case "$scan_park" in
-  CBE|CPT) ;;
-  *) die "GOATOS_PHONE_QA_SCAN_PARK must be CBE or CPT" ;;
 esac
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "SELECT 1" >/dev/null
@@ -543,50 +537,6 @@ SET location_id = EXCLUDED.location_id,
 COMMIT;
 SQL
 
-if [ "$scan_park" = "CPT" ]; then
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
-BEGIN;
-
-INSERT INTO goat_identifiers (identifier_id, tenant_id, goat_id, identifier_type, identifier_value, normalized_value, scope_key, is_primary_for_goat, status, valid_from, source_system, source_record_id, normalizer_version, confidence)
-VALUES
-  ('91000000-0000-4000-8000-000000002201', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001001', 'temporary_tag', 'QA-CBE-0001', 'QA-CBE-0001', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-1', 'seed-v1', 1.0),
-  ('91000000-0000-4000-8000-000000002202', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001002', 'temporary_tag', 'QA-CBE-0002', 'QA-CBE-0002', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-2', 'seed-v1', 1.0),
-  ('91000000-0000-4000-8000-000000002203', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001003', 'temporary_tag', 'QA-CBE-0003', 'QA-CBE-0003', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-3', 'seed-v1', 1.0),
-  ('91000000-0000-4000-8000-000000002204', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001004', 'temporary_tag', 'QA-CBE-0004', 'QA-CBE-0004', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-4', 'seed-v1', 1.0),
-  ('91000000-0000-4000-8000-000000002205', '${tenant_id}'::uuid, '91000000-0000-4000-8000-000000001005', 'temporary_tag', 'QA-CBE-0005', 'QA-CBE-0005', 'tenant:${tenant_id}', true, 'active', now(), 'phone-qa-throwaway-seed', 'qa-cbe-5', 'seed-v1', 1.0)
-ON CONFLICT (tenant_id, normalized_value) DO UPDATE
-SET goat_id = EXCLUDED.goat_id,
-    identifier_value = EXCLUDED.identifier_value,
-    is_primary_for_goat = EXCLUDED.is_primary_for_goat,
-    status = 'active',
-    updated_at = now();
-
-UPDATE goat_identifiers
-SET goat_id = CASE normalized_value
-      WHEN '901007000504418' THEN '92000000-0000-4000-8000-000000001001'::uuid
-      WHEN '901007000504332' THEN '92000000-0000-4000-8000-000000001002'::uuid
-      WHEN '901007000504407' THEN '92000000-0000-4000-8000-000000001003'::uuid
-      WHEN '901007000504419' THEN '92000000-0000-4000-8000-000000001004'::uuid
-      WHEN '901007000504392' THEN '92000000-0000-4000-8000-000000001005'::uuid
-      ELSE goat_id
-    END,
-    identifier_type = 'animal_identifier_1',
-    is_primary_for_goat = true,
-    status = 'active',
-    updated_at = now()
-WHERE tenant_id = '${tenant_id}'::uuid
-  AND normalized_value IN (
-    '901007000504418',
-    '901007000504332',
-    '901007000504407',
-    '901007000504419',
-    '901007000504392'
-  );
-
-COMMIT;
-SQL
-fi
-
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
 BEGIN;
 
@@ -1045,6 +995,56 @@ WHERE tenant_id = '${tenant_id}'::uuid
   );
 
 COMMIT;
+SQL
+
+# ---------------------------------------------------------------------------
+# Self-check. A previous revision of this script re-pointed the five RAW physical
+# tags onto the CPT goats, which both stripped the CBE goats of their vaccination
+# identity and left each CPT goat holding two primary animal_identifier_1 rows --
+# so the seed died on goat_identifiers_primary_per_goat_unique. Neither the
+# INSERTs' ON CONFLICT (tenant_id, normalized_value) nor psql's exit code caught
+# the identity half of that, so assert the fixture's invariants explicitly.
+# ---------------------------------------------------------------------------
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt <<SQL >/dev/null
+DO \$check\$
+DECLARE
+  bad int;
+BEGIN
+  SELECT count(*) INTO bad
+  FROM goats g
+  WHERE g.tenant_id = '${tenant_id}'::uuid
+    AND g.lifecycle_status = 'alive'
+    AND NOT EXISTS (
+      SELECT 1 FROM goat_identifiers i
+      WHERE i.goat_id = g.goat_id
+        AND i.identifier_type = 'animal_identifier_1'
+        AND i.is_primary_for_goat
+        AND i.status = 'active'
+    );
+  IF bad > 0 THEN
+    RAISE EXCEPTION 'phone-qa seed: % alive goats have no primary animal_identifier_1', bad;
+  END IF;
+
+  SELECT count(*) INTO bad
+  FROM (
+    SELECT 1 FROM user_scope_grants
+    WHERE tenant_id = '${tenant_id}'::uuid
+      AND status = 'active'
+      AND user_id IN (
+        '90000000-0000-4000-8000-000000000101',
+        '90000000-0000-4000-8000-000000000102',
+        '90000000-0000-4000-8000-000000000103',
+        '90000000-0000-4000-8000-000000000104',
+        '90000000-0000-4000-8000-000000000201',
+        '90000000-0000-4000-8000-000000000202'
+      )
+    GROUP BY user_id
+  ) q;
+  IF bad <> 6 THEN
+    RAISE EXCEPTION 'phone-qa seed: % of the 6 QA identities have an active scope grant, want 6 (pending-only grants cause runtime 403s)', bad;
+  END IF;
+END
+\$check\$;
 SQL
 
 cat <<'EOF'
