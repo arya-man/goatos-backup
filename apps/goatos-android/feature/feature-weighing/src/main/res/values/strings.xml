@@ -153,7 +153,7 @@
     <string name="weighing_bucket_one">%1$d shed bucket</string>
     <string name="weighing_bucket_other">%1$d shed buckets</string>
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
-    <string name="weighing_tasks_more_sheds_fmt"> +%1$d more</string>
+    <string name="weighing_tasks_more_sheds_fmt">+%1$d more</string>
     <string name="weighing_tasks_individual_fmt">%1$d individual</string>
     <string name="weighing_tasks_lump_sum_fmt">%1$d lump-sum</string>
     <string name="weighing_operator_one">%1$d operator</string>
@@ -372,4 +372,7 @@
     <string name="weighing_not_submitted_chip">Not submitted</string>
     <string name="weighing_reason_dialog_error_required">A reason is required.</string>
     <string name="weighing_reason_dialog_cancel">Cancel</string>
+    <string name="weighing_wizard_summary_modes_fmt">%1$d individual · %2$d lump-sum</string>
+    <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
+    <string name="weighing_wizard_add_remaining_fmt">Add remaining %1$d</string>
 </resources>

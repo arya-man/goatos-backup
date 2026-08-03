@@ -137,7 +137,7 @@
     <string name="weighing_bucket_one">%1$d షెడ్ సమూహం</string>
     <string name="weighing_bucket_other">%1$d షెడ్ సమూహాలు</string>
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
-    <string name="weighing_tasks_more_sheds_fmt"> +%1$d మరిన్ని</string>
+    <string name="weighing_tasks_more_sheds_fmt">+%1$d మరిన్ని</string>
     <string name="weighing_tasks_individual_fmt">%1$d వ్యక్తిగతం</string>
     <string name="weighing_tasks_lump_sum_fmt">%1$d మొత్తం బరువు</string>
     <string name="weighing_operator_one">%1$d ఆపరేటర్</string>
@@ -346,4 +346,7 @@
     <string name="weighing_not_submitted_chip">సమర్పించలేదు</string>
     <string name="weighing_reason_dialog_error_required">కారణం తప్పనిసరి.</string>
     <string name="weighing_reason_dialog_cancel">రద్దు చేయి</string>
+    <string name="weighing_wizard_summary_modes_fmt">%1$d విడిగా · %2$d కలిపి</string>
+    <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
+    <string name="weighing_wizard_add_remaining_fmt">మిగిలిన %1$d చేర్చండి</string>
 </resources>
