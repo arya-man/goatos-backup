@@ -50,8 +50,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
+import sg.mesha.goatos.feature.weighing.WEIGHING_BUCKET_LADDER_STEPS
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingOperatorFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
@@ -2263,7 +2265,7 @@ private const val STALE_NOTICE_PREFIX = "Showing the last saved list. "
 /** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
 private const val WEIGHING_GROUP_BUCKET_CAP = 20
 
-private fun WeighingTask?.toTaskDetailUiState(
+internal fun WeighingTask?.toTaskDetailUiState(
     campaignId: String,
     selectedOperatorId: String?,
     operatorNames: Map<String, String>,
@@ -2304,14 +2306,17 @@ private fun WeighingTask?.toTaskDetailUiState(
         .groupBy { it.operatorUserId }
         .map { (operatorUserId, rows) ->
             val id = operatorUserId.ifBlank { "unassigned" }
-            WeighingTaskOperatorFilterUiRow(
+            // Name and count travel SEPARATELY: the screen owns the words, so it can say what
+            // the number is a count OF. Pre-joining them rendered as "Dinakar 2", which reads as
+            // part of a person's name rather than as the two sheds he owns.
+            WeighingOperatorFilterUiRow(
                 id = id,
-                operatorLabel = labelFor(operatorUserId, rows),
+                name = labelFor(operatorUserId, rows),
                 shedCount = rows.size,
                 selected = selectedOperatorId == id,
             )
         }
-        .sortedBy { it.operatorLabel }
+        .sortedBy { it.name }
     val visibleSheds = pagedSheds
         .filter { selectedOperatorId == null || it.operatorUserId.ifBlank { "unassigned" } == selectedOperatorId }
         .map { it.toTaskShedUiRow(this, labelFor(it.operatorUserId, listOf(it))) }
@@ -2333,9 +2338,20 @@ private fun WeighingTask?.toTaskDetailUiState(
         isClosed = normalizedStatus == "closed",
         isCompleted = normalizedStatus == "completed",
         closedReason = closeReason,
-        // A bucket is settled once its work has been accepted; everything else is still open work
-        // this task is carrying.
-        openBucketCount = sheds.count { !it.status.equalsWeighingStatus("closed") },
+        // "Open" is work the FARM still owes: a bucket nobody has submitted yet. A bucket the
+        // operator submitted is not open work — it is waiting on a verifier, a different queue —
+        // so it is counted and NAMED separately. Folding the two together is what made the close
+        // button read "4 still open" beside two cards that plainly said "waiting for verifier".
+        // Both numbers are buckets, never animals.
+        // A bucket a verifier bounced back counts as OPEN, not as awaiting a verifier: the work is
+        // sitting with the operator again, which is exactly what its card says.
+        openBucketCount = sheds.count {
+            !it.status.equalsWeighingStatus("closed") &&
+                (!it.status.equalsWeighingStatus("completed") || it.reworkCount > 0)
+        },
+        awaitingVerificationBucketCount = sheds.count {
+            it.status.equalsWeighingStatus("completed") && it.reworkCount == 0
+        },
         // Status is only HALF the gate: the viewer must also hold the permission the write needs.
         canPublish = normalizedStatus == "draft" && capabilities.canPublish,
         canEnd = capabilities.canEnd &&
@@ -2367,23 +2383,21 @@ private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask, operatorLabel: 
         category = category,
         operatorLabel = operatorLabel,
         status = status,
-        // The task payload carries bucket STATE, not a record count, so the line says what state
-        // the bucket is in. It never guesses how many animals were captured.
-        captureSummary = when {
-            reworked -> "Sent back to the operator"
-            normalized == "closed" -> "Accepted"
-            normalized == "completed" -> "Submitted · waiting for verifier"
-            normalized == "in_progress" -> "Capture started"
-            else -> "Nothing captured yet"
-        },
-        // Position on the bucket's own state ladder. NOT a share of animals: weighing has no
-        // expected-animal roster, so an animal denominator would be invented.
-        progress = when {
-            reworked -> 0.25f
-            normalized == "closed" -> 1f
-            normalized == "completed" -> 0.7f
-            normalized == "in_progress" -> 0.35f
-            else -> 0f
+        reworked = reworked,
+        // The plain backend count of weight records this bucket actually holds. It is reported
+        // as-is and is never a numerator: weighing is free-flow, so there is no expected-animal
+        // total a share could be taken of.
+        capturedCount = capturedCount,
+        // How far along the bucket's own state ladder it stands, as a STEP out of
+        // [WEIGHING_BUCKET_LADDER_STEPS] discrete states — not a fraction. A part-filled bar was
+        // read on the farm as "70% of the animals done", which is a number weighing cannot have.
+        ladderStep = when {
+            // Bounced work is back at the capture rung, which is where its card says it is.
+            reworked -> 1
+            normalized == "closed" -> WEIGHING_BUCKET_LADDER_STEPS
+            normalized == "completed" -> 2
+            normalized == "in_progress" -> 1
+            else -> 0
         },
         // Leadership can pull a bucket back once the operator has submitted it, or after it was
         // accepted or bounced for rework.

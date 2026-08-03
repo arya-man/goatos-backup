@@ -2530,7 +2530,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.CapturedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
@@ -2572,7 +2572,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.CapturedCount); err != nil {
 			rows.Close()
 			return err
 		}

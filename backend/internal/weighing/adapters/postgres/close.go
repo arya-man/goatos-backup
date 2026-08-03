@@ -42,12 +42,19 @@ const (
 )
 
 // readyToCloseCountsSQL is a correlated-subquery fragment for a `cs` alias over
-// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count)
-// for that row, using the SAME definition as pendingVerificationCount below: a
-// submitted individual observation is submitted_at IS NOT NULL, a lump-sum shed
-// observation IS the submission, and 'rework' counts as pending on purpose. It is
-// evaluated by the planner as part of ONE query (no per-row application loop), so
-// this is not the banned N+1 shape.
+// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count,
+// rework_count, captured_count) for that row, using the SAME definition as
+// pendingVerificationCount below: a submitted individual observation is
+// submitted_at IS NOT NULL, a lump-sum shed observation IS the submission, and
+// 'rework' counts as pending on purpose. It is evaluated by the planner as part of
+// ONE query (no per-row application loop), so this is not the banned N+1 shape.
+//
+// captured_count is the count of weight records this bucket ACTUALLY holds,
+// submitted or not. It is a plain count and never a numerator: weighing is
+// free-flow, so there is no expected-animal roster to divide it by. It exists so a
+// leadership surface can say "5 weighed" instead of rendering a share of a total
+// that does not exist. Withdrawn lump-sum proofs are excluded because a withdrawn
+// proof is history, not a capture the bucket still holds.
 const readyToCloseCountsSQL = `(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
@@ -59,7 +66,11 @@ const readyToCloseCountsSQL = `(
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
-) AS rework_count`
+) AS rework_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id)
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
+) AS captured_count`
 
 // pendingVerificationCount counts submitted evidence in this bucket that still has
 // no verdict.

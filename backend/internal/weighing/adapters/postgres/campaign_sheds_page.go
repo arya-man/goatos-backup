@@ -110,7 +110,7 @@ LIMIT $6`, tenantID, campaignID, nullableString(operatorFilter),
 		var submitted int
 		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName,
 			&shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status,
-			&submitted, &shed.PendingVerificationCount, &shed.ReworkCount); err != nil {
+			&submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.CapturedCount); err != nil {
 			return domain.CampaignShedPage{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0

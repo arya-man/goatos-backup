@@ -114,6 +114,7 @@
     <!-- Disabled-with-reason for the lump-sum Submit. Farm language: no HTTP codes, no
          "API"/"backend"/"payload". An operator standing in a shed needs to know whether to wait
          or to act. -->
+    <string name="weighing_videos_uploaded_fmt">%1$d uploaded</string>
     <string name="weighing_video_index_fmt">Video %1$d</string>
     <string name="weighing_replace">Replace</string>
     <string name="weighing_remove">Remove</string>
@@ -182,7 +183,7 @@
     <string name="weighing_task_publishing">Publishing task</string>
     <string name="weighing_task_publish">Publish task</string>
     <string name="weighing_task_ending">Ending task</string>
-    <string name="weighing_task_close_open_fmt">Close task · %1$d still open</string>
+    <string name="weighing_task_close_open_fmt">Close task · %1$d not submitted</string>
     <string name="weighing_task_mark_complete">Mark task complete</string>
     <string name="weighing_task_reopen">Reopen task</string>
     <string name="weighing_task_reopen_blocked">Putting a finished task back into planning is not available yet. A single shed bucket can still be reopened from its own card below.</string>
@@ -335,4 +336,15 @@
     <string name="weighing_shed_reopen_action">Reopen this shed</string>
     <string name="weighing_shed_loading">Loading</string>
     <string name="weighing_shed_loading_more_records">Loading more records</string>
+    <string name="weighing_task_close_awaiting_fmt">Close task · %1$d waiting for verifier</string>
+    <string name="weighing_task_close_split_fmt">Close task · %1$d not submitted · %2$d waiting for verifier</string>
+    <string name="weighing_bucket_state_not_started">Nothing captured yet</string>
+    <string name="weighing_bucket_state_in_progress">Still weighing</string>
+    <string name="weighing_bucket_state_submitted">Submitted</string>
+    <string name="weighing_bucket_state_accepted">Accepted</string>
+    <string name="weighing_bucket_state_rework">Sent back to the operator</string>
+    <string name="weighing_bucket_weighed_fmt">%1$d weighed</string>
+    <string name="weighing_videos_none">No video added yet</string>
+    <string name="weighing_videos_uploading_fmt">%1$d uploading</string>
+    <string name="weighing_videos_failed_fmt">%1$d failed</string>
 </resources>

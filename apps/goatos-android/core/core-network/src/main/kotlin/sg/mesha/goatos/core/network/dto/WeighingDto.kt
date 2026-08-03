@@ -47,6 +47,14 @@ data class WeighingCampaignShedDto(
     @SerialName("rework_count") val reworkCount: Int = 0,
     /** True only when this bucket is submitted and every observation on it is verified. */
     @SerialName("ready_to_close") val readyToClose: Boolean = false,
+    /**
+     * Backend-owned count of the weight records this bucket ACTUALLY holds, submitted or not.
+     *
+     * A plain count, NEVER a numerator: weighing is free-flow, so there is no expected-animal
+     * total to divide it by. Render it as-is ("5 weighed") or not at all — never as a percentage
+     * and never as a progress-bar fill.
+     */
+    @SerialName("captured_count") val capturedCount: Int = 0,
 )
 
 /**
