@@ -167,7 +167,16 @@ fun AlertsScreen(
             .background(AlertsTokens.Bg),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { AlertsHeader(title = state.title, markAllLabel = state.markAllLabel, onEvent = onEvent) }
+        // The screen is titled just "Alerts". It is opened from inside a feature's own bar,
+        // so naming the feature again tells the reader what they already know -- and a title
+        // hardcoded in a ViewModel cannot localize. A caller may still pass its own title.
+        item {
+            AlertsHeader(
+                title = state.title.ifBlank { stringResource(R.string.alerts_title_default) },
+                markAllLabel = state.markAllLabel,
+                onEvent = onEvent,
+            )
+        }
         item {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
@@ -180,7 +189,7 @@ fun AlertsScreen(
         if (state.rows.isEmpty()) {
             item {
                 EmptyState(
-                    title = state.emptyLabel,
+                    title = state.emptyLabel.ifBlank { stringResource(R.string.alerts_empty_default) },
                     icon = MeshaIcons.Bell,
                     tone = EmptyTone.Positive,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 48.dp),
