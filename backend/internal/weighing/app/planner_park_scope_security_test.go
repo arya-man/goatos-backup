@@ -170,3 +170,99 @@ func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 		}
 	})
 }
+
+// --- Judge-found regressions in the FIRST version of this fix. Each of these passed the
+// original park-scope commit and was caught only by adversarial review afterwards.
+
+// campaignShedsRepo answers CampaignParkID per campaign so a cross-park drilldown is
+// distinguishable from an authorized one.
+type campaignShedsRepo struct {
+	fakeRepo
+	listed bool
+}
+
+func (r *campaignShedsRepo) CampaignParkID(_ context.Context, _, campaignID string) (string, error) {
+	if campaignID == securityCampaignB {
+		return plannerScopeParkOthers, nil
+	}
+	return plannerScopeParkMine, nil
+}
+
+func (r *campaignShedsRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+	r.listed = true
+	return domain.CampaignShedPage{}, nil
+}
+
+// A monitor reads the campaign UNFILTERED, so the campaign id off the request is the only
+// thing naming what they see -- and the role check is park-blind.
+func TestListCampaignShedsRefusesAnotherParksCampaign(t *testing.T) {
+	repo := &campaignShedsRepo{}
+	svc := NewService(repo)
+
+	_, err := svc.ListCampaignSheds(plannerScopedContext(), plannerScopedActor(), securityCampaignB, "", 20)
+	if !errors.Is(err, ports.ErrNotFound) {
+		t.Fatalf("sheds of another park's campaign err = %v, want ErrNotFound", err)
+	}
+	if repo.listed {
+		t.Fatal("repository was queried despite the refusal")
+	}
+
+	if _, err := svc.ListCampaignSheds(plannerScopedContext(), plannerScopedActor(), securityCampaignA, "", 20); err != nil {
+		t.Fatalf("the actor's OWN park must still list, got %v", err)
+	}
+}
+
+// PlannerCatalog filtered Parks but not Operators, so the planner still received every
+// assignable person in the tenant -- and admin-web pre-selects operators[0].
+func TestPlannerCatalogFiltersOperatorsNotJustParks(t *testing.T) {
+	repo := &plannerOperatorRepo{}
+	catalog, err := NewService(repo).PlannerCatalog(plannerScopedContext(), plannerScopedActor(), "2026-08-10")
+	if err != nil {
+		t.Fatalf("planner catalog: %v", err)
+	}
+	got := map[string]bool{}
+	for _, operator := range catalog.Operators {
+		got[operator.UserID] = true
+	}
+	if got["theirs"] {
+		t.Error("an operator scoped only to another park was offered")
+	}
+	if !got["mine"] {
+		t.Error("the actor's own park's operator was dropped")
+	}
+	// Empty ParkIDs means EVERY park on this type, not "no parks" -- dropping it would hide
+	// exactly the cross-park director a short-handed planner reaches for.
+	if !got["crosspark"] {
+		t.Error("the cross-park director (empty ParkIDs) was dropped")
+	}
+}
+
+type plannerOperatorRepo struct{ fakeRepo }
+
+func (r *plannerOperatorRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
+	return domain.PlannerCatalog{
+		Parks: []domain.PlannerPark{{ParkID: plannerScopeParkMine}},
+		Operators: []domain.PlannerOperator{
+			{UserID: "mine", ParkIDs: []string{plannerScopeParkMine}},
+			{UserID: "theirs", ParkIDs: []string{plannerScopeParkOthers}},
+			{UserID: "crosspark"},
+		},
+	}, nil
+}
+
+// A multi-park actor got a bare 400 "request is invalid", which Android renders as a
+// permanently blank list with no discoverable remedy.
+func TestListCampaignsAsksMultiParkActorToChooseWithAnActionableError(t *testing.T) {
+	ctx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{
+		{Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: plannerScopeParkMine},
+		{Role: permissions.RoleGrowthDirector, ScopeType: "park", ScopeID: plannerScopeParkOthers},
+	})
+	_, err := NewService(&listScopeRepo{}).ListCampaigns(ctx, plannerScopedActor(),
+		domain.CampaignListScopeAll, "", "", 20)
+	if !errors.Is(err, ports.ErrParkSelectionRequired) {
+		t.Fatalf("multi-park list err = %v, want ErrParkSelectionRequired", err)
+	}
+	if errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatal("must not be ErrInvalidArgument -- the request was well formed")
+	}
+}
