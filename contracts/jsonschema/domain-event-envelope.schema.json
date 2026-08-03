@@ -91,6 +91,7 @@
         "weighing.shed.abandoned",
         "weighing.observation.verified",
         "weighing.observation.rework",
+        "weighing.observation.rework_digest",
         "weighing.campaign.closed",
         "weighing.shed.verified_closed",
         "weighing.campaign.verified_closed",

@@ -81,15 +81,15 @@ const (
 // that can be named is the verifier whose approval was the last one, and that is
 // what SettledBy means — attribution for the decision, not for a close.
 type weighingVerifiedClosurePayload struct {
-	TenantID       string    `json:"tenant_id"`
-	CampaignID     string    `json:"campaign_id"`
-	CampaignShedID string    `json:"campaign_shed_id,omitempty"`
-	ParkID         string    `json:"park_id"`
-	ShedID         string    `json:"shed_id,omitempty"`
-	ShedLabel      string    `json:"shed_label,omitempty"`
-	OperatorID     string    `json:"operator_id,omitempty"`
-	SettledBy      string    `json:"settled_by,omitempty"`
-	ClosureKind    string    `json:"closure_kind"`
+	TenantID       string `json:"tenant_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id,omitempty"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id,omitempty"`
+	ShedLabel      string `json:"shed_label,omitempty"`
+	OperatorID     string `json:"operator_id,omitempty"`
+	SettledBy      string `json:"settled_by,omitempty"`
+	ClosureKind    string `json:"closure_kind"`
 	// VerifiedCount is the count of SUBMITTED items in the closed scope that a
 	// verifier accepted. It is the evidence the closure rests on, so it travels
 	// with the event rather than making every consumer re-query for it. Never a
