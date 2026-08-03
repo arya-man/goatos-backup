@@ -48,14 +48,31 @@ func TestWeighingReworkNotificationNamesTheAnimal(t *testing.T) {
 	queue := &targetTestQueue{}
 	consumer := notificationbridge.NewWeighingLifecycleEventConsumer(recipients, queue, slog.Default())
 
+	// Individual rework is BATCHED per shed now: the per-animal verdict is deliberately
+	// silent and the shed's digest carries the naming. The property under test is unchanged
+	// -- the operator must be told WHICH animal to re-capture, not just which shed -- so this
+	// asserts it on the push the operator actually receives.
 	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
 		Type:    notificationbridge.EventWeighingObservationRework,
 		Payload: reworkPayloadNamingAnimal(),
 	}); err != nil {
-		t.Fatalf("HandleEvent: %v", err)
+		t.Fatalf("HandleEvent(individual rework): %v", err)
+	}
+	if len(queue.queued) != 0 {
+		t.Fatalf("per-animal rework queued %d notifications, want 0 (batched per shed)", len(queue.queued))
+	}
+
+	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
+		ID:   "digest-names-animal",
+		Type: notificationbridge.EventWeighingObservationReworkDigest,
+		Payload: reworkDigest([]map[string]any{
+			{"observation_id": targetObs, "scanned_identifier": "901007000504407", "weight_kg": 12.0},
+		}, 1, ""),
+	}); err != nil {
+		t.Fatalf("HandleEvent(digest): %v", err)
 	}
 	if len(queue.queued) == 0 {
-		t.Fatalf("rework notification not queued")
+		t.Fatalf("rework digest notification not queued")
 	}
 	body := queue.queued[0].Body
 	if !strings.Contains(body, "901007000504407") {
