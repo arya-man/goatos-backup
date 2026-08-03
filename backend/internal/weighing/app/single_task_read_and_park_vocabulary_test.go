@@ -37,8 +37,12 @@ type singleTaskRepo struct {
 	parksArg    []string
 	parksCalled bool
 	parks       map[string]domain.WeighingPark
-	// assignedTo is the operator the fixture's buckets belong to.
-	assignedTo string
+	// assignedByCampaign is the operator each campaign's buckets belong to. It is per-campaign,
+	// not global, because a single `assignedTo` made the escalation actor the assignee of BOTH
+	// parks -- a state the database itself forbids (weighing_operator_park_bound_guard: an
+	// operator is park-bound). A fixture that violates a DB-enforced invariant cannot tell a
+	// real refusal from a fake one.
+	assignedByCampaign map[string]string
 }
 
 func (r *singleTaskRepo) CampaignByID(_ context.Context, _, campaignID, operatorUserID string) (domain.Campaign, error) {
@@ -48,7 +52,7 @@ func (r *singleTaskRepo) CampaignByID(_ context.Context, _, campaignID, operator
 	if !ok {
 		return domain.Campaign{}, ports.ErrNotFound
 	}
-	if operatorUserID != "" && operatorUserID != r.assignedTo {
+	if operatorUserID != "" && operatorUserID != r.assignedByCampaign[campaignID] {
 		return domain.Campaign{}, ports.ErrNotFound
 	}
 	return domain.Campaign{CampaignID: campaignID, ParkID: parkID}, nil
@@ -79,7 +83,12 @@ func newSingleTaskRepo() *singleTaskRepo {
 			securityCampaignA: securityParkA,
 			securityCampaignB: securityParkB,
 		}},
-		assignedTo: securityActorID,
+		// The actor is the assignee in park B, where they hold the capability -- and NOT in park
+		// A, matching the park-bound-operator invariant the database enforces.
+		assignedByCampaign: map[string]string{
+			securityCampaignA: "00000000-0000-4000-8000-0000000000ff",
+			securityCampaignB: securityActorID,
+		},
 		parks: map[string]domain.WeighingPark{
 			securityParkA: {ParkID: securityParkA, Name: "Park A"},
 			securityParkB: {ParkID: securityParkB, Name: "Park B"},
@@ -137,7 +146,7 @@ func TestGetCampaignNarrowsAnExecuteOnlyActorToTheirOwnAssignment(t *testing.T) 
 
 	// Somebody else's task: the repository's own operator predicate refuses it, and the service
 	// must surface that refusal rather than falling back to an unfiltered read.
-	repo.assignedTo = "30000000-0000-4000-8000-0000000003ff"
+	repo.assignedByCampaign[securityCampaignB] = "30000000-0000-4000-8000-0000000003ff"
 	if _, err := service.GetCampaign(ctx, actor, securityCampaignB); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("GetCampaign for a task assigned to somebody else err = %v, want ErrNotFound", err)
 	}
