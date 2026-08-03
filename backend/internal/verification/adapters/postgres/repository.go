@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -63,12 +64,14 @@ var _ ports.Repository = (*Repository)(nil)
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
   source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, media_refs,
   status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
-  verified_at, closed_by::text, closed_at, row_version, created_at, updated_at`
+  verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
+  row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
-  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
+  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
+  vi.row_version, vi.created_at, vi.updated_at,
   COALESCE(wm_member.display_name, wm_user.display_name)::text, shed_loc.name::text, park_loc.name::text`
 
 func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error) {
@@ -89,17 +92,17 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
   source_ref_type, source_ref_id, subject_label, media_refs, status, operator_id, shed_id, park_id,
-  captured_at, idempotency_key
+  captured_at, idempotency_key, applier_ack_expected
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
-  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16
+  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16, $17
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
 		in.TenantID, in.Vertical, in.Module, in.Category, in.Source.Module,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
-		in.CapturedAt.UTC(), in.IdempotencyKey,
+		in.CapturedAt.UTC(), in.IdempotencyKey, in.ApplierAckExpected,
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -213,12 +216,21 @@ WHERE vi.tenant_id = $1::uuid
   )
   AND (NOT $12::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $13::boolean OR vi.closed_at IS NULL)
+  AND (
+    NOT $16::boolean
+    OR (
+      vi.applier_ack_expected
+      AND vi.applied_at IS NULL
+      AND vi.closed_at IS NULL
+      AND vi.status NOT IN ('pending', 'withdrawn')
+    )
+  )
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $11`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
-		params.ParkID, params.ShedID,
+		params.ParkID, params.ShedID, params.AwaitingApplicationOnly,
 	)
 	if err != nil {
 		return nil, err
@@ -1711,13 +1723,15 @@ func scanItem(row rowScanner) (domain.Item, error) {
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel                                                    *string
 		mediaJSON                                                       []byte
-		verifiedAt, closedAt                                            *time.Time
+		appliedByModule                                                 *string
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
 		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
 		return domain.Item{}, err
@@ -1733,6 +1747,8 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.VerifiedAt = verifiedAt
 	item.ClosedBy = closedBy
 	item.ClosedAt = closedAt
+	item.AppliedAt = appliedAt
+	item.AppliedByModule = appliedByModule
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
@@ -1751,14 +1767,16 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel                                                    *string
 		operatorName, shedLabel, parkLabel                              *string
+		appliedByModule                                                 *string
 		mediaJSON                                                       []byte
-		verifiedAt, closedAt                                            *time.Time
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
 		&subjectLabel, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 		&operatorName, &shedLabel, &parkLabel,
 	); err != nil {
@@ -1778,6 +1796,8 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.VerifiedAt = verifiedAt
 	item.ClosedBy = closedBy
 	item.ClosedAt = closedAt
+	item.AppliedAt = appliedAt
+	item.AppliedByModule = appliedByModule
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
@@ -1906,4 +1926,68 @@ RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
 		return 0, mapWriteErr(err)
 	}
 	return len(withdrawn), nil
+}
+
+// MarkVerdictApplied is the producing module's RECEIPT that it wrote a verdict
+// outcome onto its own record. It is the second half of the ack protocol whose
+// first half is CreateItem's applier_ack_expected.
+//
+// Why this exists (W-18): verdicts are applied asynchronously. RecordVerdict
+// flips status pending -> approved/rejected and enqueues verification.verdict.*;
+// the producing module's applier consumes that on the DURABLE bus (cmd/outbox-relay,
+// cmd/domain-event-consumer) -- the API's in-process bus deliberately does not
+// receive it. So the verifier's queue emptied the instant the verdict was
+// SUBMITTED, while the farm's records only changed when it was APPLIED. With the
+// relay stopped, lagging, or the event dead-lettered, those are not the same
+// event and there was no signal anywhere that said so: the queue was empty and
+// nothing had happened. This stamp is what lets a surface tell the two apart.
+//
+// It writes NOTHING about the outcome itself -- no status, no verdict, no reason.
+// The applier remains the single writer of the verdict's effect on its own
+// module; this is a downstream receipt of that write, never a parallel copy of
+// it. Attempting to derive outcome state from here would be the second writer
+// the design exists to avoid.
+//
+// Called AFTER the applier's own transaction commits, deliberately not inside it:
+// the two live in different databases-of-record conceptually and a crash between
+// them must fail SAFE. It does: the item stays in VerdictStateApplying, which
+// reads as "not confirmed yet" -- visibly wrong rather than invisibly wrong -- and
+// the at-least-once redelivery of the same verdict event re-runs the applier
+// (idempotent on the event id) and re-attempts this stamp.
+//
+// Replay-safe: the UPDATE matches only rows not yet acked, so a redelivery
+// matches nothing, returns 0, and preserves the ORIGINAL applied_at rather than
+// advancing it to a later instant that never corresponded to a real application.
+// It publishes no event -- an ack is the end of a chain, not a new fact for
+// anyone else to consume, and minting an event with no consumer is exactly the
+// silent drop this whole bug was.
+func (r *Repository) MarkVerdictApplied(
+	ctx context.Context,
+	tenantID, sourceModule, sourceRefType string,
+	sourceRefIDs []string,
+	appliedByModule string,
+) (int, error) {
+	if len(sourceRefIDs) == 0 {
+		return 0, nil
+	}
+	if strings.TrimSpace(appliedByModule) == "" {
+		// The CHECK constraint enforces this in the database too; failing here
+		// keeps the error a caller-fixable one rather than a constraint violation.
+		return 0, domain.ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE verification_items
+SET applied_at = now(), applied_by_module = $5, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = ANY($4::uuid[])
+  AND status <> 'pending'
+  AND applied_at IS NULL`, tenantID, sourceModule, sourceRefType, sourceRefIDs, appliedByModule)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return int(tag.RowsAffected()), nil
 }

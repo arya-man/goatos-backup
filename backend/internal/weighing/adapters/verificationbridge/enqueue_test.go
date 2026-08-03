@@ -17,6 +17,23 @@ import (
 type captureCreator struct {
 	received       verificationdomain.CreateItem
 	withdrawnCalls []withdrawCall
+	appliedCalls   []appliedCall
+}
+
+// appliedCall records the apply-RECEIPT weighing sends verification once a verdict
+// has landed on the observation, so a decided item stops reading as "not yet in
+// effect" on the verifier's surface.
+type appliedCall struct {
+	tenantID        string
+	module          string
+	refType         string
+	refIDs          []string
+	appliedByModule string
+}
+
+func (c *captureCreator) MarkVerdictApplied(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error) {
+	c.appliedCalls = append(c.appliedCalls, appliedCall{tenantID, sourceModule, sourceRefType, append([]string(nil), sourceRefIDs...), appliedByModule})
+	return len(sourceRefIDs), nil
 }
 
 type withdrawCall struct {
@@ -99,5 +116,51 @@ func TestWithdrawWeighingVerificationNoopOnEmpty(t *testing.T) {
 	}
 	if len(creator.withdrawnCalls) != 0 {
 		t.Fatalf("withdraw calls=%d, want 0", len(creator.withdrawnCalls))
+	}
+}
+
+// The weighing bridge must DECLARE that it acks, and must actually ack. Those two
+// halves have to travel together: a declaration with no ack parks every decided
+// weighing item in "applying" forever, and an ack with no declaration is never
+// looked at. This pins both against the same fake.
+func TestWeighingBridgeDeclaresAndSendsTheApplyReceipt(t *testing.T) {
+	creator := &captureCreator{}
+	bridge := New(creator)
+
+	if err := bridge.EnqueueWeighingVerification(context.Background(), weighingapp.VerificationEnqueueRequest{
+		TenantID:       "tenant-1",
+		ObservationID:  "obs-1",
+		Category:       weighingdomain.VerificationRefTypeAnimal,
+		ParkID:         "park-1",
+		CapturedAt:     time.Now().UTC(),
+		IdempotencyKey: "idem-ack-1",
+	}); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if !creator.received.ApplierAckExpected {
+		t.Fatal("weighing enqueued an item without applier_ack_expected; its decided items could never read as awaiting application")
+	}
+
+	if err := bridge.AckWeighingVerificationApplied(context.Background(), "tenant-1", weighingdomain.VerificationRefTypeAnimal, []string{"obs-1"}); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	if len(creator.appliedCalls) != 1 {
+		t.Fatalf("apply-receipt calls=%d, want 1", len(creator.appliedCalls))
+	}
+	got := creator.appliedCalls[0]
+	if got.tenantID != "tenant-1" || got.module != weighingdomain.VerificationModuleWeighing ||
+		got.refType != weighingdomain.VerificationRefTypeAnimal || len(got.refIDs) != 1 || got.refIDs[0] != "obs-1" {
+		t.Fatalf("apply-receipt targeted %+v, want weighing's own animal observation obs-1", got)
+	}
+	if got.appliedByModule != weighingdomain.VerificationModuleWeighing {
+		t.Fatalf("applied_by_module=%q, want %q -- an ack must name the module that sent it", got.appliedByModule, weighingdomain.VerificationModuleWeighing)
+	}
+
+	// An empty batch must not manufacture a call.
+	if err := bridge.AckWeighingVerificationApplied(context.Background(), "tenant-1", weighingdomain.VerificationRefTypeAnimal, nil); err != nil {
+		t.Fatalf("ack empty: %v", err)
+	}
+	if len(creator.appliedCalls) != 1 {
+		t.Fatalf("apply-receipt calls after an empty batch=%d, want 1", len(creator.appliedCalls))
 	}
 }
