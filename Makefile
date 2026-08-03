@@ -118,6 +118,7 @@ guardrails:
 	$(MAKE) aggregate-projection-guard
 	$(MAKE) vaccination-adult-drive-contract-guard
 	$(MAKE) vaccination-shed-ack-guard
+	$(MAKE) module-alerts-tab-guard
 	$(MAKE) vaccination-schedule-canonical-guard
 	$(MAKE) vaccination-shared-source-sync-guard
 	$(MAKE) fcm-recipient-routing-guard
@@ -368,6 +369,13 @@ vaccination-drive-clubbing-db-proof:
 
 vaccination-shed-ack-guard:
 	node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs
+
+# Every available feature's bottom bar carries its own feature-scoped Alerts tab,
+# wired end to end: icon token, hosted route, and bottom-bar root destination.
+# Rule: docs/decisions/module-alerts-tab.md
+module-alerts-tab-guard:
+	node tools/agent-hooks/check-module-alerts-tab.mjs --self-test
+	node tools/agent-hooks/check-module-alerts-tab.mjs
 
 sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
