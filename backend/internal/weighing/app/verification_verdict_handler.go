@@ -145,6 +145,30 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 			)
 		}
 		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s evidence superseded: %w", observationID, err))
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		// The stored fingerprint for this event id does not match the one we just computed.
+		//
+		// This branch exists because adding evidence_proof_id to the fingerprint made the
+		// conflict REACHABLE for events that were already applied. A verdict applied BEFORE
+		// that change stored a fingerprint computed without the field; redelivered after it --
+		// which an at-least-once bus does routinely -- it now recomputes to something
+		// different and conflicts. Stored fingerprints are not versioned and are not migrated.
+		//
+		// Without this case the error fell to default and was returned bare, i.e. RETRYABLE.
+		// A replay that used to be a free no-op became a poison message: retried forever,
+		// never succeeding, and never reaching the DLQ where somebody would see it. Failing
+		// permanently is right on the merits too -- a genuine same-id-different-evidence
+		// verdict is a contradiction that only a human can resolve, and retrying cannot.
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_verdict_idempotency_conflict",
+				"tenant_id", tenantID,
+				"observation_id", observationID,
+				"ref_type", refType,
+				"evidence_id", strings.TrimSpace(payload.Source.EvidenceID),
+				"event_id", event.ID,
+			)
+		}
+		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s idempotency fingerprint conflict: %w", observationID, err))
 	default:
 		return fmt.Errorf("weighing verdict: apply %s: %w", status, err)
 	}
