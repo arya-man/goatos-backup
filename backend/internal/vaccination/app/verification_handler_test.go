@@ -152,3 +152,51 @@ func genericSubmissionVerificationPayload(t *testing.T) []byte {
 	}
 	return payload
 }
+
+// A WITHDRAWAL is a RETRACTION, not an acceptance. WithdrawItemsBySource reuses the
+// verification.item.closed event type for it (the outbox partial unique index at
+// verification/adapters/postgres/repository.go enumerates event types, so minting a new
+// type would need a migration), which makes that event POLYSEMOUS: the same type now
+// carries both "the verifier closed this item" and "the producing module superseded the
+// source record, forget it". Every consumer must therefore disambiguate on `status`.
+//
+// Without the guard this handler treated the retraction as an acceptance: it called
+// ApplyGoatVerification / ApplySubmissionVerification with outcome "closed" and an EMPTY
+// actor (a withdrawal has no closed_by), and then told the SOP closure projector to accept
+// the submission item. Only weighing drives the withdraw seam today, but the seam is shared,
+// so the defect is armed the moment vaccination grows a supersede path.
+func TestWithdrawnItemClosedDoesNotAcceptVaccinationSubmission(t *testing.T) {
+	for _, refType := range []string{"sop_submission", "vaccination_goat"} {
+		t.Run(refType, func(t *testing.T) {
+			completion := &verificationCompletionFake{}
+			closure := &verificationClosureFake{}
+			handler := NewVerificationHandler(completion).WithClosureProjector(closure)
+			payload, err := json.Marshal(map[string]any{
+				"status":   "withdrawn",
+				"decision": "withdrawn",
+				"source": map[string]any{
+					"module":        "vaccination",
+					"submission_id": "73000000-0000-4000-8000-000000000009",
+					"ref_type":      refType,
+					"ref_id":        "73000000-0000-4000-8000-000000000009",
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := handler.HandleEvent(context.Background(), eventbus.Event{
+				Type:     EventGenericVerificationClosed,
+				TenantID: "00000000-0000-4000-8000-000000000001",
+				Payload:  payload,
+			}); err != nil {
+				t.Fatalf("HandleEvent: %v", err)
+			}
+			if completion.applyCalls != 0 || completion.submissionApplyCalls != 0 {
+				t.Fatalf("a withdrawn item must not apply a vaccination verification outcome: %#v", completion)
+			}
+			if closure.calls != 0 {
+				t.Fatalf("a withdrawn item must not accept the SOP submission item: %#v", closure)
+			}
+		})
+	}
+}
