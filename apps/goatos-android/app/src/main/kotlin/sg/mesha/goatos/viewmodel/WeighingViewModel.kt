@@ -169,6 +169,17 @@ class WeighingViewModel @Inject constructor(
 
     /** How many extra pages a tab switch may pull before the user's own scrolling takes over. */
     private var tabRefillBudget = 0
+
+    /**
+     * How many further pages a DEEP-LINKED task may pull while looking for itself.
+     *
+     * A notification opened cold pushes the detail destination with a campaign id the list has
+     * never loaded, and there is no single-task read to fall back on, so the screen used to sit on
+     * a permanently not-found header while its buckets rendered underneath. This budget is what
+     * makes the search bounded rather than a drain loop: a few keyset pages, then the honest
+     * not-found state.
+     */
+    private var deepLinkTaskResolveBudget = 0
     private val tasksTab = MutableStateFlow(WeighingTasksTab.ACTIVE)
 
     /**
@@ -448,8 +459,25 @@ class WeighingViewModel @Inject constructor(
         viewModelScope.launch {
             combine(tasks, selectedTaskId) { loadedTasks, taskId ->
                 taskId?.let { id -> loadedTasks.firstOrNull { it.campaignId == id } }
-            }.collect { resolved -> if (resolved != null) selectedTaskSnapshot.value = resolved }
+            }.collect { resolved ->
+                if (resolved != null) selectedTaskSnapshot.value = resolved else resolveDeepLinkedTask()
+            }
         }
+    }
+
+    /**
+     * Pulls ONE more page while a deep-linked task is still missing from the cache, up to
+     * [deepLinkTaskResolveBudget] pages. Stops the moment the task appears, the keyset ends, or the
+     * budget runs out -- after which `found = false` is the truth rather than a loading artefact.
+     */
+    private fun resolveDeepLinkedTask() {
+        val id = selectedTaskId.value?.takeIf { it.isNotBlank() } ?: return
+        if (deepLinkTaskResolveBudget <= 0) return
+        if (selectedTaskSnapshot.value?.campaignId == id) return
+        if (tasks.value.any { it.campaignId == id }) return
+        if (!taskCache.value.canLoadMore) return
+        deepLinkTaskResolveBudget -= 1
+        appendTasks()
     }
 
     /** The operator chip the detail screen is filtered by, or null for all operators. */
@@ -464,7 +492,9 @@ class WeighingViewModel @Inject constructor(
         selectedTaskId.value = normalized
         selectedTaskSnapshot.value = null
         taskBucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
+        deepLinkTaskResolveBudget = if (normalized == null) 0 else DEEP_LINK_TASK_RESOLVE_PAGES
         refreshTaskBuckets(reset = true)
+        resolveDeepLinkedTask()
     }
 
     /**
@@ -683,14 +713,14 @@ class WeighingViewModel @Inject constructor(
                 if (isPlannerSurface) {
                     refreshPlanner()
                     refreshTasks()
-                } else if (surface == WEIGHING_SCOPE_OPERATORS) {
-                    // The oversight surface's park chips need the WHOLE park list, not the parks
-                    // that happen to be on the loaded assignment pages (A22 again, one level up:
-                    // a park whose first assignment sits on page three had no chip to select, so
-                    // there was no way to reach its rows at all). Quiet: this is chip vocabulary,
-                    // and a viewer without the planning read must simply keep the paged fallback.
-                    refreshPlanner(quiet = true)
                 }
+                // The oversight surface's park chips want the WHOLE park list rather than the parks
+                // that happen to be on the loaded assignment pages. Its only source is the PLANNER
+                // catalog, which is gated on weighing.plan -- authority a Growth Director does not
+                // hold, so this read is a 403 for exactly the viewer this surface exists for. It is
+                // now issued only when the server's own can_publish flag (that same permission, see
+                // the weighing handler's capabilities block) says the call can succeed; everyone
+                // else keeps the paged park fallback instead of a guaranteed-forbidden request.
             }
         }
     }
@@ -722,6 +752,7 @@ class WeighingViewModel @Inject constructor(
                         assignmentsError.value = null
                         assignmentCapabilities.value = loaded.value.capabilities
                         rememberAssignmentParks(loaded.value.items)
+                        maybeRefreshOversightParkVocabulary()
                         // Do not clear a failure the planner read is still reporting.
                         message.value = plannerError.value
                     }
@@ -884,6 +915,7 @@ class WeighingViewModel @Inject constructor(
                 tasksAppending.value = false
                 rememberTaskParks(tasks.value)
                 appendTasksIfTabUnderfilled()
+                resolveDeepLinkedTask()
             }
         }
     }
@@ -1074,6 +1106,18 @@ class WeighingViewModel @Inject constructor(
         if (parks.isEmpty()) return
         knownAssignmentParks.value = knownAssignmentParks.value + parks
         knownTaskParks.value = knownTaskParks.value + parks
+    }
+
+    /**
+     * Loads the oversight park chips' vocabulary ONLY when this viewer may call the planner read.
+     *
+     * Quiet, because it is chip vocabulary: a failure must not take the banner of a list that
+     * loaded fine from its own endpoint.
+     */
+    private fun maybeRefreshOversightParkVocabulary() {
+        if (surface != WEIGHING_SCOPE_OPERATORS) return
+        if (!assignmentCapabilities.value.canPublish) return
+        refreshPlanner(quiet = true)
     }
 
     private fun refreshScope() {
@@ -2288,6 +2332,9 @@ private fun String.equalsWeighingStatus(other: String): Boolean =
  * did not land, instead of clearing the list or throwing the reader to an error page.
  */
 private const val STALE_NOTICE_PREFIX = "Showing the last saved list. "
+
+/** Bounded page budget for resolving a cold deep link; ~3 keyset pages, never the whole list. */
+private const val DEEP_LINK_TASK_RESOLVE_PAGES = 3
 
 /** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
 private const val WEIGHING_GROUP_BUCKET_CAP = 20

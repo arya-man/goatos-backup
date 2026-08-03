@@ -117,6 +117,26 @@ class VerifyQueueViewModelTest {
         assertEquals(listOf("shifting_move"), repo.refreshedCategories)
         assertFalse(vm.state.value.isUnsupportedModule)
     }
+
+    @Test
+    fun `the drawer href's category wins over a module key this client cannot map`() = runTest(dispatcher) {
+        // What bootstrap_copy.go actually composes for a Counts verifier:
+        // "/verify?module=counts&category=shifting_move". The module key is unmappable here on
+        // purpose -- the server's own category is the answer, so the queue must read it and not
+        // fall back to the unsupported-module empty state.
+        val repo = FakeVerifyQueueRepository()
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("module" to "counts", "category" to "shifting_move")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("shifting_move"), repo.observedCategories)
+        assertFalse(vm.state.value.isUnsupportedModule)
+    }
 }
 
 private class FakeVerifySyncRepository : SyncRepository {

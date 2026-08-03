@@ -1938,13 +1938,20 @@ fun AppNavHost(
         // the detail VM re-observes that exact Room cache scope (no second network round trip).
         composable(
             // `module` scopes the queue to ONE feature. The verifier drawer is composed per
-            // feature by the backend (href "/verify?module=<feature>"), and VerifyQueueViewModel
-            // reads this arg; without it every drawer entry fell back to vaccination, so
-            // switching to Weighing showed an empty queue while weighing proofs sat pending.
-            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}&module={module}",
+            // feature by the backend (href "/verify?module=<feature>&category=<category>"), and
+            // VerifyQueueViewModel reads both args; without `module` every drawer entry fell back
+            // to vaccination, so switching to Weighing showed an empty queue while weighing proofs
+            // sat pending. `category` must be declared here too: Navigation only surfaces query
+            // args the route pattern names, so leaving it out DROPPED the server's own category and
+            // left a Counts or Feed verifier (module keys this client cannot map, e.g. "counts" ->
+            // shifting_move) staring at an empty queue.
+            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&module={module}" +
+                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
                 navArgument("module") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
