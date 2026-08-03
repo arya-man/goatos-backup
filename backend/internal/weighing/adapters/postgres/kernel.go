@@ -113,7 +113,14 @@ FROM (
          c.start_business_date,
          floor(
            COALESCE(
-             sum(GREATEST(cs.expected_animal_count, 1)) OVER (
+             -- BUCKETS, not animals. This spreads a task's shed buckets across
+             -- days at planned_cap_per_day buckets per day. It used to read
+             -- sum(GREATEST(cs.expected_animal_count, 1)), which pretended to
+             -- count animals while expected_animal_count was a fixed literal --
+             -- so the sum was only ever a row count wearing an animal's name.
+             -- Free-flow has no expected animal total to spread; count(*) says
+             -- exactly what the arithmetic has always done.
+             count(*) OVER (
                PARTITION BY cs.tenant_id, cs.campaign_id, cs.operator_user_id
                ORDER BY cs.display_name, cs.campaign_shed_id
                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING

@@ -229,20 +229,20 @@ func TestRecordAnimalObservationAcceptsResolvedAnimalRegardlessOfRosterState(t *
 
 			// The row belongs to the bucket the operator was working, never NULL.
 			var storedShed *string
-			var mismatch string
 			if err := pool.QueryRow(ctx, `
-SELECT campaign_shed_id::text, mismatch_status
+SELECT campaign_shed_id::text
 FROM weighing_observations WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`,
-				repoTenant, obs.ObservationID).Scan(&storedShed, &mismatch); err != nil {
+				repoTenant, obs.ObservationID).Scan(&storedShed); err != nil {
 				t.Fatalf("read stored observation: %v", err)
 			}
 			if storedShed == nil || *storedShed != repoAnimalScope {
 				t.Fatalf("stored campaign_shed_id=%v, want the operator's bucket %s", storedShed, repoAnimalScope)
 			}
-			// Free-flow records an observed scan; it does not claim roster agreement.
-			if mismatch != "extra_scan" {
-				t.Fatalf("mismatch_status=%q, want extra_scan", mismatch)
-			}
+			// Free-flow records an observed scan and stores no verdict about it.
+			// mismatch_status used to be read here and asserted to be 'extra_scan';
+			// the column was DROPPED (000081) because "extra" has no meaning
+			// without the expected set 000079 removed. The column's absence is
+			// pinned by TestRecordObservationStoresNoRosterVerdict.
 		})
 	}
 }
