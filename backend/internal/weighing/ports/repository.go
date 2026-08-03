@@ -201,12 +201,40 @@ type Repository interface {
 	PlannerParkBuckets(ctx context.Context, tenantID, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	// ListCampaignSheds is the task-DETAIL bucket page. The task list embeds a
 	// campaign's whole bucket set; the detail screen reads ~20 at a time instead.
-	ListCampaignSheds(ctx context.Context, tenantID, campaignID, operatorUserID, cursor string, limit int) (domain.CampaignShedPage, error)
+	//
+	// access carries the caller's authority INTO the page instead of being checked
+	// around it, for the same reason CampaignByID does. The previous shape resolved the
+	// campaign's park with a separate CampaignParkID call, authorized it, and then read
+	// the buckets in a second statement -- two reads of a MUTABLE column (UpdateCampaign
+	// moves a task between parks) with nothing spanning them, so a task that moved in the
+	// gap was authorized as its old park and paged as its new one, operator display names
+	// included. The access arms are now evaluated per returned row, in the same statement
+	// that returns it.
+	//
+	// It also replaces the old operatorUserID parameter: the assignee arm both ADMITS a
+	// bucket and NARROWS the page to the caller's own buckets, which is exactly what that
+	// parameter did, so keeping both would be two spellings of one rule.
+	//
+	// ErrNotFound when no arm of access can admit the campaign at all, matching what the
+	// preceding park check used to answer, so existence is still not leaked.
+	ListCampaignSheds(ctx context.Context, tenantID, campaignID, cursor string, limit int, access CampaignAccess) (domain.CampaignShedPage, error)
 	ListScopeRoster(ctx context.Context, tenantID, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	// cursor/limit page the shed's INDIVIDUAL observations on (accepted_at,
 	// observation_id). The lump-sum row is a single latest read and is not paged.
-	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
+	//
+	// access is the caller's PARK authority, evaluated against the campaign row the head
+	// query already joins rather than against a park fetched by a preceding statement.
+	// The old shape read park_id via CampaignParkID, authorized it, and then read the
+	// evidence: a task moved between parks in that gap was authorized as its old park and
+	// its proof footage served from its new one. Only the park arms are ever set here --
+	// this surface's role gate is WeighingMonitor alone, so there is no assignee arm to
+	// admit; an assignee reads their own evidence through the roster, not through
+	// leadership review.
+	//
+	// ErrNotFound when the bucket does not exist OR the access arms do not admit its
+	// campaign's park, so the two stay indistinguishable to a caller probing ids.
+	GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int, access CampaignAccess) (domain.LeadershipShedVideos, error)
 	// ListLeadershipSheds is the gallery read: ONE keyset page of buckets across
 	// tasks, each with its own first page of evidence. It replaces the client
 	// pattern of expanding a task page into buckets and calling the single-shed

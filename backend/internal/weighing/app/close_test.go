@@ -287,11 +287,11 @@ func (r *multiParkScenarioRepo) ListCampaignsForOperator(context.Context, string
 	return domain.CampaignPage{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (r *multiParkScenarioRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
-func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 

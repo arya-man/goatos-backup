@@ -98,6 +98,13 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 // an actor holding weighing.plan without weighing.monitor is admitted by the role gate and then
 // refused by the park check -- as ErrNotFound, which is the hardest possible failure to diagnose
 // because it is indistinguishable from a task that does not exist.
+//
+// IT HAS NO PRODUCTION CALLER LEFT. Both surfaces that used it -- GetCampaign and
+// ListCampaignSheds -- now push their authority INTO the read instead, because resolving the
+// park here and reading the data in a second statement is two reads of a mutable value. It is
+// kept because the regression tests replay this exact pre-fix algorithm to prove their fixture
+// discriminates: a test that cannot demonstrate the old shape LOSING the race pins nothing.
+// Anything reaching for it for a new check-then-read surface wants ports.CampaignAccess instead.
 func (s *Service) checkCampaignParkScopeForAny(ctx context.Context, tenantID, campaignID string, capabilities ...string) error {
 	parkID, err := s.repo.CampaignParkID(ctx, tenantID, campaignID)
 	if err != nil {
@@ -545,6 +552,10 @@ func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campa
 // sees only their OWN buckets on the task, while a planner/monitor sees all of
 // them. That is deliberately not "monitor widens execute" — it is the same split
 // the list already applies, so the detail cannot show a bucket the list did not.
+//
+// The authority travels INTO the read rather than being checked before it, so the park that
+// admits a bucket and the park on the bucket's task are one value, not two reads of a moving
+// one. See the assembly below.
 func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error) {
 	canMonitor := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
 	canPlan := permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingPlan}, false)
@@ -555,30 +566,44 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 	if !uuidutil.IsUUIDString(campaignID) {
 		return domain.CampaignShedPage{}, ports.ErrInvalidArgument
 	}
-	operatorFilter := ""
-	if !canMonitor && !canPlan {
-		operatorFilter = actor.UserID
-	} else {
-		// A monitor/planner reads the campaign UNFILTERED, so the campaign id off the request
-		// is the only thing naming what they see -- and the role checks above are park-blind
-		// ("do I monitor SOMEWHERE"), which a park-scoped actor passes for every campaign in
-		// the tenant. Without this they could page another park's buckets, operator names
-		// included, by naming its campaign id. Newly easy to exploit, too: leadership
-		// notifications now carry campaign ids to devices as deep links.
-		//
-		// The operator branch needs no park check -- it is already narrowed to the actor's own
-		// assignments, and nobody is assigned work in a park they do not work in.
-		//
+	// The actor's authority is ASSEMBLED here and EVALUATED in the query, the same shape
+	// GetCampaign uses for the task header this page belongs to.
+	//
+	// It used to call checkCampaignParkScopeForAny, which resolves the campaign's park via
+	// repo.CampaignParkID, and then page the buckets in a second, independent statement.
+	// park_id is mutable -- UpdateCampaign moves a task between parks -- and nothing spanned
+	// the two reads, so a task that moved in the gap was authorized as its OLD park and paged
+	// as its NEW one: buckets and their assigned operator display names, which is another
+	// park's roster. Re-checking after the read would only add a third read of the same moving
+	// value; the durable answer is that the rows returned are the rows the predicate admitted.
+	//
+	// Nothing about the resulting authority is new. The arms come from the SAME helpers every
+	// other park check in this file uses, so there is still exactly one park-scope
+	// implementation here.
+	access := ports.CampaignAccess{}
+	if canMonitor || canPlan {
 		// The capability set must match the one the ROLE GATE above admits: plan-or-monitor.
-		// This used to call checkParkScope, which hardcodes WeighingMonitor, so an actor
-		// holding WeighingPlan WITHOUT WeighingMonitor could resolve the task header via
-		// GetCampaign and then get 404 on its buckets -- the header and its own contents
-		// disagreeing, which is the hardest kind of failure to diagnose. Unreachable today
-		// (only the CEO role holds plan, and it holds monitor too), so this is closing it
-		// before a permission split makes it real rather than after.
-		if err := s.checkCampaignParkScopeForAny(ctx, actor.TenantID, campaignID, planOrMonitorParkCapabilities...); err != nil {
-			return domain.CampaignShedPage{}, err
+		// checkParkScope's hardcoded WeighingMonitor would be a latent lockout -- an actor
+		// holding WeighingPlan WITHOUT WeighingMonitor is admitted by the role gate, resolves
+		// the task header via GetCampaign, and would then 404 on its own contents. Unreachable
+		// today (only the CEO role holds plan, and it holds monitor too), but closing it before
+		// a permission split makes it real is cheaper than after.
+		authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
+		access.Unrestricted = tenantWide
+		for parkID := range authorizedParks {
+			access.AuthorizedParkIDs = append(access.AuthorizedParkIDs, parkID)
 		}
+	}
+	if canExecute {
+		// THE ASSIGNEE ARM IS AN ALTERNATIVE, NOT A NARROWING. It needs no park check -- an
+		// operator is park-bound in the database (weighing_operator_park_bound_guard), which is
+		// the same reason ScopeMine needs none -- and it must not be gated on park authority: a
+		// Growth Director holds WeighingMonitor AND WeighingExecute at once, and one who
+		// monitors park A while being ASSIGNED work in park B would otherwise be 404'd on their
+		// own buckets (the defect 2c78f87f1 fixed, which GetCampaign already pins). The arm
+		// both admits the task and narrows the page to the actor's own buckets, which is
+		// exactly what the old execute-only operator filter did.
+		access.AssigneeUserID = actor.UserID
 	}
 	if limit <= 0 {
 		limit = domain.CampaignShedPageSize
@@ -586,7 +611,9 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 	if limit > domain.MaxCampaignShedPageSize {
 		limit = domain.MaxCampaignShedPageSize
 	}
-	return s.repo.ListCampaignSheds(ctx, actor.TenantID, campaignID, operatorFilter, strings.TrimSpace(cursor), limit)
+	// An actor admitted by neither arm gets ErrNotFound from the repository, so the cross-park
+	// refusal is unchanged and existence is still not leaked.
+	return s.repo.ListCampaignSheds(ctx, actor.TenantID, campaignID, strings.TrimSpace(cursor), limit, access)
 }
 
 // GetCampaign resolves ONE weighing task by id. It exists for the notification deep link: the
@@ -736,15 +763,24 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 		return domain.LeadershipShedVideos{}, ports.ErrInvalidArgument
 	}
 	// The role check above only proves the actor holds WeighingMonitor SOMEWHERE; it does not
-	// prove they hold it in THIS campaign's park. Resolve the campaign's park (same lookup
-	// checkParkScope uses) and authorize it before returning any evidence -- otherwise a
-	// park-scoped monitor for park A could read park B's leadership shed videos by campaign ID.
-	parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, campaignID)
-	if err != nil {
-		return domain.LeadershipShedVideos{}, err
-	}
-	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingMonitor); err != nil {
-		return domain.LeadershipShedVideos{}, err
+	// prove they hold it in THIS campaign's park, so a park-scoped monitor for park A could
+	// otherwise read park B's evidence footage by naming its campaign id.
+	//
+	// The authority is ASSEMBLED here and EVALUATED in the read. It used to resolve the
+	// campaign's park with repo.CampaignParkID, authorize that park, and then fetch the
+	// evidence in a second, independent statement. park_id is mutable -- UpdateCampaign moves a
+	// task between parks -- and nothing spanned the two reads, so a task that moved in the gap
+	// was authorized as its OLD park and had its proof video served from its NEW one. Adding a
+	// re-check after the read would just be a third read of the same moving value.
+	//
+	// WeighingMonitor ALONE, matching the role gate above exactly. Widening to plan-or-monitor
+	// would admit a planner the gate already refused; narrowing further would 404 a monitor the
+	// gate admitted. There is no assignee arm because there is no assignee branch on this
+	// surface -- an operator reviews their own captures through the roster.
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.WeighingMonitor)
+	access := ports.CampaignAccess{Unrestricted: tenantWide}
+	for parkID := range authorizedParks {
+		access.AuthorizedParkIDs = append(access.AuthorizedParkIDs, parkID)
 	}
 	if limit <= 0 {
 		limit = domain.LeadershipShedVideosPageSize
@@ -752,7 +788,10 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 	if limit > domain.MaxLeadershipShedVideosPageSize {
 		limit = domain.MaxLeadershipShedVideosPageSize
 	}
-	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit)
+	// An actor with no monitored park here is admitted by no arm and gets ErrNotFound from the
+	// repository -- the same answer checkParkScopeForCapability gave, so existence is still not
+	// leaked and the cross-park refusal is unchanged.
+	return s.repo.GetLeadershipShedVideos(ctx, actor.TenantID, campaignID, campaignShedID, strings.TrimSpace(cursor), limit, access)
 }
 
 // ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same

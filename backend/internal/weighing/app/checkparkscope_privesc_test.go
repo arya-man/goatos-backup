@@ -243,11 +243,11 @@ func (r *parkScopeCheckRepo) ListScopeRosterForOperator(ctx context.Context, ten
 	return domain.RosterPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListCampaignSheds(ctx context.Context, tenantID, campaignID, operatorFilter, cursor string, limit int) (domain.CampaignShedPage, error) {
+func (r *parkScopeCheckRepo) ListCampaignSheds(ctx context.Context, tenantID, campaignID, cursor string, limit int, access ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error) {
+func (r *parkScopeCheckRepo) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int, access ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
