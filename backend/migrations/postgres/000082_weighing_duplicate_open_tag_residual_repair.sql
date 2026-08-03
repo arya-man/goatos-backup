@@ -147,6 +147,7 @@ BEGIN
       AND wo.submitted_at IS NOT NULL
       AND wo.submitted_at = evidence.last_accepted_at
   ),
+  -- projection-review: membership=weighing_observations rows of a duplicate open-tag group, ranked within their own group; group_key=(tenant_id, campaign_shed_id, tag_key), byte-identical to weighing_observations_one_open_tag_uidx's grain so the repair partitions exactly as the constraint it is restoring; join_cardinality=the evidence LATERAL is a scalar per observation (0..1) and adds no rows, so the count per group is the true row count; pagination=BATCHED, the candidate set is drained in committed slices rather than paged for display; scope=tenant_id, carried on every row and in the partition key
   members AS (
     SELECT wo.tenant_id,
            wo.campaign_shed_id,
@@ -218,6 +219,7 @@ BEGIN
       WHERE wo.submitted_at IS NOT NULL
         AND wo.submitted_at = evidence.last_accepted_at
     ),
+    -- projection-review: membership=weighing_observations rows of a duplicate open-tag group, ranked within their own group; group_key=(tenant_id, campaign_shed_id, tag_key), byte-identical to weighing_observations_one_open_tag_uidx's grain so the repair partitions exactly as the constraint it is restoring; join_cardinality=the evidence LATERAL is a scalar per observation (0..1) and adds no rows, so the count per group is the true row count; pagination=BATCHED, the candidate set is drained in committed slices rather than paged for display; scope=tenant_id, carried on every row and in the partition key
     members AS (
       SELECT wo.observation_id,
              wo.tenant_id,

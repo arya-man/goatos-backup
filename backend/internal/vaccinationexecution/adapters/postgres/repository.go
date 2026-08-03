@@ -3825,6 +3825,8 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//     An animal whose every obligation is closed without a completion (cancelled/withdrawn)
 	//     matches no bucket, so the sum is <= targets, never >. That was always true and is not
 	//     changed here.
+	//
+	// projection-review: membership=obligation_instances in the drive window, folded to one row per animal by per_animal; group_key=target_id (the ANIMAL), which is exactly the grain COUNT(DISTINCT target_id) uses for targets, so buckets and total share one key set; join_cardinality=comp is pre-aggregated per obligation before the fold, so a dose with several completions cannot multiply its animal, and every remaining join is 0..1 on a PK; pagination=NONE, these are whole-filter tile aggregates computed in the database and are page-size independent by construction; scope=tenant_id plus the capability-resolved park filter, parented through locations.parent_location_id
 	kpiSQL := `
 WITH comp AS (
   SELECT
@@ -3851,6 +3853,7 @@ scoped AS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
     ))
 ),
+-- projection-review: membership=obligation_instances in the drive window, folded to ONE ROW PER ANIMAL here; group_key=target_id, the same grain COUNT(DISTINCT target_id) uses for targets, so the tiles and the total they sit under share one key set; join_cardinality=comp is pre-aggregated per obligation before this fold, so a dose with several completions cannot multiply its animal, and every other join is 0..1 on a PK; pagination=NONE, whole-filter tile aggregates computed in the database, page-size independent by construction; scope=tenant_id plus the capability-resolved park filter, parented through locations.parent_location_id
 per_animal AS (
   SELECT
     target_id,
