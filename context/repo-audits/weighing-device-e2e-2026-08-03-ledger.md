@@ -101,8 +101,6 @@ Plain-language first, because these are the ones someone will pick up cold.
 | # | In plain terms | Where it lives |
 |---|---|---|
 | W-38 | **A shed being worked on looks untouched.** Nothing marks a shed "in progress" while an operator is scanning it — it reads as not-started until he submits. A director watching cannot tell someone is mid-shed, and the Operators screen has a "capturing" column that is therefore always zero. | No capture path writes `status='in_progress'`; only reopen/verdict paths do. `operator_summaries.go`'s `count(*) FILTER (WHERE cs.status='in_progress')` is structurally always 0. Decide: write it on first capture, or drop the column. |
-| W-39 | **A blank tag scan returns a server error** instead of a clear message. | `RecordAnimalObservation` / `RecordShedObservation` have no pre-insert validation for the free-flow required fields, so a CHECK violation (23514) leaks out as a 500 where a 400 belongs. |
-| W-40 | **Tapping "Counts" silently shows the vaccination queue.** | `VerifyQueueViewModel.kt:76-77` maps only `"weighing"`; every other module falls through to `VACCINATION`. Either map it or stop advertising the Counts module in bootstrap. |
 | W-41 | **Approving may still be invisible to leadership.** The closure work added `verified_count` and `closure_kind` to the reads, but no screen was updated to render them. | Backend exposes them; Android DTOs and any leadership surface still need to display them. Unverified end to end. |
 
 ---
@@ -145,8 +143,21 @@ evidence the operator captured separately.
 - **Per-animal verifier queue grain** — see B-5. One video per animal means one review
   per animal; the grain follows the evidence.
 
-Pattern worth noticing: every one of these came from assuming weighing has rules it
-does not have. Read `AGENTS.md` → "WEIGHING IS SCAN-AND-SUBMIT" before filing a
+
+- **"A blank tag scan returns a server error."** The app cannot send one. Three
+  guards stop it before the request is built (`WeighingViewModel.kt:1101`, `:1144`,
+  `:1570`). Only reachable by hand-crafting an API call, so it is an API-hardening
+  nicety, not a user-facing defect.
+- **"Tapping Counts shows the vaccination queue."** Nobody can reach a Counts verify
+  tab. The verifier's department grants only `verification`; `counts` is granted to
+  leadership, who are not verifiers. Confirmed against `department_module_grants` in
+  the live phone-QA DB. The mapping gap is real in code and unreachable in product.
+
+Both were raised by agents reading a code path without checking whether any real
+principal can reach it. Before filing: check the grants, check the client guards.
+
+Pattern worth noticing: most of these came from assuming weighing has rules it
+does not have, or from a code path nobody can actually reach. Read `AGENTS.md` → "WEIGHING IS SCAN-AND-SUBMIT" before filing a
 weighing finding.
 
 ## BANNED — do not reopen
