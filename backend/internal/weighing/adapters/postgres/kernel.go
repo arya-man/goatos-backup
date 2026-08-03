@@ -242,6 +242,37 @@ func (r *Repository) SweepWorkItems(ctx context.Context, params domain.KernelSwe
 		chunk:        chunk,
 		maxChunks:    maxChunks,
 		eventType:    domain.EventWorkItemMergedOnCarryOver,
+		// Closing the kernel work item is not enough, and shipping only that half was
+		// a real defect: weighing_work_items has no operator-facing reader. Every
+		// screen the operator actually looks at -- their task, their shed list, their
+		// day -- reads weighing_campaign_sheds.status, so a bucket left 'pending'
+		// still invites them to walk to a shed somebody else is standing at, which is
+		// the exact double-work this rule exists to stop. Worse, the kernel has by
+		// then stopped tracking it (day-start, roll-forward and delay all filter
+		// work_state IN ('scheduled','delayed')), so it would sit 'pending' forever,
+		// never chased and never closed.
+		//
+		// The carried-over TASK auto-closes. Same transaction as the work item, so
+		// the two can never disagree.
+		afterClaim: func(ctx context.Context, tx pgx.Tx, claimed []claimedWorkItem) error {
+			if len(claimed) == 0 {
+				return nil
+			}
+			bucketIDs := make([]string, 0, len(claimed))
+			for _, item := range claimed {
+				bucketIDs = append(bucketIDs, item.CampaignShedID)
+			}
+			// One set-based UPDATE for the whole chunk, never one per claimed row.
+			_, err := tx.Exec(ctx, `
+UPDATE weighing_campaign_sheds
+SET status = 'closed',
+    completed_at = COALESCE(completed_at, now()),
+    updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND campaign_shed_id = ANY($2::uuid[])
+  AND status NOT IN ('completed', 'closed', 'canceled')`, tenantID, bucketIDs)
+			return err
+		},
 		claimSQL: `
 WITH claimed AS (
   SELECT slipped.work_item_id, slipped.due_business_date AS sort_date,
@@ -539,6 +570,10 @@ type cadencePass struct {
 	maxChunks    int
 	eventType    string
 	claimSQL     string
+	// afterClaim runs inside the SAME transaction as the claim, before the cadence
+	// event is enqueued. A pass that must also move state OUTSIDE weighing_work_items
+	// puts it here, so the two either commit together or not at all.
+	afterClaim func(ctx context.Context, tx pgx.Tx, claimed []claimedWorkItem) error
 }
 
 // runCadencePass claims chunks until the pass is drained or the chunk budget is
@@ -552,6 +587,11 @@ func (r *Repository) runCadencePass(ctx context.Context, pass cadencePass) (rows
 		claimed, nextDate, nextID, err := r.claimChunkComposite(ctx, pass.claimSQL,
 			[]any{pass.tenantID, pass.businessDate, cursorDate, cursorID, pass.chunk},
 			func(ctx context.Context, tx pgx.Tx, claimed []claimedWorkItem) error {
+				if pass.afterClaim != nil {
+					if err := pass.afterClaim(ctx, tx, claimed); err != nil {
+						return err
+					}
+				}
 				n, err := r.enqueueCadenceEvents(ctx, tx, pass.tenantID, pass.eventType, pass.businessDate, claimed)
 				chunkEvents = n
 				return err
