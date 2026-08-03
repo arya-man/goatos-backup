@@ -2,6 +2,8 @@ export interface CommandBoardDriveOption {
   driveBatchId: string;
   driveName: string;
   label: string;
+  parkId?: string | null;
+  parkName?: string | null;
   status: string;
   plannedDate?: string | null;
   windowStart?: string | null;
@@ -9,11 +11,14 @@ export interface CommandBoardDriveOption {
   targetCount: number;
   doseCount: number;
   shedNames: string[];
+  derivedFromMatrix?: boolean;
 }
 
 export interface ScheduledDriveRow {
   key: string;
   driveName: string;
+  parkId: string;
+  parkName: string;
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
@@ -24,6 +29,8 @@ export interface ScheduledDriveRow {
 export interface ScheduledDriveCampaign {
   key: string;
   name: string;
+  parkId: string;
+  parkName: string;
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
@@ -76,18 +83,25 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   const rows = new Map<string, ScheduledDriveRow>();
   options.filter((option) => option.status === "planned").forEach((option) => {
     const name = option.driveName || option.label;
-    const key = `${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
+    const parkId = option.parkId ?? "";
+    const parkName = option.parkName ?? "";
+    const key = `${parkId}|${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
     let row = rows.get(key);
     if (!row) {
-      row = { key, driveName: name, dateKeys: [], targetCount: 0, doseCount: 0, shedNames: [], batchIds: [] };
+      row = { key, driveName: name, parkId, parkName, dateKeys: [], targetCount: 0, doseCount: 0, shedNames: [], batchIds: [] };
       rows.set(key, row);
     }
     const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
     if (planned && !row.dateKeys.includes(planned)) row.dateKeys.push(planned);
-    row.targetCount += option.targetCount;
-    row.doseCount += option.doseCount;
+    if (option.derivedFromMatrix) {
+      row.targetCount = Math.max(row.targetCount, option.targetCount ?? 0);
+      row.doseCount = Math.max(row.doseCount, option.doseCount ?? 0);
+    } else {
+      row.targetCount += option.targetCount ?? 0;
+      row.doseCount += option.doseCount ?? 0;
+    }
     row.batchIds.push(option.driveBatchId);
-    option.shedNames.forEach((shed) => {
+    (option.shedNames ?? []).forEach((shed) => {
       if (!row.shedNames.includes(shed)) row.shedNames.push(shed);
     });
   });
@@ -98,9 +112,10 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }
 
-export function commonDriveName(driveName: string): string {
+export function commonDriveName(driveName: string, parkName?: string | null): string {
   const isAnnualPoxTreatment = driveName === "Blue Tongue + Sheep Pox" || driveName === "Goat Pox";
-  return isAnnualPoxTreatment ? "CPT Adult Annual Pox + Blue Tongue" : `CPT Adult ${driveName}`;
+  const prefix = parkName?.trim() ? `${parkName.trim()} ` : "";
+  return isAnnualPoxTreatment ? `${prefix}Adult Annual Pox + Blue Tongue` : `${prefix}Adult ${driveName}`;
 }
 
 function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string } {
@@ -108,11 +123,11 @@ function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string }
   if (isAnnualPoxTreatment) {
     const month = (row.dateKeys[0] ?? "").slice(0, 7);
     return {
-      key: `cpt-adult-annual-pox-blue-tongue|${month}`,
-      name: commonDriveName(row.driveName),
+      key: `${row.parkId}|adult-annual-pox-blue-tongue|${month}`,
+      name: commonDriveName(row.driveName, row.parkName),
     };
   }
-  return { key: row.key, name: commonDriveName(row.driveName) };
+  return { key: row.key, name: commonDriveName(row.driveName, row.parkName) };
 }
 
 export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDriveCampaign[] {
@@ -124,6 +139,8 @@ export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDri
       campaign = {
         key: identity.key,
         name: identity.name,
+        parkId: row.parkId,
+        parkName: row.parkName,
         dateKeys: [],
         targetCount: 0,
         doseCount: 0,
@@ -152,4 +169,47 @@ export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDri
     shedNames: campaign.shedNames.sort(),
     treatments: campaign.treatments.sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? "")),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
+}
+
+// Selector identity for one drive row.
+//
+// The command-board API returns drive options at (batch, park) grain: a batch whose obligations
+// span two parks is genuinely two operator days in two places and arrives as two rows sharing one
+// driveBatchId. The selector used to carry the batch id alone, so those two rows collided -- they
+// rendered with the same React key, both matched the selected `value` (so both showed as selected),
+// and choosing either one narrowed the board by batch only, folding the other park's animals into
+// the answer. The park therefore belongs in the identity, not just in the label.
+export function driveSelectionValue(driveBatchId: string, parkId?: string | null): string {
+  return `${driveBatchId}~${parkId ?? ""}`;
+}
+
+export function parseDriveSelectionValue(value: string): { driveBatchId: string; parkId: string } {
+  const separator = value.indexOf("~");
+  if (separator < 0) return { driveBatchId: value, parkId: "" };
+  return { driveBatchId: value.slice(0, separator), parkId: value.slice(separator + 1) };
+}
+
+// Resolves a URL selection to exactly one drive row. A selection that matches no row, or that is
+// still park-blind (an older link carrying only the batch) while the batch exists in more than one
+// park, is deliberately UNRESOLVED: the board then stays on the honest all-drives answer instead of
+// silently picking one of the two parks.
+export function resolveSelectedDrive(
+  options: CommandBoardDriveOption[],
+  driveBatchId?: string,
+  parkId?: string,
+): CommandBoardDriveOption | undefined {
+  if (!driveBatchId) return undefined;
+  const exactMatches = options.filter(
+    (option) =>
+      option.driveBatchId === driveBatchId && (!parkId || (option.parkId ?? "") === parkId),
+  );
+  if (exactMatches.length === 1) return exactMatches[0];
+
+  // Older/skinny API catalogues may omit parkId even though the URL carries it. If the batch itself
+  // is unique, keep the user's selection instead of falling back to the all-drives board. Ambiguous
+  // same-batch multi-park catalogues still fail closed above.
+  const batchMatches = options.filter(
+    (option) => option.driveBatchId === driveBatchId && !(option.parkId ?? ""),
+  );
+  return batchMatches.length === 1 ? batchMatches[0] : undefined;
 }
