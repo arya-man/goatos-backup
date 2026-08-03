@@ -511,10 +511,13 @@ func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
 	// FREE-FLOW: a scan alone never completes an individual bucket -- there is
 	// no expected set, so nothing can tell the system the operator is done.
 	// The bucket completes on the operator's SUBMIT ack.
-	// NOTE: it stays 'pending', not 'in_progress' -- nothing on the capture path
-	// advances a bucket to in_progress (only reopen/reactivate writes that
-	// status). See the W-19 finding on operator_summaries' in_progress counter.
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	// It IS 'in_progress' though: the W-19 finding this comment used to record
+	// ("nothing on the capture path advances a bucket to in_progress") is now
+	// fixed -- the first capture marks the bucket as being worked, so a shed with
+	// scans in it stops reading identically to one nobody has touched. Capturing
+	// and completing remain two different things, which is what the next line
+	// asserts.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusInProgress)
 	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "animal:delayed-submit", []string{"tag-delayed"}); err != nil {
 		t.Fatalf("submit delayed individual scope: %v", err)
 	}
@@ -553,9 +556,9 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	}
 	// FREE-FLOW: the capture alone does not complete the bucket; SUBMIT is the
 	// completion signal (see AGENTS.md, "WEIGHING IS SCAN-AND-SUBMIT"). The
-	// bucket is still 'pending' here -- see the note in the delayed-campaign
-	// test above.
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	// bucket is 'in_progress' here -- captured, not finished -- see the note in
+	// the delayed-campaign test above.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusInProgress)
 	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "animal:complete-scope-submit", []string{"tag-complete-scope"}); err != nil {
 		t.Fatalf("submit individual scope: %v", err)
 	}
