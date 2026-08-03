@@ -252,7 +252,7 @@ before implementation.
 | `location_id uuid not null` | Physical shed or partition/cohort scope. |
 | `location_type text not null` | `shed`, `cohort`, or implementation-supported partition grain. |
 | `display_name text not null` | Snapshot label for audit/display. |
-| `expected_animal_count int not null` | Snapshot count at planning time. |
+| `expected_animal_count int not null` | **Always 0 — no expectation.** Weighing is free-flow: there is no expected roster and therefore no denominator. The write path used to store a literal `1`, which every progress figure then read as "this shed expects one animal". Nothing derives business truth from this column; do not start. |
 | `weighing_category text not null` | `individual_animal` or `per_shed_partition`. Selected by leadership per shed/partition; `per_shed_partition` may display as "lumpsum" in field-facing copy. |
 | `status text not null` | `pending`, `in_progress`, `completed`, `closed`, `canceled` (per migration `000058_weighing_close_and_verification_state.sql`). `completed` means the assigned operator submitted and the bucket is awaiting verification, NOT that every submitted observation is verified. `closed` is a distinct terminal state set only by CEO/Growth Director once every submitted observation in the bucket is verified; a bucket may be reopened from `completed` or `closed` back to `in_progress` by CEO/Growth Director, after which the same assigned operator may add more scanned RFIDs and submit again. |
 | `completed_at timestamptz` | Set when the assigned operator submits (awaiting verification), independent of `closed_at`. |
@@ -372,11 +372,13 @@ rows that make old progress/proof counts impossible to reconstruct.
 >
 > **Vaccination remains strict and must not be loosened by anything here.**
 >
-> The expected-animal roster is a LABEL, not a gate: it is LEFT JOINed for
-> wrong-shed classification only. An off-roster scan still records (as
-> `extra_scan`), and `weighing_expected_animals.status` /
-> `availability_status` never decide whether a weight is accepted. Writing
-> progress back to the roster is still fine. The one surviving precondition is
+> **SUPERSEDED — there is no roster at all.** `weighing_expected_animals` was
+> DROPPED (migration `000079`) and `weighing_observations.mismatch_status` with
+> it (migration `000081`). Nothing is classified as `expected_shed`,
+> `wrong_shed` or `extra_scan`, because those verdicts need an expected set that
+> no longer exists; the write path stores no verdict. The paragraph below is
+> kept only to record why the roster could never have been a gate. The one
+> surviving precondition is
 > bucket category (`weighing_category='individual_animal'`), which is a
 > weighing-owned check about the bucket, not about the animal.
 >

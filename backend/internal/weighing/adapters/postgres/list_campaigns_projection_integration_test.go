@@ -127,8 +127,12 @@ ON CONFLICT DO NOTHING`,
 		if lcpDistinctBuckets(wideRow) != 4 {
 			t.Fatalf("%s: wide campaign carries duplicate campaign_shed_id rows: %+v", tc.name, wideRow.Sheds)
 		}
-		if wideRow.Progress.IndividualExpectedCount != 9 {
-			t.Fatalf("%s: individual expected=%d, want 9 (2+3+4 counted once per bucket)", tc.name, wideRow.Progress.IndividualExpectedCount)
+		// Free-flow: individual_animal buckets carry no expected animal total, no
+		// matter what expected_animal_count these fixture rows still hold. The
+		// bucket-count assertions above are what actually pin "counted once per
+		// bucket"; this pins that no animal expectation is invented from them.
+		if wideRow.Progress.IndividualExpectedCount != 0 {
+			t.Fatalf("%s: individual expected=%d, want 0 (free-flow has no expected animal total)", tc.name, wideRow.Progress.IndividualExpectedCount)
 		}
 		if wideRow.Progress.PerScopeExpectedCount != 1 {
 			t.Fatalf("%s: per-scope expected=%d, want 1", tc.name, wideRow.Progress.PerScopeExpectedCount)
@@ -318,14 +322,16 @@ ON CONFLICT DO NOTHING`,
 	if len(operatorRow.Sheds) != 1 || operatorRow.Sheds[0].CampaignShedID != mine {
 		t.Fatalf("operator buckets=%+v, want only %s", operatorRow.Sheds, mine)
 	}
-	if operatorRow.Progress.IndividualExpectedCount != 2 {
-		t.Fatalf("operator expected=%d, want 2 (own bucket only)", operatorRow.Progress.IndividualExpectedCount)
+	if operatorRow.Progress.IndividualExpectedCount != 0 {
+		t.Fatalf("operator expected=%d, want 0 (free-flow has no expected animal total)", operatorRow.Progress.IndividualExpectedCount)
 	}
 	if operatorRow.Progress.IndividualCompletedCount != 1 {
 		t.Fatalf("operator completed=%d, want 1; the sibling operator's 4 completions must not be counted against this operator's expected set", operatorRow.Progress.IndividualCompletedCount)
 	}
-	if operatorRow.Progress.RemainingCount != 1 {
-		t.Fatalf("operator remaining=%d, want 1; a collapsed key set clamps this to 0", operatorRow.Progress.RemainingCount)
+	// Every bucket in this campaign is individual_animal, so there is no lump-sum
+	// bucket left to close and nothing honest to report as remaining.
+	if operatorRow.Progress.RemainingCount != 0 {
+		t.Fatalf("operator remaining=%d, want 0 (no lump-sum buckets in this campaign)", operatorRow.Progress.RemainingCount)
 	}
 
 	leadershipPage, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)
@@ -336,14 +342,14 @@ ON CONFLICT DO NOTHING`,
 	if len(leadershipRow.Sheds) != 2 {
 		t.Fatalf("leadership buckets=%d, want both park buckets", len(leadershipRow.Sheds))
 	}
-	if leadershipRow.Progress.IndividualExpectedCount != 7 {
-		t.Fatalf("leadership expected=%d, want 7 (2+5)", leadershipRow.Progress.IndividualExpectedCount)
+	if leadershipRow.Progress.IndividualExpectedCount != 0 {
+		t.Fatalf("leadership expected=%d, want 0 (free-flow has no expected animal total)", leadershipRow.Progress.IndividualExpectedCount)
 	}
 	if leadershipRow.Progress.IndividualCompletedCount != 5 {
 		t.Fatalf("leadership completed=%d, want 5 (1+4)", leadershipRow.Progress.IndividualCompletedCount)
 	}
-	if leadershipRow.Progress.RemainingCount != 2 {
-		t.Fatalf("leadership remaining=%d, want 2", leadershipRow.Progress.RemainingCount)
+	if leadershipRow.Progress.RemainingCount != 0 {
+		t.Fatalf("leadership remaining=%d, want 0 (no lump-sum buckets in this campaign)", leadershipRow.Progress.RemainingCount)
 	}
 	lcpFind(t, leadershipPage.Items, canceledOnly)
 	lcpFind(t, leadershipPage.Items, otherParkCampaign)
@@ -479,9 +485,10 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', (SELECT name FROM locati
 // lcpInsertExpectedAnimal is a NO-OP survivor of the deleted expected-animal
 // roster (weighing_expected_animals was DROPPED, migration 000079). It is kept,
 // deliberately inert, so existing call sites documenting "N roster rows" in
-// these tests need not be rewritten: IndividualExpectedCount is bucket-grain
-// (weighing_campaign_sheds.expected_animal_count, set directly by
-// lcpInsertBucket's `expected` argument), never derived by counting rows here.
+// these tests need not be rewritten: there is no individual-animal expectation
+// at all any more. IndividualExpectedCount is permanently 0 -- free-flow weighing
+// has no expected set, and expected_animal_count (still accepted by
+// lcpInsertBucket so old call sites compile) is never summed into it.
 func lcpInsertExpectedAnimal(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignID, animalID, bucketID, locationID, status string) {
 	t.Helper()
 	_ = campaignID

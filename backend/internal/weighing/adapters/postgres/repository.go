@@ -125,12 +125,17 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		// FREE-FLOW: weighing has no expected set. This bucket write is the ONLY
 		// membership fact -- the selected shed/location becomes a task bucket, full
 		// stop. No herd read, no per-goat roster row, no expected count derived from
-		// goats/herd_register_is_kid. expected_animal_count is a fixed bucket-grain
-		// value (1), never a herd-derived denominator.
+		// goats/herd_register_is_kid. expected_animal_count is written as 0 -- the
+		// column's own default, meaning NO EXPECTATION. It used to be written as a
+		// literal 1, which every CEO-side progress figure then read as "this shed
+		// expects one animal": a shed where five animals were weighed reported an
+		// expectation of one. Nothing derives business truth from this column any
+		// more (see progress() and kernel.go); 0 is the only value free-flow can
+		// honestly store.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
 			`
 INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 1,
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, denormalized from the campaign so the one-open-row-per
     -- (park, weigh date, shed) unique index can exist at all. Every write path
     -- must set these; migration 000062 fails loudly if one forgets.
@@ -205,7 +210,10 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds
 SET status='canceled', updated_at=now()
-WHERE weighing_campaigns.tenant_id=$1::uuid
+-- The predicate must qualify with the table being UPDATEd. Qualifying with
+-- weighing_campaigns (which is not in this statement's FROM) made Postgres
+-- reject the statement at parse time, so EVERY campaign edit failed.
+WHERE weighing_campaign_sheds.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed', 'closed', 'canceled')
   AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
@@ -222,11 +230,12 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
 		var campaignShedID string
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
 		// FREE-FLOW: an edit re-states the SAME bucket membership fact create does --
-		// no herd read, no per-goat roster row, no herd-derived expected count.
+		// no herd read, no per-goat roster row, no expected count of any kind
+		// (expected_animal_count is written 0 = no expectation, same as create).
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
 INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 1,
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, re-stated on every edit: an edit that moved the task's park
     -- or weigh date must move its buckets with it, or the duplicate guard would
     -- keep defending the OLD slot and stop defending the new one.
@@ -242,7 +251,10 @@ DO UPDATE SET
   expected_animal_count=EXCLUDED.expected_animal_count,
   status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
   updated_at=now()
-WHERE weighing_campaign_sheds.status NOT IN ('completed','closed','canceled')
+-- 'canceled' is deliberately NOT in this list: re-selecting a shed the planner had
+-- deselected must revive it, which is exactly what the CASE above does. Excluding
+-- canceled here made that CASE unreachable, so a re-added shed stayed canceled.
+WHERE weighing_campaign_sheds.status NOT IN ('completed','closed')
 RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1469,7 +1481,7 @@ WITH campaign AS (
     tenant_id, campaign_id, campaign_shed_id, scanned_identifier,
     weight_kg, proof_artifact_id, expected_location_id, expected_location_label,
     actual_location_id, actual_location_label,
-    mismatch_status, recorded_by, idempotency_key
+    recorded_by, idempotency_key
   )
   SELECT $1::uuid, $2::uuid, s.campaign_shed_id, $3,
     $4, p.proof_id, s.location_id, s.display_name,
@@ -1478,7 +1490,11 @@ WITH campaign AS (
     -- NOT resolved here: the write path is restricted to weighing-owned tables, so
     -- the locations catalogue is joined on the READ path instead.
     NULLIF($9, '')::uuid, NULL,
-    'extra_scan', $7::uuid, $6
+    -- No roster verdict is stored. mismatch_status was DROPPED (000081): free-flow
+    -- has no expected set, so a scan cannot be "expected", "wrong shed" or "extra".
+    -- Stamping 'extra_scan' on every row turned an operator's correct, in-shed work
+    -- into an exception queue for whoever read the table.
+    $7::uuid, $6
   FROM campaign c
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
@@ -2974,10 +2990,14 @@ func weighingSubjectType(eventType string) string {
 func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wrongShed, missing int) domain.Progress {
 	p := domain.Progress{}
 	for _, shed := range sheds {
-		switch shed.WeighingCategory {
-		case domain.CategoryIndividualAnimal:
-			p.IndividualExpectedCount += shed.ExpectedAnimalCount
-		case domain.CategoryPerShedPartition:
+		// FREE-FLOW: an individual_animal bucket has NO expected animal total. It
+		// is a place to weigh whatever walks through, so IndividualExpectedCount
+		// stays 0 ("no expectation") and is never summed from
+		// expected_animal_count, which the write path stores as 0 and which no
+		// longer carries any signal. A per_shed_partition bucket is different: the
+		// unit there is the BUCKET itself (one lump-sum weight per bucket), so
+		// counting buckets is a real, non-invented expectation.
+		if shed.WeighingCategory == domain.CategoryPerShedPartition {
 			p.PerScopeExpectedCount++
 		}
 	}
@@ -2985,7 +3005,12 @@ func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wr
 	p.PerScopeCompletedCount = completedScopes
 	p.WrongShedCount = wrongShed
 	p.MissingCount = missing
-	p.RemainingCount = (p.IndividualExpectedCount - p.IndividualCompletedCount) + (p.PerScopeExpectedCount - p.PerScopeCompletedCount)
+	// "Still open" can only be counted where an expectation actually exists: the
+	// lump-sum buckets. The individual side used to be folded in as
+	// (IndividualExpectedCount - IndividualCompletedCount), which with a real
+	// expectation of 0 turns every animal an operator weighs into a NEGATIVE
+	// remainder that silently eats the lump-sum figure next to it.
+	p.RemainingCount = p.PerScopeExpectedCount - p.PerScopeCompletedCount
 	if p.RemainingCount < 0 {
 		p.RemainingCount = 0
 	}

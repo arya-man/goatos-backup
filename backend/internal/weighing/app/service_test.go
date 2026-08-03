@@ -656,8 +656,10 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create campaign: %v", err)
 	}
-	if campaign.Progress.IndividualExpectedCount != 2 || campaign.Progress.PerScopeExpectedCount != 1 {
-		t.Fatalf("category-aware progress after create = %+v, want 2 individual + 1 per-scope", campaign.Progress)
+	// Free-flow: the two individual_animal buckets claim NO animal expectation.
+	// Only the lump-sum bucket has a real, bucket-grained one.
+	if campaign.Progress.IndividualExpectedCount != 0 || campaign.Progress.PerScopeExpectedCount != 1 {
+		t.Fatalf("category-aware progress after create = %+v, want 0 individual + 1 per-scope", campaign.Progress)
 	}
 
 	if _, err := service.PublishCampaign(ctx, ceo, campaign.CampaignID, "weighing-seed:publish"); err != nil {
@@ -1297,8 +1299,6 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 	progress := domain.Progress{}
 	for _, shed := range sheds {
 		switch shed.WeighingCategory {
-		case domain.CategoryIndividualAnimal:
-			progress.IndividualExpectedCount += shed.ExpectedAnimalCount
 		case domain.CategoryPerShedPartition:
 			progress.PerScopeExpectedCount++
 			if shed.Status == "completed" {
@@ -1314,6 +1314,6 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 			progress.WrongShedCount++
 		}
 	}
-	progress.RemainingCount = (progress.IndividualExpectedCount - progress.IndividualCompletedCount) + (progress.PerScopeExpectedCount - progress.PerScopeCompletedCount)
+	progress.RemainingCount = progress.PerScopeExpectedCount - progress.PerScopeCompletedCount
 	return progress
 }
