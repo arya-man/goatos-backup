@@ -18,6 +18,8 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyDao
 import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemDao
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemEntity
 import sg.mesha.goatos.core.data.cache.CountsApprovalRemoteKeyDao
@@ -219,8 +221,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingPlannerShedRowEntity::class,
         WeighingPlannerOperatorRowEntity::class,
         WeighingPlannerRemoteKeyEntity::class,
+        WeighingAlertsCacheEntity::class,
     ],
-    version = 26,
+    version = 27,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -261,6 +264,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // list, the task's shed buckets, the shed's own context and its captured records (shared with
     // the videos gallery), and the planner catalog — each a keyset-paged row table plus its remote
     // key, so every leadership surface renders from Room instead of straight off a network call.
+    // v27 (see [MIGRATION_26_27]) adds the weighing ALERTS cache — the weighing module's own
+    // lifecycle feed (work assigned, shed submitted, proof sent back, shed reopened, work
+    // closed). Room-backed from day one like every other screen-facing read: an alert is read
+    // in the shed, where the network is worst, so the operator must still see what they were
+    // told when the request fails.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -271,6 +279,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun calendarScheduleDao(): CalendarScheduleDao
     abstract fun calendarScheduleRemoteKeyDao(): CalendarScheduleRemoteKeyDao
     abstract fun controlTowerCacheDao(): ControlTowerCacheDao
+    abstract fun weighingAlertsCacheDao(): WeighingAlertsCacheDao
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao
     abstract fun scanRosterRowDao(): ScanRosterRowDao

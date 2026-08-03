@@ -984,6 +984,12 @@ func (f fakeRepo) CampaignParkID(context.Context, string, string) (string, error
 	return testPark, nil
 }
 
+// ListAlerts is the inert default; alerts_test.go's recordingAlertsRepo overrides
+// it where the call's arguments are the thing under test.
+func (f fakeRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{Title: domain.AlertFeedTitle, EmptyMessage: domain.AlertFeedEmptyMessage}, nil
+}
+
 type captureCreateRepo struct {
 	fakeRepo
 	created domain.CreateCampaign
@@ -1316,4 +1322,8 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 	}
 	progress.RemainingCount = progress.PerScopeExpectedCount - progress.PerScopeCompletedCount
 	return progress
+}
+
+func (r *scenarioRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
 }

@@ -201,7 +201,9 @@ object MeshaIcons {
         // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
         "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
         "home", "dhome", "overview" -> Home
-        "alerts", "notifications" -> Bell
+        // "weighing_alerts" is WEIGHING's own alerts destination, distinct from the
+        // vaccination "alerts" feed but the same kind of surface, so it takes the same bell.
+        "alerts", "notifications", "weighing_alerts" -> Bell
         "you", "profile", "settings" -> User
         // Counts vertical and its field-event destinations.
         "counts", "weighing" -> BarChart

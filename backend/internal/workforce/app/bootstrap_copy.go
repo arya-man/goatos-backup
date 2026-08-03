@@ -111,12 +111,23 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
 			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
-			// NO alerts tab here. /alerts is the vaccination process-integrity feed -- its only
-			// upstream needs ObligationRead+VaccinationRead, and its label reads "Vaccination
-			// alerts" in all four languages. Carried in the weighing bar it gave a weighing
-			// operator a permanently-empty cross-module tab that 403s, contradicting both the
-			// comment above and the rule that alerts are scoped by feature AND role. Weighing
-			// alerts belong to weighing once a module-scoped notification feed exists.
+			// Weighing's OWN alerts feed. This is NOT /alerts -- that is the vaccination
+			// process-integrity feed, whose upstream needs ObligationRead+VaccinationRead and
+			// whose label reads "Vaccination alerts" in all four languages. Carried in the
+			// weighing bar it gave a weighing operator a permanently-empty cross-module tab
+			// that 403s, so it was removed until weighing had a module-scoped feed of its own.
+			// It now does: /app/weighing/alerts reads the weighing lifecycle notifications
+			// already routed to the caller (assigned/submitted/reopened/rework/closed), gated
+			// on weighing capabilities only.
+			//
+			// The LABEL is just "Alerts" (maintainer ruling 2026-08-03): the tab never names
+			// the feature, the href carries the scoping. No shared_key -- this destination is
+			// weighing's alone and must never dedupe against the vaccination "alerts" item.
+			//
+			// It also fixes the degenerate single-tab bar: an operator holding only
+			// WeighingExecute previously got [My work] alone, a switcher with nothing to
+			// switch to.
+			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 5}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 	},

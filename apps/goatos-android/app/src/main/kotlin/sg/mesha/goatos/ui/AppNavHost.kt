@@ -109,6 +109,7 @@ import sg.mesha.goatos.core.ui.partitionDisplayLabel
 import sg.mesha.goatos.viewmodel.AddBirthViewModel
 import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
+import sg.mesha.goatos.viewmodel.WeighingAlertsViewModel
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
@@ -171,6 +172,17 @@ object Routes {
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
     const val WEIGHING_VIDEOS = "/weighing/videos"
+    /**
+     * The weighing module's OWN lifecycle alerts feed: work assigned, a shed submitted for
+     * verification, a proof sent back for rework, a shed reopened, work closed.
+     *
+     * Deliberately SEPARATE from [ALERTS], which is the VACCINATION process-integrity feed. The
+     * two are different feeds with different upstreams and different capability gates; the
+     * weighing bar previously carried the vaccination one and it 403'd for weighing operators.
+     * The backend hands this href in the weighing module's nav_items labelled just "Alerts" --
+     * the tab never names the feature, the href carries the scoping.
+     */
+    const val WEIGHING_ALERTS = "/weighing/alerts"
     const val WEIGHING_SCAN = "/weighing/scan"
     /**
      * Hosted Calendar child destination. It deliberately differs from the
@@ -1419,6 +1431,15 @@ fun AppNavHost(
 
         composable(Routes.ALERTS) {
             val vm: AlertsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AlertsScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Weighing's OWN alerts feed. Reuses AlertsScreen -- the renderer is already a dumb,
+        // fully backend-driven list -- with the weighing ViewModel behind it. Back pops via
+        // system back, matching the RFID/Alerts routes' pattern.
+        composable(Routes.WEIGHING_ALERTS) {
+            val vm: WeighingAlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
         }

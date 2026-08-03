@@ -33,6 +33,9 @@ import sg.mesha.goatos.core.data.DefaultAdherenceRepository
 import sg.mesha.goatos.core.data.DefaultBootstrapRepository
 import sg.mesha.goatos.core.data.DefaultCalendarRepository
 import sg.mesha.goatos.core.data.DefaultControlTowerRepository
+import sg.mesha.goatos.core.data.DefaultWeighingAlertsRepository
+import sg.mesha.goatos.core.data.WeighingAlertsRepository
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
 import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
@@ -158,6 +161,10 @@ object AppModule {
 
     @Provides
     fun provideControlTowerCacheDao(db: GoatDatabase): ControlTowerCacheDao = db.controlTowerCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideWeighingAlertsCacheDao(db: GoatDatabase): WeighingAlertsCacheDao = db.weighingAlertsCacheDao()
 
     @Provides
     fun provideExecutionRowsCacheDao(db: GoatDatabase): ExecutionRowsCacheDao = db.executionRowsCacheDao()
@@ -390,6 +397,11 @@ object AppModule {
     @Singleton
     fun provideControlTowerRepository(api: AppApi, dao: ControlTowerCacheDao): ControlTowerRepository =
         DefaultControlTowerRepository(api, dao)
+
+    @Provides
+    @Singleton
+    fun provideWeighingAlertsRepository(api: AppApi, dao: WeighingAlertsCacheDao): WeighingAlertsRepository =
+        DefaultWeighingAlertsRepository(api, dao)
 
     @Provides
     @Singleton

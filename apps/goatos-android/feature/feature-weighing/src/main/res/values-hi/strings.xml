@@ -7,7 +7,6 @@
     <!-- Shared weighing chrome -->
     <string name="weighing_eyebrow">वज़न</string>
     <string name="weighing_refresh">वज़न का काम रीफ़्रेश करें</string>
-    <string name="weighing_alerts">अलर्ट</string>
     <string name="weighing_category_lumpsum">कुल वज़न</string>
     <string name="weighing_category_individual">व्यक्तिगत</string>
     <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>

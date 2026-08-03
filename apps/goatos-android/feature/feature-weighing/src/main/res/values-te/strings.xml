@@ -7,7 +7,6 @@
     <!-- Shared weighing chrome -->
     <string name="weighing_eyebrow">బరువు</string>
     <string name="weighing_refresh">బరువు పనిని రిఫ్రెష్ చేయండి</string>
-    <string name="weighing_alerts">అలర్ట్‌లు</string>
     <string name="weighing_category_lumpsum">మొత్తం బరువు</string>
     <string name="weighing_category_individual">వ్యక్తిగతం</string>
     <string name="weighing_action_scan_animals">జంతువులను స్కాన్ చేయండి →</string>
