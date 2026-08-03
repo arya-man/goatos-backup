@@ -171,14 +171,14 @@ func TestProfileEntryPlacementFollowsModuleCount(t *testing.T) {
 // and this fails on its own.
 func TestProfileEntryPlacementIsLoadBearing(t *testing.T) {
 	bar := []domain.BootstrapNavigationItem{
-		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination"},
+		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
 		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 		{Key: navItemKeyYou, Label: "You", Href: "/you"},
 	}
 	modules := []domain.BootstrapModule{
 		{Key: "verify_vaccination", Status: moduleStatusAvailable, NavItems: append([]domain.BootstrapNavigationItem(nil), bar...)},
 		{Key: "verify_weighing", Status: moduleStatusAvailable, NavItems: []domain.BootstrapNavigationItem{
-			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing&category=weighing_proof"},
 			{Key: navItemKeyYou, Label: "You", Href: "/you"},
 		}},
 	}

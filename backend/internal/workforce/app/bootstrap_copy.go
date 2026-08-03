@@ -534,9 +534,26 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 	//      Note that shared_key is inert on this path: this function builds NavItems by hand
 	//      and never calls composeNavigationFromModules, the only reader of shared_key. It is
 	//      the placement rule, not the dedupe, that keeps You single.
+	// Both hrefs carry the feature's verification CATEGORY, and the alerts one names the client
+	// destination rather than the API path. Two separate defects lived here:
+	//
+	//  1. module= alone did not survive the trip. The client resolves a queue by category, and its
+	//     module->category map knows only weighing; every other value (counts, feed_direction, and
+	//     any feature added later) fell through to vaccination, so a Counts verifier's Verify tab
+	//     opened VACCINATION proofs -- other people's work, in the wrong module. The category is
+	//     the identity that actually scopes the queue, so it is sent explicitly instead of being
+	//     re-derived from a key the client has to keep a private table for. module= stays for the
+	//     drawer's own active-entry comparison.
+	//  2. Alerts pointed at "/verify/alerts", which was the backend API path
+	//     (internal/verification/adapters/http/handler.go ListAlerts) and NOT a destination the
+	//     app hosted -- a dead tab whose tap resolved to nothing. That half is closed on the
+	//     client, which now registers "/verify/alerts?category=" as a real destination reading
+	//     the same pending queue; the href stays as-is precisely because it is that contract, and
+	//     it must keep carrying the category or the feed stops being feature-scoped.
+	category := verificationCategoryForFeature(normalized)
 	items := []moduleNavContribution{
-		{key: "verify", labelKey: "nav.verify", href: "/verify?module=" + normalized, shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
-		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + verificationCategoryForFeature(normalized), shared_key: "", priority: 20, requiredPermission: ""},
+		{key: "verify", labelKey: "nav.verify", href: verifyQueueHref(normalized), shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
+		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + category, shared_key: "", priority: 20, requiredPermission: ""},
 		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
 	}
 
@@ -567,7 +584,7 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 	return domain.BootstrapModule{
 		Key:      verifyModuleKey,
 		Label:    localizedBootstrapLabel(localeTag, labelKey),
-		Href:     "/verify?module=" + normalized,
+		Href:     verifyQueueHref(normalized),
 		Status:   moduleStatusAvailable,
 		NavItems: navItems,
 	}
@@ -868,6 +885,16 @@ var bootstrapLabels = map[string]map[string]string{
 // maintainer decision of 2026-08-03: every verifier alerts tab is titled just "Alerts".
 // The alerts themselves remain feature-scoped through verificationCategoryForFeature on
 // the href -- only the label stopped naming the module the verifier is already inside.
+
+// verifyQueueHref is the ONE place a feature key becomes a verify-queue link, so the drawer entry
+// and the bar's Verify tab can never disagree about which module's proofs open.
+//
+// It carries the category as well as the module because the module key alone is not a queue scope:
+// the client filters by category, and anything it does not recognise as a module lands on
+// vaccination. Naming the category makes the scope explicit instead of guessable.
+func verifyQueueHref(normalizedFeatureKey string) string {
+	return "/verify?module=" + normalizedFeatureKey + "&category=" + verificationCategoryForFeature(normalizedFeatureKey)
+}
 
 // verificationCategoryForFeature maps a MODULE key (the vocabulary nav and
 // position_module_duties speak: "vaccination", "weighing", "feed_direction",

@@ -37,11 +37,22 @@ func (r *parkRoutedRepo) CampaignParkID(_ context.Context, _ string, campaignID 
 	return parkID, nil
 }
 
-// ListLeadershipSheds returns one bucket per campaign this repo knows about, so the
-// per-campaign park filter in Service.ListLeadershipSheds has something real to filter.
-func (r *parkRoutedRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+// ListLeadershipSheds models the real repository contract: it returns one bucket per campaign it
+// knows about, RESTRICTED to parkIDs when the service supplies one (nil meaning unrestricted).
+// Honouring the filter here is the point -- a fake that ignored it would let the service pass this
+// test on a post-filter that the production query no longer performs.
+func (r *parkRoutedRepo) ListLeadershipSheds(_ context.Context, _ string, parkIDs []string, _ string, _, _ int) (domain.LeadershipShedPage, error) {
+	allowed := map[string]struct{}{}
+	for _, parkID := range parkIDs {
+		allowed[parkID] = struct{}{}
+	}
 	items := make([]domain.LeadershipShedVideos, 0, len(r.parkByCampaign))
-	for campaignID := range r.parkByCampaign {
+	for campaignID, parkID := range r.parkByCampaign {
+		if len(parkIDs) > 0 {
+			if _, ok := allowed[parkID]; !ok {
+				continue
+			}
+		}
 		items = append(items, domain.LeadershipShedVideos{CampaignID: campaignID, CampaignShedID: securityShed})
 	}
 	return domain.LeadershipShedPage{Items: items}, nil

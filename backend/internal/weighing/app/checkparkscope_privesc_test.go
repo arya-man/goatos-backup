@@ -243,7 +243,7 @@ func (r *parkScopeCheckRepo) GetLeadershipShedVideos(ctx context.Context, tenant
 	return domain.LeadershipShedVideos{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit int, videosPageSize int) (domain.LeadershipShedPage, error) {
+func (r *parkScopeCheckRepo) ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit int, videosPageSize int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
