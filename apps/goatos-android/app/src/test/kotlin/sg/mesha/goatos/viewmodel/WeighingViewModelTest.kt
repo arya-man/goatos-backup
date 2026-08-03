@@ -1347,6 +1347,18 @@ class WeighingViewModelTest {
             reset: Boolean,
         ): AppResult<Int> = AppResult.Ok(0)
 
+        /** Records the in-place availability re-reads the wizard asks for. */
+        var availabilityRefreshes: MutableList<Triple<String, String, Int>> = mutableListOf()
+
+        override suspend fun refreshPlannerParkBucketAvailability(
+            periodStartDate: String,
+            parkId: String,
+            pages: Int,
+        ): AppResult<Int> {
+            availabilityRefreshes.add(Triple(periodStartDate, parkId, pages))
+            return AppResult.Ok(0)
+        }
+
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             createdDraft = draft
             return AppResult.Ok(null)
