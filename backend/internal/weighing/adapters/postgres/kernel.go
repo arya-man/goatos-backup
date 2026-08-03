@@ -215,6 +215,11 @@ func (r *Repository) SweepWorkItems(ctx context.Context, params domain.KernelSwe
 	// BEFORE anything rolls: resolve carry-overs that would land on a shed somebody
 	// else already owes today. Running this first means the double-booked state never
 	// exists, not even for the width of one transaction.
+	//
+	// Publishes "weighing.work_item.merged_on_carry_over"
+	// (domain.EventWorkItemMergedOnCarryOver) through the same outbox enqueue every
+	// other cadence pass uses, one durable event per (campaign, operator, business
+	// date) group.
 	merged, mergeEvents, truncated, err := r.runCadencePass(ctx, cadencePass{
 		tenantID:     tenantID,
 		businessDate: businessDate,
