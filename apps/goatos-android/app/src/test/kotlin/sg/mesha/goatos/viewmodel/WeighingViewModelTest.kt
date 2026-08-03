@@ -1432,4 +1432,24 @@ class WeighingViewModelTest {
         const val SCOPE_KEY = "campaign-1:group-1:campaign-shed-1"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"
     }
+
+    // Shared by the two oversight park-vocabulary tests. It was removed with an abandon-only test
+    // it happened to sit beside; the tests that still need it are about the PARK VOCABULARY, not
+    // about any transition, so the fixture outlives the deleted feature.
+    private fun oversightAssignment() = WeighingAssignment(
+        campaignId = "campaign-1",
+        tenantId = "tenant-1",
+        parkId = "park-cpt",
+        parkName = "CPT - Channapatna",
+        workGroupId = "shed-a",
+        campaignShedId = "shed-a",
+        expectedLocationId = "shed-a",
+        expectedLocationLabel = "shed-a",
+        label = "Gandhi 1",
+        category = "individual_animal",
+        operatorUserId = "operator-2",
+        status = "in_progress",
+        periodLabel = "2026-08-01 - 2026-08-07",
+    )
+
 }
