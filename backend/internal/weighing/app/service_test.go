@@ -937,7 +937,7 @@ func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (d
 func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
-func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
@@ -958,7 +958,7 @@ func (f fakeRepo) ListLeadershipSheds(context.Context, string, []string, string,
 	return domain.LeadershipShedPage{}, nil
 }
 
-func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -1121,7 +1121,7 @@ func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, ope
 	return domain.CampaignPage{Items: []domain.Campaign{campaign}}, nil
 }
 
-func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
@@ -1179,7 +1179,7 @@ func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, []string, st
 	return domain.LeadershipShedPage{}, nil
 }
 
-func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 

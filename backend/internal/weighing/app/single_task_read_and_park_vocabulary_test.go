@@ -42,12 +42,9 @@ type singleTaskRepo struct {
 	parksArg    []string
 	parksCalled bool
 	parks       map[string]domain.WeighingPark
-	// assignedByCampaign is the operator each campaign's buckets belong to. It is per-campaign,
-	// not global, because a single `assignedTo` made the escalation actor the assignee of BOTH
-	// parks -- a state the database itself forbids (weighing_operator_park_bound_guard: an
-	// operator is park-bound). A fixture that violates a DB-enforced invariant cannot tell a
-	// real refusal from a fake one.
-	assignedByCampaign map[string]string
+	// assignedByCampaign lives on the embedded parkRoutedRepo: the bucket page authorizes
+	// against the same per-campaign assignment map this read does, and two copies of it could
+	// disagree about who is assigned where.
 }
 
 func (r *singleTaskRepo) CampaignByID(_ context.Context, _, campaignID string, access ports.CampaignAccess) (domain.Campaign, error) {
@@ -92,15 +89,17 @@ func (r *singleTaskRepo) WeighingParks(_ context.Context, _ string, parkIDs []st
 
 func newSingleTaskRepo() *singleTaskRepo {
 	return &singleTaskRepo{
-		parkRoutedRepo: parkRoutedRepo{parkByCampaign: map[string]string{
-			securityCampaignA: securityParkA,
-			securityCampaignB: securityParkB,
-		}},
-		// The actor is the assignee in park B, where they hold the capability -- and NOT in park
-		// A, matching the park-bound-operator invariant the database enforces.
-		assignedByCampaign: map[string]string{
-			securityCampaignA: "00000000-0000-4000-8000-0000000000ff",
-			securityCampaignB: securityActorID,
+		parkRoutedRepo: parkRoutedRepo{
+			parkByCampaign: map[string]string{
+				securityCampaignA: securityParkA,
+				securityCampaignB: securityParkB,
+			},
+			// The actor is the assignee in park B, where they hold the capability -- and NOT in
+			// park A, matching the park-bound-operator invariant the database enforces.
+			assignedByCampaign: map[string]string{
+				securityCampaignA: "00000000-0000-4000-8000-0000000000ff",
+				securityCampaignB: securityActorID,
+			},
 		},
 		parks: map[string]domain.WeighingPark{
 			securityParkA: {ParkID: securityParkA, Name: "Park A"},

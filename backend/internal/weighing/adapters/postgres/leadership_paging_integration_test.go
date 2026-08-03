@@ -11,7 +11,17 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
+
+// unrestrictedAccess is the authority an INTERNAL caller carries -- a CLI, a seeder or a test
+// running off context.Background() with no grants attached, which authorizedParkSet already
+// resolves as tenant-wide. These paging tests are about keyset behaviour, not authorization, so
+// they state that authority explicitly instead of relying on a zero value.
+//
+// A zero ports.CampaignAccess would be WRONG here, and deliberately so: it admits nothing, which
+// is the correct answer for an actor who passed a park-blind role gate holding no park.
+var unrestrictedAccess = ports.CampaignAccess{Unrestricted: true}
 
 // Paging guarantees for the LEADERSHIP weighing reads.
 //
@@ -63,7 +73,7 @@ func TestGetLeadershipShedVideosPagesObservationsAndTerminates(t *testing.T) {
 	seedLeadershipObservations(t, ctx, pool, base, 25)
 	repo := NewRepository(pool, 5*time.Second)
 
-	first, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 0)
+	first, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 0, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -74,7 +84,7 @@ func TestGetLeadershipShedVideosPagesObservationsAndTerminates(t *testing.T) {
 		t.Fatalf("first page returned no cursor with 25 observations behind a %d-row page", domain.LeadershipShedVideosPageSize)
 	}
 
-	second, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, first.NextIndividualCursor, 0)
+	second, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, first.NextIndividualCursor, 0, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -111,7 +121,7 @@ func TestGetLeadershipShedVideosCursorIsStableWhenARowLandsMidPage(t *testing.T)
 	seedLeadershipObservations(t, ctx, pool, base, 25)
 	repo := NewRepository(pool, 5*time.Second)
 
-	first, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 10)
+	first, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 10, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("first page: %v", err)
 	}
@@ -123,7 +133,7 @@ INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, sca
 VALUES ($1::uuid, $2::uuid, $3::uuid, 'page-tag-late', 11.5, $4::uuid, $5::uuid, 'paging:late', $6::timestamptz)`,
 		repoTenant, repoCampaign, repoAnimalScope, repoAnimalProof, repoOperator, base.Add(500*time.Second))
 
-	second, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, first.NextIndividualCursor, 10)
+	second, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, first.NextIndividualCursor, 10, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("second page: %v", err)
 	}
@@ -162,7 +172,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $6, 10.0, $4::uuid, $5::uuid, $7, $8::time
 	seen := map[string]bool{}
 	cursor := ""
 	for pages := 0; pages < 10; pages++ {
-		page, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, cursor, 1)
+		page, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, cursor, 1, unrestrictedAccess)
 		if err != nil {
 			t.Fatalf("page %d: %v", pages, err)
 		}
@@ -193,7 +203,7 @@ func TestGetLeadershipShedVideosCarriesParkWeighDateAndOperatorName(t *testing.T
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	shed, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 0)
+	shed, err := repo.GetLeadershipShedVideos(ctx, repoTenant, repoCampaign, repoAnimalScope, "", 0, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("read shed: %v", err)
 	}
@@ -222,7 +232,7 @@ func TestListCampaignShedsPagesBucketsAndReportsWholeTaskTotal(t *testing.T) {
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	first, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", "", 1)
+	first, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 1, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("first bucket page: %v", err)
 	}
@@ -238,7 +248,7 @@ func TestListCampaignShedsPagesBucketsAndReportsWholeTaskTotal(t *testing.T) {
 		t.Fatalf("first bucket page returned no cursor with a second bucket outstanding")
 	}
 
-	second, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", first.NextCursor, 1)
+	second, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, first.NextCursor, 1, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("second bucket page: %v", err)
 	}
@@ -591,7 +601,7 @@ func TestListLeadershipShedsPagesBucketsAndBoundsEvidencePerBucket(t *testing.T)
 		t.Fatalf("bucket context missing: park=%q weigh_date=%q", individual.ParkName, individual.WeighDate)
 	}
 	// The per-bucket cursor is the same shape the single-bucket read hands out.
-	next, err := repo.GetLeadershipShedVideos(ctx, repoTenant, individual.CampaignID, individual.CampaignShedID, individual.NextIndividualCursor, 0)
+	next, err := repo.GetLeadershipShedVideos(ctx, repoTenant, individual.CampaignID, individual.CampaignShedID, individual.NextIndividualCursor, 0, unrestrictedAccess)
 	if err != nil {
 		t.Fatalf("continuing the gallery bucket cursor: %v", err)
 	}

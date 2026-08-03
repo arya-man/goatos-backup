@@ -174,37 +174,44 @@ func TestListCampaignsClampsTheParkFilterToTheActorsAuthority(t *testing.T) {
 // --- Judge-found regressions in the FIRST version of this fix. Each of these passed the
 // original park-scope commit and was caught only by adversarial review afterwards.
 
-// campaignShedsRepo answers CampaignParkID per campaign so a cross-park drilldown is
-// distinguishable from an authorized one.
+// campaignShedsRepo routes each campaign to its own park (parkRoutedRepo) and authorizes the
+// bucket page INSIDE the read, so a cross-park drilldown is distinguishable from an authorized
+// one.
+//
+// The refusal deliberately no longer happens before the repository is reached. Authorizing a
+// park in one statement and reading the buckets in another is what let a task that moved park
+// in between be authorized as its old park and paged as its new one, so the authority is now
+// data the read evaluates against the row it returns.
+func newCampaignShedsRepo() *campaignShedsRepo {
+	return &campaignShedsRepo{parkRoutedRepo: parkRoutedRepo{parkByCampaign: map[string]string{
+		securityCampaignA: plannerScopeParkMine,
+		securityCampaignB: plannerScopeParkOthers,
+	}}}
+}
+
 type campaignShedsRepo struct {
-	fakeRepo
-	listed bool
-}
-
-func (r *campaignShedsRepo) CampaignParkID(_ context.Context, _, campaignID string) (string, error) {
-	if campaignID == securityCampaignB {
-		return plannerScopeParkOthers, nil
-	}
-	return plannerScopeParkMine, nil
-}
-
-func (r *campaignShedsRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
-	r.listed = true
-	return domain.CampaignShedPage{}, nil
+	parkRoutedRepo
 }
 
 // A monitor reads the campaign UNFILTERED, so the campaign id off the request is the only
 // thing naming what they see -- and the role check is park-blind.
 func TestListCampaignShedsRefusesAnotherParksCampaign(t *testing.T) {
-	repo := &campaignShedsRepo{}
+	repo := newCampaignShedsRepo()
 	svc := NewService(repo)
 
 	_, err := svc.ListCampaignSheds(plannerScopedContext(), plannerScopedActor(), securityCampaignB, "", 20)
 	if !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("sheds of another park's campaign err = %v, want ErrNotFound", err)
 	}
-	if repo.listed {
-		t.Fatal("repository was queried despite the refusal")
+	// The authority the service pushed down must be the actor's own park set -- not
+	// unrestricted, which would make the refusal above an accident of this fixture.
+	if repo.campaignShedsAccess.Unrestricted {
+		t.Fatal("ListCampaignSheds pushed UNRESTRICTED access for a park-scoped actor")
+	}
+	if len(repo.campaignShedsAccess.AuthorizedParkIDs) != 1 ||
+		repo.campaignShedsAccess.AuthorizedParkIDs[0] != plannerScopeParkMine {
+		t.Fatalf("ListCampaignSheds pushed park set %v, want exactly [%s]",
+			repo.campaignShedsAccess.AuthorizedParkIDs, plannerScopeParkMine)
 	}
 
 	if _, err := svc.ListCampaignSheds(plannerScopedContext(), plannerScopedActor(), securityCampaignA, "", 20); err != nil {
