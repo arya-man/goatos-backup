@@ -138,6 +138,12 @@ http://localhost:3311
 Authorized redirect URIs:
 
 ```text
+https://stg.dashboard.mesha.sg/api/auth/google-redirect
+https://goatos-admin-web-stg-514832198871.asia-south1.run.app/api/auth/google-redirect
+https://goatos-admin-web-stg-awtrpmn4za-el.a.run.app/api/auth/google-redirect
+http://localhost:3000/api/auth/google-redirect
+http://localhost:3300/api/auth/google-redirect
+http://localhost:3311/api/auth/google-redirect
 https://goatos-stg.firebaseapp.com/__/auth/handler
 https://goatos-stg.web.app/__/auth/handler
 ```
