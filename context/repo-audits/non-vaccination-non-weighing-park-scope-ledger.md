@@ -2,6 +2,21 @@
 
 **Status: PARKED, deliberately. Do not fix in a vaccination or weighing PR.**
 
+**Decision, 2026-08-03:** a park-scope sweep of these modules was scoped and
+staffed, then STOOD DOWN before any code was written. Nothing in this file has
+been fixed. It is logged, not done. Two reasons, both still true:
+
+1. The counts half is blocked on a product decision (see "Blocked on a product
+   decision" below). Writing a park filter before that answer exists would
+   encode a guess as behaviour.
+2. Vaccination and weighing are mid-stabilisation. Every one of these modules is
+   verifiably isolated from both (see "Relationship to weighing"), so none of it
+   is load-bearing for that work -- which is exactly why it can wait, and why
+   touching it now would only add review surface to a PR that already has a lot.
+
+The one LIVE item (L1) is the only thing here with a real exploitation path
+today. If any of this is picked up early, pick up L1 alone.
+
 Maintainer decision (2026-08-03): vaccination and weighing are being stabilised
 first. Everything in this file is real, none of it touches those two modules,
 and all of it waits.
