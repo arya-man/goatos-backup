@@ -283,11 +283,14 @@ object AppModule {
             tenantIdProvider = { BuildConfig.TENANT_ID },
             localeProvider = { sessionStore.cachedLanguage() },
             // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
-            // `enabled` mirrors TELEMETRY_ENABLED so a flavor without a confirmed Firebase
-            // project still gets traceparent propagation for backend correlation — only the
-            // Firebase Perf reporting half is gated (networkTelemetryReporter is already a Noop
-            // there; see TelemetryModule).
-            telemetryInterceptor = TelemetryInterceptor(enabled = BuildConfig.TELEMETRY_ENABLED, reporter = networkTelemetryReporter),
+            // Always ENABLED. The comment here previously described exactly this intent — "a
+            // flavor without a confirmed Firebase project still gets traceparent propagation
+            // for backend correlation, only the Firebase Perf reporting half is gated" — while
+            // the code passed TELEMETRY_ENABLED and so switched the WHOLE interceptor off,
+            // taking traceparent correlation and every API-failure report with it. Gating now
+            // lives where the comment always said it did: on the reporter's Firebase Perf
+            // delegate, inside TelemetryModule.
+            telemetryInterceptor = TelemetryInterceptor(enabled = true, reporter = networkTelemetryReporter),
         )
 
     @Provides
