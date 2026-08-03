@@ -184,6 +184,22 @@ type WeighingKernelStore interface {
 	SweepWorkItems(ctx context.Context, params domain.KernelSweepParams) (domain.KernelSweepResult, error)
 }
 
+// WeighingReworkDigestStore batches the rework push PER SHED.
+//
+// A rework verdict arrives per observation, asynchronously, one event at a time, and
+// nothing in the system marks "the verifier finished reviewing this shed". Rather than
+// invent that moment as a queue, it is derived: an un-delivered bounce is exactly
+// `verification_status='rework' AND rework_notified_at IS NULL`. This sweep groups those
+// rows per bucket, emits ONE weighing.observation.rework_digest naming the animals, and
+// stamps the rows it named IN THE SAME TRANSACTION -- so a crash between the two is
+// impossible and a bounce can never be silently dropped.
+//
+// Same isolation rule as WeighingKernelStore: driven by the consolidated kernel worker
+// on a cadence, never reachable from the HTTP service.
+type WeighingReworkDigestStore interface {
+	SweepReworkDigests(ctx context.Context, params domain.ReworkDigestSweepParams) (domain.ReworkDigestSweepResult, error)
+}
+
 // WeighingProcessStateReader is the Calendar + Control Tower binding: dot-grain
 // day markers plus a whole-filter, disjoint-bucket summary at
 // `weighing_work_item` grain.
