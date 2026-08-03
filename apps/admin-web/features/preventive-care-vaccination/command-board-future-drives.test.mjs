@@ -3,8 +3,11 @@ import test from "node:test";
 
 import {
   commonDriveName,
+  driveSelectionValue,
   formatDateSpan,
   formatScheduledDriveDates,
+  parseDriveSelectionValue,
+  resolveSelectedDrive,
   scheduledDriveCampaigns,
   scheduledDriveRows,
 } from "./command-board-future-drives.ts";
@@ -164,4 +167,38 @@ test("a drive with no park from the API is labelled without inventing one", () =
   assert.equal(commonDriveName("FMD"), "Adult FMD");
   assert.equal(commonDriveName("Goat Pox", "   "), "Adult Annual Pox + Blue Tongue");
   assert.equal(commonDriveName("FMD", "CBE"), "CBE Adult FMD");
+});
+
+test("drive selection identity is (batch, park), so one batch in two parks stays two choices", () => {
+  const cbe = { driveBatchId: "batch-1", parkId: "park-cbe", parkName: "Park One", driveName: "PPR", label: "", status: "planned", targetCount: 10, doseCount: 10, shedNames: [] };
+  const cpt = { ...cbe, parkId: "park-cpt", parkName: "Park Two", targetCount: 20 };
+
+  const cbeValue = driveSelectionValue(cbe.driveBatchId, cbe.parkId);
+  const cptValue = driveSelectionValue(cpt.driveBatchId, cpt.parkId);
+
+  assert.notEqual(cbeValue, cptValue);
+  assert.deepEqual(parseDriveSelectionValue(cbeValue), { driveBatchId: "batch-1", parkId: "park-cbe" });
+  assert.equal(resolveSelectedDrive([cbe, cpt], "batch-1", "park-cpt"), cpt);
+  assert.equal(resolveSelectedDrive([cbe, cpt], "batch-1", "park-cbe"), cbe);
+});
+
+test("a park-blind or unknown drive selection resolves to nothing rather than the wrong park", () => {
+  const cbe = { driveBatchId: "batch-1", parkId: "park-cbe", parkName: "Park One", driveName: "PPR", label: "", status: "planned", targetCount: 10, doseCount: 10, shedNames: [] };
+  const cpt = { ...cbe, parkId: "park-cpt", parkName: "Park Two", targetCount: 20 };
+
+  // Older link carrying only the batch while the batch spans two parks: ambiguous, so unresolved.
+  assert.equal(resolveSelectedDrive([cbe, cpt], "batch-1", undefined), undefined);
+  // Unambiguous single-park batch still resolves without a park on the URL.
+  assert.equal(resolveSelectedDrive([cbe], "batch-1", undefined), cbe);
+  assert.equal(resolveSelectedDrive([cbe, cpt], "batch-9", "park-cbe"), undefined);
+  assert.equal(resolveSelectedDrive([cbe, cpt], undefined, "park-cbe"), undefined);
+  // A park that does not hold the batch must not fall back to the park that does.
+  assert.equal(resolveSelectedDrive([cbe], "batch-1", "park-cpt"), undefined);
+});
+
+test("a drive with no park still round-trips as its own selection value", () => {
+  const unparked = { driveBatchId: "batch-2", parkId: "", parkName: "", driveName: "PPR", label: "", status: "completed", targetCount: 5, doseCount: 5, shedNames: [] };
+
+  assert.deepEqual(parseDriveSelectionValue(driveSelectionValue("batch-2", "")), { driveBatchId: "batch-2", parkId: "" });
+  assert.equal(resolveSelectedDrive([unparked], "batch-2", undefined), unparked);
 });

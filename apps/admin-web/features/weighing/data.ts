@@ -12,7 +12,8 @@ import {
   type WeighingPlannerShed as ApiWeighingPlannerShed,
 } from "@/lib/api/server";
 
-import { currentWeekStart, selectCampaign } from "./campaign-selection";
+import { todayIso } from "@/lib/format";
+import { selectCampaign, weekStartOfDay } from "./campaign-selection";
 
 export type WeighingRole = "leadership" | "director" | "operator";
 export type WeighingCampaignState =
@@ -138,12 +139,21 @@ export async function getWeighingPageData(
 ): Promise<ApiResult<WeighingPageData>> {
   const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
-  const selectedItem = selectCampaign(result.data.items, selectedWeek, selectedCampaignId, selectedParkId);
+  // todayIso() is the current Goat OS business day (Asia/Kolkata). Deriving "this week" from it
+  // rather than from the UTC date keeps the early-Monday-morning window (00:00-05:29 IST, when UTC
+  // is still on Sunday) from resolving to last week.
+  const thisWeekStart = weekStartOfDay(todayIso());
+  const selectedItem = selectCampaign(result.data.items, thisWeekStart, selectedWeek, selectedCampaignId, selectedParkId);
   const campaign =
     selectedItem
       ? campaignFromApi(selectedItem, role)
       : emptyCampaign(role);
-  const plannerWeek = selectedWeek || campaign.weekStart || currentWeekStart();
+  // The planner week must follow the campaign that was ACTUALLY selected. selectCampaign may
+  // legitimately decline the URL's week (it belongs to another park, or that park has no campaign
+  // that week) and land on a different one; preferring selectedWeek here then rendered that
+  // campaign's header above a catalog and buckets read for the stale URL week -- two different
+  // weeks presented as one. Only with no campaign at all does the URL week still govern.
+  const plannerWeek = campaign.weekStart || selectedWeek || thisWeekStart;
   const catalogResult = await getWeighingPlannerCatalog(plannerWeek);
   if (!catalogResult.ok) return catalogResult;
   // The catalog is PARK grain and carries no sheds. The planner only ever renders the

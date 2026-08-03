@@ -173,3 +173,38 @@ export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDri
     treatments: campaign.treatments.sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? "")),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }
+
+// Selector identity for one drive row.
+//
+// The command-board API returns drive options at (batch, park) grain: a batch whose obligations
+// span two parks is genuinely two operator days in two places and arrives as two rows sharing one
+// driveBatchId. The selector used to carry the batch id alone, so those two rows collided -- they
+// rendered with the same React key, both matched the selected `value` (so both showed as selected),
+// and choosing either one narrowed the board by batch only, folding the other park's animals into
+// the answer. The park therefore belongs in the identity, not just in the label.
+export function driveSelectionValue(driveBatchId: string, parkId?: string | null): string {
+  return `${driveBatchId}~${parkId ?? ""}`;
+}
+
+export function parseDriveSelectionValue(value: string): { driveBatchId: string; parkId: string } {
+  const separator = value.indexOf("~");
+  if (separator < 0) return { driveBatchId: value, parkId: "" };
+  return { driveBatchId: value.slice(0, separator), parkId: value.slice(separator + 1) };
+}
+
+// Resolves a URL selection to exactly one drive row. A selection that matches no row, or that is
+// still park-blind (an older link carrying only the batch) while the batch exists in more than one
+// park, is deliberately UNRESOLVED: the board then stays on the honest all-drives answer instead of
+// silently picking one of the two parks.
+export function resolveSelectedDrive(
+  options: CommandBoardDriveOption[],
+  driveBatchId?: string,
+  parkId?: string,
+): CommandBoardDriveOption | undefined {
+  if (!driveBatchId) return undefined;
+  const matches = options.filter(
+    (option) =>
+      option.driveBatchId === driveBatchId && (!parkId || (option.parkId ?? "") === parkId),
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
