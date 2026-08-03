@@ -4767,17 +4767,20 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
+        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the five counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain verified > awaiting > overdue > scheduled > closedWithoutDose, i.e. its most-progressed dose wins. The tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
-            /** @description Total planning count (all obligations for drive or all-history). */
+            /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
             targets: number;
-            /** @description Accepted vaccination completions. */
+            /** @description Animals with at least one verifier-accepted completion. */
             dosesVerified: number;
-            /** @description Recorded completions awaiting verification (status=recorded, verified_at=null). */
+            /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null) and no accepted completion. */
             awaitingVerification: number;
-            /** @description Obligations due before now with no completion. */
+            /** @description Animals with no completion at all whose earliest open obligation was due before the as-of IST business date. */
             overdueNotGiven: number;
-            /** @description Obligations due after now. */
+            /** @description Animals with no completion at all whose open obligations are all due on or after the as-of IST business date. */
             scheduledAhead: number;
+            /** @description Animals whose every obligation closed with no completion recorded against it (canceled, waived, superseded). They belong to the drive's roster, so they count in targets, but no dose was given and none is outstanding. Named explicitly because without it the tiles summed to LESS than targets and a reader could not tell whether the gap was a bug, missing data, or real outstanding work. Defined as the residual of the other four, so the partition stays exhaustive as statuses change. */
+            closedWithoutDose: number;
         };
         VaccinationCommandBoardCohort: {
             /** @description Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on two farms stays two cells. Empty when the obligation's shed has no resolvable parent. */
@@ -4921,8 +4924,10 @@ export interface components {
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
-            /** @description Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50. Not filtered by the currently selected drive, so the selector can still offer the others. */
+            /** @description Drives the board can be narrowed to, newest executable day first, park-scoped and bounded to 200 rows. Not filtered by the currently selected drive, so the selector can still offer the others. One row is one (batch, park): a drive whose work spans two parks is two operator days in two places and is offered as two choices, so it spends two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the list is incomplete — surface that, do not present the list as the full programme. */
             driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
+            /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
+            driveOptionsTruncated: boolean;
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */

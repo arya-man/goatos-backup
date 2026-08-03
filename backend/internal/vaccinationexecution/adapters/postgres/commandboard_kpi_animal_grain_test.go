@@ -266,3 +266,194 @@ func uuidFromSuffix(group, suffix string) string {
 	}
 	return fmt.Sprintf("70000000-0000-4000-8000-0000%s0000%03x", group, h%0xfff)
 }
+
+// TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReconcilesTargets is the
+// regression for the tiles summing to LESS than the total they sit under.
+//
+// targets is COUNT(DISTINCT target_id) over the drive's animals, so an animal stays in the total
+// even after its work is called off. But an animal whose every obligation closed with no
+// completion against it ('canceled' here, and equally 'waived'/'superseded') satisfies none of the
+// four original predicates: it is not open, so it is neither overdue nor scheduled, and nothing
+// was ever recorded, so it is neither awaiting nor verified. A 100-animal drive with 3 withdrawn
+// animals therefore read "Total 100" over tiles summing to 97, and the reader could not tell that
+// hole apart from a display bug or missing data.
+//
+// The fixture is the smallest shape that reproduces it: one animal still scheduled, one animal
+// cancelled. Before the fix the four tiles summed to 1 under a total of 2.
+func TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReconcilesTargets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000f1"
+	parkID := "70000000-0000-4000-8000-0000010000f1"
+	shedID := "70000000-0000-4000-8000-0000020000f1"
+	protocolID := "70000000-0000-4000-8000-0000060000f0"
+	protocolVersionID := "70000000-0000-4000-8000-0000060000f1"
+	ruleID := "70000000-0000-4000-8000-0000070000f1"
+	partyID := "70000000-0000-4000-8000-00000a0000f1"
+	scheduledGoat := "70000000-0000-4000-8000-0000030000f1"
+	cancelledGoat := "70000000-0000-4000-8000-0000030000f2"
+
+	seedKPIFixtureBase(t, ctx, pool, tenantID, parkID, shedID, protocolID, protocolVersionID, ruleID, partyID, "f1")
+
+	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, scheduledGoat)
+	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, cancelledGoat)
+
+	execProjectionSQL(t, ctx, pool, "obligation still scheduled",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ('70000000-0000-4000-8000-0000080000f1', $1, $2, $3, 'goat', 'shed', $4, $5, 'scheduled', $6::timestamptz, 'kpi-closed-scheduled-f1')`,
+		tenantID, protocolVersionID, scheduledGoat, shedID, ruleID, asOf.Add(3*24*time.Hour))
+
+	// Called off after planning: closed status, and deliberately NO vaccination_completions row.
+	execProjectionSQL(t, ctx, pool, "obligation cancelled without dose",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+		 VALUES ('70000000-0000-4000-8000-0000080000f2', $1, $2, $3, 'goat', 'shed', $4, $5, 'canceled', $6::timestamptz, 'kpi-closed-canceled-f1')`,
+		tenantID, protocolVersionID, cancelledGoat, shedID, ruleID, asOf.Add(-3*24*time.Hour))
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	if resp.KPIs.Targets != 2 {
+		t.Fatalf("targets = %d, want 2; a called-off animal is still on the drive's roster", resp.KPIs.Targets)
+	}
+	if resp.KPIs.ClosedWithoutDose != 1 {
+		t.Fatalf("closed_without_dose = %d, want 1; the cancelled animal must be NAMED, not left as an unexplained hole", resp.KPIs.ClosedWithoutDose)
+	}
+	if resp.KPIs.ScheduledAhead != 1 {
+		t.Fatalf("scheduled_ahead = %d, want 1; the cancelled animal must not leak into outstanding work", resp.KPIs.ScheduledAhead)
+	}
+	if resp.KPIs.OverdueNotGiven != 0 {
+		t.Fatalf("overdue_not_given = %d, want 0; a closed obligation is not outstanding no matter how far past its due date it is", resp.KPIs.OverdueNotGiven)
+	}
+	sum := resp.KPIs.DosesVerified + resp.KPIs.AwaitingVerification + resp.KPIs.OverdueNotGiven +
+		resp.KPIs.ScheduledAhead + resp.KPIs.ClosedWithoutDose
+	if sum != resp.KPIs.Targets {
+		t.Fatalf("tiles sum to %d but targets = %d; the five tiles must be an EXHAUSTIVE partition of targets, not a subset of it", sum, resp.KPIs.Targets)
+	}
+}
+
+// TestVaccinationCommandBoardDriveOptionsPaginationPageBoundaryMultiPageReportsTruncation pins the
+// bound's honesty rather than its size.
+//
+// The picker has always been bounded, and must stay bounded. What it did not do was SAY so: rows
+// past the bound were dropped silently, so a drive that is genuinely scheduled looked exactly like
+// a drive that was never planned, and a user going to find it concluded the work did not exist.
+// The row grain is (batch, park), so a drive running in two parks spends two slots and a two-park
+// programme reaches the bound at half as many drives as anyone would predict — the bound is hit in
+// practice, not in theory.
+//
+// The limit is driven down to 1 instead of seeding 200 drives: the boundary behaviour is what is
+// under test, and a fixture slow enough to be skipped proves nothing.
+func TestVaccinationCommandBoardDriveOptionsPaginationPageBoundaryMultiPageReportsTruncation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	tenantID := "00000000-0000-4000-8000-0000000000f2"
+	parkID := "70000000-0000-4000-8000-0000010000f3"
+	shedID := "70000000-0000-4000-8000-0000020000f3"
+	protocolID := "70000000-0000-4000-8000-0000060000f4"
+	protocolVersionID := "70000000-0000-4000-8000-0000060000f5"
+	ruleID := "70000000-0000-4000-8000-0000070000f5"
+	partyID := "70000000-0000-4000-8000-00000a0000f5"
+	goatID := "70000000-0000-4000-8000-0000030000f5"
+
+	seedKPIFixtureBase(t, ctx, pool, tenantID, parkID, shedID, protocolID, protocolVersionID, ruleID, partyID, "f2")
+	seedKPIGoat(t, ctx, pool, tenantID, shedID, partyID, goatID)
+
+	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	// Two drives, newest first by planned date. With the limit at 1 only the newer is offered.
+	for i, drive := range []struct {
+		batchID     string
+		obligation  string
+		plannedDate string
+	}{
+		{"70000000-0000-4000-8000-0000090000f1", "70000000-0000-4000-8000-0000080000f5", "2026-08-10"},
+		{"70000000-0000-4000-8000-0000090000f2", "70000000-0000-4000-8000-0000080000f6", "2026-07-20"},
+	} {
+		execProjectionSQL(t, ctx, pool, "obligation batch "+drive.batchID,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, window_start, window_end)
+			 VALUES ($1, $2, $3, 'shed', $4, 'planned', $5::date, $5::timestamptz, $5::timestamptz)`,
+			drive.batchID, tenantID, protocolVersionID, shedID, drive.plannedDate)
+		execProjectionSQL(t, ctx, pool, "drive obligation "+drive.batchID,
+			`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, batch_id, target_id, target_type, scope_type, scope_id, rule_id, status, due_at, idempotency_key)
+			 VALUES ($1, $2, $3, $4, $5, 'goat', 'shed', $6, $7, 'scheduled', $8::timestamptz, $9)`,
+			drive.obligation, tenantID, protocolVersionID, drive.batchID, goatID, shedID, ruleID,
+			asOf.Add(time.Duration(i+1)*24*time.Hour), fmt.Sprintf("drive-options-f2-%d", i))
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	repo.driveOptionsLimit = 1
+	bounded, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("bounded VaccinationCommandBoard() error = %v", err)
+	}
+	if len(bounded.DriveOptions) != 1 {
+		t.Fatalf("drive options = %d, want 1; the limit+1 probe row must never be rendered", len(bounded.DriveOptions))
+	}
+	if !bounded.DriveOptionsTruncated {
+		t.Fatalf("driveOptionsTruncated = false with a dropped drive; silent truncation is what makes a scheduled drive look unplanned")
+	}
+	if bounded.DriveOptions[0].DriveBatchID != "70000000-0000-4000-8000-0000090000f1" {
+		t.Fatalf("kept drive = %s, want the newest planned date first", bounded.DriveOptions[0].DriveBatchID)
+	}
+
+	repo.driveOptionsLimit = 10
+	full, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("unbounded-enough VaccinationCommandBoard() error = %v", err)
+	}
+	if len(full.DriveOptions) != 2 {
+		t.Fatalf("drive options = %d, want 2; the bound must NARROW the list, not be the only thing that works", len(full.DriveOptions))
+	}
+	if full.DriveOptionsTruncated {
+		t.Fatalf("driveOptionsTruncated = true with room to spare; a false overflow signal trains readers to ignore the real one")
+	}
+}
+
+// seedKPIFixtureBase seeds the tenant/park/shed/party/protocol scaffolding the KPI and drive-option
+// aggregates read. Ids are passed in rather than derived, because the derived-id helper above
+// builds malformed uuids for some suffixes and these cases must fail on the aggregate, not on the
+// fixture.
+func seedKPIFixtureBase(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, parkID, shedID, protocolID, protocolVersionID, ruleID, partyID, suffix string) {
+	t.Helper()
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`, tenantID)
+	execProjectionSQL(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, $3, 'park', NULL, 'active')`, parkID, tenantID, "Park "+suffix)
+	execProjectionSQL(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, $3, 'shed', $4, 'active')`, shedID, tenantID, "Shed "+suffix, parkID)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian', 'active')`, partyID)
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, $3, $4, 'vaccination', 'active')`,
+		protocolID, tenantID, "vaccination_"+suffix, "Vaccination "+suffix)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`,
+		protocolVersionID, tenantID, protocolID)
+	execProjectionSQL(t, ctx, pool, "rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'ppr_adult', 'birth_age')`, ruleID, tenantID, protocolVersionID)
+	execProjectionSQL(t, ctx, pool, "publish protocol version",
+		`UPDATE protocol_versions SET status = 'published', published_at = now() WHERE protocol_version_id = $1`,
+		protocolVersionID)
+}
+
+func seedKPIGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, shedID, partyID, goatID string) {
+	t.Helper()
+	execProjectionSQL(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+		 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2025-01-01')`, goatID, tenantID, shedID, partyID)
+}
