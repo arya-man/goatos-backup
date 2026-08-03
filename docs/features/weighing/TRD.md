@@ -37,6 +37,14 @@ mandatory per-animal proof video. Per-shed/partition work captures the selected
 scope's weighing result and required shed/partition proof video, without
 creating individual animal weight observations.
 
+**Weighing is MOBILE ONLY (maintainer decision 2026-08-03).** The admin-web
+weighing frontend (`apps/admin-web/app/(admin)/weighing/**`,
+`apps/admin-web/features/weighing/**`, and its `lib/api/server.ts` fetchers) was
+deleted; it was already unreachable behind a hard redirect. The Android app is
+the only weighing client. All backend weighing APIs, read models, and the
+`ceo_ai` weighing views stay and are unaffected. Do not rebuild an admin-web
+weighing surface without a new maintainer decision.
+
 ## 1.0 Authoritative lifecycle (maintainer decision 2026-07-31)
 
 This is the canonical Weighing task lifecycle. Every section below must be read

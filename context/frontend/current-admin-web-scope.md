@@ -14,6 +14,17 @@ This is the active rule for the Mesha admin-web rebuild.
   Ownership source = department (Goat OS HR); see
   `docs/decisions/user-module-ownership-and-nav-chrome.md`.
 
+## Weighing is mobile only (2026-08-03)
+
+Weighing has **no admin-web surface**. The `/weighing` route, the
+`features/weighing/**` feature, and its `lib/api/server.ts` fetchers were deleted
+on 2026-08-03 (maintainer decision); the route had already been a hard redirect
+to `/vaccination`. Weighing runs on Android only. Backend weighing APIs and read
+models stay — the mobile app is their client. Do not add a `/weighing` admin-web
+page, nav leaf, or page contract without a new maintainer decision;
+`TestWeighingAdminWebSurfaceStaysMobileOnly` in
+`backend/internal/adminui/app/service_test.go` enforces this.
+
 ## Product Taxonomy (READ FIRST — fixed words)
 
 These words are not interchangeable:
