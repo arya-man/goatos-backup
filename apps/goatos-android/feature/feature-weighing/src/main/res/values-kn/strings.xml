@@ -7,7 +7,6 @@
     <!-- Shared weighing chrome -->
     <string name="weighing_eyebrow">ತೂಕ</string>
     <string name="weighing_refresh">ತೂಕದ ಕೆಲಸವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
-    <string name="weighing_alerts">ಎಚ್ಚರಿಕೆಗಳು</string>
     <string name="weighing_category_lumpsum">ಒಟ್ಟು ತೂಕ</string>
     <string name="weighing_category_individual">ಪ್ರತ್ಯೇಕ</string>
     <string name="weighing_action_scan_animals">ಪ್ರಾಣಿಗಳನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ →</string>

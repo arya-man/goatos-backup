@@ -374,3 +374,47 @@ data class WeighingScopeSubmitRequestDto(
     @kotlinx.serialization.SerialName("scanned_identifiers")
     val scannedIdentifiers: List<String>,
 )
+
+/**
+ * ONE weighing work-state transition that was routed to the caller.
+ *
+ * Every human-visible string here is BACKEND-AUTHORED and rendered verbatim: [title], [body] and
+ * (on the page) the screen title and empty-state sentence. The app composes no weighing copy of
+ * its own -- see contracts/openapi/app-api.yaml#WeighingAlert.
+ *
+ * Weighing is free-flow and fully herd-isolated, so no field here names a goat, carries a herd
+ * identity, or reports a share of an expected roster. A row identifies a shed, a bucket, a
+ * campaign and a park -- nothing below that.
+ */
+@Serializable
+data class WeighingAlertDto(
+    @SerialName("alert_id") val alertId: String = "",
+    /** Producer's transition type (weighing_campaign_published, weighing_shed_submitted, ...).
+     *  Safe to branch on for iconography; NEVER rebuild the sentence from it. */
+    @SerialName("kind") val kind: String = "",
+    /** "downstream" (landed on the person who must act) or "upstream" (on the person who
+     *  oversees). Which way this alert travelled FOR THIS RECIPIENT. */
+    @SerialName("direction") val direction: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("body") val body: String = "",
+    /** "normal" or "high". */
+    @SerialName("severity") val severity: String = "",
+    /** In-app destination this row opens, chosen by the backend (e.g. "/weighing"). */
+    @SerialName("target") val target: String = "",
+    @SerialName("shed_label") val shedLabel: String? = null,
+    @SerialName("campaign_id") val campaignId: String? = null,
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("occurred_at") val occurredAt: String = "",
+)
+
+/** ONE keyset page of the caller's weighing alerts, newest first. */
+@Serializable
+data class WeighingAlertPageResponseDto(
+    @SerialName("items") val items: List<WeighingAlertDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    /** Backend-owned screen title. Render this; do not hardcode a weighing string. */
+    @SerialName("title") val title: String = "",
+    /** Backend-owned empty-state sentence, shown when [items] is empty. */
+    @SerialName("empty_message") val emptyMessage: String = "",
+    @SerialName("trace_id") val traceId: String? = null,
+)
