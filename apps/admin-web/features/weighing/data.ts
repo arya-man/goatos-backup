@@ -12,6 +12,8 @@ import {
   type WeighingPlannerShed as ApiWeighingPlannerShed,
 } from "@/lib/api/server";
 
+import { currentWeekStart, selectCampaign } from "./campaign-selection";
+
 export type WeighingRole = "leadership" | "director" | "operator";
 export type WeighingCampaignState =
   "draft" | "published" | "in_progress" | "delayed" | "completed" | "closed";
@@ -210,37 +212,6 @@ async function getAllWeighingCampaigns(): Promise<ApiResult<{ items: ApiWeighing
   return { ok: true, data: { items } };
 }
 
-function selectCampaign(
-  items: ApiWeighingCampaign[],
-  selectedWeek?: string,
-  selectedCampaignId?: string,
-  selectedParkId?: string,
-): ApiWeighingCampaign | undefined {
-  // A campaign from Park A must NEVER be selected as "the current campaign" while
-  // Park B is displayed (W14). When an explicit park is on the URL, every lookup
-  // below is scoped to that park's own campaigns only.
-  const scoped = selectedParkId
-    ? items.filter((item) => item.park_id === selectedParkId)
-    : items;
-  if (selectedCampaignId) {
-    const byCampaign = scoped.find((item) => item.campaign_id === selectedCampaignId);
-    if (byCampaign) return byCampaign;
-    // selectedCampaignId belongs to a different park than the one on screen (or does
-    // not exist) -- fall through to week/park-default lookup instead of ever
-    // returning a cross-park campaign.
-  }
-  if (selectedWeek) {
-    const byWeek = scoped.find((item) => item.period_start_date === selectedWeek);
-    if (byWeek) return byWeek;
-  }
-  if (selectedParkId) {
-    // Explicit park selected and nothing matched: this park is campaign-less for the
-    // requested week/campaign. Never default to another park's campaign (items[0]).
-    return scoped[0];
-  }
-  return items[0];
-}
-
 function weeksFromCampaigns(
   items: ApiWeighingCampaign[],
   selected: WeighingCampaign,
@@ -375,15 +346,6 @@ function operatorName(catalog: WeighingPlannerCatalogResponse, operatorId?: stri
 
 function campaignState(status: ApiWeighingCampaign["status"]): WeighingCampaignState {
   return status === "canceled" ? "delayed" : status;
-}
-
-function currentWeekStart(): string {
-  const now = new Date();
-  const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const day = date.getUTCDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  date.setUTCDate(date.getUTCDate() + diff);
-  return date.toISOString().slice(0, 10);
 }
 
 function addDays(value: string, days: number): string {

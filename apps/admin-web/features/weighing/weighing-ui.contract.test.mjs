@@ -163,13 +163,17 @@ test("W14 FIX: campaign selection is park-scoped, never crosses parks on a plain
   const data = source("data.ts");
   const page = source("page.tsx");
   const parkSelector = source("park-selector.tsx");
+  // selectCampaign moved into campaign-selection.ts so the rule can be unit-tested;
+  // data.ts is "server-only" and cannot be imported by node --test.
+  const selection = source("campaign-selection.ts");
 
   // selectCampaign is park-scoped: an explicit park filters the candidate campaigns
   // before any week/campaign-id lookup, and never falls back to another park's row.
-  assert.match(data, /function selectCampaign\(/);
-  assert.match(data, /selectedParkId\?: string,/);
-  assert.match(data, /const scoped = selectedParkId/);
-  assert.match(data, /item\.park_id === selectedParkId/);
+  assert.match(selection, /export function selectCampaign</);
+  assert.match(selection, /selectedParkId\?: string,/);
+  assert.match(selection, /const scoped = selectedParkId/);
+  assert.match(selection, /item\.park_id === selectedParkId/);
+  assert.match(data, /import \{ currentWeekStart, selectCampaign \} from "\.\/campaign-selection";/);
 
   // ParkSelector must clear the stale campaign/week selection on every park switch so
   // Park A's campaign can never be treated as "the current campaign" for Park B.

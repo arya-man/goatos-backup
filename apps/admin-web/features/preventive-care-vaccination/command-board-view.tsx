@@ -375,7 +375,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
             <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
               {completedDriveOptions.map((drive) => (
                 <option key={drive.driveBatchId} value={drive.driveBatchId}>
-                  {`${commonDriveName(drive.driveName || drive.label)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
+                  {`${commonDriveName(drive.driveName || drive.label, drive.parkName)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
                 </option>
               ))}
             </optgroup>
