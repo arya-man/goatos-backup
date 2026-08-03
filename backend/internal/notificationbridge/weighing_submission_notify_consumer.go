@@ -127,9 +127,11 @@ func (c *WeighingSubmissionEventConsumer) HandleEvent(ctx context.Context, event
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":             "weighing_shed_submitted",
-			"screen":           "weighing_overview",
-			"target":           "/weighing",
+			"type":   "weighing_shed_submitted",
+			"screen": "weighing_overview",
+			// Leadership-only push about ONE finished bucket: it opens that bucket's record,
+			// never the recipient's own operator work list.
+			"target":           weighingBucketTarget(payload.CampaignID, campaignShedID),
 			"message_key":      "weighing.shed_submitted",
 			"shed_label":       payload.ShedLabel,
 			"campaign_id":      payload.CampaignID,

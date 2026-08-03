@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
@@ -199,6 +200,28 @@ data class WeighingCapabilities(
     val canReopen: Boolean = false,
 )
 
+/**
+ * One park the viewer may filter weighing by, as the BACKEND scopes it. Identity only.
+ *
+ * Deliberately not [WeighingPlannerPark]: that grain carries date-scoped counts and lives behind
+ * the planning permission, which the leadership roles that need these chips do not hold.
+ */
+data class WeighingParkRef(
+    val parkId: String,
+    val name: String,
+)
+
+/**
+ * The answer to "resolve THIS task id".
+ *
+ * [NotFound] is the single answer for every refusal the backend makes -- not yours, not there,
+ * wrong park. The backend deliberately does not distinguish them, so neither does this.
+ */
+sealed interface WeighingTaskLookup {
+    data class Found(val task: WeighingTask, val capabilities: WeighingCapabilities) : WeighingTaskLookup
+    data object NotFound : WeighingTaskLookup
+}
+
 data class WeighingLeadershipVideo(
     val proofId: String,
     val downloadUrl: String,
@@ -346,6 +369,14 @@ data class WeighingPage<T>(
     val items: List<T> = emptyList(),
     val nextCursor: String? = null,
     /**
+     * What the SIGNED-IN viewer may do to the rows on this page, as the backend states it.
+     *
+     * The assignment read used to drop this, so the only surface that knew a viewer held the
+     * monitor authority was the planner task list -- which is why close/reopen were
+     * unreachable from every assignment surface even for the role that owns them.
+     */
+    val capabilities: WeighingCapabilities = WeighingCapabilities(),
+    /**
      * The backend's OPERATOR-grain roll-up for this request, carried beside the paged rows.
      *
      * It is deliberately NOT derived from [items]: [items] is one keyset page, so anything counted
@@ -487,6 +518,24 @@ interface WeighingRepository {
         parkId: String? = null,
         reset: Boolean = true,
     ): AppResult<Int>
+
+    /**
+     * Resolves ONE task by id, in ONE call.
+     *
+     * This is what a notification deep link asks: the task list is a keyset page with no id
+     * filter, so a task further down the keyset used to be hunted by walking pages. A refusal of
+     * ANY kind comes back as [WeighingTaskLookup.NotFound]; the caller must not report which kind.
+     */
+    suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup>
+
+    /**
+     * The parks whose weighing this viewer may look at, straight from the backend.
+     *
+     * Unpaged and capability-scoped by the server. It replaces deriving chips from loaded rows:
+     * a vocabulary built from filtered data loses a park the moment that park's rows page out, and
+     * selecting the park was the only way to load them -- a circle with no way in.
+     */
+    suspend fun listParks(): AppResult<List<WeighingParkRef>>
 
     /** ONE task's shed buckets from Room, as a BOUNDED window. */
     fun observeTaskBuckets(campaignId: String, windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE): Flow<WeighingTaskBucketCache>
@@ -632,6 +681,47 @@ class DefaultWeighingRepository(
 
     private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    /**
+     * One idempotency EPOCH per scope, rotated after every state transition that landed.
+     *
+     * The backend replays a close/reopen whose key it has already recorded and returns the
+     * ORIGINAL result without touching state (weighing_idempotency_records). A key fixed per scope
+     * therefore made `close -> reopen -> close` report success while the bucket stayed open: the
+     * second close was answered from the first one's snapshot. Rotating on success -- and only on
+     * success -- keeps the property idempotency exists for: retrying the SAME attempt after an
+     * unknown outcome (timeout, dropped socket) still sends the SAME key and is deduplicated, while
+     * a genuinely NEW transition after a landed one carries a new key and is really applied.
+     */
+    private val epochDao: WeighingTransitionEpochDao? = database?.weighingTransitionEpochDao()
+
+    /**
+     * The in-heap epoch store, used ONLY where there is no database (unit fakes constructed without
+     * one). With a database present Room is the SSOT and this is never read.
+     */
+    private val inMemoryTransitionEpochs = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private suspend fun transitionIdempotencyKey(transition: String, scopeId: String): String {
+        val dao = epochDao ?: return "weighing:$transition:$scopeId:" +
+            inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
+        // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
+        // the write and then reads the winner's epoch, so both send the SAME key.
+        dao.insertIfAbsent(
+            WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()),
+        )
+        val epoch = dao.get(scopeId) ?: idGenerator()
+        return "weighing:$transition:$scopeId:$epoch"
+    }
+
+    /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */
+    private suspend fun advanceTransitionEpoch(scopeId: String) {
+        val dao = epochDao ?: run {
+            inMemoryTransitionEpochs[scopeId] = idGenerator()
+            return
+        }
+        dao.upsert(WeighingTransitionEpochEntity(scopeId = scopeId, epoch = idGenerator(), updatedAt = clock()))
+        dao.pruneOutsideNewest(WEIGHING_CACHED_TRANSITION_SCOPES)
+    }
+
     init {
         startProofReadyReconciler()
     }
@@ -665,6 +755,11 @@ class DefaultWeighingRepository(
                 WeighingPage(
                     items = assignments,
                     nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                    capabilities = WeighingCapabilities(
+                        canPublish = response.capabilities.canPublish,
+                        canEnd = response.capabilities.canEnd,
+                        canReopen = response.capabilities.canReopen,
+                    ),
                     operatorSummaries = response.operatorSummaries.map { it.toOperatorSummary() },
                 ),
             )
@@ -757,6 +852,47 @@ class DefaultWeighingRepository(
                 AppResult.Ok(response.items.size)
             // Room keeps whatever it already had: a failed page leaves the cached list on screen.
             }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing tasks.")) }
+        }
+
+    override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("This task is not configured.")
+            val id = campaignId.takeIf { it.isNotBlank() }
+                ?: return@withContext AppResult.Ok(WeighingTaskLookup.NotFound)
+            runCatching {
+                val response = client.getWeighingCampaign(id)
+                AppResult.Ok<WeighingTaskLookup>(
+                    WeighingTaskLookup.Found(
+                        task = response.campaign.toTask(),
+                        capabilities = WeighingCapabilities(
+                            canPublish = response.capabilities.canPublish,
+                            canEnd = response.capabilities.canEnd,
+                            canReopen = response.capabilities.canReopen,
+                        ),
+                    ),
+                )
+            }.getOrElse { failure ->
+                // 404 is an ANSWER, not a failure: the backend refuses "not yours" and "not there"
+                // identically so that a refusal cannot be used to probe for tasks. A read error
+                // (offline, 5xx) is a different thing and must stay retryable.
+                if (failure.appApiStatusCode() == 404) {
+                    AppResult.Ok(WeighingTaskLookup.NotFound)
+                } else {
+                    AppResult.Err(failure.message ?: "Could not open this task.")
+                }
+            }
+        }
+
+    override suspend fun listParks(): AppResult<List<WeighingParkRef>> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("Weighing parks are not configured.")
+            runCatching {
+                AppResult.Ok(
+                    client.listWeighingParks().parks
+                        .filter { it.parkId.isNotBlank() }
+                        .map { WeighingParkRef(parkId = it.parkId, name = it.name.ifBlank { it.parkId }) },
+                )
+            }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing parks.") }
         }
 
     override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> {
@@ -1401,13 +1537,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:reopen:$campaignId:$campaignShedId"
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("reopen", scopeId)
                 service.reopenWeighingScope(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeReopenRequestDto(reason = reason),
                 )
+                advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't reopen weighing shed."), error)
@@ -1422,13 +1560,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:close-shed:$campaignId:$campaignShedId"
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("close-shed", scopeId)
                 service.closeShedWeighingCampaign(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
+                advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't close weighing shed."), error)
@@ -1442,12 +1582,13 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:close-campaign:$campaignId"
+                val idempotencyKey = transitionIdempotencyKey("close-campaign", campaignId)
                 service.closeWeighingCampaign(
                     campaignId = campaignId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
+                advanceTransitionEpoch(campaignId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't close weighing campaign."), error)
@@ -1880,6 +2021,15 @@ private const val WEIGHING_CACHED_CATALOG_DATES = 2
 
 /** How many (date, park) bucket streams keep their cached shed rows and cursor. */
 private const val WEIGHING_CACHED_BUCKET_PARKS = 4
+
+/**
+ * How many weighing scopes keep an idempotency epoch on disk.
+ *
+ * A replay window, not a cache: only the scopes a person has recently acted on can still have a
+ * request in flight worth deduplicating. Bounded so the table cannot grow with every bucket ever
+ * closed on the device.
+ */
+private const val WEIGHING_CACHED_TRANSITION_SCOPES = 50
 
 /**
  * Sanity ceiling on the park picker, matching the backend's own cap. Parks are few — this bounds

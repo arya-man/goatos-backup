@@ -15,15 +15,17 @@ import (
 
 // Weighing notification target routing tests.
 //
-// Regression test for the fix that added "target": "/weighing" to all 6
-// weighing notification Context maps (handleVerdict, handleShedClosed,
-// handleCampaignClosed, handleWorkItemCadence in lifecycle consumer, and
-// submission-completed + handleReopened in submission consumer).
+// Regression test for the fix that added a "target" to all 6 weighing notification Context maps
+// (handleVerdict, handleShedClosed, handleCampaignClosed, handleWorkItemCadence in lifecycle
+// consumer, and submission-completed + handleReopened in submission consumer), and for the later
+// fix that made those targets SPECIFIC.
 //
-// Each notification must route to /weighing and must NOT carry vaccination
-// copy/wording, even though both use the same verification domain event
-// infrastructure. This guards against future edits that might lose the target
-// or accidentally carry wrong-module wording.
+// Every one of them originally pointed at the bare "/weighing" module landing, which is the
+// operator's own work list: a Growth Director or CEO who tapped a push about a task they oversee
+// landed on an empty My Work with no route to the task or the evidence. A push that reports on a
+// finished bucket now opens THAT bucket's record, a push about a whole task opens THAT task, and
+// only the pushes whose audience must go and capture something keep the module landing. No
+// weighing notification may carry vaccination copy or a vaccination target.
 const (
 	targetTenant       = "ffffffff-ffff-4fff-8fff-ffffffffffff"
 	targetCampaign     = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -32,6 +34,14 @@ const (
 	targetCampaignShed = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	targetObs          = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 	targetOp           = "99999999-9999-4999-8999-999999999999"
+)
+
+// The two deep links the weighing consumers must emit for this fixture's ids. Spelled out here
+// rather than reusing the producer's own helper, so a change to the emitted shape has to be made
+// deliberately in both places instead of silently agreeing with itself.
+const (
+	targetBucketRoute = "/weighing/shed?campaignId=" + targetCampaign + "&campaignShedId=" + targetCampaignShed
+	targetTaskRoute   = "/weighing/task?campaignId=" + targetCampaign
 )
 
 type targetTestRecipients struct {
@@ -194,8 +204,9 @@ func TestWeighingVerdictNotificationHasTarget(t *testing.T) {
 		t.Fatalf("verdict notification not queued")
 	}
 	notif := queue.queued[0]
-	if notif.Context["target"] != "/weighing" {
-		t.Fatalf("verdict context target=%q, want /weighing", notif.Context["target"])
+	// An approved verdict is evidence: it opens the bucket whose proof was accepted.
+	if notif.Context["target"] != targetBucketRoute {
+		t.Fatalf("verdict context target=%q, want %s", notif.Context["target"], targetBucketRoute)
 	}
 	if notif.Context["target"] == "" {
 		t.Fatalf("verdict has no target")
@@ -236,6 +247,8 @@ func TestWeighingReworkNotificationHasTarget(t *testing.T) {
 		t.Fatalf("rework notification not queued")
 	}
 	notif := queue.queued[0]
+	// Rework is work, and its audience is the operator who must re-capture, so this one
+	// deliberately stays on the module landing that carries the capture entry point.
 	if notif.Context["target"] != "/weighing" {
 		t.Fatalf("rework context target=%q, want /weighing", notif.Context["target"])
 	}
@@ -263,35 +276,12 @@ func TestWeighingShedClosedNotificationHasTarget(t *testing.T) {
 		t.Fatalf("shed closed notification not queued")
 	}
 	notif := queue.queued[0]
-	if notif.Context["target"] != "/weighing" {
-		t.Fatalf("shed closed context target=%q, want /weighing", notif.Context["target"])
+	if notif.Context["target"] != targetBucketRoute {
+		t.Fatalf("shed closed context target=%q, want %s", notif.Context["target"], targetBucketRoute)
 	}
 	// Guard: no vaccination wording
 	if strings.Contains(strings.ToLower(notif.Title+notif.Body), "vaccination") {
 		t.Fatalf("shed closed borrows vaccination wording: title=%q body=%q", notif.Title, notif.Body)
-	}
-}
-
-// TestWeighingShedAbandonedNotificationHasTarget asserts the handleShedClosed handler
-// (abandoned branch) queues a notification with target="/weighing".
-func TestWeighingShedAbandonedNotificationHasTarget(t *testing.T) {
-	recipients := &targetTestRecipients{}
-	queue := &targetTestQueue{}
-	consumer := notificationbridge.NewWeighingLifecycleEventConsumer(recipients, queue, slog.Default())
-
-	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
-		Type:    notificationbridge.EventWeighingShedAbandoned,
-		Payload: shedClosedPayloadWithTarget(),
-	}); err != nil {
-		t.Fatalf("HandleEvent: %v", err)
-	}
-
-	if len(queue.queued) == 0 {
-		t.Fatalf("shed abandoned notification not queued")
-	}
-	notif := queue.queued[0]
-	if notif.Context["target"] != "/weighing" {
-		t.Fatalf("shed abandoned context target=%q, want /weighing", notif.Context["target"])
 	}
 }
 
@@ -329,8 +319,8 @@ func TestWeighingCampaignClosedNotificationHasTarget(t *testing.T) {
 	if leadershipNotif == nil {
 		t.Fatalf("campaign closed: no leadership notification found")
 	}
-	if leadershipNotif.Context["target"] != "/weighing" {
-		t.Fatalf("campaign closed leadership context target=%q, want /weighing", leadershipNotif.Context["target"])
+	if leadershipNotif.Context["target"] != targetTaskRoute {
+		t.Fatalf("campaign closed leadership context target=%q, want %s", leadershipNotif.Context["target"], targetTaskRoute)
 	}
 	// Guard: no vaccination wording
 	if strings.Contains(strings.ToLower(leadershipNotif.Title+leadershipNotif.Body), "vaccination") {
@@ -425,8 +415,9 @@ func TestWeighingSubmissionCompletedNotificationHasTarget(t *testing.T) {
 		t.Fatalf("submission completed notification not queued")
 	}
 	notif := queue.queued[0]
-	if notif.Context["target"] != "/weighing" {
-		t.Fatalf("submission completed context target=%q, want /weighing", notif.Context["target"])
+	// Leadership-only push about one finished bucket: it opens that bucket's record.
+	if notif.Context["target"] != targetBucketRoute {
+		t.Fatalf("submission completed context target=%q, want %s", notif.Context["target"], targetBucketRoute)
 	}
 	// Guard: no vaccination wording
 	if strings.Contains(strings.ToLower(notif.Title+notif.Body), "vaccination") {
@@ -472,7 +463,6 @@ func TestWeighingNotificationNeverHasVaccinationTarget(t *testing.T) {
 		{"verdict/approved", notificationbridge.EventWeighingObservationVerified, verdictPayloadWithTarget("verified")},
 		{"verdict/rework", notificationbridge.EventWeighingObservationRework, verdictPayloadWithTarget("rework")},
 		{"shed/closed", notificationbridge.EventWeighingShedClosed, shedClosedPayloadWithTarget()},
-		{"shed/abandoned", notificationbridge.EventWeighingShedAbandoned, shedClosedPayloadWithTarget()},
 		{"campaign/closed", notificationbridge.EventWeighingCampaignClosed, campaignClosedPayloadWithTarget()},
 		{"cadence/day_start", notificationbridge.EventWeighingWorkItemDayStart, workItemCadencePayloadWithTarget(notificationbridge.EventWeighingWorkItemDayStart)},
 		{"cadence/rolled_forward", notificationbridge.EventWeighingWorkItemRolledForward, workItemCadencePayloadWithTarget(notificationbridge.EventWeighingWorkItemRolledForward)},

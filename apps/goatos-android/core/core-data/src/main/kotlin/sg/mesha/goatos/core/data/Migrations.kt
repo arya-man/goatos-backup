@@ -796,3 +796,21 @@ val MIGRATION_26_27: Migration = object : Migration(26, 27) {
         )
     }
 }
+
+/**
+ * v27 → v28: persists the weighing per-scope idempotency EPOCH.
+ *
+ * PURELY ADDITIVE — one new table, nothing existing is touched. There is no backfill and none is
+ * possible: the epochs this replaces only ever existed in the heap of a process that has since
+ * exited. An upgraded install simply mints its first on-disk epoch on the next transition, which is
+ * exactly what the old code did on every cold start anyway.
+ */
+val MIGRATION_27_28: Migration = object : Migration(27, 28) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_transition_epoch` (" +
+                "`scopeId` TEXT NOT NULL, `epoch` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`scopeId`))",
+        )
+    }
+}

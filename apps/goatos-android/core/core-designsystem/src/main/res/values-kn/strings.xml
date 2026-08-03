@@ -118,7 +118,6 @@
     <string name="push_msg_weighing_verdict_rework">%1$s ತೂಕ ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಮಾಡಬೇಕು. ದಯವಿಟ್ಟು ಮತ್ತೆ ದಾಖಲಿಸಿ.</string>
     <string name="push_msg_weighing_verdict_rework_digest">%2$s ನಲ್ಲಿ %1$s: ತೂಕ ಪುರಾವೆಯನ್ನು ಮತ್ತೆ ಮಾಡಬೇಕು. ದಯವಿಟ್ಟು ಮತ್ತೆ ದಾಖಲಿಸಿ.</string>
     <string name="push_msg_weighing_shed_closed">%1$s ತೂಕವನ್ನು ಮುಚ್ಚಲಾಗಿದೆ.</string>
-    <string name="push_msg_weighing_shed_abandoned">%1$s ತೂಕವನ್ನು ರದ್ದುಗೊಳಿಸಲಾಗಿದೆ.</string>
     <string name="push_msg_weighing_work_item_due_today">%1$s ನಲ್ಲಿ ತೂಕ ಇಂದು ಬಾಕಿ ಇದೆ.</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s ನಲ್ಲಿ ತೂಕವನ್ನು ಮುಂದಿನ ಕೆಲಸದ ದಿನಕ್ಕೆ ಮುಂದೂಡಲಾಗಿದೆ.</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s ನಲ್ಲಿ ತೂಕ ವಿಳಂಬವಾಗುತ್ತಿದೆ. ದಯವಿಟ್ಟು ಬೇಗ ಮುಗಿಸಿ.</string>

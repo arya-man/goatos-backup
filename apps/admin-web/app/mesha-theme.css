@@ -598,7 +598,8 @@
   .main table.feed-table th,.main table.feed-table td{white-space:nowrap;overflow-wrap:normal;word-break:normal;vertical-align:top}
   .main table.feed-table td{padding-top:10px;padding-bottom:10px}
   /* Vaccination Command Board */
-  .cbm-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:18px}
+  .cbm-kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:18px}
+  .cbm-filter-note{font-size:11.5px;color:var(--warn)}
   @media(max-width:1200px){.cbm-kpi-row{grid-template-columns:repeat(2,1fr)}}
   .kpi{position:relative;overflow:hidden}.kpi .stripe{position:absolute;left:0;top:0;bottom:0;width:3px}
   .kpi.ok .stripe{background:var(--ok)}.kpi.warn .stripe{background:var(--warn)}.kpi.danger .stripe{background:var(--danger)}.kpi.info .stripe{background:var(--info)}.kpi.mut .stripe{background:var(--faint)}

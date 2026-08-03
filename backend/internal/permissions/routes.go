@@ -219,6 +219,17 @@ var protectedRoutes = []Route{
 	// Per-park bucket page of the same planner read; same gate as the park picker it drills from.
 	{OperationID: "appWeighingPlannerParkBuckets", Method: "GET", Pattern: "/app/weighing/planner/parks/{park_id}/buckets", Permissions: []string{WeighingPlan}},
 	{OperationID: "appListWeighingCampaigns", Method: "GET", Pattern: "/app/weighing/campaigns", Permissions: []string{AppBootstrap}},
+	// Single-task read behind a notification deep link. AppBootstrap for the same reason the
+	// bucket page below is: the SERVICE applies the assignee/planner split AND resolves the
+	// task's own park before answering, so a tighter route permission here would lock an
+	// assignee out of the task they were sent to work on.
+	{OperationID: "appGetWeighingCampaign", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}", Permissions: []string{AppBootstrap}},
+	// Park chips for the weighing oversight surfaces. AnyPermissions (ORed), not Permissions
+	// (ANDed): the planner catalog is the only other park list and it is WeighingPlan, which is
+	// CEO-only, so a Growth Director -- who holds monitor and oversee_operators and never plan --
+	// had no park vocabulary they could legitimately read. Naming all three in Permissions would
+	// 403 every one of them at the middleware, since no role holds the whole set.
+	{OperationID: "appListWeighingParks", Method: "GET", Pattern: "/app/weighing/parks", AnyPermissions: []string{WeighingMonitor, WeighingPlan, WeighingOverseeOperators}},
 	// Task-detail bucket page. Gated on AppBootstrap like the task list it drills
 	// from — the SERVICE narrows an execute-only caller to their own buckets, so a
 	// tighter route permission here would lock assignees out of their own task.
@@ -234,7 +245,6 @@ var protectedRoutes = []Route{
 	// monitor-only authority: only leadership may end weighing work that will
 	// never finish, and closing may strand not-accepted buckets.
 	{OperationID: "appCloseWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", Permissions: []string{WeighingMonitor}},
-	{OperationID: "appAbandonWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appCloseWeighingCampaign", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/close", Permissions: []string{WeighingMonitor}},
 	// PHASE 2 Calendar / Control Tower weighing process state (read-only).
 	{OperationID: "getWeighingProcessState", Method: "GET", Pattern: "/weighing/process-state", Permissions: []string{WeighingMonitor}},

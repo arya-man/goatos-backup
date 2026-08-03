@@ -1387,6 +1387,16 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 // outbox payload. Carries the SAME who-to-route-to fields as the pending payload (operator_id,
 // shed_id, park_id) plus the decision + reason, so the notifier can apply its own routing (rework ->
 // operator + park head; approved -> digest/no-op) without a callback into this module.
+//
+// It also carries source.evidence_id: the proof the verifier ACTUALLY reviewed, taken from the
+// item's own media_refs, which are frozen at CreateItem time and never rewritten (a re-shoot
+// withdraws this item and raises a new one -- see weighing's reviseVerificationRound). The
+// consuming module has a stale-evidence guard that compares this id against the proof currently
+// attached to its record, but the payload never carried an id, so every production verdict reached
+// that guard with an empty value and took its backward-compatibility skip. The guard was therefore
+// live only in tests: in production a verdict rendered against an older video was applied to
+// whatever video happened to be attached when it landed. Naming the evidence here is what makes the
+// existing guard real; the consumer needs no second, parallel check.
 func verificationVerdictPayload(item domain.Item) map[string]any {
 	payload := map[string]any{
 		"tenant_id":   item.TenantID,
@@ -1405,6 +1415,11 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 			"submission_id": derefStr(item.Source.SubmissionID),
 			"ref_type":      item.Source.RefType,
 			"ref_id":        item.Source.RefID,
+			// The PRIMARY proof only. Producers that attach several artefacts to one item
+			// (a lump-sum shed submission) put the observation's own proof_artifact_id
+			// first -- that is the single id the producing module stores on its record and
+			// can compare against, so a list here would give the consumer nothing to match.
+			"evidence_id": firstMediaRef(item.MediaRefs),
 		},
 	}
 	if item.VerdictReason != nil {
@@ -1807,6 +1822,17 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		}
 	}
 	return item, nil
+}
+
+// firstMediaRef is the item's primary proof id, or "" for an item raised with no media at
+// all. Empty stays empty rather than becoming a sentinel: the consumer's guard already has a
+// defined meaning for an absent evidence id, and inventing a placeholder would make a
+// media-less item look like a mismatch against every record.
+func firstMediaRef(refs []string) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0]
 }
 
 func nonNilStrings(values []string) []string {

@@ -42,6 +42,7 @@ import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
+import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
 import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
@@ -60,6 +61,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
+import sg.mesha.goatos.core.data.weighing.WeighingParkRef
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
@@ -852,10 +855,132 @@ class WeighingViewModelTest {
         assertEquals(2, vm.state.value.assignments.size)
     }
 
-    // The CEO splits four sheds 2/2 between two people and opens the task. The screen he lands on
-    // is the only place that split is visible, so every bucket row has to name its own operator --
-    // four identically-shaped cards with the assignment reachable only by tapping a filter chip is
-    // the task detail hiding the one fact it exists to show.
+    @Test
+    fun `oversight park chips offer a park with no assignment on the loaded page`() = runTest(dispatcher) {
+        // The chip row used to be built only from the parks the loaded assignment PAGES happened to
+        // carry, so a park whose first row sits on page three had no chip -- and because selecting a
+        // park is the only way to fetch that park's rows, its work was unreachable entirely.
+        val onlyPagedPark = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            workGroupId = "shed-a",
+            campaignShedId = "shed-a",
+            expectedLocationId = "shed-a",
+            expectedLocationLabel = "shed-a",
+            label = "shed-a",
+            category = "individual_animal",
+            operatorUserId = "operator-2",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(onlyPagedPark)),
+            // A Growth Director: monitors and oversees, never plans. The planner catalog is
+            // weighing.plan-gated and can_publish IS that permission, so this viewer cannot read
+            // it -- and used to be left with chips derived from whatever rows had loaded.
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(
+                WeighingParkRef("park-cpt", "CPT - Channapatna"),
+                WeighingParkRef("park-cbe", "CBE - Coimbatore"),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(
+            "the backend's own park vocabulary, not the parks that happen to be on the loaded page",
+            setOf("park-cpt", "park-cbe"),
+            vm.state.value.parkFilters.map { it.parkId }.toSet(),
+        )
+        assertEquals(0, repository.plannerCatalogRefreshes)
+    }
+
+    @Test
+    fun `oversight never calls the planner catalog without the planning capability`() = runTest(dispatcher) {
+        // /app/weighing/planner/catalog requires weighing.plan. A Growth Director oversees without
+        // it, so the old unconditional read was a guaranteed 403 for the very viewer this surface
+        // exists for; the paged park fallback is what they keep instead.
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(
+            "the paged fallback still names the parks the loaded rows carry",
+            vm.state.value.parkFilters.any { it.parkId == "park-cpt" },
+        )
+    }
+
+    @Test
+    fun `oversight reads the park vocabulary WITHOUT the planning capability`() = runTest(dispatcher) {
+        // The whole point of GET /app/weighing/parks: the vocabulary read must not be gated on
+        // the permission the viewer who needs it does not hold.
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(WeighingParkRef("park-cbe", "CBE - Coimbatore")),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(repository.parkVocabularyReads > 0)
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(vm.state.value.parkFilters.any { it.parkId == "park-cbe" })
+    }
+
+    @Test
+    fun `a deep-linked task is resolved by ONE single-task read, not a page walk`() = runTest(dispatcher) {
+        // The list is a keyset page with no id filter. The old bounded walk spent its budget on
+        // appends that early-returned while the cold-start refresh was still in flight.
+        val deepLinked = WeighingTask(
+            campaignId = "campaign-deep",
+            tenantId = "tenant",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            weighDate = "2026-08-03",
+            status = "in_progress",
+            sheds = emptyList(),
+        )
+        val repository = FakeWeighingRepository(
+            taskLookups = mapOf(
+                "campaign-deep" to WeighingTaskLookup.Found(
+                    task = deepLinked,
+                    capabilities = WeighingCapabilities(canEnd = true),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-deep")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-deep"), repository.taskLookupCalls.toList())
+        assertTrue(vm.taskDetailState.value.found)
+        // The list never answered for this task, so the single read's capabilities are what stand.
+        assertTrue(vm.taskDetailState.value.canEnd)
+    }
+
+    @Test
+    fun `a deep-linked task the backend refuses is reported not found, and asked for once`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-missing")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-missing"), repository.taskLookupCalls.toList())
+        assertFalse(vm.taskDetailState.value.found)
+    }
+
     @Test
     fun `each shed bucket on a task detail names the operator it is assigned to`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
@@ -1080,7 +1205,25 @@ class WeighingViewModelTest {
         // The leadership task list this fake's Room-backed stream answers with, so a test can put a
         // planner in front of a real task and read the detail state that task produces.
         private val taskListCache: WeighingTaskListCache = WeighingTaskListCache(),
+        // What the backend says this viewer may do to the assignment rows. Defaults to nothing, so
+        // a test that wants the oversight actions has to say so -- exactly like the real read.
+        private val assignmentCapabilities: WeighingCapabilities = WeighingCapabilities(),
+        // The single-task read behind a deep link, and the park vocabulary behind the chips. Both
+        // default to "the backend has nothing to say", so a test that wants them says so.
+        private val taskLookups: Map<String, WeighingTaskLookup> = emptyMap(),
+        private val parks: List<WeighingParkRef> = emptyList(),
     ) : WeighingRepository {
+
+        /** Every single-task read this fake was asked for, in order. */
+        val taskLookupCalls = mutableListOf<String>()
+
+        /** How many times the park VOCABULARY read was issued. */
+        var parkVocabularyReads = 0
+            private set
+
+        /** How many times the PLANNER catalog read was issued. It is gated on weighing.plan. */
+        var plannerCatalogRefreshes = 0
+            private set
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
             private set
@@ -1102,9 +1245,11 @@ class WeighingViewModelTest {
                 WeighingPage(
                     items = assignmentsByPark[parkId] ?: emptyList(),
                     nextCursor = null,
+                    capabilities = assignmentCapabilities,
                     operatorSummaries = operatorSummariesByPark[parkId] ?: emptyList(),
                 ),
             )
+
 
         // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
         //
@@ -1120,6 +1265,16 @@ class WeighingViewModelTest {
 
         override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
             AppResult.Ok(0)
+
+        override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> {
+            taskLookupCalls += campaignId
+            return AppResult.Ok(taskLookups[campaignId] ?: WeighingTaskLookup.NotFound)
+        }
+
+        override suspend fun listParks(): AppResult<List<WeighingParkRef>> {
+            parkVocabularyReads++
+            return AppResult.Ok(parks)
+        }
 
         override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> =
             MutableStateFlow(WeighingTaskBucketCache())
@@ -1154,11 +1309,13 @@ class WeighingViewModelTest {
          * A catalog refresh reports the seeded outcome, and the cache above holds whatever it
          * produced — an Err seeds NOTHING, which is what a first read that never landed looks like.
          */
-        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> =
-            when (val seeded = plannerCatalogResult) {
+        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> {
+            plannerCatalogRefreshes += 1
+            return when (val seeded = plannerCatalogResult) {
                 is AppResult.Err -> AppResult.Err(seeded.message)
                 else -> AppResult.Ok(cachedPlannerCatalog.parks.size)
             }
+        }
 
         /** The catalog this fake's cached planner stream answers with. */
         private val cachedPlannerCatalog: WeighingPlannerCatalog =
@@ -1275,4 +1432,24 @@ class WeighingViewModelTest {
         const val SCOPE_KEY = "campaign-1:group-1:campaign-shed-1"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"
     }
+
+    // Shared by the two oversight park-vocabulary tests. It was removed with an abandon-only test
+    // it happened to sit beside; the tests that still need it are about the PARK VOCABULARY, not
+    // about any transition, so the fixture outlives the deleted feature.
+    private fun oversightAssignment() = WeighingAssignment(
+        campaignId = "campaign-1",
+        tenantId = "tenant-1",
+        parkId = "park-cpt",
+        parkName = "CPT - Channapatna",
+        workGroupId = "shed-a",
+        campaignShedId = "shed-a",
+        expectedLocationId = "shed-a",
+        expectedLocationLabel = "shed-a",
+        label = "Gandhi 1",
+        category = "individual_animal",
+        operatorUserId = "operator-2",
+        status = "in_progress",
+        periodLabel = "2026-08-01 - 2026-08-07",
+    )
+
 }

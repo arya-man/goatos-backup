@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // Two facts, two names, ONE definition each.
@@ -126,7 +127,9 @@ func TestLumpSumWeighedIsAnimalGrainOnBothSurfaces(t *testing.T) {
 
 func assertBucketFacts(t *testing.T, ctx context.Context, repo *Repository, campaignID, bucketID string, wantWeighed, wantSubmitted int, label string) {
 	t.Helper()
-	page, err := repo.ListCampaignSheds(ctx, repoTenant, campaignID, "", "", 50)
+	// Unrestricted is the internal-caller arm: this test asserts the count PREDICATE, so it must
+	// read every bucket rather than the subset some park/assignee authority would admit.
+	page, err := repo.ListCampaignSheds(ctx, repoTenant, campaignID, "", 50, ports.CampaignAccess{Unrestricted: true})
 	if err != nil {
 		t.Fatalf("%s: list campaign sheds: %v", label, err)
 	}

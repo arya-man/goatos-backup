@@ -90,7 +90,7 @@ class WeighingDefectB16B17Test {
 
     @Test
     fun `B16 - canClose computed property gates on readyToClose and not closed`() {
-        // Backend allows closing ANY non-terminal bucket (via CloseScope/AbandonScope).
+        // Backend allows closing ANY non-terminal bucket (via CloseScope).
         // Client should match: canClose = readyToClose && !isClosed
 
         // Test case 1: ready to close and not closed → canClose = true

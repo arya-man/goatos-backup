@@ -17,6 +17,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,16 +36,25 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
-// telemetry:exempt Operator oversight is read-only; the weighing writes it observes are tracked on
-// the execution surface that owns them.
+// telemetry:exempt Oversight renders backend read-model state; the close/reopen writes it
+// offers are instrumented by the weighing service that owns them.
+
+// Which transition the confirmation dialog is for. Plain strings because they go through
+// rememberSaveable, which stores Bundle-native types without a custom Saver.
+private const val OVERSIGHT_ACTION_CLOSE = "close"
+private const val OVERSIGHT_ACTION_REOPEN = "reopen"
 
 /**
- * Read-only oversight of weighing work assigned to SOMEONE ELSE, grouped BY PERSON.
+* Oversight of weighing work assigned to SOMEONE ELSE, grouped BY PERSON.
  *
  * A SEPARATE destination from the work list and the planner list, not a mode of one shared screen.
- * It renders no scan action and no reopen/close control: this surface answers "who is weighing, and
- * how far have they got", and the weighing write still requires the caller to be the shed's
- * assignee, so nothing here can widen what the viewer may record.
+ * It never offers a SCAN action -- capture stays with the shed's assignee, so nothing here can
+ * widen what the viewer may record. It DOES offer close / reopen, but only when the
+ * backend's own capability flags say this viewer holds the monitor authority: this is the Growth
+ * Director's leadership surface, and leaving it purely read-only left them with no reachable way
+ * to end or reopen the work they oversee. (Superseding note: an earlier revision of this doc
+ * described the screen as strictly read-only. That was true before the capability-gated
+ * transitions landed; the gate, not the absence of controls, is what keeps it safe.)
  *
  * WHAT IT SHOWS AND WHY. A screen called "Operators" used to render a flat list of SHEDS with no
  * name anywhere on it, so the one question it exists to answer — who did what — had no answer on
@@ -59,10 +72,57 @@ fun WeighingOperatorsScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
+    onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onRefresh() }
+    // The transition awaiting confirmation, held as the BUCKET ID rather than the row object so it
+    // survives process death; the row itself is re-read from the backend anyway. The typed reason
+    // is the one thing here that cannot be recovered from the backend, so it is saved too.
+    var pendingAction by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingShedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingReason by rememberSaveable { mutableStateOf("") }
+    fun dismissPending() {
+        pendingAction = null
+        pendingShedId = null
+        pendingReason = ""
+    }
+    val pendingRow = pendingShedId?.let { id -> state.assignments.firstOrNull { it.campaignShedId == id } }
+    if (pendingRow != null) {
+        when (pendingAction) {
+            OVERSIGHT_ACTION_CLOSE -> WeighingReasonDialog(
+                title = stringResource(R.string.weighing_close_dialog_title, pendingRow.label),
+                subtitle = stringResource(R.string.weighing_close_dialog_subtitle),
+                placeholder = stringResource(R.string.weighing_close_dialog_placeholder),
+                confirmLabel = stringResource(R.string.weighing_leadership_close),
+                confirmColor = MeshaColors.BrandD,
+                reason = pendingReason,
+                onReasonChange = { pendingReason = it },
+                onConfirm = { reason ->
+                    dismissPending()
+                    onCloseAssignment(pendingRow, reason)
+                },
+                onDismiss = ::dismissPending,
+            )
+            OVERSIGHT_ACTION_REOPEN -> WeighingReasonDialog(
+                title = stringResource(R.string.weighing_reopen_dialog_title, pendingRow.label),
+                subtitle = stringResource(R.string.weighing_reopen_dialog_subtitle),
+                placeholder = stringResource(R.string.weighing_reopen_dialog_placeholder),
+                confirmLabel = stringResource(R.string.weighing_reopen_dialog_confirm),
+                confirmColor = MeshaColors.BrandD,
+                reason = pendingReason,
+                onReasonChange = { pendingReason = it },
+                onConfirm = { reason ->
+                    dismissPending()
+                    onReopenAssignment(pendingRow, reason)
+                },
+                onDismiss = ::dismissPending,
+            )
+            else -> Unit
+        }
+    }
     Column(modifier = modifier.fillMaxSize()) {
         MeshaScreenHeader(
             title = stringResource(R.string.weighing_operators_title),
@@ -122,7 +182,26 @@ fun WeighingOperatorsScreen(
                     LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
                         onAssignmentRowVisible(index)
                     }
-                    WeighingReadOnlyCard(assignment)
+                    if (state.canEndWeighing || state.canReopenWeighing) {
+                        WeighingOversightCard(
+                            row = assignment,
+                            canEnd = state.canEndWeighing,
+                            canReopen = state.canReopenWeighing,
+                            onReopen = {
+                                pendingAction = OVERSIGHT_ACTION_REOPEN
+                                pendingShedId = assignment.campaignShedId
+                                pendingReason = ""
+                            },
+                            onClose = {
+                                pendingAction = OVERSIGHT_ACTION_CLOSE
+                                pendingShedId = assignment.campaignShedId
+                                pendingReason = ""
+                            },
+                        )
+                    } else {
+                        // No oversight authority on this read: the row must not even LOOK actionable.
+                        WeighingReadOnlyCard(assignment)
+                    }
                 }
                 if (state.assignmentsLoadingMore) {
                     item(key = "operators-loading-more") { ListLoadingFooter() }

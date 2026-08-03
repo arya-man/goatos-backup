@@ -169,12 +169,18 @@ var pendingModuleProfiles = map[string]pendingModuleProfile{
 		leadershipTitle:      "Weighing video pending",
 		leadershipBodySuffix: " weighed; video verification is pending.",
 		leadershipScreen:     "weighing_overview",
-		leadershipTarget:     "/weighing",
+		// Both leadership-facing weighing pushes are about PROOF, and "/weighing" is the
+		// operator's own work list -- a Growth Director who tapped one landed on an empty
+		// My Work with no route to the video. The leadership proof gallery is the surface that
+		// answers what these two pushes announce. (The bucket-level deep link the lifecycle
+		// consumer emits is not available here: this payload carries the shed LOCATION id, never
+		// the campaign/bucket identity that names a weighing task.)
+		leadershipTarget: weighingEvidenceTarget,
 
 		approvedTitle:      "Weighing proof verified",
 		approvedBody:       "The proof is ready for operational closure.",
 		approvedScreen:     "leadership_close",
-		approvedTarget:     "/weighing",
+		approvedTarget:     weighingEvidenceTarget,
 		reworkTitle:        "Weighing proof rejected — rework needed",
 		reworkBody:         "The verifier rejected a weighing proof. This needs to be resubmitted.",
 		reworkReasonPrefix: "The verifier rejected a weighing proof. Reason: ",
@@ -585,7 +591,7 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	approvedTitle := profile.approvedTitle
 	approvedBody := profile.approvedBody
 	approvedBodyEnriched := enrichApprovedNotificationCopy(ctx, c.locations, c.vaccineLabels, c.logger,
-		tenantID, p.Module, parkID, p.ShedID, p.Category)
+		tenantID, p.Module, parkID, p.ShedID, p.Category, p.Source.TaskID)
 	if approvedBodyEnriched != "" {
 		approvedBody = approvedBodyEnriched
 	}
@@ -764,12 +770,14 @@ func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p V
 //
 // Enrichment is optional: location / vaccine lookups are best-effort, and transient failures
 // gracefully degrade to the fallback copy rather than blocking notification delivery.
-func enrichApprovedNotificationCopy(ctx context.Context, locations *LocationNameResolver,
-	vaccineLabels *VaccineLabelResolver, logger *slog.Logger, tenantID, module, parkID, shedID, category string) string {
+func enrichApprovedNotificationCopy(ctx context.Context, locations locationNameSource,
+	vaccineLabels vaccineLabelSource, logger *slog.Logger,
+	tenantID, module, parkID, shedID, category, sourceTaskID string) string {
 	parkID = strings.TrimSpace(parkID)
 	shedID = strings.TrimSpace(shedID)
 	category = strings.TrimSpace(category)
 	module = strings.TrimSpace(module)
+	sourceTaskID = strings.TrimSpace(sourceTaskID)
 
 	// Resolve park and shed names (ONE batched query, not one per name).
 	parkName, shedName := "", ""
@@ -793,30 +801,19 @@ func enrichApprovedNotificationCopy(ctx context.Context, locations *LocationName
 		return ""
 	}
 
-	// For vaccination module: append vaccine label (e.g., "ET+TT").
+	// For vaccination module: name the dose (e.g., "ET+TT vaccination proof for Shed A ...").
 	//
-	// C19c (confirmed defect / open gap): VerificationEventPayload.Category is the fixed
-	// verification-registry category string (e.g. sopbridge.VaccinationVerificationCategory =
-	// "vaccination_proof"), never a protocol_rules.rule_id -- the payload as produced today
-	// (verification/adapters/postgres/repository.go + sopbridge/vaccination_submission.go) does
-	// not carry the dose/rule identity anywhere (Source.RefID is the sop submission id, not a
-	// rule id). Passing category straight into ResolveVaccineLabels as if it were a rule id was
-	// the bug: it can never match a row, so the vaccine label always silently degraded to the
-	// generic fallback below. Until the producer contract is extended to carry the real rule id,
-	// this path fails closed to the generic copy -- but LOUDLY (WARN, once per call), instead of
-	// the previous silent `if err != nil { return out }` degrade that hid both this mismatch and
-	// genuine DB outages.
-	if strings.EqualFold(module, legacyVaccinationSourceModule) && vaccineLabels != nil && category != "" {
-		if !looksLikeUUID(category) {
-			if logger != nil {
-				logger.WarnContext(ctx, "vaccine label enrichment skipped: verification category is not a rule id",
-					"tenant_id", tenantID, "category", category)
-			}
-		} else {
-			labels := vaccineLabels.ResolveVaccineLabels(ctx, tenantID, category)
-			if label := labels[category]; label != "" {
-				return label + " vaccination proof for " + location + " is verified."
-			}
+	// C19c: this used to pass Category straight into ResolveVaccineLabels as if it were a
+	// protocol_rules.rule_id. It never is -- production sends the fixed registry category
+	// ("vaccination_proof", sopbridge.VaccinationVerificationCategory), so the lookup could not
+	// match a row and EVERY vaccination approval degraded to the generic wording. The fix does not
+	// wait for a new producer contract: the payload already carries Source.TaskID, and
+	// obligation_instances links that sop task to the rules it discharged, so the dose identity is
+	// recoverable from what production actually sends today. A rule id is still honoured if a
+	// future producer sends one, because that is the cheaper and more precise key.
+	if strings.EqualFold(module, legacyVaccinationSourceModule) && vaccineLabels != nil {
+		if label := vaccinationDoseLabel(ctx, vaccineLabels, logger, tenantID, category, sourceTaskID); label != "" {
+			return label + " vaccination proof for " + location + " is verified."
 		}
 	}
 
@@ -834,6 +831,49 @@ func enrichApprovedNotificationCopy(ctx context.Context, locations *LocationName
 		moduleNoun = "counts"
 	}
 	return moduleNoun + " proof for " + location + " is verified."
+}
+
+// locationNameSource and vaccineLabelSource are the two enrichment reads the approval copy needs,
+// named as behaviour rather than as the concrete pool-backed resolvers. Both enrichments are
+// optional decoration, so a copy path must be provable without a database standing behind it --
+// that is the only reason these exist; production still passes the real resolvers.
+type locationNameSource interface {
+	ResolveNames(ctx context.Context, tenantID string, ids ...string) map[string]string
+}
+
+type vaccineLabelSource interface {
+	ResolveVaccineLabels(ctx context.Context, tenantID string, ruleIDs ...string) map[string]string
+	ResolveVaccineLabelsForTask(ctx context.Context, tenantID, sopTaskID string) []string
+}
+
+// vaccinationDoseLabel resolves the dose phrase for an approved vaccination proof from whichever
+// identity the payload actually carries.
+//
+// Order is precision-first: a real protocol_rules.rule_id in category is one indexed row, so it
+// wins when a producer ever sends one; otherwise the sop task is walked back to the rules it
+// discharged. Only when NEITHER key is usable is the generic wording accepted, and that is warned
+// once so a future producer change that drops the task id is visible instead of silently emptying
+// every vaccination push of its dose again.
+func vaccinationDoseLabel(ctx context.Context, vaccineLabels vaccineLabelSource, logger *slog.Logger,
+	tenantID, category, sourceTaskID string) string {
+	if looksLikeUUID(category) {
+		if label := vaccineLabels.ResolveVaccineLabels(ctx, tenantID, category)[category]; label != "" {
+			return label
+		}
+	}
+	if sourceTaskID != "" {
+		// A combo visit discharges several rules at once, which is what a phrase like "ET+TT"
+		// says; joining them keeps the push truthful about everything that was verified.
+		if labels := vaccineLabels.ResolveVaccineLabelsForTask(ctx, tenantID, sourceTaskID); len(labels) > 0 {
+			return strings.Join(labels, "+")
+		}
+		return ""
+	}
+	if logger != nil {
+		logger.WarnContext(ctx, "vaccine label enrichment skipped: payload carries neither a rule id nor a source task id",
+			"tenant_id", tenantID, "category", category)
+	}
+	return ""
 }
 
 // decodePayload parses the outbox payload. Returns an error only for genuinely corrupt JSON (the

@@ -64,6 +64,7 @@
     <string name="calendar_drive_title">Vaccination drive · %1$s</string>
     <!-- "{completed} of {total} sheds done" — completion-ring anatomy (option A). -->
     <string name="calendar_drive_sheds_done">%1$d of %2$d sheds done</string>
+    <string name="calendar_drive_total_animals">%1$d animals in this drive</string>
     <!-- Owner-chosen over "Doses": the ring card counts animals, not doses. -->
     <!-- Subtitle under the header: "{n} vaccines" — the full vaccine list lives in the
          drill target (sheds), not the card. -->

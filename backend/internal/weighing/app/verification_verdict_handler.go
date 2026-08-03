@@ -41,6 +41,13 @@ type weighingVerdictPayload struct {
 		Module  string `json:"module"`
 		RefType string `json:"ref_type"`
 		RefID   string `json:"ref_id"`
+		// EvidenceID is the proof the verifier actually reviewed. The store has always
+		// had a stale-evidence guard keyed on it, but this consumer never read the field
+		// and passed an empty id, which the guard treats as "check skipped" -- so in
+		// production a verdict rendered against an older video was applied to whatever
+		// video was attached by the time it landed, approving or rejecting evidence
+		// nobody reviewed. Reading it here is what arms the guard that already exists.
+		EvidenceID string `json:"evidence_id"`
 	} `json:"source"`
 }
 
@@ -108,13 +115,14 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 	// Idempotency is keyed on the event id inside the store, so an at-least-once
 	// redelivery replays to the original result with no new side effects.
 	_, err := h.store.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
-		TenantID:      tenantID,
-		ObservationID: observationID,
-		RefType:       refType,
-		Status:        status,
-		VerifiedBy:    strings.TrimSpace(payload.VerifiedBy),
-		Reason:        strings.TrimSpace(payload.Reason),
-		EventID:       event.ID,
+		TenantID:        tenantID,
+		ObservationID:   observationID,
+		RefType:         refType,
+		Status:          status,
+		VerifiedBy:      strings.TrimSpace(payload.VerifiedBy),
+		Reason:          strings.TrimSpace(payload.Reason),
+		EventID:         event.ID,
+		EvidenceProofID: strings.TrimSpace(payload.Source.EvidenceID),
 	})
 	switch {
 	case err == nil:
@@ -131,6 +139,49 @@ func (h *VerificationVerdictHandler) HandleEvent(ctx context.Context, event even
 			)
 		}
 		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s not found: %w", observationID, err))
+	case errors.Is(err, ports.ErrStaleEvidence):
+		// The verdict named a proof the observation no longer carries. Redelivering it
+		// can only make things worse -- the attached proof moves further away from what
+		// was reviewed, never back -- so this fails permanently to the DLQ instead of
+		// retrying, and the observation keeps its current state until somebody reviews
+		// the CURRENT proof. Deliberately kept distinct from the not-found branch: the
+		// observation exists and is perfectly writable, it is the evidence that moved on,
+		// and an operator chasing a "missing observation" log line would be chasing the
+		// wrong thing.
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_verdict_stale_evidence",
+				"tenant_id", tenantID,
+				"observation_id", observationID,
+				"ref_type", refType,
+				"evidence_id", strings.TrimSpace(payload.Source.EvidenceID),
+				"event_id", event.ID,
+			)
+		}
+		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s evidence superseded: %w", observationID, err))
+	case errors.Is(err, ports.ErrIdempotencyConflict):
+		// The stored fingerprint for this event id does not match the one we just computed.
+		//
+		// This branch exists because adding evidence_proof_id to the fingerprint made the
+		// conflict REACHABLE for events that were already applied. A verdict applied BEFORE
+		// that change stored a fingerprint computed without the field; redelivered after it --
+		// which an at-least-once bus does routinely -- it now recomputes to something
+		// different and conflicts. Stored fingerprints are not versioned and are not migrated.
+		//
+		// Without this case the error fell to default and was returned bare, i.e. RETRYABLE.
+		// A replay that used to be a free no-op became a poison message: retried forever,
+		// never succeeding, and never reaching the DLQ where somebody would see it. Failing
+		// permanently is right on the merits too -- a genuine same-id-different-evidence
+		// verdict is a contradiction that only a human can resolve, and retrying cannot.
+		if h.log != nil {
+			h.log.WarnContext(ctx, "weighing_verdict_idempotency_conflict",
+				"tenant_id", tenantID,
+				"observation_id", observationID,
+				"ref_type", refType,
+				"evidence_id", strings.TrimSpace(payload.Source.EvidenceID),
+				"event_id", event.ID,
+			)
+		}
+		return eventbus.PermanentError(fmt.Errorf("weighing verdict: observation %s idempotency fingerprint conflict: %w", observationID, err))
 	default:
 		return fmt.Errorf("weighing verdict: apply %s: %w", status, err)
 	}
