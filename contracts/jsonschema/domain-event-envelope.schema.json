@@ -92,6 +92,8 @@
         "weighing.observation.verified",
         "weighing.observation.rework",
         "weighing.campaign.closed",
+        "weighing.shed.verified_closed",
+        "weighing.campaign.verified_closed",
         "weighing.work_item.day_start",
         "weighing.work_item.rolled_forward",
         "weighing.work_item.delayed",

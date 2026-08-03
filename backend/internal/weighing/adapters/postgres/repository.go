@@ -418,7 +418,8 @@ SELECT weighing_campaigns.campaign_id::text, weighing_campaigns.tenant_id::text,
   weighing_campaigns.start_business_date::text, weighing_campaigns.status, weighing_campaigns.planned_cap_per_day,
   weighing_campaigns.operator_user_id::text, weighing_campaigns.created_by::text,
   weighing_campaigns.created_at, weighing_campaigns.updated_at, weighing_campaigns.row_version,
-  COALESCE(weighing_campaigns.close_reason, '')
+  COALESCE(weighing_campaigns.close_reason, ''),
+  COALESCE(weighing_campaigns.closure_kind, '')
 FROM weighing_campaigns
 LEFT JOIN locations park
        ON park.tenant_id=weighing_campaigns.tenant_id
@@ -460,7 +461,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	ids := make([]string, 0, limit+1)
 	for rows.Next() {
 		var c domain.Campaign
-		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason); err != nil {
+		if err := rows.Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.ParkName, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind); err != nil {
 			return domain.CampaignPage{}, err
 		}
 		out = append(out, c)
@@ -2100,7 +2101,7 @@ func (r *Repository) ReopenScope(ctx context.Context, tenantID, campaignID, camp
 	}
 	result, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds cs
-SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, updated_at=now()
+SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, closure_kind=NULL, updated_at=now()
 FROM weighing_campaigns campaign
 WHERE cs.tenant_id=$1::uuid
   AND cs.campaign_id=$2::uuid
@@ -2215,7 +2216,7 @@ WHERE tenant_id=$1::uuid
 	// trusts anything cached from before this reopen.
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaigns
-SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, updated_at=now(), row_version=row_version+1
+SET status='in_progress', completed_at=NULL, closed_at=NULL, closed_by=NULL, close_reason=NULL, closure_kind=NULL, updated_at=now(), row_version=row_version+1
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status IN ('completed','closed')`, tenantID, campaignID); err != nil {
@@ -2513,8 +2514,8 @@ func (r *Repository) getCampaign(ctx context.Context, tenantID, campaignID strin
 
 func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) (domain.Campaign, error) {
 	var c domain.Campaign
-	err := tx.QueryRow(ctx, `SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).
-		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
+	err := tx.QueryRow(ctx, `SELECT campaign_id::text, tenant_id::text, park_id::text, period_start_date::text, period_end_date::text, start_business_date::text, status, planned_cap_per_day, operator_user_id::text, created_by::text, created_at, updated_at, row_version, COALESCE(close_reason, ''), COALESCE(closure_kind, '') FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).
+		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion, &c.CloseReason, &c.ClosureKind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Campaign{}, ports.ErrNotFound
 	}
@@ -2544,7 +2545,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
@@ -2586,7 +2587,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err
 		}
@@ -3109,13 +3110,14 @@ func weighingSubjectType(eventType string) string {
 	switch eventType {
 	case "weighing.campaign_created", "weighing.campaign_updated", "weighing.campaign_published":
 		return "weighing_campaign"
-	case "weighing.shed_submission.completed", "weighing.shed.reopened", eventTypeScopeClosed:
+	case "weighing.shed_submission.completed", "weighing.shed.reopened", eventTypeScopeClosed,
+		eventTypeScopeAbandoned, eventTypeScopeVerifiedClosed:
 		return "weighing_campaign_shed"
 	case domain.EventWorkItemDayStart, domain.EventWorkItemRolledForward, domain.EventWorkItemDelayed:
 		// Cadence events are campaign-aggregated (one per campaign+operator) and
 		// their outbox aggregate_id is the campaign id.
 		return "weighing_campaign"
-	case eventTypeCampaignClosed:
+	case eventTypeCampaignClosed, eventTypeCampaignVerifiedClosed:
 		return "weighing_campaign"
 	default:
 		return "weighing_observation"

@@ -20,6 +20,28 @@ const (
 	VerificationStatusVerified = "verified"
 	VerificationStatusRework   = "rework"
 
+	// HOW a bucket or a campaign ended. Recorded on weighing_campaign_sheds /
+	// weighing_campaigns.closure_kind (migration 000084) beside status='closed',
+	// because 'closed' alone cannot tell a normal completion from a leader
+	// ending work early — and before this existed there was no normal
+	// completion path at all.
+	//
+	// ClosureKindVerified is the NORMAL path and the only one no human performs:
+	// the last SUBMITTED item in the bucket got a 'verified' verdict, and the
+	// verdict applier closed the bucket in its own transaction. It carries no
+	// reason because nothing was cut short.
+	//
+	// ClosureKindEarly and ClosureKindAbandoned are the EXCEPTION paths and both
+	// still require the leader's reason. They are unchanged by the normal path's
+	// arrival; the whole point of the column is that the record keeps them
+	// distinguishable.
+	//
+	// EMPTY means either "still live" or "closed before closure_kind existed".
+	// It is never a synonym for 'early'.
+	ClosureKindVerified  = "verified"
+	ClosureKindEarly     = "early"
+	ClosureKindAbandoned = "abandoned"
+
 	CategoryIndividualAnimal     = "individual_animal"
 	CategoryPerShedPartition     = "per_shed_partition"
 	VerificationVerticalWeighing = "weighing"
@@ -60,7 +82,12 @@ type Campaign struct {
 	RowVersion        int       `json:"row_version"`
 	// CloseReason is the backend-owned sentence recorded when the task was ended.
 	// Empty on a task that is still live. Clients RENDER it; they never author it.
-	CloseReason string         `json:"close_reason,omitempty"`
+	CloseReason string `json:"close_reason,omitempty"`
+	// ClosureKind is HOW this task ended: 'verified' (every submitted item was
+	// approved and the task closed itself), 'early' or 'abandoned' (a leader
+	// ended it, and CloseReason says why). Empty on a live task, and also on a
+	// task closed before the column existed — never read empty as 'early'.
+	ClosureKind string         `json:"closure_kind,omitempty"`
 	Sheds       []CampaignShed `json:"sheds,omitempty"`
 	Progress    Progress       `json:"progress"`
 }
@@ -302,12 +329,42 @@ type CampaignShed struct {
 	// again. It is a strict subset, never added to the pending count: an
 	// observation is either awaiting a first look or bounced, never both.
 	ReworkCount int `json:"rework_count"`
+	// VerifiedCount is the counterpart ReworkCount had no partner for: the
+	// submitted observations in this bucket a verifier ACCEPTED.
+	//
+	// Rejection was visible (ReworkCount) and waiting was visible
+	// (PendingVerificationCount), but approval was not on any weighing read at
+	// all, so the CEO board and the operator's phone could show that work had
+	// been bounced and never that it had been passed. Together the three
+	// partition the bucket's submitted evidence:
+	// VerifiedCount + PendingVerificationCount = submitted, and ReworkCount is
+	// the bounced subset of the pending side.
+	//
+	// A plain count, never a numerator: weighing is free-flow and there is no
+	// expected-animal roster to divide by.
+	VerifiedCount int `json:"verified_count"`
+	// ClosureKind is HOW this bucket ended, and is the only field that separates
+	// the normal completion from a leader ending work early. 'verified' means
+	// every submitted item was approved and the bucket closed itself on the last
+	// verdict — no human, no reason. 'early'/'abandoned' mean a leader ended it
+	// and CloseReason carries their justification. Empty means the bucket is
+	// still live, or was closed before closure_kind existed.
+	ClosureKind string `json:"closure_kind,omitempty"`
 	// ReadyToClose is true only when the bucket is submitted (status='completed'),
 	// has at least one submitted observation, and NONE of its observations have a
 	// verification_status other than 'verified'. A bucket with an outstanding
 	// 'rework' observation counts as NOT ready — a bounced video is unfinished
 	// work the operator still owes, so surfacing "ready" on it would bury the
 	// rework request from leadership's view.
+	//
+	// SINCE THE NORMAL COMPLETION PATH EXISTS, this is no longer the thing a
+	// leader has to act on. The last 'verified' verdict closes the bucket itself
+	// (ClosureKind 'verified'), so a bucket that satisfies this predicate is one
+	// the asynchronous verdict applier has not settled YET — the durable bus is
+	// at-least-once and eventual, so the window is real but short. It is kept as
+	// a contract-stable signal (the operator app renders a close affordance from
+	// it) and as the honest description of that in-flight window; it is NOT a
+	// second door to closure and nothing closes because of it.
 	ReadyToClose bool `json:"ready_to_close"`
 	// AnimalsWeighedCount is how many ANIMALS this bucket has a recorded weight
 	// for, submitted or not — one per individual observation, and the recorded head
@@ -626,6 +683,14 @@ type VerificationVerdictResult struct {
 	// minting a new one. Business meaning is India business time per AGENTS.md,
 	// so it is carried in Asia/Kolkata.
 	DecidedAt time.Time `json:"decided_at"`
+	// ShedClosed / CampaignClosed report the NORMAL completion this verdict
+	// triggered: true when this approval was the LAST outstanding one and the
+	// bucket (and then the whole task) reached closure_kind='verified' inside
+	// this same transaction. Both are part of the result and therefore of the
+	// idempotency snapshot, so an at-least-once redelivery replays "yes, that
+	// verdict closed it" instead of re-closing or reporting a second closure.
+	ShedClosed     bool `json:"shed_closed"`
+	CampaignClosed bool `json:"campaign_closed"`
 }
 
 type CreateCampaign struct {
