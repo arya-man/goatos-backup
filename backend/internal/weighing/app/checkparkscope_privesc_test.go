@@ -275,10 +275,6 @@ func (r *parkScopeCheckRepo) CloseScope(ctx context.Context, cmd domain.CloseCom
 	return domain.CloseResult{}, nil
 }
 
-func (r *parkScopeCheckRepo) AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	return domain.CloseResult{}, nil
-}
-
 func (r *parkScopeCheckRepo) CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{}, nil
 }

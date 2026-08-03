@@ -40,7 +40,6 @@ type Service interface {
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
 	ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error
 	CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
-	AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
@@ -91,7 +90,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
-	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon", h.AbandonScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
@@ -318,7 +316,7 @@ func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
 // Those capabilities are computed for the RESOLVED campaign, not for the caller in the
 // abstract. The park-blind version was the same defect one level down: end/reopen are
 // park-scoped writes that answer ErrNotFound outside the caller's parks, so a monitor scoped
-// elsewhere saw a live Abandon/Close button that failed on tap. Passing the campaign the read
+// elsewhere saw a live Close button that failed on tap. Passing the campaign the read
 // just returned also means the park the buttons are computed against is the park that was
 // authorized, with no extra lookup to disagree with.
 func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
@@ -520,25 +518,6 @@ func (h *Handler) CloseScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.service.CloseScope(
-		r.Context(),
-		actor(r),
-		r.PathValue("campaign_id"),
-		r.PathValue("campaign_shed_id"),
-		h.idempotencyKey(r, req.IdempotencyKey),
-		req.Reason,
-	)
-	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
-}
-
-// AbandonScope is the explicit force-close. It is a DIFFERENT endpoint from close so
-// that ending unverified work is a deliberate act, never a fallback the UI can slip
-// into when the normal close is refused.
-func (h *Handler) AbandonScope(w http.ResponseWriter, r *http.Request) {
-	var req closeRequest
-	if !h.decode(w, r, &req) {
-		return
-	}
-	result, err := h.service.AbandonScope(
 		r.Context(),
 		actor(r),
 		r.PathValue("campaign_id"),

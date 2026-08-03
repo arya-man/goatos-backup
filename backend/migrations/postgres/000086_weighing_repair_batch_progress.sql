@@ -1,8 +1,27 @@
 -- +goose Up
--- seed-fixture-guard:ignore: operational Weighing repair bookkeeping; no seed-owned setup table, no app-visible projection, no Vaccination HRMS seed contract surface
+-- seed-fixture-guard:ignore: public.weighing_repair_batch_progress is written ONLY by the batched repair procedures in 000087/000088 at migrate time -- never authored as seed data, never read by the seeders, never rebuilt by seed closeout, and not a setup table any seed fixture can describe. It holds one row per repair_key with batch counters, so no fixture/manifest/runbook companion could state anything about it.
 --
 -- BATCHING/CHECKPOINT SUBSTRATE (M26, P2) for every Weighing forward-repair
--- from 000082 onward.
+-- from 000087 onward.
+--
+-- VERSION NUMBERING -- why this series starts at 000086 and not 000081.
+--
+-- This table and its two consumers were originally authored as 000081/000082/
+-- 000083. Main independently claimed those three version numbers
+-- (000081_weighing_drop_campaign_park_week_unique,
+-- 000082_weighing_observations_drop_mismatch_status,
+-- 000083_weighing_alerts_feed_index) and shipped them, so THOSE keep their
+-- numbers -- a version key that has already been applied somewhere can never
+-- move -- and this series was renumbered forward to 000086/000087/000088. It
+-- had never shipped, so renumbering it costs nothing.
+--
+-- 000084 IS BURNED AND MUST NEVER BE REUSED. A migration
+-- 000084_weighing_duplicate_loser_verification_two_row_repair.sql existed on an
+-- intermediate commit of this branch and was withdrawn before merge, so some
+-- databases carry an APPLIED version 000084 with no file behind it. Any new
+-- file claiming 000084 would be silently skipped there (already-applied
+-- version) while running everywhere else -- a schema that differs by
+-- environment with no error. The gap between 000083 and 000085 is deliberate.
 --
 -- WHY THIS EXISTS -- the defect being answered.
 --
@@ -37,7 +56,8 @@
 -- application on the existing environments) and cannot recur. It is accepted,
 -- not remediated.
 --
--- WHAT IS REMEDIATED: every NEW repair in this series (000082, 000083, 000084)
+-- WHAT IS REMEDIATED: every NEW repair in this series (000087, 000088, and the
+-- held-out loser-verification withdrawal that was withdrawn as 000084)
 -- is written batched, lock-bounded and resumable, using this table. The rule
 -- those migrations follow, and which this header defines once so they do not
 -- each restate it:
@@ -79,7 +99,7 @@ CREATE TABLE IF NOT EXISTS public.weighing_repair_batch_progress (
 );
 
 COMMENT ON TABLE public.weighing_repair_batch_progress IS
-  'Progress bookkeeping for batched Weighing forward-repair migrations (000082+). Observability only: no repair reads it to decide what work to do, so truncating it cannot corrupt a resume.';
+  'Progress bookkeeping for batched Weighing forward-repair migrations (000087+). Observability only: no repair reads it to decide what work to do, so truncating it cannot corrupt a resume.';
 
 -- +goose Down
 -- Safe to drop: this table is pure bookkeeping and nothing reads it to make a

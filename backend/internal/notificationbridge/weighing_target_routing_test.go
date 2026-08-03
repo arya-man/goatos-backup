@@ -280,29 +280,6 @@ func TestWeighingShedClosedNotificationHasTarget(t *testing.T) {
 	}
 }
 
-// TestWeighingShedAbandonedNotificationHasTarget asserts the handleShedClosed handler
-// (abandoned branch) queues a notification with target="/weighing".
-func TestWeighingShedAbandonedNotificationHasTarget(t *testing.T) {
-	recipients := &targetTestRecipients{}
-	queue := &targetTestQueue{}
-	consumer := notificationbridge.NewWeighingLifecycleEventConsumer(recipients, queue, slog.Default())
-
-	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
-		Type:    notificationbridge.EventWeighingShedAbandoned,
-		Payload: shedClosedPayloadWithTarget(),
-	}); err != nil {
-		t.Fatalf("HandleEvent: %v", err)
-	}
-
-	if len(queue.queued) == 0 {
-		t.Fatalf("shed abandoned notification not queued")
-	}
-	notif := queue.queued[0]
-	if notif.Context["target"] != targetBucketRoute {
-		t.Fatalf("shed abandoned context target=%q, want %s", notif.Context["target"], targetBucketRoute)
-	}
-}
-
 // TestWeighingCampaignClosedNotificationHasTarget asserts the handleCampaignClosed handler
 // queues leadership notifications with target="/weighing". Note: operator notifications
 // for campaign closed may not have the target (possible gap, not tested here).
@@ -481,7 +458,6 @@ func TestWeighingNotificationNeverHasVaccinationTarget(t *testing.T) {
 		{"verdict/approved", notificationbridge.EventWeighingObservationVerified, verdictPayloadWithTarget("verified")},
 		{"verdict/rework", notificationbridge.EventWeighingObservationRework, verdictPayloadWithTarget("rework")},
 		{"shed/closed", notificationbridge.EventWeighingShedClosed, shedClosedPayloadWithTarget()},
-		{"shed/abandoned", notificationbridge.EventWeighingShedAbandoned, shedClosedPayloadWithTarget()},
 		{"campaign/closed", notificationbridge.EventWeighingCampaignClosed, campaignClosedPayloadWithTarget()},
 		{"cadence/day_start", notificationbridge.EventWeighingWorkItemDayStart, workItemCadencePayloadWithTarget(notificationbridge.EventWeighingWorkItemDayStart)},
 		{"cadence/rolled_forward", notificationbridge.EventWeighingWorkItemRolledForward, workItemCadencePayloadWithTarget(notificationbridge.EventWeighingWorkItemRolledForward)},

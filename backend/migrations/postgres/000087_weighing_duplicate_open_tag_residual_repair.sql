@@ -5,7 +5,7 @@
 -- FORWARD-REPAIR (M5, P1) for the DUPLICATE residual 000074 deliberately left
 -- behind.
 --
--- 000074 IS NOT EDITED HERE (checksum drift; see 000081's header and 000074's
+-- 000074 IS NOT EDITED HERE (checksum drift; see 000086's header and 000074's
 -- own preamble). Neither is 000070 or 000073.
 --
 -- ROOT CAUSE -- what 000074 fixed and what it could not.
@@ -72,7 +72,10 @@
 -- 000074's own domain and is deliberately not re-litigated here.
 --
 -- WHAT IS NOT DONE: verification_status / verification_items are untouched
--- here -- retiring the losers' verifier queue entries was to be 000084's job. That
+-- here -- retiring the losers' verifier queue entries was to be the job of the
+-- loser-verification withdrawal that was drafted as 000084 and WITHDRAWN before
+-- merge (000084 is a burned version number; see 000086's header -- when this
+-- work does ship it takes a NEW number, never 000084). That
 -- migration is deliberately HELD OUT of this change: withdrawing the loser's
 -- verification item while weighing_observations.verification_status stays 'pending'
 -- leaves close.go's hard pending>0 gate permanently unsatisfiable, so the bucket
@@ -84,7 +87,7 @@
 -- deleted; every change is a submitted_at movement inside one duplicate group.
 --
 -- BATCHED / LOCK-SAFE / RESUMABLE / IDEMPOTENT: per the contract documented
--- once in 000081. Groups are repaired in committed slices; lock_timeout and
+-- once in 000086. Groups are repaired in committed slices; lock_timeout and
 -- statement_timeout are re-armed inside every slice (they are
 -- transaction-scoped and the procedure COMMITs); the selection predicate is
 -- self-draining -- a repaired group stops matching (phase 2 clears the
@@ -121,7 +124,7 @@
 -- every group it names is re-planned against live rows in the slice that
 -- repairs it, so losing it, truncating it, or resuming from it can only change
 -- how much work is REDONE, never what the repair concludes. That is what keeps
--- (2) compatible with 000081's rule that progress bookkeeping is observability
+-- (2) compatible with 000086's rule that progress bookkeeping is observability
 -- only.
 --
 -- LOCKED, NOT JUST SNAPSHOTTED: the slice plan is built from live rows and then
@@ -166,7 +169,7 @@ DECLARE
   slice_total bigint;
 BEGIN
   INSERT INTO public.weighing_repair_batch_progress (repair_key)
-  VALUES ('000082_weighing_duplicate_open_tag_residual_repair')
+  VALUES ('000087_weighing_duplicate_open_tag_residual_repair')
   ON CONFLICT (repair_key) DO NOTHING;
 
   -- Armed HERE, not only inside the loop: the candidate scan below is the one
@@ -188,8 +191,8 @@ BEGIN
   -- to resume from instead of forcing a full rescan. Existing means a prior
   -- attempt was interrupted mid-drain; its contents are re-planned against live
   -- rows before anything is written, so resuming cannot act on stale facts.
-  IF to_regclass('public.weighing_dup_candidates_000082') IS NULL THEN
-    CREATE TABLE public.weighing_dup_candidates_000082 AS
+  IF to_regclass('public.weighing_dup_candidates_000087') IS NULL THEN
+    CREATE TABLE public.weighing_dup_candidates_000087 AS
     WITH fingerprinted AS (
       -- 000070's signature: submitted_at exactly equals this observation's own
       -- latest capture-acceptance audit timestamp.
@@ -258,9 +261,9 @@ BEGIN
     -- queue rather than dropping them unrepaired.
     CREATE TEMP TABLE weighing_dup_slice_groups ON COMMIT DROP AS
     WITH popped AS (
-      DELETE FROM public.weighing_dup_candidates_000082 c
+      DELETE FROM public.weighing_dup_candidates_000087 c
       WHERE c.ctid IN (
-        SELECT ctid FROM public.weighing_dup_candidates_000082
+        SELECT ctid FROM public.weighing_dup_candidates_000087
         ORDER BY tenant_id, campaign_shed_id, tag_key
         LIMIT batch_size
       )
@@ -379,7 +382,7 @@ BEGIN
     -- slice happened to change: a popped group that no longer qualifies (repaired
     -- out of band between the scan and now) legitimately plans zero rows, and
     -- exiting on that would abandon the candidates still queued behind it.
-    SELECT count(*) INTO slice_groups FROM public.weighing_dup_candidates_000082;
+    SELECT count(*) INTO slice_groups FROM public.weighing_dup_candidates_000087;
 
     -- Accumulated on the ROW, not assigned from this call's counter: now that a
     -- killed run resumes, the counter restarts at zero while the repair does
@@ -390,7 +393,7 @@ BEGIN
         rows_repaired = rows_repaired + slice_total,
         last_batch_at = now(),
         completed_at = CASE WHEN slice_groups = 0 THEN now() ELSE NULL END
-    WHERE repair_key = '000082_weighing_duplicate_open_tag_residual_repair';
+    WHERE repair_key = '000087_weighing_duplicate_open_tag_residual_repair';
 
     COMMIT;
 
@@ -400,7 +403,7 @@ BEGIN
   -- The queue exists only to survive an aborted run. Once it is drained the
   -- repair is done, and leaving an empty work list on a live schema would only
   -- invite a future reader to mistake it for state something depends on.
-  DROP TABLE IF EXISTS public.weighing_dup_candidates_000082;
+  DROP TABLE IF EXISTS public.weighing_dup_candidates_000087;
 END;
 $$;
 

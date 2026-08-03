@@ -64,7 +64,7 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 	// GetLeadershipShedVideos additionally park-scopes on the campaign's park; a growth
 	// director needs a tenant-wide grant carrying WeighingMonitor to read across parks,
-	// mirroring how checkParkScope authorizes reopen/close/abandon.
+	// mirroring how checkParkScope authorizes reopen/close.
 	growthDirectorTenantWideCtx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{
 		{ScopeType: "tenant", ScopeID: testTenant, Role: permissions.RoleGrowthDirector},
 	})
@@ -1028,7 +1028,6 @@ type scenarioRepo struct {
 	shedWrites               int
 	latestAnimalWeightWrites int
 	closeScopeCalls          []domain.CloseCommand
-	abandonScopeCalls        []domain.CloseCommand
 	closeCampaignCalls       []domain.CloseCommand
 }
 
@@ -1279,21 +1278,6 @@ func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, stri
 
 func (r *scenarioRepo) CloseScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
 	r.closeScopeCalls = append(r.closeScopeCalls, cmd)
-	return domain.CloseResult{
-		CampaignID:     cmd.CampaignID,
-		CampaignShedID: cmd.CampaignShedID,
-		Status:         domain.StatusClosed,
-		Reason:         cmd.Reason,
-		ClosedBy:       cmd.ClosedBy,
-	}, nil
-}
-
-func (f *fakeRepo) AbandonScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	return domain.CloseResult{CampaignID: cmd.CampaignID, CampaignShedID: cmd.CampaignShedID, Status: domain.StatusClosed, Reason: cmd.Reason, ClosedBy: cmd.ClosedBy}, nil
-}
-
-func (r *scenarioRepo) AbandonScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	r.abandonScopeCalls = append(r.abandonScopeCalls, cmd)
 	return domain.CloseResult{
 		CampaignID:     cmd.CampaignID,
 		CampaignShedID: cmd.CampaignShedID,

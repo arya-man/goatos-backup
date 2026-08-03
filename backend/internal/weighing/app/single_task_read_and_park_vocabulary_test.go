@@ -168,7 +168,7 @@ func TestGetCampaignNarrowsAnExecuteOnlyActorToTheirOwnAssignment(t *testing.T) 
 //
 // GetCampaign's role gate is plan-OR-monitor, so its park check has to resolve against the SAME
 // either/or set. It used to route through checkParkScope, which hardcodes WeighingMonitor -- the
-// reopen/close/abandon authority. An actor holding weighing.plan WITHOUT weighing.monitor in the
+// reopen/close authority. An actor holding weighing.plan WITHOUT weighing.monitor in the
 // task's park would therefore pass the role gate and then be refused by the park check, as
 // ErrNotFound: indistinguishable from a task that does not exist, and so the hardest possible
 // failure to diagnose. No shipped role holds plan without monitor today, which is precisely why

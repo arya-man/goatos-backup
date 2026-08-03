@@ -122,8 +122,8 @@ func TestCloseForwardsActorTrimmedReasonAndKeyToRepository(t *testing.T) {
 
 // Test P0 authorization hole: park-scoped WeighingMonitor must NOT be able to close
 // campaigns from parks outside their scope. This is a CONFIRMED defect — park scope
-// enforcement is missing from CloseScope, AbandonScope, CloseCampaign, ReopenScope.
-// All four mutations must deny cross-park access with ErrNotFound (not leaking existence).
+// enforcement is missing from CloseScope, CloseCampaign, ReopenScope.
+// All three mutations must deny cross-park access with ErrNotFound (not leaking existence).
 func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
 	const (
 		parkCBE     = "00000000-0000-4000-8000-000000000210" // CBE park
@@ -174,11 +174,6 @@ func TestParkScopeEnforcedOnAllFourMutations(t *testing.T) {
 	// Try to close a CPT campaign with CBE-only access
 	if _, err := service.CloseScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "close-cpt", "test"); err != ports.ErrNotFound {
 		t.Errorf("CloseScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
-	}
-
-	// Try to abandon a CPT campaign with CBE-only access
-	if _, err := service.AbandonScope(ctxWithCBEGrant, cbeMonitor, campaignCPT, shedCPT, "abandon-cpt", "test"); err != ports.ErrNotFound {
-		t.Errorf("AbandonScope CPT campaign: err=%v, want ErrNotFound (got authorization hole)", err)
 	}
 
 	// Try to reopen a CPT campaign with CBE-only access
@@ -333,10 +328,6 @@ func (r *multiParkScenarioRepo) ReopenScope(context.Context, string, string, str
 
 func (r *multiParkScenarioRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	r.closeScopeCalls = append(r.closeScopeCalls, domain.CloseCommand{})
-	return domain.CloseResult{Status: domain.StatusClosed}, nil
-}
-
-func (r *multiParkScenarioRepo) AbandonScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 

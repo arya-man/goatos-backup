@@ -870,7 +870,9 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 
 // Leadership may not close a bucket while a submitted video is still unreviewed.
 // The gate is only about closing EARLY: the operator may still scan and submit, and
-// the verifier may still review. Work that will never finish ends via AbandonScope.
+// the verifier may still review. There is NO bypass: the abandon primitive that used
+// to skip this gate has been removed, so a bucket holding unreviewed evidence cannot
+// reach status='closed' by any path.
 func TestCloseScopeBlockedWhileVerificationPending(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -937,10 +939,22 @@ func TestCloseScopeBlockedWhileReworkOutstanding(t *testing.T) {
 	}
 }
 
-// Abandon is the explicit way out for work that will never finish: it skips the
-// gate, demands a reason, and records itself as its own event so it can never read
-// as a verified close.
-func TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly(t *testing.T) {
+// TestCloseGateIsUnconditionalAndAbandonPathIsGone is the direct replacement for the
+// deleted TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly. That test proved
+// a bucket holding unreviewed evidence COULD be ended by skipping the gate. The
+// maintainer decision is that no such path exists: the vocabulary is close, or reopen a
+// bucket that is already closed. Nothing else.
+//
+// So this test converts the old assertion into its inverse and proves the gate has no
+// bypass:
+//
+//   - a reason, however emphatic, does not unlock the close;
+//   - repeated attempts under distinct idempotency keys do not wear the gate down;
+//   - the bucket's status is untouched by every refused attempt;
+//   - NOTHING is written on a refusal -- no outbox row of any type, no audit row --
+//     and in particular the retired weighing.shed.abandoned event and
+//     weighing.scope_abandoned audit action are never emitted again.
+func TestCloseGateIsUnconditionalAndAbandonPathIsGone(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -948,32 +962,66 @@ func TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly(t *testing.T) {
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	seedSubmittedObservation(t, ctx, pool, repo, "abandon-unverified")
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-unconditional")
 
-	if _, err := repo.AbandonScope(ctx, domain.CloseCommand{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		Reason: "", ClosedBy: repoVerifier, IdempotencyKey: "abandon:no-reason",
-	}); !errors.Is(err, ports.ErrInvalidArgument) {
-		t.Fatalf("abandon without a reason err=%v, want ErrInvalidArgument", err)
+	// Every shape the old abandon call site could take is now refused by CloseScope.
+	for _, tc := range []struct {
+		name           string
+		reason         string
+		idempotencyKey string
+	}{
+		{"no reason", "", "close:gate-no-reason"},
+		{"routine reason", "closing this bucket out", "close:gate-routine"},
+		{"the old abandon justification", "operator left the farm; videos will never be shot", "close:gate-never-finishing"},
+		{"a retry of the same intent under a fresh key", "operator left the farm; videos will never be shot", "close:gate-retry"},
+	} {
+		if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+			TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+			Reason: tc.reason, ClosedBy: repoVerifier, IdempotencyKey: tc.idempotencyKey,
+		}); !errors.Is(err, ports.ErrVerificationPending) {
+			t.Fatalf("CloseScope(%s) err=%v, want ErrVerificationPending — the close gate must be unconditional", tc.name, err)
+		}
+		assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 	}
 
-	if _, err := repo.AbandonScope(ctx, domain.CloseCommand{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		Reason:   "operator left the farm; videos will never be shot",
-		ClosedBy: repoVerifier, IdempotencyKey: "abandon:never-finishing",
+	// A refused close is a no-op: it must not leak an event or an audit trail, and the
+	// retired abandon vocabulary must be absent from both.
+	for _, eventType := range []string{"weighing.shed.abandoned", "weighing.shed.closed"} {
+		if got := countOutbox(t, ctx, pool, eventType); got != 0 {
+			t.Fatalf("%s outbox rows=%d, want 0 — a refused close must write nothing", eventType, got)
+		}
+	}
+	for _, action := range []string{"weighing.scope_abandoned", "weighing.scope_closed"} {
+		if got := countAudit(t, ctx, pool, action); got != 0 {
+			t.Fatalf("%s audit rows=%d, want 0 — a refused close must write nothing", action, got)
+		}
+	}
+
+	// The ONLY way past the gate is the verifier actually reviewing the evidence.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab03",
 	}); err != nil {
-		t.Fatalf("abandon an unverified bucket: %v", err)
+		t.Fatalf("verify observation: %v", err)
+	}
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "every video reviewed", ClosedBy: repoVerifier, IdempotencyKey: "close:gate-after-verdict",
+	}); err != nil {
+		t.Fatalf("close after every video verified: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
 
-	if got := countOutbox(t, ctx, pool, "weighing.shed.abandoned"); got != 1 {
-		t.Fatalf("weighing.shed.abandoned outbox rows=%d, want 1", got)
+	// The close emitted a plain close, never the retired abandon vocabulary.
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
+		t.Fatalf("weighing.shed.closed outbox rows=%d, want 1", got)
 	}
-	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 0 {
-		t.Fatalf("weighing.shed.closed outbox rows=%d, want 0 — an abandon must never look like a verified close", got)
+	if got := countOutbox(t, ctx, pool, "weighing.shed.abandoned"); got != 0 {
+		t.Fatalf("weighing.shed.abandoned outbox rows=%d, want 0 — the event is retired", got)
 	}
-	if got := countAudit(t, ctx, pool, "weighing.scope_abandoned"); got != 1 {
-		t.Fatalf("weighing.scope_abandoned audit rows=%d, want 1", got)
+	if got := countAudit(t, ctx, pool, "weighing.scope_abandoned"); got != 0 {
+		t.Fatalf("weighing.scope_abandoned audit rows=%d, want 0 — the audit action is retired", got)
 	}
 }
 
@@ -1058,7 +1106,7 @@ func seedSubmittedObservation(t *testing.T, ctx context.Context, pool *pgxpool.P
 
 // The campaign-level close must obey the same verification gate as the per-bucket
 // close. It was previously a SECOND, ungated door to 'closed': it takes no reason
-// and is not the explicit abandon path, so leadership could sweep shut the very
+// and so leadership could otherwise sweep shut the very
 // bucket CloseScope had just refused.
 func TestCloseCampaignBlockedWhileAnyBucketHasPendingVerification(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)

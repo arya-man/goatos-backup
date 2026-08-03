@@ -311,6 +311,16 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
+Confirmed weighing vocabulary (maintainer decision 2026-08-03): the weighing
+workflow is CLOSE (mark complete) or REOPEN (undo complete). No abandon. An
+operator cannot close a bucket if verification is pending; the answer is to
+resolve the verification (get director approval/rejection), never to bypass the
+verification gate. The `AbandonScope` method was a close-variant that skipped
+verification — it was a code path, not a vocabulary word, and it is banned
+permanently. See `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`
+→ Section D-5, and `tools/agent-hooks/check-weighing-abandon-guard.mjs` for machine
+enforcement.
+
 Confirmed "You" / profile nav placement rule (maintainer decision 2026-08-03,
 stated THREE times and implemented wrong twice before this — read it exactly):
 

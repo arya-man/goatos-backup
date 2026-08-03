@@ -264,10 +264,6 @@ type Repository interface {
 	// exact-replay readback -> state change -> audit -> idempotency record ->
 	// outbox enqueue, all in ONE transaction).
 	CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
-	// AbandonScope ends a bucket whose work will never finish. Separate from
-	// CloseScope on purpose: it skips the verification gate, demands a reason, and
-	// records itself distinguishably so it can never read as a verified close.
-	AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error)
 	// CampaignParkID resolves the park a campaign runs in. It exists because the park is the
 	// ROUTING key of a weighing verification item (the notification consumer resolves the park's

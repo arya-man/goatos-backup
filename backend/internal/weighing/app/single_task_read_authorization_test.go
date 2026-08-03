@@ -144,7 +144,7 @@ func TestGetCampaignPushesOnlyTheAuthorizedParkSetIntoTheRead(t *testing.T) {
 //
 // can_end/can_reopen used to be a park-blind role check while CloseCampaign/ReopenCampaign
 // enforce park scope and refuse an unauthorized park with ErrNotFound. A monitor scoped to park
-// B therefore rendered a live Abandon/Close button on a park-A task, and tapping it failed --
+// B therefore rendered a live Close button on a park-A task, and tapping it failed --
 // the same defect the capability map exists to prevent, displaced from permission grain to park
 // grain.
 func TestCampaignCapabilitiesAreAnsweredForTheTasksOwnPark(t *testing.T) {

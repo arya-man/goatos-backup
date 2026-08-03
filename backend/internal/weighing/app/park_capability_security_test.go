@@ -158,7 +158,7 @@ func newEscalationRepo() *parkRoutedRepo {
 
 // TestCloseScopeDeniesUnrelatedParkGrantAndAllowsCapabilityCarryingPark proves fix #2:
 // checkParkScope/checkParkScopeForCapability must deny WeighingMonitor-gated mutations
-// (close/reopen/abandon/campaign-close) in a park the actor only holds an UNRELATED grant
+// (close/reopen/campaign-close) in a park the actor only holds an UNRELATED grant
 // in, while allowing them in the park backed by the capability-carrying grant.
 func TestCloseScopeDeniesUnrelatedParkGrantAndAllowsCapabilityCarryingPark(t *testing.T) {
 	repo := newEscalationRepo()
@@ -191,10 +191,10 @@ func TestCloseScopeDeniesUnrelatedParkGrantAndAllowsCapabilityCarryingPark(t *te
 	}
 }
 
-// TestReopenAbandonCampaignCloseAllRouteThroughParkCapabilityCheck proves reopen/abandon/
-// campaign-close all inherit the same capability-aware park check as CloseScope -- none of
-// them may be band-aided independently of checkParkScope.
-func TestReopenAbandonCampaignCloseAllRouteThroughParkCapabilityCheck(t *testing.T) {
+// TestReopenAndCampaignCloseRouteThroughParkCapabilityCheck proves reopen and
+// campaign-close both inherit the same capability-aware park check as CloseScope -- neither
+// may be band-aided independently of checkParkScope.
+func TestReopenAndCampaignCloseRouteThroughParkCapabilityCheck(t *testing.T) {
 	repo := newEscalationRepo()
 	service := NewService(repo)
 	ctx := escalationContext()
@@ -205,13 +205,6 @@ func TestReopenAbandonCampaignCloseAllRouteThroughParkCapabilityCheck(t *testing
 	}
 	if err := service.ReopenScope(ctx, actor, securityCampaignB, securityShed, "idem-reopen-b", "reason"); err != nil {
 		t.Fatalf("ReopenScope in capability-carrying park err = %v, want nil", err)
-	}
-
-	if _, err := service.AbandonScope(ctx, actor, securityCampaignA, securityShed, "idem-abandon-a", "reason"); !errors.Is(err, ports.ErrNotFound) {
-		t.Fatalf("AbandonScope in unrelated-grant park err = %v, want ErrNotFound", err)
-	}
-	if _, err := service.AbandonScope(ctx, actor, securityCampaignB, securityShed, "idem-abandon-b", "reason"); err != nil {
-		t.Fatalf("AbandonScope in capability-carrying park err = %v, want nil", err)
 	}
 
 	if _, err := service.CloseCampaign(ctx, actor, securityCampaignA, "idem-close-camp-a", "reason"); !errors.Is(err, ports.ErrNotFound) {

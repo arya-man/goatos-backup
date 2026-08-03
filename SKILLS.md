@@ -168,6 +168,13 @@ the two-parks/two-sheds phone scenario, the five physical RFID mapping, and the
 rule that Vaccination may transform input only in the local dev build while
 Weighing remains raw free-flow.
 
+**Weighing Vocabulary (Permanent Rule):** Weighing workflow has only two verbs:
+CLOSE (mark a bucket complete after verification) and REOPEN (undo a close).
+There is no abandon. A bucket cannot close while verification is pending — the
+answer is to resolve the verification (director approval/rejection), never to
+bypass it. See `AGENTS.md` → "Confirmed weighing vocabulary" and
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
+
 ## STG Deploy Routing
 
 When the user says "deploy STG", "push to STG", "promote STG", "ship to

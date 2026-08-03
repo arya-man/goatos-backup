@@ -12,7 +12,7 @@ import (
 )
 
 // These cover the SECOND half of the cross-park weighing hole. The first half (close/reopen/
-// abandon and the leadership gallery) is covered by park_capability_security_test.go; this
+// close and the leadership gallery) is covered by park_capability_security_test.go; this
 // file covers the planner and campaign surfaces, which ran a park-BLIND role check only:
 // RolesAuthorize answers "do I hold WeighingPlan somewhere", which a park-scoped planner
 // passes for every park in the tenant.
