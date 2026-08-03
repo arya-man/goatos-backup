@@ -116,6 +116,40 @@ func (s *Service) DownloadArtifact(ctx context.Context, tenantID, proofID string
 	return proof, url, nil
 }
 
+// EnsureObjectAvailable proves that ONE proof's stored bytes are still retrievable, without
+// downloading them.
+//
+// Scope discipline: this is for a caller that is about to take an IRREVERSIBLE decision about a
+// SINGLE record (verification approve). It must never be called per row of a list/queue read — that
+// is the N+1 the read paths deliberately avoid. Callers that only need a link keep using
+// DownloadURL/DownloadArtifact.
+//
+// Returns ports.ErrObjectMissing when the row exists but the object does not (terminal, do not
+// retry), ports.ErrNotFound when the proof row itself is gone, and any other error when the check
+// itself could not be completed.
+func (s *Service) EnsureObjectAvailable(ctx context.Context, tenantID, proofID string) error {
+	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
+		return ErrInvalid
+	}
+	proof, err := s.repo.GetProof(ctx, tenantID, proofID)
+	if err != nil {
+		return err
+	}
+	if statter, ok := s.storage.(ports.ObjectStatter); ok {
+		return statter.StatObject(ctx, proof)
+	}
+	if opener, ok := s.storage.(ports.LocalOpener); ok {
+		reader, openErr := opener.Open(ctx, proof)
+		if openErr != nil {
+			return openErr
+		}
+		return reader.Close()
+	}
+	// No storage adapter can answer the question. Fail CLOSED for the caller by saying so
+	// explicitly rather than returning nil, which would read as "the evidence is there".
+	return ports.ErrUnsupported
+}
+
 func (s *Service) OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error) {
 	if !uuidutil.IsUUIDString(tenantID) || !uuidutil.IsUUIDString(proofID) {
 		return domain.Artifact{}, nil, ErrInvalid

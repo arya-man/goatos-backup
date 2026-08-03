@@ -113,9 +113,15 @@ data class VerifyDetailUiState(
     val verdictReason: String? = null,
     /** False once a verdict has already been recorded (server or a just-submitted local
      *  optimistic state) — the buttons disable rather than allow a second conflicting verdict. */
-    // Fail closed while the requested item is absent/loading. The ViewModel enables decisions
-    // only after a real pending row with resolvable evidence arrives from Room.
-    val isDecisionEnabled: Boolean = false,
+    // Approve and Reject are enabled SEPARATELY and deliberately.
+    //
+    // Approve is the only irreversible action in this app (there is no un-approve), so it needs
+    // evidence she can actually see. Reject/rework is the safe direction: when the video will not
+    // load, sending the work back so the team records it again is the ONLY correct move left, so
+    // gating Reject on the same signal would strand her with an item she can neither approve nor
+    // return. Both fail closed while the item is absent/loading or already decided.
+    val isApproveEnabled: Boolean = false,
+    val isRejectEnabled: Boolean = false,
     val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
     val isSubmitting: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
@@ -127,6 +133,10 @@ data class VerifyDetailUiState(
 )
 
 enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
+
+/** Approve is irreversible, so the screen asks once before sending it. Reject already has its own
+ *  mandatory-reason dialog, so this keeps the two decisions symmetric. */
+private const val APPROVE_NEEDS_CONFIRMATION = true
 
 enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR, FULLSCREEN_OPENED }
 
@@ -159,6 +169,7 @@ fun VerifyDetailScreen(
     videoControlsEnabled: Boolean = false,
 ) {
     var showRejectDialog by remember { mutableStateOf(false) }
+    var showApproveDialog by remember { mutableStateOf(false) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
@@ -227,10 +238,13 @@ fun VerifyDetailScreen(
                 item {
                     if (!state.isCloseMode) {
                         DecisionRow(
-                            enabled = state.isDecisionEnabled && !state.isSubmitting,
+                            approveEnabled = state.isApproveEnabled && !state.isSubmitting,
+                            rejectEnabled = state.isRejectEnabled && !state.isSubmitting,
                             unavailableReason = state.decisionUnavailableReason,
                             isSubmitting = state.isSubmitting,
-                            onApprove = { onEvent(VerifyDetailEvent.Approve) },
+                            onApprove = {
+                                if (APPROVE_NEEDS_CONFIRMATION) showApproveDialog = true else onEvent(VerifyDetailEvent.Approve)
+                            },
                             onReject = { showRejectDialog = true },
                         )
                     }
@@ -256,6 +270,16 @@ fun VerifyDetailScreen(
                 onEvent(VerifyDetailEvent.Reject(reason))
             },
             onDismiss = { showRejectDialog = false },
+        )
+    }
+
+    if (showApproveDialog) {
+        ApproveConfirmDialog(
+            onConfirm = {
+                showApproveDialog = false
+                onEvent(VerifyDetailEvent.Approve)
+            },
+            onDismiss = { showApproveDialog = false },
         )
     }
 }
@@ -774,7 +798,8 @@ private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {
 
 @Composable
 private fun DecisionRow(
-    enabled: Boolean,
+    approveEnabled: Boolean,
+    rejectEnabled: Boolean,
     unavailableReason: VerifyDecisionUnavailableReason,
     isSubmitting: Boolean,
     onApprove: () -> Unit,
@@ -796,7 +821,8 @@ private fun DecisionRow(
         }
         return
     }
-    if (!enabled && !isSubmitting) {
+    // Nothing at all is decidable (already decided, or the item is still loading): explain, no buttons.
+    if (!approveEnabled && !rejectEnabled) {
         val message = when (unavailableReason) {
             VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE -> stringResource(R.string.verify_detail_media_unavailable)
             VerifyDecisionUnavailableReason.ALREADY_DECIDED -> stringResource(R.string.verify_detail_already_decided)
@@ -811,6 +837,16 @@ private fun DecisionRow(
         )
         return
     }
+    // The video will not load: say so and leave the rework route open, rather than leaving her on a
+    // dead screen with an Approve she must not be able to press.
+    if (!approveEnabled && unavailableReason == VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE) {
+        Text(
+            text = stringResource(R.string.verify_detail_media_unavailable_send_back),
+            color = MeshaColors.Muted,
+            style = MeshaType.cta,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        )
+    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -820,7 +856,7 @@ private fun DecisionRow(
             icon = MeshaIcons.Close,
             bg = MeshaColors.DangerX,
             fg = MeshaColors.Danger,
-            enabled = enabled,
+            enabled = rejectEnabled,
             loading = isSubmitting,
             onClick = onReject,
             modifier = Modifier.weight(1f),
@@ -830,7 +866,7 @@ private fun DecisionRow(
             icon = MeshaIcons.Check,
             bg = MeshaColors.OkX,
             fg = MeshaColors.Ok,
-            enabled = enabled,
+            enabled = approveEnabled,
             loading = isSubmitting,
             onClick = onApprove,
             modifier = Modifier.weight(1f),
@@ -937,6 +973,46 @@ private fun RejectReasonDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.verify_reject_dialog_cancel), color = MeshaColors.Muted)
+            }
+        },
+    )
+}
+
+/**
+ * Approve is the one decision nobody can take back — there is no un-approve anywhere in the app or
+ * the backend. Reject already costs a dialog plus a typed reason, so an unguarded single tap made
+ * the irreversible action the CHEAPEST one on the screen. This restores one deliberate tap; it adds
+ * no typing and no reading, so a long queue costs one extra tap per item, not a new workflow.
+ */
+@Composable
+private fun ApproveConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        // design-system:ignore: weight-only override on the Material dialog title style — applying a
+        // MeshaType style here would also replace the AlertDialog's own title size/line-height.
+        title = { Text(stringResource(R.string.verify_approve_dialog_title), fontWeight = FontWeight.W700) },
+        text = {
+            Text(
+                text = stringResource(R.string.verify_approve_dialog_subtitle),
+                color = MeshaColors.Muted,
+                // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
+                // but is W700, which would visibly bold this dialog subtitle.
+                fontSize = 12.5.sp,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                // design-system:ignore: weight-only override on the Material TextButton label style —
+                // a MeshaType style would also replace the button's own size/line-height.
+                Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.verify_approve_dialog_cancel), color = MeshaColors.Muted)
             }
         },
     )

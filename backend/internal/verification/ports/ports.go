@@ -92,3 +92,21 @@ type Repository interface {
 type MediaResolver interface {
 	ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error)
 }
+
+// ErrEvidenceMissing means the item's proof rows resolve but at least one stored object is gone.
+// It is terminal: retrying the same approve can never succeed.
+var ErrEvidenceMissing = errors.New("verification: proof evidence object is missing")
+
+// EvidenceAvailabilityChecker proves the item's proof BYTES still exist, not merely that a link
+// could be signed for them.
+//
+// This is the verdict-time gate ONLY, for one item. It is deliberately NOT part of MediaResolver
+// and is deliberately not called from ListQueue: statting every proof of every row on a 20-row page
+// is the N+1 the queue read correctly refuses (see Service.resolveMedia). One irreversible approve
+// paying one stat per proof is a completely different cost shape from a hot list read paying
+// page_size x proofs_per_row.
+type EvidenceAvailabilityChecker interface {
+	// EnsureEvidenceAvailable returns ErrEvidenceMissing when any object is gone, or another error
+	// when the check itself could not be completed (unknown, not proof of absence).
+	EnsureEvidenceAvailable(ctx context.Context, tenantID string, proofIDs []string) error
+}

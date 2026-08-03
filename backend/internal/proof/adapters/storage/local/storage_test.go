@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -128,3 +129,41 @@ func TestOpenPresentObjectStreams(t *testing.T) {
 		t.Fatalf("read = %q err = %v", got, err)
 	}
 }
+
+// StatObject is the verdict-time existence check: present -> nil, absent -> the terminal
+// ErrObjectMissing class (never a raw *fs.PathError).
+func TestStatObjectReportsPresenceAndAbsence(t *testing.T) {
+	dir := t.TempDir()
+	storage := New(dir, "local-proof-secret")
+	missing := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/gone.mp4",
+	}
+	if err := storage.StatObject(context.Background(), missing); !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("StatObject(missing) = %v, want ports.ErrObjectMissing", err)
+	}
+
+	present := domain.Artifact{
+		TenantID:  localTestTenant,
+		ProofID:   localTestProof,
+		ObjectKey: localTestTenant + "/2026/08/02/present.mp4",
+		MimeType:  "video/mp4",
+	}
+	if _, err := storage.Store(context.Background(), present, strings.NewReader("proof-bytes"), "video/mp4"); err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if err := storage.StatObject(context.Background(), present); err != nil {
+		t.Fatalf("StatObject(present) = %v, want nil", err)
+	}
+
+	// Removing the bytes must flip the answer — this is exactly the production incident shape.
+	if err := os.Remove(filepath.Join(dir, present.ObjectKey)); err != nil {
+		t.Fatalf("remove stored object: %v", err)
+	}
+	if err := storage.StatObject(context.Background(), present); !errors.Is(err, ports.ErrObjectMissing) {
+		t.Fatalf("StatObject(after delete) = %v, want ports.ErrObjectMissing", err)
+	}
+}
+
+var _ ports.ObjectStatter = (*Storage)(nil)
