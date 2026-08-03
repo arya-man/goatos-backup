@@ -52,7 +52,8 @@
 --   PHASE 1 also NORMALISES any non-winner row still carrying 000070's
 --   fabricated capture timestamp to accepted_at, so a loser's submitted_at
 --   stops being a value that was never a submit and starts being the
---   recognised "superseded" marker -- which is also what makes 000084's
+--   recognised "superseded" marker -- which is also what makes the (HELD) loser
+--   verification-item withdrawal's
 --   verification withdrawal able to see it.
 --
 --   PHASE 2 (reopen) runs SECOND, only after phase 1 has vacated the key:
@@ -71,7 +72,14 @@
 -- 000074's own domain and is deliberately not re-litigated here.
 --
 -- WHAT IS NOT DONE: verification_status / verification_items are untouched
--- here -- retiring the losers' verifier queue entries is 000084's job, and
+-- here -- retiring the losers' verifier queue entries was to be 000084's job. That
+-- migration is deliberately HELD OUT of this change: withdrawing the loser's
+-- verification item while weighing_observations.verification_status stays 'pending'
+-- leaves close.go's hard pending>0 gate permanently unsatisfiable, so the bucket
+-- becomes closable only via abandon, which emits a semantically wrong event. It ships
+-- with the widened CHECK + close.go change, not before. Until then the loser's queue
+-- entry stays pending and a verifier can still clear it, which is what keeps the
+-- bucket closable. The rest of
 -- doing it in one migration would conflate two independent repairs. No row is
 -- deleted; every change is a submitted_at movement inside one duplicate group.
 --

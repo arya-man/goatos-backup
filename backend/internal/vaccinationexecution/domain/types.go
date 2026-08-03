@@ -879,16 +879,25 @@ type VerificationQueueRow struct {
 // batch with a window, so the label carries the vaccine, the window dates, and the status —
 // rule ID alone is not a drive selector when rules recur across dates and parks.
 type CommandBoardDriveOption struct {
-	DriveBatchID string     `json:"driveBatchId"`
-	DriveName    string     `json:"driveName"`
-	Label        string     `json:"label"`
-	Status       string     `json:"status"`
-	PlannedDate  *time.Time `json:"plannedDate,omitempty"`
-	WindowStart  *time.Time `json:"windowStart,omitempty"`
-	WindowEnd    *time.Time `json:"windowEnd,omitempty"`
-	TargetCount  int        `json:"targetCount"`
-	DoseCount    int        `json:"doseCount"`
-	ShedNames    []string   `json:"shedNames"`
+	DriveBatchID string `json:"driveBatchId"`
+	// ParkID/ParkName carry the park the drive's work is in. Without them the option list
+	// was park-BLIND while the board it feeds is not: leadership viewing all parks
+	// (park_id omitted) got one row per batch with no way to tell CBE's drive from CPT's,
+	// so two same-vaccine, same-window drives in different parks presented as a single
+	// selector entry and their counts read as one drive's. The row grain is therefore
+	// (batch, park), not batch alone -- a batch whose obligations span parks is genuinely
+	// two operator days in two places and must be offered as two choices.
+	ParkID      string     `json:"parkId,omitempty"`
+	ParkName    string     `json:"parkName,omitempty"`
+	DriveName   string     `json:"driveName"`
+	Label       string     `json:"label"`
+	Status      string     `json:"status"`
+	PlannedDate *time.Time `json:"plannedDate,omitempty"`
+	WindowStart *time.Time `json:"windowStart,omitempty"`
+	WindowEnd   *time.Time `json:"windowEnd,omitempty"`
+	TargetCount int        `json:"targetCount"`
+	DoseCount   int        `json:"doseCount"`
+	ShedNames   []string   `json:"shedNames"`
 }
 
 type CommandBoardResponse struct {

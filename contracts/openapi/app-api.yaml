@@ -13069,6 +13069,16 @@ components:
           type: string
           format: uuid
           description: Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
+        parkId:
+          type: string
+          description: >-
+            Park the drive's work is in. Row grain is (batch, park), not batch alone: on an
+            all-parks board two same-vaccine, same-window drives in different parks are two
+            operator days and must be offered — and counted — separately. Empty when the
+            drive's obligations resolve to no park.
+        parkName:
+          type: string
+          description: Display name of parkId, so the selector can label a drive without a second lookup.
         driveName:
           type: string
           description: Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed.
