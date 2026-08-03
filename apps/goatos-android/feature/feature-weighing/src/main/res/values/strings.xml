@@ -346,4 +346,30 @@
     <string name="weighing_videos_none">No video added yet</string>
     <string name="weighing_videos_uploading_fmt">%1$d uploading</string>
     <string name="weighing_videos_failed_fmt">%1$d failed</string>
+
+    <!-- Operator-grain oversight. Every number below is a backend-owned PLAIN COUNT: free-flow
+         weighing has no expected-animal roster, so no share, percentage or "x of y" of animals
+         can honestly appear on this screen. The four state counts are disjoint and exhaustive
+         over a person's sheds, which is why they can be listed side by side. -->
+    <string name="weighing_operators_people_heading">Who is weighing</string>
+    <string name="weighing_operators_sheds_heading">Shed by shed</string>
+    <string name="weighing_operators_unassigned">Not assigned to anyone yet</string>
+    <string name="weighing_operators_roster_gap">Assigned, but not on the roster</string>
+    <string name="weighing_operators_sheds_one">%1$d shed</string>
+    <string name="weighing_operators_sheds_other">%1$d sheds</string>
+    <string name="weighing_operators_animals_one">%1$d animal weighed</string>
+    <string name="weighing_operators_animals_other">%1$d animals weighed</string>
+    <string name="weighing_operators_nothing_weighed_yet">Nothing weighed yet</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d not started</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d still weighing</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d submitted</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d accepted</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d sent back</string>
+    <string name="weighing_operators_no_people_title">Nobody is weighing right now</string>
+    <string name="weighing_shed_state_not_started">Nothing captured yet</string>
+    <string name="weighing_shed_state_capturing">Still weighing</string>
+    <string name="weighing_shed_state_submitted">Submitted, waiting for a verifier</string>
+    <string name="weighing_shed_state_accepted">Accepted</string>
+    <string name="weighing_shed_weighed_by_fmt">Weighed by %1$s</string>
+    <string name="weighing_shed_weighed_by_nobody">Not assigned to anyone yet</string>
 </resources>

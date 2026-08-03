@@ -123,6 +123,13 @@ data class WeighingUiState(
     val plannerMode: Boolean = false,
     val parkFilters: List<WeighingParkFilterUiRow> = emptyList(),
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
+    /**
+     * The oversight surface's OPERATOR-grain rows, exactly as the backend counted them.
+     *
+     * Never derived from [assignments]: that is one keyset page, so a per-person total taken from
+     * it would describe the scroll position rather than the person.
+     */
+    val operatorSummaries: List<WeighingOperatorUiRow> = emptyList(),
     val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
@@ -242,6 +249,35 @@ data class WeighingRosterUiRow(
             status.equals("accepted", ignoreCase = true)
 }
 
+/**
+ * ONE person's weighing work, as the oversight surface reads it.
+ *
+ * Everything here is a backend-owned plain count. [notStarted] + [capturing] + [submitted] +
+ * [accepted] == [shedCount] exactly, which is what lets the card draw a DISCRETE state ladder;
+ * free-flow weighing has no expected-animal total, so nothing here is ever divided by anything.
+ *
+ * [name] is the backend-resolved display name. A blank name beside a non-blank [operatorUserId] is
+ * a roster gap and is NAMED as one — this screen never falls back to rendering a user id.
+ */
+data class WeighingOperatorUiRow(
+    val operatorUserId: String,
+    val name: String,
+    val shedCount: Int,
+    val animalsWeighed: Int,
+    val notStarted: Int,
+    val capturing: Int,
+    val submitted: Int,
+    val accepted: Int,
+    /** Buckets a verifier sent back. Overlaps the four state counts; never added to them. */
+    val rework: Int,
+) {
+    /** Nobody holds these buckets yet. Distinct from a roster gap, which has an id. */
+    val isUnassigned: Boolean get() = operatorUserId.isBlank()
+
+    /** An assigned bucket whose owner has no active workforce record. */
+    val hasRosterGap: Boolean get() = operatorUserId.isNotBlank() && name.isBlank()
+}
+
 data class WeighingAssignmentUiRow(
     val campaignId: String,
     val tenantId: String,
@@ -253,6 +289,11 @@ data class WeighingAssignmentUiRow(
     val expectedLocationLabel: String,
     val label: String,
     val category: String,
+    /**
+     * The assignee's backend-resolved display NAME. Blank means the screen says so rather than
+     * falling back to a user id; the oversight surface exists to answer "who did this".
+     */
+    val operatorName: String = "",
     val status: String,
     // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
     // list to count against.

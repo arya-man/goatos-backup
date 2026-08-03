@@ -324,4 +324,26 @@
     <string name="weighing_videos_none">ఇంకా వీడియో లేదు</string>
     <string name="weighing_videos_uploading_fmt">%1$d అప్‌లోడ్ అవుతున్నాయి</string>
     <string name="weighing_videos_failed_fmt">%1$d విఫలమయ్యాయి</string>
+
+    <string name="weighing_operators_people_heading">ఎవరు తూకం చేస్తున్నారు</string>
+    <string name="weighing_operators_sheds_heading">షెడ్ వారీగా</string>
+    <string name="weighing_operators_unassigned">ఇంకా ఎవరికీ ఇవ్వలేదు</string>
+    <string name="weighing_operators_roster_gap">ఇచ్చారు, కానీ రోస్టర్‌లో లేరు</string>
+    <string name="weighing_operators_sheds_one">%1$d షెడ్</string>
+    <string name="weighing_operators_sheds_other">%1$d షెడ్లు</string>
+    <string name="weighing_operators_animals_one">%1$d జంతువు తూకం అయింది</string>
+    <string name="weighing_operators_animals_other">%1$d జంతువులు తూకం అయ్యాయి</string>
+    <string name="weighing_operators_nothing_weighed_yet">ఇంకా ఏదీ తూకం కాలేదు</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d మొదలవలేదు</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d తూకం జరుగుతోంది</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d సమర్పించారు</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d ఆమోదించారు</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d వెనక్కి పంపారు</string>
+    <string name="weighing_operators_no_people_title">ఇప్పుడు ఎవరూ తూకం చేయడం లేదు</string>
+    <string name="weighing_shed_state_not_started">ఇంకా ఏదీ నమోదు కాలేదు</string>
+    <string name="weighing_shed_state_capturing">తూకం జరుగుతోంది</string>
+    <string name="weighing_shed_state_submitted">సమర్పించారు, ధృవీకరణ పెండింగ్</string>
+    <string name="weighing_shed_state_accepted">ఆమోదించారు</string>
+    <string name="weighing_shed_weighed_by_fmt">%1$s తూకం చేశారు</string>
+    <string name="weighing_shed_weighed_by_nobody">ఇంకా ఎవరికీ ఇవ్వలేదు</string>
 </resources>
