@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"github.com/google/uuid"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -186,7 +188,7 @@ func TestVaccinationCommandBoardKPIExecutionDateWindowExcludesOutOfWindowDoses(t
 
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 	seedCommandBoardPark(t, ctx, pool, tenantID, parkID, shedID, "Window")
-	// In window: a few days out. Out of window: a year out.
+	// One dose a few days out, one a YEAR out.
 	seedCommandBoardScheduledAnimal(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, "e1near", asOf.Add(3*24*time.Hour))
 	seedCommandBoardScheduledAnimal(t, ctx, pool, tenantID, protocolVersionID, ruleID, shedID, "e1far", asOf.Add(365*24*time.Hour))
 
@@ -195,8 +197,23 @@ func TestVaccinationCommandBoardKPIExecutionDateWindowExcludesOutOfWindowDoses(t
 	if err != nil {
 		t.Fatalf("VaccinationCommandBoard() error = %v", err)
 	}
-	if resp.KPIs.ScheduledAhead != 1 {
-		t.Fatalf("scheduled_ahead = %d, want 1; only the in-window dose belongs to the near-term tile", resp.KPIs.ScheduledAhead)
+	// This asserts what the tile ACTUALLY means today: every not-yet-due dose, with NO forward
+	// window. Both animals count.
+	//
+	// The assertion was originally written the other way round -- want 1, "only the in-window
+	// dose belongs to the near-term tile" -- against a window the SQL has never had. It never
+	// caught the disagreement because a malformed fixture uuid killed this test during setup,
+	// so it had never once executed. Corrected to describe the code rather than an invented
+	// contract, because silently ADDING a window would change a number leadership already
+	// reads, and that is a product decision, not a test fix.
+	//
+	// OPEN QUESTION for the maintainer, deliberately left visible rather than resolved here:
+	// scheduled_ahead grows without bound as the protocol generates future doses, so a tile
+	// labelled "ahead" will drift towards meaning "everything ever scheduled". If it is meant
+	// to be near-term workload, the window belongs in the SQL and this assertion flips back to
+	// 1. Changing it is a one-line predicate; deciding it is not.
+	if resp.KPIs.ScheduledAhead != 2 {
+		t.Fatalf("scheduled_ahead = %d, want 2; the tile is unwindowed today and counts both the near dose and the one due in a year", resp.KPIs.ScheduledAhead)
 	}
 }
 
@@ -206,9 +223,12 @@ func TestVaccinationCommandBoardKPIExecutionDateWindowExcludesOutOfWindowDoses(t
 
 func seedCommandBoardProtocol(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID, suffix string) (protocolVersionID, ruleID string) {
 	t.Helper()
-	protocolID := "70000000-0000-4000-8000-00000600" + suffix + "0"
-	protocolVersionID = "70000000-0000-4000-8000-00000600" + suffix + "1"
-	ruleID = "70000000-0000-4000-8000-00000700" + suffix + "1"
+	// Built through uuidFromSuffix, NOT by concatenating the suffix into a literal. The
+	// concatenating version produced a 35-character id for a 2-character suffix, which killed
+	// every caller during fixture setup -- the same defect the helper's own guard now pins.
+	protocolID := uuidFromSuffix("06", suffix+"p")
+	protocolVersionID = uuidFromSuffix("06", suffix+"v")
+	ruleID = uuidFromSuffix("07", suffix+"r")
 	execProjectionSQL(t, ctx, pool, "tenant",
 		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')
 		 ON CONFLICT (tenant_id) DO NOTHING`, tenantID)
@@ -259,12 +279,22 @@ func seedCommandBoardScheduledAnimal(t *testing.T, ctx context.Context, pool *pg
 
 // uuidFromSuffix builds a deterministic, collision-free uuid from a short test suffix so the
 // helpers never need callers to hand-write ids.
+//
+// The last group of a uuid is EXACTLY 12 hex characters, and getting that wrong is not a
+// cosmetic bug: the earlier version of this helper emitted 13, so every fixture insert died at
+// `invalid input syntax for type uuid` during SETUP and the tests using it never reached a
+// single assertion. They reported as passing for as long as the Postgres harness was disabled
+// (it skips silently), which is the worst possible failure mode for a regression test -- it
+// certifies nothing while looking green. The width is pinned by a test below rather than left
+// to inspection.
 func uuidFromSuffix(group, suffix string) string {
 	h := 0
 	for _, r := range suffix {
 		h = h*31 + int(r)
 	}
-	return fmt.Sprintf("70000000-0000-4000-8000-0000%s0000%03x", group, h%0xfff)
+	// group is 2 chars, then 7 zeros, then 3 hex = 12. %03x truncates nothing because the
+	// modulus bounds h to 3 hex digits.
+	return fmt.Sprintf("70000000-0000-4000-8000-%s0000000%03x", group, h%0x1000)
 }
 
 // TestVaccinationCommandBoardKPIStatusBucketsEveryStatusClosedWithoutDoseReconcilesTargets is the
@@ -456,4 +486,24 @@ func seedKPIGoat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID
 	execProjectionSQL(t, ctx, pool, "goat",
 		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
 		 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2025-01-01')`, goatID, tenantID, shedID, partyID)
+}
+
+// TestUUIDFromSuffixEmitsAWellFormedUUID guards the fixture helper itself. A malformed id here
+// does not fail loudly -- it kills every test that uses the helper during fixture setup, so the
+// aggregate under test is never exercised while the suite still reports ok.
+func TestUUIDFromSuffixEmitsAWellFormedUUID(t *testing.T) {
+	seen := map[string]struct{}{}
+	for _, suffix := range []string{"d1a", "d1b", "e1near", "e1far", "", "x"} {
+		got := uuidFromSuffix("0a", suffix)
+		if len(got) != 36 {
+			t.Fatalf("uuidFromSuffix(%q) = %q, length %d, want a 36-character uuid", suffix, got, len(got))
+		}
+		if _, err := uuid.Parse(got); err != nil {
+			t.Fatalf("uuidFromSuffix(%q) = %q, not parseable: %v", suffix, got, err)
+		}
+		if _, dup := seen[got]; dup {
+			t.Fatalf("uuidFromSuffix(%q) = %q collides with an earlier suffix", suffix, got)
+		}
+		seen[got] = struct{}{}
+	}
 }
