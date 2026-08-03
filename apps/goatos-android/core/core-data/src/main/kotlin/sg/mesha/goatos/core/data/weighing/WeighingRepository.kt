@@ -1493,10 +1493,22 @@ class DefaultWeighingRepository(
         // (a weight correction on an already-accepted capture) or a genuinely re-shot proof.
         // Both of those still have no queued write under the row's CURRENT key, so both still
         // enqueue below.
+        //
+        // "Already queued" must mean the write is STILL GOING TO REACH THE SERVER -- not merely
+        // that a row exists under the key. `findOutboxItemByIdempotencyKey` has no status
+        // predicate, so it also matches TERMINAL rows: a dead-lettered `conflict` row and an
+        // attempt-exhausted FAILED row are both present and both permanently unclaimable
+        // (OutboxDao.eligibleForDrain requires `attemptCount < maxAttempts AND conflict = 0`).
+        // Suppressing on those strands the capture forever -- and that is not hypothetical: 403
+        // stays RETRYABLE (core-network/RetryClassification.kt), so the growth-director
+        // permission failure burned the whole retry budget and left exactly such a corpse. The
+        // `:proof:` re-mint is the RECOVERY path for it. A SUCCEEDED row, by contrast, did reach
+        // the server, so re-posting it under a second key would be the very fan-out above.
         val alreadyQueuedForThisProof = row.serverProofId == serverProofId &&
             !serverProofId.isNullOrBlank() &&
-            syncRepository?.findOutboxItemByIdempotencyKey(row.idempotencyKey)
-                .let { it is AppResult.Ok && it.value != null }
+            (syncRepository?.findOutboxItemByIdempotencyKey(row.idempotencyKey) as? AppResult.Ok)
+                ?.value
+                ?.let { it.isActive || it.status == SyncItemStatus.SUCCEEDED } == true
         if (alreadyQueuedForThisProof) {
             return@withContext
         }
