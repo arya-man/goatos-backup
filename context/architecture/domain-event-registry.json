@@ -40,7 +40,6 @@
     "weighing.observation.verified",
     "weighing.observation.rework",
     "weighing.shed.closed",
-    "weighing.shed.abandoned",
     "weighing.campaign.closed",
     "weighing.work_item.day_start",
     "weighing.work_item.rolled_forward",
@@ -232,30 +231,6 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/weighing/app/service_test.go",
-        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
-      ],
-      "surfaces": [
-        "backend",
-        "frontend",
-        "mobile"
-      ]
-    },
-    {
-      "eventType": "weighing.shed.abandoned",
-      "producer": "weighing explicit bucket ABANDON (force-close) transaction \u2014 ends work that will never finish, bypassing the verification gate that the normal close enforces",
-      "producerFiles": [
-        "backend/internal/weighing/adapters/postgres/close.go",
-        "backend/internal/weighing/adapters/postgres/close_event.go"
-      ],
-      "consumers": [
-        {
-          "module": "notification",
-          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
-        }
-      ],
-      "owningDoc": "context/architecture/domain-event-integration-contract.md",
-      "e2eProof": [
-        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
         "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
       ],
       "surfaces": [

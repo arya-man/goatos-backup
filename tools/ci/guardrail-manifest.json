@@ -8,129 +8,135 @@
   },
   "guards": [
     {
-      "id": "git-identity",
-      "script": "tools/ci/check-git-identity.mjs",
-      "makeTarget": "git-identity-guard",
-      "realCheck": "node tools/ci/check-git-identity.mjs",
-      "selfTest": "node tools/ci/check-git-identity.mjs --self-test",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "git-identity-guard"
-    },
-    {
-      "id": "guardrail-registration",
-      "script": "tools/ci/check-guardrail-registration.mjs",
-      "makeTarget": "guardrail-registration-guard",
-      "realCheck": "node tools/ci/check-guardrail-registration.mjs",
-      "selfTest": "node tools/ci/check-guardrail-registration.mjs --self-test",
-      "owningDoc": "docs/runbooks/local-ci.md",
-      "requiredInCI": true,
-      "ciStep": "guardrail-registration-guard"
-    },
-    {
-      "id": "shared-local-stack-service",
-      "script": "tools/dev/test-local-stack-service-guard.sh",
-      "makeTarget": "local-stack-service-guard",
-      "realCheck": "bash tools/dev/test-local-stack-service-guard.sh",
-      "selfTest": "bash tools/dev/test-local-stack-service-guard.sh --self-test",
-      "owningDoc": "docs/runbooks/local-full-stack-rehearsal.md",
-      "requiredInCI": true,
-      "ciStep": "local-stack-service-guard"
-    },
-    {
-      "id": "local-ci-evidence",
-      "script": "tools/ci/check-local-ci-evidence.mjs",
-      "makeTarget": "local-ci-evidence-guard",
-      "realCheck": "node tools/ci/check-local-ci-evidence.mjs --verify",
-      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test && bash tools/ci/land-main.test.sh",
-      "owningDoc": "docs/runbooks/local-release-evidence.md",
-      "requiredInCI": true,
-      "ciStep": "local-ci-evidence-guard"
-    },
-    {
-      "id": "backend-foundations",
-      "script": "tools/agent-hooks/check-backend-foundations.mjs",
-      "makeTarget": "backend-foundations-guard",
-      "realCheck": "node tools/agent-hooks/check-backend-foundations.mjs",
-      "selfTest": "node tools/agent-hooks/check-backend-foundations.mjs --self-test",
-      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
-      "requiredInCI": true,
-      "ciStep": "backend-foundations-guard"
-    },
-    {
-      "id": "test-execution-integrity",
-      "script": "tools/agent-hooks/check-test-execution-integrity.mjs",
-      "makeTarget": "test-execution-integrity-guard",
-      "realCheck": "node tools/agent-hooks/check-test-execution-integrity.mjs",
-      "selfTest": "node tools/agent-hooks/check-test-execution-integrity.mjs --self-test",
-      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
-      "requiredInCI": true,
-      "ciStep": "test-execution-integrity-guard",
-      "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
-    },
-    {
-      "id": "operator-cap-fail-closed",
-      "script": "tools/agent-hooks/check-operator-cap-fail-closed.mjs",
-      "makeTarget": "operator-cap-fail-closed-guard",
-      "realCheck": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs",
-      "selfTest": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test",
-      "owningDoc": "docs/decisions/scale-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "operator-cap-fail-closed-guard",
-      "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
-    },
-    {
-      "id": "stg-operator-scope",
-      "script": "tools/agent-hooks/check-stg-operator-scope.mjs",
-      "makeTarget": "stg-operator-scope-guard",
-      "realCheck": "node tools/agent-hooks/check-stg-operator-scope.mjs",
-      "selfTest": "node tools/agent-hooks/check-stg-operator-scope.mjs --self-test",
-      "owningDoc": "docs/runbooks/stg-operator-login-credentials.md",
-      "requiredInCI": true,
-      "ciStep": "stg-operator-scope-guard",
-      "notes": "Blocks STG login seed regressions where real operator/director field accounts get tenant-scope grants. Operators/directors must declare ParkCode and the seeder must materialize park-scoped grants while revoking stale tenant grants."
-    },
-    {
-      "id": "cascade-event-wiring",
-      "script": "tools/agent-hooks/check-cascade-event-wiring.mjs",
-      "makeTarget": "cascade-event-wiring-guard",
-      "realCheck": "node tools/agent-hooks/check-cascade-event-wiring.mjs",
-      "selfTest": "node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test",
-      "owningDoc": "docs/decisions/scale-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "cascade-event-wiring-guard",
-      "notes": "Blocks the three operator-cascade wiring anti-patterns proven broken at origin/main f9a44b84: (B) an eventbus handler type with Register(bus eventbus.Bus) that is missing from a DURABLE bus (backend/internal/kernelstages/bus.go and backend/cmd/domain-event-consumer/main.go) while being registered only on bootstrap/api.go or domainconsumer/wiring/bus.go, which nothing real dispatches to; (A) a sweeper function consuming DB-reported operator.Cap without subtracting session.vaccinationOperatorLoad, which lets a later rule-version in the same sweep over-select past the per-operator/day cap; (C) a write to workforce_positions cap/week-off, vaccination_capacity_config, or vaccination_operator_assignment_config that never enqueues vaccination.capacity.changed / vaccination.roster.changed. Deliberate durable-bus omissions must be declared in DURABLE_BUS_EXEMPTIONS with a written reason, and the guard re-verifies that the exemption's declared registration site still registers the handler."
-    },
-    {
-      "id": "frontend-foundations",
-      "script": "tools/agent-hooks/check-frontend-foundations.mjs",
-      "makeTarget": "frontend-foundations-guard",
-      "realCheck": "node tools/agent-hooks/check-frontend-foundations.mjs",
-      "selfTest": "node tools/agent-hooks/check-frontend-foundations.mjs --self-test",
+      "id": "admin-web-local-overlays",
+      "script": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
+      "makeTarget": "admin-web-local-overlay-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-local-overlays.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test",
       "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
       "requiredInCI": true,
-      "ciStep": "frontend-foundations-guard"
+      "ciStep": "admin-web-local-overlay-guard"
     },
     {
-      "id": "vaccination-adult-drive-contract",
-      "script": "tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
-      "makeTarget": "vaccination-adult-drive-contract-guard",
-      "realCheck": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
-      "selfTest": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs --self-test",
-      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "id": "admin-web-prefetch",
+      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "makeTarget": "admin-web-prefetch-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
-      "ciStep": "vaccination-adult-drive-contract-guard",
-      "notes": "Blocks coupled vaccination regressions: blank-history adults disappearing unless a manual campaign is fired, repeat windows being contaminated by primary-course rows, sub-cap physical sheds being partition-split in park pre-batching or operator planning, CPT route order drifting from the 193/131 whole-shed calendar, completion totals multiplying by assignment rows, and delayed verification/director closeout replacing the operator-submitted administered_at medical anchor."
+      "ciStep": "admin-web-prefetch-guard"
     },
     {
-      "id": "vaccination-shed-ack-not-form",
-      "script": "tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
-      "makeTarget": "vaccination-shed-ack-guard",
-      "realCheck": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
-      "selfTest": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs --self-test",
-      "owningDoc": "docs/decisions/vaccination-shed-ack-not-form.md",
+      "id": "admin-web-request-reads",
+      "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "makeTarget": "admin-web-request-reads-guard",
+      "realCheck": "node tools/agent-hooks/check-admin-web-request-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
       "requiredInCI": true,
-      "ciStep": "vaccination-shed-ack-guard"
+      "ciStep": "admin-web-request-reads-guard"
+    },
+    {
+      "id": "aggregate-projection-review",
+      "script": "tools/agent-hooks/check-aggregate-projection-review.mjs",
+      "makeTarget": "aggregate-projection-guard",
+      "realCheck": "node tools/agent-hooks/check-aggregate-projection-review.mjs",
+      "selfTest": "node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
+      "requiredInCI": true,
+      "ciStep": "aggregate-projection-guard"
+    },
+    {
+      "id": "android-alerts-gate-composed",
+      "script": "tools/agent-hooks/check-android-alerts-gate-composed.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-alerts-gate-composed.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test",
+      "owningDoc": "docs/mobile/README.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-bounded-memory",
+      "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
+      "makeTarget": "android-bounded-memory-guard",
+      "realCheck": "node tools/agent-hooks/check-android-bounded-memory.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-bounded-memory.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-bounded-memory-guard"
+    },
+    {
+      "id": "android-camera-only-proof-capture",
+      "script": "tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test",
+      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-compose-lists",
+      "script": "tools/agent-hooks/check-android-compose-lists.mjs",
+      "makeTarget": "android-compose-lists-guard",
+      "realCheck": "node tools/agent-hooks/check-android-compose-lists.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-compose-lists.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-compose-lists-guard"
+    },
+    {
+      "id": "android-navigation-stack",
+      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
+      "makeTarget": "android-navigation-stack-guard",
+      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
+      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "requiredInCI": true,
+      "ciStep": "android-navigation-stack-guard"
+    },
+    {
+      "id": "android-orientation-lock",
+      "script": "tools/agent-hooks/check-android-orientation-lock.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-orientation-lock.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-orientation-lock.mjs --self-test",
+      "owningDoc": "docs/mobile/README.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-row-action-scope",
+      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
+      "makeTarget": "android-row-action-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "android-row-action-scope-guard",
+      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
+    },
+    {
+      "id": "android-ui-copy-layout",
+      "script": "tools/agent-hooks/check-android-ui-copy-layout.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-ui-copy-layout.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test",
+      "owningDoc": "context/frontend/final-frontend-mobile-backend-architecture.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "android-ui-foundations",
+      "script": "tools/agent-hooks/check-android-ui-foundations.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-android-ui-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-android-ui-foundations.mjs --self-test",
+      "owningDoc": "docs/mobile/android-ui-quality.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
     },
     {
       "id": "android-vaccination-submit-gate",
@@ -144,25 +150,86 @@
       "notes": "Blocks the Android proof_rescan regression where a proof-missing DONE goat can upload proof without repairing the durable scan capture. Submit summary counts sop_task_scan_captures, so accepted proof_rescan must call recordRosterScan before requestGoatProof."
     },
     {
-      "id": "domain-event-architecture",
-      "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
-      "makeTarget": "domain-event-architecture-guard",
-      "realCheck": "node tools/agent-hooks/check-domain-event-architecture.mjs",
-      "selfTest": "node tools/agent-hooks/check-domain-event-architecture.mjs --self-test",
-      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "id": "assistant-route-closure",
+      "script": "tools/agent-hooks/check-assistant-route-closure.mjs",
+      "makeTarget": "assistant-route-closure-guard",
+      "realCheck": "node tools/agent-hooks/check-assistant-route-closure.mjs",
+      "selfTest": "node tools/agent-hooks/check-assistant-route-closure.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-leadership-assistant/SKILL.md",
       "requiredInCI": true,
-      "ciStep": "domain-event-architecture-guard"
+      "ciStep": "assistant-route-closure-guard",
+      "notes": "ROUTE-CLOSURE enforcement: planner tool names resolve in Cube/API/Toolbox/SQL catalog, RouteAPI targets are wired or have fallbacks, and coverage-matrix rows reference valid golden eval questions."
     },
     {
-      "id": "operational-read-model-contract",
-      "script": "tools/agent-hooks/check-operational-read-model-contract.mjs",
-      "makeTarget": "operational-read-model-contract-guard",
-      "realCheck": "node tools/agent-hooks/check-operational-read-model-contract.mjs",
-      "selfTest": "node tools/agent-hooks/check-operational-read-model-contract.mjs --self-test",
-      "owningDoc": "docs/architecture/operational-read-model-contract.md",
+      "id": "atomic-readmodel-sync",
+      "script": "tools/agent-hooks/check-atomic-readmodel-sync.mjs",
+      "makeTarget": "atomic-readmodel-sync-guard",
+      "realCheck": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs",
+      "selfTest": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
       "requiredInCI": true,
-      "ciStep": "operational-read-model-contract-guard",
-      "notes": "Keeps the pluggable vertical/read-model contract discoverable for Claude, Codex, build skills, review lenses, frontend/mobile lenses, and local CI."
+      "ciStep": "atomic-readmodel-sync-guard"
+    },
+    {
+      "id": "backend-foundations",
+      "script": "tools/agent-hooks/check-backend-foundations.mjs",
+      "makeTarget": "backend-foundations-guard",
+      "realCheck": "node tools/agent-hooks/check-backend-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-backend-foundations.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "backend-foundations-guard"
+    },
+    {
+      "id": "calendar-endpoint-grain",
+      "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
+      "makeTarget": "calendar-endpoint-grain-guard",
+      "realCheck": "node tools/agent-hooks/check-calendar-endpoint-grain.mjs",
+      "selfTest": "node tools/agent-hooks/check-calendar-endpoint-grain.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "calendar-endpoint-grain-guard"
+    },
+    {
+      "id": "cascade-event-wiring",
+      "script": "tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "makeTarget": "cascade-event-wiring-guard",
+      "realCheck": "node tools/agent-hooks/check-cascade-event-wiring.mjs",
+      "selfTest": "node tools/agent-hooks/check-cascade-event-wiring.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "cascade-event-wiring-guard",
+      "notes": "Blocks the three operator-cascade wiring anti-patterns proven broken at origin/main f9a44b84: (B) an eventbus handler type with Register(bus eventbus.Bus) that is missing from a DURABLE bus (backend/internal/kernelstages/bus.go and backend/cmd/domain-event-consumer/main.go) while being registered only on bootstrap/api.go or domainconsumer/wiring/bus.go, which nothing real dispatches to; (A) a sweeper function consuming DB-reported operator.Cap without subtracting session.vaccinationOperatorLoad, which lets a later rule-version in the same sweep over-select past the per-operator/day cap; (C) a write to workforce_positions cap/week-off, vaccination_capacity_config, or vaccination_operator_assignment_config that never enqueues vaccination.capacity.changed / vaccination.roster.changed. Deliberate durable-bus omissions must be declared in DURABLE_BUS_EXEMPTIONS with a written reason, and the guard re-verifies that the exemption's declared registration site still registers the handler."
+    },
+    {
+      "id": "ceo-ai-core-boundary",
+      "script": "tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "makeTarget": "ceo-ai-boundary-guard",
+      "realCheck": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
+      "selfTest": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs --self-test",
+      "owningDoc": "docs/decisions/ceo-ai-reporting-boundary.md",
+      "requiredInCI": true,
+      "ciStep": "ceo-ai-boundary-guard"
+    },
+    {
+      "id": "clinical-defer-states",
+      "script": "tools/agent-hooks/check-clinical-defer-states.mjs",
+      "makeTarget": "clinical-defer-guard",
+      "realCheck": "node tools/agent-hooks/check-clinical-defer-states.mjs",
+      "selfTest": "node tools/agent-hooks/check-clinical-defer-states.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": true,
+      "ciStep": "clinical-defer-guard"
+    },
+    {
+      "id": "config-validate-or-reject",
+      "script": "tools/agent-hooks/check-config-validate-or-reject.mjs",
+      "makeTarget": "config-validate-guard",
+      "realCheck": "node tools/agent-hooks/check-config-validate-or-reject.mjs",
+      "selfTest": "node tools/agent-hooks/check-config-validate-or-reject.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
+      "requiredInCI": true,
+      "ciStep": "config-validate-guard"
     },
     {
       "id": "critical-animal-action-availability",
@@ -176,107 +243,6 @@
       "notes": "Keeps ICU/quarantine/death/high-risk movement interim fail-closed rules visible until full policy-pack modules ship."
     },
     {
-      "id": "leadership-assistant-coverage",
-      "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
-      "makeTarget": "leadership-assistant-coverage-guard",
-      "realCheck": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs",
-      "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
-      "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
-      "requiredInCI": true,
-      "ciStep": "leadership-assistant-coverage-guard"
-    },
-    {
-      "id": "assistant-route-closure",
-      "script": "tools/agent-hooks/check-assistant-route-closure.mjs",
-      "makeTarget": "assistant-route-closure-guard",
-      "realCheck": "node tools/agent-hooks/check-assistant-route-closure.mjs",
-      "selfTest": "node tools/agent-hooks/check-assistant-route-closure.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-leadership-assistant/SKILL.md",
-      "requiredInCI": true,
-      "ciStep": "assistant-route-closure-guard",
-      "notes": "ROUTE-CLOSURE enforcement: planner tool names resolve in Cube/API/Toolbox/SQL catalog, RouteAPI targets are wired or have fallbacks, and coverage-matrix rows reference valid golden eval questions."
-    },
-    {
-      "id": "stg-promotion",
-      "script": "tools/ci/check-stg-promotion.mjs",
-      "makeTarget": "stg-promotion-guard",
-      "realCheck": "node tools/ci/check-stg-promotion.mjs --repository",
-      "selfTest": "node tools/ci/check-stg-promotion.mjs --self-test",
-      "owningDoc": "docs/runbooks/github-workflows.md",
-      "requiredInCI": true,
-      "ciStep": "stg-promotion-guard"
-    },
-    {
-      "id": "large-files",
-      "script": "tools/ci/check-large-files.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/ci/check-large-files.mjs",
-      "selfTest": "node tools/ci/check-large-files.mjs --self-test",
-      "owningDoc": "docs/runbooks/local-docker-storage.md",
-      "requiredInCI": true,
-      "ciStep": "check-large-files.mjs"
-    },
-    {
-      "id": "refresh-binding",
-      "script": "tools/agent-hooks/check-refresh-binding.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/agent-hooks/check-refresh-binding.mjs",
-      "selfTest": "node tools/agent-hooks/check-refresh-binding.mjs --self-test",
-      "owningDoc": "docs/decisions/calendar-ownership.md",
-      "requiredInCI": true,
-      "ciStep": "check-refresh-binding.mjs"
-    },
-    {
-      "id": "aggregate-projection-review",
-      "script": "tools/agent-hooks/check-aggregate-projection-review.mjs",
-      "makeTarget": "aggregate-projection-guard",
-      "realCheck": "node tools/agent-hooks/check-aggregate-projection-review.mjs",
-      "selfTest": "node tools/agent-hooks/check-aggregate-projection-review.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
-      "requiredInCI": true,
-      "ciStep": "aggregate-projection-guard"
-    },
-    {
-      "id": "scale-certification-docs",
-      "script": "tools/agent-hooks/check-scale-certification-docs.mjs",
-      "makeTarget": "scale-certification-docs-guard",
-      "realCheck": "node tools/agent-hooks/check-scale-certification-docs.mjs",
-      "selfTest": "node tools/agent-hooks/check-scale-certification-docs.mjs --self-test",
-      "owningDoc": "docs/decisions/scale-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "scale-certification-docs-guard"
-    },
-    {
-      "id": "clinical-defer-states",
-      "script": "tools/agent-hooks/check-clinical-defer-states.mjs",
-      "makeTarget": "clinical-defer-guard",
-      "realCheck": "node tools/agent-hooks/check-clinical-defer-states.mjs",
-      "selfTest": "node tools/agent-hooks/check-clinical-defer-states.mjs --self-test",
-      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
-      "requiredInCI": true,
-      "ciStep": "clinical-defer-guard"
-    },
-    {
-      "id": "ceo-ai-core-boundary",
-      "script": "tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
-      "makeTarget": "ceo-ai-boundary-guard",
-      "realCheck": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs",
-      "selfTest": "node tools/agent-hooks/check-ceo-ai-core-boundary.mjs --self-test",
-      "owningDoc": "docs/decisions/ceo-ai-reporting-boundary.md",
-      "requiredInCI": true,
-      "ciStep": "ceo-ai-boundary-guard"
-    },
-    {
-      "id": "sweeper-deployment",
-      "script": "tools/agent-hooks/check-sweeper-deployment.mjs",
-      "makeTarget": "sweeper-deployment-guard",
-      "realCheck": "node tools/agent-hooks/check-sweeper-deployment.mjs",
-      "selfTest": "node tools/agent-hooks/check-sweeper-deployment.mjs --self-test",
-      "owningDoc": "context/architecture/operational-kernel.md",
-      "requiredInCI": true,
-      "ciStep": "sweeper-deployment-guard"
-    },
-    {
       "id": "deployed-job-flags",
       "script": "tools/agent-hooks/check-deployed-job-flags.mjs",
       "makeTarget": "deployed-job-flags-guard",
@@ -287,24 +253,96 @@
       "ciStep": "deployed-job-flags-guard"
     },
     {
-      "id": "secret-accessors",
-      "script": "tools/agent-hooks/check-secret-accessors.mjs",
-      "makeTarget": "secret-accessors-guard",
-      "realCheck": "node tools/agent-hooks/check-secret-accessors.mjs",
-      "selfTest": "node tools/agent-hooks/check-secret-accessors.mjs --self-test",
-      "owningDoc": "docs/runbooks/google-cloud-environments.md",
+      "id": "design-system-tokens",
+      "script": "tools/agent-hooks/check-design-system-tokens.mjs",
+      "makeTarget": "design-system-guard",
+      "realCheck": "node tools/agent-hooks/check-design-system-tokens.mjs",
+      "selfTest": "node tools/agent-hooks/check-design-system-tokens.mjs --self-test",
+      "owningDoc": "AGENTS.md",
       "requiredInCI": true,
-      "ciStep": "secret-accessors-guard"
+      "ciStep": "design-system-guard"
     },
     {
-      "id": "worker-stage-budgets",
-      "script": "tools/agent-hooks/check-worker-stage-budgets.mjs",
-      "makeTarget": "worker-stage-budgets-guard",
-      "realCheck": "node tools/agent-hooks/check-worker-stage-budgets.mjs",
-      "selfTest": "node tools/agent-hooks/check-worker-stage-budgets.mjs --self-test",
+      "id": "domain-event-architecture",
+      "script": "tools/agent-hooks/check-domain-event-architecture.mjs",
+      "makeTarget": "domain-event-architecture-guard",
+      "realCheck": "node tools/agent-hooks/check-domain-event-architecture.mjs",
+      "selfTest": "node tools/agent-hooks/check-domain-event-architecture.mjs --self-test",
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "requiredInCI": true,
+      "ciStep": "domain-event-architecture-guard"
+    },
+    {
+      "id": "domain-event-envelope-enum",
+      "script": "tools/agent-hooks/check-domain-event-envelope-enum.mjs",
+      "makeTarget": "domain-event-envelope-enum-guard",
+      "realCheck": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs",
+      "selfTest": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test",
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
-      "ciStep": "worker-stage-budgets-guard"
+      "ciStep": "domain-event-envelope-enum-guard"
+    },
+    {
+      "id": "fcm-recipient-routing",
+      "script": "tools/agent-hooks/check-fcm-recipient-routing.mjs",
+      "makeTarget": "fcm-recipient-routing-guard",
+      "realCheck": "node tools/agent-hooks/check-fcm-recipient-routing.mjs",
+      "selfTest": "node tools/agent-hooks/check-fcm-recipient-routing.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "fcm-recipient-routing-guard",
+      "notes": "Blocks role-visible-but-no-push regressions: tenant leadership push recipients must resolve from active grants/device tokens, and STG verifier seed must create pc.vaccination verify duty routing."
+    },
+    {
+      "id": "frontend-foundations",
+      "script": "tools/agent-hooks/check-frontend-foundations.mjs",
+      "makeTarget": "frontend-foundations-guard",
+      "realCheck": "node tools/agent-hooks/check-frontend-foundations.mjs",
+      "selfTest": "node tools/agent-hooks/check-frontend-foundations.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "frontend-foundations-guard"
+    },
+    {
+      "id": "git-identity",
+      "script": "tools/ci/check-git-identity.mjs",
+      "makeTarget": "git-identity-guard",
+      "realCheck": "node tools/ci/check-git-identity.mjs",
+      "selfTest": "node tools/ci/check-git-identity.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "git-identity-guard"
+    },
+    {
+      "id": "goat-shed-integrity-db-proof",
+      "script": "tools/dev/check-goat-shed-integrity.sh",
+      "makeTarget": "goat-shed-integrity-db-proof",
+      "realCheck": "bash tools/dev/check-goat-shed-integrity.sh",
+      "selfTest": "bash tools/dev/check-goat-shed-integrity.sh --self-test",
+      "owningDoc": "docs/runbooks/vaccination-seed-source-date-contract.md",
+      "requiredInCI": false,
+      "ciStep": "goat-shed-integrity-db-proof",
+      "notes": "Post-seed/import DB proof. It requires DATABASE_URL and is run by tools/dev/seed-closeout.sh, not by ordinary no-DB CI."
+    },
+    {
+      "id": "goat-shed-scope",
+      "script": "tools/agent-hooks/check-goat-shed-scope.mjs",
+      "makeTarget": "goat-shed-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-goat-shed-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-goat-shed-scope.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": true,
+      "ciStep": "goat-shed-scope-guard"
+    },
+    {
+      "id": "guardrail-registration",
+      "script": "tools/ci/check-guardrail-registration.mjs",
+      "makeTarget": "guardrail-registration-guard",
+      "realCheck": "node tools/ci/check-guardrail-registration.mjs",
+      "selfTest": "node tools/ci/check-guardrail-registration.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "guardrail-registration-guard"
     },
     {
       "id": "idempotency-writes",
@@ -317,24 +355,317 @@
       "ciStep": "idempotency-writes-guard"
     },
     {
-      "id": "atomic-readmodel-sync",
-      "script": "tools/agent-hooks/check-atomic-readmodel-sync.mjs",
-      "makeTarget": "atomic-readmodel-sync-guard",
-      "realCheck": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs",
-      "selfTest": "node tools/agent-hooks/check-atomic-readmodel-sync.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-code-review/references/aggregates-and-projections.md",
+      "id": "india-business-date",
+      "script": "tools/agent-hooks/check-india-business-date.mjs",
+      "makeTarget": "india-date-guard",
+      "realCheck": "node tools/agent-hooks/check-india-business-date.mjs",
+      "selfTest": "node tools/agent-hooks/check-india-business-date.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/business-rules.md",
       "requiredInCI": true,
-      "ciStep": "atomic-readmodel-sync-guard"
+      "ciStep": "india-date-guard"
     },
     {
-      "id": "config-validate-or-reject",
-      "script": "tools/agent-hooks/check-config-validate-or-reject.mjs",
-      "makeTarget": "config-validate-guard",
-      "realCheck": "node tools/agent-hooks/check-config-validate-or-reject.mjs",
-      "selfTest": "node tools/agent-hooks/check-config-validate-or-reject.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-code-review/references/backend.md",
+      "id": "kernel-worker-cutover",
+      "script": "tools/agent-hooks/check-kernel-worker-cutover.mjs",
+      "makeTarget": "kernel-worker-cutover-guard",
+      "realCheck": "node tools/agent-hooks/check-kernel-worker-cutover.mjs",
+      "selfTest": "node tools/agent-hooks/check-kernel-worker-cutover.mjs --self-test",
+      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
       "requiredInCI": true,
-      "ciStep": "config-validate-guard"
+      "ciStep": "kernel-worker-cutover-guard",
+      "notes": "KERN-01: asserts exactly one active owner per stage while dev remains on the transitional flag. Staging's completed cutover is covered by stg-disposable-topology."
+    },
+    {
+      "id": "kernel-worker-retirement-gate",
+      "script": "tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
+      "makeTarget": "kernel-worker-retirement-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
+      "selfTest": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs --self-test",
+      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
+      "requiredInCI": false,
+      "ciStep": "kernel-worker-retirement-gate-guard",
+      "notes": "Two-phase legacy-job retirement gate. Run explicitly during a cutover; not in the standing run-local-ci.sh guardrails job."
+    },
+    {
+      "id": "large-files",
+      "script": "tools/ci/check-large-files.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/ci/check-large-files.mjs",
+      "selfTest": "node tools/ci/check-large-files.mjs --self-test",
+      "owningDoc": "docs/runbooks/local-docker-storage.md",
+      "requiredInCI": true,
+      "ciStep": "check-large-files.mjs"
+    },
+    {
+      "id": "leadership-assistant-coverage",
+      "script": "tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "makeTarget": "leadership-assistant-coverage-guard",
+      "realCheck": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs",
+      "selfTest": "node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test",
+      "owningDoc": "docs/ceo-ai/mcp-toolbox-plan.md",
+      "requiredInCI": true,
+      "ciStep": "leadership-assistant-coverage-guard"
+    },
+    {
+      "id": "local-ci-evidence",
+      "script": "tools/ci/check-local-ci-evidence.mjs",
+      "makeTarget": "local-ci-evidence-guard",
+      "realCheck": "node tools/ci/check-local-ci-evidence.mjs --verify",
+      "selfTest": "node tools/ci/check-local-ci-evidence.mjs --self-test && bash tools/ci/land-main.test.sh",
+      "owningDoc": "docs/runbooks/local-release-evidence.md",
+      "requiredInCI": true,
+      "ciStep": "local-ci-evidence-guard"
+    },
+    {
+      "id": "migration-duplicate-versions",
+      "script": "tools/agent-hooks/check-migration-duplicate-versions.mjs",
+      "makeTarget": "migration-duplicate-versions-guard",
+      "realCheck": "node tools/agent-hooks/check-migration-duplicate-versions.mjs",
+      "selfTest": "node tools/agent-hooks/check-migration-duplicate-versions.mjs --self-test",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "migration-duplicate-versions-guard",
+      "notes": "Detects duplicate migration version numbers under backend/migrations/postgres/. Two files with the same numeric prefix (e.g., 000031_a.sql and 000031_b.sql) create a silent goose ordering hazard and must be caught before push."
+    },
+    {
+      "id": "mobile-contract-ownership",
+      "script": "tools/agent-hooks/check-mobile-contract-ownership.mjs",
+      "makeTarget": "mobile-contract-ownership-guard",
+      "realCheck": "node tools/agent-hooks/check-mobile-contract-ownership.mjs",
+      "selfTest": "node tools/agent-hooks/check-mobile-contract-ownership.mjs --self-test",
+      "owningDoc": ".agents/skills/mobile-anti-patterns/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-contract-ownership-guard",
+      "notes": "Required in Android local CI: backend bootstrap/nav/feature_flags own mobile visibility and execution affordances."
+    },
+    {
+      "id": "mobile-list-fetch",
+      "script": "tools/agent-hooks/check-mobile-list-fetch.mjs",
+      "makeTarget": "mobile-guard",
+      "realCheck": "node tools/agent-hooks/check-mobile-list-fetch.mjs",
+      "selfTest": "node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "mobile-guard"
+    },
+    {
+      "id": "mock-clicks",
+      "script": "tools/agent-hooks/check-mock-clicks.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-mock-clicks.mjs",
+      "selfTestExemptReason": "Fixture/DOM click integrity checker driven end-to-end by `apps/admin-web` check:mock-fidelity and tools/agent-hooks/check-mock.sh; it has no isolated unit surface to adversarially self-test.",
+      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
+      "requiredInCI": false,
+      "ciStep": "check-mock-clicks.mjs"
+    },
+    {
+      "id": "nav-composition",
+      "script": "tools/agent-hooks/check-nav-composition.mjs",
+      "makeTarget": "nav-composition-guard",
+      "realCheck": "node tools/agent-hooks/check-nav-composition.mjs",
+      "selfTest": "node tools/agent-hooks/check-nav-composition.mjs --self-test",
+      "owningDoc": ".agents/skills/nav-composition/SKILL.md",
+      "requiredInCI": false,
+      "ciStep": "nav-composition-guard",
+      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
+    },
+    {
+      "id": "nav-entry-point-placement",
+      "script": "tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "makeTarget": "nav-entry-point-placement-guard",
+      "realCheck": "node tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "selfTest": "node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test",
+      "owningDoc": "docs/decisions/nav-entry-point-placement.md",
+      "requiredInCI": true,
+      "ciStep": "nav-entry-point-placement-guard",
+      "notes": "A feature entry point never lives in the top-right app bar. Forbidden set is DERIVED from the backend nav registry (bootstrap_copy.go L0 hrefs + nav.* labels), so a new nav destination is covered without editing the guard. Pre-existing violations pinned in tools/agent-hooks/nav-entry-point-baseline.txt (currently the weighing 'My work' top-right bell)."
+    },
+    {
+      "id": "no-mismatch-review-queue",
+      "script": "tools/agent-hooks/check-no-mismatch-review-queue.mjs",
+      "makeTarget": "no-mismatch-review-queue-guard",
+      "realCheck": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs",
+      "selfTest": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs --self-test",
+      "owningDoc": "docs/decisions/ingestion-validation-not-runtime-review.md",
+      "requiredInCI": true,
+      "ciStep": "no-mismatch-review-queue-guard"
+    },
+    {
+      "id": "notification-specificity",
+      "script": "tools/agent-hooks/check-notification-specificity.mjs",
+      "makeTarget": "notification-specificity-guard",
+      "realCheck": "node tools/agent-hooks/check-notification-specificity.mjs",
+      "selfTest": "node tools/agent-hooks/check-notification-specificity.mjs --self-test",
+      "owningDoc": "docs/decisions/2026-08-02-meaningful-notification-copy.md",
+      "requiredInCI": true,
+      "ciStep": "notification-specificity-guard",
+      "notes": "Maintainer decision 2026-08-02: blocks abstract count-only notification copy (e.g. \"Vaccination(s) due soon - 3\") in backend/internal/notificationbridge/**. Requires park/shed/vaccine-name/date specificity in Title/Body. Composes with ui-vaccine-labels (raw-token humanization) rather than duplicating it."
+    },
+    {
+      "id": "offline-first-reads",
+      "script": "tools/agent-hooks/check-offline-first-reads.mjs",
+      "makeTarget": "offline-first-guard",
+      "realCheck": "node tools/agent-hooks/check-offline-first-reads.mjs",
+      "selfTest": "node tools/agent-hooks/check-offline-first-reads.mjs --self-test",
+      "owningDoc": "docs/decisions/android-offline-first.md",
+      "requiredInCI": true,
+      "ciStep": "offline-first-guard"
+    },
+    {
+      "id": "operational-read-model-contract",
+      "script": "tools/agent-hooks/check-operational-read-model-contract.mjs",
+      "makeTarget": "operational-read-model-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-read-model-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-read-model-contract.mjs --self-test",
+      "owningDoc": "docs/architecture/operational-read-model-contract.md",
+      "requiredInCI": true,
+      "ciStep": "operational-read-model-contract-guard",
+      "notes": "Keeps the pluggable vertical/read-model contract discoverable for Claude, Codex, build skills, review lenses, frontend/mobile lenses, and local CI."
+    },
+    {
+      "id": "operator-cap-fail-closed",
+      "script": "tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "makeTarget": "operator-cap-fail-closed-guard",
+      "realCheck": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs",
+      "selfTest": "node tools/agent-hooks/check-operator-cap-fail-closed.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "operator-cap-fail-closed-guard",
+      "notes": "Detects callers of operatorCapacityPlanner / effectiveOperatorAnimalCap in backend/internal/obligation/app/** that feed the returned cap into a capacity limit/lock sink without a fail-closed check (driveOperatorCapacityExhausted, or maxDriveCells>0 && effectiveCap<=0), which reintroduces the F1 fail-open (cap<=0 read as uncapped) on a config-present-but-no-executable-operator day."
+    },
+    {
+      "id": "proof-capture-authorization",
+      "script": "tools/agent-hooks/check-proof-capture-authorization.mjs",
+      "makeTarget": "proof-capture-authorization-guard",
+      "realCheck": "node tools/agent-hooks/check-proof-capture-authorization.mjs",
+      "selfTest": "node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test",
+      "owningDoc": "docs/decisions/proof-capture-authorization.md",
+      "requiredInCI": true,
+      "ciStep": "proof-capture-authorization-guard",
+      "notes": "Proof/evidence capture is authorized by the SAME execution right that authorizes the work it proves. Structurally joins the role->permission maps (permissions.go rolePermissions + permissions_orgrole.go tierPermissions) to the route table (routes.go protectedRoutes) and re-implements AuthorizeRoute's AND/OR semantics: every role holding any *Execute permission MUST be authorized for every /app/proofs write route. Catches the 2026-08-03 shipped defect where the proof routes were gated on the vaccination-era TaskExecute alone, so a growth_director (WeighingExecute, deliberately NOT TaskExecute) could record a weighing observation but 403'd on POST /app/proofs/uploads -- no proof ever reached SYNCED and lump-sum Submit stayed permanently disabled. Self-test includes an adversarial reconstruction of that exact defect plus a future-vertical case (a new *Execute permission with no proof access), so a new vertical cannot repeat it. Blind spots are enumerated in the script header: runtime-composed grants, handler-level authorization inside a proof endpoint, scope/tenant narrowing, evidence surfaces outside /app/proofs, and AdminOnly routes."
+    },
+    {
+      "id": "refresh-binding",
+      "script": "tools/agent-hooks/check-refresh-binding.mjs",
+      "makeTarget": null,
+      "realCheck": "node tools/agent-hooks/check-refresh-binding.mjs",
+      "selfTest": "node tools/agent-hooks/check-refresh-binding.mjs --self-test",
+      "owningDoc": "docs/decisions/calendar-ownership.md",
+      "requiredInCI": true,
+      "ciStep": "check-refresh-binding.mjs"
+    },
+    {
+      "id": "review-lens-ledger",
+      "script": "tools/ci/check-review-lens-ledger.mjs",
+      "makeTarget": "review-lens-ledger-guard",
+      "realCheck": "node tools/ci/check-review-lens-ledger.mjs",
+      "selfTest": "node tools/ci/check-review-lens-ledger.mjs --self-test",
+      "owningDoc": ".agents/skills/goatos-code-review/references/review-lens-ledger.md",
+      "requiredInCI": true,
+      "ciStep": "review-lens-ledger-guard"
+    },
+    {
+      "id": "room-migration-safety",
+      "script": "tools/agent-hooks/check-room-migration-safety.mjs",
+      "makeTarget": "room-migration-guard",
+      "realCheck": "node tools/agent-hooks/check-room-migration-safety.mjs",
+      "selfTest": "node tools/agent-hooks/check-room-migration-safety.mjs --self-test",
+      "owningDoc": ".agents/skills/db-migration-safety/SKILL.md",
+      "requiredInCI": true,
+      "ciStep": "room-migration-guard"
+    },
+    {
+      "id": "scale-certification-docs",
+      "script": "tools/agent-hooks/check-scale-certification-docs.mjs",
+      "makeTarget": "scale-certification-docs-guard",
+      "realCheck": "node tools/agent-hooks/check-scale-certification-docs.mjs",
+      "selfTest": "node tools/agent-hooks/check-scale-certification-docs.mjs --self-test",
+      "owningDoc": "docs/decisions/scale-anti-patterns.md",
+      "requiredInCI": true,
+      "ciStep": "scale-certification-docs-guard"
+    },
+    {
+      "id": "secret-accessors",
+      "script": "tools/agent-hooks/check-secret-accessors.mjs",
+      "makeTarget": "secret-accessors-guard",
+      "realCheck": "node tools/agent-hooks/check-secret-accessors.mjs",
+      "selfTest": "node tools/agent-hooks/check-secret-accessors.mjs --self-test",
+      "owningDoc": "docs/runbooks/google-cloud-environments.md",
+      "requiredInCI": true,
+      "ciStep": "secret-accessors-guard"
+    },
+    {
+      "id": "seed-migration-coupling",
+      "script": "tools/agent-hooks/check-seed-migration-coupling.mjs",
+      "makeTarget": "seed-migration-guard",
+      "realCheck": "node tools/agent-hooks/check-seed-migration-coupling.mjs",
+      "selfTest": "node tools/agent-hooks/check-seed-migration-coupling.mjs --self-test",
+      "owningDoc": "docs/runbooks/initial-seed-migration-coupling.md",
+      "requiredInCI": true,
+      "ciStep": "seed-migration-guard"
+    },
+    {
+      "id": "shared-local-stack-service",
+      "script": "tools/dev/test-local-stack-service-guard.sh",
+      "makeTarget": "local-stack-service-guard",
+      "realCheck": "bash tools/dev/test-local-stack-service-guard.sh",
+      "selfTest": "bash tools/dev/test-local-stack-service-guard.sh --self-test",
+      "owningDoc": "docs/runbooks/local-full-stack-rehearsal.md",
+      "requiredInCI": true,
+      "ciStep": "local-stack-service-guard"
+    },
+    {
+      "id": "stg-disposable-topology",
+      "script": "tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "makeTarget": "stg-disposable-topology-guard",
+      "realCheck": "node tools/agent-hooks/check-stg-disposable-topology.mjs",
+      "selfTest": "node tools/agent-hooks/check-stg-disposable-topology.mjs --self-test",
+      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
+      "requiredInCI": true,
+      "ciStep": "stg-disposable-topology-guard",
+      "notes": "Final staging topology: no Scheduler resources or transitional flag, one enabled kernel-worker service, analytics retained as a manual job, and Cloud Deploy updates/verifies the worker image."
+    },
+    {
+      "id": "stg-operator-scope",
+      "script": "tools/agent-hooks/check-stg-operator-scope.mjs",
+      "makeTarget": "stg-operator-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-stg-operator-scope.mjs",
+      "selfTest": "node tools/agent-hooks/check-stg-operator-scope.mjs --self-test",
+      "owningDoc": "docs/runbooks/stg-operator-login-credentials.md",
+      "requiredInCI": true,
+      "ciStep": "stg-operator-scope-guard",
+      "notes": "Blocks STG login seed regressions where real operator/director field accounts get tenant-scope grants. Operators/directors must declare ParkCode and the seeder must materialize park-scoped grants while revoking stale tenant grants."
+    },
+    {
+      "id": "stg-promotion",
+      "script": "tools/ci/check-stg-promotion.mjs",
+      "makeTarget": "stg-promotion-guard",
+      "realCheck": "node tools/ci/check-stg-promotion.mjs --repository",
+      "selfTest": "node tools/ci/check-stg-promotion.mjs --self-test",
+      "owningDoc": "docs/runbooks/github-workflows.md",
+      "requiredInCI": true,
+      "ciStep": "stg-promotion-guard"
+    },
+    {
+      "id": "sweeper-deployment",
+      "script": "tools/agent-hooks/check-sweeper-deployment.mjs",
+      "makeTarget": "sweeper-deployment-guard",
+      "realCheck": "node tools/agent-hooks/check-sweeper-deployment.mjs",
+      "selfTest": "node tools/agent-hooks/check-sweeper-deployment.mjs --self-test",
+      "owningDoc": "context/architecture/operational-kernel.md",
+      "requiredInCI": true,
+      "ciStep": "sweeper-deployment-guard"
+    },
+    {
+      "id": "test-execution-integrity",
+      "script": "tools/agent-hooks/check-test-execution-integrity.mjs",
+      "makeTarget": "test-execution-integrity-guard",
+      "realCheck": "node tools/agent-hooks/check-test-execution-integrity.mjs",
+      "selfTest": "node tools/agent-hooks/check-test-execution-integrity.mjs --self-test",
+      "owningDoc": "docs/engineering/backend-go-postgres-quality.md",
+      "requiredInCI": true,
+      "ciStep": "test-execution-integrity-guard",
+      "notes": "Detects Go test files with stray build constraints (// +build pgtest, //go:build pgtest, etc.) that cause them to be silently excluded from CI runs. Postgres tests must gate at runtime via GOATOS_RUN_POSTGRES_TESTS=1 + pgtest.SkipIfNoDocker(), not via build tags."
     },
     {
       "id": "ui-vaccine-labels",
@@ -348,14 +679,26 @@
       "notes": "Raw vaccination config/protocol tokens are allowed in config/contracts/DTOs/tests only. User-facing admin-web/mobile UI must render human labels."
     },
     {
-      "id": "seed-migration-coupling",
-      "script": "tools/agent-hooks/check-seed-migration-coupling.mjs",
-      "makeTarget": "seed-migration-guard",
-      "realCheck": "node tools/agent-hooks/check-seed-migration-coupling.mjs",
-      "selfTest": "node tools/agent-hooks/check-seed-migration-coupling.mjs --self-test",
-      "owningDoc": "docs/runbooks/initial-seed-migration-coupling.md",
+      "id": "vaccination-adult-drive-contract",
+      "script": "tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
+      "makeTarget": "vaccination-adult-drive-contract-guard",
+      "realCheck": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs",
+      "selfTest": "node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
       "requiredInCI": true,
-      "ciStep": "seed-migration-guard"
+      "ciStep": "vaccination-adult-drive-contract-guard",
+      "notes": "Blocks coupled vaccination regressions: blank-history adults disappearing unless a manual campaign is fired, repeat windows being contaminated by primary-course rows, sub-cap physical sheds being partition-split in park pre-batching or operator planning, CPT route order drifting from the 193/131 whole-shed calendar, completion totals multiplying by assignment rows, and delayed verification/director closeout replacing the operator-submitted administered_at medical anchor."
+    },
+    {
+      "id": "vaccination-drive-clubbing-db-proof",
+      "script": "tools/dev/check-vaccination-drive-clubbing-proof.sh",
+      "makeTarget": "vaccination-drive-clubbing-db-proof",
+      "realCheck": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh",
+      "selfTest": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh --self-test",
+      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "requiredInCI": false,
+      "ciStep": "vaccination-drive-clubbing-db-proof",
+      "notes": "Post-sweeper DB proof. It requires DATABASE_URL and is run by seed closeout/reseed evidence after the sweeper."
     },
     {
       "id": "vaccination-hrms-seed-fixture",
@@ -389,25 +732,25 @@
       "notes": "Calendar, Protocol Adherence, Action Center, and Workflows must share vaccination_drive_assignments as the canonical operator-day source; admin-web page switches must not fan out into N+1 vaccination/calendar/process-integrity fetches."
     },
     {
-      "id": "goat-shed-scope",
-      "script": "tools/agent-hooks/check-goat-shed-scope.mjs",
-      "makeTarget": "goat-shed-scope-guard",
-      "realCheck": "node tools/agent-hooks/check-goat-shed-scope.mjs",
-      "selfTest": "node tools/agent-hooks/check-goat-shed-scope.mjs --self-test",
-      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
+      "id": "vaccination-shed-ack-not-form",
+      "script": "tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
+      "makeTarget": "vaccination-shed-ack-guard",
+      "realCheck": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs",
+      "selfTest": "node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs --self-test",
+      "owningDoc": "docs/decisions/vaccination-shed-ack-not-form.md",
       "requiredInCI": true,
-      "ciStep": "goat-shed-scope-guard"
+      "ciStep": "vaccination-shed-ack-guard"
     },
     {
-      "id": "proof-capture-authorization",
-      "script": "tools/agent-hooks/check-proof-capture-authorization.mjs",
-      "makeTarget": "proof-capture-authorization-guard",
-      "realCheck": "node tools/agent-hooks/check-proof-capture-authorization.mjs",
-      "selfTest": "node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test",
-      "owningDoc": "docs/decisions/proof-capture-authorization.md",
+      "id": "weighing-abandon",
+      "script": "tools/agent-hooks/check-weighing-abandon-guard.mjs",
+      "makeTarget": "weighing-abandon-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-abandon-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-abandon-guard.mjs --self-test",
+      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
-      "ciStep": "proof-capture-authorization-guard",
-      "notes": "Proof/evidence capture is authorized by the SAME execution right that authorizes the work it proves. Structurally joins the role->permission maps (permissions.go rolePermissions + permissions_orgrole.go tierPermissions) to the route table (routes.go protectedRoutes) and re-implements AuthorizeRoute's AND/OR semantics: every role holding any *Execute permission MUST be authorized for every /app/proofs write route. Catches the 2026-08-03 shipped defect where the proof routes were gated on the vaccination-era TaskExecute alone, so a growth_director (WeighingExecute, deliberately NOT TaskExecute) could record a weighing observation but 403'd on POST /app/proofs/uploads -- no proof ever reached SYNCED and lump-sum Submit stayed permanently disabled. Self-test includes an adversarial reconstruction of that exact defect plus a future-vertical case (a new *Execute permission with no proof access), so a new vertical cannot repeat it. Blind spots are enumerated in the script header: runtime-composed grants, handler-level authorization inside a proof endpoint, scope/tenant narrowing, evidence surfaces outside /app/proofs, and AdminOnly routes."
+      "ciStep": "weighing-abandon-guard",
+      "notes": "Weighing has exactly two verbs: CLOSE the task, or REOPEN it if it is already closed. There is no abandon (maintainer decision 2026-08-03). Abandon was the SAME code path as close with the verification gate skipped -- closeScope(cmd, abandon=true) bypassed the pending>0 check, emitted weighing.shed.abandoned and audited weighing.scope_abandoned -- so it force-closed a bucket while proof was still awaiting a verdict. Weighing is free-flow: scan, submit, close, reopen. If a bucket cannot close because verification is pending, the answer is to RESOLVE the verification, never to bypass the gate. The guard fails on AbandonScope methods, the retired event type and audit action, an /abandon route, Kotlin abandonScope symbols and weighing_abandon_* string resources. It is deliberately PRECISE rather than a blunt grep: it does not fire on unrelated English elsewhere in the repo (proof upload GC PurgeAbandonedUploads, counts shifting cancel, the obligation stranded-drive reaper, coroutine prose), because a guard that false-positives on prose gets switched off within a week. It never fails on backend/migrations, so historical rows stay readable -- only new WRITE paths are banned. A documented abandon-guard:ignore: marker exists for a genuine false positive."
     },
     {
       "id": "weighing-free-flow",
@@ -421,15 +764,15 @@
       "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field — scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
-      "id": "weighing-operator-scope",
-      "script": "tools/agent-hooks/check-weighing-operator-scope-guard.mjs",
-      "makeTarget": "weighing-operator-scope-guard",
-      "realCheck": "node tools/agent-hooks/check-weighing-operator-scope-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test",
-      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
+      "id": "weighing-kernel-phase2",
+      "script": "tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs",
+      "makeTarget": "weighing-kernel-phase2-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test",
+      "owningDoc": "docs/features/weighing/TRD.md",
       "requiredInCI": true,
-      "ciStep": "weighing-operator-scope-guard",
-      "notes": "Operator-facing weighing list/roster queries must filter by operator_user_id in SQL before LIMIT (never paginate then filter), and execute-scoped HTTP routes must derive operator scope from the authenticated actor, never a client-supplied field."
+      "ciStep": "weighing-kernel-phase2-guard",
+      "notes": "Weighing PHASE 2 time-driven kernel: the publish transaction must materialize durable weighing_work_items; every work-item claim must be keyset-chunked with FOR UPDATE SKIP LOCKED plus LIMIT and a work_item_id cursor (no OFFSET, no polling full scan); weighing kernel time comparisons must stay Asia/Kolkata BUSINESS DAY (no time.Hour/Minute offsets, no now() +/- hour interval); the cadence must be registered on a supervisor cadence inside the EXISTING backend/cmd/kernel-worker (no new worker binary, no cron); and day-start/rolled-forward/delayed recipients must resolve from role grants and assignment rows through the existing weighing lifecycle consumer, never a hardcoded email/phone/token."
     },
     {
       "id": "weighing-one-operator-per-bucket",
@@ -443,357 +786,25 @@
       "notes": "weighing_campaign_sheds.operator_user_id must stay NOT NULL with exactly one operator per bucket: no dropped NOT NULL, no second/backup operator column, no operator array column or many-operators join table."
     },
     {
-      "id": "weighing-kernel-phase2",
-      "script": "tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs",
-      "makeTarget": "weighing-kernel-phase2-guard",
-      "realCheck": "node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs",
-      "selfTest": "node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test",
-      "owningDoc": "docs/features/weighing/TRD.md",
+      "id": "weighing-operator-scope",
+      "script": "tools/agent-hooks/check-weighing-operator-scope-guard.mjs",
+      "makeTarget": "weighing-operator-scope-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-operator-scope-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test",
+      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
-      "ciStep": "weighing-kernel-phase2-guard",
-      "notes": "Weighing PHASE 2 time-driven kernel: the publish transaction must materialize durable weighing_work_items; every work-item claim must be keyset-chunked with FOR UPDATE SKIP LOCKED plus LIMIT and a work_item_id cursor (no OFFSET, no polling full scan); weighing kernel time comparisons must stay Asia/Kolkata BUSINESS DAY (no time.Hour/Minute offsets, no now() +/- hour interval); the cadence must be registered on a supervisor cadence inside the EXISTING backend/cmd/kernel-worker (no new worker binary, no cron); and day-start/rolled-forward/delayed recipients must resolve from role grants and assignment rows through the existing weighing lifecycle consumer, never a hardcoded email/phone/token."
+      "ciStep": "weighing-operator-scope-guard",
+      "notes": "Operator-facing weighing list/roster queries must filter by operator_user_id in SQL before LIMIT (never paginate then filter), and execute-scoped HTTP routes must derive operator scope from the authenticated actor, never a client-supplied field."
     },
     {
-      "id": "goat-shed-integrity-db-proof",
-      "script": "tools/dev/check-goat-shed-integrity.sh",
-      "makeTarget": "goat-shed-integrity-db-proof",
-      "realCheck": "bash tools/dev/check-goat-shed-integrity.sh",
-      "selfTest": "bash tools/dev/check-goat-shed-integrity.sh --self-test",
-      "owningDoc": "docs/runbooks/vaccination-seed-source-date-contract.md",
-      "requiredInCI": false,
-      "ciStep": "goat-shed-integrity-db-proof",
-      "notes": "Post-seed/import DB proof. It requires DATABASE_URL and is run by tools/dev/seed-closeout.sh, not by ordinary no-DB CI."
-    },
-    {
-      "id": "vaccination-drive-clubbing-db-proof",
-      "script": "tools/dev/check-vaccination-drive-clubbing-proof.sh",
-      "makeTarget": "vaccination-drive-clubbing-db-proof",
-      "realCheck": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh",
-      "selfTest": "bash tools/dev/check-vaccination-drive-clubbing-proof.sh --self-test",
-      "owningDoc": "docs/preventive-care-vaccination/vaccination-rules.md",
-      "requiredInCI": false,
-      "ciStep": "vaccination-drive-clubbing-db-proof",
-      "notes": "Post-sweeper DB proof. It requires DATABASE_URL and is run by seed closeout/reseed evidence after the sweeper."
-    },
-    {
-      "id": "india-business-date",
-      "script": "tools/agent-hooks/check-india-business-date.mjs",
-      "makeTarget": "india-date-guard",
-      "realCheck": "node tools/agent-hooks/check-india-business-date.mjs",
-      "selfTest": "node tools/agent-hooks/check-india-business-date.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-code-review/references/business-rules.md",
-      "requiredInCI": true,
-      "ciStep": "india-date-guard"
-    },
-    {
-      "id": "offline-first-reads",
-      "script": "tools/agent-hooks/check-offline-first-reads.mjs",
-      "makeTarget": "offline-first-guard",
-      "realCheck": "node tools/agent-hooks/check-offline-first-reads.mjs",
-      "selfTest": "node tools/agent-hooks/check-offline-first-reads.mjs --self-test",
-      "owningDoc": "docs/decisions/android-offline-first.md",
-      "requiredInCI": true,
-      "ciStep": "offline-first-guard"
-    },
-    {
-      "id": "mobile-list-fetch",
-      "script": "tools/agent-hooks/check-mobile-list-fetch.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-mobile-list-fetch.mjs",
-      "selfTest": "node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-compose-lists",
-      "script": "tools/agent-hooks/check-android-compose-lists.mjs",
-      "makeTarget": "android-compose-lists-guard",
-      "realCheck": "node tools/agent-hooks/check-android-compose-lists.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-compose-lists.mjs --self-test",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "android-compose-lists-guard"
-    },
-    {
-      "id": "android-row-action-scope",
-      "script": "tools/agent-hooks/check-android-row-action-scope.mjs",
-      "makeTarget": "android-row-action-scope-guard",
-      "realCheck": "node tools/agent-hooks/check-android-row-action-scope.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-row-action-scope.mjs --self-test",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "android-row-action-scope-guard",
-      "notes": "Blocks row-level Android card actions from using a screen-wide busy gate. Covers the individual weighing free-flow regression where animal A's pending save disabled/ignored animal B's Save."
-    },
-    {
-      "id": "calendar-endpoint-grain",
-      "script": "tools/agent-hooks/check-calendar-endpoint-grain.mjs",
-      "makeTarget": "calendar-endpoint-grain-guard",
-      "realCheck": "node tools/agent-hooks/check-calendar-endpoint-grain.mjs",
-      "selfTest": "node tools/agent-hooks/check-calendar-endpoint-grain.mjs --self-test",
+      "id": "worker-stage-budgets",
+      "script": "tools/agent-hooks/check-worker-stage-budgets.mjs",
+      "makeTarget": "worker-stage-budgets-guard",
+      "realCheck": "node tools/agent-hooks/check-worker-stage-budgets.mjs",
+      "selfTest": "node tools/agent-hooks/check-worker-stage-budgets.mjs --self-test",
       "owningDoc": "docs/decisions/scale-anti-patterns.md",
       "requiredInCI": true,
-      "ciStep": "calendar-endpoint-grain-guard"
-    },
-    {
-      "id": "android-camera-only-proof-capture",
-      "script": "tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --self-test",
-      "owningDoc": "docs/mobile/proof-video-verification-flow.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-ui-copy-layout",
-      "script": "tools/agent-hooks/check-android-ui-copy-layout.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-ui-copy-layout.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-ui-copy-layout.mjs --self-test",
-      "owningDoc": "context/frontend/final-frontend-mobile-backend-architecture.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-ui-foundations",
-      "script": "tools/agent-hooks/check-android-ui-foundations.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-ui-foundations.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-ui-foundations.mjs --self-test",
-      "owningDoc": "docs/mobile/android-ui-quality.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-orientation-lock",
-      "script": "tools/agent-hooks/check-android-orientation-lock.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-orientation-lock.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-orientation-lock.mjs --self-test",
-      "owningDoc": "docs/mobile/README.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "android-alerts-gate-composed",
-      "script": "tools/agent-hooks/check-android-alerts-gate-composed.mjs",
-      "makeTarget": "mobile-guard",
-      "realCheck": "node tools/agent-hooks/check-android-alerts-gate-composed.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test",
-      "owningDoc": "docs/mobile/README.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-guard"
-    },
-    {
-      "id": "admin-web-request-reads",
-      "script": "tools/agent-hooks/check-admin-web-request-reads.mjs",
-      "makeTarget": "admin-web-request-reads-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-request-reads.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-request-reads.mjs --self-test",
-      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-request-reads-guard"
-    },
-    {
-      "id": "admin-web-prefetch",
-      "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
-      "makeTarget": "admin-web-prefetch-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-prefetch.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test",
-      "owningDoc": "docs/decisions/high-scale-dashboard-projections.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-prefetch-guard"
-    },
-    {
-      "id": "admin-web-local-overlays",
-      "script": "tools/agent-hooks/check-admin-web-local-overlays.mjs",
-      "makeTarget": "admin-web-local-overlay-guard",
-      "realCheck": "node tools/agent-hooks/check-admin-web-local-overlays.mjs",
-      "selfTest": "node tools/agent-hooks/check-admin-web-local-overlays.mjs --self-test",
-      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
-      "requiredInCI": true,
-      "ciStep": "admin-web-local-overlay-guard"
-    },
-    {
-      "id": "android-bounded-memory",
-      "script": "tools/agent-hooks/check-android-bounded-memory.mjs",
-      "makeTarget": "android-bounded-memory-guard",
-      "realCheck": "node tools/agent-hooks/check-android-bounded-memory.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-bounded-memory.mjs --self-test",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "android-bounded-memory-guard"
-    },
-    {
-      "id": "android-navigation-stack",
-      "script": "tools/agent-hooks/check-android-navigation-stack.mjs",
-      "makeTarget": "android-navigation-stack-guard",
-      "realCheck": "node tools/agent-hooks/check-android-navigation-stack.mjs",
-      "selfTest": "node tools/agent-hooks/check-android-navigation-stack.mjs --self-test",
-      "owningDoc": "docs/decisions/android-navigation-stack.md",
-      "requiredInCI": true,
-      "ciStep": "android-navigation-stack-guard"
-    },
-    {
-      "id": "nav-entry-point-placement",
-      "script": "tools/agent-hooks/check-nav-entry-point-placement.mjs",
-      "makeTarget": "nav-entry-point-placement-guard",
-      "realCheck": "node tools/agent-hooks/check-nav-entry-point-placement.mjs",
-      "selfTest": "node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test",
-      "owningDoc": "docs/decisions/nav-entry-point-placement.md",
-      "requiredInCI": true,
-      "ciStep": "nav-entry-point-placement-guard",
-      "notes": "A feature entry point never lives in the top-right app bar. Forbidden set is DERIVED from the backend nav registry (bootstrap_copy.go L0 hrefs + nav.* labels), so a new nav destination is covered without editing the guard. Pre-existing violations pinned in tools/agent-hooks/nav-entry-point-baseline.txt (currently the weighing 'My work' top-right bell)."
-    },
-    {
-      "id": "room-migration-safety",
-      "script": "tools/agent-hooks/check-room-migration-safety.mjs",
-      "makeTarget": "room-migration-guard",
-      "realCheck": "node tools/agent-hooks/check-room-migration-safety.mjs",
-      "selfTest": "node tools/agent-hooks/check-room-migration-safety.mjs --self-test",
-      "owningDoc": ".agents/skills/db-migration-safety/SKILL.md",
-      "requiredInCI": true,
-      "ciStep": "room-migration-guard"
-    },
-    {
-      "id": "nav-composition",
-      "script": "tools/agent-hooks/check-nav-composition.mjs",
-      "makeTarget": "nav-composition-guard",
-      "realCheck": "node tools/agent-hooks/check-nav-composition.mjs",
-      "selfTest": "node tools/agent-hooks/check-nav-composition.mjs --self-test",
-      "owningDoc": ".agents/skills/nav-composition/SKILL.md",
-      "requiredInCI": false,
-      "ciStep": "nav-composition-guard",
-      "notes": "Wired into `make guardrails` and the mobile CI job, not the run-local-ci.sh guardrails job."
-    },
-    {
-      "id": "mobile-contract-ownership",
-      "script": "tools/agent-hooks/check-mobile-contract-ownership.mjs",
-      "makeTarget": "mobile-contract-ownership-guard",
-      "realCheck": "node tools/agent-hooks/check-mobile-contract-ownership.mjs",
-      "selfTest": "node tools/agent-hooks/check-mobile-contract-ownership.mjs --self-test",
-      "owningDoc": ".agents/skills/mobile-anti-patterns/SKILL.md",
-      "requiredInCI": true,
-      "ciStep": "mobile-contract-ownership-guard",
-      "notes": "Required in Android local CI: backend bootstrap/nav/feature_flags own mobile visibility and execution affordances."
-    },
-    {
-      "id": "kernel-worker-retirement-gate",
-      "script": "tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
-      "makeTarget": "kernel-worker-retirement-gate-guard",
-      "realCheck": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs",
-      "selfTest": "node tools/agent-hooks/check-kernel-worker-retirement-gate.mjs --self-test",
-      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
-      "requiredInCI": false,
-      "ciStep": "kernel-worker-retirement-gate-guard",
-      "notes": "Two-phase legacy-job retirement gate. Run explicitly during a cutover; not in the standing run-local-ci.sh guardrails job."
-    },
-    {
-      "id": "kernel-worker-cutover",
-      "script": "tools/agent-hooks/check-kernel-worker-cutover.mjs",
-      "makeTarget": "kernel-worker-cutover-guard",
-      "realCheck": "node tools/agent-hooks/check-kernel-worker-cutover.mjs",
-      "selfTest": "node tools/agent-hooks/check-kernel-worker-cutover.mjs --self-test",
-      "owningDoc": ".agents/skills/kernel-scale-lens/SKILL.md",
-      "requiredInCI": true,
-      "ciStep": "kernel-worker-cutover-guard",
-      "notes": "KERN-01: asserts exactly one active owner per stage while dev remains on the transitional flag. Staging's completed cutover is covered by stg-disposable-topology."
-    },
-    {
-      "id": "stg-disposable-topology",
-      "script": "tools/agent-hooks/check-stg-disposable-topology.mjs",
-      "makeTarget": "stg-disposable-topology-guard",
-      "realCheck": "node tools/agent-hooks/check-stg-disposable-topology.mjs",
-      "selfTest": "node tools/agent-hooks/check-stg-disposable-topology.mjs --self-test",
-      "owningDoc": "docs/decisions/operational-kernel-5k-50k-scale-envelope.md",
-      "requiredInCI": true,
-      "ciStep": "stg-disposable-topology-guard",
-      "notes": "Final staging topology: no Scheduler resources or transitional flag, one enabled kernel-worker service, analytics retained as a manual job, and Cloud Deploy updates/verifies the worker image."
-    },
-    {
-      "id": "fcm-recipient-routing",
-      "script": "tools/agent-hooks/check-fcm-recipient-routing.mjs",
-      "makeTarget": "fcm-recipient-routing-guard",
-      "realCheck": "node tools/agent-hooks/check-fcm-recipient-routing.mjs",
-      "selfTest": "node tools/agent-hooks/check-fcm-recipient-routing.mjs --self-test",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "fcm-recipient-routing-guard",
-      "notes": "Blocks role-visible-but-no-push regressions: tenant leadership push recipients must resolve from active grants/device tokens, and STG verifier seed must create pc.vaccination verify duty routing."
-    },
-    {
-      "id": "mock-clicks",
-      "script": "tools/agent-hooks/check-mock-clicks.mjs",
-      "makeTarget": null,
-      "realCheck": "node tools/agent-hooks/check-mock-clicks.mjs",
-      "selfTestExemptReason": "Fixture/DOM click integrity checker driven end-to-end by `apps/admin-web` check:mock-fidelity and tools/agent-hooks/check-mock.sh; it has no isolated unit surface to adversarially self-test.",
-      "owningDoc": "docs/decisions/mobile-data-fetch-anti-patterns.md",
-      "requiredInCI": false,
-      "ciStep": "check-mock-clicks.mjs"
-    },
-    {
-      "id": "no-mismatch-review-queue",
-      "script": "tools/agent-hooks/check-no-mismatch-review-queue.mjs",
-      "makeTarget": "no-mismatch-review-queue-guard",
-      "realCheck": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs",
-      "selfTest": "node tools/agent-hooks/check-no-mismatch-review-queue.mjs --self-test",
-      "owningDoc": "docs/decisions/ingestion-validation-not-runtime-review.md",
-      "requiredInCI": true,
-      "ciStep": "no-mismatch-review-queue-guard"
-    },
-    {
-      "id": "review-lens-ledger",
-      "script": "tools/ci/check-review-lens-ledger.mjs",
-      "makeTarget": "review-lens-ledger-guard",
-      "realCheck": "node tools/ci/check-review-lens-ledger.mjs",
-      "selfTest": "node tools/ci/check-review-lens-ledger.mjs --self-test",
-      "owningDoc": ".agents/skills/goatos-code-review/references/review-lens-ledger.md",
-      "requiredInCI": true,
-      "ciStep": "review-lens-ledger-guard"
-    },
-    {
-      "id": "migration-duplicate-versions",
-      "script": "tools/agent-hooks/check-migration-duplicate-versions.mjs",
-      "makeTarget": "migration-duplicate-versions-guard",
-      "realCheck": "node tools/agent-hooks/check-migration-duplicate-versions.mjs",
-      "selfTest": "node tools/agent-hooks/check-migration-duplicate-versions.mjs --self-test",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "migration-duplicate-versions-guard",
-      "notes": "Detects duplicate migration version numbers under backend/migrations/postgres/. Two files with the same numeric prefix (e.g., 000031_a.sql and 000031_b.sql) create a silent goose ordering hazard and must be caught before push."
-    },
-    {
-      "id": "design-system-tokens",
-      "script": "tools/agent-hooks/check-design-system-tokens.mjs",
-      "makeTarget": "design-system-guard",
-      "realCheck": "node tools/agent-hooks/check-design-system-tokens.mjs",
-      "selfTest": "node tools/agent-hooks/check-design-system-tokens.mjs --self-test",
-      "owningDoc": "AGENTS.md",
-      "requiredInCI": true,
-      "ciStep": "design-system-guard"
-    },
-    {
-      "id": "domain-event-envelope-enum",
-      "script": "tools/agent-hooks/check-domain-event-envelope-enum.mjs",
-      "makeTarget": "domain-event-envelope-enum-guard",
-      "realCheck": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs",
-      "selfTest": "node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test",
-      "owningDoc": "docs/decisions/scale-anti-patterns.md",
-      "requiredInCI": true,
-      "ciStep": "domain-event-envelope-enum-guard"
-    },
-    {
-      "id": "notification-specificity",
-      "script": "tools/agent-hooks/check-notification-specificity.mjs",
-      "makeTarget": "notification-specificity-guard",
-      "realCheck": "node tools/agent-hooks/check-notification-specificity.mjs",
-      "selfTest": "node tools/agent-hooks/check-notification-specificity.mjs --self-test",
-      "owningDoc": "docs/decisions/2026-08-02-meaningful-notification-copy.md",
-      "requiredInCI": true,
-      "ciStep": "notification-specificity-guard",
-      "notes": "Maintainer decision 2026-08-02: blocks abstract count-only notification copy (e.g. \"Vaccination(s) due soon - 3\") in backend/internal/notificationbridge/**. Requires park/shed/vaccine-name/date specificity in Title/Body. Composes with ui-vaccine-labels (raw-token humanization) rather than duplicating it."
+      "ciStep": "worker-stage-budgets-guard"
     }
   ]
 }
