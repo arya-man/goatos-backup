@@ -64,6 +64,35 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
+## Shared-Resource Contention Is Reported IMMEDIATELY (Claude AND Codex)
+
+Gradle, Docker, a port, a physical device, and the local stack are SINGLE-HOLDER
+resources. Two agents using one at the same time do not go slower — they
+deadlock: each reaps the other's `GradleWorkerMain` JVMs, both retry, neither
+finishes. On 2026-08-03 two agents burned **90 minutes** this way while the
+orchestrator reported them as "still running" and the maintainer had to spot the
+stalled task cards himself.
+
+Rules, for every agent and orchestrator:
+
+1. **Never run two Gradle builds concurrently.** Serialize the work, or tell one
+   agent to skip Gradle and rely on targeted tests.
+2. **The moment contention is detected, TELL THE MAINTAINER.** Do not wait for a
+   completion notification, and do not fold it into a status line as "still
+   running". Name the resource and who is competing, so the maintainer can kill
+   one. A blocked agent is not progress.
+3. **A long-running agent is a signal to investigate, not to wait.** Check
+   whether it is working or polling in a `sleep` loop. Task cards also go STALE:
+   an agent shown as running may already be finished — verify against its branch
+   or task status rather than trusting the card.
+4. **Reap orphans after any killed build** (`pkill -f GradleWorkerMain`) and
+   re-check before starting another.
+5. **Gradle exit 137 is an OOM SIGKILL from contention, not a test failure.**
+   Re-run with `--max-workers=1`; never "fix" the test.
+
+This generalizes: any shared single-holder resource that blocks progress is
+surfaced to the maintainer immediately, never absorbed into a progress report.
+
 ## Fast Lane for Tiny Fixes
 
 When the maintainer asks to make a small, low-risk fix and land it on `main`,
@@ -172,6 +201,30 @@ runbook.
 Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.
+
+## Mandatory Android STG APK Source Traceability
+
+Every Android STG APK uploaded to Firebase App Distribution must be traceable to
+the exact source revision that produced it.
+
+- Use only `:app:appDistributionUploadStgRelease` for Firebase App Distribution
+  Android STG uploads. Do not upload ad-hoc APK files manually from the Firebase
+  console, `firebase appdistribution:distribute`, or any other path unless the
+  maintainer explicitly asks for a one-off rescue build and the release notes
+  still record the source label.
+- The distributed APK must include/bake the source commit and tag metadata
+  (`SOURCE_COMMIT`, `SOURCE_TAG`, `SOURCE_BRANCH`, `SOURCE_LABEL`, and the
+  matching string resources) and the Firebase release notes must carry the same
+  source label.
+- Never upload from a dirty worktree. The only exception is an explicit
+  throwaway/debug build using `-PallowDirtyFirebaseDistribution=true`; label it
+  as throwaway in the release notes and do not use it to answer whether a
+  production-like phone APK contains a feature.
+- When answering "does the latest Firebase APK have feature X?", first verify
+  and record the installed/Firebase release source label, then compare that
+  commit/tag against the commit that introduced the feature. If the source label
+  cannot be verified, say that clearly instead of inferring from local `HEAD`,
+  `origin/main`, or memory.
 
 ## Business and medical rule changes (maintainer lock)
 
@@ -1427,6 +1480,11 @@ Do:
   disguised as modal sheets. Machine-blocked by
   `make android-navigation-stack-guard`; canonical decision:
   `docs/decisions/android-navigation-stack.md`.
+  Placement is a separate invariant: a FEATURE ENTRY POINT (alerts, inbox,
+  videos, profile, a module switch) belongs in the bottom bar or the module
+  drawer and NEVER in the top-right app bar, which carries only actions on the
+  current screen. Machine-blocked by `make nav-entry-point-placement-guard`;
+  canonical decision: `docs/decisions/nav-entry-point-placement.md`.
   The retention twin is memory, not fetch size: an in-heap cache/accumulator that
   grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
   (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +

@@ -13,6 +13,13 @@ const (
 	StatusPending  = "pending"
 	StatusApproved = "approved"
 	StatusRejected = "rejected"
+	// StatusWithdrawn is the verdict-FREE terminal status a producing module puts
+	// on its own still-pending items when the source record they point at is
+	// superseded (see Repository.WithdrawItemsBySource). It is not a decision: no
+	// verifier, no verdict, no reason. It has always existed in the database;
+	// naming it here lets the retraction event and its consumers branch on the
+	// same constant the write path uses.
+	StatusWithdrawn = "withdrawn"
 )
 
 // Decision values accepted by RecordVerdict.

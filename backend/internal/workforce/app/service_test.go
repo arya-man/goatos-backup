@@ -795,12 +795,20 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if weighing == nil {
 			t.Fatalf("operator must receive separate weighing module; modules=%#v", modules)
 		}
-		// An operator executes and nothing else: one work list, no planner list, no oversight.
+		// An operator executes and nothing else: one work list, no planner list, no
+		// oversight -- plus weighing's OWN alerts feed.
 		want := []domain.BootstrapNavigationItem{
 			{Key: "weighing", Label: "My work", Href: "/weighing"},
-			// No alerts tab: /alerts is the VACCINATION process-integrity feed, and a weighing
-			// operator holds no vaccination permission, so carrying it here gave them a
-			// permanently-empty cross-module tab that 403s on open.
+			// /weighing/alerts, NOT the vaccination process-integrity feed at /alerts. The
+			// old cross-module item was removed because a weighing operator holds no
+			// vaccination permission and it 403'd on open. This one is gated on weighing
+			// capabilities and has real rows behind it (the weighing lifecycle
+			// notifications already routed to this operator). The label is just "Alerts":
+			// the tab never names the feature, the href carries the scoping.
+			//
+			// It also ends the degenerate single-tab bar this operator used to get -- a
+			// switcher with nothing to switch to.
+			{Key: "weighing_alerts", Label: "Alerts", Href: "/weighing/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(weighing.NavItems) != len(want) {
@@ -1307,5 +1315,66 @@ func TestVisibleNavigationIsEarnedByAModuleGrant(t *testing.T) {
 	nav := visibleNavigationFor(grants, []string{"counts"}, "en")
 	if len(nav) == 0 {
 		t.Fatal("nav for an operator whose department holds the Counts module is empty -- a granted module must render its bar")
+	}
+}
+
+// TestWeighingAlertsTabReachesEveryWeighingSeat answers the maintainer's 2026-08-03
+// observation directly: "there is no alerts surface anywhere -- not for CEO, not
+// director, not operator."
+//
+// The weighing alerts item carries NO requiredPermission on purpose. Everyone with a
+// weighing job has a stake in the module's lifecycle feed, and the three seats hold
+// three DIFFERENT capability sets -- the operator holds execute, the CEO holds
+// plan+monitor but not execute, and the Growth Director intentionally holds both
+// execute and monitor. Gating the tab on any single weighing capability would drop it
+// from at least one of them; the endpoint behind it is the OR gate that does the real
+// authorization, and the rows a caller sees are already scoped to them by the routing
+// that produced them.
+func TestWeighingAlertsTabReachesEveryWeighingSeat(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		role string
+	}{
+		{"operator", permissions.RoleOperator},
+		{"growth director", permissions.RoleGrowthDirector},
+		{"CEO", permissions.RoleCEOInternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grants := []domain.GrantSummary{grantWithRole(tc.role)}
+			modules := modulesFor(grants, []string{"weighing"}, "")
+
+			var weighing *domain.BootstrapModule
+			for i := range modules {
+				if modules[i].Key == "weighing" {
+					weighing = &modules[i]
+				}
+			}
+			if weighing == nil {
+				t.Fatalf("%s received no weighing module at all; modules=%#v", tc.name, modules)
+			}
+
+			var alerts *domain.BootstrapNavigationItem
+			for i := range weighing.NavItems {
+				if weighing.NavItems[i].Key == "weighing_alerts" {
+					alerts = &weighing.NavItems[i]
+				}
+			}
+			if alerts == nil {
+				t.Fatalf("%s has NO weighing alerts tab; nav=%#v", tc.name, weighing.NavItems)
+			}
+			// The tab never names the feature -- the href carries the scoping.
+			if alerts.Label != "Alerts" {
+				t.Fatalf("%s alerts label = %q, want exactly \"Alerts\"", tc.name, alerts.Label)
+			}
+			// It must be WEIGHING's feed, never the vaccination process-integrity feed.
+			if alerts.Href != "/weighing/alerts" {
+				t.Fatalf("%s alerts href = %q, want /weighing/alerts (never /alerts, the vaccination feed)", tc.name, alerts.Href)
+			}
+			// A module bar must have something to switch between; a single tab is a
+			// switcher with nothing to switch to.
+			if len(weighing.NavItems) < 2 {
+				t.Fatalf("%s weighing bar has %d tab(s): %#v", tc.name, len(weighing.NavItems), weighing.NavItems)
+			}
+		})
 	}
 }

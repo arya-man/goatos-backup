@@ -399,6 +399,17 @@
       "ciStep": "goat-shed-scope-guard"
     },
     {
+      "id": "proof-capture-authorization",
+      "script": "tools/agent-hooks/check-proof-capture-authorization.mjs",
+      "makeTarget": "proof-capture-authorization-guard",
+      "realCheck": "node tools/agent-hooks/check-proof-capture-authorization.mjs",
+      "selfTest": "node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test",
+      "owningDoc": "docs/decisions/proof-capture-authorization.md",
+      "requiredInCI": true,
+      "ciStep": "proof-capture-authorization-guard",
+      "notes": "Proof/evidence capture is authorized by the SAME execution right that authorizes the work it proves. Structurally joins the role->permission maps (permissions.go rolePermissions + permissions_orgrole.go tierPermissions) to the route table (routes.go protectedRoutes) and re-implements AuthorizeRoute's AND/OR semantics: every role holding any *Execute permission MUST be authorized for every /app/proofs write route. Catches the 2026-08-03 shipped defect where the proof routes were gated on the vaccination-era TaskExecute alone, so a growth_director (WeighingExecute, deliberately NOT TaskExecute) could record a weighing observation but 403'd on POST /app/proofs/uploads -- no proof ever reached SYNCED and lump-sum Submit stayed permanently disabled. Self-test includes an adversarial reconstruction of that exact defect plus a future-vertical case (a new *Execute permission with no proof access), so a new vertical cannot repeat it. Blind spots are enumerated in the script header: runtime-composed grants, handler-level authorization inside a proof endpoint, scope/tenant narrowing, evidence surfaces outside /app/proofs, and AdminOnly routes."
+    },
+    {
       "id": "weighing-free-flow",
       "script": "tools/agent-hooks/check-weighing-free-flow-guard.mjs",
       "makeTarget": "weighing-free-flow-guard",
@@ -407,7 +418,7 @@
       "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
       "requiredInCI": true,
       "ciStep": "weighing-free-flow-guard",
-      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
+      "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field — scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
       "id": "weighing-operator-scope",
@@ -624,6 +635,17 @@
       "owningDoc": "docs/decisions/android-navigation-stack.md",
       "requiredInCI": true,
       "ciStep": "android-navigation-stack-guard"
+    },
+    {
+      "id": "nav-entry-point-placement",
+      "script": "tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "makeTarget": "nav-entry-point-placement-guard",
+      "realCheck": "node tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "selfTest": "node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test",
+      "owningDoc": "docs/decisions/nav-entry-point-placement.md",
+      "requiredInCI": true,
+      "ciStep": "nav-entry-point-placement-guard",
+      "notes": "A feature entry point never lives in the top-right app bar. Forbidden set is DERIVED from the backend nav registry (bootstrap_copy.go L0 hrefs + nav.* labels), so a new nav destination is covered without editing the guard. Pre-existing violations pinned in tools/agent-hooks/nav-entry-point-baseline.txt (currently the weighing 'My work' top-right bell)."
     },
     {
       "id": "room-migration-safety",

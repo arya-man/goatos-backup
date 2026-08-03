@@ -924,3 +924,43 @@ func assertAuthErrorCode(t *testing.T, rec *httptest.ResponseRecorder, want stri
 		t.Fatalf("code=%s want %s body=%s", body.Code, want, rec.Body.String())
 	}
 }
+
+// TestPermissionDeniedLogNamesRequiredPermissions is the regression test for the
+// night a park-scoped 403 (a seeding race) logged `roles:""` and nothing else —
+// leaving no way to tell WHICH permission was missing without reading routes.go.
+func TestPermissionDeniedLogNamesRequiredPermissions(t *testing.T) {
+	var logBuf bytes.Buffer
+	verifier := testHS256Verifier(t, 24*time.Hour)
+	mw, err := NewAuthMiddleware(
+		AuthConfig{Mode: AuthModeBearer},
+		verifier,
+		grantAdapter{fakeGrantSource{roles: map[string][]string{authTestUser + "|" + authTestTenant: nil}}},
+		slog.New(slog.NewJSONHandler(&logBuf, nil)),
+	)
+	if err != nil {
+		t.Fatalf("NewAuthMiddleware: %v", err)
+	}
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/goats/search?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer "+testTokenStatic(authTestUser, authTestTenant, nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	logOut := logBuf.String()
+	for _, want := range []string{
+		`"msg":"auth_failed"`,
+		`"code":"permission_denied"`,
+		`"required_permissions":"` + permissions.GoatRead + `"`,
+		`"required_any_permissions":""`,
+		`"required_admin_only":false`,
+	} {
+		if !strings.Contains(logOut, want) {
+			t.Fatalf("permission_denied log missing %q: %s", want, logOut)
+		}
+	}
+}

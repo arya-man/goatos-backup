@@ -766,24 +766,28 @@
     },
     {
       "eventType": "verification.item.closed",
-      "producer": "scoped leadership drive closure",
+      "producer": "scoped leadership drive closure, AND the producing module's retire seam (Repository.WithdrawItemsBySource) when a still-pending item's source record is superseded -- published on the SAME transaction as the status flip, with status/decision='withdrawn' so a consumer can tell a retraction from a verdict",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
           "module": "vaccination",
-          "file": "backend/internal/vaccination/app/verification_handler.go"
+          "file": "backend/internal/vaccination/app/verification_handler.go",
+          "notes": "verification.item.closed is POLYSEMOUS -- it carries both an operational closure and a WithdrawItemsBySource retraction -- so every consumer must read payload.status. handleGenericEvent filters Source.Module='vaccination' with a non-empty Source.SubmissionID (weighing withdrawals, the only producer of the 'withdrawn' variant today, never reach it) AND returns early on status='withdrawn', so a future vaccination supersede path cannot apply a verdict-shaped outcome with an empty actor to work that was taken back."
         },
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go",
+          "notes": "handleItemClosed branches on status: an operational closure notifies the OPERATOR that their record is done; a 'withdrawn' retraction instead routes handleItemWithdrawn to the park's module verify-duty holders -- the same audience verification.item.pending pushed to -- because they are the ones left holding a review request that no longer exists. The operator caused the withdrawal by editing their own draft and is deliberately not pushed."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
-        "backend/internal/vaccination/app/completion_test.go"
+        "backend/internal/vaccination/app/completion_test.go",
+        "backend/internal/verification/adapters/postgres/withdraw_emits_retraction_integration_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [
         "backend",

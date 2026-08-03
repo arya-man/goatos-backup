@@ -69,6 +69,69 @@ type CampaignPage struct {
 	Items      []Campaign     `json:"items"`
 	NextCursor string         `json:"next_cursor,omitempty"`
 	Counts     CampaignCounts `json:"counts"`
+	// OperatorSummaries is the OPERATOR-grain roll-up behind the oversight surface:
+	// one row per person who holds weighing work in the requested scope, with the
+	// backend's own tallies of what that person's buckets hold. It is whole-filter,
+	// never page-derived — see Repository.operatorSummaries.
+	OperatorSummaries []OperatorSummary `json:"operator_summaries"`
+}
+
+// MaxOperatorSummaries bounds the operator roll-up.
+//
+// It is served WHOLE rather than paged, for the same reason PlannerCatalog serves
+// parks whole: a summary that pages cannot answer "who did what today" — the person
+// you are looking for is on page two. A park's weighing roster is a handful of
+// people, so the read is bounded by this hard cap instead of by a cursor.
+const MaxOperatorSummaries = 50
+
+// OperatorSummary is what ONE person's weighing work adds up to, as the backend
+// counts it.
+//
+// GRAIN: one row per operator_user_id over that person's non-canceled
+// weighing_campaign_sheds rows in scope. Every field is a PLAIN COUNT and none of
+// them is ever a numerator: weighing is free-flow (migration 000079 dropped the
+// expected-animal roster), so no share, percentage, or "x of y" can honestly be
+// rendered from any of these.
+//
+// The four bucket-state counts are DISJOINT and EXHAUSTIVE over the person's
+// buckets — NotStarted + Capturing + Submitted + Accepted == ShedCount — so a
+// renderer can lay them side by side without a bucket being counted twice or
+// vanishing. That disjointness is the fix for the oversight card that showed a
+// "Completed" badge and a "Scheduled" line at the same time: there is now ONE
+// place a bucket's state is decided, and it is here.
+type OperatorSummary struct {
+	// OperatorUserID is empty for the "nobody is assigned yet" row, which is real
+	// work leadership must see rather than a row to hide.
+	OperatorUserID string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name. Blank WITH a non-blank
+	// OperatorUserID is a roster gap, not "unassigned"; a client renders the gap,
+	// never the user id.
+	OperatorDisplayName string `json:"operator_display_name"`
+	// ShedCount is how many shed buckets this person holds in scope.
+	ShedCount int `json:"shed_count"`
+	// NotStartedCount holds nothing captured yet.
+	NotStartedCount int `json:"not_started_count"`
+	// CapturingCount is weighing under way but not submitted.
+	CapturingCount int `json:"capturing_count"`
+	// SubmittedCount is submitted and waiting for a verifier.
+	SubmittedCount int `json:"submitted_count"`
+	// AcceptedCount is verified and closed.
+	AcceptedCount int `json:"accepted_count"`
+	// ReworkCount is buckets a verifier bounced back. It OVERLAPS the four state
+	// counts on purpose (a bounced bucket is still in one of them) and is reported
+	// as its own flag-count, never added to them.
+	ReworkCount int `json:"rework_count"`
+	// AnimalsWeighedCount is how many ANIMALS this person has RECORDED a weight
+	// for, submitted or not: one per individual observation, and the recorded head
+	// count of a standing lump-sum weighing. A plain total of work done, never
+	// divided by anything.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount this person has
+	// SUBMITTED for verification. It is reported ALONGSIDE the weighed count, never
+	// instead of it: "3 weighed · 0 submitted" is the mid-shift state where work
+	// gets silently lost, and a single number cannot say it. Same predicate as the
+	// per-bucket animals_submitted_count, so the two surfaces cannot disagree.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
 }
 
 // CampaignCounts is the WHOLE-FILTER task tally behind the two task-list tabs.
@@ -158,8 +221,20 @@ type PlannerPark struct {
 	// scalar aggregate over that park's own children. It is deliberately NOT a
 	// count of shed rows returned on any page: the catalog returns no shed rows
 	// at all, and a bucket page carries only ~20 of them.
-	ShedCount        int              `json:"shed_count"`
+	ShedCount int `json:"shed_count"`
+	// ExistingCampaign summarizes the park's MOST RECENT task on the requested
+	// week. A park-week may legitimately hold SEVERAL tasks: the capture category
+	// is a per-BUCKET property, so one campaign cannot express "weigh these sheds
+	// lump-sum now, plan the leftover sheds separately", and leadership plans the
+	// remainder as a second task. This field is therefore a summary for display,
+	// never proof that the park holds exactly one task, and never a reason to
+	// block a create.
 	ExistingCampaign *CampaignSummary `json:"existing_campaign,omitempty"`
+	// ExistingCampaignCount is how many non-canceled tasks the park holds on the
+	// requested week, so a caller can say "2 tasks already scheduled" instead of
+	// mistaking the single ExistingCampaign summary for the whole truth.
+	// 0 means the park-week is free.
+	ExistingCampaignCount int `json:"existing_campaign_count,omitempty"`
 }
 
 // PlannerParkBuckets is ONE keyset page of the sheds of ONE park, with the same
@@ -250,6 +325,24 @@ type CampaignShed struct {
 	// work the operator still owes, so surfacing "ready" on it would bury the
 	// rework request from leadership's view.
 	ReadyToClose bool `json:"ready_to_close"`
+	// AnimalsWeighedCount is how many ANIMALS this bucket has a recorded weight
+	// for, submitted or not — one per individual observation, and the recorded head
+	// count of the standing (non-withdrawn) shed proof for a lump-sum bucket.
+	//
+	// It replaces CapturedCount, which counted the lump-sum proof ROW and so read
+	// as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for
+	// the same work.
+	//
+	// It is a plain count and is NEVER a numerator. Weighing is free-flow: there is
+	// no expected-animal roster, ExpectedAnimalCount is a fixed bucket-grain 1, and
+	// dividing weighings by it would render a share of a total that does not exist.
+	// Clients report this number as-is ("3 weighed") or not at all.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount that has been
+	// SUBMITTED for verification. Rendered alongside the weighed count as
+	// "3 weighed · 0 submitted"; when it is zero and work exists, clients show a
+	// "Not submitted" chip — the word the operator's own Submit button uses.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
 }
 
 // CampaignShedPage is the task-detail (L1) bucket list as a keyset page.

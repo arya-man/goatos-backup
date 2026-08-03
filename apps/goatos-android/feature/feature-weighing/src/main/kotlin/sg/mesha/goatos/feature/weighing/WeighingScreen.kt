@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -77,10 +78,39 @@ import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 
-/** How many group videos a shed / partition result may carry. Unchanged from the inline 5. */
+/**
+ * The MOST group videos a shed / partition result may carry. A ceiling, never a target.
+ *
+ * Weighing is free-flow: no number of videos is required, so this must never be rendered as the
+ * denominator of a "N / 5" figure. It only gates the "Add another video" action and colours the
+ * summary once the shed can hold no more.
+ */
 private const val SHED_PROOF_VIDEO_LIMIT = 5
 
 // telemetry:exempt Weighing execution V1 has repository/viewmodel sync events; screen-level click telemetry is deferred until workflow names settle.
+
+/**
+ * What this shed's group videos ACTUALLY are, by upload state.
+ *
+ * Every part is a plain count of something that exists — uploaded, still uploading, failed. There
+ * is no denominator: weighing is free-flow, no number of videos is required, and
+ * [SHED_PROOF_VIDEO_LIMIT] is a ceiling rather than a target. "Uploaded" means the upload actually
+ * landed, so a video still in flight is never counted as done.
+ */
+@Composable
+private fun shedVideoSummary(proofs: List<WeighingProofUiRow>): String {
+    if (proofs.isEmpty()) return stringResource(R.string.weighing_videos_none)
+    val uploaded = proofs.count { it.status == ProofUploadStatus.SYNCED }
+    val uploading = proofs.count { it.status == ProofUploadStatus.UPLOADING || it.status == ProofUploadStatus.MISSING }
+    val failed = proofs.count { it.status == ProofUploadStatus.FAILED }
+    val parts = buildList {
+        if (uploaded > 0) add(stringResource(R.string.weighing_videos_uploaded_fmt, uploaded))
+        if (uploading > 0) add(stringResource(R.string.weighing_videos_uploading_fmt, uploading))
+        if (failed > 0) add(stringResource(R.string.weighing_videos_failed_fmt, failed))
+        if (proofs.size >= SHED_PROOF_VIDEO_LIMIT) add(stringResource(R.string.weighing_videos_limit_reached))
+    }
+    return parts.joinToString(" · ")
+}
 
 data class WeighingUiState(
     val title: String = "Weighing",
@@ -99,6 +129,13 @@ data class WeighingUiState(
     val canEndWeighing: Boolean = false,
     val canReopenWeighing: Boolean = false,
     val assignments: List<WeighingAssignmentUiRow> = emptyList(),
+    /**
+     * The oversight surface's OPERATOR-grain rows, exactly as the backend counted them.
+     *
+     * Never derived from [assignments]: that is one keyset page, so a per-person total taken from
+     * it would describe the scroll position rather than the person.
+     */
+    val operatorSummaries: List<WeighingOperatorUiRow> = emptyList(),
     val assignmentsLoadingMore: Boolean = false,
     val visibleRows: List<WeighingRosterUiRow> = emptyList(),
     val totalExpected: Int = 0,
@@ -149,6 +186,40 @@ data class WeighingUiState(
             weightInput.toDoubleOrNull()?.let { it > 0.0 } == true &&
             animalCountInput.toIntOrNull()?.let { it > 0 } == true &&
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
+
+    /**
+     * Why Submit cannot be pressed yet, in farm language — or null when it can.
+     *
+     * A blocked action must always state its REASON. A greyed-out Submit next to a video that
+     * is still uploading (or that failed) left an operator standing in the shed with a retry
+     * button, a dead button, and nothing on screen saying which one was the hold-up.
+     *
+     * Ordered most-blocking first, so the operator is told the ONE thing to do next.
+     */
+    @get:StringRes
+    val submitBlockedReason: Int? get() = when {
+        !hasScope -> R.string.weighing_blocked_no_shed_open
+        !isShedPartition -> individualSubmitBlockedReason
+        actionInFlight -> R.string.weighing_blocked_saving
+        weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
+        animalCountInput.toIntOrNull()?.let { it > 0 } != true -> R.string.weighing_blocked_need_count
+        shedProofs.isEmpty() -> R.string.weighing_blocked_need_video
+        shedProofs.any { it.status == ProofUploadStatus.SYNCED } -> null
+        shedProofs.any { it.status == ProofUploadStatus.UPLOADING } -> R.string.weighing_blocked_video_uploading
+        shedProofs.all { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_blocked_video_failed
+        else -> R.string.weighing_blocked_need_video
+    }
+
+    private val individualSubmitBlockedReason: Int? get() = when {
+        visibleRows.isEmpty() -> R.string.weighing_blocked_nothing_captured
+        visibleRows.any { !it.weightSaved } -> R.string.weighing_blocked_need_weight
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.UPLOADING } ->
+            R.string.weighing_blocked_video_uploading
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.FAILED } ->
+            R.string.weighing_blocked_video_failed
+        visibleRows.all { it.proofUploadStatus == ProofUploadStatus.SYNCED } -> null
+        else -> R.string.weighing_blocked_need_video
+    }
 }
 
 data class WeighingProofUiRow(
@@ -184,6 +255,38 @@ data class WeighingRosterUiRow(
             status.equals("accepted", ignoreCase = true)
 }
 
+/**
+ * ONE person's weighing work, as the oversight surface reads it.
+ *
+ * Everything here is a backend-owned plain count. [notStarted] + [capturing] + [submitted] +
+ * [accepted] == [shedCount] exactly, which is what lets the card draw a DISCRETE state ladder;
+ * free-flow weighing has no expected-animal total, so nothing here is ever divided by anything.
+ *
+ * [name] is the backend-resolved display name. A blank name beside a non-blank [operatorUserId] is
+ * a roster gap and is NAMED as one — this screen never falls back to rendering a user id.
+ */
+data class WeighingOperatorUiRow(
+    val operatorUserId: String,
+    val name: String,
+    val shedCount: Int,
+    /** FACT 1 of 2: animals this person has a recorded weight for, submitted or not. */
+    val animalsWeighed: Int,
+    /** FACT 2 of 2: the subset of [animalsWeighed] submitted for verification. */
+    val animalsSubmitted: Int,
+    val notStarted: Int,
+    val capturing: Int,
+    val submitted: Int,
+    val accepted: Int,
+    /** Buckets a verifier sent back. Overlaps the four state counts; never added to them. */
+    val rework: Int,
+) {
+    /** Nobody holds these buckets yet. Distinct from a roster gap, which has an id. */
+    val isUnassigned: Boolean get() = operatorUserId.isBlank()
+
+    /** An assigned bucket whose owner has no active workforce record. */
+    val hasRosterGap: Boolean get() = operatorUserId.isNotBlank() && name.isBlank()
+}
+
 data class WeighingAssignmentUiRow(
     val campaignId: String,
     val tenantId: String,
@@ -195,6 +298,11 @@ data class WeighingAssignmentUiRow(
     val expectedLocationLabel: String,
     val label: String,
     val category: String,
+    /**
+     * The assignee's backend-resolved display NAME. Blank means the screen says so rather than
+     * falling back to a user id; the oversight surface exists to answer "who did this".
+     */
+    val operatorName: String = "",
     val status: String,
     // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
     // list to count against.
@@ -347,11 +455,6 @@ fun WeighingScreen(
                     isSyncing = state.loading,
                     onSync = onRefresh,
                     contentDescription = stringResource(R.string.weighing_refresh),
-                )
-                MeshaIconButton(
-                    icon = MeshaIcons.Bell,
-                    contentDescription = stringResource(R.string.weighing_alerts),
-                    onClick = {},
                 )
             },
         )
@@ -1073,20 +1176,38 @@ private fun WeighingExecutionScanScreen(
             )
         },
         bottomBar = {
-            ActionButton(
-                text = if (state.isShedPartition) {
-                    stringResource(R.string.weighing_submit_lump_sum)
-                } else {
-                    stringResource(R.string.weighing_submit)
-                },
-                enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
-                onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MeshaColors.PageBg)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                primary = true,
-            )
+                    .background(MeshaColors.PageBg),
+            ) {
+                // Disabled-with-reason: never a dead button on its own. The line says which
+                // single thing is holding the submission up (usually a video still going up).
+                state.submitBlockedReason?.let { reason ->
+                    Text(
+                        text = stringResource(reason),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.bodyStrong,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                    )
+                }
+                ActionButton(
+                    text = if (state.isShedPartition) {
+                        stringResource(R.string.weighing_submit_lump_sum)
+                    } else {
+                        stringResource(R.string.weighing_submit)
+                    },
+                    enabled = if (state.isShedPartition) state.canRecordShedPartition else state.individualSubmitReady,
+                    onClick = if (state.isShedPartition) onRecordShedPartition else onSubmitIndividualScope,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    primary = true,
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -1501,16 +1622,24 @@ private fun WeighingLumpSumCapture(
                 style = MeshaType.bodyStrong,
             )
         }
+        // What this shed's proof ACTUALLY holds, by upload state. Deliberately not "N / 5":
+        // weighing is free-flow and there is no required video count — 5 is the MOST a shed can
+        // hold, not a target — so "1 / 5" read as "4 still missing" when nothing was missing, and
+        // it counted a video that had merely been ADDED as "uploaded" while it was still in flight.
         Text(
-            text = stringResource(
-                R.string.weighing_videos_uploaded_fmt,
-                state.shedProofs.size,
-                SHED_PROOF_VIDEO_LIMIT,
-            ),
+            text = shedVideoSummary(state.shedProofs),
             color = if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) MeshaColors.Warn else MeshaColors.Muted,
             style = MeshaType.bodyStrong,
             modifier = Modifier.fillMaxWidth(),
         )
+        if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) {
+            Text(
+                text = stringResource(R.string.weighing_videos_limit_reached),
+                color = MeshaColors.Warn,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         state.shedProofs.forEachIndexed { index, proof ->
             val proofColor = when (proof.status) {
                 ProofUploadStatus.SYNCED -> MeshaColors.Ok
@@ -1596,7 +1725,7 @@ private fun WeighingLumpSumCapture(
             } else {
                 stringResource(R.string.weighing_add_another_video)
             },
-            enabled = !state.actionInFlight && state.shedProofs.size < 5,
+            enabled = !state.actionInFlight && state.shedProofs.size < SHED_PROOF_VIDEO_LIMIT,
             onClick = {
                 dismissKeyboard()
                 onCaptureShedVideo()

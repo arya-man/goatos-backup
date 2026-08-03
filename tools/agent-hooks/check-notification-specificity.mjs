@@ -81,7 +81,11 @@ const RAW_TOKEN_IN_STRING = /["'`][^"'`]*\b[a-z]+(?:_[a-z]+){2,}\b[^"'`]*["'`]/;
 // Tokens/markers that indicate the string (or the surrounding construction) carries real
 // specificity: a location reference, a vaccine/work-item name reference, a count, or a date.
 const LOCATION_MARKERS = /\b(?:park|shed|partition|location|Park|Shed|Partition|Location)\b|parkName|shedName|shedLabel|partitionLabel/;
-const NAME_MARKERS = /vaccineLabel|vaccine_labels|driveName|workNoun|profile\.\w*[Nn]oun|itemName|VACCINE_LABEL/;
+// `SubjectLabel` / a local `subject` spliced into the copy IS a farm entity: it resolves to the
+// shed or record under review (e.g. "Gandhi 2"), which is exactly the context this rule exists to
+// require. Matched only in concatenation position (`subject +`) so the ordinary English word
+// "subject" inside prose cannot satisfy the rule by accident.
+const NAME_MARKERS = /vaccineLabel|vaccine_labels|driveName|workNoun|profile\.\w*[Nn]oun|itemName|VACCINE_LABEL|SubjectLabel|subjectLabel|\bsubject\s*\+/;
 const DATE_MARKERS = /businessDate|dueAt|due_at|\.Format\(|asOf|as_of|IST\b|dueDate|scheduledFor/;
 const COUNT_MARKERS = /len\(|%d|count\b|Count\b/;
 

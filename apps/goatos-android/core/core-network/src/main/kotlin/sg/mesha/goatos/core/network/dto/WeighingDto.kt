@@ -47,6 +47,23 @@ data class WeighingCampaignShedDto(
     @SerialName("rework_count") val reworkCount: Int = 0,
     /** True only when this bucket is submitted and every observation on it is verified. */
     @SerialName("ready_to_close") val readyToClose: Boolean = false,
+    /**
+     * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a RECORDED weight for,
+     * submitted or not: one per individual observation, plus the recorded head count of the
+     * standing lump-sum proof.
+     *
+     * A plain count, NEVER a numerator: weighing is free-flow, so there is no expected-animal
+     * total to divide it by. Render it as-is and never as a percentage or a progress-bar fill.
+     */
+    @SerialName("animals_weighed_count") val animalsWeighedCount: Int = 0,
+    /**
+     * FACT 2 of 2. The subset of [animalsWeighedCount] that has been SUBMITTED for verification.
+     *
+     * Always rendered WITH the weighed count, as "N weighed · N submitted" — never alone. Mid-shift
+     * the two legitimately differ (weighed 3, submitted 0), and that gap is exactly where work is
+     * silently lost when an operator walks away; a single number cannot say it.
+     */
+    @SerialName("animals_submitted_count") val animalsSubmittedCount: Int = 0,
 )
 
 /**
@@ -140,11 +157,54 @@ data class WeighingParkListResponseDto(
     @SerialName("trace_id") val traceId: String? = null,
 )
 
+/**
+ * What ONE person's weighing work adds up to, as the BACKEND counts it.
+ *
+ * Every field is a plain count and none is ever a numerator: weighing is free-flow, there is no
+ * expected-animal roster, so no share or percentage can honestly be built from any of these.
+ * [notStartedCount] + [capturingCount] + [submittedCount] + [acceptedCount] == [shedCount]
+ * exactly — the four are disjoint and exhaustive over the live bucket statuses — which is what
+ * lets the oversight screen draw a DISCRETE state ladder instead of an invented fraction.
+ *
+ * The counts range over the whole park filter, not over a loaded page, so they do not move as the
+ * reader scrolls. The client must never rebuild them by grouping shed rows it happens to hold.
+ */
+@Serializable
+data class WeighingOperatorSummaryDto(
+    /** Empty on the "nobody is assigned yet" row, which is real work leadership must see. */
+    @SerialName("operator_user_id") val operatorUserId: String = "",
+    /**
+     * Backend-resolved name. Blank WITH a non-blank [operatorUserId] is a roster gap, NOT
+     * "unassigned"; the screen names the gap and never falls back to rendering a user id.
+     */
+    @SerialName("operator_display_name") val operatorDisplayName: String = "",
+    @SerialName("shed_count") val shedCount: Int = 0,
+    @SerialName("not_started_count") val notStartedCount: Int = 0,
+    @SerialName("capturing_count") val capturingCount: Int = 0,
+    @SerialName("submitted_count") val submittedCount: Int = 0,
+    @SerialName("accepted_count") val acceptedCount: Int = 0,
+    /** Buckets a verifier bounced back. OVERLAPS the four state counts; never added to them. */
+    @SerialName("rework_count") val reworkCount: Int = 0,
+    /**
+     * How many ANIMALS this person's buckets account for: one per individual observation plus the
+     * recorded head count of a standing lump-sum weighing. A plain total of work done.
+     */
+    @SerialName("animals_weighed_count") val animalsWeighedCount: Int = 0,
+    /**
+     * The subset of [animalsWeighedCount] this person has SUBMITTED for verification. Rendered
+     * with the weighed count as "N weighed · N submitted"; the same two facts, with the same two
+     * definitions, that the per-bucket task detail shows.
+     */
+    @SerialName("animals_submitted_count") val animalsSubmittedCount: Int = 0,
+)
+
 @Serializable
 data class WeighingCampaignListResponseDto(
     @SerialName("items") val items: List<WeighingCampaignDto> = emptyList(),
     /** Whole-filter task tally behind the two task tabs. Never derived from [items]. */
     @SerialName("counts") val counts: WeighingCampaignCountsDto = WeighingCampaignCountsDto(),
+    /** Backend-owned OPERATOR-grain roll-up behind the oversight surface. Never derived from [items]. */
+    @SerialName("operator_summaries") val operatorSummaries: List<WeighingOperatorSummaryDto> = emptyList(),
     @SerialName("capabilities") val capabilities: WeighingCapabilitiesDto = WeighingCapabilitiesDto(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
@@ -407,4 +467,48 @@ data class WeighingScopeCloseRequestDto(
 data class WeighingScopeSubmitRequestDto(
     @kotlinx.serialization.SerialName("scanned_identifiers")
     val scannedIdentifiers: List<String>,
+)
+
+/**
+ * ONE weighing work-state transition that was routed to the caller.
+ *
+ * Every human-visible string here is BACKEND-AUTHORED and rendered verbatim: [title], [body] and
+ * (on the page) the screen title and empty-state sentence. The app composes no weighing copy of
+ * its own -- see contracts/openapi/app-api.yaml#WeighingAlert.
+ *
+ * Weighing is free-flow and fully herd-isolated, so no field here names a goat, carries a herd
+ * identity, or reports a share of an expected roster. A row identifies a shed, a bucket, a
+ * campaign and a park -- nothing below that.
+ */
+@Serializable
+data class WeighingAlertDto(
+    @SerialName("alert_id") val alertId: String = "",
+    /** Producer's transition type (weighing_campaign_published, weighing_shed_submitted, ...).
+     *  Safe to branch on for iconography; NEVER rebuild the sentence from it. */
+    @SerialName("kind") val kind: String = "",
+    /** "downstream" (landed on the person who must act) or "upstream" (on the person who
+     *  oversees). Which way this alert travelled FOR THIS RECIPIENT. */
+    @SerialName("direction") val direction: String = "",
+    @SerialName("title") val title: String = "",
+    @SerialName("body") val body: String = "",
+    /** "normal" or "high". */
+    @SerialName("severity") val severity: String = "",
+    /** In-app destination this row opens, chosen by the backend (e.g. "/weighing"). */
+    @SerialName("target") val target: String = "",
+    @SerialName("shed_label") val shedLabel: String? = null,
+    @SerialName("campaign_id") val campaignId: String? = null,
+    @SerialName("park_id") val parkId: String? = null,
+    @SerialName("occurred_at") val occurredAt: String = "",
+)
+
+/** ONE keyset page of the caller's weighing alerts, newest first. */
+@Serializable
+data class WeighingAlertPageResponseDto(
+    @SerialName("items") val items: List<WeighingAlertDto> = emptyList(),
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    /** Backend-owned screen title. Render this; do not hardcode a weighing string. */
+    @SerialName("title") val title: String = "",
+    /** Backend-owned empty-state sentence, shown when [items] is empty. */
+    @SerialName("empty_message") val emptyMessage: String = "",
+    @SerialName("trace_id") val traceId: String? = null,
 )

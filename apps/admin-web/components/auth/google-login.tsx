@@ -9,6 +9,7 @@ import {
   signInWithEmailPassword,
   signInWithGoogleIdToken,
 } from "@/lib/auth/firebase-client";
+import { GOOGLE_REDIRECT_ROUTE } from "@/lib/auth/session-cookie";
 
 const DEFAULT_NEXT_PATH = "/";
 
@@ -21,6 +22,8 @@ type GoogleAccountsID = {
   initialize(options: {
     client_id: string;
     callback: (response: GoogleCredentialResponse) => void;
+    login_uri?: string;
+    ux_mode?: "popup" | "redirect";
     auto_select?: boolean;
     cancel_on_tap_outside?: boolean;
     hd?: string;
@@ -40,8 +43,14 @@ type GoogleAccountsID = {
       shape?: "rectangular" | "pill" | "circle" | "square";
       logo_alignment?: "left" | "center";
       width?: number;
+      state?: string;
     },
   ): void;
+};
+
+type GoogleRedirectCredentialResponse = {
+  credential?: string;
+  error?: string;
 };
 
 declare global {
@@ -67,6 +76,7 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
   const buttonContainerRef = useRef<HTMLDivElement | null>(null);
   const renderedButton = useRef(false);
   const mounted = useRef(false);
+  const consumedRedirectCredential = useRef(false);
 
   const navigateToNext = useCallback(() => {
     setStatus("redirecting");
@@ -100,6 +110,48 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
     },
     [navigateToNext],
   );
+
+  useEffect(() => {
+    if (consumedRedirectCredential.current) return;
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get("google_error")) {
+      consumedRedirectCredential.current = true;
+      window.setTimeout(() => {
+        if (!mounted.current) return;
+        setStatus("ready");
+        setMessage("Google sign-in did not return a valid credential. Try again.");
+      }, 0);
+      return;
+    }
+    if (searchParams.get("google_redirect") !== "1") return;
+
+    consumedRedirectCredential.current = true;
+    window.setTimeout(() => {
+      if (!mounted.current) return;
+      setAuthMethod("google");
+      setStatus("signing_in");
+      setMessage(null);
+      setNotice(null);
+      void fetch(GOOGLE_REDIRECT_ROUTE, { cache: "no-store" })
+        .then(async (response) => {
+          const payload = (await response.json().catch(() => ({}))) as GoogleRedirectCredentialResponse;
+          if (!response.ok || !payload.credential) {
+            throw new Error("Google sign-in did not return a valid credential. Try again.");
+          }
+          return signInWithGoogleIdToken(payload.credential);
+        })
+        .then(() => {
+          if (!mounted.current) return;
+          navigateToNext();
+        })
+        .catch((error: unknown) => {
+          if (!mounted.current) return;
+          setAuthMethod(null);
+          setStatus("ready");
+          setMessage(messageForSignInError(error));
+        });
+    }, 0);
+  }, [navigateToNext]);
 
   const handleEmailPasswordSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -191,25 +243,19 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
     }
 
     renderedButton.current = true;
+    const loginUri = new URL(GOOGLE_REDIRECT_ROUTE, window.location.origin).toString();
     googleID.initialize({
       client_id: googleClientId,
       callback: handleCredential,
+      login_uri: loginUri,
+      ux_mode: "redirect",
       auto_select: false,
       cancel_on_tap_outside: true,
       hd: "mesha.sg",
       context: "signin",
-      // Without itp_support, browsers with third-party cookies blocked (Safari
-      // ITP, Chrome third-party-cookie phase-out) make GSI fall back to an
-      // intermediate storage-access popup at accounts.google.com/gsi/transform.
-      // That popup's own postMessage/close handshake with the opener can be left
-      // hanging (blank white window) once we resolve the credential. itp_support
-      // tells GSI to manage that handshake properly so the popup closes itself.
-      // The rendered button flow has its own FedCM switch; without it, clicking
-      // Continue with Google can still use the popup path even if prompt FedCM is
-      // enabled.
+      // Use redirect mode so Google never leaves a separate
+      // accounts.google.com/gsi/transform popup behind.
       itp_support: true,
-      use_fedcm_for_prompt: true,
-      use_fedcm_for_button: true,
       button_auto_select: false,
     });
     googleID.renderButton(buttonContainerRef.current, {
@@ -220,9 +266,10 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
       shape: "rectangular",
       logo_alignment: "left",
       width: 340,
+      state: safeNextPath(nextPath),
     });
     window.setTimeout(() => setStatus("ready"), 0);
-  }, [googleClientId, handleCredential, scriptReady]);
+  }, [googleClientId, handleCredential, nextPath, scriptReady]);
 
   const isBusy = status === "loading" || status === "signing_in" || status === "sending_reset" || status === "redirecting";
   const showAuthProgress = status === "signing_in" || status === "redirecting";

@@ -13,6 +13,7 @@ import org.robolectric.annotation.Config
 import sg.mesha.goatos.core.data.cache.AdherenceCacheEntity
 import sg.mesha.goatos.core.data.cache.CalendarCacheEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionRowsCacheEntity
 import sg.mesha.goatos.core.data.cache.ExecutionShedCacheEntity
 import sg.mesha.goatos.core.data.cache.InsightsCoverageCacheEntity
@@ -49,6 +50,7 @@ class RoomScreenCacheStoreTest {
             db.bootstrapCacheDao().upsert(BootstrapCacheEntity(dtoJson = "{}", updatedAt = 1L))
             db.calendarCacheDao().upsert(CalendarCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.controlTowerCacheDao().upsert(ControlTowerCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
+            db.weighingAlertsCacheDao().upsert(WeighingAlertsCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.executionRowsCacheDao().upsert(ExecutionRowsCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.executionShedCacheDao().upsert(ExecutionShedCacheEntity(cacheKey = key, dtoJson = "{}", updatedAt = 1L))
             db.scanRosterRowDao().upsert(
@@ -137,6 +139,9 @@ class RoomScreenCacheStoreTest {
             assertNull("bootstrap cache wiped", db.bootstrapCacheDao().get())
             assertNull("calendar cache wiped", db.calendarCacheDao().observe(key).first())
             assertNull("control tower cache wiped", db.controlTowerCacheDao().observe(key).first())
+            // Sign-out MUST wipe weighing alerts too: on a shared shed phone the next operator
+            // signing in would otherwise open the tab on the previous person's work messages.
+            assertNull("weighing alerts cache wiped", db.weighingAlertsCacheDao().observe(key).first())
             assertNull("execution rows cache wiped", db.executionRowsCacheDao().observe(key).first())
             assertNull("execution shed cache wiped", db.executionShedCacheDao().observe(key).first())
             assertEquals("scan roster rows wiped", 0, db.scanRosterRowDao().observeScopeTotal(key).first())

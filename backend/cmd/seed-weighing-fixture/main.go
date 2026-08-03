@@ -651,7 +651,7 @@ ON CONFLICT (proof_id) DO UPDATE SET upload_state = 'completed', subject_type = 
 		}
 	}
 	for _, observation := range fx.Observations {
-		expectedID, expectedLabel, actualID, actualLabel, mismatch := observationLocationContext(observation, fx, locationIDs)
+		expectedID, expectedLabel, actualID, actualLabel := observationLocationContext(observation, fx, locationIDs)
 		// FREE-FLOW: weighing_observations.animal_id was DROPPED (migration
 		// 000078) -- the write path never resolves a scan to herd identity, so
 		// this fixture importer must not either. scanned_identifier is the raw
@@ -664,10 +664,10 @@ ON CONFLICT (proof_id) DO UPDATE SET upload_state = 'completed', subject_type = 
 		}
 		if _, err := tx.Exec(ctx, // scale-guard:ignore: local E2E seed imports bounded observation fixture rows
 			`
-INSERT INTO public.weighing_observations (observation_id, tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, mismatch_status, recorded_by, idempotency_key)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO public.weighing_observations (observation_id, tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, expected_location_id, expected_location_label, actual_location_id, actual_location_label, recorded_by, idempotency_key)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT (tenant_id, idempotency_key) DO UPDATE SET weight_kg = EXCLUDED.weight_kg, proof_artifact_id = EXCLUDED.proof_artifact_id`,
-			observation.ObservationID, fx.TenantID, fx.Campaign.CampaignID, observation.CampaignShedID, scannedIdentifier, observation.WeightKG, observation.ProofArtifactID, expectedID, expectedLabel, actualID, actualLabel, mismatch, operatorID, observation.IDempotencyKey); err != nil {
+			observation.ObservationID, fx.TenantID, fx.Campaign.CampaignID, observation.CampaignShedID, scannedIdentifier, observation.WeightKG, observation.ProofArtifactID, expectedID, expectedLabel, actualID, actualLabel, operatorID, observation.IDempotencyKey); err != nil {
 			return fmt.Errorf("upsert observation %s: %w", observation.ObservationID, err)
 		}
 	}
@@ -926,10 +926,15 @@ func proofMetadata(proof proofFixture) string {
 	return string(body)
 }
 
-func observationLocationContext(observation observationFixture, fx fixture, locationIDs map[string]string) (any, any, any, any, string) {
+// The fixture no longer derives a roster verdict. weighing_observations.
+// mismatch_status was DROPPED (migration 000081): free-flow weighing has no
+// expected set, so a scan cannot be "expected", "wrong shed" or "extra".
+// The fixture still carries where the animal was expected and where it actually
+// was -- those are places, not verdicts, and the read path renders them as such.
+func observationLocationContext(observation observationFixture, fx fixture, locationIDs map[string]string) (any, any, any, any) {
 	animal := animalByID(fx, observation.AnimalID)
 	if animal == nil {
-		return nil, nil, nil, nil, "extra_scan"
+		return nil, nil, nil, nil
 	}
 	expectedLabel := deref(animal.ExpectedLocationLabel)
 	if observation.ExpectedLocationLabel != nil {
@@ -939,14 +944,7 @@ func observationLocationContext(observation observationFixture, fx fixture, loca
 	if observation.ActualLocationLabel != nil {
 		actualLabel = *observation.ActualLocationLabel
 	}
-	mismatch := "expected_shed"
-	switch observation.LocationMatchStatus {
-	case "other_shed":
-		mismatch = "wrong_shed"
-	case "not_in_campaign":
-		mismatch = "extra_scan"
-	}
-	return nullableID(locationIDs[expectedLabel]), nullableText(expectedLabel), nullableID(locationIDs[actualLabel]), nullableText(actualLabel), mismatch
+	return nullableID(locationIDs[expectedLabel]), nullableText(expectedLabel), nullableID(locationIDs[actualLabel]), nullableText(actualLabel)
 }
 
 func animalByID(fx fixture, id string) *animalFixture {

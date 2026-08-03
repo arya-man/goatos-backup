@@ -27,11 +27,13 @@ import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
+import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
+import sg.mesha.goatos.core.network.dto.WeighingOperatorSummaryDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
@@ -101,6 +103,15 @@ data class WeighingAssignment(
     val label: String,
     val category: String,
     val operatorUserId: String,
+    /**
+     * Backend-resolved assignee NAME, carried on the bucket itself.
+     *
+     * The oversight surface renders who did the work, so the name has to travel WITH the row.
+     * Blank with a non-blank [operatorUserId] is a roster gap, not "not assigned yet"; a user id is
+     * never rendered in its place, and the client never joins the row against a separately paged
+     * operator vocabulary to find it.
+     */
+    val operatorDisplayName: String = "",
     val status: String,
     // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
     // list to count against. See docs/decisions/mobile-data-fetch-anti-patterns.md.
@@ -149,6 +160,17 @@ data class WeighingTaskShed(
     val pendingVerificationCount: Int,
     val reworkCount: Int,
     val readyToClose: Boolean,
+    /**
+     * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a recorded weight for,
+     * submitted or not. A plain count, never divided by anything: weighing is free-flow, so there
+     * is no expected-animal total that a share could be taken of.
+     */
+    val animalsWeighedCount: Int = 0,
+    /**
+     * FACT 2 of 2. The subset of [animalsWeighedCount] SUBMITTED for verification. Shown WITH the
+     * weighed count ("N weighed · N submitted"), never on its own.
+     */
+    val animalsSubmittedCount: Int = 0,
 )
 
 /**
@@ -354,6 +376,39 @@ data class WeighingPage<T>(
      * unreachable from every assignment surface even for the role that owns them.
      */
     val capabilities: WeighingCapabilities = WeighingCapabilities(),
+    /**
+     * The backend's OPERATOR-grain roll-up for this request, carried beside the paged rows.
+     *
+     * It is deliberately NOT derived from [items]: [items] is one keyset page, so anything counted
+     * from it would describe the page rather than the person and would change as the reader
+     * scrolls. This list is whole-filter truth the server computed.
+     */
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
+)
+
+/**
+ * What ONE person's weighing work adds up to, as the backend counts it.
+ *
+ * Plain counts only. [notStarted] + [capturing] + [submitted] + [accepted] == [shedCount], which is
+ * why the oversight screen can draw a discrete state ladder; nothing here is ever a numerator,
+ * because free-flow weighing has no expected-animal total to divide by.
+ */
+data class WeighingOperatorSummary(
+    /** Blank on the "nobody is assigned yet" row. */
+    val operatorUserId: String,
+    /** Backend-resolved name. Blank with a non-blank id is a roster gap, not "unassigned". */
+    val operatorDisplayName: String,
+    val shedCount: Int,
+    val notStarted: Int,
+    val capturing: Int,
+    val submitted: Int,
+    val accepted: Int,
+    /** Buckets a verifier bounced back. Overlaps the four state counts; never added to them. */
+    val rework: Int,
+    /** FACT 1 of 2: animals this person has a recorded weight for, submitted or not. */
+    val animalsWeighed: Int,
+    /** FACT 2 of 2: the subset of [animalsWeighed] submitted for verification. */
+    val animalsSubmitted: Int,
 )
 
 
@@ -717,9 +772,10 @@ class DefaultWeighingRepository(
                         canEnd = response.capabilities.canEnd,
                         canReopen = response.capabilities.canReopen,
                     ),
+                    operatorSummaries = response.operatorSummaries.map { it.toOperatorSummary() },
                 ),
             )
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing assignments.")) }
     }
 
     // --- Leadership reads: Room is the SSOT, the network only writes into it -----------
@@ -807,7 +863,7 @@ class DefaultWeighingRepository(
                 }
                 AppResult.Ok(response.items.size)
             // Room keeps whatever it already had: a failed page leaves the cached list on screen.
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing tasks.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing tasks.")) }
         }
 
     override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> =
@@ -917,7 +973,7 @@ class DefaultWeighingRepository(
                     }
                 }
                 AppResult.Ok(response.items.size)
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load this task.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task.")) }
         }
 
     override fun observeLeadershipShed(
@@ -978,7 +1034,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.individual.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load this shed.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this shed.")) }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -1061,7 +1117,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing videos.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -1130,7 +1186,7 @@ class DefaultWeighingRepository(
                     catalog.pruneOperatorsOutsideNewestQueries(WEIGHING_CACHED_CATALOG_DATES)
                 }
                 AppResult.Ok(response.parks.size)
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing planner.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
         }
 
     override fun observePlannerParkBuckets(
@@ -1219,7 +1275,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.sheds.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing planner.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
     }
 
     /**
@@ -1301,7 +1357,8 @@ class DefaultWeighingRepository(
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
         runCatching {
-            val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:${draft.sheds.joinToString(",") { it.locationId }}"
+            val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:" +
+                weighingBucketSetDigest(draft.sheds.map { it.locationId })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1309,7 +1366,7 @@ class DefaultWeighingRepository(
             val publishIdem = "weighing:publish:${created.campaignId}"
             val published = client.publishWeighingCampaign(created.campaignId, publishIdem).campaign
             AppResult.Ok(published.toAssignments(WEIGHING_SCOPE_MINE).firstOrNull())
-        }.getOrElse { AppResult.Err(it.message ?: "Could not publish weighing plan.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish weighing plan.")) }
     }
 
     override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> = withContext(Dispatchers.IO) {
@@ -1319,7 +1376,7 @@ class DefaultWeighingRepository(
             // The key names the WORK, not the attempt: the same date, park and bucket set is the
             // same task, so a retry after a dropped response cannot create a second one.
             val createIdem = "weighing:create:${draft.startBusinessDate}:${draft.parkId}:" +
-                draft.sheds.joinToString(",") { "${it.locationId}:${it.category}:${it.operatorUserId}" }
+                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.category}:${it.operatorUserId}" })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1328,7 +1385,7 @@ class DefaultWeighingRepository(
                 client.publishWeighingCampaign(created.campaignId, "weighing:publish:${created.campaignId}")
             }
             AppResult.Ok(created.campaignId)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not save this weighing task.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not save this weighing task.")) }
     }
 
     override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> = withContext(Dispatchers.IO) {
@@ -1345,7 +1402,7 @@ class DefaultWeighingRepository(
                 updated
             }
             AppResult.Ok(visible.toAssignments(WEIGHING_SCOPE_MINE).firstOrNull())
-        }.getOrElse { AppResult.Err(it.message ?: "Could not update weighing plan.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not update weighing plan.")) }
     }
 
     override suspend fun publishCampaign(campaignId: String): AppResult<Unit> = withContext(Dispatchers.IO) {
@@ -1356,7 +1413,7 @@ class DefaultWeighingRepository(
             // publish twice. Same key the authoring flow uses for the same campaign.
             client.publishWeighingCampaign(campaignId, "weighing:publish:$campaignId")
             AppResult.Ok(Unit)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not publish this weighing task.", it) }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish this weighing task."), it) }
     }
 
     override suspend fun refreshScope(
@@ -1436,7 +1493,7 @@ class DefaultWeighingRepository(
                 publishAccepted()
             } ?: publishAccepted()
             AppResult.Ok(accepted.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not refresh weighing roster.")) }
     }
 
     override suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch = withContext(Dispatchers.IO) {
@@ -1480,7 +1537,7 @@ class DefaultWeighingRepository(
                 )
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't submit weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
             }
         }
 
@@ -1503,7 +1560,7 @@ class DefaultWeighingRepository(
                 advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't reopen weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't reopen weighing shed."), error)
             }
         }
 
@@ -1526,7 +1583,7 @@ class DefaultWeighingRepository(
                 advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't close weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't close weighing shed."), error)
             }
         }
 
@@ -1569,7 +1626,7 @@ class DefaultWeighingRepository(
                 advanceTransitionEpoch(campaignId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't close weighing campaign.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't close weighing campaign."), error)
             }
         }
 
@@ -1651,6 +1708,41 @@ class DefaultWeighingRepository(
             row.proofCaptureId == proofCaptureId &&
             row.serverProofId == serverProofId
         ) {
+            return@withContext
+        }
+        // REDELIVERY, NOT A REVISION. This method has two callers for the same row: the
+        // capture screen attaches the proof as soon as the upload completes, and the
+        // observeReadyProofs() reconciler independently replays every ready proof (that
+        // replay is deliberate -- it is how a capture survives the screen being closed
+        // mid-upload). When the replay carries the SAME serverProofId for a row whose write
+        // is ALREADY queued, nothing about the capture changed: same tag, same weight, same
+        // proof. Minting a `:proof:` key for it posts the identical capture a second time
+        // under a second idempotency key, and the backend -- which can only compare keys --
+        // classifies it as an EDIT, withdrawing the pending verification item and raising a
+        // fresh round. The first real device run produced 20 verification items and 20
+        // accepted events for 10 captures this way.
+        //
+        // The `:proof:` suffix stays for what it was built for: a row whose base key changed
+        // (a weight correction on an already-accepted capture) or a genuinely re-shot proof.
+        // Both of those still have no queued write under the row's CURRENT key, so both still
+        // enqueue below.
+        //
+        // "Already queued" must mean the write is STILL GOING TO REACH THE SERVER -- not merely
+        // that a row exists under the key. `findOutboxItemByIdempotencyKey` has no status
+        // predicate, so it also matches TERMINAL rows: a dead-lettered `conflict` row and an
+        // attempt-exhausted FAILED row are both present and both permanently unclaimable
+        // (OutboxDao.eligibleForDrain requires `attemptCount < maxAttempts AND conflict = 0`).
+        // Suppressing on those strands the capture forever -- and that is not hypothetical: 403
+        // stays RETRYABLE (core-network/RetryClassification.kt), so the growth-director
+        // permission failure burned the whole retry budget and left exactly such a corpse. The
+        // `:proof:` re-mint is the RECOVERY path for it. A SUCCEEDED row, by contrast, did reach
+        // the server, so re-posting it under a second key would be the very fan-out above.
+        val alreadyQueuedForThisProof = row.serverProofId == serverProofId &&
+            !serverProofId.isNullOrBlank() &&
+            (syncRepository?.findOutboxItemByIdempotencyKey(row.idempotencyKey) as? AppResult.Ok)
+                ?.value
+                ?.let { it.isActive || it.status == SyncItemStatus.SUCCEEDED } == true
+        if (alreadyQueuedForThisProof) {
             return@withContext
         }
         val isProofRevision = !row.serverProofId.isNullOrBlank()
@@ -1999,6 +2091,8 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
         pendingVerificationCount = pendingVerificationCount,
         reworkCount = reworkCount,
         readyToClose = readyToClose,
+        animalsWeighedCount = animalsWeighedCount,
+        animalsSubmittedCount = animalsSubmittedCount,
     )
 
 
@@ -2089,8 +2183,24 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                     pendingVerificationCount = shed.pendingVerificationCount,
                     reworkCount = shed.reworkCount,
                     readyToClose = shed.readyToClose,
+                    animalsWeighedCount = shed.animalsWeighedCount,
+                    animalsSubmittedCount = shed.animalsSubmittedCount,
                 )
             },
+    )
+
+private fun WeighingOperatorSummaryDto.toOperatorSummary(): WeighingOperatorSummary =
+    WeighingOperatorSummary(
+        operatorUserId = operatorUserId,
+        operatorDisplayName = operatorDisplayName,
+        shedCount = shedCount,
+        notStarted = notStartedCount,
+        capturing = capturingCount,
+        submitted = submittedCount,
+        accepted = acceptedCount,
+        rework = reworkCount,
+        animalsWeighed = animalsWeighedCount,
+        animalsSubmitted = animalsSubmittedCount,
     )
 
 private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssignment> =
@@ -2120,6 +2230,7 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 label = shed.displayName,
                 category = shed.weighingCategory,
                 operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
+                operatorDisplayName = shed.operatorDisplayName,
                 status = shed.status,
                 periodLabel = listOf(periodStartDate, periodEndDate)
                     .filter { it.isNotBlank() }
@@ -2128,6 +2239,30 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 pendingVerificationCount = shed.pendingVerificationCount,
             )
         }
+
+/**
+ * Collapses a campaign's bucket set into a fixed-width digest.
+ *
+ * The campaign-create key names the WORK ("same date, park and bucket set is the same task"), so
+ * it embedded the full bucket list verbatim. That makes the key grow without bound: the first real
+ * device run produced create keys of 249 and 431 characters. The domain-event envelope caps
+ * idempotency_key at 320 and trace_id at 200, so those events were written and then permanently
+ * rejected by the relay as invalid_event_envelope -- marked failed on attempt 1, never retried,
+ * never dead-lettered. Two of two campaign_created events died that way.
+ *
+ * A digest keeps the identity the comment promises (same bucket set -> same key) at a constant 64
+ * characters. Sorting first fixes a second, quieter bug in the same line: the list was in UI order,
+ * so selecting the same sheds in a different order produced a DIFFERENT key and could create a
+ * duplicate campaign.
+ *
+ * Note for rollout: this changes the key VALUE, so an in-flight create issued by the previous build
+ * and retried by this one would not deduplicate against it.
+ */
+internal fun weighingBucketSetDigest(buckets: List<String>): String {
+    val canonical = buckets.sorted().joinToString(",")
+    val digest = java.security.MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
+    return digest.joinToString("") { "%02x".format(it) }
+}
 
 fun individualIdempotencyKey(
     campaignId: String,

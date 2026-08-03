@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
+import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
@@ -51,8 +52,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
+import sg.mesha.goatos.feature.weighing.WEIGHING_BUCKET_LADDER_STEPS
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingOperatorFilterUiRow
+import sg.mesha.goatos.feature.weighing.WeighingOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
@@ -129,9 +133,31 @@ class WeighingViewModel @Inject constructor(
     private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
     private val rawProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
     private val sessionProofIds = MutableStateFlow<Set<String>>(emptySet())
+    // De-duplication for proof-upload telemetry: Room re-emits the same failed row on every
+    // observation pass, so without these a single stuck upload would spam the funnel. Bounded by
+    // the number of proofs one scope can hold (<= 5 shed videos + the per-animal captures).
+    // mobile-guard:ignore: bounded by ONE scope's proofs. This ViewModel is constructed per
+    // (campaignId, workGroupId, campaignShedId) — see `scopeKey` above — so it is destroyed when
+    // the operator leaves the bucket, and these never outlive a single shed's capture session
+    // (<= 5 shed videos, or that shed's per-animal captures). They do NOT accumulate across a
+    // shift; a new bucket gets a new ViewModel and new empty collections.
+    private val reportedProofUploadTrouble = mutableSetOf<String>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
+
+    // mobile-guard:ignore: same per-scope lifetime as reportedProofUploadTrouble above.
+    private val proofUploadAttempts = mutableMapOf<String, Int>() // mobile-guard:ignore: per-scope ViewModel, dies with the bucket; <= one shed's captures
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)
+
+    /**
+     * The backend's OPERATOR-grain roll-up for the CURRENT park filter.
+     *
+     * Held separately from [assignments] on purpose: [assignments] is a growing keyset page, and
+     * anything counted from it would describe how far the reader has scrolled rather than what a
+     * person actually did. Only a whole-filter read replaces this, so appending a page leaves it
+     * untouched.
+     */
+    private val operatorSummaries = MutableStateFlow<List<WeighingOperatorSummary>>(emptyList())
     private val appendingAssignments = MutableStateFlow(false)
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
@@ -333,13 +359,14 @@ class WeighingViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
-        combine(assignments, selectedAssignmentParkId, appendingAssignments, knownAssignmentParks) {
+        combine(assignments, selectedAssignmentParkId, appendingAssignments, knownAssignmentParks, operatorSummaries) {
                 availableAssignments,
                 selectedParkId,
                 appending,
                 knownParks,
+                summaries,
             ->
-            AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks)
+            AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks, summaries)
         }.let { assignmentSelection ->
             combine(
                 assignmentSelection,
@@ -355,6 +382,7 @@ class WeighingViewModel @Inject constructor(
                     appendingAssignments = selection.appending,
                     knownParks = selection.knownParks,
                     capabilities = capabilities,
+                    operatorSummaries = selection.operatorSummaries,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
@@ -692,6 +720,7 @@ class WeighingViewModel @Inject constructor(
                 availableAssignments = root.assignments,
                 knownParks = root.knownParks,
                 capabilities = root.capabilities,
+                operatorSummaries = root.operatorSummaries,
                 loading = root.loading,
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
@@ -789,6 +818,8 @@ class WeighingViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
+                        // Whole-filter truth: replaced only by a fresh read, never accumulated.
+                        operatorSummaries.value = loaded.value.operatorSummaries
                         assignmentsError.value = null
                         assignmentCapabilities.value = loaded.value.capabilities
                         rememberAssignmentParks(loaded.value.items)
@@ -1668,6 +1699,53 @@ class WeighingViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Makes a struggling proof upload VISIBLE.
+     *
+     * The 2026-08-03 phone-QA blocker (a Growth Director's shed proof 403'd on every
+     * `POST /app/proofs/uploads`, so Submit stayed disabled forever) produced ZERO app-side log
+     * lines across 6000 lines of logcat: the retry loop lived entirely inside the outbox, and the
+     * only UI was the word "uploading". Diagnosis needed the server log and manual DB forensics.
+     *
+     * A proof row that is still non-terminal but already carries a `lastError` IS a retry — that
+     * is the signal that was invisible. Emitting it (once per DISTINCT failure, keyed by proof id
+     * + message, so a Room re-emission of the same state does not inflate the funnel) plus a
+     * Crashlytics non-fatal on the terminal FAILED state gives enough context to diagnose from a
+     * dashboard: which lane (shed vs per-animal), which campaign shed, which attempt, what cause.
+     *
+     * Goat identifiers are livestock data and are safe to carry; no token or credential is ever
+     * put in props, and the reason string is truncated like every other reason field here.
+     */
+    private fun reportProofUploadTrouble(proofs: List<ProofCaptureRow>) {
+        proofs.forEach { proof ->
+            val reason = proof.lastError?.takeIf { it.isNotBlank() } ?: return@forEach
+            val terminal = proof.syncStatus == CaptureSyncStatus.FAILED
+            val signature = "${proof.id}|$reason|$terminal"
+            if (!reportedProofUploadTrouble.add(signature)) return@forEach
+            val attempt = proofUploadAttempts.merge(proof.id, 1, Int::plus) ?: 1
+            val props = buildMap {
+                put(AnalyticsEvents.Params.PROOF_ID, proof.id)
+                put(
+                    AnalyticsEvents.Params.SUBJECT_TYPE,
+                    if (proof.fieldKey == SHED_PARTITION_PROOF_FIELD_KEY) "shed" else "other",
+                )
+                put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+                put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
+                put(AnalyticsEvents.Params.ATTEMPT, attempt.toString())
+                put(AnalyticsEvents.Params.REASON, reason.take(MAX_ANALYTICS_REASON_CHARS))
+            }
+            if (terminal) {
+                crashReporter.recordException(
+                    IllegalStateException(reason),
+                    "weighing proof upload failed",
+                )
+                analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_FAILED, props)
+            } else {
+                analytics.track(AnalyticsEvents.WEIGHING_PROOF_UPLOAD_RETRY, props)
+            }
+        }
+    }
+
     private fun weighingCaptureProps(captureCategory: String): Map<String, String> =
         buildMap {
             put(AnalyticsEvents.Params.CATEGORY, captureCategory)
@@ -1898,6 +1976,7 @@ class WeighingViewModel @Inject constructor(
         availableAssignments: List<WeighingAssignment>,
         knownParks: Map<String, String>,
         capabilities: WeighingCapabilities,
+        operatorSummaries: List<WeighingOperatorSummary>,
         loading: Boolean,
         appendingAssignments: Boolean,
         isPlanner: Boolean,
@@ -1947,6 +2026,9 @@ class WeighingViewModel @Inject constructor(
             // reopen / abandon exactly where the write would be accepted.
             canEndWeighing = capabilities.canEnd,
             canReopenWeighing = capabilities.canReopen,
+            // Backend-owned per-person tallies, handed to the screen untouched. Deliberately NOT
+            // rebuilt from `availableAssignments`: that list is one keyset page.
+            operatorSummaries = operatorSummaries.map { it.toUiRow() },
             loading = loading,
             assignmentsLoadingMore = appendingAssignments,
             category = category,
@@ -2120,6 +2202,7 @@ class WeighingViewModel @Inject constructor(
 
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
         val activeProofs = activeWeighingProofs(proofs, scopeState.value)
+        reportProofUploadTrouble(activeProofs)
         observedProofs.value = activeProofs
         val shedProofIds = syncedShedProofIds(activeProofs)
         activeProofs.forEach { proof ->
@@ -2204,6 +2287,20 @@ private fun normalizeWeighingCategory(raw: String): String =
         else -> raw.trim()
     }
 
+private fun WeighingOperatorSummary.toUiRow(): WeighingOperatorUiRow =
+    WeighingOperatorUiRow(
+        operatorUserId = operatorUserId,
+        name = operatorDisplayName,
+        shedCount = shedCount,
+        animalsWeighed = animalsWeighed,
+        animalsSubmitted = animalsSubmitted,
+        notStarted = notStarted,
+        capturing = capturing,
+        submitted = submitted,
+        accepted = accepted,
+        rework = rework,
+    )
+
 private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
         campaignId = campaignId,
@@ -2216,6 +2313,7 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         expectedLocationLabel = expectedLocationLabel,
         label = label,
         category = category,
+        operatorName = operatorDisplayName,
         status = status.readableWeighingStatus(),
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
         readyToClose = readyToClose,
@@ -2311,6 +2409,8 @@ private data class WeighingRootState(
     val knownParks: Map<String, String> = emptyMap(),
     /** Backend-stated oversight authority for these rows. See [WeighingViewModel] capabilities. */
     val capabilities: WeighingCapabilities = WeighingCapabilities(),
+    /** Backend-owned per-person tallies for the current park filter. Never page-derived. */
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
 )
 
 private data class AssignmentParkSelection(
@@ -2318,6 +2418,7 @@ private data class AssignmentParkSelection(
     val selectedParkId: String?,
     val appending: Boolean = false,
     val knownParks: Map<String, String> = emptyMap(),
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
 )
 
 private data class WeighingCaptureState(
@@ -2406,7 +2507,7 @@ private const val STALE_NOTICE_PREFIX = "Showing the last saved list. "
 /** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
 private const val WEIGHING_GROUP_BUCKET_CAP = 20
 
-private fun WeighingTask?.toTaskDetailUiState(
+internal fun WeighingTask?.toTaskDetailUiState(
     campaignId: String,
     selectedOperatorId: String?,
     operatorNames: Map<String, String>,
@@ -2447,14 +2548,17 @@ private fun WeighingTask?.toTaskDetailUiState(
         .groupBy { it.operatorUserId }
         .map { (operatorUserId, rows) ->
             val id = operatorUserId.ifBlank { "unassigned" }
-            WeighingTaskOperatorFilterUiRow(
+            // Name and count travel SEPARATELY: the screen owns the words, so it can say what
+            // the number is a count OF. Pre-joining them rendered as "Dinakar 2", which reads as
+            // part of a person's name rather than as the two sheds he owns.
+            WeighingOperatorFilterUiRow(
                 id = id,
-                operatorLabel = labelFor(operatorUserId, rows),
+                name = labelFor(operatorUserId, rows),
                 shedCount = rows.size,
                 selected = selectedOperatorId == id,
             )
         }
-        .sortedBy { it.operatorLabel }
+        .sortedBy { it.name }
     val visibleSheds = pagedSheds
         .filter { selectedOperatorId == null || it.operatorUserId.ifBlank { "unassigned" } == selectedOperatorId }
         .map { it.toTaskShedUiRow(this, labelFor(it.operatorUserId, listOf(it))) }
@@ -2476,9 +2580,20 @@ private fun WeighingTask?.toTaskDetailUiState(
         isClosed = normalizedStatus == "closed",
         isCompleted = normalizedStatus == "completed",
         closedReason = closeReason,
-        // A bucket is settled once its work has been accepted; everything else is still open work
-        // this task is carrying.
-        openBucketCount = sheds.count { !it.status.equalsWeighingStatus("closed") },
+        // "Open" is work the FARM still owes: a bucket nobody has submitted yet. A bucket the
+        // operator submitted is not open work — it is waiting on a verifier, a different queue —
+        // so it is counted and NAMED separately. Folding the two together is what made the close
+        // button read "4 still open" beside two cards that plainly said "waiting for verifier".
+        // Both numbers are buckets, never animals.
+        // A bucket a verifier bounced back counts as OPEN, not as awaiting a verifier: the work is
+        // sitting with the operator again, which is exactly what its card says.
+        openBucketCount = sheds.count {
+            !it.status.equalsWeighingStatus("closed") &&
+                (!it.status.equalsWeighingStatus("completed") || it.reworkCount > 0)
+        },
+        awaitingVerificationBucketCount = sheds.count {
+            it.status.equalsWeighingStatus("completed") && it.reworkCount == 0
+        },
         // Status is only HALF the gate: the viewer must also hold the permission the write needs.
         canPublish = normalizedStatus == "draft" && capabilities.canPublish,
         canEnd = capabilities.canEnd &&
@@ -2510,23 +2625,23 @@ private fun WeighingTaskShed.toTaskShedUiRow(task: WeighingTask, operatorLabel: 
         category = category,
         operatorLabel = operatorLabel,
         status = status,
-        // The task payload carries bucket STATE, not a record count, so the line says what state
-        // the bucket is in. It never guesses how many animals were captured.
-        captureSummary = when {
-            reworked -> "Sent back to the operator"
-            normalized == "closed" -> "Accepted"
-            normalized == "completed" -> "Submitted · waiting for verifier"
-            normalized == "in_progress" -> "Capture started"
-            else -> "Nothing captured yet"
-        },
-        // Position on the bucket's own state ladder. NOT a share of animals: weighing has no
-        // expected-animal roster, so an animal denominator would be invented.
-        progress = when {
-            reworked -> 0.25f
-            normalized == "closed" -> 1f
-            normalized == "completed" -> 0.7f
-            normalized == "in_progress" -> 0.35f
-            else -> 0f
+        reworked = reworked,
+        // The TWO named backend facts: animals put on the scale, and the subset of those actually
+        // submitted for verification. Both reported as-is and neither is ever a numerator:
+        // weighing is free-flow, so there is no expected-animal total a share could be taken of,
+        // and one is never divided by the other.
+        animalsWeighedCount = animalsWeighedCount,
+        animalsSubmittedCount = animalsSubmittedCount,
+        // How far along the bucket's own state ladder it stands, as a STEP out of
+        // [WEIGHING_BUCKET_LADDER_STEPS] discrete states — not a fraction. A part-filled bar was
+        // read on the farm as "70% of the animals done", which is a number weighing cannot have.
+        ladderStep = when {
+            // Bounced work is back at the capture rung, which is where its card says it is.
+            reworked -> 1
+            normalized == "closed" -> WEIGHING_BUCKET_LADDER_STEPS
+            normalized == "completed" -> 2
+            normalized == "in_progress" -> 1
+            else -> 0
         },
         // Leadership can pull a bucket back once the operator has submitted it, or after it was
         // accepted or bounced for rework.

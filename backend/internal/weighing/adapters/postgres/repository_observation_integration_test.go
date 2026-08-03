@@ -720,7 +720,17 @@ func TestUpdateCampaignReaddingDeselectedShedRestoresScope(t *testing.T) {
 	assertExpectedAnimalStatus(t, ctx, pool, repoAnimal, "pending")
 }
 
-func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
+// A park-week is NOT a uniqueness key. What blocks this create is the SHED:
+// repoExpectedShed is already the fixture campaign's open bucket on that weigh
+// date, so it must fail with the shed-grain conflict that names the bucket --
+// not with a campaign-grain "one task per park per week" refusal.
+//
+// This previously asserted ports.ErrImmutable, which was
+// weighing_campaigns_one_active_week_per_park_idx firing. That index was dropped
+// in migration 000081: it could not see weighing_category (a per-bucket column)
+// and so also refused legitimate leftover-shed planning. See
+// campaign_park_week_multitask_integration_test.go for the flow it blocked.
+func TestCreateCampaignRejectsShedAlreadyBookedInThatParkWeek(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -740,8 +750,8 @@ func TestCreateCampaignRejectsDuplicateParkWeek(t *testing.T) {
 		IdempotencyKey:    "create:duplicate-park-week",
 		Sheds:             []domain.CreateCampaignShed{{LocationID: repoExpectedShed, LocationType: "shed", DisplayName: "Gandhi 1 - Part 1", WeighingCategory: domain.CategoryIndividualAnimal}},
 	})
-	if !errors.Is(err, ports.ErrImmutable) {
-		t.Fatalf("duplicate park/week create err=%v, want immutable conflict", err)
+	if !errors.Is(err, ports.ErrShedAlreadyScheduled) {
+		t.Fatalf("re-booking an already-open shed err=%v, want ErrShedAlreadyScheduled", err)
 	}
 }
 

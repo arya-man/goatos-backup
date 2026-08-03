@@ -45,6 +45,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
+import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
 import sg.mesha.goatos.core.data.weighing.WeighingPage
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
@@ -66,6 +67,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
@@ -105,6 +107,93 @@ class WeighingViewModelTest {
         )
 
         assertTrue(state.individualSubmitReady)
+    }
+
+    /**
+     * The oversight surface answers "who did what", from the BACKEND's own numbers.
+     *
+     * The fixture is the phone-QA farm of 2026-08-03: six buckets across three people, five
+     * individual and one lump-sum. The per-person totals are the ones the server computed over the
+     * whole park filter — Amit 1 shed / 13 animals, Dinakar 3 sheds / 27, Pramod 2 sheds / 10 —
+     * and the ViewModel hands them through UNCHANGED. It must never rebuild them by grouping the
+     * shed page, which is a ~20-row keyset window: a total taken from it would describe how far the
+     * reader scrolled rather than what the person did.
+     */
+    @Test
+    fun `operators surface reports per-person work from backend totals`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to phoneQaBuckets()),
+            operatorSummariesByPark = mapOf(
+                null to listOf(
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Amit", operatorDisplayName = "Amit",
+                        shedCount = 1, notStarted = 0, capturing = 0, submitted = 1, accepted = 0,
+                        rework = 0, animalsWeighed = 13, animalsSubmitted = 13,
+                    ),
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
+                        shedCount = 3, notStarted = 0, capturing = 3, submitted = 0, accepted = 0,
+                        rework = 0, animalsWeighed = 27, animalsSubmitted = 0,
+                    ),
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Pramod", operatorDisplayName = "Pramod",
+                        shedCount = 2, notStarted = 0, capturing = 0, submitted = 2, accepted = 0,
+                        rework = 0, animalsWeighed = 10, animalsSubmitted = 10,
+                    ),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_OPERATORS)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+
+        advanceUntilIdle()
+
+        val people = vm.state.value.operatorSummaries
+        assertEquals(listOf("Amit", "Dinakar", "Pramod"), people.map { it.name })
+        assertEquals(listOf(1, 3, 2), people.map { it.shedCount })
+        assertEquals(listOf(13, 27, 10), people.map { it.animalsWeighed })
+        // The SECOND named fact, carried per person exactly as the backend reports it. Dinakar is
+        // mid-shift: 27 animals weighed and NOTHING submitted. One number could not say that --
+        // it would have read 27 here and 0 on the task detail for the same work at the same second.
+        assertEquals(listOf(13, 0, 10), people.map { it.animalsSubmitted })
+        // Disjoint and exhaustive: the four state counts add up to the person's sheds, which is
+        // what lets the card draw discrete segments instead of an invented fraction.
+        assertTrue(
+            people.all { it.notStarted + it.capturing + it.submitted + it.accepted == it.shedCount },
+        )
+    }
+
+    /**
+     * Paging the shed list must not move a per-person total.
+     *
+     * The totals are whole-filter server truth. Appending page two adds shed rows and NOTHING else;
+     * a client that recomputed the totals from what it holds would make Dinakar's animal count grow
+     * as the reader scrolled.
+     */
+    @Test
+    fun `appending a shed page leaves the per-person totals alone`() = runTest(dispatcher) {
+        val summary = listOf(
+            WeighingOperatorSummary(
+                operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
+                shedCount = 3, notStarted = 0, capturing = 0, submitted = 3, accepted = 0,
+                rework = 0, animalsWeighed = 27, animalsSubmitted = 27,
+            ),
+        )
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to phoneQaBuckets()),
+            operatorSummariesByPark = mapOf(null to summary),
+        )
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_OPERATORS)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val before = vm.state.value.operatorSummaries
+        vm.onAssignmentRowVisible(vm.state.value.assignments.lastIndex)
+        advanceUntilIdle()
+
+        assertEquals(before, vm.state.value.operatorSummaries)
+        assertEquals(27, vm.state.value.operatorSummaries.single().animalsWeighed)
+        assertEquals(27, vm.state.value.operatorSummaries.single().animalsSubmitted)
     }
 
     @Test
@@ -979,11 +1068,11 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         val chips = vm.taskDetailState.value.operatorFilters
-        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.operatorLabel })
+        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.name })
         assertEquals(listOf(2, 2), chips.map { it.shedCount })
         // The bare number must NOT be pre-baked into the name: an unlabelled "Dinakar 2" is exactly
         // the ambiguity this carries a separate field to avoid.
-        assertTrue(chips.none { it.operatorLabel.contains(it.shedCount.toString()) })
+        assertTrue(chips.none { it.name.contains(it.shedCount.toString()) })
     }
 
     // The maintainer's exact scenario, straight off `weighing_campaign_sheds.operator_user_id` ->
@@ -1165,6 +1254,10 @@ class WeighingViewModelTest {
         // parkId) is needed to reproduce "selecting a park collapses the chip row".
         // Keyed by parkId; `null` is the unfiltered ("All parks") page.
         private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
+        // The OPERATOR-grain roll-up the backend answers the same request with. Held apart from
+        // `assignmentsByPark` on purpose, exactly as the wire holds it apart from `items`: these
+        // numbers are whole-filter truth and are never derivable from the returned page.
+        private val operatorSummariesByPark: Map<String?, List<WeighingOperatorSummary>> = emptyMap(),
         // The leadership task list this fake's Room-backed stream answers with, so a test can put a
         // planner in front of a real task and read the detail state that task produces.
         private val taskListCache: WeighingTaskListCache = WeighingTaskListCache(),
@@ -1211,6 +1304,7 @@ class WeighingViewModelTest {
                     items = assignmentsByPark[parkId] ?: emptyList(),
                     nextCursor = null,
                     capabilities = assignmentCapabilities,
+                    operatorSummaries = operatorSummariesByPark[parkId] ?: emptyList(),
                 ),
             )
 

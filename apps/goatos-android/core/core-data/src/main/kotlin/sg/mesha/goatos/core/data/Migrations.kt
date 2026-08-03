@@ -774,14 +774,38 @@ val MIGRATION_25_26: Migration = object : Migration(25, 26) {
 }
 
 /**
- * v26 → v27: persists the weighing per-scope idempotency EPOCH.
+ * v26 -> v27: adds the weighing ALERTS cache table.
+ *
+ * The weighing module gained its own lifecycle alerts feed (work assigned, shed submitted for
+ * verification, proof sent back for rework, shed reopened, work closed). Like every other
+ * screen-facing read it is Room-backed from day one rather than a bare network call, because the
+ * screen is opened in a shed where the network is worst and an operator must still be able to
+ * read the message that told them what to do.
+ *
+ * ADDITIVE AND NON-DESTRUCTIVE: one CREATE TABLE IF NOT EXISTS for a brand-new JSON-blob cache.
+ * No existing table is touched, no column is dropped, no row is copied, so there is nothing to
+ * lose and nothing to back-fill. A cache miss on first open is correct behaviour -- the feed
+ * simply refreshes from the backend.
+ */
+val MIGRATION_26_27: Migration = object : Migration(26, 27) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_alerts_cache` (" +
+                "`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}
+
+/**
+ * v27 → v28: persists the weighing per-scope idempotency EPOCH.
  *
  * PURELY ADDITIVE — one new table, nothing existing is touched. There is no backfill and none is
  * possible: the epochs this replaces only ever existed in the heap of a process that has since
  * exited. An upgraded install simply mints its first on-disk epoch on the next transition, which is
  * exactly what the old code did on every cold start anyway.
  */
-val MIGRATION_26_27: Migration = object : Migration(26, 27) {
+val MIGRATION_27_28: Migration = object : Migration(27, 28) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE IF NOT EXISTS `weighing_transition_epoch` (" +

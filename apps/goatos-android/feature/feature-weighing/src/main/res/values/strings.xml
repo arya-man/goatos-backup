@@ -14,7 +14,6 @@
     <!-- ===================== Shared weighing chrome ===================== -->
     <string name="weighing_eyebrow">WEIGHING</string>
     <string name="weighing_refresh">Refresh weighing work</string>
-    <string name="weighing_alerts">Alerts</string>
     <string name="weighing_category_lumpsum">Lumpsum</string>
     <string name="weighing_category_individual">Individual</string>
     <string name="weighing_action_scan_animals">Scan animals →</string>
@@ -68,6 +67,14 @@
     <string name="weighing_no_matching_rows_body">Try another tag or shed name.</string>
     <string name="weighing_submit_lump_sum">Submit lump-sum weighing</string>
     <string name="weighing_submit">Submit</string>
+    <string name="weighing_blocked_saving">Saving what you entered. One moment.</string>
+    <string name="weighing_blocked_no_shed_open">Open a shed before you record this weighing.</string>
+    <string name="weighing_blocked_need_weight">Enter the weight before you submit.</string>
+    <string name="weighing_blocked_need_count">Enter how many animals were on the scale.</string>
+    <string name="weighing_blocked_need_video">Record the video of this weighing before you submit.</string>
+    <string name="weighing_blocked_video_uploading">The video is still going up. Submit opens as soon as it finishes.</string>
+    <string name="weighing_blocked_video_failed">The video did not go up. Tap Retry on the video, then submit.</string>
+    <string name="weighing_blocked_nothing_captured">Scan a tag and save a weight before you submit.</string>
     <string name="weighing_animals_captured_one">%1$d animal captured</string>
     <string name="weighing_animals_captured_other">%1$d animals captured</string>
     <string name="weighing_scan_to_begin">Scan an RFID tag to begin</string>
@@ -93,7 +100,20 @@
     <string name="weighing_field_total_weight">Total weight</string>
     <string name="weighing_field_animal_count">Animal count</string>
     <string name="weighing_average_per_animal_fmt">Average %1$s kg per animal</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d videos uploaded</string>
+    <!-- NO INVENTED DENOMINATOR. This used to read "%1$d / 5 videos uploaded", where the
+         numerator counted videos ADDED (a video still uploading was reported as uploaded) and the
+         5 was the MAXIMUM, not a requirement. On a shed with one recorded video it read
+         "1 / 5 videos uploaded" — claiming a success that had not happened and implying four
+         were missing when none were. Free-flow weighing requires no video count: one saved video
+         is enough. These state only what is true. -->
+    <string name="weighing_videos_saved_fmt">%1$d saved</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d saved · %2$d still uploading</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d uploading</string>
+    <string name="weighing_videos_limit_reached">Maximum 5 videos recorded</string>
+    <!-- Disabled-with-reason for the lump-sum Submit. Farm language: no HTTP codes, no
+         "API"/"backend"/"payload". An operator standing in a shed needs to know whether to wait
+         or to act. -->
+    <string name="weighing_videos_uploaded_fmt">%1$d uploaded</string>
     <string name="weighing_video_index_fmt">Video %1$d</string>
     <string name="weighing_replace">Replace</string>
     <string name="weighing_remove">Remove</string>
@@ -162,7 +182,7 @@
     <string name="weighing_task_publishing">Publishing task</string>
     <string name="weighing_task_publish">Publish task</string>
     <string name="weighing_task_ending">Ending task</string>
-    <string name="weighing_task_close_open_fmt">Close task · %1$d still open</string>
+    <string name="weighing_task_close_open_fmt">Close task · %1$d not submitted</string>
     <string name="weighing_task_mark_complete">Mark task complete</string>
     <string name="weighing_task_reopen">Reopen task</string>
     <string name="weighing_task_reopen_blocked">Putting a finished task back into planning is not available yet. A single shed bucket can still be reopened from its own card below.</string>
@@ -328,4 +348,40 @@
     <string name="weighing_reopen_dialog_subtitle">This puts the shed bucket back into open work. Say why.</string>
     <string name="weighing_reopen_dialog_placeholder">Reason for reopening</string>
     <string name="weighing_reopen_dialog_confirm">Reopen</string>
+    <string name="weighing_task_close_awaiting_fmt">Close task · %1$d waiting for verifier</string>
+    <string name="weighing_task_close_split_fmt">Close task · %1$d not submitted · %2$d waiting for verifier</string>
+    <string name="weighing_bucket_state_not_started">Nothing captured yet</string>
+    <string name="weighing_bucket_state_in_progress">Still weighing</string>
+    <string name="weighing_bucket_state_submitted">Submitted</string>
+    <string name="weighing_bucket_state_accepted">Accepted</string>
+    <string name="weighing_bucket_state_rework">Sent back to the operator</string>
+    <string name="weighing_videos_none">No video added yet</string>
+    <string name="weighing_videos_uploading_fmt">%1$d uploading</string>
+    <string name="weighing_videos_failed_fmt">%1$d failed</string>
+
+    <!-- Operator-grain oversight. Every number below is a backend-owned PLAIN COUNT: free-flow
+         weighing has no expected-animal roster, so no share, percentage or "x of y" of animals
+         can honestly appear on this screen. The four state counts are disjoint and exhaustive
+         over a person's sheds, which is why they can be listed side by side. -->
+    <string name="weighing_operators_people_heading">Who is weighing</string>
+    <string name="weighing_operators_sheds_heading">Shed by shed</string>
+    <string name="weighing_operators_unassigned">Not assigned to anyone yet</string>
+    <string name="weighing_operators_roster_gap">Assigned, but not on the roster</string>
+    <string name="weighing_operators_sheds_one">%1$d shed</string>
+    <string name="weighing_operators_sheds_other">%1$d sheds</string>
+    <string name="weighing_operators_nothing_weighed_yet">Nothing weighed yet</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d not started</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d still weighing</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d submitted</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d accepted</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d sent back</string>
+    <string name="weighing_operators_no_people_title">Nobody is weighing right now</string>
+    <string name="weighing_shed_state_not_started">Nothing captured yet</string>
+    <string name="weighing_shed_state_capturing">Still weighing</string>
+    <string name="weighing_shed_state_submitted">Submitted, waiting for a verifier</string>
+    <string name="weighing_shed_state_accepted">Accepted</string>
+    <string name="weighing_shed_weighed_by_fmt">Weighed by %1$s</string>
+    <string name="weighing_shed_weighed_by_nobody">Not assigned to anyone yet</string>
+    <string name="weighing_weighed_submitted_fmt">%1$d weighed · %2$d submitted</string>
+    <string name="weighing_not_submitted_chip">Not submitted</string>
 </resources>

@@ -42,12 +42,39 @@ const (
 )
 
 // readyToCloseCountsSQL is a correlated-subquery fragment for a `cs` alias over
-// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count)
-// for that row, using the SAME definition as pendingVerificationCount below: a
-// submitted individual observation is submitted_at IS NOT NULL, a lump-sum shed
-// observation IS the submission, and 'rework' counts as pending on purpose. It is
-// evaluated by the planner as part of ONE query (no per-row application loop), so
-// this is not the banned N+1 shape.
+// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count,
+// rework_count, animals_weighed_count, animals_submitted_count) for that row,
+// using the SAME definition as
+// pendingVerificationCount below: a submitted individual observation is
+// submitted_at IS NOT NULL, a lump-sum shed observation IS the submission, and
+// 'rework' counts as pending on purpose. It is evaluated by the planner as part of
+// ONE query (no per-row application loop), so this is not the banned N+1 shape.
+//
+// animals_weighed_count and animals_submitted_count are the TWO NAMED FACTS every
+// weighing surface renders, and this fragment is one of exactly two places their
+// predicates are written (the other is operatorSummaries, which sums these same
+// two expressions per person). They exist because a single number could not answer
+// the question that loses work on the farm: an operator who has weighed animals but
+// has NOT pressed Submit. Rendered as "N weighed · N submitted".
+//
+//	animals_weighed_count   = animals whose weight is RECORDED, submitted or not.
+//	animals_submitted_count = animals whose weight has been SUBMITTED for verification.
+//
+// Both are ANIMAL grain, not record grain: one animal per individual observation,
+// and the recorded head count of a standing lump-sum proof. The old captured_count
+// this replaces counted the lump-sum proof ROW, so a 40-animal shed proof read as
+// "1 weighed" on the bucket surface while the per-operator roll-up said 40 for the
+// same work -- the cross-surface count-parity defect AGENTS.md names.
+//
+// A lump-sum shed observation IS the submission, so a standing (non-withdrawn) one
+// counts toward BOTH facts as soon as it exists; an individual observation counts
+// toward `submitted` only once submitted_at is set. Withdrawn lump-sum proofs are
+// excluded from both because a withdrawn proof is history, not work the bucket
+// still holds.
+//
+// Both are plain counts and NEVER numerators: weighing is free-flow, so there is no
+// expected-animal roster to divide by. No client may turn either into a percentage
+// or a progress-bar fill.
 const readyToCloseCountsSQL = `(
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
@@ -59,7 +86,15 @@ const readyToCloseCountsSQL = `(
 (
   (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
   + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
-) AS rework_count`
+) AS rework_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+) AS animals_weighed_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+) AS animals_submitted_count`
 
 // pendingVerificationCount counts submitted evidence in this bucket that still has
 // no verdict.

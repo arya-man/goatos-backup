@@ -161,9 +161,11 @@ animal that was off-roster, or whose roster snapshot said it was away, produced 
 empty CTE, inserted no row, and reached the operator as a **404**. That is the same
 ban one table over — and worse, `availability_status` is a periodically-refreshed
 snapshot, so it gated on stale data. The join is now a LEFT JOIN with no status
-predicate: the roster supplies `expected_location_id` for wrong-shed
-classification only, an off-roster scan records as `extra_scan`, and the bucket the
-operator is working owns the row. Writing progress BACK to the roster
+predicate: the bucket the operator is working owns the row. (LATER: the roster
+table itself was DROPPED by `000079`, and `weighing_observations.mismatch_status`
+by `000081`. There is no wrong-shed classification and no `extra_scan` verdict any
+more — with no expected set, nothing can be "expected", "wrong" or "extra". Do not
+reintroduce either.) Writing progress BACK to the roster
 (`SET status='weighed'`) remains allowed — the ban is on the roster deciding
 whether the write happens.
 

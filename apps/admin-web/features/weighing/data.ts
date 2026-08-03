@@ -28,11 +28,19 @@ export type WeighingScopeRow = {
   shedName: string;
   partitionName: string;
   category: WeighingCategory;
-  completedCount: number;
-  /** True if completedCount is backed by a real per-shed captured count from the backend.
-   *  False if it is fabricated (e.g., status="completed" → 1, else → 0).
+  /** FACT 1 of 2 (backend-owned, animals_weighed_count): ANIMALS this bucket has a recorded
+   *  weight for, submitted or not. A plain count, NEVER a numerator: weighing is free-flow, so
+   *  there is no expected-animal total to take a share of. */
+  weighedCount: number;
+  /** FACT 2 of 2 (backend-owned, animals_submitted_count): the subset of weighedCount that has
+   *  been SUBMITTED for verification. Always shown alongside weighedCount as "N weighed ·
+   *  N submitted" —
+   *  never alone, and never divided into the other. When work exists and this is 0 the row also
+   *  carries a "Not submitted" chip, mirroring the operator's own Submit button. */
+  submittedCount: number;
+  /** True if the two counts above are backed by real backend facts (never fabricated).
    *  When false, render the element disabled-with-reason per AGENTS.md binding rules. */
-  capturedCountIsBacked: boolean;
+  weighedCountIsBacked: boolean;
   proofPendingCount: number;
   readyToClose: boolean;
   status: WeighingScopeStatus;
@@ -90,6 +98,11 @@ export type WeighingPlannerShed = {
   kidCount: number;
   selected: boolean;
   category: WeighingCategory;
+  // scheduled means ANOTHER open task already holds this shed on the requested
+  // weigh date (the task being edited is excluded server-side). It is shed-grain
+  // and date-scoped -- the only thing that actually blocks planning this bucket.
+  scheduled: boolean;
+  scheduledReason?: string;
 };
 
 export type WeighingPlannerOperator = {
@@ -113,7 +126,12 @@ export type WeighingPlanner = {
   existingCampaignOperatorName?: string;
   existingCampaignShedCount?: number;
   editingCampaignId?: string;
-  duplicateBlocked: boolean;
+  // existingTaskCount is how many tasks this park already holds in the selected
+  // week. It is INFORMATION, never a gate: a park-week may legitimately hold
+  // several tasks, because the capture category is a per-shed property and the
+  // leftover sheds are planned as their own task. Availability is decided per
+  // shed (WeighingPlannerShed.scheduled), not per park-week.
+  existingTaskCount: number;
   parks: WeighingPlannerPark[];
   sheds: WeighingPlannerShed[];
   shedListTruncated: boolean;
@@ -160,8 +178,15 @@ export async function getWeighingPageData(
   // SELECTED park's buckets, so read exactly that park's page instead of every shed of
   // every park (which is what the flattened catalog used to hand back).
   const selectedPark = selectPlannerPark(catalogResult.data.parks, selectedItem, selectedParkId);
+  // The task being EDITED is excluded from the "already scheduled" check, or its own
+  // buckets would read back as taken and the edit screen would disable exactly the
+  // sheds it owns. When planning a NEW task nothing is excluded, so every other
+  // task's buckets -- including a sibling task in the same park-week -- correctly
+  // read as taken and cannot be double-booked.
+  const editedCampaignId =
+    selectedCampaignId && selectedItem?.campaign_id === selectedCampaignId ? selectedCampaignId : undefined;
   const bucketsResult = selectedPark
-    ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek)
+    ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek, editedCampaignId)
     : ({ ok: true, data: { sheds: [], truncated: false } } as ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>);
   if (!bucketsResult.ok) return bucketsResult;
   const planner = plannerFromCatalog(
@@ -192,12 +217,13 @@ export async function getWeighingPageData(
 async function getSelectedParkBuckets(
   parkId: string,
   periodStartDate: string,
+  excludeCampaignId?: string,
 ): Promise<ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>> {
   const sheds: ApiWeighingPlannerShed[] = [];
   let cursor: string | undefined;
   let truncated = false;
   for (let page = 0; page < 5; page += 1) { // scale-guard:ignore: bounded to ONE park's sheds (76+ in the real data) with a 5-page hard cap; this is the planner's selection list, not a KPI drained from a paginated endpoint; serial-await: allow cursor pagination must stay sequential
-    const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor);
+    const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, 100, excludeCampaignId);
     if (!result.ok) return result;
     sheds.push(...(result.data.sheds ?? []));
     cursor = result.data.next_cursor || undefined;
@@ -275,6 +301,13 @@ function plannerFromCatalog(
   // parkSheds are the SELECTED park's buckets only, so every row here belongs to it.
   const sheds: WeighingPlannerShed[] = parkSheds.map((shed) => {
     const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
+    // The backend already reports, per shed and scoped to the requested weigh date,
+    // whether ANOTHER open task holds this bucket -- including a sibling task in the
+    // same park-week. That per-shed fact is the real availability, and it is what
+    // decides whether this shed may be planned, so it is rendered disabled with the
+    // reason instead of being offered and then rejected by the API with a 409.
+    const scheduled = Boolean(shed.scheduled);
+    const scheduledBy = shed.scheduled_operator_display_name?.trim();
     return {
       id: shed.location_id,
       parkId: selectedPark?.park_id ?? "",
@@ -282,8 +315,21 @@ function plannerFromCatalog(
       label: shed.name,
       subtitle: `${selectedPark?.name ?? ""} kid shed`,
       kidCount: shed.kid_count,
-      selected: selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true,
+      // A shed another task already owns must never come back pre-ticked -- the
+      // "nothing chosen yet, so select all" default would otherwise guarantee a
+      // conflict the moment a park holds a second task.
+      selected: scheduled
+        ? false
+        : selectedShedIds.size > 0
+          ? selectedShedIds.has(shed.location_id)
+          : true,
       category: campaignShed?.weighing_category ?? "individual_animal",
+      scheduled,
+      scheduledReason: scheduled
+        ? scheduledBy
+          ? `Already scheduled on this date by ${scheduledBy}`
+          : "Already scheduled on this date by another task"
+        : undefined,
     };
   });
   const selected = sheds.filter((shed) => shed.selected && shed.parkId === selectedPark?.park_id);
@@ -307,7 +353,7 @@ function plannerFromCatalog(
     existingCampaignOperatorName: operatorName(catalog, existing?.operator_user_id ?? selectedItem?.operator_user_id),
     existingCampaignShedCount: existing?.shed_count ?? (campaign.id !== "empty" ? campaign.selectedScopes : undefined),
     editingCampaignId,
-    duplicateBlocked: !editingCampaignId && Boolean(existing || campaign.id !== "empty"),
+    existingTaskCount: editingCampaignId ? 0 : (selectedPark?.existing_campaign_count ?? (existing ? 1 : 0)),
     selectedParkId: selectedPark?.park_id ?? "",
     selectedOperatorId,
     // EVERY park the catalog returned. The subtitle is the park-grain shed count the
@@ -416,9 +462,14 @@ function scopeFromApi(
   campaign: ApiWeighingCampaign,
   shed: ApiWeighingCampaignShed,
 ): WeighingScopeRow {
-  // Weighing is free-flow: only show completion status, not expected vs actual.
-  // completedCount is derived from status, not from API count fields.
-  const completedCount = shed.status === "completed" ? 1 : 0; // 1 = scope is done, 0 = still open
+  // Weighing is free-flow: report what the bucket ACTUALLY holds, never a share of an
+  // expected total that does not exist. TWO named backend facts, never one ambiguous number:
+  // animals_weighed_count is what has been put on the scale, animals_submitted_count is what
+  // has been sent for verification. The mobile task-detail card and the director Operators
+  // screen render the SAME two fields, so no two surfaces can answer "how many were weighed"
+  // — or "how many of those were submitted" — differently.
+  const weighedCount = shed.animals_weighed_count;
+  const submittedCount = shed.animals_submitted_count;
 
   // operator_display_name is backend-resolved. Empty WITH a non-empty operator_user_id means roster gap.
   let operatorDisplay = shed.operator_display_name?.trim() || "";
@@ -436,12 +487,12 @@ function scopeFromApi(
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,
-    completedCount,
-    // Weighing is free-flow: no per-shed captured count exists on WeighingCampaignShed.
-    // expected_animal_count exists but was explicitly rejected (maintainer 2026-07-31).
-    // The count is fabricated (status="completed" → 1, else → 0) and should render
-    // disabled-with-reason per AGENTS.md binding rule for un-backed UI.
-    capturedCountIsBacked: false,
+    weighedCount,
+    submittedCount,
+    // Backed by the backend's animals_weighed_count / animals_submitted_count.
+    // expected_animal_count stays rejected (maintainer 2026-07-31) and is still never
+    // divided into anything.
+    weighedCountIsBacked: true,
     proofPendingCount: shed.pending_verification_count,
     readyToClose: shed.ready_to_close,
     status:

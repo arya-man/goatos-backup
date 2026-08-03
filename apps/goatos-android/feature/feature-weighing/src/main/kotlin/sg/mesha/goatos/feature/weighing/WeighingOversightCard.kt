@@ -3,11 +3,9 @@ package sg.mesha.goatos.feature.weighing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
@@ -141,40 +139,31 @@ internal fun WeighingOversightCard(
                     }
                 }
             }
+            // ONE state, said once: the same defect the oversight card carried. The badge used to
+            // print the raw backend status while the bar and the line below both asked `isClosed`,
+            // so a submitted bucket read "Completed" beside "Scheduled" beside an empty bar.
             Text(
-                text = row.status.ifBlank { stringResource(R.string.weighing_status_scheduled) },
+                text = shedStateLabel(row),
                 color = if (complete) MeshaColors.Ok else MeshaColors.BrandD,
                 style = MeshaType.pillStrong,
                 modifier = Modifier.padding(start = 12.dp),
             )
         }
         Text(
+            text = if (row.operatorName.isNotBlank()) {
+                stringResource(R.string.weighing_shed_weighed_by_fmt, row.operatorName)
+            } else {
+                stringResource(R.string.weighing_shed_weighed_by_nobody)
+            },
+            color = MeshaColors.Ink,
+            style = MeshaType.cardSubtitle,
+        )
+        Text(
             text = if (row.category.equals("per_shed_partition", ignoreCase = true)) {
                 stringResource(R.string.weighing_lump_sum_weighing)
             } else {
                 stringResource(R.string.weighing_individual_weighing)
             },
-            color = MeshaColors.Muted,
-            style = MeshaType.cardSubtitle,
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(MeshaColors.Bg),
-        ) {
-            if (complete) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(7.dp)
-                        .background(MeshaColors.Brand),
-                )
-            }
-        }
-        Text(
-            text = if (complete) stringResource(R.string.weighing_status_completed) else stringResource(R.string.weighing_status_scheduled),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )

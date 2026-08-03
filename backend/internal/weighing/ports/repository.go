@@ -274,6 +274,21 @@ type Repository interface {
 	// verify-duty holders from it), while an observation row itself only knows its shed. One
 	// indexed primary-key lookup per observation write, never a scan.
 	CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error)
+	// ListAlerts is the module-scoped weighing lifecycle feed: the weighing
+	// notifications that were ALREADY routed to this caller, newest first.
+	//
+	// memberOrUserID is the caller's authenticated user id; the adapter resolves it
+	// to the canonical workforce_member_id the same way ResolveMemberRecipients
+	// does, because that is the identity the notification consumers stamped on each
+	// row. parkIDs is the caller's authorized park list and is IGNORED when
+	// tenantWide is true.
+	//
+	// ISOLATION (maintainer ruling 2026-08-03): this read touches
+	// notification_requests and workforce_members ONLY. It never joins goats,
+	// goat_identifiers, herd_animals, obligation/protocol/vaccination tables, or
+	// any expected-roster source -- weighing is free-flow, so there is no
+	// denominator to report against.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 }
 
 // VerificationVerdictStore is the narrow write side the weighing verdict consumer

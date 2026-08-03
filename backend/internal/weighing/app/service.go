@@ -1203,3 +1203,74 @@ func validateCreate(cmd domain.CreateCampaign) error {
 	}
 	return nil
 }
+
+// ListAlerts serves the weighing module's own lifecycle feed: the weighing
+// work-state transitions that were already routed to THIS caller, newest first.
+//
+// AUTHORIZATION is weighing-only and deliberately OR, never AND. Everyone with a
+// weighing job has a stake in the feed but nobody holds all three capabilities:
+// an operator holds execute, the CEO holds plan+monitor but not execute, and the
+// Growth Director holds BOTH execute and monitor -- which is intentional, not a
+// grant bug, so the gate must not treat "also an executor" as disqualifying for
+// the upstream view. This route never touches ObligationRead or VaccinationRead;
+// requiring those is exactly what made the previous weighing alerts tab 403 for
+// weighing operators and got it deleted.
+//
+// AUDIENCE needs no second model here. The notification consumers already
+// resolved who owns the next action when they wrote each row, so "the alerts sent
+// to me" IS the correct per-person scope: an operator cannot see another
+// operator's bucket because they were never a recipient of it.
+//
+// The park filter below is defence in depth on top of that. A caller without a
+// tenant-wide weighing capability is narrowed to the parks their grants actually
+// reach, so a park-scoped seat cannot read another park's rows even if a future
+// producer routes too broadly.
+func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error) {
+	if !permissions.RolesAuthorizeAny(actor.Roles, []string{
+		permissions.WeighingExecute,
+		permissions.WeighingMonitor,
+		permissions.WeighingPlan,
+	}) {
+		return domain.AlertPage{}, ports.ErrForbidden
+	}
+	if limit <= 0 {
+		limit = domain.AlertPageSize
+	}
+	if limit > domain.MaxAlertPageSize {
+		limit = domain.MaxAlertPageSize
+	}
+
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	tenantWide := false
+	parkIDs := []string{}
+	for _, capability := range []string{
+		permissions.WeighingExecute,
+		permissions.WeighingMonitor,
+		permissions.WeighingPlan,
+	} {
+		if hasTenantWideCapability(grants, actor.TenantID, capability) {
+			tenantWide = true
+			break
+		}
+		parkIDs = append(parkIDs, httpmiddleware.AuthorizedParkIDsForCapability(grants, capability)...)
+	}
+	return s.repo.ListAlerts(ctx, actor.TenantID, actor.UserID, tenantWide, dedupeStrings(parkIDs), strings.TrimSpace(cursor), limit)
+}
+
+// dedupeStrings keeps the park-scope argument small and stable; the same park can
+// arrive once per weighing capability the caller holds.
+func dedupeStrings(values []string) []string {
+	if len(values) < 2 {
+		return values
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := values[:0]
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
