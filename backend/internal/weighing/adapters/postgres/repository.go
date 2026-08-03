@@ -233,6 +233,21 @@ WHERE weighing_campaign_sheds.tenant_id=$1::uuid
 	}
 	for _, shed := range cmd.Sheds {
 		var campaignShedID string
+		// The bucket's status BEFORE this edit. Read separately because an
+		// ON CONFLICT DO UPDATE cannot report the old row in RETURNING, and a CTE is
+		// not visible from that RETURNING either. Reviving a canceled bucket carries a
+		// second obligation (B09) that must fire ONLY when a revive actually happened.
+		//
+		// scale-guard:ignore: bounded planner shed list; one single-row lookup by the
+		// (tenant, campaign, location) unique key per selected bucket, same grain as
+		// the upsert it precedes
+		var priorStatus string
+		if err := tx.QueryRow(ctx, `
+SELECT status FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`,
+			cmd.TenantID, campaignID, shed.LocationID).Scan(&priorStatus); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return domain.Campaign{}, err
+		}
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
 		// FREE-FLOW: an edit re-states the SAME bucket membership fact create does --
 		// no herd read, no per-goat roster row, no expected count of any kind
@@ -267,6 +282,21 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 		}
 		if err != nil {
 			return domain.Campaign{}, mapShedUniqueViolation(err, cmd.StartBusinessDate, shed.DisplayName)
+		}
+		// B09: a bucket that LEAVES a terminal status must take its kernel work item
+		// with it, in the same transaction. Re-adding a deselected shed revives the
+		// bucket from 'canceled', but the sweeper had already terminalized its
+		// weighing_work_items row -- and every open-work read filters on
+		// work_state IN ('scheduled','delayed'). Without this the shed reads 'pending'
+		// on the task while Calendar, Control Tower and the operator's day-start show
+		// no work for it: two surfaces, two different answers for one bucket.
+		//
+		// Guarded on the PRIOR status so an ordinary edit of a live bucket cannot
+		// resurrect a work item that was terminalized for a legitimate reason.
+		if priorStatus == "canceled" {
+			if _, err := r.ReactivateWorkItemsForBucket(ctx, tx, cmd.TenantID, campaignShedID); err != nil {
+				return domain.Campaign{}, err
+			}
 		}
 	}
 	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
