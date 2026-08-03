@@ -872,9 +872,13 @@ type animalObservationRepo struct {
 
 func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	return domain.Observation{
-		ObservationID:      "00000000-0000-4000-8000-000000000901",
-		CampaignID:         cmd.CampaignID,
-		CampaignShedID:     cmd.CampaignShedID,
+		ObservationID:  "00000000-0000-4000-8000-000000000901",
+		CampaignID:     cmd.CampaignID,
+		CampaignShedID: cmd.CampaignShedID,
+		// The real write returns the stored tag (repository.go:1601). The fake used to
+		// drop it, which hid the fact that the enqueue site had the animal's identity in
+		// hand all along and was throwing it away.
+		ScannedIdentifier:  cmd.ScannedIdentifier,
 		WeightKg:           cmd.WeightKg,
 		ProofArtifactID:    cmd.ProofArtifactID,
 		ExpectedLocationID: testShed,

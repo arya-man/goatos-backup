@@ -161,6 +161,13 @@ type observationScope struct {
 	// (FOR UPDATE OF observation), so it cannot change out from under the
 	// comparison in checkVerdictEvidenceCurrent below.
 	ProofArtifactID string
+	// ScannedIdentifier and WeightKg name the capture under verdict, so a rework push can
+	// tell the operator WHICH animal to re-shoot instead of only which shed. Weighing is
+	// free-flow: the scanned tag is the whole identity and is never resolved to a goat. A
+	// lump-sum shed observation has no per-animal identity, so ScannedIdentifier stays
+	// empty there by construction and only the shed's total weight travels.
+	ScannedIdentifier string
+	WeightKg          float64
 }
 
 func (r *Repository) lockObservationScope(ctx context.Context, tx pgx.Tx, verdict domain.VerificationVerdict) (observationScope, error) {
@@ -175,7 +182,9 @@ SELECT observation.campaign_id::text,
   COALESCE(cs.display_name, ''),
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.proof_artifact_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, ''),
+  COALESCE(observation.scanned_identifier, ''),
+  observation.weight_kg
 FROM weighing_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -194,7 +203,9 @@ SELECT observation.campaign_id::text,
   cs.display_name,
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.proof_artifact_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, ''),
+  '',
+  observation.weight_kg
 FROM weighing_shed_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -216,6 +227,8 @@ FOR UPDATE OF observation`
 		&scope.ParkID,
 		&scope.OperatorID,
 		&scope.ProofArtifactID,
+		&scope.ScannedIdentifier,
+		&scope.WeightKg,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return observationScope{}, ports.ErrNotFound
@@ -418,6 +431,8 @@ type weighingObservationVerdictPayload struct {
 	ParkID             string    `json:"park_id"`
 	ShedID             string    `json:"shed_id"`
 	ShedLabel          string    `json:"shed_label"`
+	ScannedIdentifier  string    `json:"scanned_identifier,omitempty"`
+	WeightKg           float64   `json:"weight_kg"`
 	OperatorID         string    `json:"operator_id"`
 	VerifiedBy         string    `json:"verified_by,omitempty"`
 	Reason             string    `json:"reason,omitempty"`
@@ -446,6 +461,8 @@ func (r *Repository) enqueueVerdictApplied(
 		ParkID:             scope.ParkID,
 		ShedID:             scope.ShedID,
 		ShedLabel:          scope.ShedLabel,
+		ScannedIdentifier:  scope.ScannedIdentifier,
+		WeightKg:           scope.WeightKg,
 		OperatorID:         scope.OperatorID,
 		VerifiedBy:         verdict.VerifiedBy,
 		Reason:             verdict.Reason,
