@@ -123,6 +123,7 @@ guardrails:
 	$(MAKE) fcm-recipient-routing-guard
 	$(MAKE) calendar-endpoint-grain-guard
 	$(MAKE) goat-shed-scope-guard
+	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
@@ -253,6 +254,10 @@ calendar-endpoint-grain-guard:
 goat-shed-scope-guard:
 	node tools/agent-hooks/check-goat-shed-scope.mjs --self-test
 	node tools/agent-hooks/check-goat-shed-scope.mjs
+
+proof-capture-authorization-guard:
+	node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test
+	node tools/agent-hooks/check-proof-capture-authorization.mjs
 
 weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
