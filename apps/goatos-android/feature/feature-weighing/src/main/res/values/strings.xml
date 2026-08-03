@@ -25,7 +25,6 @@
     <string name="weighing_status_submitted">Submitted</string>
     <string name="weighing_status_closed">Closed</string>
     <string name="weighing_status_canceled">Canceled</string>
-    <string name="weighing_status_completed">Completed</string>
     <string name="weighing_status_not_started">Not started</string>
     <string name="weighing_kg">kg</string>
 
@@ -106,9 +105,6 @@
          "1 / 5 videos uploaded" — claiming a success that had not happened and implying four
          were missing when none were. Free-flow weighing requires no video count: one saved video
          is enough. These state only what is true. -->
-    <string name="weighing_videos_saved_fmt">%1$d saved</string>
-    <string name="weighing_videos_saved_and_uploading_fmt">%1$d saved · %2$d still uploading</string>
-    <string name="weighing_videos_uploading_only_fmt">%1$d uploading</string>
     <string name="weighing_videos_limit_reached">Maximum 5 videos recorded</string>
     <!-- Disabled-with-reason for the lump-sum Submit. Farm language: no HTTP codes, no
          "API"/"backend"/"payload". An operator standing in a shed needs to know whether to wait

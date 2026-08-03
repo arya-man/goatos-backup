@@ -9,5 +9,3 @@
 # no-op onClick. Vaccination ships the same concept correctly as a bottom-bar [ Drives | Alerts ]
 # tab. This is THE incident that produced the rule; the placement fix itself is owned by a
 # separate change (it moves weighing alerts onto nav chrome). Delete both lines when it lands.
-apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt:nav-named-appbar-entry
-apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt:inert-appbar-entry

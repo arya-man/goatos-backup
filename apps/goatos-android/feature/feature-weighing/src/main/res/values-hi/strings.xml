@@ -18,7 +18,6 @@
     <string name="weighing_status_submitted">भेजा गया</string>
     <string name="weighing_status_closed">बंद</string>
     <string name="weighing_status_canceled">रद्द</string>
-    <string name="weighing_status_completed">पूर्ण</string>
     <string name="weighing_status_not_started">शुरू नहीं हुआ</string>
     <string name="weighing_kg">किग्रा</string>
 
@@ -93,9 +92,6 @@
     <string name="weighing_field_total_weight">कुल वज़न</string>
     <string name="weighing_field_animal_count">पशु संख्या</string>
     <string name="weighing_average_per_animal_fmt">औसत %1$s किग्रा प्रति पशु</string>
-    <string name="weighing_videos_saved_fmt">%1$d सहेजे गए</string>
-    <string name="weighing_videos_saved_and_uploading_fmt">%1$d सहेजे गए · %2$d अभी अपलोड हो रहे हैं</string>
-    <string name="weighing_videos_uploading_only_fmt">%1$d अपलोड हो रहा है</string>
     <string name="weighing_videos_limit_reached">अधिकतम 5 वीडियो रिकॉर्ड किए गए</string>
     <string name="weighing_videos_uploaded_fmt">%1$d अपलोड हुए</string>
     <string name="weighing_video_index_fmt">वीडियो %1$d</string>

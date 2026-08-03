@@ -60,7 +60,6 @@ import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailUiState
-import sg.mesha.goatos.feature.weighing.WeighingTaskOperatorFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTaskUiRow
 import sg.mesha.goatos.feature.weighing.WeighingTasksTab
