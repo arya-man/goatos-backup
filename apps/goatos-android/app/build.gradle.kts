@@ -134,6 +134,16 @@ android {
         }
     }
 
+    // Robolectric unit tests that drive real androidx components need the merged unit-test
+    // resources on the classpath (`WorkManager.initialize` reads
+    // `R.bool.workmanager_test_configuration`) — same reason :core:core-data and
+    // :core:core-database already enable this.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     buildTypes {
         debug {
             manifestPlaceholders["appLabel"] = "Mesha Debug"
