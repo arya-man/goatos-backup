@@ -61,17 +61,17 @@ const (
 
 // DriveSummary holds park-level drive progress data for vaccination drive events.
 type DriveSummary struct {
-	ParkName         string             `json:"park_name"`
-	DriveName        string             `json:"drive_name"`
-	DriveTotal       int                `json:"drive_total"`
-	DueDate          string             `json:"due_date"`
-	ShedCount        int                `json:"shed_count"`
-	ShedsCompleted   int                `json:"sheds_completed"`
-	Sheds            []DriveShedSummary `json:"sheds,omitempty"`
-	VaccineLabels    []string           `json:"vaccine_labels"`
-	TotalCount       int                `json:"total_count"`
-	CompletedCount   int                `json:"completed_count"`
-	SubmittedCount   int                `json:"submitted_count"`
+	ParkName       string             `json:"park_name"`
+	DriveName      string             `json:"drive_name"`
+	DriveTotal     int                `json:"drive_total"`
+	DueDate        string             `json:"due_date"`
+	ShedCount      int                `json:"shed_count"`
+	ShedsCompleted int                `json:"sheds_completed"`
+	Sheds          []DriveShedSummary `json:"sheds,omitempty"`
+	VaccineLabels  []string           `json:"vaccine_labels"`
+	TotalCount     int                `json:"total_count"`
+	CompletedCount int                `json:"completed_count"`
+	SubmittedCount int                `json:"submitted_count"`
 	// RemainingCount is WORK STILL OWED BY THE OPERATOR = DueCount + OverdueCount + DeferredCount,
 	// identical to TotalCount - CompletedCount - SubmittedCount over the five disjoint buckets. It
 	// deliberately EXCLUDES submitted-but-unverified work, exactly like the ProgressCompleted
@@ -79,13 +79,13 @@ type DriveSummary struct {
 	// left": a fully submitted drive reports progress_pct 100 AND remaining_count 0. The
 	// outstanding verifier review is carried by SubmittedCount and the verification_pending status.
 	// (It was TotalCount - CompletedCount, which read "20 remaining" beside a 100% ring.)
-	RemainingCount   int                `json:"remaining_count"`
-	DueCount         int                `json:"due_count"`
-	OverdueCount     int                `json:"overdue_count"`
-	DeferredCount    int                `json:"deferred_count"`
-	TotalAnimals     int                `json:"total_animals"`
-	CompletedAnimals int                `json:"completed_animals"`
-	SubmittedAnimals int                `json:"submitted_animals"`
+	RemainingCount   int `json:"remaining_count"`
+	DueCount         int `json:"due_count"`
+	OverdueCount     int `json:"overdue_count"`
+	DeferredCount    int `json:"deferred_count"`
+	TotalAnimals     int `json:"total_animals"`
+	CompletedAnimals int `json:"completed_animals"`
+	SubmittedAnimals int `json:"submitted_animals"`
 	// Backend-owned, single cross-surface progress definition. Both Android and admin-web MUST
 	// render these verbatim instead of deriving their own numerator (the cross-surface parity
 	// defect: the same drive showed different completion numbers and ring percentages because

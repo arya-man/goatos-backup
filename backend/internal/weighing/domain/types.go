@@ -417,9 +417,9 @@ type ProofMedia struct {
 }
 
 type Observation struct {
-	ObservationID       string       `json:"observation_id"`
-	CampaignID          string       `json:"campaign_id"`
-	CampaignShedID      string       `json:"campaign_shed_id,omitempty"`
+	ObservationID  string `json:"observation_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id,omitempty"`
 	// ScannedIdentifier is the raw tag/RFID the scanner read. Weighing is
 	// free-flow: this is the ONLY identity an observation carries. There is
 	// deliberately no animal_id here (removed by

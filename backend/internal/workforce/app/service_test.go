@@ -63,10 +63,10 @@ func TestBootstrapSelfHealsPushSuppressedDevice(t *testing.T) {
 	suppressed.Metadata = map[string]any{"fcm_invalidated_reason": "FCM: UNREGISTERED"}
 	reactivated := device("active")
 	repo := &fakeRepo{
-		profile:               profile("active"),
-		grants:                []domain.GrantSummary{grant()},
-		device:                suppressed,
-		registerDeviceResult:  reactivated,
+		profile:              profile("active"),
+		grants:               []domain.GrantSummary{grant()},
+		device:               suppressed,
+		registerDeviceResult: reactivated,
 	}
 	svc := NewService(repo)
 	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
