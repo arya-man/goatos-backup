@@ -50,7 +50,7 @@ import (
 //     capture, so auto-closing takes no ability away from the operator, and
 //     ReopenScope remains the leader's way back in if they disagree.
 //
-// WHAT STAYS UNCHANGED. CloseScope and AbandonScope keep their mandatory reason
+// WHAT STAYS UNCHANGED. CloseScope keeps its mandatory reason
 // and their WeighingMonitor permission, and a leader ending live work early is
 // still a distinct act — recorded as closure_kind 'early' / 'abandoned' against
 // this path's 'verified', audited under its own action, and emitted as its own

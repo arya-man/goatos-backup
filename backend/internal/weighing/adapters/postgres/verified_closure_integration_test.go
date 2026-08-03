@@ -9,6 +9,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/pgtest"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
+	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
 
 // THE CLOSURE LOOP: a weighing task that is genuinely finished must SAY so.
@@ -99,6 +100,10 @@ func cancelBucket(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaig
 // When the LAST submitted item in a bucket is verified, the bucket reaches the
 // terminal "done properly" state on the verdict's own transaction — no leader, no
 // reason, and recorded as a DIFFERENT kind of ending than a leadership close.
+// vcAllParks is the leadership view: authorized in this test's park, no assignee
+// filter, which is what every unfiltered call below used to mean.
+var vcAllParks = ports.CampaignAccess{AuthorizedParkIDs: []string{repoPark}}
+
 func TestLastVerifiedItemClosesShedAsVerifiedWithNoActorAndNoReason(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -380,20 +385,9 @@ func TestReasonRequiredExceptionCloseStillWorksAndStaysDistinguishable(t *testin
 		t.Fatalf("weighing.shed.verified_closed outbox rows=%d on an early close, want 0", got)
 	}
 
-	// ABANDON is the third, still-distinct kind.
-	abandoned, err := repo.AbandonScope(ctx, domain.CloseCommand{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
-		Reason: "operator left the park", ClosedBy: repoVerifier, IdempotencyKey: "abandon:exception-path",
-	})
-	if err != nil {
-		t.Fatalf("abandon scope: %v", err)
-	}
-	if abandoned.Status != domain.StatusClosed {
-		t.Fatalf("abandon result status=%q, want %q", abandoned.Status, domain.StatusClosed)
-	}
-	if _, kind, _, _, _ := readShedClosure(t, ctx, pool, repoShedScope); kind != domain.ClosureKindAbandoned {
-		t.Fatalf("abandoned shed closure_kind=%q, want %q", kind, domain.ClosureKindAbandoned)
-	}
+	// There is no third kind: abandon was deleted (the vocabulary is close or
+	// reopen only), so a leader ending work early is ALWAYS ClosureKindEarly and
+	// 'verified' stays reserved for the completion path no human performs.
 }
 
 // ---------------------------------------------------------------------------
@@ -414,7 +408,7 @@ func TestBucketReadExposesVerifiedCountAndClosureKind(t *testing.T) {
 
 	obsID := submitVerifiedShedBucket(t, ctx, repo, repoShedProof, "shed:read-model")
 
-	page, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", "", 20)
+	page, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
 	if err != nil {
 		t.Fatalf("list campaign sheds before verdict: %v", err)
 	}
@@ -428,7 +422,7 @@ func TestBucketReadExposesVerifiedCountAndClosureKind(t *testing.T) {
 
 	approveShedObservation(t, ctx, repo, obsID, repoShedProof, "22222222-2222-4222-8222-000000000006")
 
-	page, err = repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", "", 20)
+	page, err = repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
 	if err != nil {
 		t.Fatalf("list campaign sheds after verdict: %v", err)
 	}
@@ -503,14 +497,14 @@ func TestCampaignShedProjectionClosureFactsOneToManyPageBoundaryScopeHierarchySt
 	shedObs := submitVerifiedShedBucket(t, ctx, repo, repoShedProof, "shed:grain")
 	approveShedObservation(t, ctx, repo, shedObs, repoShedProof, "22222222-2222-4222-8222-000000000007")
 	// The individual bucket is ended by a leader instead — the exception path.
-	if _, err := repo.AbandonScope(ctx, domain.CloseCommand{
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
-		Reason: "operator reassigned", ClosedBy: repoVerifier, IdempotencyKey: "abandon:grain",
+		Reason: "operator reassigned", ClosedBy: repoVerifier, IdempotencyKey: "close:grain",
 	}); err != nil {
-		t.Fatalf("abandon individual bucket: %v", err)
+		t.Fatalf("close individual bucket: %v", err)
 	}
 
-	whole, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", "", 20)
+	whole, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, vcAllParks)
 	if err != nil {
 		t.Fatalf("list campaign sheds: %v", err)
 	}
@@ -545,14 +539,14 @@ func TestCampaignShedProjectionClosureFactsOneToManyPageBoundaryScopeHierarchySt
 
 	// PAGE BOUNDARY: one bucket per page, and every fact identical to the
 	// whole-set read.
-	firstPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", "", 1)
+	firstPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 1, vcAllParks)
 	if err != nil {
 		t.Fatalf("list campaign sheds page 1: %v", err)
 	}
 	if len(firstPage.Items) != 1 || firstPage.NextCursor == "" {
 		t.Fatalf("page 1 items=%d cursor=%q, want 1 item and a cursor", len(firstPage.Items), firstPage.NextCursor)
 	}
-	secondPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", firstPage.NextCursor, 1)
+	secondPage, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, firstPage.NextCursor, 1, vcAllParks)
 	if err != nil {
 		t.Fatalf("list campaign sheds page 2: %v", err)
 	}
@@ -572,7 +566,7 @@ func TestCampaignShedProjectionClosureFactsOneToManyPageBoundaryScopeHierarchySt
 
 	// SCOPE HIERARCHY: the operator filter narrows the ROWS. Both buckets belong
 	// to repoOperator, so another operator in the same park sees none of them.
-	mine, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, repoOperator, "", 20)
+	mine, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, ports.CampaignAccess{AuthorizedParkIDs: []string{repoPark}, AssigneeUserID: repoOperator})
 	if err != nil {
 		t.Fatalf("list campaign sheds for assigned operator: %v", err)
 	}
@@ -583,7 +577,7 @@ func TestCampaignShedProjectionClosureFactsOneToManyPageBoundaryScopeHierarchySt
 		t.Fatalf("operator-scoped verified_count=%d, want %d — scope narrows rows, never facts",
 			mineLump.VerifiedCount, lump.VerifiedCount)
 	}
-	others, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, repoOtherOp, "", 20)
+	others, err := repo.ListCampaignSheds(ctx, repoTenant, repoCampaign, "", 20, ports.CampaignAccess{AuthorizedParkIDs: []string{repoPark}, AssigneeUserID: repoOtherOp})
 	if err != nil {
 		t.Fatalf("list campaign sheds for another operator: %v", err)
 	}
