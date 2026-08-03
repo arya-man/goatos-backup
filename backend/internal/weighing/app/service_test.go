@@ -925,7 +925,7 @@ func (f fakeRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign)
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
-func (f fakeRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+func (f fakeRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
 func (f fakeRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
@@ -1098,7 +1098,7 @@ func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ do
 	return r.campaign, nil
 }
 
-func (r *scenarioRepo) CampaignByID(context.Context, string, string, string) (domain.Campaign, error) {
+func (r *scenarioRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
 	return r.campaign, nil
 }
 func (r *scenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {

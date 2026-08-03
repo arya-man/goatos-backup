@@ -23,13 +23,18 @@ import (
 // against the escalation fixture the rest of this package already uses (an unrelated grant in
 // park A plus a capability-carrying grant in park B).
 
-// singleTaskRepo answers the two new reads. CampaignByID mirrors the real repository contract: it
-// applies the operator predicate itself and reports ErrNotFound when that predicate excludes the
-// task, so a service that forgot to narrow an assignee cannot pass by accident.
+// singleTaskRepo answers the two new reads. CampaignByID mirrors the real repository contract:
+// authorization happens INSIDE the read, as a disjunction over the access arms evaluated against
+// the task's own park, and an excluded task is ErrNotFound. A fake that authorized nothing would
+// let a service that forgot to push its authority down pass by accident.
 type singleTaskRepo struct {
 	parkRoutedRepo
-	// campaignByIDOperator records the operator filter the service supplied, which is the only
-	// observable difference between the assignee branch and the unfiltered leadership branch.
+	// campaignByIDAccess records the authority the service pushed into the query.
+	campaignByIDAccess ports.CampaignAccess
+	// campaignByIDOperator is the EFFECTIVE bucket-narrowing the access implies -- empty when the
+	// caller is admitted by park authority (unfiltered oversight read), their own id when they
+	// are admitted only as the assignee. It mirrors the hydration split the real repository
+	// derives from the returned row, which is the only observable difference between the two.
 	campaignByIDOperator string
 	campaignByIDCalls    int
 	// parksArg records the capability-scoped park set the service pushed into the query. nil is
@@ -45,14 +50,22 @@ type singleTaskRepo struct {
 	assignedByCampaign map[string]string
 }
 
-func (r *singleTaskRepo) CampaignByID(_ context.Context, _, campaignID, operatorUserID string) (domain.Campaign, error) {
+func (r *singleTaskRepo) CampaignByID(_ context.Context, _, campaignID string, access ports.CampaignAccess) (domain.Campaign, error) {
 	r.campaignByIDCalls++
-	r.campaignByIDOperator = operatorUserID
+	r.campaignByIDAccess = access
+	r.campaignByIDOperator = ""
 	parkID, ok := r.parkByCampaign[campaignID]
 	if !ok {
 		return domain.Campaign{}, ports.ErrNotFound
 	}
-	if operatorUserID != "" && operatorUserID != r.assignedByCampaign[campaignID] {
+	// The disjunction the production query evaluates: park authority over THIS row's park, or a
+	// live assignment on it. Reading the park here, at answer time, is what makes this fake able
+	// to expose an implementation that authorized some earlier value of it.
+	switch {
+	case access.AdmitsPark(parkID):
+	case access.AssigneeUserID != "" && access.AssigneeUserID == r.assignedByCampaign[campaignID]:
+		r.campaignByIDOperator = access.AssigneeUserID
+	default:
 		return domain.Campaign{}, ports.ErrNotFound
 	}
 	return domain.Campaign{CampaignID: campaignID, ParkID: parkID}, nil

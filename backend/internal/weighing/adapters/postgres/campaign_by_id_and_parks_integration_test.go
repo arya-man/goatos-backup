@@ -47,7 +47,7 @@ func TestCampaignByIDResolvesATaskTheKeysetPageCannotReach(t *testing.T) {
 		}
 	}
 
-	campaign, err := repo.CampaignByID(ctx, repoTenant, target, "")
+	campaign, err := repo.CampaignByID(ctx, repoTenant, target, ports.CampaignAccess{Unrestricted: true})
 	if err != nil {
 		t.Fatalf("CampaignByID: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestCampaignByIDAppliesTheOperatorPredicate(t *testing.T) {
 	lcpInsertCampaign(t, ctx, pool, foreign, lcpParkCBE, "2026-05-11", domain.StatusPublished, repoOtherOp)
 	lcpInsertBucket(t, ctx, pool, lcpUUID(16021), foreign, lcpShedThree, domain.CategoryIndividualAnimal, repoOtherOp, 4, "pending")
 
-	campaign, err := repo.CampaignByID(ctx, repoTenant, shared, repoOperator)
+	campaign, err := repo.CampaignByID(ctx, repoTenant, shared, ports.CampaignAccess{AssigneeUserID: repoOperator})
 	if err != nil {
 		t.Fatalf("CampaignByID for the assignee: %v", err)
 	}
@@ -101,12 +101,12 @@ func TestCampaignByIDAppliesTheOperatorPredicate(t *testing.T) {
 		t.Fatalf("CampaignByID buckets=%+v, want only the caller's own bucket %s", campaign.Sheds, mine)
 	}
 
-	if _, err := repo.CampaignByID(ctx, repoTenant, foreign, repoOperator); !errors.Is(err, ports.ErrNotFound) {
+	if _, err := repo.CampaignByID(ctx, repoTenant, foreign, ports.CampaignAccess{AssigneeUserID: repoOperator}); !errors.Is(err, ports.ErrNotFound) {
 		t.Fatalf("CampaignByID for a task the operator owns no bucket on err = %v, want ErrNotFound", err)
 	}
 	// The same task IS resolvable unfiltered, which is what proves the refusal above came from
 	// the operator predicate and not from the task being absent.
-	if _, err := repo.CampaignByID(ctx, repoTenant, foreign, ""); err != nil {
+	if _, err := repo.CampaignByID(ctx, repoTenant, foreign, ports.CampaignAccess{Unrestricted: true}); err != nil {
 		t.Fatalf("CampaignByID unfiltered: %v", err)
 	}
 }

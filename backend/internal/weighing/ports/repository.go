@@ -110,6 +110,50 @@ func (c *ShedScheduleConflict) Error() string {
 
 func (c *ShedScheduleConflict) Unwrap() error { return ErrShedAlreadyScheduled }
 
+// CampaignAccess is the caller's authority over ONE task, expressed as data the single-task
+// query can evaluate against the row it is about to return. The arms are alternatives, in the
+// same either/or shape the service's role gate already has:
+//
+//	Unrestricted        -- tenant-wide plan-or-monitor authority, or an internal caller with no
+//	                       grants at all (CLI, seeder, integration test). Admits any park.
+//	AuthorizedParkIDs   -- the parks the actor holds plan-or-monitor in. Admits a task in one of
+//	                       them, unfiltered.
+//	AssigneeUserID      -- the actor's own user id, set when they hold weighing.execute. Admits a
+//	                       task they hold a live bucket on, narrowed to that bucket.
+//
+// The assignee arm is an OR and not an AND deliberately. A Growth Director holds
+// WeighingMonitor AND WeighingExecute at once; one who monitors park A while being ASSIGNED
+// work in park B is authorized for B through the assignment alone, and requiring both arms
+// would 404 them on their own task (the defect fixed in 2c78f87f1).
+//
+// A zero value admits nothing, which is the correct answer for an actor who passed a park-blind
+// role gate but holds no park here and is assigned nothing.
+type CampaignAccess struct {
+	Unrestricted      bool
+	AuthorizedParkIDs []string
+	AssigneeUserID    string
+}
+
+// AdmitsPark reports whether the actor's PARK authority -- as opposed to their assignment --
+// covers parkID.
+//
+// Callers evaluate it against the park_id the single-task query ALREADY RETURNED, never against
+// a separately fetched one, so it cannot disagree with the row it describes. It decides bucket
+// VISIBILITY only: a caller admitted by park authority reads the task's buckets unfiltered,
+// while one admitted solely because they are assigned on it reads their own bucket, which is
+// the same split the task list applies.
+func (a CampaignAccess) AdmitsPark(parkID string) bool {
+	if a.Unrestricted {
+		return true
+	}
+	for _, id := range a.AuthorizedParkIDs {
+		if id == parkID {
+			return true
+		}
+	}
+	return false
+}
+
 type Repository interface {
 	CreateCampaign(ctx context.Context, cmd domain.CreateCampaign) (domain.Campaign, error)
 	UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error)
@@ -124,13 +168,18 @@ type Repository interface {
 	// the first page or two could not be resolved at all: the client walked a few
 	// pages and then reported "not found" for work that exists.
 	//
-	// operatorUserID applies the SAME predicate ListCampaignsForOperator uses -- the
-	// task must hold a non-canceled bucket assigned to that operator, in a park they
-	// are granted -- and narrows the returned buckets to theirs. Empty means the
-	// unfiltered read, which the app layer only reaches after a park-scope check.
-	// ErrNotFound when the task does not exist OR the operator predicate excludes it,
-	// so the two are indistinguishable to a caller probing ids.
-	CampaignByID(ctx context.Context, tenantID, campaignID, operatorUserID string) (domain.Campaign, error)
+	// access carries the caller's authority INTO the query instead of being checked
+	// around it. The previous shape resolved the campaign's park with a separate
+	// CampaignParkID call, authorized that park, and then read the campaign in a second
+	// statement -- two reads of a mutable column with no transaction between them, so a
+	// task that moved park in the gap was authorized as park A and returned as park B.
+	// Authorization and retrieval are now one statement over one snapshot of the row,
+	// which is the only shape in which the park that was checked and the park that was
+	// returned cannot differ.
+	//
+	// ErrNotFound when the task does not exist OR no arm of access admits it, so the two
+	// are indistinguishable to a caller probing ids.
+	CampaignByID(ctx context.Context, tenantID, campaignID string, access CampaignAccess) (domain.Campaign, error)
 	// WeighingParks is the park VOCABULARY behind the oversight surfaces' park chips:
 	// identity only, no date scope and no counts (that is PlannerCatalog, which is
 	// gated on the CEO-only WeighingPlan).

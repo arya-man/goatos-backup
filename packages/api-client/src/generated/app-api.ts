@@ -5658,7 +5658,15 @@ export interface components {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
             counts?: components["schemas"]["WeighingCampaignCounts"];
+            /** @description SURFACE-grain, not row-grain. The envelope covers a page whose rows may span several parks, so this is an upper bound ("the caller holds this permission somewhere on this surface") and must NOT be used to gate a per-row button. The single-task read answers at row grain. */
+            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             trace_id?: string;
+        };
+        /** @description Which task-level writes the caller may attempt. Publish is `weighing.plan` while ending and reopening are `weighing.monitor`, so a client that gates buttons on task status alone renders a live button that fails. On the single-task read these are answered for the task's OWN park, matching the park scope the corresponding writes enforce -- a caller who monitors another park gets false rather than a button whose tap answers 404. */
+        WeighingCampaignCapabilities: {
+            can_publish: boolean;
+            can_end: boolean;
+            can_reopen: boolean;
         };
         /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
         WeighingCampaignCounts: {
@@ -5667,6 +5675,8 @@ export interface components {
         };
         WeighingCampaignResponse: {
             campaign: components["schemas"]["WeighingCampaign"];
+            /** @description Answered for THIS task's park. The single-task read is what a deep-linked task screen gates its buttons on, so the answer has to match what the write would allow: end and reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here put a live Abandon/Close button on a task whose write returns 404. */
+            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             trace_id?: string;
         };
         WeighingParkListResponse: {

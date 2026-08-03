@@ -343,11 +343,11 @@ func (r *Repository) PublishCampaign(ctx context.Context, tenantID, campaignID, 
 }
 
 func (r *Repository) ListCampaigns(ctx context.Context, tenantID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, "", parkID, "", cursor, limit)
+	return r.listCampaigns(ctx, tenantID, "", parkID, "", cursor, limit, nil)
 }
 
 func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, operatorUserID, parkID string, cursor string, limit int) (domain.CampaignPage, error) {
-	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, "", cursor, limit)
+	return r.listCampaigns(ctx, tenantID, operatorUserID, parkID, "", cursor, limit, nil)
 }
 
 // CampaignByID resolves ONE task by id, through the SAME query the list uses rather than a
@@ -355,8 +355,14 @@ func (r *Repository) ListCampaignsForOperator(ctx context.Context, tenantID, ope
 // already carries the operator predicate, the park-grant defence-in-depth inside it, the park
 // name join and the bucket/progress hydration, and a parallel single-row copy would have to
 // re-derive all four and would drift from them on the next change.
-func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID, operatorUserID string) (domain.Campaign, error) {
-	page, err := r.listCampaigns(ctx, tenantID, operatorUserID, "", campaignID, "", 1)
+// The caller's authority travels INSIDE that same query as `access`. It used to be checked in
+// the app layer by a preceding CampaignParkID call, which read park_id in one statement and
+// returned the row in another: a task that moved park between the two was authorized as its old
+// park and returned as its new one. There is no re-check after the read here, because a re-check
+// would be a THIRD read of the same mutable column and would inherit the same gap -- the row that
+// is returned has to be the row that was authorized, and one query is the only way to say that.
+func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID string, access ports.CampaignAccess) (domain.Campaign, error) {
+	page, err := r.listCampaigns(ctx, tenantID, "", "", campaignID, "", 1, &access)
 	if err != nil {
 		return domain.Campaign{}, err
 	}
@@ -368,7 +374,13 @@ func (r *Repository) CampaignByID(ctx context.Context, tenantID, campaignID, ope
 
 // campaignID is an EXACT-id filter, not a search: when it is set the read answers one task and
 // the whole-filter tab counts are skipped, because a single task has no tabs to number.
-func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID, campaignID string, cursor string, limit int) (domain.CampaignPage, error) {
+//
+// access is non-nil ONLY on the single-task read. It replaces the AND-shaped operator predicate
+// with an OR over the caller's alternative authorities (park set, tenant-wide, own assignment),
+// which is what lets authorization happen in the same statement as retrieval instead of in a
+// preceding one. The list paths pass nil and are untouched: their authority is already applied
+// as a park filter by the app layer before they get here.
+func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID, parkID, campaignID string, cursor string, limit int, access *ports.CampaignAccess) (domain.CampaignPage, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
 	if limit <= 0 {
@@ -384,7 +396,20 @@ func (r *Repository) listCampaigns(ctx context.Context, tenantID, operatorUserID
 	operatorFilter := strings.TrimSpace(operatorUserID)
 	parkFilter := strings.TrimSpace(parkID)
 	campaignFilter := strings.TrimSpace(campaignID)
-	// projection-review: membership=weighing_campaigns rows for one tenant, with per-campaign bucket detail and progress rollups attached afterwards by hydrateCampaigns keyed on campaign_id; group_key=(tenant_id,campaign_id) with keyset order key (period_start_date,created_at,campaign_id); join_cardinality=locations park is at most one row per campaign (locations PK location_id, matched on tenant_id+location_id) and weighing_campaign_sheds is 1:N but only reached through an EXISTS semijoin so it cannot multiply campaign rows; pagination=keyset on (period_start_date,created_at,campaign_id) DESC with tenant and operator predicates inside WHERE so filtering happens before LIMIT, and LIMIT $5 is limit+1 purely for cursor lookahead; scope=tenant_id=$1 always, plus the operator predicate $6 restricting the tenant to campaigns holding a non-canceled weighing_campaign_sheds bucket assigned to that operator, plus the optional exact-id predicate $8 which serves the single-task read (CampaignByID) off the primary key without changing the grain -- one campaign_id can match at most one row, so it narrows and never multiplies.
+	// The access arms are bound as scalars even when unused, so the list paths and the
+	// single-task path run the SAME statement text and cannot drift apart. accessApplies=false
+	// short-circuits the whole clause to true for the list paths.
+	accessApplies := access != nil
+	accessUnrestricted := accessApplies && access.Unrestricted
+	// An EMPTY (never nil) array: `= ANY('{}')` is FALSE, whereas `= ANY(NULL)` is NULL, and a
+	// NULL arm inside this OR would make an otherwise-admitted row evaluate to NULL and vanish.
+	accessParkIDs := []string{}
+	accessAssignee := ""
+	if accessApplies {
+		accessParkIDs = append(accessParkIDs, access.AuthorizedParkIDs...)
+		accessAssignee = strings.TrimSpace(access.AssigneeUserID)
+	}
+	// projection-review: membership=weighing_campaigns rows for one tenant, with per-campaign bucket detail and progress rollups attached afterwards by hydrateCampaigns keyed on campaign_id; group_key=(tenant_id,campaign_id) with keyset order key (period_start_date,created_at,campaign_id); join_cardinality=locations park is at most one row per campaign (locations PK location_id, matched on tenant_id+location_id) and weighing_campaign_sheds is 1:N but only reached through an EXISTS semijoin so it cannot multiply campaign rows; pagination=keyset on (period_start_date,created_at,campaign_id) DESC with tenant and operator predicates inside WHERE so filtering happens before LIMIT, and LIMIT $5 is limit+1 purely for cursor lookahead; scope=tenant_id=$1 always, plus the operator predicate $6 restricting the tenant to campaigns holding a non-canceled weighing_campaign_sheds bucket assigned to that operator, plus the optional exact-id predicate $8 which serves the single-task read (CampaignByID) off the primary key without changing the grain -- one campaign_id can match at most one row, so it narrows and never multiplies -- plus the single-task access predicate ($9 applies, $10 tenant-wide, $11 authorized park array, $12 assignee), which is a disjunction of row-local tests (park_id = ANY(array), plus an EXISTS semijoin on weighing_campaign_sheds that contributes no extra rows) evaluated against the SAME row snapshot the query returns, so authorization and retrieval share one statement and one park_id value.
 	//
 	// Grain proof (a) producer unique columns vs consumer match/group columns:
 	//   producer weighing_campaigns   unique: (campaign_id) PK, tenant-scoped (tenant_id, campaign_id)
@@ -449,12 +474,41 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
   )
   AND ($7::uuid IS NULL OR weighing_campaigns.park_id=$7::uuid)
   AND ($8::uuid IS NULL OR weighing_campaigns.campaign_id=$8::uuid)
+  -- Single-task authorization, evaluated against THIS row's park_id in the same statement that
+  -- returns it. Splitting it into "read the park, authorize it, then read the row" is what let a
+  -- task that changed park between the two statements be authorized as one park and served as
+  -- another. The arms are alternatives on purpose: an actor assigned a bucket here is authorized
+  -- by the assignment even in a park they do not monitor.
+  AND (
+    NOT $9::boolean
+    OR $10::boolean
+    OR weighing_campaigns.park_id = ANY($11::uuid[])
+    OR (
+      $12::uuid IS NOT NULL
+      AND EXISTS (
+        SELECT 1
+        FROM weighing_campaign_sheds assigned
+        WHERE assigned.tenant_id=weighing_campaigns.tenant_id
+          AND assigned.campaign_id=weighing_campaigns.campaign_id
+          AND assigned.operator_user_id=$12::uuid
+          AND assigned.status <> 'canceled'
+          AND EXISTS (
+            SELECT 1 FROM user_scope_grants g
+            WHERE g.tenant_id=weighing_campaigns.tenant_id
+              AND g.user_id=$12::uuid
+              AND g.status='active'
+              AND (g.scope_type='tenant' OR (g.scope_type='park' AND g.scope_id=weighing_campaigns.park_id))
+          )
+      )
+    )
+  )
   AND (
     $2::date IS NULL
     OR (weighing_campaigns.period_start_date, weighing_campaigns.created_at, weighing_campaigns.campaign_id) < ($2::date, $3::timestamptz, $4::uuid)
   )
 ORDER BY weighing_campaigns.period_start_date DESC, weighing_campaigns.created_at DESC, weighing_campaigns.campaign_id DESC
-LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter), nullableString(campaignFilter))
+LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.CreatedAt), nullableString(cur.CampaignID), limit+1, nullableString(operatorFilter), nullableString(parkFilter), nullableString(campaignFilter),
+		accessApplies, accessUnrestricted, accessParkIDs, nullableString(accessAssignee))
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -479,7 +533,15 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 		out = out[:limit]
 		ids = ids[:limit]
 	}
-	if err := r.hydrateCampaigns(ctx, tenantID, ids, out, operatorFilter); err != nil {
+	hydrationOperator := operatorFilter
+	if access != nil && len(out) == 1 && !access.AdmitsPark(out[0].ParkID) {
+		// Admitted by the ASSIGNMENT arm rather than by park authority, so the caller sees only
+		// their own bucket and only their own progress -- the same narrowing the assignee's task
+		// list applies. The park it is decided against is the one this very query returned, so
+		// this cannot be a second, disagreeing read of park_id.
+		hydrationOperator = strings.TrimSpace(access.AssigneeUserID)
+	}
+	if err := r.hydrateCampaigns(ctx, tenantID, ids, out, hydrationOperator); err != nil {
 		return domain.CampaignPage{}, err
 	}
 	if campaignFilter != "" {
