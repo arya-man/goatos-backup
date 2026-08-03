@@ -196,6 +196,12 @@ test("a park-blind or unknown drive selection resolves to nothing rather than th
   assert.equal(resolveSelectedDrive([cbe], "batch-1", "park-cpt"), undefined);
 });
 
+test("a skinny API drive catalogue can resolve an unambiguous URL park selection", () => {
+  const skinny = { driveBatchId: "batch-1", driveName: "PPR", label: "", status: "planned", targetCount: 10, doseCount: 10, shedNames: [] };
+
+  assert.equal(resolveSelectedDrive([skinny], "batch-1", "park-cpt"), skinny);
+});
+
 test("a drive with no park still round-trips as its own selection value", () => {
   const unparked = { driveBatchId: "batch-2", parkId: "", parkName: "", driveName: "PPR", label: "", status: "completed", targetCount: 5, doseCount: 5, shedNames: [] };
 

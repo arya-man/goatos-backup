@@ -26,8 +26,9 @@ test("vaccination command board forwards top-bar park scope to the backend read"
   // narrowed read is scoped to the SELECTED DRIVE's park rather than only the top-bar scope.
   assert.match(commandBoardSource, /resolveSelectedDrive\(driveOptions, driveBatchId, driveParkId\)/);
   assert.match(commandBoardSource, /driveBatchId: selectedDrive\.driveBatchId,/);
-  assert.match(commandBoardSource, /parkId: selectedDrive\.parkId \|\| parkId,/);
-  assert.match(commandBoardSource, /driveParkId=\{selectedDrive\.parkId \?\? ""\}/);
+  assert.match(commandBoardSource, /const selectedParkId = selectedDrive\.parkId \|\| driveParkId \|\| parkId;/);
+  assert.match(commandBoardSource, /parkId: selectedParkId,/);
+  assert.match(commandBoardSource, /driveParkId=\{selectedParkId\}/);
 });
 
 test("a FAILED narrowed drive read never renders as a successful narrow one", () => {
@@ -52,10 +53,10 @@ test("the drive selector round-trips (batch, park) through the URL", () => {
   // Both the option value and the React key carry the park, so two parks sharing one batch render
   // as two distinct, separately-selectable rows.
   assert.match(commandBoardViewSource, /value=\{driveBatchId \? driveSelectionValue\(driveBatchId, driveParkId\) : ""\}/);
-  assert.match(commandBoardViewSource, /key=\{driveSelectionValue\(drive\.driveBatchId, drive\.parkId\)\}/);
+  assert.match(commandBoardViewSource, /key=\{driveSelectionValue\(drive\.batchIds\[0\] \?\? drive\.key, drive\.parkId\)\}/);
   assert.doesNotMatch(commandBoardViewSource, /key=\{drive\.driveBatchId\} value=\{drive\.driveBatchId\}/);
-  // An operator-day optgroup belongs to one park, so its rows must be filtered by park too.
-  assert.match(commandBoardViewSource, /\(drive\.parkId \?\? ""\) === campaign\.parkId && campaign\.batchIds\.includes\(drive\.driveBatchId\)/);
+  // Operator-day option rows come from the already park-specific campaign treatments, not the raw API rows.
+  assert.match(commandBoardViewSource, /campaign\.treatments\.map/);
 });
 
 test("command board defaults to all drives and renders the complete future programme", () => {
