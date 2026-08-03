@@ -344,11 +344,120 @@ func appliedMigrationChecksum(ctx context.Context, conn *pgxpool.Conn, version s
 // exists for.
 var concurrentIndexNameRe = regexp.MustCompile(`(?is)CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?("?[a-zA-Z_][\w]*"?)`)
 
+// blank replaces a byte of blanked-out text with a space, preserving newlines
+// so line-oriented reading of the result still lines up with the source.
+func blank(c byte) byte {
+	if c == '\n' {
+		return c
+	}
+	return ' '
+}
+
+// stripSQLNoise removes `-- line` and `/* block */` comments so the
+// index-name regex cannot match PROSE. The 000001 baseline contains the line
+//
+//	-- Lock-safe on hot table outbox_messages: CREATE UNIQUE INDEX CONCURRENTLY with the NEW predicate
+//
+// which matched as an index literally named "with". No such index exists, so
+// ensureConcurrentIndexesValid's repair path fired and re-ran the whole
+// baseline, which then died on `CREATE SCHEMA analytics` already existing --
+// i.e. `migrate up` could not bring up ANY fresh database. Six migrations in
+// this repo carry such prose.
+//
+// It blanks three kinds of non-DDL text, leaving only executable statement
+// text for the regex to match:
+//
+//   - `--` line and `/* */` block comments (removed entirely);
+//   - the interior of single-quoted string literals (blanked, delimiters kept)
+//     -- prose in a literal must not be read as an index name either;
+//   - the interior of dollar-quoted `$tag$ ... $tag$` bodies (blanked) --
+//     CREATE INDEX CONCURRENTLY cannot run inside a function or DO block, so
+//     nothing there is ever a real target.
+//
+// Double-quoted identifiers are copied through byte-for-byte, because THEY are
+// the index names. Statement text is never altered, so this cannot mangle a
+// real name.
+//
+// Dollar-tag tracking (the same lexical state splitSQLStatements keeps) is
+// load-bearing: these migrations use `$$` bodies heavily and such a body may
+// contain an apostrophe that is NOT a string delimiter (`$$ ... can't ... $$`).
+// Without it that apostrophe would open a phantom string literal and suppress
+// comment stripping for the rest of the file, reintroducing this bug.
+func stripSQLNoise(sql string) string {
+	var b strings.Builder
+	b.Grow(len(sql))
+	var dollarTag string
+	inLine, inBlock, inSingle, inDouble := false, false, false, false
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		next := byte(0)
+		if i+1 < len(sql) {
+			next = sql[i+1]
+		}
+		switch {
+		case inLine:
+			if c == '\n' {
+				inLine = false
+				b.WriteByte(c)
+			}
+		case inBlock:
+			if c == '*' && next == '/' {
+				inBlock = false
+				i++
+			}
+		case dollarTag != "":
+			if strings.HasPrefix(sql[i:], dollarTag) {
+				b.WriteString(dollarTag)
+				i += len(dollarTag) - 1
+				dollarTag = ""
+				break
+			}
+			b.WriteByte(blank(c))
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
+				b.WriteByte(c)
+				break
+			}
+			b.WriteByte(blank(c))
+		case inDouble:
+			b.WriteByte(c)
+			if c == '"' {
+				inDouble = false
+			}
+		case c == '-' && next == '-':
+			inLine = true
+			i++
+		case c == '/' && next == '*':
+			inBlock = true
+			i++
+		case c == '\'':
+			inSingle = true
+			b.WriteByte(c)
+		case c == '"':
+			inDouble = true
+			b.WriteByte(c)
+		case c == '$':
+			if tag, ok := readDollarTag(sql[i:]); ok {
+				b.WriteString(tag)
+				i += len(tag) - 1
+				dollarTag = tag
+				continue
+			}
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
 // extractConcurrentIndexNames returns the bare (unquoted) names of every index
 // a migration's Up SQL builds with CREATE INDEX CONCURRENTLY / CREATE UNIQUE
-// INDEX CONCURRENTLY.
+// INDEX CONCURRENTLY. Comments are stripped first so prose cannot be mistaken
+// for an index name -- see stripSQLNoise.
 func extractConcurrentIndexNames(sql string) []string {
-	matches := concurrentIndexNameRe.FindAllStringSubmatch(sql, -1)
+	matches := concurrentIndexNameRe.FindAllStringSubmatch(stripSQLNoise(sql), -1)
 	if len(matches) == 0 {
 		return nil
 	}

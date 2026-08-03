@@ -188,3 +188,136 @@ func TestValidateLocalChecksumDriftTargetOnlyAllowsLocalLoopback(t *testing.T) {
 		t.Fatalf("local checksum drift allowance rejected: %v", err)
 	}
 }
+
+// TestExtractConcurrentIndexNamesIgnoresComments locks in the fix for the bug
+// where `migrate up` could not bring up ANY fresh database: prose inside a
+// `--` comment mentioning CREATE INDEX CONCURRENTLY was extracted as an index
+// name, the index was (of course) not found, ensureConcurrentIndexesValid's
+// repair path fired, and re-running the 000001 baseline died on
+// `CREATE SCHEMA analytics` already existing.
+func TestExtractConcurrentIndexNamesIgnoresComments(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want []string
+	}{
+		{
+			name: "line comment mentioning the statement is not an index name",
+			sql: `-- Lock-safe on hot table outbox_messages: CREATE UNIQUE INDEX CONCURRENTLY with the NEW predicate
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS real_idx ON t (id);`,
+			want: []string{"real_idx"},
+		},
+		{
+			name: "comment-only prose yields nothing",
+			sql:  `-- a prior CREATE INDEX CONCURRENTLY failed partway, leaving it INVALID`,
+			want: nil,
+		},
+		{
+			name: "block comment prose is ignored",
+			sql: `/* CREATE INDEX CONCURRENTLY bogus_name ON t (id); */
+CREATE INDEX CONCURRENTLY kept_idx ON t (id);`,
+			want: []string{"kept_idx"},
+		},
+		{
+			name: "trailing comment on the same line does not hide the statement",
+			sql:  `CREATE INDEX CONCURRENTLY IF NOT EXISTS kept_idx ON t (id); -- CREATE INDEX CONCURRENTLY ignored_word`,
+			want: []string{"kept_idx"},
+		},
+		{
+			name: "quoted identifier is unquoted, not mangled",
+			sql:  `CREATE INDEX CONCURRENTLY IF NOT EXISTS "Quoted_Idx" ON t (id);`,
+			want: []string{"Quoted_Idx"},
+		},
+		{
+			name: "prose inside a string literal is not an index name",
+			sql: `INSERT INTO notes (body) VALUES ('CREATE INDEX CONCURRENTLY from_a_literal ON t (id)');
+CREATE INDEX CONCURRENTLY after_literal_idx ON t (id);`,
+			want: []string{"after_literal_idx"},
+		},
+		{
+			name: "apostrophe inside a dollar-quoted body does not disable comment stripping",
+			sql: `CREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION $msg$that can't happen$msg$;
+END;
+$$;
+-- CREATE INDEX CONCURRENTLY prose_after_dollar_body
+CREATE INDEX CONCURRENTLY IF NOT EXISTS after_body_idx ON t (id);`,
+			want: []string{"after_body_idx"},
+		},
+		{
+			name: "dedupes repeated names",
+			sql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS dup_idx ON t (id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS dup_idx ON t (id);`,
+			want: []string{"dup_idx"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractConcurrentIndexNames(tc.sql)
+			if len(got) != len(tc.want) {
+				t.Fatalf("extractConcurrentIndexNames() = %#v, want %#v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("extractConcurrentIndexNames() = %#v, want %#v", got, tc.want)
+				}
+			}
+		})
+	}
+}
+
+// TestExtractConcurrentIndexNamesOnRealMigrations guards the whole committed
+// migration corpus: every extracted name must come from a real statement, not
+// from prose. Ground truth is computed line-wise (all CONCURRENTLY statements
+// in this repo start their own line), which is deliberately a different
+// implementation from stripSQLComments.
+func TestExtractConcurrentIndexNamesOnRealMigrations(t *testing.T) {
+	dir := filepath.Join("..", "..", "migrations", "postgres")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read migrations dir: %v", err)
+	}
+	checked := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		sql := string(raw)
+		if !strings.Contains(sql, "CONCURRENTLY") {
+			continue
+		}
+		checked++
+		want := map[string]bool{}
+		for _, line := range strings.Split(sql, "\n") {
+			code := line
+			if idx := strings.Index(code, "--"); idx >= 0 {
+				code = code[:idx]
+			}
+			for _, m := range concurrentIndexNameRe.FindAllStringSubmatch(code, -1) {
+				want[strings.Trim(m[1], `"`)] = true
+			}
+		}
+		got := map[string]bool{}
+		for _, n := range extractConcurrentIndexNames(sql) {
+			got[n] = true
+		}
+		for n := range got {
+			if !want[n] {
+				t.Errorf("%s: extracted %q, which is not a real CREATE INDEX CONCURRENTLY target (prose leaked through)", e.Name(), n)
+			}
+		}
+		for n := range want {
+			if !got[n] {
+				t.Errorf("%s: real index %q was NOT extracted; the concurrent-index guard would silently skip it", e.Name(), n)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no migrations containing CONCURRENTLY were checked; corpus guard is inert")
+	}
+}
