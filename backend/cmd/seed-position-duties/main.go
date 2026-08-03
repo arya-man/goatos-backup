@@ -19,12 +19,16 @@
 //     (scope-lock), so only the preventive_care prefix carries
 //     'vaccination.execute'; every other module's capability_code is NULL until
 //     that module is built.
-//   - duty_type = 'verify' rows are emitted for the tenant Video Verification Team
-//     seat (VerifierPositionCode), one per module that routes a pending-proof
-//     notification (notificationbridge.PendingNotificationDutyModules). Without these
-//     the verify join in ResolveModuleDutyRecipients matches nothing and every
-//     verifier push resolves to zero devices. The run ends with a closeout assertion
-//     that every such module has a reachable verify duty holder.
+//   - duty_type = 'verify' rows are emitted for the Video Verification Team seats that
+//     are actually held, scoped PER SEAT: the bare seat (VerifierPositionCode) reviews
+//     every module that routes a pending-proof notification
+//     (notificationbridge.PendingNotificationDutyModules), while a module-scoped seat
+//     (video_verifier_weighing) reviews that module alone. Without any of these rows the
+//     verify join in ResolveModuleDutyRecipients matches nothing and every verifier push
+//     resolves to zero devices; without the per-seat scoping every reviewer holds every
+//     module, which is what left the verification queue's module gate unable to refuse
+//     anyone. The run ends with a closeout assertion that every notified module still has
+//     a reachable verify duty holder, so splitting the desk can never silence a push.
 //
 // It is idempotent: the unique index (tenant_id, position_code, module_code,
 // duty_type, effective_from) plus INSERT ... ON CONFLICT DO NOTHING means a
@@ -92,6 +96,52 @@ var modulePrefixes = []modulePrefix{
 // item's park id, so the seat is held by the same member at every center rather than
 // once at tenant scope. See backend/cmd/seed-roster-real (seedVerifierSeats).
 const VerifierPositionCode = "video_verifier"
+
+// verifierSeatPrefix is what makes a position code a proof-review seat. Everything under it
+// is verify-duty territory: no module prefix may claim it, because a review seat that also
+// carried an execute duty would let the same person perform and sign off the work.
+const verifierSeatPrefix = VerifierPositionCode
+
+// moduleScopedVerifierSuffix is how a review seat names the ONE module it reviews:
+// "<verifierSeatPrefix>_<normalized module code>", e.g. video_verifier_weighing.
+//
+// WHY THE SUFFIX EXISTS. position_module_duties is keyed on position_code, so a seat code is
+// the only place a per-person duty scope can be recorded. While every reviewer shares the
+// single bare code, every reviewer necessarily holds every module -- which is precisely why
+// the queue's module gate could refuse nobody. A module-scoped code is what lets one tenant
+// seat, say, a counts reviewer who is NOT handed vaccination proof.
+//
+// The bare code keeps meaning "reviews everything", and that is deliberate rather than
+// leftover: a module whose only reviewer is removed loses its verify duty holder, and
+// ResolveModuleDutyRecipients then resolves its pending-proof push to zero devices -- silent
+// non-delivery, the failure this command exists to prevent. So narrowing is opt-in per seat,
+// never inferred, and the closeout assertion still has to pass afterwards.
+func moduleScopedVerifierSuffix(positionCode string) (string, bool) {
+	if !strings.HasPrefix(positionCode, verifierSeatPrefix+"_") {
+		return "", false
+	}
+	return strings.TrimPrefix(positionCode, verifierSeatPrefix+"_"), true
+}
+
+// isVerifierSeat reports whether a position code is any proof-review seat, bare or
+// module-scoped.
+func isVerifierSeat(positionCode string) bool {
+	if positionCode == VerifierPositionCode {
+		return true
+	}
+	_, ok := moduleScopedVerifierSuffix(positionCode)
+	return ok
+}
+
+// normalizeModuleCode folds a duty catalog module_code onto the flat spelling a seat code can
+// carry ("pc.vaccination" -> "vaccination", "feed.direction" -> "feed_direction"). A position
+// code cannot contain a dot, so the catalog vocabulary and the seat vocabulary have to be
+// compared through one shared fold rather than two hand-kept lists.
+func normalizeModuleCode(moduleCode string) string {
+	moduleCode = strings.ToLower(strings.TrimSpace(moduleCode))
+	moduleCode = strings.TrimPrefix(moduleCode, "pc.")
+	return strings.ReplaceAll(moduleCode, ".", "_")
+}
 
 // dutyTypeVerify is the duty_type ResolveModuleDutyRecipients
 // (workforce/adapters/postgres/roster_repository.go) joins on to find who reviews a
@@ -183,7 +233,11 @@ func run(args []string) error {
 
 	duties, st := deriveDuties(positions)
 	notifiedModules := notificationbridge.PendingNotificationDutyModules()
-	duties = append(duties, deriveVerifierDuties(positions, notifiedModules)...)
+	verifierDuties, err := deriveVerifierDuties(positions, notifiedModules)
+	if err != nil {
+		return fmt.Errorf("derive verifier duties: %w", err)
+	}
+	duties = append(duties, verifierDuties...)
 	st.DutiesDerived = len(duties)
 
 	fmt.Printf("derived position duties:\n"+
@@ -282,7 +336,7 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 		// -strict -- which BOTH real invocations use, Makefile seed-vaccination-real and
 		// seed-vaccination-cpt-operator-drive -- from aborting the whole run before
 		// insertDuties and leaving position_module_duties completely empty.
-		if p.positionCode == VerifierPositionCode {
+		if isVerifierSeat(p.positionCode) {
 			continue
 		}
 		mp, ok := matchModule(p.positionCode)
@@ -313,34 +367,65 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 	return out, st
 }
 
-// deriveVerifierDuties emits one 'verify' duty row per notified module for the Video
-// Verification Team seat, so ResolveModuleDutyRecipients can actually find a reviewer.
+// deriveVerifierDuties emits the 'verify' duty rows for the proof-review seats that are
+// actually held, so ResolveModuleDutyRecipients can find a reviewer and so the queue's module
+// gate has something to gate on.
+//
+// PER SEAT, PER MODULE. A module-scoped seat (video_verifier_weighing) gets exactly its own
+// module and nothing else -- that one row is the whole point, because it is what stops a
+// reviewer from pulling another module's proof out of a queue they are merely park-authorized
+// for. The bare seat still gets every notified module: it means "reviews everything", and it
+// is the seat every tenant has until someone deliberately splits the desk.
 //
 // The module list is NOT re-typed here: it comes from
 // notificationbridge.PendingNotificationDutyModules(), the same map the push consumer
 // routes from. A hand-copied list would drift, and drift in this exact place is what left
 // the verify join empty.
 //
+// An unrecognised suffix is an error, not a shrug. Falling back to "all modules" would hand a
+// mis-typed seat every module and quietly re-open the gap this scoping exists to close, and
+// falling back to "no modules" would leave the seat holder unreachable by any push.
+//
 // capability_code stays NULL: a verify duty confers no execution capability, so a backup
 // grant covering the verifier seat must not hand anyone a scanner.
-func deriveVerifierDuties(positions []positionRow, modules []string) []dutyRow {
-	held := false
-	for _, p := range positions {
-		if p.positionCode == VerifierPositionCode {
-			held = true
-			break
-		}
-	}
-	if !held {
-		// Do not invent a duty for a seat that does not exist. The closeout assertion
-		// reports it as uncovered, which is the loud failure this seeder owes the caller.
-		return nil
-	}
-	out := make([]dutyRow, 0, len(modules))
+func deriveVerifierDuties(positions []positionRow, modules []string) ([]dutyRow, error) {
+	moduleForSuffix := make(map[string]string, len(modules))
 	for _, module := range modules {
-		out = append(out, dutyRow{positionCode: VerifierPositionCode, moduleCode: module, dutyType: dutyTypeVerify})
+		moduleForSuffix[normalizeModuleCode(module)] = module
 	}
-	return out
+
+	seats := make([]string, 0, 2)
+	seen := map[string]bool{}
+	for _, p := range positions {
+		if !isVerifierSeat(p.positionCode) || seen[p.positionCode] {
+			continue
+		}
+		seen[p.positionCode] = true
+		seats = append(seats, p.positionCode)
+	}
+	// Do not invent a duty for a seat nobody holds. The closeout assertion reports the
+	// uncovered module instead, which is the loud failure this seeder owes the caller.
+	sort.Strings(seats)
+
+	out := make([]dutyRow, 0, len(seats)*len(modules))
+	for _, seat := range seats {
+		suffix, scoped := moduleScopedVerifierSuffix(seat)
+		if !scoped {
+			for _, module := range modules {
+				out = append(out, dutyRow{positionCode: seat, moduleCode: module, dutyType: dutyTypeVerify})
+			}
+			continue
+		}
+		module, ok := moduleForSuffix[suffix]
+		if !ok {
+			return nil, fmt.Errorf(
+				"verifier seat %q names module %q, which routes no pending-proof notification (known: %v); "+
+					"either the seat code is wrong or the module is missing from notificationbridge",
+				seat, suffix, modules)
+		}
+		out = append(out, dutyRow{positionCode: seat, moduleCode: module, dutyType: dutyTypeVerify})
+	}
+	return out, nil
 }
 
 // assertVerifyDutyCoverage is the SEED CLOSEOUT: every module that routes a pending-proof

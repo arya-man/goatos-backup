@@ -49,8 +49,12 @@ func TestDeriveVerifierDutiesCoversEveryNotifiedModule(t *testing.T) {
 		{positionCode: "vaccination_operator_amit", positionTier: "manager"},
 		{positionCode: VerifierPositionCode, positionTier: "manager"},
 	}
+	rows, err := deriveVerifierDuties(positions, modules)
+	if err != nil {
+		t.Fatalf("derive verifier duties: %v", err)
+	}
 	got := map[string]string{}
-	for _, d := range deriveVerifierDuties(positions, modules) {
+	for _, d := range rows {
 		if d.positionCode != VerifierPositionCode {
 			t.Errorf("verify duty attached to %q, want the verifier seat %q", d.positionCode, VerifierPositionCode)
 		}
@@ -70,12 +74,112 @@ func TestDeriveVerifierDutiesCoversEveryNotifiedModule(t *testing.T) {
 // the gap instead, so the failure is "no verifier is seated" rather than a duty row that
 // resolves to nobody.
 func TestDeriveVerifierDutiesRequiresTheSeatToExist(t *testing.T) {
-	duties := deriveVerifierDuties(
+	duties, err := deriveVerifierDuties(
 		[]positionRow{{positionCode: "vaccination_operator_amit", positionTier: "manager"}},
 		notificationbridge.PendingNotificationDutyModules(),
 	)
+	if err != nil {
+		t.Fatalf("derive verifier duties: %v", err)
+	}
 	if len(duties) != 0 {
 		t.Fatalf("derived %d verify duties with no verifier seat present; want none", len(duties))
+	}
+}
+
+// TestDeriveVerifierDutiesScopesEachSeatToItsOwnModules is the seeding half of the queue's
+// module gate. The gate can only refuse a module the caller is POSITIVELY known not to hold,
+// so as long as every reviewer is seeded with every module it refuses nobody. This pins the
+// narrowing: a module-scoped seat gets exactly one duty row, and no seat leaks a module
+// belonging to another desk.
+func TestDeriveVerifierDutiesScopesEachSeatToItsOwnModules(t *testing.T) {
+	modules := notificationbridge.PendingNotificationDutyModules()
+	positions := []positionRow{
+		{positionCode: "video_verifier_weighing", positionTier: "manager"},
+		{positionCode: "video_verifier_counts", positionTier: "manager"},
+		{positionCode: "vaccination_operator_amit", positionTier: "manager"},
+	}
+	rows, err := deriveVerifierDuties(positions, modules)
+	if err != nil {
+		t.Fatalf("derive verifier duties: %v", err)
+	}
+	bySeat := map[string][]string{}
+	for _, d := range rows {
+		if d.dutyType != dutyTypeVerify {
+			t.Errorf("seat %s got duty_type %q, want %q", d.positionCode, d.dutyType, dutyTypeVerify)
+		}
+		if d.capability != "" {
+			t.Errorf("seat %s: a verify duty must confer no execution capability, got %q", d.positionCode, d.capability)
+		}
+		bySeat[d.positionCode] = append(bySeat[d.positionCode], d.moduleCode)
+	}
+	if len(bySeat) != 2 {
+		t.Fatalf("seats with verify duty = %v, want exactly the two review seats", bySeat)
+	}
+	for seat, want := range map[string]string{
+		"video_verifier_weighing": "weighing",
+		"video_verifier_counts":   "counts",
+	} {
+		got := bySeat[seat]
+		if len(got) != 1 || got[0] != want {
+			t.Fatalf("seat %s holds %v, want only [%s]", seat, got, want)
+		}
+	}
+}
+
+// The bare seat keeps every module on purpose: it is the "reviews everything" desk, and it is
+// the only review seat the shipped roster has. Narrowing it would strip modules of their only
+// verify duty holder and send their pending-proof pushes to zero devices.
+func TestDeriveVerifierDutiesKeepsTheBareSeatUnnarrowed(t *testing.T) {
+	modules := notificationbridge.PendingNotificationDutyModules()
+	rows, err := deriveVerifierDuties(
+		[]positionRow{
+			{positionCode: VerifierPositionCode, positionTier: "manager"},
+			{positionCode: "video_verifier_counts", positionTier: "manager"},
+		},
+		modules,
+	)
+	if err != nil {
+		t.Fatalf("derive verifier duties: %v", err)
+	}
+	held := map[string]bool{}
+	for _, d := range rows {
+		if d.positionCode == VerifierPositionCode {
+			held[d.moduleCode] = true
+		}
+	}
+	if len(held) != len(modules) {
+		t.Fatalf("bare seat holds %v, want every notified module %v", held, modules)
+	}
+}
+
+// A seat naming a module nothing notifies is a typo or a wiring gap. Granting it everything
+// would re-open the very gap the scoping closes; granting it nothing would leave its holder
+// unreachable. Both are silent, so the seed refuses to run.
+func TestDeriveVerifierDutiesRejectsAnUnknownModuleSuffix(t *testing.T) {
+	_, err := deriveVerifierDuties(
+		[]positionRow{{positionCode: "video_verifier_procurement", positionTier: "manager"}},
+		notificationbridge.PendingNotificationDutyModules(),
+	)
+	if err == nil {
+		t.Fatal("a verifier seat naming an unnotified module must fail the seed, not be silently scoped")
+	}
+}
+
+// A module-scoped review seat must not fall into the unmapped bucket either: both real
+// invocations pass -strict, which aborts before insertDuties, so an unrecognised review seat
+// would leave position_module_duties empty exactly as the bare seat once did.
+func TestDeriveDutiesSkipsModuleScopedVerifierSeats(t *testing.T) {
+	duties, st := deriveDuties([]positionRow{
+		{positionCode: "video_verifier_weighing", positionTier: "manager"},
+		{positionCode: "vaccination_operator_amit", positionTier: "manager"},
+	})
+	if st.UnmappedSkipped != 0 {
+		t.Fatalf("UnmappedSkipped=%d (%v); a module-scoped review seat must not trip -strict", st.UnmappedSkipped, st.UnmappedPrefixes)
+	}
+	for _, d := range duties {
+		if isVerifierSeat(d.positionCode) {
+			t.Fatalf("deriveDuties emitted a %q duty for review seat %q; a reviewer must never hold execution duty", d.dutyType, d.positionCode)
+		}
 	}
 }
 

@@ -481,24 +481,21 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// is what makes the queue serve the same module set the drawer offers; without it the
 	// queue gate stays inert and a verifier can name any module's category.
 	//
-	// DELIBERATELY NOT WIRED YET (maintainer decision, 2026-08-03). The gate is built and
-	// tested, but leaving it unwired is the correct call today for two measured reasons:
+	// Wiring this is safe for everyone who can actually reach the queue. VerificationReview is
+	// held by exactly two roles (permissions.rolePermissions): RoleVerifier and
+	// RoleCEOInternal. Neither is seeded with a department -- the verifier's workforce_members
+	// row is written without department_id (seed-roster-real seedContractPeopleAndEmailGrants)
+	// and leadership is department-less by design (seed-stg-login-grants) -- so the
+	// department_module_grants half of ListGrantedModuleKeys contributes nothing to either.
+	// That matters because the earlier objection to wiring was `weighing` being absent from
+	// every defaultDepartmentModules entry: the department-grant lockout it describes needs a
+	// departmented VerificationReview holder, and there is none. Leadership resolves to an
+	// empty duty set and falls open; a reviewer resolves to their seeded verify duties.
 	//
-	//  1. It would close NOTHING. position_module_duties ships EMPTY (000001's COPY block has
-	//     zero rows) and the only writer of duty_type='verify' rows, cmd/seed-position-duties,
-	//     emits them for exactly ONE position -- video_verifier -- and hands that single seat
-	//     all four modules. So in the seeded configuration every verifier either holds duty
-	//     for everything or holds none and falls open. The gate is a no-op.
-	//  2. It would cost something. `weighing` appears in no defaultDepartmentModules entry, so
-	//     a preventive-care department member who reviews weighing_proof today would start
-	//     getting 403 -- a new lockout on the module currently being stabilised, and the same
-	//     class of self-inflicted outage a too-narrow capability set already caused once on
-	//     this branch.
-	//
-	// Wire it (append `.WithModuleDutyReader(workforceRepo)`) once verify duties are seeded
-	// PER verifier PER module. Until then the real fix is in cmd/seed-position-duties, which
-	// is what actually grants one seat every module.
-	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
+	// cmd/seed-position-duties now scopes those duties PER SEAT, so this gate has something to
+	// gate on rather than being a no-op against a single seat holding every module.
+	verificationService := verificationapp.NewService(verificationRepo, verificationMedia).
+		WithModuleDutyReader(workforceRepo)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical:      "preventive_care",
 		Module:        "vaccination",
