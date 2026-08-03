@@ -320,7 +320,6 @@
     <string name="weighing_bucket_state_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="weighing_bucket_state_accepted">ಸ್ವೀಕೃತ</string>
     <string name="weighing_bucket_state_rework">ಆಪರೇಟರ್‌ಗೆ ವಾಪಸ್ ಕಳುಹಿಸಲಾಗಿದೆ</string>
-    <string name="weighing_bucket_weighed_fmt">%1$d ತೂಗಲಾಗಿದೆ</string>
     <string name="weighing_videos_none">ಇನ್ನೂ ಯಾವುದೇ ವಿಡಿಯೋ ಇಲ್ಲ</string>
     <string name="weighing_videos_uploading_fmt">%1$d ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ</string>
     <string name="weighing_videos_failed_fmt">%1$d ವಿಫಲವಾಗಿವೆ</string>
@@ -331,8 +330,6 @@
     <string name="weighing_operators_roster_gap">ನೀಡಲಾಗಿದೆ, ಆದರೆ ರೋಸ್ಟರ್‌ನಲ್ಲಿ ಇಲ್ಲ</string>
     <string name="weighing_operators_sheds_one">%1$d ಶೆಡ್</string>
     <string name="weighing_operators_sheds_other">%1$d ಶೆಡ್‌ಗಳು</string>
-    <string name="weighing_operators_animals_one">%1$d ಪ್ರಾಣಿ ತೂಕ ಮಾಡಲಾಗಿದೆ</string>
-    <string name="weighing_operators_animals_other">%1$d ಪ್ರಾಣಿಗಳ ತೂಕ ಮಾಡಲಾಗಿದೆ</string>
     <string name="weighing_operators_nothing_weighed_yet">ಇನ್ನೂ ಏನೂ ತೂಕ ಮಾಡಿಲ್ಲ</string>
     <string name="weighing_operators_state_not_started_fmt">%1$d ಪ್ರಾರಂಭವಾಗಿಲ್ಲ</string>
     <string name="weighing_operators_state_capturing_fmt">%1$d ತೂಕ ನಡೆಯುತ್ತಿದೆ</string>
@@ -346,4 +343,6 @@
     <string name="weighing_shed_state_accepted">ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
     <string name="weighing_shed_weighed_by_fmt">%1$s ತೂಕ ಮಾಡಿದರು</string>
     <string name="weighing_shed_weighed_by_nobody">ಇನ್ನೂ ಯಾರಿಗೂ ನೀಡಿಲ್ಲ</string>
+    <string name="weighing_weighed_submitted_fmt">%1$d ತೂಗಲಾಗಿದೆ · %2$d ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_not_submitted_chip">ಸಲ್ಲಿಸಲಾಗಿಲ್ಲ</string>
 </resources>

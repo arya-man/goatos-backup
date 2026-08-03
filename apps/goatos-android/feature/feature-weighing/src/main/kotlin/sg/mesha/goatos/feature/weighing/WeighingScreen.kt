@@ -263,7 +263,10 @@ data class WeighingOperatorUiRow(
     val operatorUserId: String,
     val name: String,
     val shedCount: Int,
+    /** FACT 1 of 2: animals this person has a recorded weight for, submitted or not. */
     val animalsWeighed: Int,
+    /** FACT 2 of 2: the subset of [animalsWeighed] submitted for verification. */
+    val animalsSubmitted: Int,
     val notStarted: Int,
     val capturing: Int,
     val submitted: Int,

@@ -23,7 +23,8 @@ class WeighingTaskDetailCountsTest {
         name: String,
         operator: String,
         status: String,
-        captured: Int,
+        weighed: Int,
+        submitted: Int = weighed,
     ) = WeighingTaskShed(
         campaignShedId = "bucket-$name",
         locationId = "loc-$name",
@@ -32,10 +33,11 @@ class WeighingTaskDetailCountsTest {
         operatorUserId = operator,
         operatorDisplayName = operator,
         status = status,
-        pendingVerificationCount = if (status == "completed") captured else 0,
+        pendingVerificationCount = if (status == "completed") submitted else 0,
         reworkCount = 0,
         readyToClose = false,
-        capturedCount = captured,
+        animalsWeighedCount = weighed,
+        animalsSubmittedCount = submitted,
     )
 
     private fun task() = WeighingTask(
@@ -47,7 +49,10 @@ class WeighingTaskDetailCountsTest {
         status = "in_progress",
         sheds = listOf(
             bucket("Gandhi 1", "Dinakar", "pending", 0),
-            bucket("Gandhi 2", "Dinakar", "pending", 0),
+            // MID-SHIFT: three animals weighed, NONE submitted. This is the state that used to be
+            // invisible -- the bucket read as a bare "3" that meant something different on the
+            // task detail than on the Operators screen.
+            bucket("Gandhi 2", "Dinakar", "in_progress", weighed = 3, submitted = 0),
             bucket("Godel 1", "Pramod", "completed", 5),
             bucket("Yashoda 1", "Pramod", "completed", 5),
         ),
@@ -104,9 +109,23 @@ class WeighingTaskDetailCountsTest {
      * reported as-is. Five weights captured reads as five, never as a percentage of anything.
      */
     @Test
-    fun `a bucket reports the captures it actually holds`() {
+    fun `a bucket reports the animals it actually holds`() {
         val godel = state().sheds.first { it.shedName == "Godel 1" }
-        assertEquals(5, godel.capturedCount)
+        assertEquals(5, godel.animalsWeighedCount)
+        assertEquals(5, godel.animalsSubmittedCount)
+    }
+
+    /**
+     * THE MID-SHIFT CASE. Three animals weighed, none submitted. Both facts must survive to the
+     * card as SEPARATE numbers: collapsing them into one count is what made an operator who had
+     * weighed 3 and pressed nothing read as "3" on one screen and "0" on another, at the same
+     * second, in the same app.
+     */
+    @Test
+    fun `a mid-shift bucket reports weighed and submitted separately`() {
+        val gandhi2 = state().sheds.first { it.shedName == "Gandhi 2" }
+        assertEquals(3, gandhi2.animalsWeighedCount)
+        assertEquals(0, gandhi2.animalsSubmittedCount)
     }
 
     /**

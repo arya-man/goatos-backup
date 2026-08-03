@@ -342,7 +342,6 @@
     <string name="weighing_bucket_state_submitted">Submitted</string>
     <string name="weighing_bucket_state_accepted">Accepted</string>
     <string name="weighing_bucket_state_rework">Sent back to the operator</string>
-    <string name="weighing_bucket_weighed_fmt">%1$d weighed</string>
     <string name="weighing_videos_none">No video added yet</string>
     <string name="weighing_videos_uploading_fmt">%1$d uploading</string>
     <string name="weighing_videos_failed_fmt">%1$d failed</string>
@@ -357,8 +356,6 @@
     <string name="weighing_operators_roster_gap">Assigned, but not on the roster</string>
     <string name="weighing_operators_sheds_one">%1$d shed</string>
     <string name="weighing_operators_sheds_other">%1$d sheds</string>
-    <string name="weighing_operators_animals_one">%1$d animal weighed</string>
-    <string name="weighing_operators_animals_other">%1$d animals weighed</string>
     <string name="weighing_operators_nothing_weighed_yet">Nothing weighed yet</string>
     <string name="weighing_operators_state_not_started_fmt">%1$d not started</string>
     <string name="weighing_operators_state_capturing_fmt">%1$d still weighing</string>
@@ -372,4 +369,6 @@
     <string name="weighing_shed_state_accepted">Accepted</string>
     <string name="weighing_shed_weighed_by_fmt">Weighed by %1$s</string>
     <string name="weighing_shed_weighed_by_nobody">Not assigned to anyone yet</string>
+    <string name="weighing_weighed_submitted_fmt">%1$d weighed · %2$d submitted</string>
+    <string name="weighing_not_submitted_chip">Not submitted</string>
 </resources>

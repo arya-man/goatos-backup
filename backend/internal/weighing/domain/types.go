@@ -121,10 +121,17 @@ type OperatorSummary struct {
 	// counts on purpose (a bounced bucket is still in one of them) and is reported
 	// as its own flag-count, never added to them.
 	ReworkCount int `json:"rework_count"`
-	// AnimalsWeighedCount is how many ANIMALS this person's buckets account for:
-	// one per individual observation, and the recorded head count of a standing
-	// lump-sum weighing. A plain total of work done, never divided by anything.
+	// AnimalsWeighedCount is how many ANIMALS this person has RECORDED a weight
+	// for, submitted or not: one per individual observation, and the recorded head
+	// count of a standing lump-sum weighing. A plain total of work done, never
+	// divided by anything.
 	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount this person has
+	// SUBMITTED for verification. It is reported ALONGSIDE the weighed count, never
+	// instead of it: "3 weighed · 0 submitted" is the mid-shift state where work
+	// gets silently lost, and a single number cannot say it. Same predicate as the
+	// per-bucket animals_submitted_count, so the two surfaces cannot disagree.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
 }
 
 // CampaignCounts is the WHOLE-FILTER task tally behind the two task-list tabs.
@@ -302,16 +309,24 @@ type CampaignShed struct {
 	// work the operator still owes, so surfacing "ready" on it would bury the
 	// rework request from leadership's view.
 	ReadyToClose bool `json:"ready_to_close"`
-	// CapturedCount is how many weight records this bucket ACTUALLY holds —
-	// individual observations for an individual_animal bucket, the standing
-	// (non-withdrawn) shed proof for a lump-sum one — whether or not they have been
-	// submitted yet.
+	// AnimalsWeighedCount is how many ANIMALS this bucket has a recorded weight
+	// for, submitted or not — one per individual observation, and the recorded head
+	// count of the standing (non-withdrawn) shed proof for a lump-sum bucket.
+	//
+	// It replaces CapturedCount, which counted the lump-sum proof ROW and so read
+	// as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for
+	// the same work.
 	//
 	// It is a plain count and is NEVER a numerator. Weighing is free-flow: there is
 	// no expected-animal roster, ExpectedAnimalCount is a fixed bucket-grain 1, and
-	// dividing captures by it would render a share of a total that does not exist.
-	// Clients report this number as-is ("5 weighed") or not at all.
-	CapturedCount int `json:"captured_count"`
+	// dividing weighings by it would render a share of a total that does not exist.
+	// Clients report this number as-is ("3 weighed") or not at all.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount that has been
+	// SUBMITTED for verification. Rendered alongside the weighed count as
+	// "3 weighed · 0 submitted"; when it is zero and work exists, clients show a
+	// "Not submitted" chip — the word the operator's own Submit button uses.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
 }
 
 // CampaignShedPage is the task-detail (L1) bucket list as a keyset page.

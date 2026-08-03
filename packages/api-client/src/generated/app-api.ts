@@ -5600,8 +5600,10 @@ export interface components {
             rework_count?: number;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
-            /** @description How many weight records this bucket ACTUALLY holds -- individual observations for an individual_animal bucket, the standing (non-withdrawn) shed proof for a lump-sum one -- submitted or not. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing captures by it would render a share of a total that does not exist. Clients report this number as-is ("5 weighed") or not at all, and must never turn it into a percentage or a progress bar fill. */
-            captured_count: number;
+            /** @description FACT 1 of 2. How many ANIMALS this bucket has a RECORDED weight for, submitted or not: one per individual observation, plus the recorded head count of the standing (non-withdrawn) shed proof for a lump-sum bucket. ANIMAL grain, not record grain -- it replaces captured_count, which counted the lump-sum proof ROW and so read as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for the same work. Identical predicate to WeighingOperatorSummary.animals_weighed_count, so no two surfaces can disagree. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing weighings by it would render a share of a total that does not exist. Clients report this number as-is and must never turn it into a percentage or a progress bar fill. */
+            animals_weighed_count: number;
+            /** @description FACT 2 of 2. The subset of animals_weighed_count that has been SUBMITTED for verification. An individual observation counts only once submitted; a lump-sum shed proof IS the submission, so a standing one counts as soon as it exists. Identical predicate to WeighingOperatorSummary.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. Never render either number bare, and never divide one by the other. */
+            animals_submitted_count: number;
         };
         WeighingCampaign: {
             /** Format: uuid */
@@ -5655,8 +5657,10 @@ export interface components {
             accepted_count: number;
             /** @description Buckets a verifier bounced back. OVERLAPS the four state counts on purpose (a bounced bucket is still in one of them) and is never added to them. */
             rework_count: number;
-            /** @description How many ANIMALS this person's buckets account for: one per individual observation plus the recorded head count of a standing lump-sum weighing. A plain total of work done; never a numerator. */
+            /** @description FACT 1 of 2. How many ANIMALS this person has RECORDED a weight for, submitted or not: one per individual observation plus the recorded head count of a standing lump-sum weighing. Whole-filter aggregate computed by the backend over every bucket the person holds in scope -- never grouped client-side from a page of rows. Same predicate as WeighingCampaignShed.animals_weighed_count. A plain total of work done; never a numerator. */
             animals_weighed_count: number;
+            /** @description FACT 2 of 2. The subset of animals_weighed_count this person has SUBMITTED for verification. Whole-filter aggregate, same predicate as WeighingCampaignShed.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. This pair is what makes visible the mid-shift state where an operator has weighed animals and walked away without submitting them. */
+            animals_submitted_count: number;
         };
         /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
         WeighingCampaignCounts: {

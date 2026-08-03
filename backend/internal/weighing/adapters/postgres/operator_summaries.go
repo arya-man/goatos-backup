@@ -19,6 +19,14 @@ import (
 // would have changed as the reader scrolled. The tally therefore has to be
 // computed here, over the WHOLE filter, exactly like campaignCounts.
 //
+// TWO NAMED FACTS, not one ambiguous count. AnimalsWeighedCount and
+// AnimalsSubmittedCount are summed here from the SAME two predicates the per-bucket
+// fragment uses (readyToCloseCountsSQL in close.go) — see that fragment's comment
+// for the definitions. Both surfaces therefore report the same two numbers for the
+// same work, and an operator who has weighed 3 animals without pressing Submit
+// reads as "3 weighed · 0 submitted" on every screen rather than 3 on one and 0 on
+// another.
+//
 // NO DENOMINATORS. Weighing is free-flow: migration 000079 dropped
 // weighing_expected_animals, so there is no expected roster and no total to take a
 // share of. Every column below is a plain count that a renderer states as-is. The
@@ -81,6 +89,14 @@ SELECT COALESCE(cs.operator_user_id::text, ''),
          + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso
                       WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id
                         AND wso.withdrawn_at IS NULL), 0)
+       ), 0)::int,
+       COALESCE(sum(
+         (SELECT count(*) FROM weighing_observations wo
+           WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id
+             AND wo.submitted_at IS NOT NULL)
+         + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso
+                      WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id
+                        AND wso.withdrawn_at IS NULL), 0)
        ), 0)::int
 FROM weighing_campaign_sheds cs
 JOIN weighing_campaigns wc
@@ -109,7 +125,7 @@ LIMIT $4`,
 		var s domain.OperatorSummary
 		if err := rows.Scan(&s.OperatorUserID, &s.OperatorDisplayName, &s.ShedCount,
 			&s.NotStartedCount, &s.CapturingCount, &s.SubmittedCount, &s.AcceptedCount,
-			&s.ReworkCount, &s.AnimalsWeighedCount); err != nil {
+			&s.ReworkCount, &s.AnimalsWeighedCount, &s.AnimalsSubmittedCount); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

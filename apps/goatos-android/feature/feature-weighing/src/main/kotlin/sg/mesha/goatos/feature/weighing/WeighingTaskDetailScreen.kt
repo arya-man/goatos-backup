@@ -78,8 +78,9 @@ data class WeighingOperatorFilterUiRow(
  *
  * Everything here is a fact the task payload actually carries. Weighing has no expected-animal
  * roster, so there is no animal denominator on this screen: [ladderStep] is a position on the
- * bucket's own state ladder and [capturedCount] is a plain backend count reported as-is. Neither
- * is ever divided by anything, and this row deliberately carries no fractional field at all.
+ * bucket's own state ladder, and [animalsWeighedCount] / [animalsSubmittedCount] are plain backend
+ * counts reported as-is. Neither is ever divided by anything — not by each other, not by anything
+ * else — and this row deliberately carries no fractional field at all.
  */
 data class WeighingTaskShedUiRow(
     val campaignId: String,
@@ -98,10 +99,16 @@ data class WeighingTaskShedUiRow(
     /** True when a verifier bounced this bucket's evidence back to the operator. */
     val reworked: Boolean,
     /**
-     * Backend-owned count of the weight records this bucket ACTUALLY holds. Reported as a plain
-     * count ("5 weighed") and never turned into a percentage.
+     * FACT 1 of 2. Backend-owned count of the ANIMALS this bucket has a recorded weight for,
+     * submitted or not. Reported as a plain count and never turned into a percentage.
      */
-    val capturedCount: Int,
+    val animalsWeighedCount: Int,
+    /**
+     * FACT 2 of 2. The subset of [animalsWeighedCount] SUBMITTED for verification. Always shown
+     * WITH the weighed count ("3 weighed · 0 submitted"), never on its own: mid-shift the two
+     * differ, and a bare number's meaning would depend on which screen you were looking at.
+     */
+    val animalsSubmittedCount: Int,
     /** Rung on the bucket's state ladder, 0..[WEIGHING_BUCKET_LADDER_STEPS]. Not a fraction. */
     val ladderStep: Int,
     val canReopen: Boolean,
@@ -549,10 +556,15 @@ private fun TaskShedCard(
 /**
  * WHERE a bucket stands, in the farm's own words, plus what it actually holds.
  *
- * The count is the backend's plain tally of weight records and is reported as-is: weighing is
- * free-flow, so there is no expected-animal total to take a share of. A lump-sum bucket holds ONE
- * whole-shed weight rather than a per-animal tally, so a count is deliberately omitted there — "1
- * weighed" would misname a whole shed as a single animal.
+ * TWO named facts, always together and in this order: what has been put on the scale, and how much
+ * of that has actually been SUBMITTED. Both are the backend's plain tallies, reported as-is —
+ * weighing is free-flow, so there is no expected-animal total to take a share of, and neither
+ * count is ever divided by the other.
+ *
+ * Lump-sum buckets are INCLUDED now. The count used to be suppressed for them because the old
+ * per-bucket field counted the shed proof ROW, so a 40-animal lump-sum read as "1 weighed" and
+ * would have misnamed a whole shed as a single animal. Both facts are animal grain, so a lump-sum
+ * bucket now honestly reads "40 weighed · 40 submitted".
  */
 @Composable
 private fun captureSummary(row: WeighingTaskShedUiRow): String {
@@ -563,9 +575,18 @@ private fun captureSummary(row: WeighingTaskShedUiRow): String {
         row.status.trim().lowercase() == "in_progress" -> stringResource(R.string.weighing_bucket_state_in_progress)
         else -> stringResource(R.string.weighing_bucket_state_not_started)
     }
-    if (row.isLumpSum || row.capturedCount <= 0) return state
-    val weighed = stringResource(R.string.weighing_bucket_weighed_fmt, row.capturedCount)
-    return "$weighed · $state"
+    if (row.animalsWeighedCount <= 0) return state
+    val counts = stringResource(
+        R.string.weighing_weighed_submitted_fmt,
+        row.animalsWeighedCount,
+        row.animalsSubmittedCount,
+    )
+    // Unsubmitted work is named, not left to be inferred from two digits. Same word as the
+    // operator's own Submit button.
+    if (row.animalsSubmittedCount <= 0) {
+        return "$counts · " + stringResource(R.string.weighing_not_submitted_chip)
+    }
+    return "$counts · $state"
 }
 
 /**
