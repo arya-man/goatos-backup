@@ -1107,8 +1107,6 @@ func permissionsForNav(id string) []string {
 	switch id {
 	case "control-tower", "action-center", "protocol-adherence", "workflows", "preventive-care-vaccination":
 		return []string{permissions.ObligationRead, permissions.VaccinationRead}
-	case "preventive-care-weighing":
-		return []string{permissions.WeighingMonitor}
 	case "calendar":
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":
