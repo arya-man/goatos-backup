@@ -1,5 +1,37 @@
 # Weighing — Technical Requirements / Design (TRD)
 
+## What weighing IS — read this before proposing anything
+
+Maintainer statement, 2026-08-03. Every session that skipped this has re-derived
+rules that do not exist and burned the maintainer's time re-explaining. It is the
+whole feature:
+
+```
+CEO assigns sheds to an operator or a director (the Growth Director executes too)
+individual  → scan RFID, enter weight, record video — per animal
+lump-sum    → total weight, animal count, video(s) — per shed
+submit
+```
+
+**The ONLY business rule: an animal cannot be scanned twice in the same bucket
+before submit.**
+
+There is **no** shed↔RFID validation (a scanned tag is stored verbatim and never
+checked against a shed), **no** roster or expected count or progress percentage,
+**no** herd/goat/clinical lookup, **no** vaccine or protocol or obligation rules,
+and **no** "shed is empty" concept — free-flow means the system cannot know what is
+in a shed and must not try.
+
+**Do not invent problems that cannot exist in this model.** Two that were raised and
+killed: an "empty shed outcome" (impossible — nothing knows the shed is empty), and
+the per-animal verifier queue as a grain bug (one video per animal means one review
+per animal; the grain follows the evidence — see ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`).
+
+Legitimate weighing work is about **plumbing, never rules**: do writes reach the
+server, is evidence reviewable, are failures visible, do screens show honest numbers.
+
+
 **Status:** Draft v1 · **Date:** 2026-07-27
 **Companion:** [PRD.md](./PRD.md)
 **Foundation:** shared operational kernel, proof/media engine, Android offline
