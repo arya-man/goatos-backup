@@ -204,7 +204,7 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -237,7 +237,7 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). The Hindi label went generic with it.
-		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
+		{Key: "alerts", Label: "अलर्ट", Href: "/vaccination/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -275,7 +275,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -440,7 +440,7 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		// Backend-composed profile tab: the client no longer appends one.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
@@ -508,7 +508,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
 		// it legitimately KEEPS its "you" entry -- only the label went generic.
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	tests := []struct {
@@ -534,7 +534,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 				// leadership entries -- the objection was the per-feature REPETITION, not its
 				// presence. The alerts tab label never names the feature; the href's category
 				// still scopes it. This registry bar always carried its own "you" entry.
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -590,7 +590,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 				// leadership entries -- the objection was the per-feature REPETITION, not its
 				// presence. The alerts tab label never names the feature; the href's category
 				// still scopes it. This registry bar always carried its own "you" entry.
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -607,7 +607,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 				// leadership entries -- the objection was the per-feature REPETITION, not its
 				// presence. The alerts tab label never names the feature; the href's category
 				// still scopes it. This registry bar always carried its own "you" entry.
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -768,7 +768,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
 		}
-		if nav[1].Key != "alerts" || nav[1].Href != "/alerts" {
+		if nav[1].Key != "alerts" || nav[1].Href != "/vaccination/alerts" {
 			t.Fatalf("second nav item=%#v want alerts inside the Vaccination module bar", nav[1])
 		}
 		if nav[2].Key != "you" || nav[2].Href != "/you" {

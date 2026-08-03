@@ -24,6 +24,13 @@ Nav bar, **bottom-bar icons/labels**, and which **screens** a person sees are
   Vaccination + Feed + Video-Verification; a proof-Upload or Verifier screen can be
   common to 2–3 modules. Shared items appear once (dedupe by `shared_key`).
 
+## Alerts tabs
+Every available feature's bottom bar carries its OWN alerts tab, scoped by feature
+AND role, module-prefixed href, titled just "Alerts", bell icon, hosted route,
+bottom-bar root. What the feed is FOR, the five wiring requirements, both shipped
+incidents, and how to add one to a new module:
+`references/alerts-tab.md`. Machine gate: `make module-alerts-tab-guard`.
+
 ## Build it as
 - A **module → nav-contribution registry**: each module declares `{key, icon,
   labelKey, route, shared_key?}` + owned/reused screens.

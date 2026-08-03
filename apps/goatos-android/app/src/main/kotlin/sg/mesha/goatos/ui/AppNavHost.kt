@@ -204,6 +204,20 @@ object Routes {
      */
     const val YOU = "/you"
     const val RFID = "/rfid"
+    /**
+     * VACCINATION's alerts feed. Alerts are feature-scoped by rule
+     * (docs/decisions/module-alerts-tab.md), so the address says which feature owns them,
+     * exactly like [WEIGHING_ALERTS].
+     */
+    const val VACCINATION_ALERTS = "/vaccination/alerts"
+
+    /**
+     * LEGACY alias for [VACCINATION_ALERTS]. It is still hosted, and still a root, because
+     * notifications already delivered to phones name it as their tap target and those rows
+     * are durable -- retiring the route would strand every alert sent before the rename.
+     * It is NOT a shared feed and must never be put in another feature's bar: doing that is
+     * what once gave a weighing operator a permanently-empty tab that 403'd.
+     */
     const val ALERTS = "/alerts"
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
@@ -1462,6 +1476,14 @@ fun AppNavHost(
             RfidScreen(state = state, onEvent = vm::onEvent)
         }
 
+        composable(Routes.VACCINATION_ALERTS) {
+            val vm: AlertsViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            AlertsScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Legacy alias, same screen and same ViewModel. Alerts already delivered to a phone
+        // carry "/alerts" as their tap target, so this stays hosted until those have aged out.
         composable(Routes.ALERTS) {
             val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -2215,6 +2237,9 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY_ALERTS,
     Routes.VERIFY_ACTION,
     Routes.YOU,
+    Routes.VACCINATION_ALERTS,
+    // Legacy alias for the vaccination feed. Still a root: an older notification naming
+    // "/alerts" must open the feed, not fall through to the "unavailable" notice.
     Routes.ALERTS,
     // Weighing's OWN alerts feed is a BOTTOM-BAR destination, so it is a root exactly like
     // the vaccination feed above it. Registering the composable alone was not enough: a

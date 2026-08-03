@@ -83,7 +83,13 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			// Vaccination's OWN alerts feed. The href names the feature that owns it, the same
+			// way weighing's does: alerts are feature-scoped by rule, and a generically-named
+			// "/alerts" is what once got copied into weighing's bar, where it 403'd for a
+			// weighing operator (docs/decisions/module-alerts-tab.md). The legacy "/alerts"
+			// route stays hosted on the phone for alerts already delivered; it is no longer
+			// what any bar points at.
+			{key: "alerts", labelKey: "nav.alerts", href: "/vaccination/alerts", shared_key: "alerts", priority: 20}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 	},

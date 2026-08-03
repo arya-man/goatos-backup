@@ -4,6 +4,24 @@
 **Machine guard:** `make module-alerts-tab-guard`
 (`tools/agent-hooks/check-module-alerts-tab.mjs`), required by local CI.
 
+## What an Alerts feed is for
+
+It answers one question for the person holding the phone: **what does this feature
+need from me that I have not done yet?** It is not a notification log and not an
+audit trail — it is the durable in-app copy of the work-state transitions routed to
+THIS person for THIS feature, so a push that was swiped away, delivered to a phone
+that was off, or blocked by a permission prompt is not the only place that fact
+exists.
+
+Nothing new is produced for a feed. Every row already exists as a routed
+`notification_requests` row written by that module's notification consumers; the
+feed READS what was already routed. If a transition deserves an alert, it first
+deserves an event.
+
+Routing follows the next-action owner, which is why the same feed shows different
+rows to different people: work assigned goes DOWN to the operator, a submission for
+verification goes UP, a rework or reopen goes DOWN again, a closure goes UP.
+
 ## The rule
 
 > A person standing inside a feature can see **that feature's** alerts from **that
@@ -58,6 +76,7 @@ For every `moduleStatusAvailable` module with nav contributions in
 | nav key maps to `Bell` | the generic module glyph rendering as "Alerts" |
 | href is hosted in `AppNavHost` | tapping the tab does nothing |
 | href is in `supportedRootDestinations` | deep links landing on the home screen |
+| href starts with the module's own prefix | a generic address that reads as a shared feed and gets copied into another feature's bar |
 
 The `verification` module is exempt from the registry parse: its bar is composed per
 reviewed feature at runtime (`verificationModuleForFeature`), and its alerts items are
@@ -75,6 +94,18 @@ requires editing the guard in the same commit, so it shows up in review.
 
 Removing an entry from that list is the goal. The guard fails if a module is waived **and**
 has an alerts tab, so stale waivers cannot hide the next regression.
+
+## Route naming
+
+Every feed is addressed by the feature that owns it: `/vaccination/alerts`,
+`/weighing/alerts`. The verification module scopes by query category instead
+(`/verify/alerts?category=…`) because one verifier reviews several features from one
+bar; it is exempt from the prefix check.
+
+`/alerts` remains **hosted on the phone as a legacy alias** for the vaccination feed —
+alerts already delivered carry it as their tap target, and those rows are durable, so
+retiring the route would strand every alert sent before the rename. It is not in any
+bar, and it must never be put in one.
 
 ## Related
 

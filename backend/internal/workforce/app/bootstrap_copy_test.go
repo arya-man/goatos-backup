@@ -71,7 +71,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/verify/action"},
-					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+					{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}
 				if len(m.NavItems) != len(wantItems) {
@@ -277,17 +277,20 @@ func TestAlertsNavLabelIsGenericInEveryLocale(t *testing.T) {
 		seen := 0
 		for _, m := range modules {
 			for _, item := range m.NavItems {
-				if item.Href != "/alerts" {
+				// Match the alerts item by KEY, not by a hardcoded href: the feeds are
+				// feature-scoped ("/vaccination/alerts", "/weighing/alerts"), and the
+				// label under test is the shared "Alerts" string in each locale.
+				if item.Key != "alerts" && item.Key != "weighing_alerts" {
 					continue
 				}
 				seen++
 				if item.Label != want {
-					t.Fatalf("locale %s module %s: /alerts label = %q, want %q", locale, m.Key, item.Label, want)
+					t.Fatalf("locale %s module %s: alerts label = %q, want %q", locale, m.Key, item.Label, want)
 				}
 			}
 		}
 		if seen == 0 {
-			t.Fatalf("locale %s: no /alerts nav item found to check", locale)
+			t.Fatalf("locale %s: no alerts nav item found to check", locale)
 		}
 	}
 }

@@ -169,6 +169,18 @@ export function checkAll({ registry, icons, navHost }) {
       );
     }
     const base = href.split("?")[0].replace(/\/$/, "");
+    // The ADDRESS must name the feature that owns the feed. A generically-named alerts
+    // route reads as a shared feed, and that is not a hypothetical: "/alerts" was
+    // vaccination's, looked shared, and was copied into weighing's bar, where it 403'd
+    // for weighing operators. Verification is exempt (checked above) because it scopes by
+    // query category across features by design.
+    const expectedPrefix = `/${module.key.replace(/_/g, "-")}/`;
+    const altPrefix = `/${module.key}/`;
+    if (!base.startsWith(expectedPrefix) && !base.startsWith(altPrefix)) {
+      failures.push(
+        `module "${module.key}" alerts href "${href}" is not scoped to its own feature. Use "${altPrefix}alerts" — a generic address reads as a shared feed and gets copied into another feature's bar.`,
+      );
+    }
     if (!hosted.has(base)) {
       failures.push(`module "${module.key}" alerts href "${href}" is not hosted by AppNavHost — tapping the tab does nothing.`);
     }
@@ -220,6 +232,11 @@ private val supportedRootDestinations = setOf(
     [
       "non-root bottom-bar destination is caught",
       { registry: goodRegistry, icons, navHost: navHost.replace("    Routes.WEIGHING_ALERTS,\n", "") },
+      1,
+    ],
+    [
+      "generically-named alerts route is caught",
+      { registry: goodRegistry.replace('href: "/weighing/alerts"', 'href: "/alerts"'), icons, navHost },
       1,
     ],
     [
