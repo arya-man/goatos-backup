@@ -53,6 +53,14 @@ const (
 	EventWeighingShedAbandoned  = "weighing.shed.abandoned"
 	EventWeighingCampaignClosed = "weighing.campaign.closed"
 
+	// The NORMAL completion path. Distinct event types from the *.closed pair
+	// above because they mean the opposite thing to the person receiving the
+	// push: "your work was accepted and this is finished" versus "a leader ended
+	// this". Collapsing them would have the operator's phone announce a
+	// successful day as an intervention.
+	EventWeighingShedVerifiedClosed     = "weighing.shed.verified_closed"
+	EventWeighingCampaignVerifiedClosed = "weighing.campaign.verified_closed"
+
 	// WEIGHING PHASE 2 kernel cadences. Same consumer, not a parallel one:
 	//
 	//	day_start      -> DOWNWARD to the assigned operator ONLY, and only their
@@ -133,6 +141,23 @@ type weighingShedClosedPayload struct {
 	ClosedAt         string   `json:"closed_at"`
 }
 
+// weighingVerifiedClosurePayload is the body of the two NORMAL-completion
+// events. It carries no reason and no closed_by: nobody ended this work, the
+// last verifier approval settled it. SettledBy names that verifier.
+type weighingVerifiedClosurePayload struct {
+	TenantID       string `json:"tenant_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ParkID         string `json:"park_id"`
+	ShedID         string `json:"shed_id"`
+	ShedLabel      string `json:"shed_label"`
+	OperatorID     string `json:"operator_id"`
+	SettledBy      string `json:"settled_by"`
+	ClosureKind    string `json:"closure_kind"`
+	VerifiedCount  int    `json:"verified_count"`
+	ClosedAt       string `json:"closed_at"`
+}
+
 type weighingClosedBucketPayload struct {
 	CampaignShedID string `json:"campaign_shed_id"`
 	ShedID         string `json:"shed_id"`
@@ -178,6 +203,8 @@ func (c *WeighingLifecycleEventConsumer) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventWeighingShedClosed, c)
 	bus.Subscribe(EventWeighingShedAbandoned, c)
 	bus.Subscribe(EventWeighingCampaignClosed, c)
+	bus.Subscribe(EventWeighingShedVerifiedClosed, c)
+	bus.Subscribe(EventWeighingCampaignVerifiedClosed, c)
 	bus.Subscribe(EventWeighingWorkItemDayStart, c)
 	bus.Subscribe(EventWeighingWorkItemRolledForward, c)
 	bus.Subscribe(EventWeighingWorkItemDelayed, c)
@@ -198,6 +225,8 @@ func (c *WeighingLifecycleEventConsumer) HandleEvent(ctx context.Context, event 
 		return c.handleShedClosed(ctx, event)
 	case EventWeighingCampaignClosed:
 		return c.handleCampaignClosed(ctx, event)
+	case EventWeighingShedVerifiedClosed, EventWeighingCampaignVerifiedClosed:
+		return c.handleVerifiedClosure(ctx, event)
 	case EventWeighingWorkItemDayStart, EventWeighingWorkItemRolledForward, EventWeighingWorkItemDelayed:
 		return c.handleWorkItemCadence(ctx, event)
 	default:
@@ -507,6 +536,105 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 			"group_key":          "weighing:" + tenantID + ":shed_closed",
 			"collapse_key":       "weighing:" + tenantID + ":shed_closed",
 			"priority":           priorityNormal,
+		},
+		Recipients: recipients,
+	})
+	return err
+}
+
+// handleVerifiedClosure is the push for the NORMAL completion path: every piece
+// of submitted evidence in a shed (or in a whole task) was approved, and the
+// scope closed itself.
+//
+// It goes UPWARD to leadership — this is the answer the CEO board could not give
+// before, because approval was invisible on every weighing read — and DOWNWARD
+// to the operator whose work it was. The downward leg is deliberate and is the
+// mirror image of the rework push: an operator who is told when their video is
+// bounced and never when it is accepted only ever hears from the system when
+// something is wrong.
+//
+// It is NOT operator-actionable. Nothing is owed; the notification closes a loop
+// rather than opening one.
+func (c *WeighingLifecycleEventConsumer) handleVerifiedClosure(ctx context.Context, event eventbus.Event) error {
+	var payload weighingVerifiedClosurePayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return eventbus.PermanentError(fmt.Errorf("weighing verified-closure notification: decode payload: %w", err))
+	}
+	tenantID := strings.TrimSpace(payload.TenantID)
+	campaignID := strings.TrimSpace(payload.CampaignID)
+	if tenantID == "" || campaignID == "" {
+		return nil
+	}
+	campaignShedID := strings.TrimSpace(payload.CampaignShedID)
+	taskGrain := event.Type == EventWeighingCampaignVerifiedClosed
+	if !taskGrain && campaignShedID == "" {
+		return nil
+	}
+
+	recipients, err := c.leadershipRecipients(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("weighing verified-closure notification: %w", err)
+	}
+	if operatorID := strings.TrimSpace(payload.OperatorID); operatorID != "" {
+		devices, err := c.recipients.ResolveMemberRecipients(ctx, tenantID, operatorID)
+		if err != nil {
+			return fmt.Errorf("weighing verified-closure notification: resolve operator recipients: %w", err)
+		}
+		recipients = append(recipients, toQueueRecipients(devices, roleLabelOperator)...)
+	}
+	recipients = dedupeQueueRecipients(recipients)
+
+	shedLabel := strings.TrimSpace(payload.ShedLabel)
+	if shedLabel == "" {
+		shedLabel = "A weighing shed"
+	}
+	title := "Weighing shed complete"
+	body := shedLabel + " weighing is complete — all submitted work was verified."
+	contextType := "weighing_shed_verified_closed"
+	messageKey := "weighing.shed_verified_closed"
+	targetType := "weighing_campaign_shed"
+	targetID := campaignShedID
+	if taskGrain {
+		title = "Weighing task complete"
+		body = "Weighing task is complete — every shed was verified and closed."
+		contextType = "weighing_campaign_verified_closed"
+		messageKey = "weighing.campaign_verified_closed"
+		targetType = "weighing_campaign"
+		targetID = campaignID
+	}
+
+	// Keyed on the ACTUAL event type and scope: a verified closure and a
+	// leadership close of the same scope are different facts and must not
+	// collapse onto one notification key.
+	eventKey := event.Type + ":" + targetID + ":" + event.ID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  "weighing:" + targetID,
+		TargetType:       targetType,
+		TargetID:         targetID,
+		NotificationType: "verification_closed",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		Title:            title,
+		Body:             body,
+		TraceID:          eventKey,
+		EventKey:         eventKey,
+		Context: map[string]string{
+			"type":             contextType,
+			"screen":           "weighing_overview",
+			"target":           "/weighing",
+			"message_key":      messageKey,
+			"shed_label":       shedLabel,
+			"closure_kind":     strings.TrimSpace(payload.ClosureKind),
+			"campaign_id":      campaignID,
+			"campaign_shed_id": campaignShedID,
+			"park_id":          payload.ParkID,
+			"shed_id":          payload.ShedID,
+			"verified_count":   fmt.Sprintf("%d", payload.VerifiedCount),
+			"closed_at":        payload.ClosedAt,
+			"group_key":        "weighing:" + tenantID + ":verified_closed",
+			"collapse_key":     "weighing:" + tenantID + ":verified_closed",
+			"priority":         priorityNormal,
 		},
 		Recipients: recipients,
 	})

@@ -361,8 +361,23 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	if got := countOutbox(t, ctx, pool, "weighing.observation.verified"); got != 1 {
 		t.Fatalf("weighing.observation.verified outbox rows=%d, want 1", got)
 	}
-	// Approval must NOT reopen the bucket.
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	// Approval must NOT reopen the bucket. It moves FORWARD, not back: this was
+	// the bucket's last outstanding item, so the approval settled it through the
+	// normal completion path (closure_kind='verified'). 'in_progress' — the
+	// rework outcome — is what must never happen here.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	if !first.ShedClosed {
+		t.Fatal("verdict result ShedClosed=false; the bucket's last verified item must settle it")
+	}
+	var closureKind string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(closure_kind,'') FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&closureKind); err != nil {
+		t.Fatalf("read closure kind: %v", err)
+	}
+	if closureKind != domain.ClosureKindVerified {
+		t.Fatalf("closure_kind=%q after approval, want %q", closureKind, domain.ClosureKindVerified)
+	}
 
 	replay, err := repo.ApplyVerificationVerdict(ctx, verdict)
 	if err != nil {
@@ -899,7 +914,12 @@ func TestCloseScopeBlockedWhileVerificationPending(t *testing.T) {
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 
-	// Verify it, and the same close now succeeds.
+	// Verify it. This test used to end by having leadership close the bucket
+	// once the gate cleared — which was the ONLY way a fully verified bucket
+	// ever reached a terminal state, and it required a leader to type a reason
+	// for work that finished exactly as planned. The NORMAL completion path now
+	// settles it on the verdict's own transaction, so by the time the gate would
+	// have opened there is nothing left for a leader to close.
 	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
 		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
 		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
@@ -907,14 +927,25 @@ func TestCloseScopeBlockedWhileVerificationPending(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("verify observation: %v", err)
 	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	var closureKind string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(closure_kind,'') FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&closureKind); err != nil {
+		t.Fatalf("read closure kind: %v", err)
+	}
+	if closureKind != domain.ClosureKindVerified {
+		t.Fatalf("closure_kind=%q once the last video was verified, want %q", closureKind, domain.ClosureKindVerified)
+	}
+	// And the EXCEPTION path is now genuinely unavailable on a settled bucket —
+	// it is already terminal, so an early close has nothing to end.
 	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		Reason: "all videos checked", ClosedBy: repoVerifier,
 		IdempotencyKey: "close:gate-verified",
-	}); err != nil {
-		t.Fatalf("close after every video verified: %v", err)
+	}); !errors.Is(err, ports.ErrImmutable) {
+		t.Fatalf("close of an already-settled bucket err=%v, want ErrImmutable", err)
 	}
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
 }
 
 // A bounced video is unfinished work the operator still owes, so 'rework' counts as
@@ -1039,8 +1070,22 @@ func TestBucketReadyToCloseReflectsVerificationState(t *testing.T) {
 	if shed.PendingVerificationCount != 0 {
 		t.Fatalf("pending_verification_count=%d after verifying the only video, want 0", shed.PendingVerificationCount)
 	}
-	if !shed.ReadyToClose {
-		t.Fatalf("ready_to_close=false once every submitted video is verified, want true")
+	if shed.VerifiedCount != 1 {
+		t.Fatalf("verified_count=%d after verifying the only video, want 1", shed.VerifiedCount)
+	}
+	// ready_to_close USED to be the end of this story: the flag went true and
+	// nothing ever acted on it, which is exactly why a finished task never
+	// reached a terminal state. The NORMAL completion path now settles the
+	// bucket on that same verdict's transaction, so the surface reports the
+	// closure itself rather than an unconsumed invitation to close.
+	// ready_to_close is defined as status='completed' AND nothing pending, so a
+	// settled bucket reads false by construction.
+	if shed.Status != domain.StatusClosed || shed.ClosureKind != domain.ClosureKindVerified {
+		t.Fatalf("shed status=%q closure_kind=%q once every submitted video is verified, want closed/%s",
+			shed.Status, shed.ClosureKind, domain.ClosureKindVerified)
+	}
+	if shed.ReadyToClose {
+		t.Fatalf("ready_to_close=true on an already-settled bucket, want false")
 	}
 }
 
