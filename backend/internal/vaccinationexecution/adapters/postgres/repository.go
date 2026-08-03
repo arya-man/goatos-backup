@@ -56,18 +56,32 @@ const (
 	defaultQueryTimeout     = 3 * time.Second
 	defaultClosedHistoryAge = 45 * 24 * time.Hour
 	defaultExecutionHorizon = 30 * 24 * time.Hour
+
+	// defaultDriveOptionsLimit bounds the command board's drive picker. The picker must stay
+	// bounded (a tenant accumulates drives forever, so an unbounded read is a time bomb), but
+	// the previous bound of 50 was set when a row was one BATCH; a row is now (batch, park), so
+	// one drive running in two parks spends two slots and a 30-drive two-park programme
+	// produces 60 rows. Ten real, scheduled drives then vanished from the picker with no signal
+	// at all, and the operator looking for one concluded it was never planned. 200 covers a
+	// two-park annual programme with headroom while staying a single indexed page; the overflow
+	// signal below is what makes the number safe to reason about rather than merely larger.
+	defaultDriveOptionsLimit = 200
 )
 
 type Repository struct {
 	pool    *pgxpool.Pool
 	timeout time.Duration
+	// driveOptionsLimit is injectable so the page-boundary regression can prove overflow
+	// behaviour on a two-row fixture instead of seeding 200 drives, which would make the
+	// truncation test slow enough that nobody runs it.
+	driveOptionsLimit int
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, timeout: queryTimeout}
+	return &Repository{pool: pool, timeout: queryTimeout, driveOptionsLimit: defaultDriveOptionsLimit}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -3792,13 +3806,14 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//     20 animals, with zero work done, were invisible to leadership).
 	// (e) BUCKET CONTRACT (docs/architecture/operational-read-model-contract.md,
 	//     "GET /vaccination/command — Grain and Buckets (disjoint unless noted)" + Bucket
-	//     Invariant): the four numerator buckets are a DISJOINT and EXHAUSTIVE partition of
+	//     Invariant): the FIVE numerator buckets are a DISJOINT and EXHAUSTIVE partition of
 	//     targets, evaluated as a priority chain —
 	//       verified   = has_accepted
 	//       awaiting   = has_recorded_unverified AND NOT has_accepted
 	//       overdue    = no completion AND OPEN AND due business date <  as_of business date
 	//       scheduled  = no completion AND OPEN AND due business date >= as_of business date
-	//     so verified+awaiting+overdue+scheduled = targets.
+	//       closed_without_dose = the residual: none of the above
+	//     so verified+awaiting+overdue+scheduled+closed_without_dose = targets.
 	//
 	//     The chain used to be evaluated on the OBLIGATION row while targets counted DISTINCT
 	//     target_id — two different grains. An animal holding two obligations in different
@@ -3822,9 +3837,28 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//     outstanding-work question is answered at dose grain by the shed dose matrix and the
 	//     verification queue below, which stay per-obligation.
 	//
-	//     An animal whose every obligation is closed without a completion (cancelled/withdrawn)
-	//     matches no bucket, so the sum is <= targets, never >. That was always true and is not
-	//     changed here.
+	//     CLOSED WITHOUT DOSE is why the sum used to be <= targets rather than = targets. An
+	//     animal whose every obligation reached a closed status with no completion row against it
+	//     ('canceled', 'waived', 'superseded', or a 'completed' whose completion was never
+	//     written) satisfies none of the four predicates: it is not open, so it cannot be overdue
+	//     or scheduled, and nothing was recorded, so it cannot be awaiting or verified. It still
+	//     counts in targets, because targets is COUNT(DISTINCT target_id) over the drive's
+	//     animals. A 100-animal drive with 3 withdrawn animals therefore read "Total 100" over
+	//     tiles summing to 97, and a leader could not tell whether that 3-animal hole was a
+	//     display bug, missing data, or three animals still owing work — the cheapest reading of
+	//     an unexplained gap is "the board is broken", which costs more trust than the three
+	//     animals are worth.
+	//
+	//     It is NAMED as a fifth bucket rather than subtracted out of targets. Subtracting would
+	//     also reconcile the arithmetic, but it would make targets drift below the roster the
+	//     operator was actually handed and below the cohort matrix's animal_count for the same
+	//     filter, and it would erase the withdrawal itself — which is the one fact in that hole a
+	//     leader can act on ("who took 3 animals off this drive, and why"). Naming it keeps the
+	//     total anchored to the roster and turns the silence into a number.
+	//
+	//     It is defined as the RESIDUAL of the other four rather than by enumerating closed
+	//     statuses, so the partition stays exhaustive by construction: adding a status to the
+	//     OPEN set above, or introducing a new terminal status, cannot reopen the gap.
 	//
 	// projection-review: membership=obligation_instances in the drive window, folded to one row per animal by per_animal; group_key=target_id (the ANIMAL), which is exactly the grain COUNT(DISTINCT target_id) uses for targets, so buckets and total share one key set; join_cardinality=comp is pre-aggregated per obligation before the fold, so a dose with several completions cannot multiply its animal, and every remaining join is 0..1 on a PK; pagination=NONE, these are whole-filter tile aggregates computed in the database and are page-size independent by construction; scope=tenant_id plus the capability-resolved park filter, parented through locations.parent_location_id
 	kpiSQL := `
@@ -3869,7 +3903,8 @@ SELECT
   COUNT(*) FILTER (WHERE any_verified) AS doses_verified,
   COUNT(*) FILTER (WHERE any_awaiting AND NOT any_verified) AS awaiting_verification,
   COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_verified) AS overdue_not_given,
-  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified) AS scheduled_ahead
+  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified) AS scheduled_ahead,
+  COUNT(*) FILTER (WHERE NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
 FROM per_animal
 `
 	var parkID *string
@@ -3877,7 +3912,7 @@ FROM per_animal
 		parkID = q.ParkID
 	}
 	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
-	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead); err != nil {
+	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead, &resp.KPIs.ClosedWithoutDose); err != nil {
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
@@ -4274,7 +4309,17 @@ ORDER BY shed_name, pr.dose_code
 	// the selected drive (the select must still offer the others), but it IS park-scoped so the
 	// list matches the top bar's park.
 	//
-	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, park_id, status, planned_date, window_start, window_end) -- park is part of the grain because an all-parks board must be able to tell two same-vaccine, same-window drives apart, and their counts must not be summed into one row; join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by COUNT(DISTINCT target_id), COUNT(DISTINCT obligation_id), array_agg(DISTINCT dose_code), and array_agg(DISTINCT shed name), while protocol_rules and locations are each 1:1 per obligation; pagination=bounded to one row per batch ordered newest executable day first with a hard LIMIT 50; scope=tenant plus optional park resolved from canonical locations.parent_location_id
+	// TRUNCATION IS REPORTED, NOT SWALLOWED. The list stays bounded on purpose, but a bound that
+	// silently drops rows makes the picker LIE: the drive is scheduled, the board just does not
+	// offer it, and the reader's only available conclusion is that it was never planned. That
+	// failure got materially worse when the row grain became (batch, park), because a drive
+	// spanning two parks now spends two slots. The query therefore asks for limit+1 rows and
+	// keeps limit: the extra row is never rendered, it exists only to answer "was there more?",
+	// which is the cheapest honest overflow probe on an ordered bounded read (no second COUNT
+	// query, no OFFSET scan). The caller gets DriveOptionsTruncated so the UI can say "more
+	// drives exist, narrow by park" instead of lying by omission.
+	//
+	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, park_id, status, planned_date, window_start, window_end) -- park is part of the grain because an all-parks board must be able to tell two same-vaccine, same-window drives apart, and their counts must not be summed into one row; join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by COUNT(DISTINCT target_id), COUNT(DISTINCT obligation_id), array_agg(DISTINCT dose_code), and array_agg(DISTINCT shed name), while protocol_rules and locations are each 1:1 per obligation; pagination=bounded to one row per (batch, park) ordered newest executable day first with a hard LIMIT of driveOptionsLimit fetched as limit+1, the surplus row discarded and reported as DriveOptionsTruncated so the bound can never drop a drive silently; scope=tenant plus optional park resolved from canonical locations.parent_location_id
 	//
 	// Producer unique columns: obligation_batches(batch_id). Consumer match/group columns:
 	// (batch_id, park_id, status, planned_date, window_start, window_end). Row multiplicity: obligation_instances N:1 to
@@ -4302,9 +4347,16 @@ WHERE b.tenant_id = $1::uuid
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
 GROUP BY b.batch_id, park.location_id, park.name, b.status, b.planned_date, b.window_start, b.window_end
 ORDER BY b.planned_date DESC NULLS LAST, b.window_start DESC NULLS LAST, b.batch_id, park.name NULLS LAST
-LIMIT 50
+LIMIT $3
 `
-	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, parkID)
+	driveOptionsLimit := r.driveOptionsLimit
+	if driveOptionsLimit <= 0 {
+		// A Repository built as a zero value (or by a future constructor that forgets the field)
+		// must not degrade into LIMIT 0 and render an empty picker, which reads exactly like
+		// "no drives are scheduled".
+		driveOptionsLimit = defaultDriveOptionsLimit
+	}
+	driveRows, err := r.pool.Query(ctx, driveOptionsSQL, q.TenantID, parkID, driveOptionsLimit+1)
 	if err != nil {
 		return resp, fmt.Errorf("vaccination command board: drive options query: %w", err)
 	}
@@ -4342,6 +4394,13 @@ LIMIT 50
 		}
 		if windowEnd.Valid {
 			option.WindowEnd = &windowEnd.Time
+		}
+		if len(resp.DriveOptions) >= driveOptionsLimit {
+			// The limit+1'th row proves more drives exist. Stop before rendering it: it is a
+			// probe, not a choice the caller may act on, and admitting it would put the list one
+			// row over its own published bound.
+			resp.DriveOptionsTruncated = true
+			break
 		}
 		resp.DriveOptions = append(resp.DriveOptions, option)
 	}

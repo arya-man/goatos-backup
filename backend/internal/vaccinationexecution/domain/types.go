@@ -781,12 +781,24 @@ type ShedAnimalQuery struct {
 // verification queue (shed×dose); join_cardinality=goat lookups 1:1, completion status pre-aggregated;
 // pagination=verification_queue keyset-bound, others unbounded per envelope (324-goat, ~640-obligation basis).
 
+// CommandBoardKPI is the board's headline row at ANIMAL grain: Targets is the number of
+// distinct animals in scope, and the five counts below it are a disjoint, exhaustive partition
+// of Targets, so the tiles always add up to the total they sit under.
+//
+// ClosedWithoutDose is the fifth tile. Without it the row did not reconcile: an animal whose
+// every obligation was closed with no completion against it (canceled/waived/superseded) counted
+// in Targets but matched none of the other four predicates, so a 100-animal drive with 3
+// withdrawn animals showed "Total 100" over tiles summing to 97 and left the reader unable to
+// tell a bug from real outstanding work. It names that residual rather than removing those
+// animals from Targets, so Targets stays the roster the operator was handed and the withdrawal
+// stays visible instead of being quietly deducted.
 type CommandBoardKPI struct {
 	Targets              int `json:"targets"`
 	DosesVerified        int `json:"dosesVerified"`
 	AwaitingVerification int `json:"awaitingVerification"`
 	OverdueNotGiven      int `json:"overdueNotGiven"`
 	ScheduledAhead       int `json:"scheduledAhead"`
+	ClosedWithoutDose    int `json:"closedWithoutDose"`
 }
 
 type CommandBoardCohort struct {
@@ -901,14 +913,20 @@ type CommandBoardDriveOption struct {
 }
 
 type CommandBoardResponse struct {
-	Source            string                    `json:"source"`
-	KPIs              CommandBoardKPI           `json:"kpis"`
-	DriveOptions      []CommandBoardDriveOption `json:"driveOptions"`
-	CohortMatrix      []CommandBoardCohortCell  `json:"cohortMatrix"`
-	ShedDoseMatrix    []ShedDoseMatrixCell      `json:"shedDoseMatrix"`
-	WeeklyGiven       []WeeklyGivenRow          `json:"weeklyGiven"`
-	VerificationQueue []VerificationQueueRow    `json:"verificationQueue"`
-	Freshness         *ProjectionFreshness      `json:"freshness,omitempty"`
+	Source       string                    `json:"source"`
+	KPIs         CommandBoardKPI           `json:"kpis"`
+	DriveOptions []CommandBoardDriveOption `json:"driveOptions"`
+	// DriveOptionsTruncated says the bound was hit and drives were left out. The list has always
+	// been bounded, but it used to stop silently, so a scheduled drive that fell past the bound
+	// was indistinguishable from a drive that was never planned -- the reader goes looking, finds
+	// nothing, and concludes the work does not exist. Surfacing the overflow lets the UI say
+	// "more drives exist, narrow by park" instead of lying by omission.
+	DriveOptionsTruncated bool                     `json:"driveOptionsTruncated"`
+	CohortMatrix          []CommandBoardCohortCell `json:"cohortMatrix"`
+	ShedDoseMatrix        []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
+	WeeklyGiven           []WeeklyGivenRow         `json:"weeklyGiven"`
+	VerificationQueue     []VerificationQueueRow   `json:"verificationQueue"`
+	Freshness             *ProjectionFreshness     `json:"freshness,omitempty"`
 }
 
 type CommandBoardQuery struct {
