@@ -595,3 +595,47 @@ interface WeighingPlannerRemoteKeyDao {
 /** The bucket identity shared by the shed-detail screen and the videos gallery. */
 fun weighingShedKey(campaignId: String, campaignShedId: String): String =
     "${campaignId.trim()}:${campaignShedId.trim()}"
+
+/**
+ * The idempotency EPOCH for ONE weighing scope's state transitions, ON DISK.
+ *
+ * It lives in Room rather than in the process because the exact failure it protects against
+ * OUTLIVES the process: a Close whose request reached the server but whose response was lost, on a
+ * phone that is then killed. An in-heap epoch is gone by the retry, the retry mints a fresh key,
+ * and the backend applies a SECOND close instead of replaying the first.
+ *
+ * [scopeId] is the transition's subject -- "campaignId:campaignShedId" for a bucket, the campaign
+ * id for a whole task -- and is deliberately NOT per-transition-verb: reopen must rotate the epoch
+ * the following close will use, or close -> reopen -> close replays the first close's snapshot.
+ */
+@Entity(tableName = "weighing_transition_epoch")
+data class WeighingTransitionEpochEntity(
+    @PrimaryKey val scopeId: String,
+    val epoch: String,
+    val updatedAt: Long,
+)
+
+@Dao
+interface WeighingTransitionEpochDao {
+    @Query("SELECT epoch FROM weighing_transition_epoch WHERE scopeId = :scopeId")
+    suspend fun get(scopeId: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(row: WeighingTransitionEpochEntity)
+
+    /**
+     * Claims the epoch for [scopeId], writing [fresh] only when none is stored.
+     *
+     * IGNORE, not REPLACE: two concurrent attempts on the same scope must agree on ONE key, which
+     * is the whole point of the retry being deduplicated. The read afterwards returns the winner.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(row: WeighingTransitionEpochEntity)
+
+    /** Bounded on disk: only the most recently used scopes are worth a replay window. */
+    @Query(
+        "DELETE FROM weighing_transition_epoch WHERE scopeId NOT IN (" +
+            "SELECT scopeId FROM weighing_transition_epoch ORDER BY updatedAt DESC LIMIT :keep)",
+    )
+    suspend fun pruneOutsideNewest(keep: Int)
+}

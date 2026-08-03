@@ -48,6 +48,7 @@ import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
@@ -171,15 +172,23 @@ class WeighingViewModel @Inject constructor(
     private var tabRefillBudget = 0
 
     /**
-     * How many further pages a DEEP-LINKED task may pull while looking for itself.
+     * The single-task read behind a deep link, and the id it has already been attempted for.
      *
      * A notification opened cold pushes the detail destination with a campaign id the list has
-     * never loaded, and there is no single-task read to fall back on, so the screen used to sit on
-     * a permanently not-found header while its buckets rendered underneath. This budget is what
-     * makes the search bounded rather than a drain loop: a few keyset pages, then the honest
+     * never loaded. This used to be answered by walking a few keyset pages, which spent its budget
+     * on appends that early-returned while the cold-start refresh was still in flight -- the
+     * advertised three pages were often zero. GET /app/weighing/campaigns/{id} answers it in ONE
+     * call, so there is nothing left to budget: one attempt per selected task, then the honest
      * not-found state.
      */
-    private var deepLinkTaskResolveBudget = 0
+    private var deepLinkResolveJob: Job? = null
+    private var deepLinkAttemptedTaskId: String? = null
+
+    /**
+     * What the backend said THIS viewer may do to the DEEP-LINKED task, when the list never
+     * answered for it. Null means "no single-task answer", and the list read's flags stand.
+     */
+    private val deepLinkCapabilities = MutableStateFlow<WeighingCapabilities?>(null)
     private val tasksTab = MutableStateFlow(WeighingTasksTab.ACTIVE)
 
     /**
@@ -280,6 +289,7 @@ class WeighingViewModel @Inject constructor(
 
     /** One collector for the cached planner catalog; started on first planner refresh. */
     private var observePlannerJob: Job? = null
+    private var parkVocabularyJob: Job? = null
     private var readerRefreshJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -426,21 +436,24 @@ class WeighingViewModel @Inject constructor(
         combine(
             activeTask,
             selectedTaskId,
-            plannerCatalog,
+            combine(plannerCatalog, deepLinkCapabilities) { catalog, caps -> catalog to caps },
             tasksLoading,
             actionInFlight,
-        ) { task, taskId, catalog, loading, busy ->
+        ) { task, taskId, (catalog, deepLinkCaps), loading, busy ->
             val operatorNames = catalog?.operators.orEmpty()
                 .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
                 .associate { it.userId to it.displayName }
-            TaskDetailInputs(task, taskId.orEmpty(), operatorNames, loading, busy)
+            TaskDetailInputs(task, taskId.orEmpty(), operatorNames, loading, busy, deepLinkCaps)
         }.let { base ->
             combine(base, taskCache, taskBucketCache, tasksStale, selectedOperatorFilter) { inputs, listCache, buckets, stale, operatorFilter ->
                 inputs.task.toTaskDetailUiState(
                     campaignId = inputs.campaignId,
                     selectedOperatorId = operatorFilter,
                     operatorNames = inputs.operatorNames,
-                    capabilities = listCache.capabilities,
+                    // The single-task read's own answer wins when the LIST never answered for
+                    // this task: a deep link opened cold has no list page behind it, and an
+                    // all-false default would hide actions the viewer actually holds.
+                    capabilities = inputs.deepLinkCapabilities ?: listCache.capabilities,
                     buckets = buckets,
                     loading = inputs.loading,
                     busy = inputs.busy,
@@ -466,18 +479,36 @@ class WeighingViewModel @Inject constructor(
     }
 
     /**
-     * Pulls ONE more page while a deep-linked task is still missing from the cache, up to
-     * [deepLinkTaskResolveBudget] pages. Stops the moment the task appears, the keyset ends, or the
-     * budget runs out -- after which `found = false` is the truth rather than a loading artefact.
+     * Resolves a deep-linked task the cached list does not hold, with ONE single-task read.
+     *
+     * Exactly one attempt per selected task: a 404 is the backend's final answer (not yours, not
+     * there -- it does not say which, and neither does this), so retrying it would only repeat a
+     * refusal. A transport failure leaves the quiet stale notice up and the cached list on screen.
      */
     private fun resolveDeepLinkedTask() {
         val id = selectedTaskId.value?.takeIf { it.isNotBlank() } ?: return
-        if (deepLinkTaskResolveBudget <= 0) return
         if (selectedTaskSnapshot.value?.campaignId == id) return
         if (tasks.value.any { it.campaignId == id }) return
-        if (!taskCache.value.canLoadMore) return
-        deepLinkTaskResolveBudget -= 1
-        appendTasks()
+        if (deepLinkAttemptedTaskId == id) return
+        if (deepLinkResolveJob?.isActive == true) return
+        deepLinkAttemptedTaskId = id
+        deepLinkResolveJob = viewModelScope.launch {
+            when (val resolved = repository.getTask(id)) {
+                is AppResult.Ok -> {
+                    // The screen may have moved on while the read was in flight.
+                    if (selectedTaskId.value != id) return@launch
+                    when (val lookup = resolved.value) {
+                        is WeighingTaskLookup.Found -> {
+                            selectedTaskSnapshot.value = lookup.task
+                            deepLinkCapabilities.value = lookup.capabilities
+                        }
+                        // found = false is the truth, not a loading artefact.
+                        WeighingTaskLookup.NotFound -> Unit
+                    }
+                }
+                is AppResult.Err -> tasksStale.value = STALE_NOTICE_PREFIX + resolved.message
+            }
+        }
     }
 
     /** The operator chip the detail screen is filtered by, or null for all operators. */
@@ -489,10 +520,15 @@ class WeighingViewModel @Inject constructor(
     fun selectTask(campaignId: String) {
         val normalized = campaignId.takeIf { it.isNotBlank() }
         if (selectedTaskId.value == normalized) return
-        selectedTaskId.value = normalized
+        // Cleared BEFORE the id is published: writing selectedTaskId resumes the collector in
+        // `init` synchronously, which resolves the new id straight away -- clearing afterwards
+        // wiped the attempt marker it had just set and issued the single-task read twice.
         selectedTaskSnapshot.value = null
+        deepLinkCapabilities.value = null
+        deepLinkAttemptedTaskId = null
+        deepLinkResolveJob?.cancel()
+        selectedTaskId.value = normalized
         taskBucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
-        deepLinkTaskResolveBudget = if (normalized == null) 0 else DEEP_LINK_TASK_RESOLVE_PAGES
         refreshTaskBuckets(reset = true)
         resolveDeepLinkedTask()
     }
@@ -742,6 +778,10 @@ class WeighingViewModel @Inject constructor(
     fun refreshAssignments() {
         if (scopeKey != null) return
         if (loadingAssignments.value) return
+        // Unconditionally, and BEFORE the list answers. The list can refuse to answer at all until
+        // a park is NAMED (park_selection_required for a multi-park viewer), so a vocabulary that
+        // waited for a successful list read would be missing in precisely that case.
+        refreshParkVocabulary()
         loadingAssignments.value = true
         viewModelScope.launch {
             try {
@@ -752,7 +792,6 @@ class WeighingViewModel @Inject constructor(
                         assignmentsError.value = null
                         assignmentCapabilities.value = loaded.value.capabilities
                         rememberAssignmentParks(loaded.value.items)
-                        maybeRefreshOversightParkVocabulary()
                         // Do not clear a failure the planner read is still reporting.
                         message.value = plannerError.value
                     }
@@ -815,6 +854,7 @@ class WeighingViewModel @Inject constructor(
     fun refreshTasks() {
         if (scopeKey != null) return
         if (tasksLoading.value) return
+        refreshParkVocabulary()
         tasksLoading.value = true
         // Back to ONE page: the refresh re-reads page 1 into Room and drops the filter's stale
         // deeper pages, so the observed window must come back with it or the list would render a
@@ -915,7 +955,6 @@ class WeighingViewModel @Inject constructor(
                 tasksAppending.value = false
                 rememberTaskParks(tasks.value)
                 appendTasksIfTabUnderfilled()
-                resolveDeepLinkedTask()
             }
         }
     }
@@ -943,16 +982,27 @@ class WeighingViewModel @Inject constructor(
             .associate { it.parkId to it.parkName.ifBlank { it.parkId } }
     }
 
-    fun reopenAssignment(row: WeighingAssignmentUiRow) {
+    /**
+     * Reopens a shed bucket with the caller's OWN reason.
+     *
+     * [reason] is required: it is written to the audit trail and kept, so the phone must not
+     * author it. This used to send a fixed sentence nobody wrote.
+     */
+    fun reopenAssignment(row: WeighingAssignmentUiRow, reason: String) {
         if (scopeKey != null || actionInFlight.value || !row.isClosed) return
         if (!assignmentCapabilities.value.canReopen) {
             message.value = "You do not have permission to reopen weighing work."
             return
         }
+        val authored = reason.trim()
+        if (authored.isBlank()) {
+            message.value = "A reason is required to reopen weighing work."
+            return
+        }
         actionInFlight.value = true
         viewModelScope.launch {
             try {
-                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, "Need to scan more animals")) {
+                when (val reopened = repository.reopenScope(row.campaignId, row.campaignShedId, authored)) {
                     is AppResult.Ok -> {
                         message.value = "${row.label} reopened."
                         refreshAssignments()
@@ -1100,24 +1150,43 @@ class WeighingViewModel @Inject constructor(
      * fallback for a viewer whose catalog read is unavailable.
      */
     private fun rememberCatalogParks(catalog: WeighingPlannerCatalog) {
-        val parks = catalog.parks
-            .filter { it.parkId.isNotBlank() }
-            .associate { it.parkId to it.name.ifBlank { it.parkId } }
-        if (parks.isEmpty()) return
-        knownAssignmentParks.value = knownAssignmentParks.value + parks
-        knownTaskParks.value = knownTaskParks.value + parks
+        rememberParks(
+            catalog.parks
+                .filter { it.parkId.isNotBlank() }
+                .associate { it.parkId to it.name.ifBlank { it.parkId } },
+        )
     }
 
     /**
-     * Loads the oversight park chips' vocabulary ONLY when this viewer may call the planner read.
+     * Loads the AUTHORITATIVE park vocabulary behind the oversight chips.
      *
-     * Quiet, because it is chip vocabulary: a failure must not take the banner of a list that
-     * loaded fine from its own endpoint.
+     * GET /app/weighing/parks, not the planner catalog: the catalog is gated on the PLANNING
+     * permission, which a Growth Director does not hold, so this used to be skipped for exactly
+     * the viewer who needed it and the chips fell back to whichever parks the loaded rows happened
+     * to carry. A park whose first row sits on page 3 then had no chip -- and selecting that park
+     * was the only way to load its rows. That circle is what this read breaks.
+     *
+     * Quiet: chip vocabulary must never take the banner of a list that loaded fine.
      */
-    private fun maybeRefreshOversightParkVocabulary() {
-        if (surface != WEIGHING_SCOPE_OPERATORS) return
-        if (!assignmentCapabilities.value.canPublish) return
-        refreshPlanner(quiet = true)
+    private fun refreshParkVocabulary() {
+        if (scopeKey != null) return
+        if (surface != WEIGHING_SCOPE_OPERATORS && surface != WEIGHING_SCOPE_ALL) return
+        if (parkVocabularyJob?.isActive == true) return
+        parkVocabularyJob = viewModelScope.launch {
+            when (val parks = repository.listParks()) {
+                is AppResult.Ok -> rememberParks(
+                    parks.value.associate { it.parkId to it.name.ifBlank { it.parkId } },
+                )
+                is AppResult.Err -> Unit
+            }
+        }
+    }
+
+    /** Merges a park vocabulary into BOTH chip rows. Never assigns: a park is never un-learned. */
+    private fun rememberParks(parks: Map<String, String>) {
+        if (parks.isEmpty()) return
+        knownAssignmentParks.value = knownAssignmentParks.value + parks
+        knownTaskParks.value = knownTaskParks.value + parks
     }
 
     private fun refreshScope() {
@@ -2333,8 +2402,6 @@ private fun String.equalsWeighingStatus(other: String): Boolean =
  */
 private const val STALE_NOTICE_PREFIX = "Showing the last saved list. "
 
-/** Bounded page budget for resolving a cold deep link; ~3 keyset pages, never the whole list. */
-private const val DEEP_LINK_TASK_RESOLVE_PAGES = 3
 
 /** Buckets shown per operator group before the "+N more" tail. Same page size as every list. */
 private const val WEIGHING_GROUP_BUCKET_CAP = 20
@@ -2500,6 +2567,8 @@ private data class TaskDetailInputs(
     val operatorNames: Map<String, String>,
     val loading: Boolean,
     val busy: Boolean,
+    /** The single-task read's capability answer, or null when only the list answered. */
+    val deepLinkCapabilities: WeighingCapabilities? = null,
 )
 
 /** The weigh date as a person reads it, never the machine form. */

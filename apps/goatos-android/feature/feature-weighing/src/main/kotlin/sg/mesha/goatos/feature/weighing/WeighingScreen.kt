@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
@@ -259,7 +260,7 @@ fun WeighingScreen(
     onRemoveShedVideo: (String) -> Unit = {},
     onReconnectReader: () -> Unit = {},
     onOpenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
-    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
     onRefresh: () -> Unit = {},
@@ -267,6 +268,30 @@ fun WeighingScreen(
     modifier: Modifier = Modifier,
 ) {
     var rosterSheetOpen by remember { mutableStateOf(false) }
+    // Reopen is reason-bearing: the sentence is kept on the audit trail forever, so a person
+    // writes it. Held by bucket id, and the typed reason saved, so neither is lost on rotation.
+    var reopenShedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var reopenReason by rememberSaveable { mutableStateOf("") }
+    reopenShedId?.let { id -> state.assignments.firstOrNull { it.campaignShedId == id } }?.let { row ->
+        WeighingReasonDialog(
+            title = stringResource(R.string.weighing_reopen_dialog_title, row.label),
+            subtitle = stringResource(R.string.weighing_reopen_dialog_subtitle),
+            placeholder = stringResource(R.string.weighing_reopen_dialog_placeholder),
+            confirmLabel = stringResource(R.string.weighing_reopen_dialog_confirm),
+            confirmColor = MeshaColors.BrandD,
+            reason = reopenReason,
+            onReasonChange = { reopenReason = it },
+            onConfirm = { reason ->
+                reopenShedId = null
+                reopenReason = ""
+                onReopenAssignment(row, reason)
+            },
+            onDismiss = {
+                reopenShedId = null
+                reopenReason = ""
+            },
+        )
+    }
     if (!state.hasScope) {
         RefreshOnResume(onRefresh = onRefresh)
     }
@@ -395,7 +420,10 @@ fun WeighingScreen(
                     AssignmentRow(
                         row = row,
                         onOpen = { onOpenAssignment(row) },
-                        onReopen = { onReopenAssignment(row) },
+                        onReopen = {
+                            reopenShedId = row.campaignShedId
+                            reopenReason = ""
+                        },
                     )
                 }
                 if (state.assignmentsLoadingMore) {

@@ -97,6 +97,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
@@ -219,8 +221,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingPlannerShedRowEntity::class,
         WeighingPlannerOperatorRowEntity::class,
         WeighingPlannerRemoteKeyEntity::class,
+        WeighingTransitionEpochEntity::class,
     ],
-    version = 26,
+    version = 27,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -261,6 +264,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // list, the task's shed buckets, the shed's own context and its captured records (shared with
     // the videos gallery), and the planner catalog — each a keyset-paged row table plus its remote
     // key, so every leadership surface renders from Room instead of straight off a network call.
+    // v27 (see [MIGRATION_26_27]) persists the weighing per-scope idempotency EPOCH. It was an
+    // in-heap map, so a Close whose response was lost on a phone that was then killed retried
+    // under a NEW key and the backend applied a second close instead of replaying the first.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -320,4 +326,5 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun weighingLeadershipGalleryRemoteKeyDao(): WeighingLeadershipGalleryRemoteKeyDao
     abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
     abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
+    abstract fun weighingTransitionEpochDao(): WeighingTransitionEpochDao
 }
