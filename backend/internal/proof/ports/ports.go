@@ -49,6 +49,18 @@ type DeletingStorage interface {
 	Delete(ctx context.Context, proof domain.Artifact) error
 }
 
+// ObjectStatter answers the single question "are this proof's bytes still there?" without
+// downloading them. It exists for ONE caller shape: an irreversible decision about a SINGLE item
+// (verification approve). It must never be used to decorate a list/queue read — one stat per proof
+// per row is the N+1 that ports.Storage deliberately avoids on hot reads.
+//
+// A missing or unreadable object is reported as ErrObjectMissing (terminal, non-retryable). A
+// transport/permission fault is returned as its own error so callers can tell "the evidence is
+// gone" apart from "we could not check right now".
+type ObjectStatter interface {
+	StatObject(ctx context.Context, proof domain.Artifact) error
+}
+
 type SignedURLVerifier interface {
 	Verify(method, path, tenantID, expires, signature string, now time.Time) bool
 }

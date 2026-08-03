@@ -171,6 +171,27 @@ func (s *Storage) Open(_ context.Context, proof domain.Artifact) (ports.ReadSeek
 	return file, nil
 }
 
+// StatObject reports whether the stored object is still present and readable, without opening a
+// stream. Same missing/unreadable mapping as Open, so a caller that must not act on absent evidence
+// gets the terminal ports.ErrObjectMissing class here too.
+func (s *Storage) StatObject(_ context.Context, proof domain.Artifact) error {
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+		}
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+	}
+	return nil
+}
+
 func (s *Storage) Verify(method, path, tenantID, expires, signature string, now time.Time) bool {
 	expUnix, err := strconv.ParseInt(expires, 10, 64)
 	if err != nil || expUnix <= now.Unix() || strings.TrimSpace(tenantID) == "" {

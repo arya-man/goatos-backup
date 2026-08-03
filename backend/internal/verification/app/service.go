@@ -227,22 +227,86 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
 		return domain.Item{}, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
 	}
-	itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
-	if err != nil {
-		return domain.Item{}, mapRepoErr(err)
-	}
-	if s.media == nil || len(itemForEvidence.MediaRefs) == 0 {
-		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
-	}
-	resolved, err := s.media.ResolveMedia(ctx, in.TenantID, itemForEvidence.MediaRefs)
-	if err != nil || len(resolved) != len(itemForEvidence.MediaRefs) {
-		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
+	// The evidence gate guards APPROVE only. Approve is the one irreversible action in this module
+	// (there is no un-approve), so it must never be recorded against proof nobody can look at.
+	// Reject/rework is deliberately NOT gated: when the proof is gone, sending the work back so the
+	// team records it again is the ONLY correct move left, and gating it would strand the verifier
+	// with an item she can neither approve nor return.
+	if in.Decision == domain.DecisionApproved {
+		itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
+		if err != nil {
+			return domain.Item{}, mapRepoErr(err)
+		}
+		if err := s.assertEvidenceApprovable(ctx, in.TenantID, itemForEvidence); err != nil {
+			return domain.Item{}, err
+		}
 	}
 	item, err := s.repo.RecordVerdict(ctx, in)
 	if err != nil {
 		return domain.Item{}, mapRepoErr(err)
 	}
 	return item, nil
+}
+
+// assertEvidenceApprovable is the REAL evidence gate for a single approve.
+//
+// Two layers, because they answer two different questions:
+//  1. ResolveMedia — can a signed link be issued for every media_ref? (row-level completeness)
+//  2. EnsureEvidenceAvailable — do the stored objects still EXIST? (byte-level truth)
+//
+// Layer 2 is the one that matters and the one that used to be missing: RecordVerdict called the
+// same non-statting resolver the queue read uses, so the gate was a tautology — if the DB row
+// existed it passed, and an approve could be recorded against an object that had been deleted or
+// relocated (the download route then answers 410 proof_object_missing to a verifier who has
+// already, irreversibly, approved it).
+//
+// The N+1 objection that ListQueue/resolveMedia correctly raises does NOT apply here: this is ONE
+// item at decision time, not ~20 rows x ~3 proofs on a hot read. Paying a handful of stats once,
+// before an irreversible act nobody can undo, is the correct trade. Do not move this into the
+// queue path, and do not delete it to "make approve faster".
+func (s *Service) assertEvidenceApprovable(ctx context.Context, tenantID string, item domain.Item) error {
+	if s.media == nil || len(item.MediaRefs) == 0 {
+		return evidenceMissingErr()
+	}
+	resolved, err := s.media.ResolveMedia(ctx, tenantID, item.MediaRefs)
+	if err != nil || len(resolved) != len(item.MediaRefs) {
+		return evidenceMissingErr()
+	}
+	checker, ok := s.media.(ports.EvidenceAvailabilityChecker)
+	if !ok {
+		// No adapter can confirm the bytes. Fail CLOSED on the irreversible action rather than
+		// repeat the old tautology, and say so honestly: this is "we could not check", not "the
+		// video is gone".
+		return evidenceUncheckableErr()
+	}
+	switch err := checker.EnsureEvidenceAvailable(ctx, tenantID, item.MediaRefs); {
+	case err == nil:
+		return nil
+	case errors.Is(err, ports.ErrEvidenceMissing):
+		return evidenceMissingErr()
+	default:
+		return evidenceUncheckableErr()
+	}
+}
+
+// evidenceMissingErr is terminal: the proof video is not there and retrying cannot change that.
+// The copy tells her the one thing she can still do — send it back so the team records it again.
+func evidenceMissingErr() *Error {
+	return Unprocessable(
+		"evidence_missing",
+		"The proof video for this record is not there, so it cannot be approved. Send it back for rework so the team records it again.",
+	)
+}
+
+// evidenceUncheckableErr is NOT proof of absence — the check itself did not complete, so it is
+// retryable and must not accuse the operator of losing the video.
+func evidenceUncheckableErr() *Error {
+	err := Unprocessable(
+		"evidence_check_failed",
+		"The proof video could not be opened just now, so it cannot be approved yet. Try again in a moment, or send it back for rework.",
+	)
+	err.Retryable = true
+	return err
 }
 
 // CloseItem applies the leadership action after independent verifier approval. The owning module

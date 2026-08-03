@@ -66,4 +66,9 @@
     <string name="verify_status_approved">Approved</string>
     <string name="verify_status_rejected">Rejected</string>
     <string name="verify_category_all">All</string>
+    <string name="verify_detail_media_unavailable_send_back">This video will not play, so it cannot be approved. Send it back so the team records it again.</string>
+    <string name="verify_approve_dialog_title">Approve this proof?</string>
+    <string name="verify_approve_dialog_subtitle">Approving is final — it cannot be undone later.</string>
+    <string name="verify_approve_dialog_confirm">Confirm approve</string>
+    <string name="verify_approve_dialog_cancel">Cancel</string>
 </resources>
