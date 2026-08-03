@@ -14,7 +14,6 @@
     <!-- ===================== Shared weighing chrome ===================== -->
     <string name="weighing_eyebrow">WEIGHING</string>
     <string name="weighing_refresh">Refresh weighing work</string>
-    <string name="weighing_alerts">Alerts</string>
     <string name="weighing_category_lumpsum">Lumpsum</string>
     <string name="weighing_category_individual">Individual</string>
     <string name="weighing_action_scan_animals">Scan animals →</string>

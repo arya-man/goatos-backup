@@ -352,3 +352,7 @@ func (r *multiParkScenarioRepo) RefreshAvailability(context.Context, string, str
 func (r *multiParkScenarioRepo) WeighingProcessState(context.Context, string, string, string, string) (domain.ProcessState, error) {
 	return domain.ProcessState{}, nil
 }
+
+func (r *multiParkScenarioRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
+}
