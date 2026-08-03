@@ -68,6 +68,14 @@
     <string name="weighing_no_matching_rows_body">Try another tag or shed name.</string>
     <string name="weighing_submit_lump_sum">Submit lump-sum weighing</string>
     <string name="weighing_submit">Submit</string>
+    <string name="weighing_blocked_saving">Saving what you entered. One moment.</string>
+    <string name="weighing_blocked_no_shed_open">Open a shed before you record this weighing.</string>
+    <string name="weighing_blocked_need_weight">Enter the weight before you submit.</string>
+    <string name="weighing_blocked_need_count">Enter how many animals were on the scale.</string>
+    <string name="weighing_blocked_need_video">Record the video of this weighing before you submit.</string>
+    <string name="weighing_blocked_video_uploading">The video is still going up. Submit opens as soon as it finishes.</string>
+    <string name="weighing_blocked_video_failed">The video did not go up. Tap Retry on the video, then submit.</string>
+    <string name="weighing_blocked_nothing_captured">Scan a tag and save a weight before you submit.</string>
     <string name="weighing_animals_captured_one">%1$d animal captured</string>
     <string name="weighing_animals_captured_other">%1$d animals captured</string>
     <string name="weighing_scan_to_begin">Scan an RFID tag to begin</string>

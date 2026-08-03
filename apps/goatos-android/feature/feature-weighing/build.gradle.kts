@@ -47,6 +47,10 @@ dependencies {
     // (WeighingLeadershipVideosScreen). Capture-only CameraX stays in :app.
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+
+    // Plain-JUnit coverage for the pure UI-state gates (WeighingUiState.submitBlockedReason):
+    // a disabled Submit must always name its own reason, which is decidable off state alone.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

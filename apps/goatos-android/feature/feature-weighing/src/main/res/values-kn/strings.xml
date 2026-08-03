@@ -61,6 +61,14 @@
     <string name="weighing_no_matching_rows_body">ಬೇರೆ ಟ್ಯಾಗ್ ಅಥವಾ ಶೆಡ್ ಹೆಸರು ಪ್ರಯತ್ನಿಸಿ.</string>
     <string name="weighing_submit_lump_sum">ಒಟ್ಟು ತೂಕ ಸಲ್ಲಿಸಿ</string>
     <string name="weighing_submit">ಸಲ್ಲಿಸಿ</string>
+    <string name="weighing_blocked_saving">ನೀವು ನಮೂದಿಸಿದ್ದನ್ನು ಉಳಿಸಲಾಗುತ್ತಿದೆ. ಒಂದು ಕ್ಷಣ ಇರಿ.</string>
+    <string name="weighing_blocked_no_shed_open">ಈ ತೂಕ ದಾಖಲಿಸುವ ಮೊದಲು ಒಂದು ಶೆಡ್ ತೆರೆಯಿರಿ.</string>
+    <string name="weighing_blocked_need_weight">ಸಲ್ಲಿಸುವ ಮೊದಲು ತೂಕ ನಮೂದಿಸಿ.</string>
+    <string name="weighing_blocked_need_count">ತಕ್ಕಡಿಯ ಮೇಲೆ ಎಷ್ಟು ಪ್ರಾಣಿಗಳಿದ್ದವು ಎಂದು ನಮೂದಿಸಿ.</string>
+    <string name="weighing_blocked_need_video">ಸಲ್ಲಿಸುವ ಮೊದಲು ಈ ತೂಕದ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
+    <string name="weighing_blocked_video_uploading">ವೀಡಿಯೊ ಇನ್ನೂ ಮೇಲೇರುತ್ತಿದೆ. ಮುಗಿದ ತಕ್ಷಣ ಸಲ್ಲಿಸು ತೆರೆಯುತ್ತದೆ.</string>
+    <string name="weighing_blocked_video_failed">ವೀಡಿಯೊ ಹೋಗಲಿಲ್ಲ. ವೀಡಿಯೊ ಮೇಲೆ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ ಒತ್ತಿ, ನಂತರ ಸಲ್ಲಿಸಿ.</string>
+    <string name="weighing_blocked_nothing_captured">ಸಲ್ಲಿಸುವ ಮೊದಲು ಒಂದು ಟ್ಯಾಗ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ ಮತ್ತು ತೂಕ ಉಳಿಸಿ.</string>
     <string name="weighing_animals_captured_one">%1$d ಪ್ರಾಣಿ ಸೆರೆಯಾಗಿದೆ</string>
     <string name="weighing_animals_captured_other">%1$d ಪ್ರಾಣಿಗಳು ಸೆರೆಯಾಗಿವೆ</string>
     <string name="weighing_scan_to_begin">ಪ್ರಾರಂಭಿಸಲು RFID ಟ್ಯಾಗ್ ಸ್ಕ್ಯಾನ್ ಮಾಡಿ</string>

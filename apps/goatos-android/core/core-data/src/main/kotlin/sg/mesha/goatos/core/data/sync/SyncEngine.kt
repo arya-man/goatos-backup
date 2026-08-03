@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import java.util.concurrent.ConcurrentHashMap
@@ -200,6 +201,13 @@ class SyncEngine(
         }
     }
 
+    /** The operator-facing reason a queued write did not go through — server copy where the
+     *  server gave one, otherwise a plain sentence. Never a status line or exception name. */
+    private fun Throwable.outboxLastError(): String =
+        serverErrorText()?.display
+            ?: (this as? NonRetryableSyncException)?.message?.trim()?.takeIf { it.isNotBlank() }
+            ?: "This did not go through yet. It will be tried again."
+
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
         val attempt = item.attemptCount + 1
         // Terminal = a definitive server rejection (validation) OR a non-retryable 4xx: neither
@@ -212,7 +220,11 @@ class SyncEngine(
             attemptCount = attempt,
             nextAttemptAt = nextAttemptAt,
             conflict = conflict,
-            lastError = error.message ?: (error::class.simpleName ?: "sync_failed"),
+            // SubmitScreen renders this verbatim to the operator when the row lands in
+            // CONFLICT, so it must be the SERVER's own explanation of the refusal (message plus
+            // any named field problems), never the transport's status line. A rejection the
+            // server already explained arrives as NonRetryableSyncException carrying that copy.
+            lastError = error.outboxLastError(),
             now = clock(),
         )
         return if (applied && !terminal) {
