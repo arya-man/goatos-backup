@@ -208,7 +208,7 @@ func (r *memoryProofRepo) GetProofsByIDs(_ context.Context, _ string, proofIDs [
 	return out, nil
 }
 
-func (r *memoryProofRepo) DeleteUnattachedProof(_ context.Context, _ string, proofID string) (proofdomain.Artifact, error) {
+func (r *memoryProofRepo) DeleteUnattachedProof(_ context.Context, _ string, proofID string, _ string) (proofdomain.Artifact, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	proof, ok := r.proofs[proofID]

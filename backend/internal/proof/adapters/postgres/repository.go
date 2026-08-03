@@ -400,7 +400,7 @@ WHERE tenant_id = $1::uuid
 	return err
 }
 
-func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
+func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID, actorID string) (domain.Artifact, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	row := r.pool.QueryRow(ctx, `
@@ -409,6 +409,9 @@ WITH doomed AS (
   FROM proof_artifacts p
   WHERE p.tenant_id = $1::uuid
     AND p.proof_id = $2::uuid
+    -- Owner scope lives in the DELETE itself, not only in Go, so a future caller cannot
+    -- bypass it. uploaded_by is nullable, so an ownerless row matches nobody (fail closed).
+    AND p.uploaded_by = $3::uuid
     AND p.retention_policy <> 'legal_hold'
     AND NOT EXISTS (
       SELECT 1
@@ -437,7 +440,7 @@ deleted AS (
     p.created_at, p.uploaded_at, p.retention_policy, p.retention_expires_at,
     p.upload_expires_at, p.updated_at, p.row_version
 )
-SELECT * FROM deleted`, tenantID, proofID)
+SELECT * FROM deleted`, tenantID, proofID, actorID)
 	artifact, err := scanArtifact(row)
 	if err == nil {
 		return artifact, nil
@@ -445,10 +448,17 @@ SELECT * FROM deleted`, tenantID, proofID)
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return domain.Artifact{}, err
 	}
-	if _, getErr := r.GetProof(ctx, tenantID, proofID); errors.Is(getErr, ports.ErrNotFound) {
+	existing, getErr := r.GetProof(ctx, tenantID, proofID)
+	if errors.Is(getErr, ports.ErrNotFound) {
 		return domain.Artifact{}, ports.ErrNotFound
 	} else if getErr != nil {
 		return domain.Artifact{}, getErr
+	}
+	// Someone else's proof (or an ownerless legacy row) must not be distinguishable from a
+	// proof id that does not exist, so it gets the same not-found shape rather than a
+	// distinct forbidden/in-use answer that would confirm the id is real.
+	if existing.UploadedBy == nil || *existing.UploadedBy != actorID {
+		return domain.Artifact{}, ports.ErrNotFound
 	}
 	return domain.Artifact{}, ports.ErrInUse
 }
