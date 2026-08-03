@@ -168,7 +168,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
         // as "Available 0" for sheds whose weighing had just completed, until the app was
         // killed. Re-entering the park re-reads it; the planner's own answers are kept.
         if (current.parkId == parkId) {
-            loadParkBuckets(date, parkId)
+            // Re-read availability IN PLACE. loadParkBuckets would reset the keyset window
+            // to page 1 and the repository's reset path deletes the cached pages, which
+            // silently drops every bucket the planner already picked from a later page --
+            // out of the tray, out of configure/review, and out of the published task.
+            // This refreshes the pages already on screen and adds none.
+            refreshBucketAvailability(date, parkId)
             return
         }
         raw.value = current.copy(
@@ -461,6 +466,23 @@ class WeighingPlanWizardViewModel @Inject constructor(
             }
         }
         refreshParkBuckets(isoDate, parkId, reset = true)
+    }
+
+    /**
+     * Re-reads availability for the pages the wizard is currently showing.
+     *
+     * Deliberately NOT gated on [WizardRaw.loading]: that flag is owned by paging, and a
+     * skipped refresh here is exactly the stale-availability bug this exists to fix. It
+     * writes no loading state of its own, so it cannot fight the pager.
+     */
+    private fun refreshBucketAvailability(isoDate: String, parkId: String) {
+        val pages = (bucketWindow.value / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
+        viewModelScope.launch {
+            when (val result = repository.refreshPlannerParkBucketAvailability(isoDate, parkId, pages)) {
+                is AppResult.Ok -> Unit
+                is AppResult.Err -> raw.value = raw.value.copy(message = result.message)
+            }
+        }
     }
 
     private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean) {

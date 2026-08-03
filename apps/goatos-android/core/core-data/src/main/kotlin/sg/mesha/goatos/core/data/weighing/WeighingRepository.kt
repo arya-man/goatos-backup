@@ -590,6 +590,22 @@ interface WeighingRepository {
         windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE,
     ): Flow<WeighingPlannerParkBucketsCache>
 
+    /**
+     * Re-reads the AVAILABILITY of the pages already cached for this park/date, in place.
+     *
+     * Availability is a live fact owned by other people's tasks -- a shed can be taken, or
+     * finish and become free, while the planner is mid-wizard. This exists because the two
+     * existing modes both do the wrong thing when the planner simply RE-ENTERS the park:
+     * reset=true deletes the cached pages and re-inserts only page 1, silently dropping any
+     * bucket the planner already picked from a later page, and reset=false only appends the
+     * NEXT page, refreshing nothing. This refreshes what is already there and adds nothing.
+     */
+    suspend fun refreshPlannerParkBucketAvailability(
+        periodStartDate: String,
+        parkId: String,
+        pages: Int,
+    ): AppResult<Int>
+
     /** Fetches ONE keyset page of ONE park's shed buckets into Room. */
     suspend fun refreshPlannerParkBuckets(
         periodStartDate: String,
@@ -1198,6 +1214,62 @@ class DefaultWeighingRepository(
                 cachedAt = remoteKey?.updatedAt ?: 0L,
             )
         }.flowOn(Dispatchers.Default)
+    }
+
+    override suspend fun refreshPlannerParkBucketAvailability(
+        periodStartDate: String,
+        parkId: String,
+        pages: Int,
+    ): AppResult<Int> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        if (parkId.isBlank()) return@withContext AppResult.Ok(0)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId)
+        // Walk only as many pages as the wizard is actually showing, never the whole park.
+        val pageCount = pages.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW / WEIGHING_LEADERSHIP_PAGE_SIZE)
+        runCatching {
+            var cursor: String? = null
+            var refreshed = 0
+            var sortIndex = 0
+            for (page in 0 until pageCount) {
+                val response = client.getWeighingPlannerParkBuckets(
+                    parkId = parkId,
+                    periodStartDate = periodStartDate,
+                    cursor = cursor,
+                    limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                )
+                val now = clock()
+                val startIndex = sortIndex
+                db.withTransaction {
+                    // UPSERT, never delete: the row key is (queryKey, locationId), so this
+                    // rewrites the availability of rows the planner may already have picked
+                    // without removing any page from the observed window.
+                    catalog.upsertSheds(
+                        response.sheds.mapIndexed { offset, shed ->
+                            WeighingPlannerShedRowEntity(
+                                queryKey = queryKey,
+                                locationId = shed.locationId,
+                                parkId = parkId,
+                                parkName = "",
+                                sortIndex = startIndex + offset,
+                                shedJson = cacheJson.encodeToString(shed),
+                                existingCampaignJson = null,
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                }
+                refreshed += response.sheds.size
+                sortIndex += response.sheds.size
+                cursor = response.nextCursor.nextWeighingCursorAfter(cursor)
+                if (cursor.isNullOrBlank()) break
+            }
+            refreshed
+        }.fold(
+            onSuccess = { AppResult.Ok(it) },
+            onFailure = { AppResult.Err(it.message ?: "Could not refresh shed availability.") },
+        )
     }
 
     override suspend fun refreshPlannerParkBuckets(

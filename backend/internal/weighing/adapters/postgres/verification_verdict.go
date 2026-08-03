@@ -375,7 +375,15 @@ SET status='in_progress', completed_at=NULL, updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$2::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignShedID); err != nil {
-			return time.Time{}, err
+			// Since migration 000082 a COMPLETED bucket no longer holds its
+			// (park, weigh date, shed) slot, so that slot may already belong to a newer
+			// task by the time a verifier sends this one back for rework. Pulling this
+			// bucket back to 'in_progress' would then be the one thing still forbidden --
+			// two people owing the same shed on the same date -- and the unique index
+			// refuses it. Surface the named scheduling conflict instead of letting a raw
+			// pgx error escape the verdict path as an opaque 500.
+			weighDate, displayName := r.shedLabelForConflict(ctx, verdict.TenantID, scope.CampaignShedID)
+			return time.Time{}, mapShedUniqueViolation(err, weighDate, displayName)
 		}
 		// B09: the bucket just left its terminal status, so the kernel work item the
 		// sweeper terminalized for it must be reactivated in the SAME transaction --
