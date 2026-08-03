@@ -58,6 +58,18 @@ object NoopNetworkTelemetryReporter : NetworkTelemetryReporter {
 class TelemetryInterceptor(
     private val enabled: Boolean = true,
     private val reporter: NetworkTelemetryReporter = NoopNetworkTelemetryReporter,
+    /**
+     * Maps a request to its bounded-cardinality route label. The default is the API stack's
+     * path-template collapse. MEDIA playback overrides it: a signed proof-video URL's path is an
+     * opaque per-object storage key that [routeTemplate] cannot collapse (it is neither UUID- nor
+     * numeric-shaped), so leaving the default would grow the throttle map once per video watched
+     * and put a raw object key into logcat. The media client passes a CONSTANT label instead —
+     * see `sg.mesha.goatos.core.media.ProofMediaHttp`.
+     *
+     * Only ever receives the path: the query string (which on a signed URL carries the SIGNATURE)
+     * is never read here and never reaches [NetworkTelemetryEvent].
+     */
+    private val routeMapper: (String) -> String = { routeTemplate(it) },
 ) : Interceptor {
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -66,7 +78,7 @@ class TelemetryInterceptor(
 
         val traceparent = original.header(TRACEPARENT_HEADER) ?: newTraceparent()
         val request = original.newBuilder().header(TRACEPARENT_HEADER, traceparent).build()
-        val route = routeTemplate(request.url.encodedPath)
+        val route = routeMapper(request.url.encodedPath)
 
         val startNanos = System.nanoTime()
         var statusCode = -1
