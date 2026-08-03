@@ -722,8 +722,11 @@ func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p V
 		NotificationType: "verification_withdrawn",
 		Channel:          channelPushFCM,
 		Priority:         priorityNormal,
-		Title:            "Verification no longer needed",
-		Body:             subject + " was updated by the operator, so this review request is withdrawn.", // notification-copy:ignore: body names the subject via the subject variable
+		// The title names the SUBJECT (the shed or record under review), not just the action: a
+		// verifier with several pending reviews needs to know WHICH one was withdrawn without
+		// opening the app. "Verification no longer needed" alone told them nothing actionable.
+		Title:            subject + " — review withdrawn",
+		Body:             subject + " was updated by the operator, so this review request is withdrawn.",
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{

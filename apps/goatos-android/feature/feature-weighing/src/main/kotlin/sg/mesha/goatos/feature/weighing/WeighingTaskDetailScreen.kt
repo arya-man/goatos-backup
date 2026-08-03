@@ -378,6 +378,25 @@ fun WeighingTaskDetailScreen(
             // The chip names its unit. It counts SHED BUCKETS while the cards below it talk about
             // animals captured, so an unlabelled "Dinakar 2" would put two different units next to
             // each other with nothing to tell them apart.
+            // Operator is a FILTER, not a section. One flat list pages uniformly however many
+            // operators the task has; a grouped list cannot, because a keyset page splits mid-group.
+            if (state.operatorFilters.size > 1) {
+                item(key = "operator-filters") {
+                    WeighingFilterChips(
+                        // The count is spelled out with its UNIT here, at render time, because
+                        // that is where the words live: "Dinakar · 2 sheds", never "Dinakar 2".
+                        options = state.operatorFilters.map { row ->
+                            WeighingFilterChipUiRow(
+                                id = row.id,
+                                label = "${row.name} · ${shedNoun(row.shedCount)}",
+                                selected = row.selected,
+                            )
+                        },
+                        allLabel = stringResource(R.string.weighing_task_all_operators),
+                        onSelect = onSelectOperator,
+                    )
+                }
+            }
             items(
                 count = state.sheds.size,
                 key = { index -> "shed-${state.sheds[index].campaignShedId}" },
@@ -413,33 +432,6 @@ fun WeighingTaskDetailScreen(
                         stringResource(R.string.weighing_task_repeat_blocked)
                     },
                 )
-            }
-            // Operator is a FILTER, not a section. One flat list pages uniformly however many
-            // operators the task has; a grouped list cannot, because a keyset page splits mid-group.
-            if (state.operatorFilters.size > 1) {
-                item(key = "operator-filters") {
-                    WeighingFilterChips(
-                        // The count is spelled out with its UNIT here, at render time, because
-                        // that is where the words live: "Dinakar · 2 sheds", never "Dinakar 2".
-                        options = state.operatorFilters.map { row ->
-                            WeighingFilterChipUiRow(
-                                id = row.id,
-                                label = "${row.name} · ${shedNoun(row.shedCount)}",
-                                selected = row.selected,
-                            )
-                        },
-                        allLabel = stringResource(R.string.weighing_task_all_operators),
-                        onSelect = onSelectOperator,
-                    )
-                }
-            }
-            items(
-                count = state.sheds.size,
-                key = { index -> "shed-${state.sheds[index].campaignShedId}" },
-            ) { index ->
-                val shed = state.sheds[index]
-                LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }
-                TaskShedCard(row = shed, onOpen = { onOpenShed(shed) })
             }
         }
     }

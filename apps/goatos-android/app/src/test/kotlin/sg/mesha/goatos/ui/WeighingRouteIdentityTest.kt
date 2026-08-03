@@ -109,13 +109,23 @@ class WeighingRouteIdentityTest {
     fun `task detail operator chips name the unit they count`() {
         val screen = taskDetailScreen()
 
+        // Asserts the PROPERTY (name and a counted noun, composed at render time), not one
+        // spelling of it. The chip was built two ways on two branches; the surviving form
+        // composes `row.name` with `shedNoun(row.shedCount)` directly rather than via a format
+        // resource. Both satisfy the rule this test exists for: the number never appears without
+        // its unit.
         assertTrue(
             "the chip must render the operator name and the shed noun as separate parts",
-            screen.contains("R.string.weighing_task_operator_chip_fmt") && screen.contains("shedNoun(filter.shedCount)"),
+            screen.contains("shedNoun(row.shedCount)") || screen.contains("shedNoun(filter.shedCount)"),
+        )
+        assertTrue(
+            "the chip must name the operator alongside that counted noun",
+            screen.contains("row.name") || screen.contains("R.string.weighing_task_operator_chip_fmt"),
         )
         assertFalse(
             "the count must not be concatenated into the operator label without its unit",
-            screen.contains("\${filter.operatorLabel} \${filter.shedCount}"),
+            screen.contains("\${filter.operatorLabel} \${filter.shedCount}") ||
+                screen.contains("\${row.name} \${row.shedCount}"),
         )
 
         val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
