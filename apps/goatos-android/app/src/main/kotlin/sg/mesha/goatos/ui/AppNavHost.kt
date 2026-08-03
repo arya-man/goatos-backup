@@ -2216,6 +2216,12 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY_ACTION,
     Routes.YOU,
     Routes.ALERTS,
+    // Weighing's OWN alerts feed is a BOTTOM-BAR destination, so it is a root exactly like
+    // the vaccination feed above it. Registering the composable alone was not enough: a
+    // notification or deep link naming a non-root route is treated as unhosted and lands on
+    // the home screen with the "unavailable" notice, which is how a real, granted, populated
+    // feed can look broken to the person it was sent to.
+    Routes.WEIGHING_ALERTS,
     Routes.TIMETABLE,
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,

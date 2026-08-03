@@ -1233,6 +1233,85 @@ E2E / guardrail status: false-green; current mobile guard catches oversize const
 Fix sketch: Add `next_cursor` to `ScanRosterResponseDto`, add a `cursor` Retrofit query, key Room pages by cursor/window, and expose load-more/prefetch from the scan ViewModel.  
 Guardrail needed: Android integration test with a >2-page roster asserting every goat appears once across process death/offline and no scan roster request exceeds the mobile page budget.
 
+### ALERTS-001
+
+ID: ALERTS-001  
+Priority: P1  
+Title: Counts has no feature-scoped Alerts tab on its bottom bar  
+Status: OPEN — no counts notification feed exists on any branch  
+Origin: maintainer ruling 2026-08-03 during weighing device E2E  
+Verdict: CONFIRMED (registry read at HEAD; full-history search for a counts feed returned nothing)  
+Prior mapping: none — first time the rule was written down as a rule  
+Layman explanation: Standing inside Counts, there is nowhere to see what Counts is telling you. Every other built feature has that tab; Counts does not.  
+
+**The rule (maintainer ruling, 2026-08-03):** ALERTS ARE ALWAYS FEATURE-SCOPED, BY FEATURE
+AND BY ROLE. Every available feature's bottom bar carries its own Alerts tab, fed by that
+feature's own notifications and filtered to what this role is owed. A feature never borrows
+another feature's feed, and the tab is titled just "Alerts" — the href carries the scoping.
+Counts is not an exception; it is simply the one that is not built yet. Full rule and the two
+ways it has already broken: `docs/decisions/module-alerts-tab.md`.
+
+Evidence: `backend/internal/workforce/app/bootstrap_copy.go` — the counts module contributes
+`counts`, `birth_death`, `shifting`, `approval` and no alerts item. `git log --all -S` over the
+whole repository finds no counts notification feed, reader, or endpoint on any branch. The only
+counts-shaped alerts today are the VERIFIER's `/verify/alerts?category=shifting_move`, which
+belongs to the verification module's bar, not to Counts' own.  
+Prod reachability: every principal granted the Counts module — CEO/admin census, and the
+capture/approver roles.  
+Failure scenario: a birth/death/shifting record is rejected, reworked, or waits on an approval
+and the person who owns the next action has no in-feature place to see it; the fact only exists
+as a push notification that can be missed or cleared.  
+Business impact: counts work stalls silently, and the module reads as less finished than the
+others sitting beside it in the drawer.  
+Root-cause-or-band-aid verdict: root — the module was built without its notification feed, and
+nothing enforced the rule until now.  
+Counterargument: counts capture is short-lived, so a feed may seem redundant.  
+Why it survives: approvals and rework are explicitly counts-owned state with a named next-action
+owner; that is exactly what an alerts feed is for. The comparable weighing gap was fixed rather
+than argued away.  
+E2E / guardrail status: **guarded as tracked debt.** `make module-alerts-tab-guard`
+(`tools/agent-hooks/check-module-alerts-tab.mjs`, required by local CI) fails any available
+module that ships without an alerts tab. Counts is listed in that guard's `PENDING_ALERTS_FEED`
+with this reason, so the gap is visible in code review and a NEW module cannot be added to the
+waiver list without editing the guard in the same commit.  
+Fix sketch: give counts a module-scoped feed the way weighing got one — read the counts
+lifecycle notifications already routed to the caller (raised / approved / rejected / reworked /
+applied), gated on counts capabilities only; add the `alerts` nav contribution, the bell icon
+token, the hosted route, and the bottom-bar root destination; then delete the waiver.  
+Guardrail needed: none new — removing the `PENDING_ALERTS_FEED` entry is what closes this row,
+and the existing guard then enforces it permanently.
+
+### ALERTS-002
+
+ID: ALERTS-002  
+Priority: P2  
+Title: Vaccination's alerts feed is still on the generic `/alerts` route  
+Status: OPEN — cosmetic/structural, content is already vaccination-scoped  
+Origin: maintainer question 2026-08-03 ("what is /alerts, the process-integrity feed?")  
+Verdict: CONFIRMED (registry + route table read at HEAD)  
+Prior mapping: same rule as ALERTS-001  
+Layman explanation: Vaccination's alerts are vaccination's, but the address they live at is
+named as if it belonged to the whole app.  
+Evidence: `bootstrap_copy.go` gives vaccination `{key: "alerts", href: "/alerts"}` while every
+other feature is explicit (`/weighing/alerts`, `/verify/alerts?category=...`). Its content IS
+feature-scoped — the upstream requires `ObligationRead` + `VaccinationRead` — so this is a
+naming inconsistency, not a leak. It is also the direct cause of the earlier weighing break:
+because the route looked generic, it was carried into weighing's bar, where it 403'd.  
+Prod reachability: no user-visible defect today; the tab is titled "Alerts" and shows
+vaccination alerts.  
+Failure scenario: the next module to be built copies `/alerts` on the assumption that it is the
+shared feed, and repeats the weighing incident.  
+Business impact: none directly; it is a trap for the next author.  
+Root-cause-or-band-aid verdict: root — a generically-named route for feature-owned content.  
+Counterargument: renaming a live route costs a migration of deep links and notification targets.  
+Why it survives: the rule is that alerts are feature-scoped; the address should say so.  
+E2E / guardrail status: `module-alerts-tab-guard` enforces wiring and label, but deliberately
+does NOT enforce a route-name convention while `/alerts` is still the live vaccination route.  
+Fix sketch: introduce `/vaccination/alerts`, keep `/alerts` hosted as an alias for existing
+notification targets, move the nav contribution, then tighten the guard to require the href to
+start with the module's own prefix.  
+Guardrail needed: the href-prefix assertion above, added once the alias exists.
+
 ## 7. Dropped / Countered / Out-of-Scope Findings
 
 - Dropped as fixed with current proof: BUG-012 (ACK/finalization behavior), BUG-013 (verification >200), BUG-015 (Calendar page consumption), and pending C1 `RoleManager` compile failure.
