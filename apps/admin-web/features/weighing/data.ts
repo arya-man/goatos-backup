@@ -139,7 +139,7 @@ export async function getWeighingPageData(
 ): Promise<ApiResult<WeighingPageData>> {
   const result = await getAllWeighingCampaigns();
   if (!result.ok) return result;
-  // todayIso() is the current Goat OS business day (Asia/Kolkata). Deriving "this week" from it
+  // todayIso() is the current Mesha business day (Asia/Kolkata). Deriving "this week" from it
   // rather than from the UTC date keeps the early-Monday-morning window (00:00-05:29 IST, when UTC
   // is still on Sunday) from resolving to last week.
   const thisWeekStart = weekStartOfDay(todayIso());

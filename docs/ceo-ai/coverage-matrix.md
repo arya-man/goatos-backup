@@ -171,7 +171,7 @@ tracked as gaps below.
 | source_entry_health_status | draft | load_label (no stored load label) |
 | ops_exception_queue | draft | — (UNION across modules) |
 | sop_execution_status | draft | — |
-| verification_queue_status | draft | — |
+| verification_queue_status | draft | owner_label (always NULL — operator_id is sensitive, shed position holder not joined). `accepted` returned 0 unconditionally from the 000001 baseline until migration 000085: it filtered on status values the verification_items CHECK does not permit. Any accepted figure read before 000085 was broken, not empty. 000085 also appends `total` / `withdrawn` / `total_including_withdrawn` on 000080's rule — withdrawn rows are kept so an all-superseded scope still appears, and are excluded from `total` so pending + rejected + accepted = total. |
 | inventory_stock_position | draft | reorder_flag (no threshold config — gap G1), last_reconciled_at (partial) |
 | workforce_coverage_status | draft | — |
 | action_center_current | draft | — (UNION) |

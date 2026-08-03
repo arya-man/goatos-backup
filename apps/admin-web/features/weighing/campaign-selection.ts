@@ -9,7 +9,7 @@ export interface WeighingCampaignSelectionItem {
 }
 
 /**
- * weekStartOfDay returns the Monday of the week containing a "YYYY-MM-DD" Goat OS business day.
+ * weekStartOfDay returns the Monday of the week containing a "YYYY-MM-DD" Mesha business day.
  *
  * It takes an already-resolved business day rather than an instant because the previous version
  * derived the week from the UTC calendar date. Between 00:00 and 05:29 IST every Monday, UTC is
