@@ -2,6 +2,7 @@ import com.android.build.api.variant.HasHostTestsBuilder
 import com.android.build.api.variant.HostTestBuilder
 import com.google.firebase.appdistribution.gradle.firebaseAppDistribution
 import org.gradle.api.tasks.testing.Test
+import java.io.ByteArrayOutputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -19,6 +20,48 @@ plugins {
     alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.firebase.perf)
 }
+
+val needsFirebaseSourceMetadata = gradle.startParameter.taskNames.any {
+    it.contains("StgRelease", ignoreCase = true) ||
+        it.contains("appDistributionUpload", ignoreCase = true) ||
+        it.contains("validateFirebaseDistributionSource", ignoreCase = true)
+}
+
+fun gitOutput(vararg args: String): String {
+    if (!needsFirebaseSourceMetadata) return ""
+    return runCatching {
+        val stdout = ByteArrayOutputStream()
+        val process = ProcessBuilder(listOf("git", *args))
+            .directory(rootProject.projectDir)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start()
+        process.inputStream.use { it.copyTo(stdout) }
+        if (process.waitFor() == 0) stdout.toString().trim() else ""
+    }.getOrDefault("")
+}
+
+fun quotedBuildConfig(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val sourceCommit: String =
+    System.getenv("GITHUB_SHA")?.takeIf { it.isNotBlank() }
+        ?: gitOutput("rev-parse", "HEAD").ifBlank { "unknown" }
+val shortSourceCommit = sourceCommit.take(12)
+val sourceTag: String =
+    System.getenv("GITHUB_REF_NAME")
+        ?.takeIf { System.getenv("GITHUB_REF_TYPE") == "tag" && it.isNotBlank() }
+        ?: gitOutput("describe", "--tags", "--exact-match", "HEAD")
+val sourceBranch: String =
+    System.getenv("GITHUB_REF_NAME")
+        ?.takeIf { it.isNotBlank() }
+        ?: gitOutput("branch", "--show-current")
+val sourceDirty = gitOutput("status", "--porcelain").isNotBlank()
+val sourceLabel = listOfNotNull(
+    sourceTag.takeIf { it.isNotBlank() }?.let { "tag=$it" },
+    "commit=$shortSourceCommit",
+    sourceBranch.takeIf { it.isNotBlank() }?.let { "branch=$it" },
+    if (sourceDirty) "dirty=true" else null,
+).joinToString(" ")
 
 android {
     namespace = "sg.mesha.goatos"
@@ -60,6 +103,14 @@ android {
         buildConfigField("String", "DEV_BEARER_TOKEN", "\"$devToken\"")
         buildConfigField("String", "TENANT_ID", "\"$tenantId\"")
         buildConfigField("String", "AUTH_ACTION_LINK_DOMAIN", "\"${authActionLinkDomain.replace("\"", "\\\"")}\"")
+        buildConfigField("String", "SOURCE_COMMIT", quotedBuildConfig(sourceCommit))
+        buildConfigField("String", "SOURCE_TAG", quotedBuildConfig(sourceTag))
+        buildConfigField("String", "SOURCE_BRANCH", quotedBuildConfig(sourceBranch))
+        buildConfigField("String", "SOURCE_LABEL", quotedBuildConfig(sourceLabel))
+        buildConfigField("boolean", "SOURCE_DIRTY", sourceDirty.toString())
+        resValue("string", "goatos_source_commit", sourceCommit)
+        resValue("string", "goatos_source_tag", sourceTag.ifBlank { "untagged" })
+        resValue("string", "goatos_source_label", sourceLabel)
     }
 
     // One common app; env is a build flavor, roles are runtime (app-id ADR).
@@ -115,7 +166,7 @@ android {
                 groups = (project.findProperty("fadGroups") as String?) ?: "goatos-testers"
                 (project.findProperty("fadTesters") as String?)?.let { testers = it }
                 releaseNotes = (project.findProperty("fadReleaseNotes") as String?)
-                    ?: "Goat OS (Mesha) stg release build"
+                    ?: "Goat OS (Mesha) stg release build\n$sourceLabel"
             }
         }
         create("prod") {
@@ -182,6 +233,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     compileOptions {
@@ -358,10 +410,36 @@ val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
     }
 }
 
+val validateFirebaseDistributionSource = tasks.register("validateFirebaseDistributionSource") {
+    group = "verification"
+    description = "Fails App Distribution upload when the APK cannot be traced to a commit/tag."
+
+    doLast {
+        if (sourceCommit == "unknown" || sourceCommit.length < 12) {
+            throw GradleException("Firebase App Distribution requires a real git commit SHA.")
+        }
+        val allowDirty = (project.findProperty("allowDirtyFirebaseDistribution") as String?)
+            ?.equals("true", ignoreCase = true) == true
+        if (sourceDirty && !allowDirty) {
+            throw GradleException(
+                "Refusing Firebase App Distribution upload from a dirty worktree. " +
+                    "Commit the APK source first, or pass -PallowDirtyFirebaseDistribution=true for an explicit throwaway build. " +
+                    "Source would have been: $sourceLabel",
+            )
+        }
+    }
+}
+
 tasks.matching {
     it.name == "assembleStgRelease" || it.name == "appDistributionUploadStgRelease"
 }.configureEach {
     dependsOn(validateStgReleaseInputs)
+}
+
+tasks.matching {
+    it.name == "appDistributionUploadStgRelease"
+}.configureEach {
+    dependsOn(validateFirebaseDistributionSource)
 }
 
 androidComponents {
