@@ -142,8 +142,20 @@ type PlannerPark struct {
 	// scalar aggregate over that park's own children. It is deliberately NOT a
 	// count of shed rows returned on any page: the catalog returns no shed rows
 	// at all, and a bucket page carries only ~20 of them.
-	ShedCount        int              `json:"shed_count"`
+	ShedCount int `json:"shed_count"`
+	// ExistingCampaign summarizes the park's MOST RECENT task on the requested
+	// week. A park-week may legitimately hold SEVERAL tasks: the capture category
+	// is a per-BUCKET property, so one campaign cannot express "weigh these sheds
+	// lump-sum now, plan the leftover sheds separately", and leadership plans the
+	// remainder as a second task. This field is therefore a summary for display,
+	// never proof that the park holds exactly one task, and never a reason to
+	// block a create.
 	ExistingCampaign *CampaignSummary `json:"existing_campaign,omitempty"`
+	// ExistingCampaignCount is how many non-canceled tasks the park holds on the
+	// requested week, so a caller can say "2 tasks already scheduled" instead of
+	// mistaking the single ExistingCampaign summary for the whole truth.
+	// 0 means the park-week is free.
+	ExistingCampaignCount int `json:"existing_campaign_count,omitempty"`
 }
 
 // PlannerParkBuckets is ONE keyset page of the sheds of ONE park, with the same

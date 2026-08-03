@@ -14898,6 +14898,18 @@ components:
             /app/weighing/planner/parks/{park_id}/buckets.
         existing_campaign:
           $ref: "#/components/schemas/WeighingPlannerCampaignSummary"
+        existing_campaign_count:
+          type: integer
+          minimum: 0
+          description: >-
+            How many non-canceled weighing tasks this park holds on the requested week.
+            A park-week may legitimately hold SEVERAL tasks: the capture category
+            (individual vs lump-sum) is a per-BUCKET property, so leadership plans some
+            sheds now and the park's leftover sheds as a separate task. existing_campaign
+            summarizes only the MOST RECENT of them, so treat this count -- not the
+            presence of existing_campaign -- as the answer to "how much is already
+            scheduled here". Never use either field to block creating another task:
+            per-shed availability is reported by the buckets endpoint.
     WeighingPlannerOperator:
       type: object
       additionalProperties: false

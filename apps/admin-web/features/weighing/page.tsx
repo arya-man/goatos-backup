@@ -13,10 +13,12 @@ import { ParkSelector } from "./park-selector";
 async function createWeighingCampaignAction(formData: FormData) {
   "use server";
   const campaignId = String(formData.get("campaign_id") || "");
-  if (String(formData.get("duplicate_blocked") || "") === "true") {
-    revalidatePath("/weighing");
-    redirect("/weighing?notice=duplicate-blocked");
-  }
+  // NO park-week duplicate gate here, deliberately. A park may hold more than one
+  // task in a week: the capture category is a per-SHED property, so leadership
+  // plans some sheds lump-sum and the park's LEFTOVER sheds as a second task. The
+  // only real constraint is per shed and per weigh date; it is enforced by the API
+  // (uq_weighing_open_shed_per_park_date) and comes back as a conflict that NAMES
+  // the blocked sheds, which is surfaced as the shed-conflict notice below.
   const selectedParkId = String(formData.get("park_id") || "");
   const selectedShedIds = formData.getAll(`shed_id_${selectedParkId}`).map(String);
   const labelByShed = new Map(formData.getAll("shed_label").map((value) => {
@@ -111,17 +113,11 @@ function noticeFromSearch(value: string | undefined): { tone: "ok" | "warn" | "e
         title: "Draft saved",
         body: "The weekly kids plan is saved without opening operator work yet.",
       };
-    case "duplicate-blocked":
-      return {
-        tone: "warn",
-        title: "Create blocked",
-        body: "This park already has a task for the selected week. Use Edit existing task so captures and history stay attached.",
-      };
     case "create-failed":
       return {
         tone: "err",
         title: "Task was not created",
-        body: "The backend rejected the create request. No duplicate task was created.",
+        body: "The backend rejected the create request. Nothing was saved. If a shed is already scheduled on this weigh date, deselect it -- the sheds another task holds are marked below.",
       };
     case "publish-failed":
       return {
@@ -350,9 +346,14 @@ function WeighingNotice({ tone, title, body }: { tone: "ok" | "warn" | "err"; ti
 }
 
 function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
-  const duplicateBlocked = planner.duplicateBlocked && planner.existingCampaignId;
-  const title = duplicateBlocked ? "Edit weekly kids weighing task" : "Create weekly kids weighing task";
-  const taskLabel = duplicateBlocked ? "Scheduled task" : "New task";
+  // A park-week that already holds tasks is INFORMATION, not a block: the leftover
+  // sheds are planned as their own task. The builder therefore stays fully live and
+  // only the individual sheds another task owns are disabled.
+  const hasExistingTasks = planner.existingTaskCount > 0 && Boolean(planner.existingCampaignId);
+  const title = planner.editingCampaignId ? "Edit weekly kids weighing task" : "Create weekly kids weighing task";
+  const taskLabel = planner.editingCampaignId ? "Scheduled task" : "New task";
+  const availableShedCount = planner.sheds.filter((shed) => !shed.scheduled).length;
+  const noShedsLeft = !planner.editingCampaignId && planner.sheds.length > 0 && availableShedCount === 0;
   const selectedPark = planner.parks.find((park) => park.id === planner.selectedParkId);
   return (
     <section className="card weighing-planner">
@@ -360,11 +361,10 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
         <Edit3 className="ic" aria-hidden="true" />
         <h3>{title}</h3>
         <div className="sp" />
-        {duplicateBlocked ? <Tag tone="warn">Already scheduled</Tag> : <Tag tone="ok">CEO / CXO</Tag>}
+        {hasExistingTasks ? <Tag tone="info">{planner.existingTaskCount} task{planner.existingTaskCount === 1 ? "" : "s"} this week</Tag> : <Tag tone="ok">CEO / CXO</Tag>}
       </div>
       <div className="bd">
         <form action={createWeighingCampaignAction} className="weighing-plan-form">
-          <input type="hidden" name="duplicate_blocked" value={duplicateBlocked ? "true" : "false"} />
           {planner.editingCampaignId ? <input type="hidden" name="campaign_id" value={planner.editingCampaignId} /> : null}
           <input type="hidden" name="period_start_date" value={planner.periodStartDate} />
           <input type="hidden" name="period_end_date" value={planner.periodEndDate} />
@@ -381,8 +381,8 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               <div className="crumb">{planner.weekLabel}</div>
               <h2>{taskLabel}</h2>
               <p className="muted">
-                {duplicateBlocked
-                  ? "This park already has a weekly kids weighing task for the selected week. Edit that task instead of creating a duplicate."
+                {hasExistingTasks
+                  ? "This park already has work scheduled this week. You can still plan the sheds it did not cover -- sheds another task already holds are marked and cannot be selected."
                   : "Leadership chooses the park, shed partitions, category per selected scope, and the operator before publishing."}
               </p>
             </div>
@@ -391,26 +391,30 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             </div>
           </div>
 
-          {duplicateBlocked ? (
+          {hasExistingTasks ? (
             <div className="weighing-duplicate-grid">
               <div className="weighing-duplicate-card">
-                <Tag tone="warn">task already exists</Tag>
+                <Tag tone="info">{planner.existingTaskCount} task{planner.existingTaskCount === 1 ? "" : "s"} already scheduled</Tag>
                 <h3>{selectedPark?.label.split(" · ")[0] || "This park"} · {planner.weekLabel.split(" · ")[0]}</h3>
-                <p>This park already has a weighing task for this week. One task per park per week; create is blocked.</p>
+                <p>
+                  {noShedsLeft
+                    ? "Every shed in this park is already covered on this weigh date, so there is nothing left to plan. Edit an existing task to change what it covers."
+                    : `${availableShedCount} shed${availableShedCount === 1 ? " is" : "s are"} still free on this weigh date. Plan them here as their own task, or edit the existing task instead.`}
+                </p>
               </div>
               <div className="weighing-existing-task">
-                <span>Existing task</span><b>{planner.existingCampaignWeekLabel || planner.weekLabel}</b>
+                <span>Most recent task</span><b>{planner.existingCampaignWeekLabel || planner.weekLabel}</b>
                 <span>Status</span><b><Tag tone={statusTone[planner.existingCampaignState || "draft"]}>{statusLabel[planner.existingCampaignState || "draft"]}</Tag></b>
                 <span>Operator</span><b>{planner.existingCampaignOperatorName || "Operator not reported by API"}</b>
-                <span>Sheds</span><b>{planner.existingCampaignShedCount ?? planner.sheds.filter((shed) => shed.selected).length}</b>
+                <span>Sheds</span><b>{planner.existingCampaignShedCount ?? 0}</b>
               </div>
               <div className="weighing-duplicate-note">
-                Editing keeps the same campaign, its history, and every accepted capture. It never creates a second task for {selectedPark?.label.split(" · ")[0] || "this park"}.
+                Editing keeps that campaign, its history, and every accepted capture. Creating here adds a SEPARATE task for the sheds it does not cover -- the same shed can never be scheduled twice on one date.
               </div>
             </div>
           ) : null}
 
-          <div className={`weighing-builder-grid${duplicateBlocked ? " muted" : ""}`}>
+          <div className="weighing-builder-grid">
             <div className="weighing-builder-step">
               <div className="weighing-step-label">Step 1 · Lane</div>
               <h3>Confirm the lane</h3>
@@ -435,19 +439,30 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
                 <span>Individual needs RFID + weight + per-animal video. Lumpsum records one shed total with one scope video and never updates kid latest trusted weights.</span>
               </div>
               {planner.sheds.map((shed) => (
-                <div className={`weighing-shed-choice${shed.selected ? " on" : ""}`} key={shed.id}>
-                  <input type="checkbox" name={`shed_id_${shed.parkId}`} value={shed.id} defaultChecked={shed.selected} />
+                <div
+                  className={`weighing-shed-choice${shed.selected ? " on" : ""}${shed.scheduled ? " disabled" : ""}`}
+                  key={shed.id}
+                  aria-disabled={shed.scheduled}
+                  title={shed.scheduledReason}
+                >
+                  <input
+                    type="checkbox"
+                    name={`shed_id_${shed.parkId}`}
+                    value={shed.id}
+                    defaultChecked={shed.selected}
+                    disabled={shed.scheduled}
+                  />
                   <span className="weighing-check">{shed.selected ? "✓" : ""}</span>
                   <div className="weighing-shed-main">
                     <b>{shed.label}</b>
-                    <small>{shed.subtitle}</small>
+                    <small>{shed.scheduledReason ?? shed.subtitle}</small>
                     <div className="weighing-segment" aria-label={`${shed.label} category`}>
                       <label className={shed.category === "individual_animal" ? "on individual" : ""}>
-                        <input type="radio" name={`shed_category_${shed.id}`} value="individual_animal" defaultChecked={shed.category === "individual_animal"} />
+                        <input type="radio" name={`shed_category_${shed.id}`} value="individual_animal" defaultChecked={shed.category === "individual_animal"} disabled={shed.scheduled} />
                         Individual
                       </label>
                       <label className={shed.category === "per_shed_partition" ? "on lumpsum" : ""}>
-                        <input type="radio" name={`shed_category_${shed.id}`} value="per_shed_partition" defaultChecked={shed.category === "per_shed_partition"} />
+                        <input type="radio" name={`shed_category_${shed.id}`} value="per_shed_partition" defaultChecked={shed.category === "per_shed_partition"} disabled={shed.scheduled} />
                         Lumpsum
                       </label>
                     </div>
@@ -491,13 +506,19 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
           </div>
 
           <div className="weighing-planner-actions">
-            {duplicateBlocked ? (
+            {noShedsLeft ? (
               <>
+                <div className="weighing-action-note" aria-live="polite">
+                  Save and Publish are disabled: every shed in this park is already scheduled on this weigh date, so a new task would have no work in it.
+                </div>
                 <Link className="btn ghost" href="/weighing">Cancel</Link>
                 <Link className="btn primary" href={`/weighing?campaign=${planner.existingCampaignId}`}>Edit existing task</Link>
               </>
             ) : (
               <>
+                {hasExistingTasks ? (
+                  <Link className="btn ghost" href={`/weighing?campaign=${planner.existingCampaignId}`}>Edit existing task</Link>
+                ) : null}
                 <div className="weighing-action-note" aria-live="polite">
                   {planner.shedListTruncated
                     ? "Save and Publish are disabled: the shed list is truncated at the 500-shed display cap, and saving now would silently drop sheds beyond it."

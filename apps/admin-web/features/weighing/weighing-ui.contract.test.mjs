@@ -81,11 +81,11 @@ test("weighing UI carries no herd/clinical review surface (free-flow, duplicate-
   assert.doesNotMatch(page, /row\.rfid/);
 });
 
-test("weighing leadership planner covers park-week task creation and duplicate edit state", () => {
+test("weighing leadership planner allows a second task for a park-week's leftover sheds", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
-  assert.match(data, /duplicateBlocked/);
+  assert.match(data, /existingTaskCount/);
   assert.match(data, /existingCampaignId/);
   assert.match(data, /getWeighingPlannerCatalog/);
   assert.match(data, /plannerFromCatalog/);
@@ -106,13 +106,35 @@ test("weighing leadership planner covers park-week task creation and duplicate e
   assert.match(page, /Individual/);
   assert.match(page, /Lumpsum/);
   assert.match(page, /Assign operator/);
-  assert.match(page, /Already scheduled/);
-  assert.match(page, /task already exists/);
-  assert.match(page, /Existing task/);
+  // The "already scheduled" reason is now SHED-grain and authored in data.ts, because
+  // that is the grain at which availability is actually decided. The page only reports
+  // the park-week task COUNT, which is information rather than a gate.
+  assert.match(data, /Already scheduled on this date/);
+  assert.match(page, /already scheduled/);
+  assert.match(page, /Most recent task/);
   assert.match(page, /Edit existing task/);
-  assert.match(page, /create is blocked/);
-  assert.match(page, /It never creates a second task/);
-  assert.match(page, /duplicate_blocked/);
+
+  // A park-week holding a task must NEVER block creating another one: the capture
+  // category is a per-SHED property, so the leftover sheds are planned as their own
+  // task. The old campaign-grain gate (and the hidden duplicate_blocked field that
+  // short-circuited the server action) is gone for good.
+  assert.doesNotMatch(page, /duplicate_blocked/);
+  assert.doesNotMatch(page, /create is blocked/);
+  assert.doesNotMatch(page, /It never creates a second task/);
+  assert.doesNotMatch(page, /notice=duplicate-blocked/);
+  assert.doesNotMatch(data, /duplicateBlocked/);
+
+  // Availability is decided PER SHED and per weigh date, and a shed another task
+  // already owns must be rendered disabled with the reason -- never offered and then
+  // rejected by the API.
+  assert.match(data, /shed\.scheduled/);
+  assert.match(data, /scheduledReason/);
+  assert.match(page, /disabled={shed\.scheduled}/);
+  assert.match(page, /shed\.scheduledReason/);
+
+  // The task being EDITED must be excluded server-side, or its own sheds would read
+  // back as taken and the edit screen would disable them.
+  assert.match(data, /excludeCampaignId|editingCampaignId/);
 });
 
 test("weighing week strip is derived from campaign response", () => {

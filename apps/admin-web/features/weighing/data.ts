@@ -87,6 +87,11 @@ export type WeighingPlannerShed = {
   kidCount: number;
   selected: boolean;
   category: WeighingCategory;
+  // scheduled means ANOTHER open task already holds this shed on the requested
+  // weigh date (the task being edited is excluded server-side). It is shed-grain
+  // and date-scoped -- the only thing that actually blocks planning this bucket.
+  scheduled: boolean;
+  scheduledReason?: string;
 };
 
 export type WeighingPlannerOperator = {
@@ -110,7 +115,12 @@ export type WeighingPlanner = {
   existingCampaignOperatorName?: string;
   existingCampaignShedCount?: number;
   editingCampaignId?: string;
-  duplicateBlocked: boolean;
+  // existingTaskCount is how many tasks this park already holds in the selected
+  // week. It is INFORMATION, never a gate: a park-week may legitimately hold
+  // several tasks, because the capture category is a per-shed property and the
+  // leftover sheds are planned as their own task. Availability is decided per
+  // shed (WeighingPlannerShed.scheduled), not per park-week.
+  existingTaskCount: number;
   parks: WeighingPlannerPark[];
   sheds: WeighingPlannerShed[];
   shedListTruncated: boolean;
@@ -148,8 +158,15 @@ export async function getWeighingPageData(
   // SELECTED park's buckets, so read exactly that park's page instead of every shed of
   // every park (which is what the flattened catalog used to hand back).
   const selectedPark = selectPlannerPark(catalogResult.data.parks, selectedItem, selectedParkId);
+  // The task being EDITED is excluded from the "already scheduled" check, or its own
+  // buckets would read back as taken and the edit screen would disable exactly the
+  // sheds it owns. When planning a NEW task nothing is excluded, so every other
+  // task's buckets -- including a sibling task in the same park-week -- correctly
+  // read as taken and cannot be double-booked.
+  const editedCampaignId =
+    selectedCampaignId && selectedItem?.campaign_id === selectedCampaignId ? selectedCampaignId : undefined;
   const bucketsResult = selectedPark
-    ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek)
+    ? await getSelectedParkBuckets(selectedPark.park_id, plannerWeek, editedCampaignId)
     : ({ ok: true, data: { sheds: [], truncated: false } } as ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>);
   if (!bucketsResult.ok) return bucketsResult;
   const planner = plannerFromCatalog(
@@ -180,12 +197,13 @@ export async function getWeighingPageData(
 async function getSelectedParkBuckets(
   parkId: string,
   periodStartDate: string,
+  excludeCampaignId?: string,
 ): Promise<ApiResult<{ sheds: ApiWeighingPlannerShed[]; truncated: boolean }>> {
   const sheds: ApiWeighingPlannerShed[] = [];
   let cursor: string | undefined;
   let truncated = false;
   for (let page = 0; page < 5; page += 1) { // scale-guard:ignore: bounded to ONE park's sheds (76+ in the real data) with a 5-page hard cap; this is the planner's selection list, not a KPI drained from a paginated endpoint; serial-await: allow cursor pagination must stay sequential
-    const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor);
+    const result = await getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, 100, excludeCampaignId);
     if (!result.ok) return result;
     sheds.push(...(result.data.sheds ?? []));
     cursor = result.data.next_cursor || undefined;
@@ -294,6 +312,13 @@ function plannerFromCatalog(
   // parkSheds are the SELECTED park's buckets only, so every row here belongs to it.
   const sheds: WeighingPlannerShed[] = parkSheds.map((shed) => {
     const campaignShed = selectedItem?.sheds?.find((item) => item.location_id === shed.location_id);
+    // The backend already reports, per shed and scoped to the requested weigh date,
+    // whether ANOTHER open task holds this bucket -- including a sibling task in the
+    // same park-week. That per-shed fact is the real availability, and it is what
+    // decides whether this shed may be planned, so it is rendered disabled with the
+    // reason instead of being offered and then rejected by the API with a 409.
+    const scheduled = Boolean(shed.scheduled);
+    const scheduledBy = shed.scheduled_operator_display_name?.trim();
     return {
       id: shed.location_id,
       parkId: selectedPark?.park_id ?? "",
@@ -301,8 +326,21 @@ function plannerFromCatalog(
       label: shed.name,
       subtitle: `${selectedPark?.name ?? ""} kid shed`,
       kidCount: shed.kid_count,
-      selected: selectedShedIds.size > 0 ? selectedShedIds.has(shed.location_id) : true,
+      // A shed another task already owns must never come back pre-ticked -- the
+      // "nothing chosen yet, so select all" default would otherwise guarantee a
+      // conflict the moment a park holds a second task.
+      selected: scheduled
+        ? false
+        : selectedShedIds.size > 0
+          ? selectedShedIds.has(shed.location_id)
+          : true,
       category: campaignShed?.weighing_category ?? "individual_animal",
+      scheduled,
+      scheduledReason: scheduled
+        ? scheduledBy
+          ? `Already scheduled on this date by ${scheduledBy}`
+          : "Already scheduled on this date by another task"
+        : undefined,
     };
   });
   const selected = sheds.filter((shed) => shed.selected && shed.parkId === selectedPark?.park_id);
@@ -326,7 +364,7 @@ function plannerFromCatalog(
     existingCampaignOperatorName: operatorName(catalog, existing?.operator_user_id ?? selectedItem?.operator_user_id),
     existingCampaignShedCount: existing?.shed_count ?? (campaign.id !== "empty" ? campaign.selectedScopes : undefined),
     editingCampaignId,
-    duplicateBlocked: !editingCampaignId && Boolean(existing || campaign.id !== "empty"),
+    existingTaskCount: editingCampaignId ? 0 : (selectedPark?.existing_campaign_count ?? (existing ? 1 : 0)),
     selectedParkId: selectedPark?.park_id ?? "",
     selectedOperatorId,
     // EVERY park the catalog returned. The subtitle is the park-grain shed count the
