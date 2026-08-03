@@ -382,11 +382,6 @@ fun WeighingScreen(
                     onSync = onRefresh,
                     contentDescription = stringResource(R.string.weighing_refresh),
                 )
-                MeshaIconButton(
-                    icon = MeshaIcons.Bell,
-                    contentDescription = stringResource(R.string.weighing_alerts),
-                    onClick = {},
-                )
             },
         )
         LazyColumn(

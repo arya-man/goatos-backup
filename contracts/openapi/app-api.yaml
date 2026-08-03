@@ -594,6 +594,61 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/alerts:
+    get:
+      tags:
+        - Weighing
+      operationId: appListWeighingAlerts
+      summary: List the weighing lifecycle alerts routed to the caller.
+      description: >
+        The weighing module's OWN alerts feed: the work-state transitions of weighing --
+        work assigned, a shed submitted for verification, a proof sent back for rework, a
+        shed reopened, work closed -- each routed to whoever owns the next action.
+
+
+        This is NOT the vaccination process-integrity feed at /alerts, and it is gated on
+        weighing capabilities only, never ObligationRead/VaccinationRead.
+
+
+        Rows are the durable notifications that were ALREADY routed to this caller when the
+        transition happened, so the feed needs no second audience model: an operator reads
+        only their own buckets because they were never a recipient of anyone else's.
+        Weighing is free-flow and fully herd-isolated, so no alert names a goat, resolves a
+        herd identity, or reports a share of an expected roster.
+
+
+        title and empty_message are BACKEND-OWNED copy. Clients render them and hardcode no
+        weighing strings of their own.
+      parameters:
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor returned as next_cursor by the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          description: One page of the caller's weighing alerts, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingAlertPageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/leadership/sheds:
     get:
       tags:
@@ -15338,6 +15393,95 @@ components:
           description: >-
             Backend-owned sentence for the weigh period this bucket belongs to. A client must not
             build this label by concatenating dates itself.
+    WeighingAlert:
+      type: object
+      additionalProperties: false
+      required:
+        - alert_id
+        - kind
+        - direction
+        - title
+        - body
+        - severity
+        - target
+        - occurred_at
+      description: >-
+        ONE weighing work-state transition that was routed to the caller. GRAIN: one row =
+        one transition for one recipient, collapsed across that person's devices. Every
+        human-visible string is authored by the backend. No goat, herd identity, or
+        expected-roster denominator appears here: weighing is free-flow and fully isolated.
+      properties:
+        alert_id:
+          type: string
+        kind:
+          type: string
+          description: >-
+            Producer's transition type, e.g. weighing_campaign_published,
+            weighing_shed_submitted, weighing_shed_reopened, weighing_rework,
+            weighing_shed_closed. Clients may branch on it for iconography; they must NOT
+            rebuild the sentence from it.
+        direction:
+          type: string
+          enum: [downstream, upstream]
+          description: >-
+            Which way this alert travelled FOR THIS RECIPIENT. downstream = it landed on the
+            person who must do the work; upstream = on the person who oversees it. Derived
+            from the recipient role the producer stamped, not from the event type, because
+            one transition can travel both ways at once (a rework goes down to the operator
+            and up to the director).
+        title:
+          type: string
+          description: Backend-owned headline. Render verbatim.
+        body:
+          type: string
+          description: Backend-owned sentence naming the sheds and the reason. Render verbatim.
+        severity:
+          type: string
+          enum: [normal, high]
+        target:
+          type: string
+          description: In-app destination this row opens, chosen by the producer (e.g. /weighing).
+        shed_label:
+          type: string
+          description: Shed or shed list this transition concerns, as the producer named it.
+        campaign_id:
+          type: string
+        park_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+    WeighingAlertPageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+        - title
+        - empty_message
+      description: >-
+        ONE keyset page of the caller's weighing alerts, newest first.
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingAlert"
+        next_cursor:
+          type: string
+          description: >-
+            Keyset cursor on (occurred_at DESC, alert_id DESC). Absent/empty means the last
+            page.
+        title:
+          type: string
+          description: >-
+            Backend-owned screen title. The client MUST render this rather than hardcode a
+            weighing string, so the surface can be renamed without an app release.
+        empty_message:
+          type: string
+          description: >-
+            Backend-owned empty-state sentence, shown when items is empty. Also client-owned
+            never.
+        trace_id:
+          type: string
     WeighingLeadershipShedPageResponse:
       type: object
       additionalProperties: false

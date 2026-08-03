@@ -258,6 +258,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the weighing lifecycle alerts routed to the caller.
+         * @description The weighing module's OWN alerts feed: the work-state transitions of weighing -- work assigned, a shed submitted for verification, a proof sent back for rework, a shed reopened, work closed -- each routed to whoever owns the next action.
+         *
+         *     This is NOT the vaccination process-integrity feed at /alerts, and it is gated on weighing capabilities only, never ObligationRead/VaccinationRead.
+         *
+         *     Rows are the durable notifications that were ALREADY routed to this caller when the transition happened, so the feed needs no second audience model: an operator reads only their own buckets because they were never a recipient of anyone else's. Weighing is free-flow and fully herd-isolated, so no alert names a goat, resolves a herd identity, or reports a share of an expected roster.
+         *
+         *     title and empty_message are BACKEND-OWNED copy. Clients render them and hardcode no weighing strings of their own.
+         */
+        get: operations["appListWeighingAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -5826,6 +5852,42 @@ export interface components {
             /** @description Backend-owned sentence for the weigh period this bucket belongs to. A client must not build this label by concatenating dates itself. */
             period_label?: string;
         };
+        /** @description ONE weighing work-state transition that was routed to the caller. GRAIN: one row = one transition for one recipient, collapsed across that person's devices. Every human-visible string is authored by the backend. No goat, herd identity, or expected-roster denominator appears here: weighing is free-flow and fully isolated. */
+        WeighingAlert: {
+            alert_id: string;
+            /** @description Producer's transition type, e.g. weighing_campaign_published, weighing_shed_submitted, weighing_shed_reopened, weighing_rework, weighing_shed_closed. Clients may branch on it for iconography; they must NOT rebuild the sentence from it. */
+            kind: string;
+            /**
+             * @description Which way this alert travelled FOR THIS RECIPIENT. downstream = it landed on the person who must do the work; upstream = on the person who oversees it. Derived from the recipient role the producer stamped, not from the event type, because one transition can travel both ways at once (a rework goes down to the operator and up to the director).
+             * @enum {string}
+             */
+            direction: "downstream" | "upstream";
+            /** @description Backend-owned headline. Render verbatim. */
+            title: string;
+            /** @description Backend-owned sentence naming the sheds and the reason. Render verbatim. */
+            body: string;
+            /** @enum {string} */
+            severity: "normal" | "high";
+            /** @description In-app destination this row opens, chosen by the producer (e.g. /weighing). */
+            target: string;
+            /** @description Shed or shed list this transition concerns, as the producer named it. */
+            shed_label?: string;
+            campaign_id?: string;
+            park_id?: string;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /** @description ONE keyset page of the caller's weighing alerts, newest first. */
+        WeighingAlertPageResponse: {
+            items: components["schemas"]["WeighingAlert"][];
+            /** @description Keyset cursor on (occurred_at DESC, alert_id DESC). Absent/empty means the last page. */
+            next_cursor?: string;
+            /** @description Backend-owned screen title. The client MUST render this rather than hardcode a weighing string, so the surface can be renamed without an app release. */
+            title: string;
+            /** @description Backend-owned empty-state sentence, shown when items is empty. Also client-owned never. */
+            empty_message: string;
+            trace_id?: string;
+        };
         /** @description ONE keyset page of shed buckets across tasks, each carrying its own context and its FIRST page of captured evidence. GRAIN: one row = one bucket = one shed on one task. There is no denominator; each bucket states its own evidence cursor. */
         WeighingLeadershipShedPageResponse: {
             items: components["schemas"]["WeighingShedVideos"][];
@@ -7482,6 +7544,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingAlerts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's weighing alerts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingAlertPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

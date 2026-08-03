@@ -238,6 +238,17 @@ var protectedRoutes = []Route{
 	{OperationID: "appCloseWeighingCampaign", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/close", Permissions: []string{WeighingMonitor}},
 	// PHASE 2 Calendar / Control Tower weighing process state (read-only).
 	{OperationID: "getWeighingProcessState", Method: "GET", Pattern: "/weighing/process-state", Permissions: []string{WeighingMonitor}},
+	// The weighing module's OWN lifecycle alerts feed. AnyPermissions, never
+	// Permissions: everyone with a weighing job needs it but nobody holds all
+	// three capabilities -- an operator holds execute, the CEO holds plan+monitor
+	// but not execute, and the Growth Director intentionally holds BOTH execute
+	// and monitor. ANDing them would deny every real seat.
+	//
+	// Gated on WEIGHING capabilities ONLY. It must never require
+	// ObligationRead/VaccinationRead: /alerts is the vaccination process-integrity
+	// feed, and pointing the weighing bar at it is exactly what made the previous
+	// weighing alerts tab 403 for weighing operators and got it deleted.
+	{OperationID: "appListWeighingAlerts", Method: "GET", Pattern: "/app/weighing/alerts", AnyPermissions: []string{WeighingExecute, WeighingMonitor, WeighingPlan}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator
