@@ -101,6 +101,14 @@ func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID strin
 // capability in the first park.
 func (s *Service) checkParkScopeForCapability(ctx context.Context, tenantID, parkID, capability string) error {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	// No grants at all = internal/service context (CLI, seeder, integration test running off
+	// context.Background()), never an HTTP request -- the auth middleware always attaches
+	// grants. Same escape hatch ResolveAuthorizedParkScope and the vaccination-execution park
+	// filter already use, made explicit here because the park checks on the planner and
+	// campaign-write paths now run on code paths those internal callers reach.
+	if len(grants) == 0 {
+		return nil
+	}
 
 	if hasTenantWideCapability(grants, tenantID, capability) {
 		return nil
@@ -164,6 +172,11 @@ func (s *Service) CreateCampaign(ctx context.Context, actor domain.Actor, cmd do
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
+	// The WeighingPlan role check is park-blind. The campaign names its own park, so a planner
+	// scoped to one park could otherwise CREATE weighing work in another park's sheds.
+	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, cmd.ParkID, permissions.WeighingPlan); err != nil {
+		return domain.Campaign{}, err
+	}
 	if cmd.PlannedCapPerDay <= 0 {
 		cmd.PlannedCapPerDay = 100
 	}
@@ -182,6 +195,21 @@ func (s *Service) UpdateCampaign(ctx context.Context, actor domain.Actor, campai
 	if err := validateCreate(cmd); err != nil {
 		return domain.Campaign{}, err
 	}
+	// BOTH parks are checked, and deliberately so. checkParkScope resolves the campaign's
+	// CURRENT park (so a planner cannot edit somebody else's task), while the cmd.ParkID check
+	// covers the payload's TARGET park (so an authorized edit cannot be used to push the task
+	// into a park the planner has no authority over). Checking either one alone leaves the
+	// other direction open.
+	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, cmd.ParkID, permissions.WeighingPlan); err != nil {
+		return domain.Campaign{}, err
+	}
+	parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingPlan); err != nil {
+		return domain.Campaign{}, err
+	}
 	if cmd.PlannedCapPerDay <= 0 {
 		cmd.PlannedCapPerDay = 100
 	}
@@ -194,6 +222,15 @@ func (s *Service) PublishCampaign(ctx context.Context, actor domain.Actor, campa
 	}
 	if !uuidutil.IsUUIDString(campaignID) || strings.TrimSpace(idempotencyKey) == "" {
 		return domain.Campaign{}, ports.ErrInvalidArgument
+	}
+	// Publishing is what turns a draft into real operator work, so it needs the same park
+	// authority as creating it -- the role check above is park-blind.
+	parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, campaignID)
+	if err != nil {
+		return domain.Campaign{}, err
+	}
+	if err := s.checkParkScopeForCapability(ctx, actor.TenantID, parkID, permissions.WeighingPlan); err != nil {
+		return domain.Campaign{}, err
 	}
 	return s.repo.PublishCampaign(ctx, actor.TenantID, campaignID, actor.UserID, idempotencyKey)
 }
@@ -248,7 +285,37 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 		return domain.CampaignPage{}, ports.ErrInvalidArgument
 	}
 	if scope == domain.CampaignListScopeMine {
+		// ScopeMine is already narrowed to the actor's OWN assignments, so it needs no park
+		// authority: an operator can only ever be assigned work in a park they work in.
 		return s.repo.ListCampaignsForOperator(ctx, actor.TenantID, actor.UserID, parkID, strings.TrimSpace(cursor), limit)
+	}
+	// ScopeAll and ScopeOperators page across EVERY campaign in the tenant -- the repository
+	// has no notion of the actor's scope, only the optional parkID row filter. So the park
+	// filter is the only thing standing between a park-scoped planner/overseer and another
+	// park's task list, and it arrives from the client. Clamp it to the actor's authority:
+	// a named park must be one they hold plan-or-monitor in, and an unnamed one resolves to
+	// their own park rather than defaulting to "all parks".
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
+	if !tenantWide {
+		if parkID != "" {
+			if _, ok := authorizedParks[parkID]; !ok {
+				return domain.CampaignPage{}, ports.ErrForbidden
+			}
+		} else {
+			switch len(authorizedParks) {
+			case 0:
+				return domain.CampaignPage{}, ports.ErrForbidden
+			case 1:
+				for id := range authorizedParks {
+					parkID = id
+				}
+			default:
+				// Multi-park without a tenant grant. One query filters one park, so answering
+				// for an arbitrary one would show half the work and no error. Make the client
+				// name the park -- every one of these screens already has a park selector.
+				return domain.CampaignPage{}, ports.ErrInvalidArgument
+			}
+		}
 	}
 	return s.repo.ListCampaigns(ctx, actor.TenantID, parkID, strings.TrimSpace(cursor), limit)
 }
@@ -266,7 +333,31 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	if !isBusinessDate(periodStartDate) {
 		return domain.PlannerCatalog{}, ports.ErrInvalidArgument
 	}
-	return s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate)
+	catalog, err := s.repo.PlannerCatalog(ctx, actor.TenantID, periodStartDate)
+	if err != nil {
+		return domain.PlannerCatalog{}, err
+	}
+	// The repository has no park filter (it returns the whole tenant's parks), and the role
+	// check above only says the actor may plan SOMEWHERE. Without this a park-scoped planner
+	// got every park in the tenant as a pickable option -- and each option carries that park's
+	// kid/shed counts and its existing campaign, so it leaked the other park's numbers before
+	// anything was even selected. Drop parks outside the actor's capability-scoped set.
+	//
+	// Service-layer filter, same stopgap shape as ListLeadershipSheds: the catalog is
+	// PARK-grain and unpaginated (one row per park, single digits), so filtering it here is
+	// not a page-shrinking hazard. The long-term fix is a park filter in the query.
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, planOrMonitorParkCapabilities...)
+	if tenantWide {
+		return catalog, nil
+	}
+	filtered := catalog.Parks[:0]
+	for _, park := range catalog.Parks {
+		if _, ok := authorizedParks[park.ParkID]; ok {
+			filtered = append(filtered, park)
+		}
+	}
+	catalog.Parks = filtered
+	return catalog, nil
 }
 
 // PlannerParkBuckets returns ONE keyset page of the chosen park's sheds with their
@@ -282,6 +373,13 @@ func (s *Service) PlannerParkBuckets(ctx context.Context, actor domain.Actor, pa
 	parkID = strings.TrimSpace(parkID)
 	if !uuidutil.IsUUIDString(parkID) {
 		return domain.PlannerParkBuckets{}, ports.ErrInvalidArgument
+	}
+	// canPlanOrMonitor above is role-only: it says the actor plans SOMEWHERE, not that they
+	// plan HERE. This route takes the park straight off the request, so without a park-scope
+	// check a planner scoped to one park could page any other park's sheds and their
+	// availability by naming its id.
+	if err := s.checkParkScopeForAnyCapability(ctx, actor.TenantID, parkID, planOrMonitorParkCapabilities...); err != nil {
+		return domain.PlannerParkBuckets{}, err
 	}
 	// Availability is DATE-scoped, so the date has to be a real business date.
 	periodStartDate = strings.TrimSpace(periodStartDate)
@@ -308,6 +406,48 @@ func (s *Service) canPlanOrMonitor(actor domain.Actor) bool {
 		return true
 	}
 	return permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false)
+}
+
+// planOrMonitorParkCapabilities is the alternative set behind every planner/oversight surface:
+// holding EITHER in a park is enough to plan or watch that park's weighing.
+var planOrMonitorParkCapabilities = []string{permissions.WeighingPlan, permissions.WeighingMonitor}
+
+// checkParkScopeForAnyCapability is checkParkScopeForCapability over a set of alternatives:
+// the actor passes when ANY of `capabilities` is held in `parkID` (tenant-wide with that
+// capability, or a park-scoped grant whose OWN role carries it).
+//
+// A role check alone is NOT park scope. RolesAuthorize answers "does this actor hold the role
+// SOMEWHERE", which is exactly the question a park-scoped planner passes for every park in the
+// tenant -- so any surface that names a park must run this too.
+func (s *Service) checkParkScopeForAnyCapability(ctx context.Context, tenantID, parkID string, capabilities ...string) error {
+	var err error
+	for _, capability := range capabilities {
+		if err = s.checkParkScopeForCapability(ctx, tenantID, parkID, capability); err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
+// authorizedParkSet returns the parks in which the actor holds any of `capabilities`, and
+// whether the actor is tenant-wide for one of them (in which case the set is meaningless and
+// no filtering applies).
+func authorizedParkSet(ctx context.Context, tenantID string, capabilities ...string) (parks map[string]struct{}, tenantWide bool) {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	// No grants at all = internal/service context (CLI, integration test), unrestricted.
+	if len(grants) == 0 {
+		return nil, true
+	}
+	parks = map[string]struct{}{}
+	for _, capability := range capabilities {
+		if hasTenantWideCapability(grants, tenantID, capability) {
+			return nil, true
+		}
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			parks[parkID] = struct{}{}
+		}
+	}
+	return parks, false
 }
 
 func (s *Service) ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error) {

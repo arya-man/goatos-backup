@@ -1631,6 +1631,16 @@ func hasVaccinationExecutionAuthorityTenantWide(grants []permissions.ActiveGrant
 // a growth_director weighing grant) in a park must never leak vaccination-execution access there.
 var vaccinationExecutionParkCapabilities = []string{permissions.TaskExecute, permissions.VaccinationOverseeExecution}
 
+// vaccinationExecutionParkAuthorities is vaccinationExecutionParkCapabilities plus the
+// scheduling write authority. It is the set used when resolving ONE requested park (see
+// authorizedParkID), where a planner/CEO holding VaccinationCampaign must resolve too --
+// hasVaccinationExecutionAuthorityTenantWide already grants exactly that at tenant scope, and
+// the park-scoped branch must not be narrower than the tenant-wide one it mirrors.
+var vaccinationExecutionParkAuthorities = append(
+	append([]string{}, vaccinationExecutionParkCapabilities...),
+	permissions.VaccinationCampaign,
+)
+
 func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
@@ -1655,8 +1665,21 @@ func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID stri
 	return parks
 }
 
+// authorizedParkID clamps a requested park to the parks in which the actor actually holds a
+// VACCINATION-EXECUTION capability. Every park-scoped read on this module funnels through it
+// (applyExecutionParkScope / applyGapsParkScope / applyShedSummaryParkScope / the command
+// board), so it is the single place that decision is made.
+//
+// It resolves against vaccinationExecutionParkAuthorities rather than the capability-BLIND
+// ResolveAuthorizedParkScope it used to call. The blind form asked two decoupled questions --
+// "does some role of mine carry vaccination authority" and "which parks do I have any grant
+// in" -- and an actor could answer them with two DIFFERENT grants: a vaccination grant in park
+// B plus an unrelated grant (say a growth-director weighing grant) in park A got them park A's
+// vaccination execution data. The capability-aware form keeps each grant's role bound to its
+// own scope, and applies the same rule to the tenant-wide escape hatch.
 func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
-	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID(r), requested, vaccinationExecutionParkAuthorities...)
 	if decision.Allowed {
 		return decision.ParkID, true
 	}

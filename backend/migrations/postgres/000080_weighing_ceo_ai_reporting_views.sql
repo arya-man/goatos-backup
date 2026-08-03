@@ -106,32 +106,24 @@ LEFT JOIN LATERAL (
         max(o.weight_kg)        AS weight_max_kg
     FROM weighing_observations o
     WHERE o.campaign_shed_id = cs.campaign_shed_id
+      -- CURRENT ROUND ONLY. weighing_observations keeps history instead of
+      -- deleting (000073's loser collapse stamps submitted_at, 000061 stamps it
+      -- on bucket completion), so an unfiltered count sums every superseded
+      -- round on top of the live one. A reopened+recaptured bucket would report
+      -- more animals weighed than it holds. verification_status='rework' rows
+      -- ARE the open round (000073: rework deliberately leaves submitted_at
+      -- non-null), so they are kept.
+      AND (o.submitted_at IS NULL OR o.verification_status = 'rework')
 ) obs ON true
+-- withdrawn_at IS NULL is REQUIRED, not decorative. The uniqueness guarantee on
+-- this table is weighing_shed_observations_one_open_scope_uidx, which 000067
+-- made PARTIAL on withdrawn_at IS NULL -- so a bucket that was reopened and
+-- resubmitted legitimately holds several rows, only one of them live. Joining
+-- them all fans this view out past its declared one-row-per-campaign_shed_id
+-- grain and multiplies the bucket in every downstream CEO rollup.
 LEFT JOIN weighing_shed_observations sho
-  ON sho.campaign_shed_id = cs.campaign_shed_id;
-
--- Grants are guarded on role existence, exactly like the 000001 baseline block
--- that grants these same two roles. mesha_ceo_readonly / mesha_cube_readonly are
--- provisioned per environment (tools/dev/setup-ceo-ai-local-role.sh + Secret
--- Manager), NOT by a migration -- so they are absent on a fresh local database
--- and in the pgtest harness. Granting to them unconditionally aborted the whole
--- migration with `role "mesha_ceo_readonly" does not exist`, which took out every
--- Postgres-backed test package and would fail any fresh environment. Idempotent
--- and safe to re-run.
--- +goose StatementBegin
-DO $weighing_ceo_ai_grants$
-DECLARE
-    r text;
-BEGIN
-    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
-        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
-            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_capture_activity TO %I', r);
-            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_verification_status TO %I', r);
-        END IF;
-    END LOOP;
-END;
-$weighing_ceo_ai_grants$;
--- +goose StatementEnd
+  ON sho.campaign_shed_id = cs.campaign_shed_id
+ AND sho.withdrawn_at IS NULL;
 
 -- ===========================================================================
 -- 2. ceo_ai.weighing_verification_status
@@ -142,15 +134,18 @@ $weighing_ceo_ai_grants$;
 -- (weighing proof videos/photos), so weighing questions never get mixed into
 -- another module's verification backlog.
 --
--- verification_items.status has a CHECK constraint restricting it to exactly
--- {'pending','rejected','approved'} (000001 baseline). pending + rework
--- (rejected) + verified (approved) is therefore always EXACTLY total -- the
--- three buckets are disjoint and exhaustive by construction, not by
--- convention.
+-- verification_items.status is CHECKed to {'pending','approved','rejected',
+-- 'withdrawn'} -- 000067 added 'withdrawn' as a FOURTH terminal status for a
+-- submission that was superseded (reopen/resubmit, duplicate-loser retire in
+-- 000077). A withdrawn item is not a verification outcome and must not appear
+-- in ANY bucket, total included: counting it in total while excluding it from
+-- pending/rework/verified made the three displayed buckets silently fail to sum
+-- to the displayed total. It is filtered out in the WHERE clause instead, so
+-- pending + rework + verified = total holds by construction again.
 --
 -- projection-review: membership=verification_items rows filtered to module = 'weighing' (the WHERE runs before the aggregate, so no other module's rows enter any bucket); group_key=(vi.tenant_id, pk.name, sh.name), exactly the GROUP BY list; join_cardinality=locations sh 0..1 per vi.shed_id and locations pk 0..1 per vi.park_id, both matching on locations.location_id which is that table's PK, so neither LEFT JOIN can duplicate a verification_items row and COUNT(*) stays at verification-item grain; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, grouped and exposed as vi.tenant_id
 --
--- Ratio key sets: pending, rework and verified are FILTER aggregates over the IDENTICAL grouped row set that produces total -- same FROM, same WHERE, same GROUP BY, no extra join on any branch. verification_items.status carries a CHECK restricting it to exactly {'pending','rejected','approved'} (000001 baseline, revalidated in 000067), so the three filters are disjoint and exhaustive and pending + rework + verified = total for every key, by constraint rather than by convention.
+-- Ratio key sets: pending, rework and verified are FILTER aggregates over the IDENTICAL grouped row set that produces total -- same FROM, same WHERE, same GROUP BY, no extra join on any branch. verification_items.status carries a CHECK restricting it to {'pending','approved','rejected','withdrawn'} (000001 baseline, extended with 'withdrawn' in 000067); the WHERE clause drops 'withdrawn' from the row set entirely, so the remaining three filters are disjoint and exhaustive and pending + rework + verified = total for every key, by constraint rather than by convention.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_verification_status AS
 SELECT
@@ -166,9 +161,36 @@ FROM verification_items vi
 LEFT JOIN locations sh ON sh.location_id = vi.shed_id
 LEFT JOIN locations pk ON pk.location_id = vi.park_id
 WHERE vi.module = 'weighing'
+  AND vi.status <> 'withdrawn'
 GROUP BY vi.tenant_id, pk.name, sh.name;
 
-
+-- ===========================================================================
+-- Grants. These run AFTER both CREATE VIEW statements: granting on
+-- ceo_ai.weighing_verification_status before it exists aborted the whole
+-- migration with `relation "ceo_ai.weighing_verification_status" does not
+-- exist` on every environment that actually has the reader roles provisioned
+-- (i.e. staging and production -- the exact environments a migration must not
+-- fail on). Local/pgtest databases have neither role and so never hit it.
+--
+-- Guarded on role existence, exactly like the 000001 baseline block that grants
+-- these same two roles. mesha_ceo_readonly / mesha_cube_readonly are
+-- provisioned per environment (tools/dev/setup-ceo-ai-local-role.sh + Secret
+-- Manager), NOT by a migration. Idempotent and safe to re-run.
+-- ===========================================================================
+-- +goose StatementBegin
+DO $weighing_ceo_ai_grants$
+DECLARE
+    r text;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['mesha_ceo_readonly','mesha_cube_readonly'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_capture_activity TO %I', r);
+            EXECUTE format('GRANT SELECT ON ceo_ai.weighing_verification_status TO %I', r);
+        END IF;
+    END LOOP;
+END;
+$weighing_ceo_ai_grants$;
+-- +goose StatementEnd
 
 -- +goose Down
 DROP VIEW IF EXISTS ceo_ai.weighing_verification_status;

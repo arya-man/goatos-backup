@@ -57,13 +57,36 @@ func authorizedParkFilter(ctx context.Context, tenantID string) []string {
 	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
 		return nil
 	}
-	// Park-scoped or mixed grants: extract authorized parks.
+	// Park-scoped or mixed grants: extract authorized parks CAPABILITY-AWARE, i.e. a grant's
+	// park counts only when that SAME grant's role carries a vaccination-execution capability.
+	// The blind AuthorizedParkIDs form used here before defeated the whole point of this
+	// defence-in-depth filter: an actor with an unrelated grant in park A and a vaccination
+	// grant in park B passed it for park A too, so the in-query restriction agreed with the
+	// handler's (equally blind) decision instead of catching it.
+	//
 	// If an actor has grants but no resolvable parks, fail closed (empty slice = no access).
-	parks := httpmiddleware.AuthorizedParkIDs(grants)
-	if parks == nil {
-		return []string{}
+	seen := map[string]struct{}{}
+	parks := []string{}
+	for _, capability := range vaccinationExecutionParkCapabilities {
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			parks = append(parks, parkID)
+		}
 	}
+	sort.Strings(parks)
 	return parks
+}
+
+// vaccinationExecutionParkCapabilities mirrors the handler-side list of the same name: the
+// capabilities that make a park-scoped grant relevant to vaccination execution. Duplicated
+// rather than exported across the adapter boundary because the HTTP adapter must not become an
+// import dependency of the Postgres adapter.
+var vaccinationExecutionParkCapabilities = []string{
+	permissions.TaskExecute,
+	permissions.VaccinationOverseeExecution,
 }
 
 const (
