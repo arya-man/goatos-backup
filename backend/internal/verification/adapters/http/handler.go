@@ -183,15 +183,6 @@ func (h *Handler) listQueue(
 		}
 		cursor = &decoded
 	}
-	// Park scope below answers WHERE the caller may look; it never answered WHICH MODULE,
-	// so a verifier could name any registered category and read another module's proofs
-	// inside parks they were already entitled to. The module gate is deliberately applied
-	// to the caller-supplied filters before they reach the repository, and it fails open
-	// whenever duty data cannot positively exclude the request.
-	if err := h.service.AuthorizeQueueModule(r.Context(), tenantID(r), actorID(r), q.Get("category"), q.Get("module")); err != nil {
-		h.respondError(w, r, err)
-		return
-	}
 	restricted, parkIDs := verificationParkScope(r, permission)
 	status := forcedStatus
 	if status == "" {

@@ -476,26 +476,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	verificationMedia := verificationproofmedia.NewResolver(proofService).
 		WithActionPresentationResolver(tasksWorkflowRepo)
 	processIntegrityService.WithMediaResolver(verificationMedia)
-	// The duty reader is the workforce repository itself -- the same ListGrantedModuleKeys
-	// /app/bootstrap uses to decide which verify entries a person is shown. Passing it here
-	// is what makes the queue serve the same module set the drawer offers; without it the
-	// queue gate stays inert and a verifier can name any module's category.
-	//
-	// Wiring this is safe for everyone who can actually reach the queue. VerificationReview is
-	// held by exactly two roles (permissions.rolePermissions): RoleVerifier and
-	// RoleCEOInternal. Neither is seeded with a department -- the verifier's workforce_members
-	// row is written without department_id (seed-roster-real seedContractPeopleAndEmailGrants)
-	// and leadership is department-less by design (seed-stg-login-grants) -- so the
-	// department_module_grants half of ListGrantedModuleKeys contributes nothing to either.
-	// That matters because the earlier objection to wiring was `weighing` being absent from
-	// every defaultDepartmentModules entry: the department-grant lockout it describes needs a
-	// departmented VerificationReview holder, and there is none. Leadership resolves to an
-	// empty duty set and falls open; a reviewer resolves to their seeded verify duties.
-	//
-	// cmd/seed-position-duties now scopes those duties PER SEAT, so this gate has something to
-	// gate on rather than being a no-op against a single seat holding every module.
-	verificationService := verificationapp.NewService(verificationRepo, verificationMedia).
-		WithModuleDutyReader(workforceRepo)
+	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical:      "preventive_care",
 		Module:        "vaccination",
