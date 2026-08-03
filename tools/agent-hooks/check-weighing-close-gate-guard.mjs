@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// check-weighing-abandon-guard.mjs — permanent guard: weighing has no "abandon" vocabulary.
+// check-weighing-weighing-close-gate guard.mjs — permanent guard: weighing has no "abandon" vocabulary.
 //
 // Business Decision (final, permanent):
 // The weighing workflow is: scan → submit → close, or reopen if closed.
@@ -35,7 +35,7 @@ import { join, relative, resolve } from "node:path";
 const repo = resolve(import.meta.dirname, "../..");
 
 // Marker to skip this file for a specific finding (use sparingly)
-const ABANDON_GUARD_IGNORE = /abandon-guard:\s*ignore\s+([^\n]+)/i;
+const ABANDON_GUARD_IGNORE = /weighing-close-gate guard:\s*ignore\s+([^\n]+)/i;
 
 function walk(dir, filter = () => true, acc = []) {
   let entries;
@@ -280,13 +280,13 @@ fun abandonScope(reason: String) {
   const goPattern = /\bfunc\s+\([^)]*\)\s+(Abandon|abandon)Scope\s*\(/;
   if (!goPattern.test(badGoCode)) {
     console.log(
-      "abandon-guard self-test: FAIL (Go method detection broken)",
+      "weighing-close-gate guard self-test: FAIL (Go method detection broken)",
     );
     return false;
   }
   if (goPattern.test(goodGoCode)) {
     console.log(
-      "abandon-guard self-test: FAIL (Go false positive on close)",
+      "weighing-close-gate guard self-test: FAIL (Go false positive on close)",
     );
     return false;
   }
@@ -295,7 +295,7 @@ fun abandonScope(reason: String) {
   const eventPattern = /weighing\.shed\.abandoned/;
   if (!eventPattern.test('eventType: "weighing.shed.abandoned"')) {
     console.log(
-      "abandon-guard self-test: FAIL (event detection broken)",
+      "weighing-close-gate guard self-test: FAIL (event detection broken)",
     );
     return false;
   }
@@ -304,13 +304,13 @@ fun abandonScope(reason: String) {
   const kotlinPattern = /\b(abandon|Abandon)Scope\b/;
   if (!kotlinPattern.test(badKotlinCode)) {
     console.log(
-      "abandon-guard self-test: FAIL (Kotlin detection broken)",
+      "weighing-close-gate guard self-test: FAIL (Kotlin detection broken)",
     );
     return false;
   }
   if (kotlinPattern.test(goodKotlinCode)) {
     console.log(
-      "abandon-guard self-test: FAIL (Kotlin false positive on close)",
+      "weighing-close-gate guard self-test: FAIL (Kotlin false positive on close)",
     );
     return false;
   }
@@ -319,12 +319,12 @@ fun abandonScope(reason: String) {
   const migrationPath = "backend/migrations/postgres/000001_baseline.sql";
   if (!migrationPath.includes("migrations")) {
     console.log(
-      "abandon-guard self-test: FAIL (migration exclusion broken)",
+      "weighing-close-gate guard self-test: FAIL (migration exclusion broken)",
     );
     return false;
   }
 
-  console.log("abandon-guard self-test: ok");
+  console.log("weighing-close-gate guard self-test: ok");
   return true;
 }
 
@@ -343,7 +343,7 @@ const allFindings = [
 ];
 
 if (allFindings.length) {
-  console.error("abandon-guard FAILED — weighing vocabulary is close/reopen only:");
+  console.error("weighing-close-gate guard FAILED — weighing vocabulary is close/reopen only:");
   for (const f of allFindings) {
     console.error(
       `  ${relative(repo, f.file)}:${f.line}: ${f.message}`,
@@ -352,10 +352,10 @@ if (allFindings.length) {
       console.error(`    > ${f.text.substring(0, 80)}`);
     }
     console.error(
-      `    To suppress: add comment 'abandon-guard: ignore <reason>' on that line`,
+      `    To suppress: add comment 'weighing-close-gate guard: ignore <reason>' on that line`,
     );
   }
   process.exit(1);
 }
 
-console.log("abandon-guard: ok (weighing vocabulary validated)");
+console.log("weighing-close-gate guard: ok (close gate is unconditional; weighing vocabulary is close/reopen)");
