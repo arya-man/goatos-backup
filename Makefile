@@ -128,7 +128,6 @@ guardrails:
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
 	$(MAKE) weighing-kernel-phase2-guard
-	$(MAKE)
 	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -278,7 +277,10 @@ weighing-kernel-phase2-guard:
 	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs
 
-.PHONY:
+.PHONY: migration-duplicate-versions-guard
+migration-duplicate-versions-guard:
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs --self-test
+	node tools/agent-hooks/check-migration-duplicate-versions.mjs
 
 goat-shed-integrity-db-proof:
 	bash tools/dev/check-goat-shed-integrity.sh
