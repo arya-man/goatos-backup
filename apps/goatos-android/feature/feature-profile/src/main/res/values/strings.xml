@@ -59,4 +59,6 @@
     <string name="alerts_tone_info">Info</string>
     <string name="alerts_tone_warn">Warn</string>
     <string name="alerts_tone_critical">Critical</string>
+    <string name="alerts_title_default">Alerts</string>
+    <string name="alerts_empty_default">No alerts yet</string>
 </resources>

@@ -50,9 +50,11 @@ class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
 
-    // Header/empty copy for this surface. Named for what it actually holds (see the class doc):
-    // vaccination alerts, not every module's alerts.
-    private val screenTitle = "Vaccination alerts"
+    // NO copy here. The screen is titled just "Alerts" and the reader reached it from
+    // vaccination's own bar, so the feature name adds nothing; more importantly, a literal
+    // here is English-only, while the screen resolves the localized default. Blank = "use the
+    // screen's own label".
+    private val screenTitle = ""
 
     // Upstream Room flow. Kept as a cold Flow and folded into [state] below; the single
     // WhileSubscribed(5_000) on [state] makes the whole chain lifecycle-aware, so this flow is
@@ -74,7 +76,7 @@ class AlertsViewModel @Inject constructor(
         val dto = resource.data
         val base = dto?.toAlertsUiState()
             ?: if (resource.hasData || isOffline) {
-                vaccinationAlertsPlaceholder("No vaccination alerts")
+                vaccinationAlertsPlaceholder("")
             } else {
                 vaccinationAlertsPlaceholder("Loading…")
             }
@@ -125,7 +127,7 @@ class AlertsViewModel @Inject constructor(
         alertsPlaceholder(message).copy(title = screenTitle)
 
     private fun ControlTowerResponseDto.toAlertsUiState(): AlertsUiState? {
-        if (alerts.isEmpty()) return vaccinationAlertsPlaceholder("No vaccination alerts")
+        if (alerts.isEmpty()) return vaccinationAlertsPlaceholder("")
         val base = sampleAlertsState().copy(title = screenTitle)
         val rows = alerts.map { alert ->
             AlertRow(
