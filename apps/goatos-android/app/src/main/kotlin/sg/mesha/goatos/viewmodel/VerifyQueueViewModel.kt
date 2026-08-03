@@ -72,10 +72,29 @@ class VerifyQueueViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
-    private val _selectedModule = MutableStateFlow(
-        when (savedStateHandle.get<String>("module")?.trim()?.lowercase()) {
-            "weighing" -> VerifyModuleTab.WEIGHING
-            else -> VerifyModuleTab.VACCINATION
+
+    /**
+     * The queue's CATEGORY -- the backend's own vocabulary and the only thing the reads accept.
+     *
+     * Three cases, deliberately distinct:
+     *  - an explicit `?category=` (the verifier Alerts href the backend composes) is passed
+     *    through VERBATIM, so a category this client has never heard of still reads its own rows;
+     *  - an explicit `?module=` is mapped, and an UNRECOGNIZED module resolves to null. The old
+     *    `else -> VACCINATION` fallback meant a Counts or Feed verifier opened their own tab and
+     *    was shown VACCINATION proofs -- a worse failure than showing nothing;
+     *  - no scoping arg at all (the action queue route) keeps the historical vaccination default,
+     *    which is a route that never asked for a module rather than one that asked wrongly.
+     */
+    private val _selectedCategory = MutableStateFlow(
+        run {
+            val category = savedStateHandle.get<String>(CATEGORY_ARG)?.trim()?.lowercase()
+                ?.takeIf { it.isNotBlank() }
+            val moduleKey = savedStateHandle.get<String>(MODULE_ARG)?.trim()?.takeIf { it.isNotBlank() }
+            when {
+                category != null -> category
+                moduleKey != null -> categoryForModuleKey(moduleKey)
+                else -> VACCINATION_CATEGORY
+            }
         },
     )
     private val _selectedParkId = MutableStateFlow<String?>(null)
@@ -91,10 +110,9 @@ class VerifyQueueViewModel @Inject constructor(
     // moment _selectedCategory changes (same pattern as CalendarViewModel's _selectedDay).
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        combine(_selectedModule, _selectedParkId, _selectedShedId) { module, parkId, shedId ->
-            Triple(module, parkId, shedId)
-        }.flatMapLatest { (module, parkId, shedId) ->
-            val category = categoryForModule(module)
+        combine(_selectedCategory, _selectedParkId, _selectedShedId) { category, parkId, shedId ->
+            Triple(category, parkId, shedId)
+        }.flatMapLatest { (category, parkId, shedId) ->
             if (category != null) {
                 if (isActionQueue) {
                     repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
@@ -132,15 +150,21 @@ class VerifyQueueViewModel @Inject constructor(
 
     val state: StateFlow<VerifyQueueUiState> = combine(
         observedResource,
-        _selectedModule,
+        _selectedCategory,
         _selectedParkId,
         _selectedShedId,
         flags,
-    ) { resource, module, parkId, shedId, flags ->
+    ) { resource, category, parkId, shedId, flags ->
         val items = resource.data?.items.orEmpty()
         VerifyQueueUiState(
             rows = items.map { it.toRow() },
-            selectedModule = module,
+            // Null for a category this client has no dedicated chrome for (counts, feed). The
+            // rows still render generically; only the module-specific grouping stands down.
+            selectedModule = moduleForCategory(category),
+            selectedCategory = category,
+            // The route named a module or category nothing here can serve. Say so instead of
+            // rendering another module's queue or a bare "all caught up".
+            isUnsupportedModule = category == null,
             isActionQueue = isActionQueue,
             parkOptions = locationOptions("All parks", resource.data?.filterOptions?.parks.orEmpty().map { it.id to it.label }, parkId),
             selectedParkId = parkId,
@@ -200,7 +224,7 @@ class VerifyQueueViewModel @Inject constructor(
                 refresh()
             }
             is VerifyQueueEvent.SelectModule -> {
-                _selectedModule.value = event.module
+                _selectedCategory.value = categoryForModule(event.module)
                 _selectedParkId.value = null
                 _selectedShedId.value = null
                 refresh()
@@ -216,7 +240,7 @@ class VerifyQueueViewModel @Inject constructor(
         _isLoadingMore.value = false
         _isRefreshing.value = true
         try {
-            val category = categoryForModule(_selectedModule.value) ?: return@launch
+            val category = _selectedCategory.value ?: return@launch
             AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
@@ -240,7 +264,7 @@ class VerifyQueueViewModel @Inject constructor(
     }
 
     private fun loadMore() = viewModelScope.launch {
-        val category = categoryForModule(_selectedModule.value) ?: return@launch
+        val category = _selectedCategory.value ?: return@launch
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
@@ -409,11 +433,31 @@ class VerifyQueueViewModel @Inject constructor(
     }
 }
 
+private const val MODULE_ARG = "module"
+private const val CATEGORY_ARG = "category"
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val WEIGHING_CATEGORY = "weighing_proof"
-private fun categoryForModule(module: VerifyModuleTab): String? = when (module) {
+private fun categoryForModule(module: VerifyModuleTab): String = when (module) {
     VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
     VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
+}
+
+/**
+ * Maps the nav's MODULE key onto the verification CATEGORY. The two vocabularies differ, and an
+ * unknown key returns null rather than a guess -- see [_selectedCategory].
+ */
+private fun categoryForModuleKey(moduleKey: String?): String? =
+    when (moduleKey?.trim()?.lowercase()) {
+        "vaccination" -> VACCINATION_CATEGORY
+        "weighing" -> WEIGHING_CATEGORY
+        else -> null
+    }
+
+/** Which module chrome (if any) this client renders for a category. Null = generic rows only. */
+private fun moduleForCategory(category: String?): VerifyModuleTab? = when (category) {
+    VACCINATION_CATEGORY -> VerifyModuleTab.VACCINATION
+    WEIGHING_CATEGORY -> VerifyModuleTab.WEIGHING
+    else -> null
 }
 
 private fun locationOptions(

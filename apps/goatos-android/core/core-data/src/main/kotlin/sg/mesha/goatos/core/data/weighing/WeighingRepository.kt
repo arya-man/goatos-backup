@@ -323,6 +323,14 @@ data class ShedPartitionWeighingCapture(
 data class WeighingPage<T>(
     val items: List<T> = emptyList(),
     val nextCursor: String? = null,
+    /**
+     * What the SIGNED-IN viewer may do to the rows on this page, as the backend states it.
+     *
+     * The assignment read used to drop this, so the only surface that knew a viewer held the
+     * monitor authority was the planner task list -- which is why close/reopen/abandon were
+     * unreachable from every assignment surface even for the role that owns them.
+     */
+    val capabilities: WeighingCapabilities = WeighingCapabilities(),
 )
 
 
@@ -543,6 +551,18 @@ interface WeighingRepository {
         campaignId: String,
         reason: String = "",
     ): AppResult<Unit>
+
+    /**
+     * Ends a shed scope that will NEVER be completed (the animals moved, the day was rained off).
+     *
+     * Deliberately its own call rather than a flag on [closeShedCampaign]: the backend records a
+     * different outcome for abandoned work, and the app had no way to express it at all.
+     */
+    suspend fun abandonScope(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String = "",
+    ): AppResult<Unit>
 }
 
 class DefaultWeighingRepository(
@@ -610,6 +630,11 @@ class DefaultWeighingRepository(
                 WeighingPage(
                     items = assignments,
                     nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                    capabilities = WeighingCapabilities(
+                        canPublish = response.capabilities.canPublish,
+                        canEnd = response.capabilities.canEnd,
+                        canReopen = response.capabilities.canReopen,
+                    ),
                 ),
             )
         }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
@@ -1375,6 +1400,27 @@ class DefaultWeighingRepository(
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't close weighing shed.", error)
+            }
+        }
+
+    override suspend fun abandonScope(
+        campaignId: String,
+        campaignShedId: String,
+        reason: String,
+    ): AppResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                val idempotencyKey = "weighing:abandon:$campaignId:$campaignShedId"
+                service.abandonWeighingScope(
+                    campaignId = campaignId,
+                    campaignShedId = campaignShedId,
+                    idempotencyKey = idempotencyKey,
+                    request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
+                )
+                AppResult.Ok(Unit)
+            } catch (error: Throwable) {
+                AppResult.Err(error.message ?: "Couldn't abandon weighing shed.", error)
             }
         }
 

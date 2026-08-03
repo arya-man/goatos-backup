@@ -6,18 +6,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,69 +23,28 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
-import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.core.ui.SyncIconButton
 
-// telemetry:exempt Leadership weighing summary is read-only in V1; execution and verification state changes are tracked downstream.
+// telemetry:exempt This card renders backend read-model state; the close/reopen/abandon writes it
+// offers are instrumented by the weighing service that owns them.
 
+/**
+ * One weighing shed row WITH the oversight writes the backend says this viewer may make.
+ *
+ * [canEnd] and [canReopen] are the server's own capability flags, not a role guess and not a
+ * property of which screen is hosting the card: the Growth Director oversees from the Operators
+ * surface while still executing their own sheds elsewhere, so every surface that can show these
+ * rows asks the same two flags rather than one screen owning the authority.
+ */
 @Composable
-fun LeadershipWeighingScreen(
-    state: WeighingUiState,
-    onRefresh: () -> Unit = {},
-    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
-    onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
-    onAssignmentRowVisible: (Int) -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.fillMaxSize()) {
-        MeshaScreenHeader(
-            title = stringResource(R.string.weighing_leadership_title),
-            eyebrow = stringResource(R.string.weighing_eyebrow),
-            eyebrowColor = MeshaColors.BrandD,
-            actions = {
-                SyncIconButton(
-                    isSyncing = state.loading,
-                    onSync = onRefresh,
-                    contentDescription = stringResource(R.string.weighing_leadership_refresh),
-                )
-            },
-        )
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MeshaColors.PageBg)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (state.assignments.isEmpty()) {
-                item { LeadershipEmptyCard(loading = state.loading) }
-            } else {
-                itemsIndexed(state.assignments, key = { _, assignment -> assignment.campaignShedId }) { index, assignment ->
-                    // The list itself pulls the next page as the reader scrolls near the end.
-                    LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
-                        onAssignmentRowVisible(index)
-                    }
-                    LeadershipAssignmentCard(
-                        assignment,
-                        onReopen = { onReopenAssignment(assignment) },
-                        onClose = { reason -> onCloseAssignment(assignment, reason) },
-                    )
-                }
-                if (state.assignmentsLoadingMore) {
-                    item(key = "assignments-loading-more") { ListLoadingFooter() }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LeadershipAssignmentCard(
+internal fun WeighingOversightCard(
     row: WeighingAssignmentUiRow,
+    canEnd: Boolean = false,
+    canReopen: Boolean = false,
     onReopen: () -> Unit = {},
     onClose: (String) -> Unit = {},
+    onAbandon: (String) -> Unit = {},
 ) {
     val complete = row.isClosed
     Column(
@@ -115,22 +70,24 @@ private fun LeadershipAssignmentCard(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (complete) {
-                    Text(
-                        text = stringResource(R.string.weighing_leadership_tap_to_reopen),
-                        color = MeshaColors.BrandD,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .minimumInteractiveComponentSize()
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable(
-                                role = Role.Button,
-                                onClick = onReopen,
-                            ),
-                    )
+                    if (canReopen) {
+                        Text(
+                            text = stringResource(R.string.weighing_leadership_tap_to_reopen),
+                            color = MeshaColors.BrandD,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(
+                                    role = Role.Button,
+                                    onClick = onReopen,
+                                ),
+                        )
+                    }
                 } else {
-                    if (row.canClose) {
+                    if (canEnd && row.canClose) {
                         Text(
                             text = stringResource(R.string.weighing_leadership_close),
                             color = MeshaColors.BrandD,
@@ -159,6 +116,25 @@ private fun LeadershipAssignmentCard(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    // Abandon is NOT gated on readyToClose: it exists precisely for work that will
+                    // never reach that state (the animals moved, the day was rained off). Close and
+                    // abandon record different outcomes, so they are offered as separate actions.
+                    if (canEnd) {
+                        Text(
+                            text = stringResource(R.string.weighing_leadership_abandon),
+                            color = MeshaColors.Danger,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .padding(top = 4.dp)
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(
+                                    role = Role.Button,
+                                    onClick = { onAbandon("abandoned from mobile leadership") },
+                                ),
                         )
                     }
                 }
@@ -198,30 +174,6 @@ private fun LeadershipAssignmentCard(
         }
         Text(
             text = if (complete) stringResource(R.string.weighing_status_completed) else stringResource(R.string.weighing_status_scheduled),
-            color = MeshaColors.Muted,
-            style = MeshaType.cardSubtitle,
-        )
-    }
-}
-
-@Composable
-private fun LeadershipEmptyCard(loading: Boolean) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(MeshaColors.Surf)
-            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(8.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            text = if (loading) stringResource(R.string.weighing_leadership_loading) else stringResource(R.string.weighing_leadership_empty_title),
-            color = MeshaColors.Ink,
-            style = MeshaType.cardTitle,
-        )
-        Text(
-            text = stringResource(R.string.weighing_leadership_empty_body),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
         )

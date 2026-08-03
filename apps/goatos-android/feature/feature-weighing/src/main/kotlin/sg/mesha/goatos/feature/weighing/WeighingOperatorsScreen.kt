@@ -30,22 +30,26 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
-// telemetry:exempt Operator oversight is read-only; the weighing writes it observes are tracked on
-// the execution surface that owns them.
+// telemetry:exempt Oversight renders backend read-model state; the close/reopen/abandon writes it
+// offers are instrumented by the weighing service that owns them.
 
 /**
- * Read-only oversight of weighing work assigned to SOMEONE ELSE.
+ * Oversight of weighing work assigned to SOMEONE ELSE.
  *
  * A SEPARATE destination from the work list and the planner list, not a mode of one shared screen.
- * It renders no scan action and no reopen/close control: this surface answers "how is everyone
- * else's weighing going", and the weighing write still requires the caller to be the shed's
- * assignee, so nothing here can widen what the viewer may record.
+ * It never offers a SCAN action -- capture stays with the shed's assignee. It does offer close /
+ * reopen / abandon, but only when the backend's own capability flags say this viewer holds the
+ * monitor authority: this is the Growth Director's leadership surface, and leaving it purely
+ * read-only left them with no reachable way to end or reopen the work they oversee.
  */
 @Composable
 fun WeighingOperatorsScreen(
     state: WeighingUiState,
     onRefresh: () -> Unit = {},
     onSelectPark: (String?) -> Unit = {},
+    onReopenAssignment: (WeighingAssignmentUiRow) -> Unit = {},
+    onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
+    onAbandonAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -82,7 +86,19 @@ fun WeighingOperatorsScreen(
                     LaunchedEffect(assignment.campaignShedId, index, state.assignments.size) {
                         onAssignmentRowVisible(index)
                     }
-                    WeighingReadOnlyCard(assignment)
+                    if (state.canEndWeighing || state.canReopenWeighing) {
+                        WeighingOversightCard(
+                            row = assignment,
+                            canEnd = state.canEndWeighing,
+                            canReopen = state.canReopenWeighing,
+                            onReopen = { onReopenAssignment(assignment) },
+                            onClose = { reason -> onCloseAssignment(assignment, reason) },
+                            onAbandon = { reason -> onAbandonAssignment(assignment, reason) },
+                        )
+                    } else {
+                        // No oversight authority on this read: the row must not even LOOK actionable.
+                        WeighingReadOnlyCard(assignment)
+                    }
                 }
                 if (state.assignmentsLoadingMore) {
                     item(key = "operators-loading-more") { ListLoadingFooter() }

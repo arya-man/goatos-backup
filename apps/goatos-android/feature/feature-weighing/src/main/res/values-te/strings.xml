@@ -185,6 +185,7 @@
     <string name="weighing_leadership_refresh">బరువు రిఫ్రెష్ చేయండి</string>
     <string name="weighing_leadership_tap_to_reopen">మళ్లీ తెరవడానికి నొక్కండి</string>
     <string name="weighing_leadership_close">మూసివేయండి</string>
+    <string name="weighing_leadership_abandon">వదిలివేయండి</string>
     <string name="weighing_leadership_awaiting_verification">వీడియో తనిఖీ పెండింగ్ · %1$d</string>
     <string name="weighing_leadership_close_pending">ఇంకా మూసివేయడానికి సిద్ధంగా లేదు</string>
     <string name="weighing_leadership_loading">షెడ్యూల్ చేసిన పని లోడ్ అవుతోంది</string>

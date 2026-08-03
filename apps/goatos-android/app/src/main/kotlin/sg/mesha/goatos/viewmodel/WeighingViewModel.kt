@@ -68,6 +68,7 @@ import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.core.network.MAX_SCOPE_HYDRATION_ROWS
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_MINE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.rfid.RfidReaderPort
 import sg.mesha.goatos.rfid.RfidReaderStatus
 import sg.mesha.goatos.feature.scan.ScanReaderConnection
@@ -144,6 +145,15 @@ class WeighingViewModel @Inject constructor(
      * [knownTaskParks] below, which already solves the identical problem for the planner tab.
      */
     private val knownAssignmentParks = MutableStateFlow<Map<String, String>>(emptyMap())
+
+    /**
+     * What the viewer may do to the ASSIGNMENT rows, as the backend states it on the same read.
+     *
+     * Server truth, never a role guess on the client: a Growth Director holds the monitor
+     * authority AND executes their own sheds, so the oversight actions are decided by these flags
+     * rather than by which screen happens to be on top.
+     */
+    private val assignmentCapabilities = MutableStateFlow(WeighingCapabilities())
     private val tasksLoading = MutableStateFlow(false)
     private val tasksAppending = MutableStateFlow(false)
 
@@ -310,7 +320,12 @@ class WeighingViewModel @Inject constructor(
             ->
             AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks)
         }.let { assignmentSelection ->
-            combine(assignmentSelection, loadingAssignments, plannerMode) { selection, loading, isPlanner ->
+            combine(
+                assignmentSelection,
+                loadingAssignments,
+                plannerMode,
+                assignmentCapabilities,
+            ) { selection, loading, isPlanner, capabilities ->
                 WeighingRootState(
                     assignments = selection.assignments,
                     loading = loading,
@@ -318,6 +333,7 @@ class WeighingViewModel @Inject constructor(
                     selectedParkId = selection.selectedParkId,
                     appendingAssignments = selection.appending,
                     knownParks = selection.knownParks,
+                    capabilities = capabilities,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
@@ -609,6 +625,7 @@ class WeighingViewModel @Inject constructor(
                 replacementAnimalId = form.replacementAnimalId,
                 availableAssignments = root.assignments,
                 knownParks = root.knownParks,
+                capabilities = root.capabilities,
                 loading = root.loading,
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
@@ -666,6 +683,13 @@ class WeighingViewModel @Inject constructor(
                 if (isPlannerSurface) {
                     refreshPlanner()
                     refreshTasks()
+                } else if (surface == WEIGHING_SCOPE_OPERATORS) {
+                    // The oversight surface's park chips need the WHOLE park list, not the parks
+                    // that happen to be on the loaded assignment pages (A22 again, one level up:
+                    // a park whose first assignment sits on page three had no chip to select, so
+                    // there was no way to reach its rows at all). Quiet: this is chip vocabulary,
+                    // and a viewer without the planning read must simply keep the paged fallback.
+                    refreshPlanner(quiet = true)
                 }
             }
         }
@@ -696,6 +720,7 @@ class WeighingViewModel @Inject constructor(
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
                         assignmentsError.value = null
+                        assignmentCapabilities.value = loaded.value.capabilities
                         rememberAssignmentParks(loaded.value.items)
                         // Do not clear a failure the planner read is still reporting.
                         message.value = plannerError.value
@@ -740,6 +765,7 @@ class WeighingViewModel @Inject constructor(
                         assignments.value = assignments.value + loaded.value.items.filter { it.campaignShedId !in known }
                         assignmentsNextCursor.value = loaded.value.nextCursor?.takeIf { it.isNotBlank() && it != cursor }
                         assignmentsError.value = null
+                        assignmentCapabilities.value = loaded.value.capabilities
                         rememberAssignmentParks(loaded.value.items)
                         message.value = plannerError.value
                     }
@@ -887,6 +913,10 @@ class WeighingViewModel @Inject constructor(
 
     fun reopenAssignment(row: WeighingAssignmentUiRow) {
         if (scopeKey != null || actionInFlight.value || !row.isClosed) return
+        if (!assignmentCapabilities.value.canReopen) {
+            message.value = "You do not have permission to reopen weighing work."
+            return
+        }
         actionInFlight.value = true
         viewModelScope.launch {
             try {
@@ -906,6 +936,10 @@ class WeighingViewModel @Inject constructor(
 
     fun closeShedCampaign(row: WeighingAssignmentUiRow, reason: String) {
         if (scopeKey != null || actionInFlight.value || row.isClosed) return
+        if (!assignmentCapabilities.value.canEnd) {
+            message.value = "You do not have permission to close weighing work."
+            return
+        }
         actionInFlight.value = true
         viewModelScope.launch {
             try {
@@ -916,6 +950,32 @@ class WeighingViewModel @Inject constructor(
                         refreshPlanner()
                     }
                     is AppResult.Err -> message.value = closed.message
+                }
+            } finally {
+                actionInFlight.value = false
+            }
+        }
+    }
+
+    /**
+     * Ends a shed scope that will never be completed. Guarded by the SERVER's own capability flag
+     * and refused on an already-closed bucket, so the action is only offered where it can succeed.
+     */
+    fun abandonAssignment(row: WeighingAssignmentUiRow, reason: String) {
+        if (scopeKey != null || actionInFlight.value || row.isClosed) return
+        if (!assignmentCapabilities.value.canEnd) {
+            message.value = "You do not have permission to abandon weighing work."
+            return
+        }
+        actionInFlight.value = true
+        viewModelScope.launch {
+            try {
+                when (val abandoned = repository.abandonScope(row.campaignId, row.campaignShedId, reason)) {
+                    is AppResult.Ok -> {
+                        message.value = "${row.label} abandoned."
+                        refreshAssignments()
+                    }
+                    is AppResult.Err -> message.value = abandoned.message
                 }
             } finally {
                 actionInFlight.value = false
@@ -963,7 +1023,7 @@ class WeighingViewModel @Inject constructor(
      * catalog and the refresh only writes into it, so a failed refresh leaves the cached operator
      * vocabulary in place instead of stripping names off the task detail.
      */
-    private fun refreshPlanner() {
+    private fun refreshPlanner(quiet: Boolean = false) {
         if (scopeKey != null) return
         if (observePlannerJob == null) {
             observePlannerJob = viewModelScope.launch {
@@ -971,6 +1031,7 @@ class WeighingViewModel @Inject constructor(
                     .collect { cached ->
                         if (!cached.hasCache && cached.catalog.parks.isEmpty()) return@collect
                         plannerCatalog.value = cached.catalog
+                        rememberCatalogParks(cached.catalog)
                     }
             }
         }
@@ -982,17 +1043,37 @@ class WeighingViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         plannerError.value = null
                         // Do not clear a failure the task-list read is still reporting.
-                        message.value = assignmentsError.value
+                        if (!quiet) message.value = assignmentsError.value
                     }
                     is AppResult.Err -> {
-                        plannerError.value = loaded.message.toWeighingReadMessage()
-                        reportReadFailure(loaded.message)
+                        // A quiet read is chip vocabulary only. Its failure must not take over the
+                        // banner of a list that loaded perfectly well from its own endpoint.
+                        if (!quiet) {
+                            plannerError.value = loaded.message.toWeighingReadMessage()
+                            reportReadFailure(loaded.message)
+                        }
                     }
                 }
             } finally {
                 loadingPlanner.value = false
             }
         }
+    }
+
+    /**
+     * The AUTHORITATIVE park vocabulary behind the chips.
+     *
+     * The catalog is a park-grain read with no cursor precisely so a picker can offer every park
+     * (see WeighingPlannerCatalogResponseDto). Merged rather than assigned: the paged rows remain a
+     * fallback for a viewer whose catalog read is unavailable.
+     */
+    private fun rememberCatalogParks(catalog: WeighingPlannerCatalog) {
+        val parks = catalog.parks
+            .filter { it.parkId.isNotBlank() }
+            .associate { it.parkId to it.name.ifBlank { it.parkId } }
+        if (parks.isEmpty()) return
+        knownAssignmentParks.value = knownAssignmentParks.value + parks
+        knownTaskParks.value = knownTaskParks.value + parks
     }
 
     private fun refreshScope() {
@@ -1703,6 +1784,7 @@ class WeighingViewModel @Inject constructor(
         replacementAnimalId: String?,
         availableAssignments: List<WeighingAssignment>,
         knownParks: Map<String, String>,
+        capabilities: WeighingCapabilities,
         loading: Boolean,
         appendingAssignments: Boolean,
         isPlanner: Boolean,
@@ -1743,10 +1825,15 @@ class WeighingViewModel @Inject constructor(
             assignments = availableAssignments
                 .filter { selectedParkId == null || it.parkId == selectedParkId }
                 .map { it.toUiRow() },
-            // Built from EVERY park seen so far (knownParks), not the current possibly
-            // park-filtered page -- see [knownAssignmentParks]. Fixes A22: selecting a park used
-            // to collapse this to one chip with no way back to "All parks".
+            // Built from the authoritative park catalog merged with every park seen so far
+            // (knownParks), never from the current page -- see [knownAssignmentParks]. Sourcing it
+            // from loaded rows meant a park absent from page one had no chip, and selecting a park
+            // collapsed this to one chip with no way back to "All parks".
             parkFilters = knownParks.toParkFilters(selectedParkId),
+            // Server truth about this viewer's oversight authority, so the screen offers close /
+            // reopen / abandon exactly where the write would be accepted.
+            canEndWeighing = capabilities.canEnd,
+            canReopenWeighing = capabilities.canReopen,
             loading = loading,
             assignmentsLoadingMore = appendingAssignments,
             category = category,
@@ -2109,6 +2196,8 @@ private data class WeighingRootState(
     // see [knownAssignmentParks]. Keeps the "All parks" chip and every other park chip reachable
     // after the user selects a park (A22).
     val knownParks: Map<String, String> = emptyMap(),
+    /** Backend-stated oversight authority for these rows. See [WeighingViewModel] capabilities. */
+    val capabilities: WeighingCapabilities = WeighingCapabilities(),
 )
 
 private data class AssignmentParkSelection(
