@@ -18,7 +18,6 @@
     <string name="weighing_status_submitted">సమర్పించబడింది</string>
     <string name="weighing_status_closed">మూసివేయబడింది</string>
     <string name="weighing_status_canceled">రద్దు</string>
-    <string name="weighing_status_completed">పూర్తయింది</string>
     <string name="weighing_status_not_started">ప్రారంభం కాలేదు</string>
     <string name="weighing_kg">కేజీ</string>
 
@@ -93,9 +92,6 @@
     <string name="weighing_field_total_weight">మొత్తం బరువు</string>
     <string name="weighing_field_animal_count">జంతువుల సంఖ్య</string>
     <string name="weighing_average_per_animal_fmt">ఒక్కో జంతువుకు సగటు %1$s కేజీ</string>
-    <string name="weighing_videos_saved_fmt">%1$d సేవ్ అయ్యాయి</string>
-    <string name="weighing_videos_saved_and_uploading_fmt">%1$d సేవ్ అయ్యాయి · %2$d ఇంకా అప్‌లోడ్ అవుతున్నాయి</string>
-    <string name="weighing_videos_uploading_only_fmt">%1$d అప్‌లోడ్ అవుతోంది</string>
     <string name="weighing_videos_limit_reached">గరిష్ఠంగా 5 వీడియోలు రికార్డ్ చేయబడ్డాయి</string>
     <string name="weighing_videos_uploaded_fmt">%1$d అప్‌లోడ్ అయ్యాయి</string>
     <string name="weighing_video_index_fmt">వీడియో %1$d</string>

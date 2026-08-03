@@ -419,8 +419,19 @@ function campaignFromApi(
   const operator = role === "operator";
   const progress = item.progress;
   const scopes = (item.sheds ?? []).map((shed) => scopeFromApi(item, shed));
-  const individualCompleted = progress.individual_completed_count;
-  const shedPartitionCompleted = progress.per_scope_completed_count;
+  // CROSS-SURFACE COUNT PARITY. These tiles used to read progress.individual_completed_count /
+  // per_scope_completed_count, which is a THIRD derivation of "how many animals" living on the
+  // same page as the shed rows' weighed/submitted pair -- and it disagreed with them twice over:
+  // the individual tile excludes per_shed_partition buckets entirely (a 40-animal lump-sum proof
+  // rendered "0 captured"), while the per-shed tile counted BUCKETS under the same word the tile
+  // beside it used for ANIMALS. Both tiles now sum the SAME backend-owned facts the rows render,
+  // so one business fact has exactly one definition on this screen.
+  const individualCompleted = scopes
+    .filter((scope) => scope.category === "individual_animal")
+    .reduce((sum, scope) => sum + scope.weighedCount, 0);
+  const shedPartitionCompleted = scopes
+    .filter((scope) => scope.category !== "individual_animal")
+    .reduce((sum, scope) => sum + scope.weighedCount, 0);
   // Aggregate campaign-level attention state from real bucket values.
   const proofPending = scopes.reduce((sum, scope) => sum + scope.proofPendingCount, 0);
 

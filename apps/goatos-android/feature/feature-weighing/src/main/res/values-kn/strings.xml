@@ -18,7 +18,6 @@
     <string name="weighing_status_submitted">ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="weighing_status_closed">ಮುಚ್ಚಲಾಗಿದೆ</string>
     <string name="weighing_status_canceled">ರದ್ದು</string>
-    <string name="weighing_status_completed">ಪೂರ್ಣ</string>
     <string name="weighing_status_not_started">ಪ್ರಾರಂಭವಾಗಿಲ್ಲ</string>
     <string name="weighing_kg">ಕೆಜಿ</string>
 
@@ -93,9 +92,6 @@
     <string name="weighing_field_total_weight">ಒಟ್ಟು ತೂಕ</string>
     <string name="weighing_field_animal_count">ಪ್ರಾಣಿಗಳ ಸಂಖ್ಯೆ</string>
     <string name="weighing_average_per_animal_fmt">ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ಸರಾಸರಿ %1$s ಕೆಜಿ</string>
-    <string name="weighing_videos_saved_fmt">%1$d ಉಳಿಸಲಾಗಿದೆ</string>
-    <string name="weighing_videos_saved_and_uploading_fmt">%1$d ಉಳಿಸಲಾಗಿದೆ · %2$d ಇನ್ನೂ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
-    <string name="weighing_videos_uploading_only_fmt">%1$d ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_videos_limit_reached">ಗರಿಷ್ಠ 5 ವೀಡಿಯೊಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಲಾಗಿದೆ</string>
     <string name="weighing_videos_uploaded_fmt">%1$d ಅಪ್‌ಲೋಡ್ ಆಗಿವೆ</string>
     <string name="weighing_video_index_fmt">ವೀಡಿಯೊ %1$d</string>

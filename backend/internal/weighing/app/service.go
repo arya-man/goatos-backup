@@ -64,6 +64,19 @@ func (s *Service) WithVerificationWithdrawer(withdrawer VerificationWithdrawer) 
 	return s
 }
 
+// VerificationApplyAcker reports back to the verification module that weighing has
+// APPLIED a verdict to its own observation.
+//
+// It is a separate seam from the two above for the same reason they are separate
+// from each other: an existing fake that only raises or retires items keeps
+// satisfying its own interface unchanged. It is consumed by the verdict handler
+// (weighing/app/verification_verdict_handler.go), not by Service -- the ack
+// belongs to the applier, which is the only thing that knows an application
+// actually happened.
+type VerificationApplyAcker interface {
+	AckWeighingVerificationApplied(ctx context.Context, tenantID, refType string, observationIDs []string) error
+}
+
 // WithProcessStateReader wires the PHASE 2 Calendar / Control Tower binding. It is
 // optional injection (like the verification enqueuer) so the planner/execution
 // port surface does not grow a read model every fake has to implement.

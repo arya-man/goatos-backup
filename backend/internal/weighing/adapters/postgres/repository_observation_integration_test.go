@@ -124,7 +124,7 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 		CampaignShedID:    repoAnimalScope,
 		ScannedIdentifier: scannedTag,
 		WeightKg:          11.0,
-		ProofArtifactID:   repoShedProofTwo,
+		ProofArtifactID:   repoExpectedShedProofTwo,
 		IdempotencyKey:    "animal:free-flow-first",
 		RecordedBy:        repoOperator,
 	})
@@ -139,7 +139,7 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 		CampaignShedID:    repoAnimalScope,
 		ScannedIdentifier: scannedTag,
 		WeightKg:          12.0,
-		ProofArtifactID:   repoShedProofThree,
+		ProofArtifactID:   repoExpectedShedProofThree,
 		IdempotencyKey:    "animal:free-flow-replace-proof",
 		RecordedBy:        repoOperator,
 	})
@@ -150,7 +150,7 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 		t.Fatalf("updated observation id=%s, want same row %s", updated.ObservationID, first.ObservationID)
 	}
 	assertWeighingAuditAction(t, ctx, pool, updated.ObservationID, "weighing.observation_updated")
-	assertWeighingAuditChange(t, ctx, pool, updated.ObservationID, repoShedProofTwo, repoShedProofThree, 11.0, 12.0)
+	assertWeighingAuditChange(t, ctx, pool, updated.ObservationID, repoExpectedShedProofTwo, repoExpectedShedProofThree, 11.0, 12.0)
 
 	replayedFirst, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID:          repoTenant,
@@ -158,7 +158,7 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 		CampaignShedID:    repoAnimalScope,
 		ScannedIdentifier: scannedTag,
 		WeightKg:          11.0,
-		ProofArtifactID:   repoShedProofTwo,
+		ProofArtifactID:   repoExpectedShedProofTwo,
 		IdempotencyKey:    "animal:free-flow-first",
 		RecordedBy:        repoOperator,
 	})
@@ -174,7 +174,7 @@ func TestFreeFlowAnimalObservationUpdateAndProofReplacementAreAudited(t *testing
 		CampaignShedID:    repoAnimalScope,
 		ScannedIdentifier: scannedTag,
 		WeightKg:          13.0,
-		ProofArtifactID:   repoShedProofTwo,
+		ProofArtifactID:   repoExpectedShedProofTwo,
 		IdempotencyKey:    "animal:free-flow-first",
 		RecordedBy:        repoOperator,
 	})
@@ -302,7 +302,7 @@ WHERE tenant_id=$2::uuid AND campaign_shed_id=$3::uuid`,
 	}
 
 	obs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 411,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 411, AnimalCount: 40,
 		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:shed-op-accepted", RecordedBy: repoOtherOp,
 	})
 	if err != nil {
@@ -339,8 +339,13 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Other Operator Newer Sh
 	if len(page.Items) != 1 || page.Items[0].CampaignID != repoCampaign {
 		t.Fatalf("operator page=%+v, want assigned older campaign despite newer unassigned first page", page.Items)
 	}
-	if page.Items[0].ParkName != "CBE" {
-		t.Fatalf("operator campaign park name=%q, want CBE", page.Items[0].ParkName)
+	// ParkName is the location's human-readable NAME ("Coimbatore"), not its
+	// short code ("CBE"). The baseline park row has carried name='Coimbatore'
+	// since the migration squash; this assertion wanted "CBE" from the day it
+	// was written and has therefore never passed. Product is right, the
+	// assertion was wrong.
+	if page.Items[0].ParkName != "Coimbatore" {
+		t.Fatalf("operator campaign park name=%q, want Coimbatore", page.Items[0].ParkName)
 	}
 	if len(page.Items[0].Sheds) != 2 {
 		t.Fatalf("operator campaign sheds=%+v, want only assigned fixture sheds", page.Items[0].Sheds)
@@ -411,7 +416,9 @@ func TestRecordShedObservationPersistsAverageWeightAndOneToFiveProofs(t *testing
 		TenantID:         repoTenant,
 		CampaignID:       repoCampaign,
 		CampaignShedID:   repoShedScope,
+		WeightKg:         107.0,
 		AverageWeightKg:  13.375,
+		AnimalCount:      8,
 		ProofArtifactIDs: proofIDs,
 		IdempotencyKey:   "shed:five-proof-bundle",
 		RecordedBy:       repoOperator,
@@ -443,7 +450,9 @@ GROUP BY wso.average_weight_kg`, repoTenant, obs.ObservationID).Scan(&average, &
 		TenantID:         repoTenant,
 		CampaignID:       repoCampaign,
 		CampaignShedID:   repoShedScope,
+		WeightKg:         107.0,
 		AverageWeightKg:  13.375,
+		AnimalCount:      8,
 		ProofArtifactIDs: proofIDs,
 		IdempotencyKey:   "shed:five-proof-bundle",
 		RecordedBy:       repoOperator,
@@ -494,16 +503,26 @@ func TestDelayedCampaignRemainsExecutableForRolledForwardWork(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, WeightKg: 12.4,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, ScannedIdentifier: "tag-delayed", WeightKg: 12.4,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:delayed", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record delayed animal observation: %v", err)
+	}
+	// FREE-FLOW: a scan alone never completes an individual bucket -- there is
+	// no expected set, so nothing can tell the system the operator is done.
+	// The bucket completes on the operator's SUBMIT ack.
+	// NOTE: it stays 'pending', not 'in_progress' -- nothing on the capture path
+	// advances a bucket to in_progress (only reopen/reactivate writes that
+	// status). See the W-19 finding on operator_summaries' in_progress counter.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "animal:delayed-submit", []string{"tag-delayed"}); err != nil {
+		t.Fatalf("submit delayed individual scope: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 	assertCampaignStatus(t, ctx, pool, domain.StatusDelayed)
 
 	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410, AnimalCount: 40,
 		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:delayed", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record delayed shed observation: %v", err)
@@ -527,17 +546,25 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	repo := NewRepository(pool, 5*time.Second)
 
 	if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, WeightKg: 12.4,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, ScannedIdentifier: "tag-complete-scope", WeightKg: 12.4,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:complete-scope", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record animal observation: %v", err)
+	}
+	// FREE-FLOW: the capture alone does not complete the bucket; SUBMIT is the
+	// completion signal (see AGENTS.md, "WEIGHING IS SCAN-AND-SUBMIT"). The
+	// bucket is still 'pending' here -- see the note in the delayed-campaign
+	// test above.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, "pending")
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator, "animal:complete-scope-submit", []string{"tag-complete-scope"}); err != nil {
+		t.Fatalf("submit individual scope: %v", err)
 	}
 	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
 	assertScopeStatus(t, ctx, pool, repoShedScope, "pending")
 	assertCampaignStatus(t, ctx, pool, domain.StatusPublished)
 
 	if _, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope, WeightKg: 410, AnimalCount: 40,
 		ProofArtifactID: repoShedProof, IdempotencyKey: "shed:complete-campaign", RecordedBy: repoOperator,
 	}); err != nil {
 		t.Fatalf("record shed observation: %v", err)
@@ -546,7 +573,7 @@ func TestRecordObservationsRollUpScopeAndCampaignCompletion(t *testing.T) {
 	assertCampaignStatus(t, ctx, pool, domain.StatusCompleted)
 
 	_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, WeightKg: 12.5,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, ScannedIdentifier: "tag-after-complete", WeightKg: 12.5,
 		ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed, IdempotencyKey: "animal:after-complete", RecordedBy: repoOperator,
 	})
 	if !errors.Is(err, ports.ErrImmutable) {
@@ -873,6 +900,8 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing
 	// Bucket-scoped proof for the individual bucket. Weighing proof is scoped to the
 	// WEIGHING BUCKET's shed, never to a goat (maintainer decision 2026-07-31).
 	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+	insertProof(t, ctx, pool, repoExpectedShedProofTwo, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+	insertProof(t, ctx, pool, repoExpectedShedProofThree, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
 	insertProof(t, ctx, pool, repoPendingProof, "video", "pending", "goat", repoAnimal, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoAnimalShedProof, "video", "completed", "shed", repoActualShed, "goat", repoAnimal)
 	insertProof(t, ctx, pool, repoShedProof, "video", "completed", "shed", repoPerShed, "shed", repoPerShed)

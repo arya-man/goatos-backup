@@ -2767,6 +2767,9 @@ type VerificationItem struct {
 	RowVersion         int32
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	ApplierAckExpected bool
+	AppliedAt          pgtype.Timestamptz
+	AppliedByModule    pgtype.Text
 }
 
 type VwGoatTagging struct {

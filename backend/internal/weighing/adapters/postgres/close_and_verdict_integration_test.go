@@ -16,7 +16,15 @@ import (
 
 const (
 	repoExpectedShedProof = "00000000-0000-4000-8000-000000009401"
-	repoVerifier          = "00000000-0000-4000-8000-000000000401"
+	// Additional completed video proofs scoped to the INDIVIDUAL bucket's shed
+	// (repoExpectedShed). RecordAnimalObservation only accepts a proof whose
+	// scope_id equals the bucket's location_id, so a test that replaces the
+	// proof on an individual capture needs more than one of these. Without them
+	// tests were reaching for repoShedProofTwo/Three, which the fixture scopes
+	// to the LUMP-SUM shed, and the write correctly rejected them.
+	repoExpectedShedProofTwo   = "00000000-0000-4000-8000-000000009402"
+	repoExpectedShedProofThree = "00000000-0000-4000-8000-000000009403"
+	repoVerifier               = "00000000-0000-4000-8000-000000000401"
 
 	// Roster rows seeded ALREADY terminal, to prove close leaves them alone.
 	repoTerminalUnavailableAnimal = "00000000-0000-4000-8000-000000009291"

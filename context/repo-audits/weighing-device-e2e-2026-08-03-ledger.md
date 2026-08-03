@@ -63,7 +63,6 @@ without proof.
 | W-17 | Event spine has never run | **P1** | All 92 outbox rows were pending. `work_state` has exactly ONE writer (the sweeper), so the kernel's view and the observation tables disagree by design. Kernel worker also starts in SHADOW mode by default |
 | W-18 | Verifier flow unproven end to end | **P1** | Queue renders and approval flips the item, but with no relay the verdict handler never runs. It drains to empty and nothing changes — **reads as "works" and is the opposite**. Approval also never closes a bucket; that is a separate `CloseScope` |
 | W-19 | 12 pre-existing failures in `weighing/adapters/postgres` | **P1** | Broken `seedWeighingObservationFixture`. Gates the multi-task, rework-rescan and reopen tests — i.e. it is masking coverage of exactly the paths the run did not exercise. Package is permanently red, so it cannot distinguish a new regression |
-| W-20 | Verifier queue is per-ANIMAL | **P1** | 15 individual weighings → 15 items. At 5k kids weekly that is ~5,000 videos for one human. Operating-model wall, not a query problem |
 | W-21 | No "shed is empty" outcome | **P1** | Zero animals is rejected; the only escape is `AbandonScope`, which needs `WeighingMonitor` — leadership only. Day one, an operator at an empty shed must phone a park head |
 | W-22 | ExoPlayer bypasses the telemetry interceptor | **P1** | media3 uses its own HTTP stack. It is the verifier's playback engine, and the next act is video review — a dead player would produce no signal |
 | W-23 | Outbox/upload path has zero logging | **P1** | A stuck upload prints nothing. This is why the original blocker needed DB forensics |
@@ -77,6 +76,29 @@ without proof.
 | W-31 | Edit sheds after publish | **P3** | Recommended shape: allow ADD, never REMOVE (a bucket may hold captures/proof/verification). W-05 gives a workaround: plan leftovers as a second task |
 
 ---
+
+## CLOSED — NOT A BUG (maintainer ruling 2026-08-03)
+
+**W-20 — verifier queue is per-animal.** Raised by a judge as a scale/operating-model
+defect; I repeated it. **Both wrong.** The queue grain follows the EVIDENCE, and it is
+already consistent across every module:
+
+| Path | Evidence produced | Verification items |
+|---|---|---|
+| weighing individual | one video PER ANIMAL | one per animal — each video is separate evidence |
+| weighing lump-sum | one video per SHED | one per shed |
+| vaccination | one proof per SUBMISSION | one per submission |
+
+Same rule everywhere: one review per piece of evidence. My "grain inconsistency between
+modules" argument was wrong — the modules differ in evidence shape, not in rule.
+
+What remains is arithmetic, not a defect: 5,000 individually-weighed kids means 5,000
+videos, because 5,000 videos were recorded. Reducing that means changing what evidence is
+captured (a product decision), never the queue grain.
+
+**Do not reopen as a bug.** If review volume becomes an operational problem, the question
+to ask is whether per-animal video is still required — not whether the queue should batch
+evidence the operator captured separately.
 
 ## BANNED — do not reopen
 

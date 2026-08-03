@@ -927,7 +927,7 @@ func proofMetadata(proof proofFixture) string {
 }
 
 // The fixture no longer derives a roster verdict. weighing_observations.
-// mismatch_status was DROPPED (migration 000081): free-flow weighing has no
+// mismatch_status was DROPPED (migration 000082): free-flow weighing has no
 // expected set, so a scan cannot be "expected", "wrong shed" or "extra".
 // The fixture still carries where the animal was expected and where it actually
 // was -- those are places, not verdicts, and the read path renders them as such.

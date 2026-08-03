@@ -35,6 +35,10 @@ dependencies {
 
     // Streamed signed-URL video playback for the verification queue (verifier-app-and-flow.md).
     // Capture-only CameraX lives in :device:device-camera; this feature is playback-only.
+    // Players are built via ProofPlayerFactory (:core:core-media), NOT ExoPlayer.Builder
+    // directly — that routes playback through the app's instrumented OkHttp client so a failed
+    // proof-video fetch reaches the telemetry seam (W-22).
+    implementation(project(":core:core-media"))
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 }
