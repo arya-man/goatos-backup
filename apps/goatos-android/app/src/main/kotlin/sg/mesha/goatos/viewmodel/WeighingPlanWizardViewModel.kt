@@ -29,6 +29,7 @@ import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardBucketRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardConfigRow
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardDateOption
+import sg.mesha.goatos.feature.weighing.plan.WeighingWizardOperatorLoad
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardOperatorOption
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardParkOption
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardReviewRow
@@ -757,20 +758,18 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         operators = operatorsForPark().map {
             WeighingWizardOperatorOption(userId = it.userId, displayName = it.displayName)
         },
-        configSummary = buildString {
-            append(individualCount)
-            append(" individual · ")
-            append(ordered.size - individualCount)
-            append(" lump-sum")
-            perOperator.entries
-                .filter { it.key.isNotBlank() }
-                .forEach { (userId, count) ->
-                    append(" · ")
-                    append(operatorNames[userId] ?: "Operator")
-                    append(' ')
-                    append(count)
-                }
-        },
+        // Counts stay NUMBERS. The screen names their unit and joins them, in the reader's
+        // own language -- a sentence built here can only ever be English.
+        configIndividualCount = individualCount,
+        configLumpSumCount = ordered.size - individualCount,
+        configPerOperator = perOperator.entries
+            .filter { it.key.isNotBlank() }
+            .map { (userId, count) ->
+                WeighingWizardOperatorLoad(
+                    displayName = operatorNames[userId].orEmpty(),
+                    shedCount = count,
+                )
+            },
         repeatSourceLabel = repeat?.let { "From ${it.parkName} · ${it.sourceDateLabel}" },
         repeatDroppedCount = repeatDropped,
         reviewRows = ordered.map { (locationId, selection) ->
