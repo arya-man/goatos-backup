@@ -128,7 +128,7 @@ guardrails:
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
 	$(MAKE) weighing-kernel-phase2-guard
-	$(MAKE) weighing-abandon-guard
+	$(MAKE) weighing-close-gate-guard
 	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
@@ -278,10 +278,10 @@ weighing-kernel-phase2-guard:
 	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs
 
-.PHONY: weighing-abandon-guard
-weighing-abandon-guard: ## Permanent guardrail: weighing vocabulary is close/reopen only; abandon is banned
-	node tools/agent-hooks/check-weighing-abandon-guard.mjs --self-test
-	node tools/agent-hooks/check-weighing-abandon-guard.mjs
+.PHONY: weighing-close-gate-guard
+weighing-close-gate-guard: ## Permanent guardrail: weighing is close/reopen only and the close gate is unconditional
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs
 
 .PHONY: migration-duplicate-versions-guard
 migration-duplicate-versions-guard:
