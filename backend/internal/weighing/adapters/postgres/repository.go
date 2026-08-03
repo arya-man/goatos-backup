@@ -1518,7 +1518,15 @@ WITH campaign AS (
     observation.scanned_identifier AS scanned_identifier_text, observation.weight_kg::float8,
     observation.proof_artifact_id::text,
     COALESCE(observation.expected_location_id::text,'') AS expected_location_id_text,
-    '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at,
+    -- The row's REAL actual location, not a hardcoded ''. These two used to return empty
+    -- strings, so every edit-path event silently dropped the operator-supplied location that
+    -- the inserted-path event carries -- a value the row itself has had all along (the UPDATE
+    -- above deliberately does not touch actual_location_id, so this is the location captured
+    -- when the animal was first scanned). The fan-out fix removes the two-phase traffic that
+    -- was flooding this path, but the path still runs for what it was always for: a genuine
+    -- weight correction and a verifier-rework re-capture. Those must not lose the location.
+    COALESCE(observation.actual_location_id::text,'') AS actual_location_id_text,
+    COALESCE(observation.actual_location_label,'') AS actual_location_label_text, observation.accepted_at,
     -- is_update means "this write opened a NEW evidence round", not merely "a row already
     -- existed". A content-identical re-post reports FALSE so the service does not withdraw
     -- and re-raise a verification item for evidence that never changed.
@@ -3006,7 +3014,7 @@ func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType
 		"visibility_scope": map[string]any{"tenant_id": tenantID},
 		"evidence_refs":    []any{},
 		"payload":          payload,
-		"trace_id":         idem,
+		"trace_id":         boundedTraceID(idem),
 	})
 	if err != nil {
 		return err
@@ -3021,9 +3029,42 @@ func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType
 	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO outbox_messages (tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id, topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at)
-VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
-ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem)
+VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, $8, 'pending', now())
+ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem, boundedTraceID(idem))
 	return err
+}
+
+// maxEnvelopeTraceIDLen mirrors trace_id's maxLength in
+// contracts/jsonschema/domain-event-envelope.schema.json. The envelope allows an
+// idempotency_key of up to 320 characters but a trace_id of only 200, and this
+// producer used the idempotency key verbatim as the trace id -- so any key longer
+// than 200 produced an envelope that could never validate.
+const maxEnvelopeTraceIDLen = 200
+
+// boundedTraceID keeps trace_id inside the envelope contract.
+//
+// This is the ACTUAL cause of the 12 undeliverable events in the first relay run
+// against real device data -- not the missing actual_location_id, which is a real
+// but separate data-loss bug on the edit path (the envelope schema does not
+// constrain payload contents at all, so a missing payload field cannot fail
+// validation). The two were perfectly correlated because the client's second,
+// `:proof:`-suffixed post was BOTH the one that took the edit path AND the one
+// whose key was long enough (226 chars) to overflow trace_id; the 15 that
+// published had 183-char keys. Two campaign_created events failed the same way at
+// 249 and 431 characters.
+//
+// The relay marks a failed envelope 'failed' on attempt 1 and never retries it, so
+// this is silent, permanent event loss. trace_id is a correlation id, not an
+// identity, so shortening it loses nothing -- but a plain truncation would make two
+// distinct long keys collide, so the overflow keeps a readable prefix plus a
+// deterministic digest of the WHOLE key.
+func boundedTraceID(idem string) string {
+	if len(idem) <= maxEnvelopeTraceIDLen {
+		return idem
+	}
+	sum := sha256.Sum256([]byte(idem))
+	digest := hex.EncodeToString(sum[:])[:32]
+	return idem[:maxEnvelopeTraceIDLen-1-len(digest)] + ":" + digest
 }
 
 func weighingSubjectType(eventType string) string {

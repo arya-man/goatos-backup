@@ -839,6 +839,27 @@ class WeighingRepositoryTest {
         assertEquals("weighing:individual:campaign-1:group-1:campaign-shed-1:TAG-1:local-2", corrected.value.idempotencyKey)
     }
 
+    // The campaign-create idempotency key embedded the full bucket list verbatim, so it grew
+    // without bound -- the first real device run produced 249- and 431-character keys. The
+    // envelope caps idempotency_key at 320 and trace_id at 200, so both campaign_created events
+    // were written and then permanently rejected by the relay (failed on attempt 1, never
+    // retried). A digest holds the key at a constant width while keeping the identity the key is
+    // supposed to name: the same bucket SET is the same task.
+    @Test
+    fun `campaign create key is bounded and order-independent`() {
+        val buckets = (1..40).map { "9100000$it-0000-4000-8000-00000000020$it:individual_animal:op-$it" }
+        val key = "weighing:create:2026-08-03:park-1:" + weighingBucketSetDigest(buckets)
+        assertTrue(
+            "campaign create key is ${key.length} chars; the envelope caps idempotency_key at 320 and trace_id at 200",
+            key.length <= 200,
+        )
+        // Same SET, different order, must be the same task -- otherwise a re-ordered selection
+        // creates a duplicate campaign.
+        assertEquals(weighingBucketSetDigest(buckets), weighingBucketSetDigest(buckets.reversed()))
+        // A genuinely different set must be a different task.
+        assertTrue(weighingBucketSetDigest(buckets) != weighingBucketSetDigest(buckets.drop(1)))
+    }
+
     // THE TWO-PHASE FAN-OUT DEFECT (first real device run): a capture is posted TWICE.
     // attachIndividualProof is invoked once directly by the ViewModel and again by the
     // observeReadyProofs() reconciler for the SAME row. The first call leaves the row's key
