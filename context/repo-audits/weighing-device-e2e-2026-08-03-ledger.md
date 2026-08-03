@@ -55,6 +55,22 @@ without proof.
 
 ---
 
+
+## CLOSED — second wave (same day, after the verifier review)
+
+Written plainly on purpose: this file is read by people deciding what to work on
+next, not only by whoever wrote the code.
+
+| # | In plain terms | What was actually wrong |
+|---|---|---|
+| W-32 | **The verifier could not tell the animals apart.** Fifteen rows all read "individual animal weight · Godel 1". She is meant to check the video matches the weight, and was never shown the weight — if someone typed 120 kg instead of 12 kg she could not have caught it. | `SubjectLabel` was a hardcoded literal at `weighing/app/service.go:546,602`. The tag was already in `proof_artifacts.metadata->>'caption'`; the weight was one join away. Now `Tag 901007000504407 · 12.0 kg`, and lump-sum reads `Whole shed · 250.0 kg · 10 goats`. The rework push names the animal too. |
+| W-33 | **She could approve a video that no longer exists.** The player showed an error, Approve stayed enabled, and the approval went through. One tap, no confirmation, and there is no un-approve anywhere. | The verdict gate called the same resolver the queue list uses, which never checks storage — it only signs a URL from the DB row, so the gate was a tautology. Now the approve path stats the object (ONE item, at decision time, never on the queue read). Missing object → `422 evidence_missing` telling her to send it back for rework. Reject is deliberately never gated: when the proof is gone, rework is the only correct action left. Approve also gained a confirmation, because it was the only irreversible action AND the cheapest. |
+| W-34 | **A finished task never actually finished.** Every animal weighed, submitted and verified looked exactly like a task still waiting. The only way to "close" was a leader ending it early with a written reason — an exception path with no normal counterpart. | `ready_to_close` had been computed since migration 000058 and consumed by nothing. The last verdict now settles the bucket inside the applier's own transaction and cascades to the task, stamping `closure_kind='verified'`. `CloseScope`/`AbandonScope` keep their reason requirement and stamp `early`/`abandoned`, so a leader ending work early stays distinguishable from work finishing properly. `verified_count` now sits beside the existing `rework_count` so approval is finally visible. |
+| W-35 | **Five rejections in one shed sent five notifications** for one trip back to the shed. | There is no "verifier finished this shed" moment in the system, so one had to be invented. An un-delivered bounce is `verification_status='rework' AND rework_notified_at IS NULL`; a bounded sweeper flushes quiet buckets into one push naming the animals. A late sixth rejection is never stamped, so it is never lost — it flushes as its own smaller digest. |
+| W-36 | **Weighing on the web was dead code.** `/weighing` redirected away, the nav hid it, and the backend had no page for it — nobody could reach any of it. | Deleted, 1,586 lines. **Maintainer ruling: weighing is mobile only.** Backend APIs all stay — the phones are the only client. The existing test was repurposed into the guard against rebuilding it. |
+| W-37 | **The server checked "is this video from our farm?" but never "is it yours?"** In principle one operator could delete another's not-yet-submitted video. | `DeleteUnattachedProof` filtered on tenant and proof id with no owner predicate, and the handler was not even passing the actor. Now scoped to the uploader, in the SQL rather than only in Go. A stranger gets the same 404 as a missing id, so the refusal does not reveal that someone else's proof exists. Legacy rows with no recorded owner fail closed; the purge sweepers still collect them. Practical reachability was always low — ids are random and no screen lists another person's proofs — so this is defence in depth, not an incident. |
+
+---
 ## OPEN — carried forward
 
 | # | Issue | Severity | Note |
@@ -77,6 +93,19 @@ without proof.
 
 ---
 
+
+## OPEN — added after the verifier review (nobody working on these)
+
+Plain-language first, because these are the ones someone will pick up cold.
+
+| # | In plain terms | Where it lives |
+|---|---|---|
+| W-38 | **A shed being worked on looks untouched.** Nothing marks a shed "in progress" while an operator is scanning it — it reads as not-started until he submits. A director watching cannot tell someone is mid-shed, and the Operators screen has a "capturing" column that is therefore always zero. | No capture path writes `status='in_progress'`; only reopen/verdict paths do. `operator_summaries.go`'s `count(*) FILTER (WHERE cs.status='in_progress')` is structurally always 0. Decide: write it on first capture, or drop the column. |
+| W-39 | **A blank tag scan returns a server error** instead of a clear message. | `RecordAnimalObservation` / `RecordShedObservation` have no pre-insert validation for the free-flow required fields, so a CHECK violation (23514) leaks out as a 500 where a 400 belongs. |
+| W-40 | **Tapping "Counts" silently shows the vaccination queue.** | `VerifyQueueViewModel.kt:76-77` maps only `"weighing"`; every other module falls through to `VACCINATION`. Either map it or stop advertising the Counts module in bootstrap. |
+| W-41 | **Approving may still be invisible to leadership.** The closure work added `verified_count` and `closure_kind` to the reads, but no screen was updated to render them. | Backend exposes them; Android DTOs and any leadership surface still need to display them. Unverified end to end. |
+
+---
 ## CLOSED — NOT A BUG (maintainer ruling 2026-08-03)
 
 **W-20 — verifier queue is per-animal.** Raised by a judge as a scale/operating-model
@@ -99,6 +128,26 @@ captured (a product decision), never the queue grain.
 **Do not reopen as a bug.** If review volume becomes an operational problem, the question
 to ask is whether per-animal video is still required — not whether the queue should batch
 evidence the operator captured separately.
+
+
+## Also killed as NOT A BUG (maintainer, 2026-08-03) — do not re-raise
+
+- **"The verifier lands on an empty screen."** She lands on a default tab like any
+  app. Raised by me as a defect; the maintainer correctly pointed out that a default
+  landing tab is normal behaviour, not a bug.
+- **"Require server-confirmed weight before Submit."** Would break offline-first. The
+  rule is: weight + video pair per animal → row green → all rows green → Submit
+  appears. A weight saved locally IS the commitment; the outbox delivers it. Demanding
+  a server round-trip first would strand an operator in a shed with no signal.
+- **"An empty shed leaves the operator stuck."** Free-flow means the system can never
+  know a shed is empty — there is no roster to compare against. There is nothing to
+  detect and nothing to build.
+- **Per-animal verifier queue grain** — see B-5. One video per animal means one review
+  per animal; the grain follows the evidence.
+
+Pattern worth noticing: every one of these came from assuming weighing has rules it
+does not have. Read `AGENTS.md` → "WEIGHING IS SCAN-AND-SUBMIT" before filing a
+weighing finding.
 
 ## BANNED — do not reopen
 
