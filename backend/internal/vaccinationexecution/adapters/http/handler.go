@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1598,65 +1597,40 @@ func (h *Handler) allowParkID(w http.ResponseWriter, r *http.Request, parkID str
 	return ok
 }
 
-// hasVaccinationExecutionAuthorityTenantWide reports whether any grant is scoped to the whole
-// tenant AND carries a role that has vaccination-execution authority. A tenant-wide grant
-// for an unrelated role (e.g., growth_director for weighing only) returns false.
+// authorizedParkFilterVaccinationExecution returns the park IDs a park-scoped actor may
+// access for vaccination execution, or nil when the caller is tenant-wide with vaccination
+// authority (no restriction).
 //
-// This is the role-aware counterpart to HasTenantWideGrant, which checks scope only.
-// A caller must have BOTH tenant scope AND a role that carries VaccinationCampaign
-// (the write authority for vaccination scheduling) to be treated as tenant-wide for
-// vaccination execution.
-func hasVaccinationExecutionAuthorityTenantWide(grants []permissions.ActiveGrant, tenantID string) bool {
-	for _, grant := range grants {
-		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
-			// Check if this role carries vaccination-execution write authority
-			if permissions.RoleHasPermission(grant.Role, permissions.VaccinationCampaign) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// authorizedParkFilterVaccinationExecution returns the park IDs a park-scoped actor may access
-// for vaccination execution, or nil when the caller is tenant-wide with vaccination authority
-// (no restriction). Unlike the old HasTenantWideGrant check, this properly verifies that
-// the tenant-wide grant carries a vaccination-relevant role.
+// Both the tenant-wide test and the park set come from vaccexecd (ParkAuthorities /
+// HasTenantWideAuthority) instead of being spelled out here. This file used to carry its
+// own two lists and the Postgres adapter a third; they disagreed, and a gate that
+// disagrees with the filter behind it produces an empty screen rather than a 403 anybody
+// can diagnose. See vaccexecd.ParkAuthorities for why that set is what it is.
+//
 // A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
-// vaccinationExecutionParkCapabilities are the capabilities that make a park-scoped grant
-// relevant to vaccination execution: an operator's own TaskExecute authority (they scan/submit
-// their assigned shed's roster and reschedule their own obligations) and a director/park-head's
-// read-only VaccinationOverseeExecution oversight authority. A grant's park counts toward the
-// authorized set ONLY if that SAME grant's role carries one of these -- an unrelated grant (say,
-// a growth_director weighing grant) in a park must never leak vaccination-execution access there.
-var vaccinationExecutionParkCapabilities = []string{permissions.TaskExecute, permissions.VaccinationOverseeExecution}
-
 func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
-	if hasVaccinationExecutionAuthorityTenantWide(grants, tenantID) {
+	if vaccexecd.HasTenantWideAuthority(grants, tenantID) {
 		return nil
 	}
-	// Capability-aware: only count a grant's park if that SAME grant's role carries one of
-	// vaccinationExecutionParkCapabilities. AuthorizedParkIDs (capability-blind) would let an
-	// actor combine an unrelated park-A grant with a vaccination-relevant grant scoped to park
-	// B to see/act on park A's vaccination execution data too.
-	seen := map[string]struct{}{}
-	parks := []string{}
-	for _, capability := range vaccinationExecutionParkCapabilities {
-		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
-			if _, ok := seen[parkID]; ok {
-				continue
-			}
-			seen[parkID] = struct{}{}
-			parks = append(parks, parkID)
-		}
-	}
-	sort.Strings(parks)
-	return parks
+	return vaccexecd.AuthorizedParks(grants)
 }
 
+// authorizedParkID clamps a requested park to the parks in which the actor actually holds a
+// VACCINATION-EXECUTION capability. Every park-scoped read on this module funnels through it
+// (applyExecutionParkScope / applyGapsParkScope / applyShedSummaryParkScope / the command
+// board), so it is the single place that decision is made.
+//
+// It resolves against vaccexecd.ParkAuthorities rather than the capability-BLIND
+// ResolveAuthorizedParkScope it used to call. The blind form asked two decoupled questions --
+// "does some role of mine carry vaccination authority" and "which parks do I have any grant
+// in" -- and an actor could answer them with two DIFFERENT grants: a vaccination grant in park
+// B plus an unrelated grant (say a growth-director weighing grant) in park A got them park A's
+// vaccination execution data. The capability-aware form keeps each grant's role bound to its
+// own scope, and applies the same rule to the tenant-wide escape hatch.
 func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
-	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID(r), requested, vaccexecd.ParkAuthorities...)
 	if decision.Allowed {
 		return decision.ParkID, true
 	}

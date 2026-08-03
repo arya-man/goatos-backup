@@ -16,6 +16,8 @@
     <string name="verify_action_queue_title">ಲಸಿಕೆ ವೀಡಿಯೊಗಳು</string>
     <string name="verify_queue_refresh">ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
     <string name="verify_queue_empty">ಸರತಿ ಖಾಲಿ ಇದೆ</string>
+    <string name="verify_queue_unsupported_module">ಈ ಸರತಿ ಇನ್ನೂ ಆ್ಯಪ್‌ನಲ್ಲಿ ಲಭ್ಯವಿಲ್ಲ</string>
+    <string name="verify_queue_unsupported_module_subtitle">ಈ ಪುರಾವೆಗಳನ್ನು ಪರಿಶೀಲಿಸಲು Mesha ವೆಬ್ ಆ್ಯಪ್ ತೆರೆಯಿರಿ.</string>
     <string name="verify_queue_empty_subtitle">ಇದೀಗ ಪರಿಶೀಲಿಸಲು ಯಾವುದೇ ಬಾಕಿ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
     <string name="verify_action_queue_empty">ಸಲ್ಲಿಸಿದ ವೀಡಿಯೊಗಳಿಲ್ಲ</string>
     <string name="verify_action_queue_empty_subtitle">ಸಲ್ಲಿಸಿದ ಲಸಿಕೆ ವೀಡಿಯೊಗಳು ನಿರ್ದೇಶಕರ ಪರಿಶೀಲನೆಗೆ ಇಲ್ಲಿ ಕಾಣಿಸುತ್ತವೆ</string>

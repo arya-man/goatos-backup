@@ -134,7 +134,6 @@
     <!-- Batched per-shed rework push: %1$s is the named animals ("Tag 901... (12.0 kg), Tag 902... (11.5 kg) and 3 more"), %2$s is the shed. -->
     <string name="push_msg_weighing_verdict_rework_digest">%1$s in %2$s: weighing proof needs rework. Please re-record it.</string>
     <string name="push_msg_weighing_shed_closed">%1$s weighing was closed.</string>
-    <string name="push_msg_weighing_shed_abandoned">%1$s weighing was abandoned.</string>
     <string name="push_msg_weighing_work_item_due_today">Weighing is due today at %1$s.</string>
     <string name="push_msg_weighing_work_item_rolled_forward">Weighing at %1$s was rolled forward to the next work day.</string>
     <string name="push_msg_weighing_work_item_delayed">Weighing at %1$s is delayed. Please complete it soon.</string>

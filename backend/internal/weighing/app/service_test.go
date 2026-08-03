@@ -64,7 +64,7 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	}
 	// GetLeadershipShedVideos additionally park-scopes on the campaign's park; a growth
 	// director needs a tenant-wide grant carrying WeighingMonitor to read across parks,
-	// mirroring how checkParkScope authorizes reopen/close/abandon.
+	// mirroring how checkParkScope authorizes reopen/close.
 	growthDirectorTenantWideCtx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{
 		{ScopeType: "tenant", ScopeID: testTenant, Role: permissions.RoleGrowthDirector},
 	})
@@ -931,13 +931,19 @@ func (f fakeRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign)
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
+func (f fakeRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+func (f fakeRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
 func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
 func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
-func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
@@ -954,11 +960,11 @@ func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, strin
 func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
-func (f fakeRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (f fakeRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
-func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -1026,7 +1032,6 @@ type scenarioRepo struct {
 	shedWrites               int
 	latestAnimalWeightWrites int
 	closeScopeCalls          []domain.CloseCommand
-	abandonScopeCalls        []domain.CloseCommand
 	closeCampaignCalls       []domain.CloseCommand
 }
 
@@ -1104,6 +1109,12 @@ func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ do
 	return r.campaign, nil
 }
 
+func (r *scenarioRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return r.campaign, nil
+}
+func (r *scenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
 func (r *scenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }
@@ -1121,7 +1132,7 @@ func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, ope
 	return domain.CampaignPage{Items: []domain.Campaign{campaign}}, nil
 }
 
-func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, string, int) (domain.CampaignShedPage, error) {
+func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
@@ -1175,11 +1186,11 @@ func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID,
 	return domain.RosterPage{}, ports.ErrNotFound
 }
 
-func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
-func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int) (domain.LeadershipShedVideos, error) {
+func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
@@ -1271,21 +1282,6 @@ func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, stri
 
 func (r *scenarioRepo) CloseScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
 	r.closeScopeCalls = append(r.closeScopeCalls, cmd)
-	return domain.CloseResult{
-		CampaignID:     cmd.CampaignID,
-		CampaignShedID: cmd.CampaignShedID,
-		Status:         domain.StatusClosed,
-		Reason:         cmd.Reason,
-		ClosedBy:       cmd.ClosedBy,
-	}, nil
-}
-
-func (f *fakeRepo) AbandonScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	return domain.CloseResult{CampaignID: cmd.CampaignID, CampaignShedID: cmd.CampaignShedID, Status: domain.StatusClosed, Reason: cmd.Reason, ClosedBy: cmd.ClosedBy}, nil
-}
-
-func (r *scenarioRepo) AbandonScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	r.abandonScopeCalls = append(r.abandonScopeCalls, cmd)
 	return domain.CloseResult{
 		CampaignID:     cmd.CampaignID,
 		CampaignShedID: cmd.CampaignShedID,

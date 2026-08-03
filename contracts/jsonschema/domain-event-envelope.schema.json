@@ -88,7 +88,6 @@
         "weighing.shed_submission.completed",
         "weighing.shed.reopened",
         "weighing.shed.closed",
-        "weighing.shed.abandoned",
         "weighing.observation.verified",
         "weighing.observation.rework",
         "weighing.observation.rework_digest",

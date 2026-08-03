@@ -115,7 +115,10 @@ enum class VerifyModuleTab { VACCINATION, WEIGHING }
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
-    val selectedModule: VerifyModuleTab = VerifyModuleTab.VACCINATION,
+    /** Null when the queue's category has no dedicated chrome here (counts, feed) or could not
+     *  be resolved at all -- never coerced to a module the verifier did not ask for. */
+    val selectedModule: VerifyModuleTab? = null,
+    val isUnsupportedModule: Boolean = false,
     val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
@@ -227,6 +230,16 @@ fun VerifyQueueScreen(
             }
             if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
                 item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
+            } else if (state.isUnsupportedModule) {
+                // An empty "all caught up" here would be a lie: nothing was read at all.
+                item {
+                    EmptyState(
+                        title = stringResource(R.string.verify_queue_unsupported_module),
+                        subtitle = stringResource(R.string.verify_queue_unsupported_module_subtitle),
+                        icon = MeshaIcons.Video,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
             } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
@@ -456,7 +469,9 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit) {
     val eyebrow = when {
         state.isActionQueue -> null
         state.selectedModule == VerifyModuleTab.WEIGHING -> R.string.verify_module_weighing
-        else -> R.string.verify_module_vaccination
+        state.selectedModule == VerifyModuleTab.VACCINATION -> R.string.verify_module_vaccination
+        // No module resolved: naming one here is how a Counts verifier came to read "VACCINATION".
+        else -> null
     }
     MeshaScreenHeader(
         eyebrow = eyebrow?.let { stringResource(it).uppercase() },

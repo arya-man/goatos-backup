@@ -99,6 +99,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochDao
+import sg.mesha.goatos.core.data.weighing.WeighingTransitionEpochEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyDao
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
@@ -222,8 +224,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingPlannerOperatorRowEntity::class,
         WeighingPlannerRemoteKeyEntity::class,
         WeighingAlertsCacheEntity::class,
+        WeighingTransitionEpochEntity::class,
     ],
-    version = 27,
+    version = 28,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -269,6 +272,9 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // closed). Room-backed from day one like every other screen-facing read: an alert is read
     // in the shed, where the network is worst, so the operator must still see what they were
     // told when the request fails.
+    // v28 (see [MIGRATION_27_28]) persists the weighing per-scope idempotency EPOCH. It was an
+    // in-heap map, so a Close whose response was lost on a phone that was then killed retried
+    // under a NEW key and the backend applied a second close instead of replaying the first.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -329,4 +335,5 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun weighingLeadershipGalleryRemoteKeyDao(): WeighingLeadershipGalleryRemoteKeyDao
     abstract fun weighingPlannerCatalogDao(): WeighingPlannerCatalogDao
     abstract fun weighingPlannerRemoteKeyDao(): WeighingPlannerRemoteKeyDao
+    abstract fun weighingTransitionEpochDao(): WeighingTransitionEpochDao
 }

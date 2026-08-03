@@ -102,7 +102,6 @@ import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
-import sg.mesha.goatos.feature.weighing.LeadershipWeighingScreen
 import sg.mesha.goatos.core.model.nav.NavState
 import sg.mesha.goatos.core.model.nav.availableModules
 import sg.mesha.goatos.core.ui.partitionDisplayLabel
@@ -364,6 +363,15 @@ object Routes {
     // approve/reject, threading both the item id AND its category (the detail VM re-observes
     // that SAME category's Room cache scope rather than adding a second network call).
     const val VERIFY = "/verify"
+    /**
+     * The verifier's process-integrity ALERTS feed for one feature. A real backend-composed nav
+     * href (`bootstrap_copy.go` contributes `/verify/alerts?category=<category>`), so it must be
+     * a real destination -- without it the Alerts tab and any Alerts push were a dead tap.
+     *
+     * It reads the SAME pending queue as [VERIFY] (the server forces status=pending on
+     * `/verify/alerts`), which is why it renders the queue screen rather than a second screen.
+     */
+    const val VERIFY_ALERTS = "/verify/alerts"
     const val VERIFY_ACTION = "/verify/action"
     const val VERIFY_DETAIL = "/verify/item"
     const val VERIFY_ACTION_DETAIL = "/verify/action/item"
@@ -699,6 +707,13 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    /**
+     * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
+     * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
+     * all read false, and false is indistinguishable from "not granted". Any effect that acts on
+     * an absence (a redirect, a pop) must wait for this; rendering may not.
+     */
+    navStateResolved: Boolean = false,
     verificationVideoControlsEnabled: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
@@ -895,13 +910,27 @@ fun AppNavHost(
                     onAssignmentRowVisible = vm::onAssignmentRowVisible,
                 )
             } else {
-                LeadershipWeighingScreen(
-                    state = state,
-                    onRefresh = vm::refresh,
-                    onReopenAssignment = vm::reopenAssignment,
-                    onCloseAssignment = vm::closeShedCampaign,
-                    onAssignmentRowVisible = vm::onAssignmentRowVisible,
-                )
+                // A viewer who does not execute has no work of their own, and THIS route's surface
+                // is the caller's own assigned sheds (WEIGHING_SCOPE_MINE) -- which excludes closed
+                // buckets, so the reopen action rendered here could never have a row to act on.
+                // Their leadership surface is /weighing/operators, whose scope carries the closed
+                // history AND the oversight actions. Send them there instead of rendering a screen
+                // whose controls are structurally unreachable.
+                //
+                // Gated on [navStateResolved], and NOT keyed on Unit. This redirect pops
+                // /weighing off the back stack with `inclusive = true`, which is destructive and
+                // irreversible: on a process-death restore with the back stack at /weighing an
+                // operator recomposes with pre-bootstrap flags, `canExecuteWeighing` reads false
+                // for at least one frame, and firing here would strand them on a read-only list
+                // with no way back to their own work. The shell's push-route effect holds a tap
+                // for the same reason.
+                LaunchedEffect(navStateResolved) {
+                    if (!navStateResolved) return@LaunchedEffect
+                    navController.navigate(Routes.WEIGHING_OPERATORS) {
+                        popUpTo(Routes.WEIGHING) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                }
             }
         }
 
@@ -1068,6 +1097,11 @@ fun AppNavHost(
                 state = state,
                 onRefresh = vm::refresh,
                 onSelectPark = vm::selectAssignmentPark,
+                // Oversight writes, offered only where the backend's capability flags allow them
+                // (the screen reads the same flags). This is the Growth Director's leadership
+                // surface: its scope carries closed buckets, so reopen has rows to act on here.
+                onReopenAssignment = vm::reopenAssignment,
+                onCloseAssignment = vm::closeShedCampaign,
                 onAssignmentRowVisible = vm::onAssignmentRowVisible,
             )
         }
@@ -1940,13 +1974,20 @@ fun AppNavHost(
         // the detail VM re-observes that exact Room cache scope (no second network round trip).
         composable(
             // `module` scopes the queue to ONE feature. The verifier drawer is composed per
-            // feature by the backend (href "/verify?module=<feature>"), and VerifyQueueViewModel
-            // reads this arg; without it every drawer entry fell back to vaccination, so
-            // switching to Weighing showed an empty queue while weighing proofs sat pending.
-            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}&module={module}",
+            // feature by the backend (href "/verify?module=<feature>&category=<category>"), and
+            // VerifyQueueViewModel reads both args; without `module` every drawer entry fell back
+            // to vaccination, so switching to Weighing showed an empty queue while weighing proofs
+            // sat pending. `category` must be declared here too: Navigation only surfaces query
+            // args the route pattern names, so leaving it out DROPPED the server's own category and
+            // left a Counts or Feed verifier (module keys this client cannot map, e.g. "counts" ->
+            // shifting_move) staring at an empty queue.
+            route = "${Routes.VERIFY}?${Routes.VERIFY_ACTION_ARG}={${Routes.VERIFY_ACTION_ARG}}" +
+                "&module={module}" +
+                "&${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}",
             arguments = listOf(
                 navArgument(Routes.VERIFY_ACTION_ARG) { type = NavType.BoolType; defaultValue = false },
                 navArgument("module") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) { entry ->
             val vm: VerifyQueueViewModel = hiltViewModel()
@@ -1987,6 +2028,37 @@ fun AppNavHost(
                                     itemId = event.itemId,
                                     category = event.category,
                                     actionMode = true,
+                                    parkId = state.selectedParkId,
+                                    shedId = state.selectedShedId,
+                                ),
+                            ) { launchSingleTop = true }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
+
+        // `category` is the SERVER's category key, threaded straight through: the alerts href
+        // already names it, so the client never has to re-derive it from a module key (and never
+        // falls back to vaccination when it cannot).
+        composable(
+            route = "${Routes.VERIFY_ALERTS}?${Routes.VERIFY_CATEGORY_ARG}={${Routes.VERIFY_CATEGORY_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
+            ),
+        ) {
+            val vm: VerifyQueueViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VerifyQueueScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VerifyQueueEvent.OpenItem ->
+                            navController.navigate(
+                                Routes.verifyDetailRoute(
+                                    itemId = event.itemId,
+                                    category = event.category,
+                                    actionMode = false,
                                     parkId = state.selectedParkId,
                                     shedId = state.selectedShedId,
                                 ),
@@ -2139,6 +2211,9 @@ private val supportedRootDestinations = setOf(
 	Routes.VACCINATION,
 	Routes.WEIGHING,
 	Routes.VERIFY,
+    // A real backend-composed nav item on every verifier's module bar, so it is a root like the
+    // queue beside it -- not a drill.
+    Routes.VERIFY_ALERTS,
     Routes.VERIFY_ACTION,
     Routes.YOU,
     Routes.ALERTS,

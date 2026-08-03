@@ -147,6 +147,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve ONE Weighing task by id.
+         * @description The single-task read behind a notification deep link. The task list is a keyset page with no id filter, so a cold tap on a task further down the keyset could not be resolved: the client walked a few pages and then reported "not found" for work that exists.
+         *
+         *     Authority is the SAME split the task's bucket page applies, and the two branches are bounded differently on purpose. A planner or monitor (`weighing.plan` or `weighing.monitor`) resolves the task UNFILTERED, so the task's own park is resolved first and the caller must hold plan or monitor IN THAT PARK -- naming another park's task id returns 404, not that park's task. An assignee (`weighing.execute`) is instead bounded by their OWN assignment: the task must carry a live bucket assigned to them, and they see only their own buckets on it. That branch runs NO park check and needs none, because an assignment is already park-bound -- nobody is assigned work in a park they do not work in.
+         *     Both misses are 404, so neither branch confirms that a task it refused exists.
+         */
+        get: operations["appGetWeighingCampaign"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/parks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the parks whose Weighing this caller may look at.
+         * @description Park VOCABULARY for the oversight surfaces' filter chips: identity only, no weigh date and no counts. It exists because the only other park list is the planner catalog, which is gated on `weighing.plan` -- CEO-only -- so a Growth Director (`weighing.monitor` + `weighing.oversee_operators`, never `weighing.plan`) had no park list they could read and the client fell back to whichever parks appeared on the rows it happened to have loaded. A vocabulary derived from the filtered data loses a park as soon as that park's tasks page out. The list is the caller's CAPABILITY-SCOPED parks, never every park in the tenant. Unpaged: parks are a handful and a chip row that pages cannot offer the parks it has not reached.
+         */
+        get: operations["appListWeighingParks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/planner/catalog": {
         parameters: {
             query?: never;
@@ -352,23 +395,6 @@ export interface paths {
         put?: never;
         /** Close one Weighing scope after verification-approved evidence. */
         post: operations["closeWeighingScope"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Explicitly abandon one Weighing scope that will not be completed. */
-        post: operations["abandonWeighingScope"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4795,17 +4821,20 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
+        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the five counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain verified > awaiting > overdue > scheduled > closedWithoutDose, i.e. its most-progressed dose wins. The tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
-            /** @description Total planning count (all obligations for drive or all-history). */
+            /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
             targets: number;
-            /** @description Accepted vaccination completions. */
+            /** @description Animals with at least one verifier-accepted completion. */
             dosesVerified: number;
-            /** @description Recorded completions awaiting verification (status=recorded, verified_at=null). */
+            /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null) and no accepted completion. */
             awaitingVerification: number;
-            /** @description Obligations due before now with no completion. */
+            /** @description Animals with no completion at all whose earliest open obligation was due before the as-of IST business date. */
             overdueNotGiven: number;
-            /** @description Obligations due after now. */
+            /** @description Animals with no completion at all whose open obligations are all due on or after the as-of IST business date. */
             scheduledAhead: number;
+            /** @description Animals whose every obligation closed with no completion recorded against it (canceled, waived, superseded). They belong to the drive's roster, so they count in targets, but no dose was given and none is outstanding. Named explicitly because without it the tiles summed to LESS than targets and a reader could not tell whether the gap was a bug, missing data, or real outstanding work. Defined as the residual of the other four, so the partition stays exhaustive as statuses change. */
+            closedWithoutDose: number;
         };
         VaccinationCommandBoardCohort: {
             /** @description Farm (park) this cohort sits on. The matrix is read farmwise, so the same cohort on two farms stays two cells. Empty when the obligation's shed has no resolvable parent. */
@@ -4923,6 +4952,10 @@ export interface components {
              * @description Stable drive identity — the obligation batch. A rule id alone is not a drive selector.
              */
             driveBatchId: string;
+            /** @description Park the drive's work is in. Row grain is (batch, park), not batch alone: on an all-parks board two same-vaccine, same-window drives in different parks are two operator days and must be offered — and counted — separately. Empty when the drive's obligations resolve to no park. */
+            parkId?: string;
+            /** @description Display name of parkId, so the selector can label a drive without a second lookup. */
+            parkName?: string;
             /** @description Vaccine-name-only logical drive label, with initial/repeat rule rows collapsed. */
             driveName: string;
             /** @description Operator-facing executable-day label: vaccine names, planned date, distinct animal count, and status. Never a raw config token such as et_tt_adult_w2. */
@@ -4945,8 +4978,10 @@ export interface components {
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];
-            /** @description Drives the board can be narrowed to, newest window first, park-scoped and bounded to 50. Not filtered by the currently selected drive, so the selector can still offer the others. */
+            /** @description Drives the board can be narrowed to, newest executable day first, park-scoped and bounded to 200 rows. Not filtered by the currently selected drive, so the selector can still offer the others. One row is one (batch, park): a drive whose work spans two parks is two operator days in two places and is offered as two choices, so it spends two of the 200 rows. When the bound is reached, driveOptionsTruncated is true and the list is incomplete — surface that, do not present the list as the full programme. */
             driveOptions: components["schemas"]["VaccinationCommandBoardDriveOption"][];
+            /** @description True when driveOptions hit its bound and drives were left out. The list has always been bounded, but it used to stop silently, so a scheduled drive past the bound was indistinguishable from a drive that was never planned. Clients must show that more drives exist (e.g. "narrow by park") rather than presenting a truncated picker as complete. */
+            driveOptionsTruncated: boolean;
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
@@ -5638,9 +5673,17 @@ export interface components {
             items: components["schemas"]["WeighingCampaign"][];
             next_cursor?: string;
             counts?: components["schemas"]["WeighingCampaignCounts"];
+            /** @description SURFACE-grain, not row-grain. The envelope covers a page whose rows may span several parks, so this is an upper bound ("the caller holds this permission somewhere on this surface") and must NOT be used to gate a per-row button. The single-task read answers at row grain. */
+            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             /** @description OPERATOR-grain roll-up behind the weighing oversight surface: one row per person holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`, because the park chip is that screen's own filter. Served whole (capped at 50), not paged: a roll-up that pages cannot answer "who did what". */
             operator_summaries?: components["schemas"]["WeighingOperatorSummary"][];
             trace_id?: string;
+        };
+        /** @description Which task-level writes the caller may attempt. Publish is `weighing.plan` while ending and reopening are `weighing.monitor`, so a client that gates buttons on task status alone renders a live button that fails. On the single-task read these are answered for the task's OWN park, matching the park scope the corresponding writes enforce -- a caller who monitors another park gets false rather than a button whose tap answers 404. */
+        WeighingCampaignCapabilities: {
+            can_publish: boolean;
+            can_end: boolean;
+            can_reopen: boolean;
         };
         /** @description What ONE person's weighing work adds up to. GRAIN: one row per operator_user_id over that person's non-canceled shed buckets in scope. Every field is a PLAIN COUNT and none is ever a numerator -- weighing is free-flow, there is no expected-animal roster, so no share or percentage can honestly be rendered from any of these. not_started_count + capturing_count + submitted_count + accepted_count == shed_count exactly (the four are disjoint and exhaustive over the live bucket statuses), so a client may lay them out as a discrete state ladder but must never draw a part-filled fraction. */
         WeighingOperatorSummary: {
@@ -5671,7 +5714,19 @@ export interface components {
         };
         WeighingCampaignResponse: {
             campaign: components["schemas"]["WeighingCampaign"];
+            /** @description Answered for THIS task's park. The single-task read is what a deep-linked task screen gates its buttons on, so the answer has to match what the write would allow: end and reopen are park-scoped and refuse an unauthorized park, and a park-blind answer here put a live Close button on a task whose write returns 404. */
+            capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
             trace_id?: string;
+        };
+        WeighingParkListResponse: {
+            parks: components["schemas"]["WeighingPark"][];
+            trace_id?: string;
+        };
+        /** @description One park the caller may filter weighing by. Identity only -- anything date-scoped or count-bearing belongs on the planner catalog, which is a different grain and a different gate. */
+        WeighingPark: {
+            /** Format: uuid */
+            park_id: string;
+            name: string;
         };
         WeighingPlannerCampaignSummary: {
             /** Format: uuid */
@@ -7378,6 +7433,56 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    appGetWeighingCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The task, with its buckets and progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingCampaignResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingParks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's authorized weighing parks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingParkListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appWeighingPlannerCatalog: {
         parameters: {
             query: {
@@ -7716,41 +7821,6 @@ export interface operations {
         };
         responses: {
             /** @description Scope closed or idempotently replayed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WeighingCloseResponse"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFoundOrNotAllowed"];
-            409: components["responses"]["WriteConflict"];
-            500: components["responses"]["ServerError"];
-        };
-    };
-    abandonWeighingScope: {
-        parameters: {
-            query?: never;
-            header: {
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-            };
-            path: {
-                campaign_id: components["parameters"]["WeighingCampaignId"];
-                campaign_shed_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WeighingCloseRequest"];
-            };
-        };
-        responses: {
-            /** @description Scope abandoned or idempotently replayed. */
             200: {
                 headers: {
                     [name: string]: unknown;

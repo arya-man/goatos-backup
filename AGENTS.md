@@ -345,6 +345,17 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
 
+Weighing vocabulary (maintainer decision 2026-08-03): the weighing workflow has
+exactly two verbs — CLOSE a task, or REOPEN it if it is already closed. There is
+no third verb, and no force, override or skip variant of close.
+
+THE CLOSE GATE IS UNCONDITIONAL. A bucket cannot close while verification is
+pending, and there is no caller-supplied way past that. If a bucket will not
+close, the answer is to RESOLVE the verification — get the verdict — never to add
+a path around the gate. Machine-enforced by
+`tools/agent-hooks/check-weighing-close-gate-guard.mjs`; see
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
+
 Confirmed "You" / profile nav placement rule (maintainer decision 2026-08-03,
 stated THREE times and implemented wrong twice before this — read it exactly):
 

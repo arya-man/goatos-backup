@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 import {
@@ -235,49 +236,18 @@ function buildShedGrid(
   };
 }
 
-interface CommandBoardKpis {
-  targets: number;
-  dosesVerified: number;
-  awaitingVerification: number;
-  overdueNotGiven: number;
-  scheduledAhead: number;
-}
-interface CohortCell {
-  cohort: { parkId: string; parkName: string; managementStage: string; sex: string; animalCount: number };
-  vaccineLabel: string;
-  pendingCount: number;
-  submittedCount: number;
-  verifiedCount: number;
-  minAdministeredDate?: string | null;
-  maxAdministeredDate?: string | null;
-}
-interface ShedDoseCell {
-  shedId?: string;
-  shedName: string;
-  doseRule: string;
-  state: string;
-  animalCount: number;
-  minAdministeredDate?: string | null;
-  maxAdministeredDate?: string | null;
-  minDueDate?: string | null;
-  maxDueDate?: string | null;
-}
-interface QueueRow {
-  shedId?: string;
-  shedName: string;
-  doseRule: string;
-  awaitingCount: number;
-  totalCount: number;
-  lastGivenOnDate?: string | null;
-  daysInQueue?: number | null;
-}
-interface CommandBoard {
-  kpis: CommandBoardKpis;
-  cohortMatrix: CohortCell[];
-  shedDoseMatrix: ShedDoseCell[];
-  verificationQueue: QueueRow[];
+// Derived from the generated client rather than hand-declared. Local mirrors of the response
+// schema are why the compiler stayed green while closedWithoutDose and driveOptionsTruncated --
+// both REQUIRED by the contract -- were dropped before they reached the render. Deriving makes the
+// next dropped field a type error instead of a silent hole in the page.
+type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
+type CohortCell = CommandBoardResponse["cohortMatrix"][number];
+type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
+// driveOptions is the one field the view widens: enrichDriveOptions reconstructs counts the skinny
+// API catalogue omits and tags them, so the rendered option carries more than the wire schema does.
+type CommandBoard = Omit<CommandBoardResponse, "driveOptions"> & {
   driveOptions?: CommandBoardDriveOption[];
-}
+};
 
 interface CommandBoardViewProps {
   board: CommandBoard;
@@ -454,6 +424,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </optgroup>
           )}
         </select>
+        {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
+            drive that was never planned. Say the picker is partial rather than let it read as the
+            whole programme. */}
+        {board.driveOptionsTruncated && (
+          <span className="cbm-filter-note" role="status">
+            {copy(pageContract, "command_board.filter.drives_truncated")}
+          </span>
+        )}
       </div>
       <div className="cbm-filter-row">
         {STATUS_KEYS.map((key) => (
@@ -510,6 +488,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="lbl">{copy(pageContract, "command_board.kpi.scheduled_ahead")}</div>
             <div className="val">{view.kpis.scheduledAhead}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.scheduled_dl")}</div>
+          </div>
+          {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
+              left the tiles summing to less than the total, so a reader could not tell a projection
+              bug from animals whose obligations genuinely closed with no dose. */}
+          <div className="kpi mut">
+            <div className="stripe"></div>
+            <div className="lbl">{copy(pageContract, "command_board.kpi.closed_without_dose")}</div>
+            <div className="val">{view.kpis.closedWithoutDose}</div>
+            <div className="dl">{copy(pageContract, "command_board.kpi.closed_without_dose_dl")}</div>
           </div>
         </div>
 

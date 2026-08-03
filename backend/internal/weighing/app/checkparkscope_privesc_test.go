@@ -211,6 +211,14 @@ func (r *parkScopeCheckRepo) PublishCampaign(ctx context.Context, tenantID, camp
 	return domain.Campaign{}, nil
 }
 
+func (r *parkScopeCheckRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+
+func (r *parkScopeCheckRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
 func (r *parkScopeCheckRepo) ListCampaigns(ctx context.Context, tenantID, parkID, cursor string, limit int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
@@ -235,15 +243,15 @@ func (r *parkScopeCheckRepo) ListScopeRosterForOperator(ctx context.Context, ten
 	return domain.RosterPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListCampaignSheds(ctx context.Context, tenantID, campaignID, operatorFilter, cursor string, limit int) (domain.CampaignShedPage, error) {
+func (r *parkScopeCheckRepo) ListCampaignSheds(ctx context.Context, tenantID, campaignID, cursor string, limit int, access ports.CampaignAccess) (domain.CampaignShedPage, error) {
 	return domain.CampaignShedPage{}, nil
 }
 
-func (r *parkScopeCheckRepo) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error) {
+func (r *parkScopeCheckRepo) GetLeadershipShedVideos(ctx context.Context, tenantID, campaignID, campaignShedID, cursor string, limit int, access ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
-func (r *parkScopeCheckRepo) ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit int, videosPageSize int) (domain.LeadershipShedPage, error) {
+func (r *parkScopeCheckRepo) ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit int, videosPageSize int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
@@ -264,10 +272,6 @@ func (r *parkScopeCheckRepo) ReopenScope(ctx context.Context, tenantID, campaign
 }
 
 func (r *parkScopeCheckRepo) CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
-	return domain.CloseResult{}, nil
-}
-
-func (r *parkScopeCheckRepo) AbandonScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{}, nil
 }
 

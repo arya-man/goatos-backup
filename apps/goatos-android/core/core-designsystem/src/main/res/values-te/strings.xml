@@ -118,7 +118,6 @@
     <string name="push_msg_weighing_verdict_rework">%1$s బరువు ప్రూఫ్‌ను మళ్లీ చేయాలి. దయచేసి మళ్లీ రికార్డ్ చేయండి.</string>
     <string name="push_msg_weighing_verdict_rework_digest">%2$s లో %1$s: బరువు ప్రూఫ్‌ను మళ్లీ చేయాలి. దయచేసి మళ్లీ రికార్డ్ చేయండి.</string>
     <string name="push_msg_weighing_shed_closed">%1$s బరువు మూసివేయబడింది.</string>
-    <string name="push_msg_weighing_shed_abandoned">%1$s బరువు రద్దు చేయబడింది.</string>
     <string name="push_msg_weighing_work_item_due_today">%1$s వద్ద బరువు ఈరోజు గడువు.</string>
     <string name="push_msg_weighing_work_item_rolled_forward">%1$s వద్ద బరువు తదుపరి పని దినానికి వాయిదా వేయబడింది.</string>
     <string name="push_msg_weighing_work_item_delayed">%1$s వద్ద బరువు ఆలస్యమవుతోంది. దయచేసి త్వరగా పూర్తి చేయండి.</string>
