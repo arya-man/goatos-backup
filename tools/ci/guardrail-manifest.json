@@ -626,6 +626,17 @@
       "ciStep": "android-navigation-stack-guard"
     },
     {
+      "id": "nav-entry-point-placement",
+      "script": "tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "makeTarget": "nav-entry-point-placement-guard",
+      "realCheck": "node tools/agent-hooks/check-nav-entry-point-placement.mjs",
+      "selfTest": "node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test",
+      "owningDoc": "docs/decisions/nav-entry-point-placement.md",
+      "requiredInCI": true,
+      "ciStep": "nav-entry-point-placement-guard",
+      "notes": "A feature entry point never lives in the top-right app bar. Forbidden set is DERIVED from the backend nav registry (bootstrap_copy.go L0 hrefs + nav.* labels), so a new nav destination is covered without editing the guard. Pre-existing violations pinned in tools/agent-hooks/nav-entry-point-baseline.txt (currently the weighing 'My work' top-right bell)."
+    },
+    {
       "id": "room-migration-safety",
       "script": "tools/agent-hooks/check-room-migration-safety.mjs",
       "makeTarget": "room-migration-guard",
