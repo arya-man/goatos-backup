@@ -521,12 +521,21 @@ object AppModule {
     @Singleton
     fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Single binding for the active flavor's API base URL — see [ApiBaseUrl]. */
     @Provides
     @Singleton
-    fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
+    @ApiBaseUrl
+    fun provideApiBaseUrl(): String = BuildConfig.API_BASE_URL
+
+    @Provides
+    @Singleton
+    fun provideConnectivityGate(
+        @ApplicationContext context: Context,
+        @ApiBaseUrl apiBaseUrl: String,
+    ): ConnectivityGate =
         LocalBackendConnectivityGate(
             delegate = AndroidConnectivityGate(context),
-            apiBaseUrl = BuildConfig.API_BASE_URL,
+            apiBaseUrl = apiBaseUrl,
         )
 
     @Provides
