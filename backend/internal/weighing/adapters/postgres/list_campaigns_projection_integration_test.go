@@ -598,7 +598,8 @@ func TestWeighingObservationsCompletedCountMultipleDimensions(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	grantOperatorParkScope(t, ctx, pool)
-	seedWeighingObservationFixture(t, ctx, pool)
+	// NOT seedWeighingObservationFixture: this test asserts an EXACT
+	// ListCampaigns count, and that fixture seeds a campaign of its own.
 	repo := NewRepository(pool, 5*time.Second)
 
 	campaign := lcpUUID(20001)
@@ -637,16 +638,21 @@ func TestWeighingObservationsCompletedCountPaginationBoundary(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	grantOperatorParkScope(t, ctx, pool)
-	seedWeighingObservationFixture(t, ctx, pool)
+	// NOT seedWeighingObservationFixture: this test asserts EXACT page sizes,
+	// and that fixture seeds a campaign of its own.
 	repo := NewRepository(pool, 5*time.Second)
 
-	// Create 3 campaigns with captures
+	// Create 3 campaigns with captures. Each campaign gets its OWN shed:
+	// uq_weighing_open_shed_per_park_date forbids two open buckets on the same
+	// (tenant, park, weigh date, shed), which is the real product rule -- the
+	// same shed cannot be scheduled twice on one day.
+	sheds := []string{lcpShedOne, lcpShedTwo, lcpShedThree}
 	for i := 0; i < 3; i++ {
 		campaign := lcpUUID(30000 + i)
 		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", domain.StatusPublished, repoOperator)
 		bucket := lcpUUID(30100 + i)
-		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
-		lcpInsertProof(t, ctx, pool, lcpUUID(30500+i), lcpShedOne)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, sheds[i], domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+		lcpInsertProof(t, ctx, pool, lcpUUID(30500+i), sheds[i])
 		lcpCapture(t, ctx, pool, repo, campaign, bucket, lcpUUID(30500+i), fmt.Sprintf("tag%d", i), fmt.Sprintf("idem%d", i))
 	}
 
@@ -686,17 +692,27 @@ func TestWeighingObservationsCompletedCountEveryStatus(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 	grantOperatorParkScope(t, ctx, pool)
-	seedWeighingObservationFixture(t, ctx, pool)
+	// NOT seedWeighingObservationFixture: this test asserts an EXACT
+	// ListCampaigns count, and that fixture seeds a campaign of its own.
 	repo := NewRepository(pool, 5*time.Second)
 
 	statuses := []string{domain.StatusPublished, domain.StatusClosed, domain.StatusCompleted}
+	// One shed per campaign: uq_weighing_open_shed_per_park_date forbids two
+	// open buckets on the same (tenant, park, weigh date, shed).
+	statusSheds := []string{lcpShedOne, lcpShedTwo, lcpShedThree}
 	for i, status := range statuses {
 		campaign := lcpUUID(40000 + i)
-		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", status, repoOperator)
+		// The campaign is created PUBLISHED so the capture is legal (a closed or
+		// completed campaign is immutable and refuses writes), then moved to the
+		// status under test. What this pins is the READ: the completed count must
+		// be computed for every campaign status, not only the open ones.
+		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, "2026-10-01", domain.StatusPublished, repoOperator)
 		bucket := lcpUUID(40100 + i)
-		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
-		lcpInsertProof(t, ctx, pool, lcpUUID(40500+i), lcpShedOne)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, statusSheds[i], domain.CategoryIndividualAnimal, repoOperator, 5, "pending")
+		lcpInsertProof(t, ctx, pool, lcpUUID(40500+i), statusSheds[i])
 		lcpCapture(t, ctx, pool, repo, campaign, bucket, lcpUUID(40500+i), fmt.Sprintf("tag%d", i), fmt.Sprintf("idem%d", i))
+		execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaigns SET status=$1 WHERE tenant_id=$2::uuid AND campaign_id=$3::uuid`,
+			status, repoTenant, campaign)
 	}
 
 	page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 100)

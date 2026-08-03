@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.res.stringResource
@@ -604,8 +604,10 @@ private fun VideoActionRow(
 private fun LeadershipVideoPlayer(video: SelectedLeadershipVideo, onDismiss: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    // Telemetry-instrumented player (W-22) — see ProofMediaHttp.
+    val playerFactory = LocalProofPlayerFactory.current
     val player = remember(video.video.url) {
-        ExoPlayer.Builder(context).build().apply {
+        playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(video.video.url)))
             prepare()
             playWhenReady = false

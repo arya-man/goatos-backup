@@ -152,6 +152,11 @@ androidx-camera-video = { group = "androidx.camera", name = "camera-video", vers
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
+# media3's OkHttp DataSource. Without it media3 uses its OWN DefaultHttpDataSource, which bypasses
+# the app's OkHttp stack entirely — so a failed proof-video fetch never reaches TelemetryInterceptor
+# and produces ZERO logcat/Crashlytics/Analytics signal. Pinned to the SAME media3 version as
+# exoplayer/ui above (a second media3 version would be a runtime-incompatible split).
+androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 showkase = { group = "com.airbnb.android", name = "showkase", version.ref = "showkase" }
 showkase-annotation = { group = "com.airbnb.android", name = "showkase-annotation", version.ref = "showkase" }
 showkase-processor = { group = "com.airbnb.android", name = "showkase-processor", version.ref = "showkase" }

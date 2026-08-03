@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -44,6 +45,8 @@ import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
+import sg.mesha.goatos.core.media.ProofPlayerFactory
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.push.PendingNavigation
@@ -76,6 +79,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var pendingNavigation: PendingNavigation
 
+    /** Builds proof-video players over the telemetry-instrumented OkHttp client (W-22). */
+    @Inject
+    lateinit var proofPlayerFactory: ProofPlayerFactory
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -86,6 +93,10 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { runCatching { AppLocaleState.set(sessionStore.language.first()) } }
                 LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
                 ProvideAppLocale {
+                // Proof-video players below this point fetch over the app's instrumented OkHttp
+                // client, so a 403/404/500 on a signed playback URL produces the same logcat +
+                // Crashlytics + api_call_failure signal a failed API call does (W-22).
+                CompositionLocalProvider(LocalProofPlayerFactory provides proofPlayerFactory) {
                 // Force-update gate sits ABOVE auth + bootstrap: an out-of-date build is
                 // blocked whether or not anyone is signed in. Fails open, so an
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
@@ -174,6 +185,7 @@ class MainActivity : ComponentActivity() {
                 }
                     } // UpdateGateUiState.Allowed
                 } // when (updateGate)
+                } // CompositionLocalProvider(LocalProofPlayerFactory)
                 } // ProvideAppLocale
             }
         }

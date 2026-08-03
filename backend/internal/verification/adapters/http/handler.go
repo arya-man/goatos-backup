@@ -42,12 +42,17 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 }
 
 type queueItemResponse struct {
-	ItemID        string             `json:"item_id"`
-	Vertical      string             `json:"vertical"`
-	Module        string             `json:"module"`
-	Category      string             `json:"category"`
-	SubjectLabel  *string            `json:"subject_label,omitempty"`
-	Status        string             `json:"status"`
+	ItemID       string  `json:"item_id"`
+	Vertical     string  `json:"vertical"`
+	Module       string  `json:"module"`
+	Category     string  `json:"category"`
+	SubjectLabel *string `json:"subject_label,omitempty"`
+	Status       string  `json:"status"`
+	// VerdictState is what this item is DOING, as opposed to Status, which is only what the
+	// verifier decided. "awaiting_review" | "applying" | "settled" -- see
+	// domain.VerdictState* for why the two are not the same thing. Clients must render
+	// "applying" as work still in flight, NEVER as finished.
+	VerdictState  string             `json:"verdict_state"`
 	VerdictReason *string            `json:"verdict_reason,omitempty"`
 	OperatorID    *string            `json:"operator_id,omitempty"`
 	OperatorName  *string            `json:"operator_name,omitempty"` // backend-owned display label
@@ -107,6 +112,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		Category:          row.Item.Category,
 		SubjectLabel:      row.Item.SubjectLabel,
 		Status:            row.Item.Status,
+		VerdictState:      row.Item.VerdictState(),
 		VerdictReason:     row.Item.VerdictReason,
 		OperatorID:        row.Item.OperatorID,
 		OperatorName:      row.Item.OperatorName,
@@ -207,6 +213,12 @@ func (h *Handler) listQueue(
 		IncludeAllStatuses:   actionQueue,
 		SubmissionScopedOnly: actionQueue,
 		OpenOnly:             actionQueue,
+		// awaiting_application=true is the verifier's "what I decided that has not landed yet"
+		// view. It is what stops an emptied pending queue from being the ONLY feedback a verifier
+		// gets: a verdict is applied asynchronously, so "I decided it" and "the farm's records
+		// changed" are two different moments and the surface has to be able to name the gap.
+		// Status is deliberately left alone -- the caller asks for the state, not for a status.
+		AwaitingApplicationOnly: strings.EqualFold(strings.TrimSpace(q.Get("awaiting_application")), "true"),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {

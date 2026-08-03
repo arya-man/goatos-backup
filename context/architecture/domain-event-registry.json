@@ -668,6 +668,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -679,7 +684,9 @@
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/eventwiring/appliers_test.go",
-        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/appliers.go (RegisterVerificationAppliers) is the SINGLE registration of the shifting + feed-distribution + feed-packing verdict appliers, called by bootstrap/api.go, cmd/outbox-relay, AND cmd/domain-event-consumer. The verdict is delivered ONLY via the outbox, so the durable-bus consumers (outbox-relay local / domain-event-consumer prod) MUST register them; before 2026-07-27 they did not and every feed/shifting approval was silently dropped while the API-bus registration never fired. appliers_test.go is the drift guard.",
       "surfaces": [
@@ -722,6 +729,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -731,7 +743,9 @@
         "backend/internal/counts/adapters/postgres/shifting_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
-        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
       "surfaces": [
         "backend",

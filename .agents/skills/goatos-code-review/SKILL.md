@@ -534,3 +534,19 @@ path is the maintainer-local Mesha wiki graph
 (`/Users/ravi/mesha/graphify-out/graph.json`), which lives outside this repo and
 cannot be made repo-relative — do not write the repo-root path in any committed
 doc.
+
+## WEIGHING IS SCAN-AND-SUBMIT (do not re-derive rules)
+
+Assign sheds → individual: scan RFID + weight + video per animal; lump-sum: total
+weight + count + video(s) per shed → submit. **The only business rule is: no double
+scan of the same animal in a bucket before submit.**
+
+NO shed↔RFID validation · NO roster/expected count/denominator/percentage · NO herd
+or goat or clinical lookup · NO vaccine/protocol/obligation rules · NO "shed is empty"
+concept (free-flow cannot know what is in a shed).
+
+If a finding assumes any of those exist, it is invalid — close it and cite ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`. Real weighing
+findings are about PLUMBING: writes landing, evidence being reviewable, failures being
+visible, screens showing honest numbers. Full statement:
+`docs/features/weighing/TRD.md` → "What weighing IS".

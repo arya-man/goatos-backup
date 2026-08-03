@@ -1694,7 +1694,7 @@ WITH campaign AS (
     -- NOT resolved here: the write path is restricted to weighing-owned tables, so
     -- the locations catalogue is joined on the READ path instead.
     NULLIF($9, '')::uuid, NULL,
-    -- No roster verdict is stored. mismatch_status was DROPPED (000081): free-flow
+    -- No roster verdict is stored. mismatch_status was DROPPED (000082): free-flow
     -- has no expected set, so a scan cannot be "expected", "wrong shed" or "extra".
     -- Stamping 'extra_scan' on every row turned an operator's correct, in-shed work
     -- into an exception queue for whoever read the table.
@@ -2066,6 +2066,67 @@ SELECT EXISTS (
 	}
 	if omitsObserved {
 		return ports.ErrScopeIncomplete
+	}
+	// The pair rule. The submit UPDATE above already REFUSES to complete a bucket
+	// where any scanned animal lacks a weight or a completed video, but that
+	// refusal is a silent RowsAffected()==0 -- it used to fall through to
+	// ErrNotFound and told the operator that a shed they are standing in does not
+	// exist. Name the animals instead.
+	//
+	// This runs in the SAME transaction as the failed completion UPDATE, not as a
+	// pre-check: a pre-check would race a concurrent capture and could report an
+	// animal as incomplete a millisecond after its video finished (or, worse,
+	// pass a bucket that went incomplete in between). Only the observations of
+	// THIS bucket are consulted -- no roster, no herd register, no expected count.
+	incomplete := &ports.CaptureIncomplete{}
+	rows, err := tx.Query(ctx, `
+SELECT requested.scanned_identifier,
+       EXISTS (
+         SELECT 1 FROM weighing_observations observation
+         WHERE observation.tenant_id=$1::uuid
+           AND observation.campaign_id=$2::uuid
+           AND observation.campaign_shed_id=$3::uuid
+           AND lower(btrim(observation.scanned_identifier))=requested.scanned_identifier
+           AND observation.weight_kg > 0
+       ) AS has_weight,
+       EXISTS (
+         SELECT 1 FROM weighing_observations observation
+         JOIN proof_artifacts proof
+           ON proof.tenant_id=observation.tenant_id
+          AND proof.proof_id=observation.proof_artifact_id
+          AND proof.upload_state='completed'
+          AND proof.proof_type='video'
+         WHERE observation.tenant_id=$1::uuid
+           AND observation.campaign_id=$2::uuid
+           AND observation.campaign_shed_id=$3::uuid
+           AND lower(btrim(observation.scanned_identifier))=requested.scanned_identifier
+       ) AS has_video
+FROM (SELECT DISTINCT lower(btrim(unnest($4::text[]))) AS scanned_identifier) AS requested
+ORDER BY 1`, tenantID, campaignID, campaignShedID, scannedIdentifiers)
+	if err != nil {
+		return fmt.Errorf("classify individual scope submit pair completeness: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var identifier string
+		var hasWeight, hasVideo bool
+		if err := rows.Scan(&identifier, &hasWeight, &hasVideo); err != nil {
+			return fmt.Errorf("scan individual scope submit pair completeness: %w", err)
+		}
+		switch {
+		case !hasWeight:
+			// No weight at all (including "no capture row for this tag"). The video
+			// cannot stand alone, so this is reported as the missing half that it is.
+			incomplete.MissingWeight = append(incomplete.MissingWeight, identifier)
+		case !hasVideo:
+			incomplete.MissingVideo = append(incomplete.MissingVideo, identifier)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate individual scope submit pair completeness: %w", err)
+	}
+	if len(incomplete.MissingWeight) > 0 || len(incomplete.MissingVideo) > 0 {
+		return incomplete
 	}
 	return ports.ErrNotFound
 }
@@ -3052,6 +3113,14 @@ WHERE campaign.tenant_id=$1::uuid
 	}
 	var category string
 	var proofOK bool
+	// proofsAreThisShedsVideos repeats the accept-side proof predicate WITHOUT the
+	// upload_state clause. It is what separates "your video is still uploading"
+	// (a real state an operator can wait out, ErrProofNotReady) from "these are not
+	// this shed's videos at all" -- a photo, another shed's proof, or more than the
+	// five the bundle allows -- which stays a plain invalid argument. Collapsing
+	// the two would tell an operator who attached a PHOTO to wait for an upload
+	// that is already finished.
+	var proofsAreThisShedsVideos bool
 	err = tx.QueryRow(ctx, `
 	SELECT cs.weighing_category,
 	  (
@@ -3067,12 +3136,25 @@ WHERE campaign.tenant_id=$1::uuid
 	     AND proof.scope_id=cs.location_id
 	     AND proof.subject_type='shed'
 	     AND proof.subject_id=cs.location_id
-	  ) AS proof_ok
+	  ) AS proof_ok,
+	  (
+	    SELECT count(*)=cardinality($4::uuid[])
+	      AND count(*) BETWEEN 1 AND 5
+	    FROM unnest($4::uuid[]) AS requested(proof_id)
+	    JOIN proof_artifacts proof
+	      ON proof.tenant_id=$1::uuid
+	     AND proof.proof_id=requested.proof_id
+	     AND proof.proof_type='video'
+	     AND proof.scope_type='shed'
+	     AND proof.scope_id=cs.location_id
+	     AND proof.subject_type='shed'
+	     AND proof.subject_id=cs.location_id
+	  ) AS proofs_are_this_sheds_videos
 	FROM weighing_campaign_sheds cs
 	WHERE cs.tenant_id=$1::uuid
 	  AND cs.campaign_id=$2::uuid
 	  AND cs.campaign_shed_id=$3::uuid`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ProofArtifactIDs).
-		Scan(&category, &proofOK)
+		Scan(&category, &proofOK, &proofsAreThisShedsVideos)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.ErrNotFound
 	}
@@ -3083,6 +3165,16 @@ WHERE campaign.tenant_id=$1::uuid
 		return ports.ErrNotFound
 	}
 	if !proofOK {
+		if proofsAreThisShedsVideos {
+			// The lump-sum pair is (total weight + animal count) + at least one
+			// FINISHED video for THIS shed. Weight and count are already rejected
+			// upstream with a 400; the right video still uploading is the remaining
+			// half, and it used to render as "request is invalid" -- true of a
+			// malformed request, useless to an operator who only has to wait.
+			return ports.ErrProofNotReady
+		}
+		// Not this shed's videos (wrong type, wrong shed, wrong count). Genuinely a
+		// bad request, and it stays one.
 		return ports.ErrInvalidArgument
 	}
 	return ports.ErrNotFound

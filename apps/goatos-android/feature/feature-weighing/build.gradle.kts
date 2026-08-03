@@ -45,6 +45,10 @@ dependencies {
 
     // Streamed signed-URL playback for the leadership weighing-video review screen
     // (WeighingLeadershipVideosScreen). Capture-only CameraX stays in :app.
+    // Players are built via ProofPlayerFactory (:core:core-media), NOT ExoPlayer.Builder
+    // directly — that routes playback through the app's instrumented OkHttp client so a failed
+    // proof-video fetch reaches the telemetry seam (W-22).
+    implementation(project(":core:core-media"))
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 
