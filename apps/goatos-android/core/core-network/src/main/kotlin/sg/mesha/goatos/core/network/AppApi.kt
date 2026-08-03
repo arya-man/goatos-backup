@@ -1048,7 +1048,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         visibleNavigation = listOf(
             NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-            NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+            NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
         ),
         // Mirrors the backend moduleNavRegistry shape (available + soon) so previews and
         // screenshot tests render the real backend-composed drawer, not a client stub.
@@ -1061,7 +1061,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                 navItems = listOf(
                     NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
                     NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-                    NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+                    NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
                 ),
             ),
             BootstrapModuleDto(

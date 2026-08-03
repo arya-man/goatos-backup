@@ -33,6 +33,15 @@ const (
 	EventWorkItemRolledForward = "weighing.work_item.rolled_forward"
 	EventWorkItemDelayed       = "weighing.work_item.delayed"
 
+	// A carry-over that landed on a shed another task already covered that day.
+	// NOTHING IS TRANSFERRED: the carried-over item is simply CLOSED, and the task
+	// already planned for that day takes over the shed because its operator is the
+	// one standing there. No work item is re-assigned and no capture is moved --
+	// whatever the closed task weighed stays its own history. Routed DOWNWARD to
+	// the operator whose item closed (so it does not just vanish from their day)
+	// and UPWARD to leadership.
+	EventWorkItemMergedOnCarryOver = "weighing.work_item.merged_on_carry_over"
+
 	// ProcessStateGrain is the declared grain of the Calendar / Control Tower
 	// weighing read model, per docs/architecture/operational-read-model-contract.md.
 	// It is the WORK ITEM (one per campaign-shed bucket), not the animal and not
@@ -73,11 +82,14 @@ type KernelSweepParams struct {
 type KernelSweepResult struct {
 	BusinessDate       string `json:"business_date"`
 	ReconciledTerminal int    `json:"reconciled_terminal"`
-	RolledForward      int    `json:"rolled_forward"`
-	MarkedDelayed      int    `json:"marked_delayed"`
-	DayStartSurfaced   int    `json:"day_start_surfaced"`
-	CadenceEvents      int    `json:"cadence_events"`
-	Truncated          bool   `json:"truncated"`
+	// MergedOnCarryOver counts carry-overs CLOSED because the task already planned
+	// for that day covers the same (park, shed, date). Nothing is re-assigned.
+	MergedOnCarryOver int  `json:"merged_on_carry_over"`
+	RolledForward     int  `json:"rolled_forward"`
+	MarkedDelayed     int  `json:"marked_delayed"`
+	DayStartSurfaced  int  `json:"day_start_surfaced"`
+	CadenceEvents     int  `json:"cadence_events"`
+	Truncated         bool `json:"truncated"`
 }
 
 // WorkItemBucket is one bucket named inside a cadence event payload. Every field

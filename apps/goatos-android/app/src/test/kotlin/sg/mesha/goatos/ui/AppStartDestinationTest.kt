@@ -29,7 +29,7 @@ class AppStartDestinationTest {
             startDestinationFor(
                 navState(
                     NavItem("vaccination", "Drives", Routes.VACCINATION),
-                    NavItem("alerts", "Alerts", Routes.ALERTS),
+                    NavItem("alerts", "Alerts", Routes.VACCINATION_ALERTS),
                     NavItem("you", "You", Routes.YOU),
                 ),
             ),
@@ -54,7 +54,7 @@ class AppStartDestinationTest {
     fun `leadership cold start lands in shared vaccination module`() {
         val vaccinationBar = listOf(
             NavItem("vaccination", "Vaccination", Routes.VACCINATION),
-            NavItem("alerts", "Alerts", Routes.ALERTS),
+            NavItem("alerts", "Alerts", Routes.VACCINATION_ALERTS),
             NavItem("you", "You", Routes.YOU),
         )
         val state = NavState(

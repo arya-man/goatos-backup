@@ -1488,7 +1488,6 @@
   .main table.weighing-table .tag{max-width:100%;overflow:hidden;text-overflow:ellipsis}
   .blockish{display:block;margin-top:3px;line-height:1.35}
   .weighing-review-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  .weighing-integration{border-style:dashed}
   .weighing-planner>.bd{padding:16px}
   .weighing-plan-form{display:grid;gap:16px}
   .weighing-wizard-head{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:16px;align-items:end}

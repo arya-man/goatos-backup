@@ -48,6 +48,12 @@ data class WeighingWizardConfigRow(
     val ticked: Boolean,
 )
 
+/** One operator's share of the configured buckets: WHO, and HOW MANY shed buckets are theirs. */
+data class WeighingWizardOperatorLoad(
+    val displayName: String,
+    val shedCount: Int,
+)
+
 data class WeighingWizardOperatorOption(
     val userId: String,
     val displayName: String,
@@ -110,7 +116,18 @@ data class WeighingWizardUiState(
     val configTotalCount: Int = 0,
     val tickedCount: Int = 0,
     val operators: List<WeighingWizardOperatorOption> = emptyList(),
-    val configSummary: String = "",
+    /**
+     * The configure step's summary, as STRUCTURED COUNTS rather than a pre-built sentence.
+     *
+     * It used to be assembled in the ViewModel with hardcoded English (" individual · ",
+     * "lump-sum", "Operator") and a bare name+number pair, which rendered "Dinakar 2" -- a
+     * name welded to a count with no unit, on a screen where the number could plausibly be
+     * animals, sheds, or days. Counts stay numbers here; the screen names their unit, in the
+     * reader's own language.
+     */
+    val configIndividualCount: Int = 0,
+    val configLumpSumCount: Int = 0,
+    val configPerOperator: List<WeighingWizardOperatorLoad> = emptyList(),
 
     /**
      * Set only when this task is being started FROM an existing one: names where the answers came

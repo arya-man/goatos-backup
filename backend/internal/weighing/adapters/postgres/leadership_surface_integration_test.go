@@ -356,6 +356,55 @@ func TestCreateCampaignBlocksASecondOpenRowForTheSameShedAndWeighDateStatusMatri
 	}
 }
 
+// A shed whose weighing is DONE is finished work, not an occupied slot: the CEO
+// may schedule it again on the SAME date, in the same week, exactly as they may
+// schedule a shed nobody ever touched. Only work still OWED blocks (maintainer
+// decision 2026-08-03, migration 000089 -- this reverses 000062's original rule).
+func TestCompletedShedIsSchedulableAgainOnTheSameWeighDate(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	const weighDate = "2027-04-05"
+	first := lsCreate(t, ctx, repo, weighDate, weighDate, "done:first", lsFreeShed)
+
+	// While the bucket is still owed, the slot is taken. This half must not regress.
+	if _, err := lsCreateErr(ctx, repo, weighDate, weighDate, "done:while-open", lsFreeShed); !errors.Is(err, ports.ErrShedAlreadyScheduled) {
+		t.Fatalf("same shed while the first claim is open: err=%v, want ErrShedAlreadyScheduled", err)
+	}
+	// The planner agrees: the bucket reads as taken.
+	if shed := lsShed(t, drainAllParkBuckets(t, ctx, repo, weighDate, ""), lsFreeShed); !shed.Scheduled {
+		t.Fatalf("shed %s reads available while its claim is open", lsFreeShed)
+	}
+
+	// The operator weighs it. The bucket is DONE.
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status='completed', completed_at=now() WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, first.CampaignID)
+
+	// Same shed, same date, same week -- now allowed.
+	second, err := lsCreateErr(ctx, repo, weighDate, weighDate, "done:again", lsFreeShed)
+	if err != nil {
+		t.Fatalf("scheduling a COMPLETED shed again on the same date: %v", err)
+	}
+	if second.CampaignID == first.CampaignID {
+		t.Fatal("second create returned the first task; it must be a new task")
+	}
+	// And the planner offers it again right up until the new claim is made, then
+	// reports the NEW open claim -- never the finished one.
+	shed := lsShed(t, drainAllParkBuckets(t, ctx, repo, weighDate, ""), lsFreeShed)
+	if !shed.Scheduled || shed.ScheduledCampaignID != second.CampaignID {
+		t.Fatalf("planner reports campaign %q for %s, want the new open task %s", shed.ScheduledCampaignID, lsFreeShed, second.CampaignID)
+	}
+
+	// A 'closed' bucket frees the slot the same way.
+	execWeighingTestSQL(t, ctx, pool, `UPDATE weighing_campaign_sheds SET status='closed', closed_at=now() WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, repoTenant, second.CampaignID)
+	if _, err := lsCreateErr(ctx, repo, weighDate, weighDate, "done:after-close", lsFreeShed); err != nil {
+		t.Fatalf("scheduling a CLOSED shed again on the same date: %v", err)
+	}
+}
+
 // The database is the authority, not the pre-check: even a write that bypasses the
 // service (a script, a fixture, a future code path) cannot create the second open row.
 func TestDatabaseRefusesASecondOpenRowForTheSameShedAndWeighDate(t *testing.T) {

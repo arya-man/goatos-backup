@@ -153,14 +153,14 @@
     <string name="weighing_bucket_one">%1$d shed bucket</string>
     <string name="weighing_bucket_other">%1$d shed buckets</string>
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
-    <string name="weighing_tasks_more_sheds_fmt"> +%1$d more</string>
+    <string name="weighing_tasks_more_sheds_fmt">+%1$d more</string>
     <string name="weighing_tasks_individual_fmt">%1$d individual</string>
     <string name="weighing_tasks_lump_sum_fmt">%1$d lumpsum</string>
     <string name="weighing_operator_one">%1$d operator</string>
     <string name="weighing_operator_other">%1$d operators</string>
     <string name="weighing_tasks_accepted_fmt">%1$d of %2$d accepted →</string>
     <string name="weighing_tasks_repeat_last_fmt">Repeat last task · %1$s · %2$s</string>
-    <string name="weighing_tasks_repeat_blocked">Starting a task from an earlier one is not available yet</string>
+    <string name="weighing_tasks_repeat_blocked">No earlier task to repeat</string>
     <string name="weighing_tasks_new_task">+ New task</string>
     <string name="weighing_tasks_status_scheduled">scheduled</string>
 
@@ -180,12 +180,8 @@
     <string name="weighing_task_ending">Ending task</string>
     <string name="weighing_task_close_open_fmt">Close task · %1$d not submitted</string>
     <string name="weighing_task_mark_complete">Mark task complete</string>
-    <string name="weighing_task_reopen">Reopen task</string>
-    <string name="weighing_task_reopen_blocked">Putting a finished task back into planning is not available yet. A single shed bucket can still be reopened from its own card below.</string>
-    <string name="weighing_task_edit">Edit sheds &amp; assignment</string>
-    <string name="weighing_task_edit_blocked">Changing the sheds or who is assigned on a task already created is not available yet</string>
     <string name="weighing_task_repeat">Repeat this task on another date</string>
-    <string name="weighing_task_repeat_blocked">This task has no shed bucket that can be placed on another date</string>
+    <string name="weighing_task_repeat_blocked">No shed to place on another date</string>
     <string name="weighing_task_all_operators">All operators</string>
     <!-- Who a shed bucket belongs to. %1$s is the operator's display name, resolved by the backend
          (operator_display_name); this app never renders a user id and never invents a name. -->
@@ -376,4 +372,7 @@
     <string name="weighing_not_submitted_chip">Not submitted</string>
     <string name="weighing_reason_dialog_error_required">A reason is required.</string>
     <string name="weighing_reason_dialog_cancel">Cancel</string>
+    <string name="weighing_wizard_summary_modes_fmt">%1$d individual · %2$d lump-sum</string>
+    <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
+    <string name="weighing_wizard_add_remaining_fmt">Add remaining %1$d</string>
 </resources>

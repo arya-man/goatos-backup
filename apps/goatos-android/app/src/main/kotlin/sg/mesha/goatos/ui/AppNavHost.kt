@@ -204,7 +204,13 @@ object Routes {
      */
     const val YOU = "/you"
     const val RFID = "/rfid"
-    const val ALERTS = "/alerts"
+    /**
+     * VACCINATION's alerts feed. Alerts are feature-scoped by rule
+     * (docs/decisions/module-alerts-tab.md), so the address says which feature owns them,
+     * exactly like [WEIGHING_ALERTS].
+     */
+    const val VACCINATION_ALERTS = "/vaccination/alerts"
+
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
     const val TIMETABLE = "/timetable"
@@ -1012,7 +1018,6 @@ fun AppNavHost(
                 // wired: the update write replaces the whole shed set, which on a published task
                 // would drop buckets that already hold captured work. Disabled WITH the reason
                 // rather than offered and then half-honoured.
-                onEditTask = null,
                 onRepeatTask = {
                     vm.stageRepeatOfTask(campaignId)?.let { source ->
                         navController.navigate(Routes.weighingTaskRepeatRoute(source))
@@ -1436,8 +1441,11 @@ fun AppNavHost(
                     when (event) {
                         ProfileEvent.PairRfid ->
                             navController.navigate(Routes.RFID) { launchSingleTop = true }
+                        // There is no generic alerts feed to send anyone to: alerts are
+                        // feature-scoped. Profile sits inside the vaccination shell, so its
+                        // notifications action opens the vaccination feed by name.
                         ProfileEvent.ToggleNotifications ->
-                            navController.navigate(Routes.ALERTS) { launchSingleTop = true }
+                            navController.navigate(Routes.VACCINATION_ALERTS) { launchSingleTop = true }
                         ProfileEvent.OpenTimetable ->
                             navController.navigate(Routes.TIMETABLE) { launchSingleTop = true }
                         ProfileEvent.OpenLanguage -> showLanguage = true
@@ -1463,7 +1471,7 @@ fun AppNavHost(
             RfidScreen(state = state, onEvent = vm::onEvent)
         }
 
-        composable(Routes.ALERTS) {
+        composable(Routes.VACCINATION_ALERTS) {
             val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
@@ -2216,7 +2224,13 @@ private val supportedRootDestinations = setOf(
     Routes.VERIFY_ALERTS,
     Routes.VERIFY_ACTION,
     Routes.YOU,
-    Routes.ALERTS,
+    Routes.VACCINATION_ALERTS,
+    // Weighing's OWN alerts feed is a BOTTOM-BAR destination, so it is a root exactly like
+    // the vaccination feed above it. Registering the composable alone was not enough: a
+    // notification or deep link naming a non-root route is treated as unhosted and lands on
+    // the home screen with the "unavailable" notice, which is how a real, granted, populated
+    // feed can look broken to the person it was sent to.
+    Routes.WEIGHING_ALERTS,
     Routes.TIMETABLE,
     Routes.FEED_DIRECTION,
     Routes.FEED_PACKING,

@@ -225,6 +225,7 @@ run_backend() {
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
   step "vaccination-adult-drive-contract-guard" make vaccination-adult-drive-contract-guard
   step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
+  step "module-alerts-tab-guard" make module-alerts-tab-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard

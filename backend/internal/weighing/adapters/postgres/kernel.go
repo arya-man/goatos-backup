@@ -212,6 +212,82 @@ func (r *Repository) SweepWorkItems(ctx context.Context, params domain.KernelSwe
 	result.ReconciledTerminal = reconciled
 	result.Truncated = result.Truncated || truncated
 
+	// BEFORE anything rolls: resolve carry-overs that would land on a shed somebody
+	// else already owes today. Running this first means the double-booked state never
+	// exists, not even for the width of one transaction.
+	//
+	// The survivor lookup is LATERAL + LIMIT 1: the claim ALREADY PLANNED for today
+	// wins and simply carries on, its operator being the person who will be standing
+	// at that shed. Nothing is re-assigned -- the slipped item just closes. Keeping it
+	// 0..1 also means a shed with several open claims cannot multiply the rows closed.
+	//
+	// Captures on the slipped bucket do NOT block the merge (maintainer decision,
+	// 2026-08-03): whatever was weighed under that task IS weighed, and those
+	// observations stay on it as its own history, unmoved and un-reattributed. The
+	// surviving task then does its own weighing -- free-flow, so the same tags again
+	// or different ones, neither a duplicate of the closed record.
+	//
+	// closed_reason is a MACHINE token. The farm-readable sentence, with the surviving
+	// operator's name and an IST date, is composed by the notification consumer, which
+	// can resolve names; SQL here holds ids, and a half-named sentence baked into a
+	// column is exactly the abstract copy the notification rule bans.
+	//
+	// Publishes "weighing.work_item.merged_on_carry_over"
+	// (domain.EventWorkItemMergedOnCarryOver) through the same outbox enqueue every
+	// other cadence pass uses, one durable event per (campaign, operator, business
+	// date) group.
+	merged, mergeEvents, truncated, err := r.runCadencePass(ctx, cadencePass{
+		tenantID:     tenantID,
+		businessDate: businessDate,
+		chunk:        chunk,
+		maxChunks:    maxChunks,
+		eventType:    domain.EventWorkItemMergedOnCarryOver,
+		claimSQL: `
+WITH claimed AS (
+  SELECT slipped.work_item_id, slipped.due_business_date AS sort_date,
+         survivor.work_item_id AS survivor_id,
+         survivor.operator_user_id AS survivor_operator
+  FROM weighing_work_items slipped
+  JOIN LATERAL (
+    SELECT other.work_item_id, other.operator_user_id
+    FROM weighing_work_items other
+    WHERE other.tenant_id = slipped.tenant_id
+      AND other.park_id = slipped.park_id
+      AND other.shed_location_id = slipped.shed_location_id
+      AND other.due_business_date = $2::date
+      AND other.work_state IN ('scheduled','delayed')
+      AND other.work_item_id <> slipped.work_item_id
+    ORDER BY other.planned_business_date, other.work_item_id
+    LIMIT 1
+  ) survivor ON true
+  WHERE slipped.tenant_id = $1::uuid
+    AND slipped.work_state IN ('scheduled','delayed')
+    AND slipped.due_business_date < $2::date
+    AND (slipped.due_business_date > $3::date OR (slipped.due_business_date = $3::date AND slipped.work_item_id > $4::uuid))
+  ORDER BY slipped.due_business_date, slipped.work_item_id
+  LIMIT $5
+  FOR UPDATE OF slipped SKIP LOCKED
+)
+UPDATE weighing_work_items wi
+SET work_state = 'closed',
+    terminal_at = now(),
+    merged_into_work_item_id = claimed.survivor_id,
+    closed_reason = 'merged_on_carry_over',
+    updated_at = now()
+FROM claimed
+WHERE wi.work_item_id = claimed.work_item_id
+RETURNING wi.work_item_id::text, wi.campaign_id::text, wi.campaign_shed_id::text,
+          wi.park_id::text, wi.operator_user_id::text, wi.shed_label,
+          wi.shed_location_id::text, wi.planned_business_date::text, wi.due_business_date::text,
+          claimed.sort_date::text`,
+	})
+	if err != nil {
+		return result, err
+	}
+	result.MergedOnCarryOver = merged
+	result.CadenceEvents += mergeEvents
+	result.Truncated = result.Truncated || truncated
+
 	rolled, events, truncated, err := r.runCadencePass(ctx, cadencePass{
 		tenantID:     tenantID,
 		businessDate: businessDate,

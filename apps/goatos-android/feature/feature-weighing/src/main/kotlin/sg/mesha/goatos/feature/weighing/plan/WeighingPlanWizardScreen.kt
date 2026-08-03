@@ -345,10 +345,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.bucketStep(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 WeighingWizardGhostButton(
-                    label = if (state.bucketsAddable > 0) {
-                        stringResource(R.string.weighing_wizard_add_all_fmt, state.bucketsAddable)
-                    } else {
-                        stringResource(R.string.weighing_wizard_nothing_to_add)
+                    // "Add all N" once something is already added collides with the "Added N"
+                    // chip beside it: the same number, meaning opposite things (2 already in vs
+                    // 2 still out). Once the tray is non-empty the button says REMAINING.
+                    label = when {
+                        state.bucketsAddable == 0 -> stringResource(R.string.weighing_wizard_nothing_to_add)
+                        state.addedCount > 0 ->
+                            stringResource(R.string.weighing_wizard_add_remaining_fmt, state.bucketsAddable)
+                        else -> stringResource(R.string.weighing_wizard_add_all_fmt, state.bucketsAddable)
                     },
                     enabled = state.bucketsAddable > 0,
                     onClick = onAddAllBuckets,
@@ -566,7 +570,24 @@ private fun ConfigureBulkBar(
                 } else {
                     stringResource(R.string.weighing_wizard_applies_to_all_fmt, state.configTotalCount)
                 },
-                state.configSummary,
+                // Operator loads name their UNIT: "Dinakar · 2 sheds", never "Dinakar 2".
+                // The same screen shows shed counts and animal counts, so a bare number
+                // beside a name is genuinely ambiguous to the reader.
+                (
+                    listOf(
+                        stringResource(
+                            R.string.weighing_wizard_summary_modes_fmt,
+                            state.configIndividualCount,
+                            state.configLumpSumCount,
+                        ),
+                    ) + state.configPerOperator.map { load ->
+                        stringResource(
+                            R.string.weighing_wizard_summary_operator_fmt,
+                            load.displayName,
+                            wizardShedNoun(load.shedCount),
+                        )
+                    }
+                    ).joinToString(" · "),
             ),
             color = MeshaColors.Muted,
             style = MeshaType.caption,
@@ -936,3 +957,11 @@ private fun categoryOptions(): List<Pair<String, String>> = listOf(
     INDIVIDUAL_CATEGORY to stringResource(R.string.weighing_category_individual_title),
     LUMP_SUM_CATEGORY to stringResource(R.string.weighing_category_lump_sum_title),
 )
+
+/** "1 shed" / "N sheds" in the reader's language — the unit for an operator's bucket load. */
+@Composable
+private fun wizardShedNoun(count: Int): String = if (count == 1) {
+    stringResource(R.string.weighing_shed_one, count)
+} else {
+    stringResource(R.string.weighing_shed_other, count)
+}
