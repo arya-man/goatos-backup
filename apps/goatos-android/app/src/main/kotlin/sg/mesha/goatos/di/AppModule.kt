@@ -87,6 +87,9 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -601,6 +604,7 @@ object AppModule {
         connectivityGate: ConnectivityGate,
         retryScheduler: SyncRetryScheduler,
         database: GoatDatabase,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -609,6 +613,24 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        telemetry = outboxTelemetry,
+    )
+
+    /**
+     * Queue-lifecycle visibility (W-23). Bound unconditionally — unlike the network reporter
+     * there is no vendor-gated variant to choose between: the logcat half must work on EVERY
+     * flavor (that is the half whose absence made a stuck upload undiagnosable on-device), and
+     * the Crashlytics/Analytics halves already degrade to no-ops when their seams are the
+     * Noop implementations.
+     */
+    @Provides
+    @Singleton
+    fun provideOutboxTelemetryReporter(
+        crashReporter: CrashReporter,
+        analytics: AnalyticsPort,
+    ): OutboxTelemetryReporter = FailureReportingOutboxTelemetryReporter(
+        crashReporter = crashReporter,
+        analytics = analytics,
     )
 
     // Drive/Photos-style background upload foreground service (MOB-002 §3,
@@ -633,12 +655,14 @@ object AppModule {
         connectivityGate: ConnectivityGate,
         appScope: CoroutineScope,
         foregroundSyncController: ForegroundSyncController,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncRepository = DefaultSyncRepository(
         store = store,
         engine = engine,
         connectivityGate = connectivityGate,
         appScope = appScope,
         foregroundSyncController = foregroundSyncController,
+        telemetry = outboxTelemetry,
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned
