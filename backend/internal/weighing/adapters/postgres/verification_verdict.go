@@ -150,12 +150,12 @@ func (r *Repository) verdictByIdempotency(
 // campaign/bucket it belongs to, which shed it was captured in, and the single
 // operator who owns that bucket.
 type observationScope struct {
-	CampaignID      string
-	CampaignShedID  string
-	ShedID          string
-	ShedLabel       string
-	ParkID          string
-	OperatorID      string
+	CampaignID     string
+	CampaignShedID string
+	ShedID         string
+	ShedLabel      string
+	ParkID         string
+	OperatorID     string
 	// ProofArtifactID is the proof/video id CURRENTLY attached to the
 	// observation, read under the same row lock as the rest of the scope
 	// (FOR UPDATE OF observation), so it cannot change out from under the

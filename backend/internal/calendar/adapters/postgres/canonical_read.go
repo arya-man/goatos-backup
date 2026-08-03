@@ -872,7 +872,7 @@ obligation_drive_membership AS (
         (
           ob2.planned_date IS NOT NULL
           AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END -- scale-guard:ignore: 5k-50k-envelope; concatenating calendarTodayInRequestedWindow splits calendarCanonicalEventsCTE into several Go literals, so god-cte/non-sargable-like re-anchor from the const's annotated declaration to this fragment's first line. Same query, same accepted debt; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
         )
         OR (
           ob2.planned_date IS NULL

@@ -77,10 +77,10 @@ func (s *Service) WithProcessStateReader(reader ports.WeighingProcessStateReader
 // for the WeighingMonitor capability -- the reopen/close/abandon authority.
 //
 // Authorization semantics:
-// - Tenant-wide grant with weighing-relevant role = access all parks
-// - Park-scoped grant = must match campaign park AND that grant's role must carry
-//   the capability (see checkParkScopeForCapability)
-// - Campaign not found or unauthorized park = ErrNotFound (not leaking existence)
+//   - Tenant-wide grant with weighing-relevant role = access all parks
+//   - Park-scoped grant = must match campaign park AND that grant's role must carry
+//     the capability (see checkParkScopeForCapability)
+//   - Campaign not found or unauthorized park = ErrNotFound (not leaking existence)
 func (s *Service) checkParkScope(ctx context.Context, tenantID, campaignID string) error {
 	// Get the campaign's park
 	parkID, err := s.repo.CampaignParkID(ctx, tenantID, campaignID)
@@ -428,6 +428,9 @@ func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, c
 	for _, item := range page.Items {
 		allowed, ok := parkIDCache[item.CampaignID]
 		if !ok {
+			// Memoized by parkIDCache: this runs once per DISTINCT campaign on an
+			// already-paginated page (in practice 1), not once per row.
+			// scale-guard:ignore: memoized per distinct campaign on a bounded page
 			parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, item.CampaignID)
 			if err != nil {
 				continue

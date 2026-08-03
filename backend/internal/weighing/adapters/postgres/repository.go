@@ -532,12 +532,7 @@ WHERE wc.tenant_id=$1::uuid
 func (r *Repository) PlannerCatalog(ctx context.Context, tenantID string, periodStartDate string) (domain.PlannerCatalog, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	// projection-review: membership=active parks of one tenant, decorated with (a) a park-grain
-	// count of that park's active sheds and (b) the park's existing task on the requested date;
-	// group_key=park location_id; join_cardinality=the existing side is pre-aggregated with
-	// DISTINCT ON (park_id) to EXACTLY ONE row per park before the join, so it cannot multiply
-	// park rows; pagination=NONE by design -- parks are few and the picker must offer all of
-	// them; the read is bounded by a hard LIMIT instead; scope=tenant_id.
+	// projection-review: membership=active parks of one tenant, decorated with (a) a park-grain count of that park's active sheds and (b) the park's existing task on the requested date; group_key=park location_id; join_cardinality=the existing side is pre-aggregated with DISTINCT ON (park_id) to EXACTLY ONE row per park before the join, so it cannot multiply park rows; pagination=NONE by design, parks are few and the picker must offer all of them, the read is bounded by a hard LIMIT instead; scope=tenant_id
 	//
 	// Grain proof (shed_count):
 	//   producer locations (shed rows)  unique per shed: location_id (PK)
@@ -1311,7 +1306,6 @@ func (r *Repository) recordAnimalObservationAttempt(ctx context.Context, cmd dom
 	// bucket's shed, the weight is positive, and the idempotency key is honoured.
 	return r.recordUnknownAnimalObservationTx(ctx, tx, cmd)
 }
-
 
 // lockCampaignRowForNoKeyUpdate is the SOLE entry point every capture-side
 // writer (RecordAnimalObservation, RecordShedObservation) must call before

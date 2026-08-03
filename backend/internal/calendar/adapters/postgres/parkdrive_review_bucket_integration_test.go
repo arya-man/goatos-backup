@@ -68,7 +68,7 @@ func TestCalendarParkDriveReviewBucketStatusBucketsCrossSurfaceParityOneToManyPa
 		versionID  = "87000000-0000-4000-8000-000000000b02"
 		ruleID     = "87000000-0000-4000-8000-000000000b03"
 
-		parkSubmitted = "87000000-0000-4000-8000-000000000b11"
+		parkSubmitted  = "87000000-0000-4000-8000-000000000b11"
 		batchSubmitted = "87000000-0000-4000-8000-000000000b12"
 		oblSubmittedA  = "87000000-0000-4000-8000-000000000b13"
 		oblSubmittedB  = "87000000-0000-4000-8000-000000000b14"

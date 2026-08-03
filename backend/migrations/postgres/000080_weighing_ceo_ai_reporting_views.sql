@@ -51,6 +51,10 @@ SET LOCAL statement_timeout = '30s';
 -- scans) or weighing_shed_observations (one lump-sum bucket total) for a
 -- given campaign_shed_id -- never both. animals_weighed therefore
 -- COALESCEs the two counts rather than summing them.
+--
+-- projection-review: membership=one row per weighing_campaign_sheds row (campaign_shed_id is that table's PK), decorated with its campaign, its optional work item, its optional lump-sum shed observation, and a LATERAL scalar rollup of its own per-animal scans; group_key=campaign_shed_id (the view has no GROUP BY at all -- the only aggregation is the correlated LATERAL over weighing_observations, which collapses to EXACTLY ONE row per bucket); join_cardinality=weighing_campaigns 1 per campaign_id (PK), locations pk 0..1 per location_id (PK), weighing_work_items 0..1 (UNIQUE weighing_work_items_bucket_uidx on (tenant_id, campaign_shed_id), and campaign_shed_id is itself a PK so the pair is unique per bucket), weighing_shed_observations 0..1 (UNIQUE weighing_shed_observations_one_active_scope_uidx on (tenant_id, campaign_shed_id), non-partial since 000067), LATERAL obs exactly 1 -- every joined side is 0..1, so no side can multiply bucket rows; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, exposed as cs.tenant_id
+--
+-- Ratio key sets: animals_weighed is NOT a ratio and NOT a sum across sources. scan_count and shed_animal_count are drawn from DISJOINT bucket populations keyed by the same campaign_shed_id (weighing_category fixes which table the write path uses), so COALESCE picks the one populated source for that key rather than adding two overlapping key sets.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_capture_activity AS
 SELECT
@@ -143,6 +147,10 @@ $weighing_ceo_ai_grants$;
 -- (rejected) + verified (approved) is therefore always EXACTLY total -- the
 -- three buckets are disjoint and exhaustive by construction, not by
 -- convention.
+--
+-- projection-review: membership=verification_items rows filtered to module = 'weighing' (the WHERE runs before the aggregate, so no other module's rows enter any bucket); group_key=(vi.tenant_id, pk.name, sh.name), exactly the GROUP BY list; join_cardinality=locations sh 0..1 per vi.shed_id and locations pk 0..1 per vi.park_id, both matching on locations.location_id which is that table's PK, so neither LEFT JOIN can duplicate a verification_items row and COUNT(*) stays at verification-item grain; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, grouped and exposed as vi.tenant_id
+--
+-- Ratio key sets: pending, rework and verified are FILTER aggregates over the IDENTICAL grouped row set that produces total -- same FROM, same WHERE, same GROUP BY, no extra join on any branch. verification_items.status carries a CHECK restricting it to exactly {'pending','rejected','approved'} (000001 baseline, revalidated in 000067), so the three filters are disjoint and exhaustive and pending + rework + verified = total for every key, by constraint rather than by convention.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_verification_status AS
 SELECT

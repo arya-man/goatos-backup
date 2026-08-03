@@ -93,8 +93,8 @@ func TestRecordAnimalObservationAcceptsEveryClinicalState(t *testing.T) {
 
 			if _, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 				TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
- ScannedIdentifier: "clinical-" + tc.name,
-				WeightKg: 12.0, ProofArtifactID: freeFlowClinicalProof, ActualLocationID: repoExpectedShed,
+				ScannedIdentifier: "clinical-" + tc.name,
+				WeightKg:          12.0, ProofArtifactID: freeFlowClinicalProof, ActualLocationID: repoExpectedShed,
 				IdempotencyKey: "free-flow:clinical-" + tc.name, RecordedBy: repoOperator,
 			}); err != nil {
 				t.Fatalf("health=%q must still be weighable, got err=%v — weighing records what the scale saw and never gates on clinical state",
@@ -219,8 +219,8 @@ func TestRecordAnimalObservationAcceptsResolvedAnimalRegardlessOfRosterState(t *
 
 			obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 				TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
- ScannedIdentifier: "roster-state-" + tc.name,
-				WeightKg: 14.25, ProofArtifactID: freeFlowOffRosterProof, ActualLocationID: repoExpectedShed,
+				ScannedIdentifier: "roster-state-" + tc.name,
+				WeightKg:          14.25, ProofArtifactID: freeFlowOffRosterProof, ActualLocationID: repoExpectedShed,
 				IdempotencyKey: "free-flow:roster-" + tc.name, RecordedBy: repoOperator,
 			})
 			if err != nil {
