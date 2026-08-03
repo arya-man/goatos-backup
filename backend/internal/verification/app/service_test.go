@@ -221,6 +221,30 @@ func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVacci
 	})
 }
 
+// MarkVerdictApplied is the apply-RECEIPT seam: the producing module reporting that
+// it wrote the verdict's outcome onto its own record. It stamps only the receipt --
+// never status, never verdict -- so the applier stays the single writer of the outcome.
+func (r *fakeRepo) MarkVerdictApplied(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error) {
+	applied := 0
+	now := time.Now().UTC()
+	for _, refID := range sourceRefIDs {
+		for _, item := range r.items {
+			if item.TenantID != tenantID || item.Source.Module != sourceModule || item.Source.RefType != sourceRefType || item.Source.RefID != refID {
+				continue
+			}
+			if item.Status == domain.StatusPending || item.AppliedAt != nil {
+				continue
+			}
+			stamped := now
+			module := appliedByModule
+			item.AppliedAt = &stamped
+			item.AppliedByModule = &module
+			applied++
+		}
+	}
+	return applied, nil
+}
+
 func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
 	withdrawn := 0
 	for _, refID := range sourceRefIDs {

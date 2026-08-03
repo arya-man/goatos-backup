@@ -40,6 +40,12 @@ type ListQueueParams struct {
 	SubmissionScopedOnly bool
 	// OpenOnly hides rows already closed by leadership.
 	OpenOnly bool
+	// AwaitingApplicationOnly narrows the page to items a verifier already decided but whose
+	// producing module has NOT yet confirmed it applied the outcome (domain.VerdictStateApplying).
+	// It exists so the verifier's own surface can show "you decided this, it has not landed yet"
+	// instead of letting the item vanish out of the pending queue with no trace. Only producers
+	// that opted into the ack protocol (applier_ack_expected) can ever appear here.
+	AwaitingApplicationOnly bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -73,6 +79,12 @@ type Repository interface {
 	// only stops an item being decidable, so a verifier can never approve superseded work and have
 	// the UI report that non-decision as success. Already-decided items are left untouched.
 	WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error)
+	// MarkVerdictApplied is the producing module's receipt that its applier wrote the verdict's
+	// outcome onto its OWN record. It writes no outcome state and publishes no event -- it only
+	// stamps applied_at/applied_by_module so a decided item stops reading as "still being applied".
+	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
+	// so the verdict's submission and its application are different moments).
+	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage
