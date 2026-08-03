@@ -202,6 +202,30 @@ Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.
 
+## Mandatory Android STG APK Source Traceability
+
+Every Android STG APK uploaded to Firebase App Distribution must be traceable to
+the exact source revision that produced it.
+
+- Use only `:app:appDistributionUploadStgRelease` for Firebase App Distribution
+  Android STG uploads. Do not upload ad-hoc APK files manually from the Firebase
+  console, `firebase appdistribution:distribute`, or any other path unless the
+  maintainer explicitly asks for a one-off rescue build and the release notes
+  still record the source label.
+- The distributed APK must include/bake the source commit and tag metadata
+  (`SOURCE_COMMIT`, `SOURCE_TAG`, `SOURCE_BRANCH`, `SOURCE_LABEL`, and the
+  matching string resources) and the Firebase release notes must carry the same
+  source label.
+- Never upload from a dirty worktree. The only exception is an explicit
+  throwaway/debug build using `-PallowDirtyFirebaseDistribution=true`; label it
+  as throwaway in the release notes and do not use it to answer whether a
+  production-like phone APK contains a feature.
+- When answering "does the latest Firebase APK have feature X?", first verify
+  and record the installed/Firebase release source label, then compare that
+  commit/tag against the commit that introduced the feature. If the source label
+  cannot be verified, say that clearly instead of inferring from local `HEAD`,
+  `origin/main`, or memory.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
