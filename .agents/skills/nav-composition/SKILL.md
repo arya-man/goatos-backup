@@ -5,8 +5,9 @@ description: >-
   mobile (apps/goatos-android) or admin-web — or the backend bootstrap nav
   builder. Enforces job-driven, module-grant-composed, reusable-across-modules
   navigation and blocks hardcoded per-role/per-module nav templates. Invoke
-  before touching nav/bootstrap and before pushing. Machine gate:
-  `make nav-composition-guard`.
+  before touching nav/bootstrap and before pushing. Also owns WHERE a feature
+  entry point may live: bottom bar/drawer, never the top-right app bar. Machine
+  gates: `make nav-composition-guard`, `make nav-entry-point-placement-guard`.
 ---
 
 # Role × module nav composition
@@ -51,3 +52,26 @@ Nav bar, **bottom-bar icons/labels**, and which **screens** a person sees are
 on a NEW hardcoded nav template; the 2 existing (`operatorNavigation`,
 `leadershipNavigation`) are baselined as nav-generalization debt. Genuinely-fixed
 system nav → `nav-composition:ignore: <reason>`.
+
+## Placement: a feature entry point is NEVER top-right
+Canonical rule: `docs/decisions/nav-entry-point-placement.md`.
+
+The app bar carries actions **ON the current screen** — refresh/sync, filter,
+search-within-this-list, a screen-scoped overflow, a create drill for the very
+list shown. It must never carry a **doorway to another feature surface** (alerts,
+inbox, videos, profile, settings-as-a-feature, a module switch). Those are nav
+destinations: they are composed by the backend registry and render as a
+bottom-bar item or a drawer row, in the same place in every module.
+
+Worked example: weighing "My work" shipped a top-right bell while vaccination
+shipped the same concept as a `[ Drives | Alerts ]` bottom bar. The fix is not to
+move the icon — it is to give the module its **nav registry item**.
+
+Guard: `make nav-entry-point-placement-guard`
+(`tools/agent-hooks/check-nav-entry-point-placement.mjs`), diff-scoped. It derives
+the forbidden set from `bootstrap_copy.go` (L0 hrefs + `nav.*` labels) and rejects,
+inside any `actions = { ... }` slot: navigation to a nav destination, a control
+named after a nav destination, or an inert `onClick = {}` placeholder. Read the
+guard header for its blind spots. Pre-existing violations:
+`tools/agent-hooks/nav-entry-point-baseline.txt` — shrink it, never grow it.
+Escape hatch: `nav-placement:ignore: <reason>`.

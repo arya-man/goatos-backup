@@ -9,6 +9,13 @@ an **L0 root**. Tapping content on an L0 screen pushes an **L1 hosted
 destination** into the same `NavHost`; every further drill pushes L2/L3/L4 in
 order.
 
+This decision governs the **stack structure** — which destination owns global
+chrome and how drills are hosted. Where a feature's **entry point** may live is a
+separate, companion rule: it belongs in the bottom bar or the module drawer and
+never in the top-right app bar. See
+[nav-entry-point-placement.md](./nav-entry-point-placement.md), machine-blocked by
+`make nav-entry-point-placement-guard`.
+
 Only an exact L0 route owns global navigation chrome:
 
 ```text

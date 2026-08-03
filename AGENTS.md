@@ -1427,6 +1427,11 @@ Do:
   disguised as modal sheets. Machine-blocked by
   `make android-navigation-stack-guard`; canonical decision:
   `docs/decisions/android-navigation-stack.md`.
+  Placement is a separate invariant: a FEATURE ENTRY POINT (alerts, inbox,
+  videos, profile, a module switch) belongs in the bottom bar or the module
+  drawer and NEVER in the top-right app bar, which carries only actions on the
+  current screen. Machine-blocked by `make nav-entry-point-placement-guard`;
+  canonical decision: `docs/decisions/nav-entry-point-placement.md`.
   The retention twin is memory, not fetch size: an in-heap cache/accumulator that
   grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
   (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +
