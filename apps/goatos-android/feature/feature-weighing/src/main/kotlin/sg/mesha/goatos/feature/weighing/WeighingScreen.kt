@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -145,14 +146,12 @@ data class WeighingUiState(
             shedProofs.any { it.status == ProofUploadStatus.SYNCED }
 
     /**
-     * DISABLED-WITH-REASON for the lump-sum Submit.
+     * Lump-sum-only view of the proof blocker.
      *
-     * A greyed-out Submit with no stated cause is a dead end for an operator standing in a shed:
-     * during the 2026-08-03 phone-QA blocker the video re-uploaded for minutes while the screen
-     * said only "uploading" and Submit stayed grey with no explanation. This names the one
-     * remaining blocker whenever the weight and the count are already valid, so proof is the
-     * ONLY thing left. Null when Submit is enabled, when this is not lump-sum, or when the
-     * operator still has numbers to enter (the empty fields speak for themselves).
+     * MERGE NOTE (2026-08-03): superseded for RENDERING by [submitBlockedReason], which also
+     * covers the individual path and the no-shed/saving states. Kept because it is the
+     * narrower, proof-specific contract its own tests pin. Only [submitBlockedReason] reaches
+     * the screen; collapsing the two is a follow-up, not a merge-time change.
      */
     val shedProofBlockReasonRes: Int? get() {
         if (!isShedPartition || canRecordShedPartition) return null
@@ -165,6 +164,40 @@ data class WeighingUiState(
             shedProofs.any { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_submit_blocked_failed
             else -> R.string.weighing_submit_blocked_uploading
         }
+    }
+
+    /**
+     * Why Submit cannot be pressed yet, in farm language — or null when it can.
+     *
+     * A blocked action must always state its REASON. A greyed-out Submit next to a video that
+     * is still uploading (or that failed) left an operator standing in the shed with a retry
+     * button, a dead button, and nothing on screen saying which one was the hold-up.
+     *
+     * Ordered most-blocking first, so the operator is told the ONE thing to do next.
+     */
+    @get:StringRes
+    val submitBlockedReason: Int? get() = when {
+        !hasScope -> R.string.weighing_blocked_no_shed_open
+        !isShedPartition -> individualSubmitBlockedReason
+        actionInFlight -> R.string.weighing_blocked_saving
+        weightInput.toDoubleOrNull()?.let { it > 0.0 } != true -> R.string.weighing_blocked_need_weight
+        animalCountInput.toIntOrNull()?.let { it > 0 } != true -> R.string.weighing_blocked_need_count
+        shedProofs.isEmpty() -> R.string.weighing_blocked_need_video
+        shedProofs.any { it.status == ProofUploadStatus.SYNCED } -> null
+        shedProofs.any { it.status == ProofUploadStatus.UPLOADING } -> R.string.weighing_blocked_video_uploading
+        shedProofs.all { it.status == ProofUploadStatus.FAILED } -> R.string.weighing_blocked_video_failed
+        else -> R.string.weighing_blocked_need_video
+    }
+
+    private val individualSubmitBlockedReason: Int? get() = when {
+        visibleRows.isEmpty() -> R.string.weighing_blocked_nothing_captured
+        visibleRows.any { !it.weightSaved } -> R.string.weighing_blocked_need_weight
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.UPLOADING } ->
+            R.string.weighing_blocked_video_uploading
+        visibleRows.any { it.proofUploadStatus == ProofUploadStatus.FAILED } ->
+            R.string.weighing_blocked_video_failed
+        visibleRows.all { it.proofUploadStatus == ProofUploadStatus.SYNCED } -> null
+        else -> R.string.weighing_blocked_need_video
     }
 }
 
@@ -1063,16 +1096,22 @@ private fun WeighingExecutionScanScreen(
             )
         },
         bottomBar = {
-            Column(modifier = Modifier.background(MeshaColors.PageBg)) {
-                state.shedProofBlockReasonRes?.let { reasonRes ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MeshaColors.PageBg),
+            ) {
+                // Disabled-with-reason: never a dead button on its own. The line says which
+                // single thing is holding the submission up (usually a video still going up).
+                state.submitBlockedReason?.let { reason ->
                     Text(
-                        text = stringResource(reasonRes),
+                        text = stringResource(reason),
                         color = MeshaColors.Muted,
-                        style = MeshaType.cardSubtitle,
+                        style = MeshaType.bodyStrong,
+                        textAlign = TextAlign.Center,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = 10.dp),
+                            .padding(horizontal = 16.dp),
                     )
                 }
                 ActionButton(

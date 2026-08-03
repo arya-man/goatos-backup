@@ -26,6 +26,7 @@ import sg.mesha.goatos.core.data.GoatDatabase
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
+import sg.mesha.goatos.core.network.userFacingMessage
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -612,7 +613,7 @@ class DefaultWeighingRepository(
                     nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
                 ),
             )
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing assignments.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing assignments.")) }
     }
 
     // --- Leadership reads: Room is the SSOT, the network only writes into it -----------
@@ -700,7 +701,7 @@ class DefaultWeighingRepository(
                 }
                 AppResult.Ok(response.items.size)
             // Room keeps whatever it already had: a failed page leaves the cached list on screen.
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing tasks.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing tasks.")) }
         }
 
     override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> {
@@ -769,7 +770,7 @@ class DefaultWeighingRepository(
                     }
                 }
                 AppResult.Ok(response.items.size)
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load this task.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task.")) }
         }
 
     override fun observeLeadershipShed(
@@ -830,7 +831,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.individual.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load this shed.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this shed.")) }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -913,7 +914,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing videos.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -982,7 +983,7 @@ class DefaultWeighingRepository(
                     catalog.pruneOperatorsOutsideNewestQueries(WEIGHING_CACHED_CATALOG_DATES)
                 }
                 AppResult.Ok(response.parks.size)
-            }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing planner.") }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
         }
 
     override fun observePlannerParkBuckets(
@@ -1071,7 +1072,7 @@ class DefaultWeighingRepository(
                 }
             }
             AppResult.Ok(response.sheds.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not load weighing planner.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
     }
 
     /**
@@ -1161,7 +1162,7 @@ class DefaultWeighingRepository(
             val publishIdem = "weighing:publish:${created.campaignId}"
             val published = client.publishWeighingCampaign(created.campaignId, publishIdem).campaign
             AppResult.Ok(published.toAssignments(WEIGHING_SCOPE_MINE).firstOrNull())
-        }.getOrElse { AppResult.Err(it.message ?: "Could not publish weighing plan.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish weighing plan.")) }
     }
 
     override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> = withContext(Dispatchers.IO) {
@@ -1180,7 +1181,7 @@ class DefaultWeighingRepository(
                 client.publishWeighingCampaign(created.campaignId, "weighing:publish:${created.campaignId}")
             }
             AppResult.Ok(created.campaignId)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not save this weighing task.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not save this weighing task.")) }
     }
 
     override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> = withContext(Dispatchers.IO) {
@@ -1197,7 +1198,7 @@ class DefaultWeighingRepository(
                 updated
             }
             AppResult.Ok(visible.toAssignments(WEIGHING_SCOPE_MINE).firstOrNull())
-        }.getOrElse { AppResult.Err(it.message ?: "Could not update weighing plan.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not update weighing plan.")) }
     }
 
     override suspend fun publishCampaign(campaignId: String): AppResult<Unit> = withContext(Dispatchers.IO) {
@@ -1208,7 +1209,7 @@ class DefaultWeighingRepository(
             // publish twice. Same key the authoring flow uses for the same campaign.
             client.publishWeighingCampaign(campaignId, "weighing:publish:$campaignId")
             AppResult.Ok(Unit)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not publish this weighing task.", it) }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not publish this weighing task."), it) }
     }
 
     override suspend fun refreshScope(
@@ -1288,7 +1289,7 @@ class DefaultWeighingRepository(
                 publishAccepted()
             } ?: publishAccepted()
             AppResult.Ok(accepted.size)
-        }.getOrElse { AppResult.Err(it.message ?: "Could not refresh weighing roster.") }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not refresh weighing roster.")) }
     }
 
     override suspend fun matchTag(scopeKey: String, scannedTag: String): WeighingScanMatch = withContext(Dispatchers.IO) {
@@ -1332,7 +1333,7 @@ class DefaultWeighingRepository(
                 )
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't submit weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
             }
         }
 
@@ -1353,7 +1354,7 @@ class DefaultWeighingRepository(
                 )
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't reopen weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't reopen weighing shed."), error)
             }
         }
 
@@ -1374,7 +1375,7 @@ class DefaultWeighingRepository(
                 )
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't close weighing shed.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't close weighing shed."), error)
             }
         }
 
@@ -1393,7 +1394,7 @@ class DefaultWeighingRepository(
                 )
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
-                AppResult.Err(error.message ?: "Couldn't close weighing campaign.", error)
+                AppResult.Err(error.userFacingMessage("Couldn't close weighing campaign."), error)
             }
         }
 
