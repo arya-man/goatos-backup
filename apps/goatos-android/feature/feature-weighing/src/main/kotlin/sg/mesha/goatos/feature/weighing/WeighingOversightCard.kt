@@ -18,10 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
@@ -42,13 +40,16 @@ internal fun WeighingOversightCard(
     row: WeighingAssignmentUiRow,
     canEnd: Boolean = false,
     canReopen: Boolean = false,
-    onReopen: () -> Unit = {},
-    onClose: (String) -> Unit = {},
     /**
-     * REQUESTS an abandon; it does not perform one. Abandon emits weighing.shed.abandoned and has
-     * no inverse, so the reason belongs to the person ending the work -- the card cannot invent it
-     * and must not fire the write straight off a tap. The host collects both.
+     * All three REQUEST a transition; none performs one.
+     *
+     * Every one of these writes an audit action carrying a REASON, and the reason belongs to the
+     * person making the call -- the card cannot invent it. Close is reversible via reopen and
+     * abandon is not, but a fabricated sentence is unacceptable in either record, so all three
+     * take the same route: the host confirms and collects the reason.
      */
+    onReopen: () -> Unit = {},
+    onClose: () -> Unit = {},
     onAbandon: () -> Unit = {},
 ) {
     val complete = row.isClosed
@@ -79,8 +80,7 @@ internal fun WeighingOversightCard(
                         Text(
                             text = stringResource(R.string.weighing_leadership_tap_to_reopen),
                             color = MeshaColors.BrandD,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.caption,
                             modifier = Modifier
                                 .padding(top = 4.dp)
                                 .minimumInteractiveComponentSize()
@@ -96,15 +96,14 @@ internal fun WeighingOversightCard(
                         Text(
                             text = stringResource(R.string.weighing_leadership_close),
                             color = MeshaColors.BrandD,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.caption,
                             modifier = Modifier
                                 .padding(top = 4.dp)
                                 .minimumInteractiveComponentSize()
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable(
                                     role = Role.Button,
-                                    onClick = { onClose("closed from mobile leadership") },
+                                    onClick = onClose,
                                 ),
                         )
                     } else {
@@ -118,8 +117,7 @@ internal fun WeighingOversightCard(
                                 stringResource(R.string.weighing_leadership_close_pending)
                             },
                             color = MeshaColors.Muted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.caption,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -130,8 +128,7 @@ internal fun WeighingOversightCard(
                         Text(
                             text = stringResource(R.string.weighing_leadership_abandon),
                             color = MeshaColors.Danger,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.caption,
                             modifier = Modifier
                                 .padding(top = 4.dp)
                                 .minimumInteractiveComponentSize()
@@ -147,8 +144,7 @@ internal fun WeighingOversightCard(
             Text(
                 text = row.status.ifBlank { stringResource(R.string.weighing_status_scheduled) },
                 color = if (complete) MeshaColors.Ok else MeshaColors.BrandD,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                style = MeshaType.pillStrong,
                 modifier = Modifier.padding(start = 12.dp),
             )
         }

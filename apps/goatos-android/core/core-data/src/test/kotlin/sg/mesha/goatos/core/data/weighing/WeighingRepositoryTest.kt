@@ -1284,6 +1284,85 @@ class WeighingRepositoryTest {
         assertEquals(2, keys.toSet().size)
     }
 
+    @Test
+    fun `a close retried after PROCESS DEATH reuses its idempotency key`() = runTest {
+        // The exact failure the on-disk epoch exists for: the Close request reached the server but
+        // the response was lost, and the app was then killed. A second repository over the SAME
+        // database stands in for the next launch. With the epoch in the heap the retry minted a
+        // fresh key and the backend applied a SECOND close instead of replaying the first.
+        val keys = mutableListOf<String>()
+        var failNext = true
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+                if (failNext) {
+                    failNext = false
+                    throw java.io.IOException("socket closed")
+                }
+            }
+        }
+
+        assertTrue(persistentWeighingRepository(api, "before").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Err)
+        assertTrue(persistentWeighingRepository(api, "after").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(2, keys.size)
+        assertEquals(keys[0], keys[1])
+    }
+
+    @Test
+    fun `a LANDED close rotates the on-disk epoch so the next transition is really applied`() = runTest {
+        val keys = mutableListOf<String>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+
+            override suspend fun reopenWeighingScope(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+        }
+
+        assertTrue(persistentWeighingRepository(api, "a").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+        assertTrue(persistentWeighingRepository(api, "b").reopenScope("campaign-1", "shed-1", "more animals") is AppResult.Ok)
+        assertTrue(persistentWeighingRepository(api, "c").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(3, keys.size)
+        assertEquals(3, keys.toSet().size)
+    }
+
+    /**
+     * A repository backed by the shared test database, with a per-instance id generator so any key
+     * two instances agree on can only have come from the DATABASE, never from a shared generator.
+     */
+    private fun persistentWeighingRepository(api: AppApi, launch: String): WeighingRepository =
+        DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
+            clock = { 1000L },
+            idGenerator = sequence {
+                var index = 0
+                while (true) yield("$launch-${++index}")
+            }.iterator()::next,
+        )
+
     private fun weighingRepository(api: AppApi): WeighingRepository =
         DefaultWeighingRepository(
             api = api,

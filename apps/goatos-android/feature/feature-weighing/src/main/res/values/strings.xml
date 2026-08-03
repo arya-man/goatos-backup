@@ -321,4 +321,11 @@
     <string name="weighing_abandon_dialog_placeholder">Reason for abandoning</string>
     <string name="weighing_abandon_dialog_error_required">A reason is required.</string>
     <string name="weighing_abandon_dialog_cancel">Cancel</string>
+    <string name="weighing_close_dialog_title">Close %1$s?</string>
+    <string name="weighing_close_dialog_subtitle">This ends the shed bucket. It can be reopened, and the reason stays on the record either way. Say why.</string>
+    <string name="weighing_close_dialog_placeholder">Reason for closing</string>
+    <string name="weighing_reopen_dialog_title">Reopen %1$s?</string>
+    <string name="weighing_reopen_dialog_subtitle">This puts the shed bucket back into open work. Say why.</string>
+    <string name="weighing_reopen_dialog_placeholder">Reason for reopening</string>
+    <string name="weighing_reopen_dialog_confirm">Reopen</string>
 </resources>

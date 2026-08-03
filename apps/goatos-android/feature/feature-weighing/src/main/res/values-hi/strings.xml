@@ -308,4 +308,11 @@
     <string name="weighing_abandon_dialog_placeholder">छोड़ने का कारण</string>
     <string name="weighing_abandon_dialog_error_required">कारण आवश्यक है।</string>
     <string name="weighing_abandon_dialog_cancel">रद्द करें</string>
+    <string name="weighing_close_dialog_title">%1$s बंद करें?</string>
+    <string name="weighing_close_dialog_subtitle">इससे शेड बकेट समाप्त हो जाएगी। इसे फिर खोला जा सकता है, और कारण दोनों ही स्थिति में रिकॉर्ड पर रहता है। कारण बताएं।</string>
+    <string name="weighing_close_dialog_placeholder">बंद करने का कारण</string>
+    <string name="weighing_reopen_dialog_title">%1$s फिर खोलें?</string>
+    <string name="weighing_reopen_dialog_subtitle">इससे शेड बकेट फिर से खुले काम में आ जाएगी। कारण बताएं।</string>
+    <string name="weighing_reopen_dialog_placeholder">फिर खोलने का कारण</string>
+    <string name="weighing_reopen_dialog_confirm">फिर खोलें</string>
 </resources>

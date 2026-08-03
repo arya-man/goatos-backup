@@ -64,6 +64,7 @@ import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.CoverageBanner
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -544,8 +545,7 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                     Text(
                         text = park,
                         color = MeshaColors.Muted,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.W600,
+                        style = MeshaType.caption,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
@@ -717,8 +717,7 @@ private fun DriveProgressCard(summary: CalendarDriveSummary, modifier: Modifier 
                     Text(
                         text = stringResource(R.string.calendar_drive_total_animals, total),
                         color = MeshaColors.Faint,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.W600,
+                        style = MeshaType.caption,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }

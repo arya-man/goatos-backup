@@ -695,6 +695,13 @@ fun AppNavHost(
     showProtocolAdherenceCard: Boolean = false,
     canExecuteVaccination: Boolean = false,
     canExecuteWeighing: Boolean = false,
+    /**
+     * Whether the backend's nav answer has ARRIVED. Every `canExecute*` flag above is read off the
+     * nav feature flags, which are empty until bootstrap resolves -- so before this is true they
+     * all read false, and false is indistinguishable from "not granted". Any effect that acts on
+     * an absence (a redirect, a pop) must wait for this; rendering may not.
+     */
+    navStateResolved: Boolean = false,
     verificationVideoControlsEnabled: Boolean = false,
 ) {
     // Shared-axis-X motion instead of the default cross-fade: a forward navigation slides
@@ -897,7 +904,16 @@ fun AppNavHost(
                 // Their leadership surface is /weighing/operators, whose scope carries the closed
                 // history AND the oversight actions. Send them there instead of rendering a screen
                 // whose controls are structurally unreachable.
-                LaunchedEffect(Unit) {
+                //
+                // Gated on [navStateResolved], and NOT keyed on Unit. This redirect pops
+                // /weighing off the back stack with `inclusive = true`, which is destructive and
+                // irreversible: on a process-death restore with the back stack at /weighing an
+                // operator recomposes with pre-bootstrap flags, `canExecuteWeighing` reads false
+                // for at least one frame, and firing here would strand them on a read-only list
+                // with no way back to their own work. The shell's push-route effect holds a tap
+                // for the same reason.
+                LaunchedEffect(navStateResolved) {
+                    if (!navStateResolved) return@LaunchedEffect
                     navController.navigate(Routes.WEIGHING_OPERATORS) {
                         popUpTo(Routes.WEIGHING) { inclusive = true }
                         launchSingleTop = true

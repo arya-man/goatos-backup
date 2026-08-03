@@ -60,6 +60,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
+import sg.mesha.goatos.core.data.weighing.WeighingParkRef
 import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
@@ -786,17 +788,13 @@ class WeighingViewModelTest {
         )
         val repository = FakeWeighingRepository(
             assignmentsByPark = mapOf(null to listOf(onlyPagedPark)),
-            // The catalog read is weighing.plan-gated, and can_publish IS that permission, so a
-            // viewer who may actually call it has to be stated here.
-            assignmentCapabilities = WeighingCapabilities(canPublish = true),
-            plannerCatalogResult = AppResult.Ok(
-                WeighingPlannerCatalog(
-                    parks = listOf(
-                        WeighingPlannerPark("park-cpt", "CPT - Channapatna", 278, 4, null),
-                        WeighingPlannerPark("park-cbe", "CBE - Coimbatore", 91, 3, null),
-                    ),
-                    operators = emptyList(),
-                ),
+            // A Growth Director: monitors and oversees, never plans. The planner catalog is
+            // weighing.plan-gated and can_publish IS that permission, so this viewer cannot read
+            // it -- and used to be left with chips derived from whatever rows had loaded.
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(
+                WeighingParkRef("park-cpt", "CPT - Channapatna"),
+                WeighingParkRef("park-cbe", "CBE - Coimbatore"),
             ),
         )
         val vm = weighingViewModel(repository, surface = "operators")
@@ -805,10 +803,11 @@ class WeighingViewModelTest {
 
         assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
         assertEquals(
-            "the authoritative park catalog, not the parks that happen to be on the loaded page",
+            "the backend's own park vocabulary, not the parks that happen to be on the loaded page",
             setOf("park-cpt", "park-cbe"),
             vm.state.value.parkFilters.map { it.parkId }.toSet(),
         )
+        assertEquals(0, repository.plannerCatalogRefreshes)
     }
 
     @Test
@@ -832,16 +831,65 @@ class WeighingViewModelTest {
     }
 
     @Test
-    fun `oversight does call the planner catalog when the viewer holds the planning capability`() = runTest(dispatcher) {
+    fun `oversight reads the park vocabulary WITHOUT the planning capability`() = runTest(dispatcher) {
+        // The whole point of GET /app/weighing/parks: the vocabulary read must not be gated on
+        // the permission the viewer who needs it does not hold.
         val repository = FakeWeighingRepository(
             assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
-            assignmentCapabilities = WeighingCapabilities(canPublish = true, canEnd = true),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(WeighingParkRef("park-cbe", "CBE - Coimbatore")),
         )
         val vm = weighingViewModel(repository, surface = "operators")
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
 
-        assertTrue(repository.plannerCatalogRefreshes > 0)
+        assertTrue(repository.parkVocabularyReads > 0)
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(vm.state.value.parkFilters.any { it.parkId == "park-cbe" })
+    }
+
+    @Test
+    fun `a deep-linked task is resolved by ONE single-task read, not a page walk`() = runTest(dispatcher) {
+        // The list is a keyset page with no id filter. The old bounded walk spent its budget on
+        // appends that early-returned while the cold-start refresh was still in flight.
+        val deepLinked = WeighingTask(
+            campaignId = "campaign-deep",
+            tenantId = "tenant",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            weighDate = "2026-08-03",
+            status = "in_progress",
+            sheds = emptyList(),
+        )
+        val repository = FakeWeighingRepository(
+            taskLookups = mapOf(
+                "campaign-deep" to WeighingTaskLookup.Found(
+                    task = deepLinked,
+                    capabilities = WeighingCapabilities(canEnd = true),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-deep")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-deep"), repository.taskLookupCalls.toList())
+        assertTrue(vm.taskDetailState.value.found)
+        // The list never answered for this task, so the single read's capabilities are what stand.
+        assertTrue(vm.taskDetailState.value.canEnd)
+    }
+
+    @Test
+    fun `a deep-linked task the backend refuses is reported not found, and asked for once`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-missing")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-missing"), repository.taskLookupCalls.toList())
+        assertFalse(vm.taskDetailState.value.found)
     }
 
     @Test
@@ -1123,9 +1171,20 @@ class WeighingViewModelTest {
         // What the backend says this viewer may do to the assignment rows. Defaults to nothing, so
         // a test that wants the oversight actions has to say so -- exactly like the real read.
         private val assignmentCapabilities: WeighingCapabilities = WeighingCapabilities(),
+        // The single-task read behind a deep link, and the park vocabulary behind the chips. Both
+        // default to "the backend has nothing to say", so a test that wants them says so.
+        private val taskLookups: Map<String, WeighingTaskLookup> = emptyMap(),
+        private val parks: List<WeighingParkRef> = emptyList(),
     ) : WeighingRepository {
         /** Every abandon this fake was asked for, as (campaignId, campaignShedId, reason). */
         val abandonCalls = mutableListOf<Triple<String, String, String>>()
+
+        /** Every single-task read this fake was asked for, in order. */
+        val taskLookupCalls = mutableListOf<String>()
+
+        /** How many times the park VOCABULARY read was issued. */
+        var parkVocabularyReads = 0
+            private set
 
         /** How many times the PLANNER catalog read was issued. It is gated on weighing.plan. */
         var plannerCatalogRefreshes = 0
@@ -1178,6 +1237,16 @@ class WeighingViewModelTest {
 
         override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
             AppResult.Ok(0)
+
+        override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> {
+            taskLookupCalls += campaignId
+            return AppResult.Ok(taskLookups[campaignId] ?: WeighingTaskLookup.NotFound)
+        }
+
+        override suspend fun listParks(): AppResult<List<WeighingParkRef>> {
+            parkVocabularyReads++
+            return AppResult.Ok(parks)
+        }
 
         override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> =
             MutableStateFlow(WeighingTaskBucketCache())

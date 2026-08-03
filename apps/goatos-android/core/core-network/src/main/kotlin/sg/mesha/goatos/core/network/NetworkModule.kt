@@ -94,7 +94,9 @@ import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
@@ -232,6 +234,16 @@ interface AppApiService {
         @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
         @Query("park_id") parkId: String? = null,
     ): WeighingCampaignListResponseDto
+
+    // Declared before the {campaign_id} pattern so the literal "parks" segment reads as what it
+    // is -- a sibling route, not a campaign id. Retrofit matches on the annotation, not order.
+    @GET("app/weighing/parks")
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}")
+    suspend fun getWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+    ): WeighingCampaignDetailResponseDto
 
     @GET("app/weighing/campaigns/{campaign_id}/sheds")
     suspend fun listWeighingCampaignSheds(
@@ -788,6 +800,11 @@ class RetrofitAppApi(
         parkId: String?,
     ): WeighingCampaignListResponseDto =
         service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit, parkId = parkId)
+
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        service.getWeighingCampaign(campaignId)
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = service.listWeighingParks()
 
     override suspend fun listWeighingCampaignSheds(
         campaignId: String,
