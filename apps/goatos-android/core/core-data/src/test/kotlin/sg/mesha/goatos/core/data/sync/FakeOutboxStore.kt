@@ -26,6 +26,10 @@ class FakeOutboxStore : OutboxStore {
         rows.update { it + entity }
     }
 
+    /** Every row regardless of status — terminal ones included. Tests that assert "a write was
+     *  re-enqueued" must count rows, not merely check that no error was returned. */
+    fun snapshot(): List<OutboxEntity> = rows.value
+
     override suspend fun findById(id: String): OutboxEntity? = rows.value.firstOrNull { it.id == id }
 
     override suspend fun findByIdempotencyKey(key: String): OutboxEntity? =
@@ -51,7 +55,7 @@ class FakeOutboxStore : OutboxStore {
             all.filter {
                 it.status == OutboxStatus.QUEUED.name ||
                     it.status == OutboxStatus.IN_FLIGHT.name ||
-                    (it.status == OutboxStatus.FAILED.name && !it.conflict)
+                    (it.status == OutboxStatus.FAILED.name && !it.conflict && it.attemptCount < it.maxAttempts)
             }
         }
 
