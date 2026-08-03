@@ -135,3 +135,67 @@ type ProcessState struct {
 	DayMarkers       []ProcessStateDayMarker `json:"day_markers"`
 	Summary          ProcessStateSummary     `json:"summary"`
 }
+
+// ---------------------------------------------------------------------------
+// Per-shed rework digest (maintainer decision 2026-08-03: batch rework pushes).
+// ---------------------------------------------------------------------------
+
+// ReworkDigestSweepParams drives one bounded per-shed rework-digest tick.
+//
+// QuietWindow is the debounce: a bucket is only digested once no NEW bounce has
+// landed on it for this long, so a verifier still working through the shed does not
+// fire a push after every verdict. MaxAge is the starvation cap: a verifier who
+// keeps rejecting steadily would otherwise hold the digest open forever, so a bucket
+// whose OLDEST un-notified bounce is older than MaxAge is flushed regardless of how
+// recently the newest one landed.
+//
+// NamedLimit bounds how many animals the push body may name. A shed can carry fifty
+// bounced captures; a notification body must never render fifty tags.
+type ReworkDigestSweepParams struct {
+	TenantID    string
+	AsOf        time.Time
+	QuietWindow time.Duration
+	MaxAge      time.Duration
+	NamedLimit  int
+	ChunkSize   int
+	MaxChunks   int
+}
+
+// ReworkDigestSweepResult reports what one bounded tick actually claimed. Counts are
+// exact for the rows this tick stamped, never an estimate.
+type ReworkDigestSweepResult struct {
+	DigestsEmitted    int  `json:"digests_emitted"`
+	ObservationsNamed int  `json:"observations_named"`
+	Truncated         bool `json:"truncated"`
+}
+
+// ReworkDigestItem is one bounced capture named inside a digest payload.
+//
+// Weighing is free-flow: ScannedIdentifier IS the animal's identity and is never
+// resolved to a goat. WeightKg is the weight the verifier rejected, which is what
+// lets the operator tell two captures of the same tag apart.
+type ReworkDigestItem struct {
+	ObservationID     string  `json:"observation_id"`
+	ScannedIdentifier string  `json:"scanned_identifier"`
+	WeightKg          float64 `json:"weight_kg"`
+}
+
+// ReworkDigestPayload is the payload of weighing.observation.rework_digest: ONE
+// event per bucket per flush, naming the animals the operator has to re-capture.
+//
+// Items is CAPPED at ReworkDigestSweepParams.NamedLimit; TotalCount is the true size
+// of the flush, so the consumer can say "and N more" honestly without the payload (or
+// the push body) growing with the shed.
+type ReworkDigestPayload struct {
+	TenantID       string             `json:"tenant_id"`
+	CampaignID     string             `json:"campaign_id"`
+	CampaignShedID string             `json:"campaign_shed_id"`
+	ParkID         string             `json:"park_id"`
+	ShedID         string             `json:"shed_id"`
+	ShedLabel      string             `json:"shed_label"`
+	OperatorID     string             `json:"operator_id"`
+	Items          []ReworkDigestItem `json:"items"`
+	TotalCount     int                `json:"total_count"`
+	Reason         string             `json:"reason,omitempty"`
+	DecidedAt      string             `json:"decided_at"`
+}

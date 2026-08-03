@@ -18,7 +18,7 @@
     <string name="weighing_category_individual">Individual</string>
     <string name="weighing_action_scan_animals">Scan animals →</string>
     <string name="weighing_category_individual_title">Individual</string>
-    <string name="weighing_category_lump_sum_title">Lump-sum</string>
+    <string name="weighing_category_lump_sum_title">Lumpsum</string>
     <string name="weighing_status_scheduled">Scheduled</string>
     <string name="weighing_status_in_progress">In progress</string>
     <string name="weighing_status_delayed">Delayed</string>
@@ -64,7 +64,7 @@
     <string name="weighing_search_tag_or_shed">Search tag or shed</string>
     <string name="weighing_no_matching_rows_title">No matching rows</string>
     <string name="weighing_no_matching_rows_body">Try another tag or shed name.</string>
-    <string name="weighing_submit_lump_sum">Submit lump-sum weighing</string>
+    <string name="weighing_submit_lump_sum">Submit lumpsum weighing</string>
     <string name="weighing_submit">Submit</string>
     <string name="weighing_blocked_saving">Saving what you entered. One moment.</string>
     <string name="weighing_blocked_no_shed_open">Open a shed before you record this weighing.</string>
@@ -155,7 +155,7 @@
     <string name="weighing_tasks_park_buckets_fmt">%1$s · %2$s</string>
     <string name="weighing_tasks_more_sheds_fmt"> +%1$d more</string>
     <string name="weighing_tasks_individual_fmt">%1$d individual</string>
-    <string name="weighing_tasks_lump_sum_fmt">%1$d lump-sum</string>
+    <string name="weighing_tasks_lump_sum_fmt">%1$d lumpsum</string>
     <string name="weighing_operator_one">%1$d operator</string>
     <string name="weighing_operator_other">%1$d operators</string>
     <string name="weighing_tasks_accepted_fmt">%1$d of %2$d accepted →</string>
@@ -204,7 +204,7 @@
     <string name="weighing_operators_title">Operators</string>
     <string name="weighing_operators_refresh">Refresh operator work</string>
     <string name="weighing_operators_empty_title">No operator work</string>
-    <string name="weighing_lump_sum_weighing">Lump-sum weighing</string>
+    <string name="weighing_lump_sum_weighing">Lumpsum weighing</string>
     <string name="weighing_individual_weighing">Individual weighing</string>
     <string name="weighing_readonly_loading">Loading weighing work</string>
     <string name="weighing_readonly_empty_body">Shed tasks will appear here.</string>
@@ -291,9 +291,9 @@
     <string name="weighing_videos_individual_header">Individual animals</string>
     <string name="weighing_videos_individual_subtitle">Shed-wise animal proof</string>
     <string name="weighing_videos_individual_empty">No individual animal videos in this filter</string>
-    <string name="weighing_videos_lump_header">Lump-sum shed evidence</string>
+    <string name="weighing_videos_lump_header">Lumpsum shed evidence</string>
     <string name="weighing_videos_lump_subtitle">Shed-level group proof</string>
-    <string name="weighing_videos_lump_empty">No lump-sum videos in this filter</string>
+    <string name="weighing_videos_lump_empty">No lumpsum videos in this filter</string>
     <string name="weighing_videos_filter_all">All</string>
     <string name="weighing_videos_filter_all_sheds">All sheds</string>
     <string name="weighing_videos_animal_one">%1$d animal</string>

@@ -213,16 +213,21 @@ func TestWeighingVerdictNotificationHasTarget(t *testing.T) {
 	}
 }
 
-// TestWeighingReworkNotificationHasTarget asserts the handleVerdict handler
-// (rework branch) queues a notification with target="/weighing".
+// TestWeighingReworkNotificationHasTarget asserts the rework push still deep-links to
+// target="/weighing".
+//
+// It now drives the BATCHED per-shed digest (maintainer decision 2026-08-03): an individual
+// rework verdict no longer pushes on its own, because a verifier bouncing five captures in one
+// shed must send the operator one notification for the one trip he makes back, not five.
 func TestWeighingReworkNotificationHasTarget(t *testing.T) {
 	recipients := &targetTestRecipients{}
 	queue := &targetTestQueue{}
 	consumer := notificationbridge.NewWeighingLifecycleEventConsumer(recipients, queue, slog.Default())
 
 	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
-		Type:    notificationbridge.EventWeighingObservationRework,
-		Payload: verdictPayloadWithTarget("rework"),
+		ID:      "digest-target",
+		Type:    notificationbridge.EventWeighingObservationReworkDigest,
+		Payload: reworkDigest([]map[string]any{{"observation_id": "obs-1", "scanned_identifier": "901007000504401", "weight_kg": 12.0}}, 1, ""),
 	}); err != nil {
 		t.Fatalf("HandleEvent: %v", err)
 	}
