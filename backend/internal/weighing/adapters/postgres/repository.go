@@ -2313,7 +2313,7 @@ WHERE cs.tenant_id=$1::uuid
   AND campaign.tenant_id=cs.tenant_id
   AND campaign.campaign_id=cs.campaign_id`, tenantID, campaignID, campaignShedID)
 	if err != nil {
-		// Since 000082 a finished bucket no longer holds its (park, date, shed)
+		// Since 000085 a finished bucket no longer holds its (park, date, shed)
 		// slot, so that slot may already have been given to a NEWER task. Pulling
 		// this one back to 'in_progress' would then create the one thing still
 		// forbidden -- two people owing the same shed on the same date -- and the
@@ -2553,7 +2553,7 @@ func (r *Repository) timeout(ctx context.Context) (context.Context, context.Canc
 // 'closed' AND 'completed' are all finished history and never block scheduling
 // that shed again -- including the same date. That last part is a deliberate
 // reversal of migration 000062's original rule (maintainer decision 2026-08-03,
-// migration 000082): a shed whose weighing is DONE is free work capacity, and
+// migration 000085): a shed whose weighing is DONE is free work capacity, and
 // re-weighing it is the CEO's call, not something the schema refuses. What is
 // still impossible is two people owing the same shed on the same date.
 // Served by uq_weighing_open_shed_per_park_date (tenant_id, park_id,
@@ -2669,7 +2669,7 @@ func mapShedUniqueViolation(err error, weighDate, displayName string) error {
 		return err
 	}
 	switch pgErr.ConstraintName {
-	// Both index generations are matched: the pre-000082 name still exists on a
+	// Both index generations are matched: the pre-000085 name still exists on a
 	// database that has not taken that migration yet, and a rolled-back one goes
 	// back to it. Dropping either name would turn the race into a 500 exactly
 	// when the schema is mid-migration.

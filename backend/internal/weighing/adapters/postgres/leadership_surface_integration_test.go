@@ -359,7 +359,7 @@ func TestCreateCampaignBlocksASecondOpenRowForTheSameShedAndWeighDateStatusMatri
 // A shed whose weighing is DONE is finished work, not an occupied slot: the CEO
 // may schedule it again on the SAME date, in the same week, exactly as they may
 // schedule a shed nobody ever touched. Only work still OWED blocks (maintainer
-// decision 2026-08-03, migration 000082 -- this reverses 000062's original rule).
+// decision 2026-08-03, migration 000085 -- this reverses 000062's original rule).
 func TestCompletedShedIsSchedulableAgainOnTheSameWeighDate(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
