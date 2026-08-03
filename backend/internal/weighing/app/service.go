@@ -626,7 +626,23 @@ func (s *Service) GetCampaign(ctx context.Context, actor domain.Actor, campaignI
 		// resolves its park filter against. checkParkScope would have been wrong here: it demands
 		// WeighingMonitor specifically, so an actor who plans this park but does not monitor it
 		// would be admitted by the role gate and then 404'd by the park check.
-		return domain.Campaign{}, err
+		//
+		// FALLING BACK TO THE ASSIGNEE READ IS NOT A WEAKENING, and it is required for
+		// correctness. A Growth Director holds WeighingMonitor AND WeighingExecute at once --
+		// that dual role is deliberate, they genuinely execute weighing as well as overseeing
+		// it. Taking the oversight branch purely because canMonitor is true meant one who
+		// monitors park A while being ASSIGNED work in park B failed the park check for B and
+		// got 404 on THEIR OWN TASK. The oversight path is denied here and the actor is
+		// re-tried as what they also are: an assignee, narrowed to their own user id, which is
+		// exactly as tight as the execute-only branch above and needs no park check for the
+		// same reason -- nobody is assigned work in a park they do not work in.
+		//
+		// An actor who is neither authorized in the park NOR assigned gets ErrNotFound from the
+		// repository, so the cross-park refusal is unchanged.
+		if !canExecute {
+			return domain.Campaign{}, err
+		}
+		operatorFilter = actor.UserID
 	}
 	return s.repo.CampaignByID(ctx, actor.TenantID, campaignID, operatorFilter)
 }
