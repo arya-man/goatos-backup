@@ -896,7 +896,7 @@ WITH taken AS (
   WHERE cs.tenant_id=$1::uuid
     AND cs.park_id=$2::uuid
     AND cs.start_business_date=$3::date
-    AND cs.status NOT IN ('canceled', 'closed')
+    AND cs.status NOT IN ('canceled', 'closed', 'completed')
     AND ($4::uuid IS NULL OR cs.campaign_id <> $4::uuid)
   ORDER BY cs.tenant_id, cs.location_id, cs.created_at, cs.campaign_shed_id
 )
@@ -2283,7 +2283,15 @@ WHERE cs.tenant_id=$1::uuid
   AND campaign.tenant_id=cs.tenant_id
   AND campaign.campaign_id=cs.campaign_id`, tenantID, campaignID, campaignShedID)
 	if err != nil {
-		return nil, err
+		// Since 000082 a finished bucket no longer holds its (park, date, shed)
+		// slot, so that slot may already have been given to a NEWER task. Pulling
+		// this one back to 'in_progress' would then create the one thing still
+		// forbidden -- two people owing the same shed on the same date -- and the
+		// unique index refuses it. Surface it as the scheduling conflict it is,
+		// naming the bucket, instead of an opaque 500. The name/date lookup runs
+		// only on this error path, so the happy path keeps its single write.
+		weighDate, displayName := r.shedLabelForConflict(ctx, tenantID, campaignShedID)
+		return nil, mapShedUniqueViolation(err, weighDate, displayName)
 	}
 	if result.RowsAffected() == 0 {
 		return nil, ports.ErrNotFound
@@ -2511,9 +2519,13 @@ func (r *Repository) timeout(ctx context.Context) (context.Context, context.Canc
 // to render instead of a bare constraint violation. Both run inside the same
 // transaction as the write.
 //
-// GRAIN: one row per open bucket. 'canceled' and 'closed' buckets are finished
-// history and never block re-scheduling; 'completed' DOES block, because weighing
-// that shed twice on the same date is exactly the duplicate work being prevented.
+// GRAIN: one row per open bucket. OPEN means work still owed: 'canceled',
+// 'closed' AND 'completed' are all finished history and never block scheduling
+// that shed again -- including the same date. That last part is a deliberate
+// reversal of migration 000062's original rule (maintainer decision 2026-08-03,
+// migration 000082): a shed whose weighing is DONE is free work capacity, and
+// re-weighing it is the CEO's call, not something the schema refuses. What is
+// still impossible is two people owing the same shed on the same date.
 // Served by uq_weighing_open_shed_per_park_date (tenant_id, park_id,
 // start_business_date, location_id).
 func (r *Repository) shedScheduleConflicts(ctx context.Context, tx pgx.Tx, tenantID, parkID, weighDate, excludeCampaignID string, locationIDs []string) ([]string, error) {
@@ -2527,7 +2539,7 @@ WHERE cs.tenant_id=$1::uuid
   AND cs.park_id=$2::uuid
   AND cs.start_business_date=$3::date
   AND cs.location_id = ANY($4::uuid[])
-  AND cs.status NOT IN ('canceled', 'closed')
+  AND cs.status NOT IN ('canceled', 'closed', 'completed')
   AND ($5::uuid IS NULL OR cs.campaign_id <> $5::uuid)
 ORDER BY cs.display_name`, tenantID, parkID, weighDate, locationIDs, nullableString(strings.TrimSpace(excludeCampaignID)))
 	if err != nil {
@@ -2561,10 +2573,10 @@ JOIN weighing_campaign_sheds other
  AND other.start_business_date=mine.start_business_date
  AND other.location_id=mine.location_id
  AND other.campaign_id <> mine.campaign_id
- AND other.status NOT IN ('canceled', 'closed')
+ AND other.status NOT IN ('canceled', 'closed', 'completed')
 WHERE mine.tenant_id=$1::uuid
   AND mine.campaign_id=$2::uuid
-  AND mine.status NOT IN ('canceled', 'closed')
+  AND mine.status NOT IN ('canceled', 'closed', 'completed')
 ORDER BY mine.display_name`, tenantID, campaignID)
 	if err != nil {
 		return nil, err
@@ -2579,6 +2591,26 @@ ORDER BY mine.display_name`, tenantID, campaignID)
 		names = append(names, name)
 	}
 	return names, rows.Err()
+}
+
+// shedLabelForConflict reads the weigh date and bucket name used to render a
+// scheduling conflict. Error-path only: it best-effort returns empty strings
+// rather than masking the original failure with a lookup failure.
+//
+// It deliberately reads through the POOL, not the caller's transaction: the
+// statement that raised the constraint violation has already aborted that
+// transaction, so any further query on it fails with 25P02.
+//
+// scale-guard:ignore: single-row lookup by primary key, on an error path only
+func (r *Repository) shedLabelForConflict(ctx context.Context, tenantID, campaignShedID string) (string, string) {
+	var weighDate, displayName string
+	if err := r.pool.QueryRow(ctx, `
+SELECT start_business_date::text, display_name
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, tenantID, campaignShedID).Scan(&weighDate, &displayName); err != nil {
+		return "", ""
+	}
+	return weighDate, displayName
 }
 
 // shedScheduleConflictError builds the typed 409 the client renders.
@@ -2607,7 +2639,12 @@ func mapShedUniqueViolation(err error, weighDate, displayName string) error {
 		return err
 	}
 	switch pgErr.ConstraintName {
-	case "uq_weighing_open_shed_per_park_date":
+	// Both index generations are matched: the pre-000082 name still exists on a
+	// database that has not taken that migration yet, and a rolled-back one goes
+	// back to it. Dropping either name would turn the race into a 500 exactly
+	// when the schema is mid-migration.
+	case "uq_weighing_open_shed_per_park_date_v2",
+		"uq_weighing_open_shed_per_park_date":
 		return shedScheduleConflictError(weighDate, []string{displayName})
 	case "weighing_shed_observations_one_active_scope_uidx",
 		"weighing_shed_observations_one_open_scope_uidx":

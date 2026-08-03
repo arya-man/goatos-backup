@@ -1,5 +1,5 @@
 import Link from "@/components/no-prefetch-link";
-import { CalendarDays, ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
+import { ClipboardList, Edit3, Eye, Play, Scale, Send, Video } from "lucide-react";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Tag, type Tone } from "@/components/ui-primitives";
@@ -117,13 +117,13 @@ function noticeFromSearch(value: string | undefined): { tone: "ok" | "warn" | "e
       return {
         tone: "err",
         title: "Task was not created",
-        body: "The backend rejected the create request. Nothing was saved. If a shed is already scheduled on this weigh date, deselect it -- the sheds another task holds are marked below.",
+        body: "Nothing was saved. If a shed is already scheduled on this weigh date, deselect it -- the sheds another task holds are marked below.",
       };
     case "publish-failed":
       return {
         tone: "err",
         title: "Draft saved, publish failed",
-        body: "The task exists as a draft. Publish again after checking backend validation.",
+        body: "The task is saved as a draft. Check the sheds and operator, then publish again.",
       };
     default:
       return null;
@@ -228,9 +228,9 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
             </div>
             <p className="muted small">
               {campaign.reviewOnly
-                ? "Director persona can review progress and evidence but cannot create, publish, edit, or execute."
+                ? "A director can review progress and evidence, but cannot create, publish, edit, or run the work."
                 : campaign.canExecute
-                  ? "Operator persona sees execution state but planning actions remain disabled."
+                  ? "An operator sees the work in progress. Planning stays with the CEO."
                   : "CEO/CXO can create, edit, and publish weekly kids weighing tasks."}
             </p>
             <div className="weighing-actions">
@@ -297,7 +297,7 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   <td
                     aria-disabled={!row.weighedCountIsBacked}
                     style={{ opacity: row.weighedCountIsBacked ? 1 : 0.6 }}
-                    title={!row.weighedCountIsBacked ? "Weighing is free-flow; backend fields 'animals_weighed_count' and 'animals_submitted_count' required for honest counts" : undefined}
+                    title={!row.weighedCountIsBacked ? "Weighing is free-flow, so this shed has no weighed or submitted count to show" : undefined}
                   >
                     {/* TWO named facts, this order, these words, on every surface:
                         what was put on the scale, and what has actually been submitted.
@@ -328,18 +328,10 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
         </div>
       </section>
 
-      <section className="card weighing-integration">
-        <div className="hd">
-          <CalendarDays className="ic" aria-hidden="true" />
-          <h3>Integration notes</h3>
-        </div>
-        <div className="bd">
-          <p className="muted small">
-            This admin-web slice reads Weighing campaigns through the generated OpenAPI client. Command buttons
-            reflect backend roles and remain disabled for director/operator personas.
-          </p>
-        </div>
-      </section>
+      {/* No "Integration notes" card. It described the generated OpenAPI client, backend roles
+          and "director/operator personas" to a farm user -- implementation talk on a business
+          screen, which the user-facing copy firewall bans. How a screen gets its data is not
+          something the screen says out loud. */}
     </div>
   );
 }
@@ -413,7 +405,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
               <div className="weighing-existing-task">
                 <span>Most recent task</span><b>{planner.existingCampaignWeekLabel || planner.weekLabel}</b>
                 <span>Status</span><b><Tag tone={statusTone[planner.existingCampaignState || "draft"]}>{statusLabel[planner.existingCampaignState || "draft"]}</Tag></b>
-                <span>Operator</span><b>{planner.existingCampaignOperatorName || "Operator not reported by API"}</b>
+                <span>Operator</span><b>{planner.existingCampaignOperatorName || "No operator assigned"}</b>
                 <span>Sheds</span><b>{planner.existingCampaignShedCount ?? 0}</b>
               </div>
               <div className="weighing-duplicate-note">
@@ -493,7 +485,7 @@ function WeighingPlannerCard({ planner }: { planner: WeighingPlanner }) {
             <div className="weighing-builder-step">
               <div className="weighing-step-label">Step 4 · Plan / Step 5 · Assign</div>
               <h3>Assign operator</h3>
-              <p className="muted small">Publishing creates open work. Director personas stay monitor-only.</p>
+              <p className="muted small">Publishing opens the work for the operator. Directors only monitor it.</p>
               <div className="weighing-plan-preview">
                 <span>Day 1</span><b>Lumpsum scopes first</b>
                 <span>Day 2</span><b>Individual RFID rows</b>
