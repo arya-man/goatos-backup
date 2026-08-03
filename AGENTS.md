@@ -64,34 +64,33 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
-## Shared-Resource Contention Is Reported IMMEDIATELY (Claude AND Codex)
+## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
 
-Gradle, Docker, a port, a physical device, and the local stack are SINGLE-HOLDER
-resources. Two agents using one at the same time do not go slower — they
-deadlock: each reaps the other's `GradleWorkerMain` JVMs, both retry, neither
-finishes. On 2026-08-03 two agents burned **90 minutes** this way while the
-orchestrator reported them as "still running" and the maintainer had to spot the
-stalled task cards himself.
+Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
+The 2026-08-03 deadlock that cost 90 minutes was agents **killing each other's
+workers** and each restarting — not contention over a shared resource.
 
-Rules, for every agent and orchestrator:
+Rules:
 
-1. **Never run two Gradle builds concurrently.** Serialize the work, or tell one
-   agent to skip Gradle and rely on targeted tests.
-2. **The moment contention is detected, TELL THE MAINTAINER.** Do not wait for a
-   completion notification, and do not fold it into a status line as "still
-   running". Name the resource and who is competing, so the maintainer can kill
-   one. A blocked agent is not progress.
-3. **A long-running agent is a signal to investigate, not to wait.** Check
-   whether it is working or polling in a `sleep` loop. Task cards also go STALE:
-   an agent shown as running may already be finished — verify against its branch
-   or task status rather than trusting the card.
-4. **Reap orphans after any killed build** (`pkill -f GradleWorkerMain`) and
-   re-check before starting another.
-5. **Gradle exit 137 is an OOM SIGKILL from contention, not a test failure.**
-   Re-run with `--max-workers=1`; never "fix" the test.
+1. **Build when you need to.** Do not serialize, do not ask permission, do not wait
+   for someone else's build to finish. Use `--max-workers=1` so a parallel build does
+   not eat the machine.
+2. **NEVER kill another process's Gradle workers or daemons.** `pkill -f
+   GradleWorkerMain` is banned unless you started that build yourself and it is dead.
+   Reap only YOUR OWN orphans, after your own killed build.
+3. **NEVER wait-loop on a resource.** A wait loop that outlives its condition is worse
+   than a failure: on 2026-08-03 two agents sat waiting on ORPHANED workers from a
+   build that had already died, so the wait could never end. If something you need is
+   busy, do the work that does not need it and report the blockage.
+4. **Surface a genuine block to the maintainer immediately** — name the resource and
+   the holder so they can decide. Never absorb it into a status line as "still
+   running". A long-running agent card may also be STALE: verify against the process
+   table or the branch, not the card.
+5. **Exit 137 from Gradle is an OOM SIGKILL** from memory pressure, not a test failure.
+   Re-run once with `--max-workers=1`; if it recurs, report it rather than looping.
 
-This generalizes: any shared single-holder resource that blocks progress is
-surfaced to the maintainer immediately, never absorbed into a progress report.
+Generalizes to any shared thing (Docker, a port, a device, the local stack): parallel
+use is fine, killing someone else's is not, and waiting forever is never the answer.
 
 ## Fast Lane for Tiny Fixes
 
