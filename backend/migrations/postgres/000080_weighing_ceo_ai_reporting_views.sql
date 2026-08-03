@@ -38,9 +38,12 @@ SET LOCAL statement_timeout = '30s';
 -- No fan-out is possible:
 --   * weighing_work_items has a UNIQUE index on campaign_shed_id
 --     (weighing_work_items_bucket_uidx) -- at most one row per bucket.
---   * weighing_shed_observations has a UNIQUE index on
---     (tenant_id, campaign_shed_id) (weighing_shed_observations_
---     one_active_scope_uidx) -- at most one row per bucket.
+--   * weighing_shed_observations is joined on withdrawn_at IS NULL, which is
+--     what its UNIQUE index actually covers: 000067 DROPPED
+--     weighing_shed_observations_one_active_scope_uidx and replaced it with
+--     weighing_shed_observations_one_open_scope_uidx, PARTIAL on
+--     withdrawn_at IS NULL. Only the live row is unique per bucket; a
+--     reopened+resubmitted bucket legitimately keeps its superseded rows.
 --   * the weighing_observations aggregate is pre-collapsed to one row per
 --     campaign_shed_id via the LATERAL subquery's GROUP-free scalar
 --     aggregation (COUNT/AVG/MIN/MAX over the whole bucket).
@@ -49,12 +52,14 @@ SET LOCAL statement_timeout = '30s';
 -- is fixed at creation ('individual_animal' or 'per_shed_partition') and the
 -- write path only ever inserts into ONE of weighing_observations (per-animal
 -- scans) or weighing_shed_observations (one lump-sum bucket total) for a
--- given campaign_shed_id -- never both. animals_weighed therefore
--- COALESCEs the two counts rather than summing them.
+-- given campaign_shed_id -- never both. animals_weighed therefore SELECTS the
+-- source by weighing_category rather than summing them. It must not null-test
+-- them instead: obs.scan_count is a count() and returns 0, never NULL, for a
+-- bucket with no scans.
 --
--- projection-review: membership=one row per weighing_campaign_sheds row (campaign_shed_id is that table's PK), decorated with its campaign, its optional work item, its optional lump-sum shed observation, and a LATERAL scalar rollup of its own per-animal scans; group_key=campaign_shed_id (the view has no GROUP BY at all -- the only aggregation is the correlated LATERAL over weighing_observations, which collapses to EXACTLY ONE row per bucket); join_cardinality=weighing_campaigns 1 per campaign_id (PK), locations pk 0..1 per location_id (PK), weighing_work_items 0..1 (UNIQUE weighing_work_items_bucket_uidx on (tenant_id, campaign_shed_id), and campaign_shed_id is itself a PK so the pair is unique per bucket), weighing_shed_observations 0..1 (UNIQUE weighing_shed_observations_one_active_scope_uidx on (tenant_id, campaign_shed_id), non-partial since 000067), LATERAL obs exactly 1 -- every joined side is 0..1, so no side can multiply bucket rows; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, exposed as cs.tenant_id
+-- projection-review: membership=one row per weighing_campaign_sheds row (campaign_shed_id is that table's PK), decorated with its campaign, its optional work item, its optional lump-sum shed observation, and a LATERAL scalar rollup of its own per-animal scans; group_key=campaign_shed_id (the view has no GROUP BY at all -- the only aggregation is the correlated LATERAL over weighing_observations, which collapses to EXACTLY ONE row per bucket); join_cardinality=weighing_campaigns 1 per campaign_id (PK), locations pk 0..1 per location_id (PK), weighing_work_items 0..1 (UNIQUE weighing_work_items_bucket_uidx on (tenant_id, campaign_shed_id), and campaign_shed_id is itself a PK so the pair is unique per bucket), weighing_shed_observations 0..1 GIVEN the withdrawn_at IS NULL join predicate (UNIQUE weighing_shed_observations_one_open_scope_uidx on (tenant_id, campaign_shed_id) PARTIAL on withdrawn_at IS NULL, per 000067 -- WITHOUT that predicate this side is 0..N and fans the bucket out), LATERAL obs exactly 1 -- every joined side is 0..1, so no side can multiply bucket rows; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, exposed as cs.tenant_id
 --
--- Ratio key sets: animals_weighed is NOT a ratio and NOT a sum across sources. scan_count and shed_animal_count are drawn from DISJOINT bucket populations keyed by the same campaign_shed_id (weighing_category fixes which table the write path uses), so COALESCE picks the one populated source for that key rather than adding two overlapping key sets.
+-- Ratio key sets: animals_weighed is NOT a ratio and NOT a sum across sources. scan_count and shed_animal_count are drawn from DISJOINT bucket populations keyed by the same campaign_shed_id (weighing_category fixes which table the write path uses), so the CASE picks the one populated source for that key rather than adding two overlapping key sets. scan_count is itself already deduplicated to one row per scanned tag, so it is an ANIMAL count and not a capture count.
 -- ===========================================================================
 CREATE OR REPLACE VIEW ceo_ai.weighing_capture_activity AS
 SELECT
@@ -87,10 +92,19 @@ SELECT
     sho.animal_count                               AS shed_animal_count,
     sho.average_weight_kg                          AS shed_weight_avg_kg,
     sho.weight_kg                                  AS shed_total_weight_kg,
-    -- Unified "how many animals were weighed" count. Exactly one of
-    -- obs.scan_count / sho.animal_count is non-null for any given bucket (see
-    -- DISJOINT SOURCES note above), so COALESCE never double-counts.
-    COALESCE(obs.scan_count, sho.animal_count, 0)::bigint AS animals_weighed
+    -- Unified "how many animals were weighed" count, selected by the bucket's OWN
+    -- category rather than by null-testing the two sources.
+    --
+    -- COALESCE(obs.scan_count, sho.animal_count, 0) did not work: obs.scan_count is a
+    -- count(*) inside a LATERAL joined ON true, and count(*) over zero rows returns 0,
+    -- never NULL. The second arm was therefore UNREACHABLE and every per_shed_partition
+    -- bucket reported 0 animals weighed while its own shed_animal_count sat right next
+    -- to it saying otherwise. weighing_category is fixed at bucket creation and decides
+    -- which table the write path uses, so branching on it is the honest selector.
+    CASE cs.weighing_category
+        WHEN 'per_shed_partition' THEN COALESCE(sho.animal_count, 0)
+        ELSE COALESCE(obs.scan_count, 0)
+    END::bigint                                    AS animals_weighed
 FROM weighing_campaign_sheds cs
 JOIN weighing_campaigns c
   ON c.campaign_id = cs.campaign_id
@@ -98,22 +112,43 @@ LEFT JOIN locations pk
   ON pk.location_id = c.park_id
 LEFT JOIN weighing_work_items wi
   ON wi.campaign_shed_id = cs.campaign_shed_id
+-- ONE ROW PER ANIMAL, NOT ONE ROW PER CAPTURE.
+--
+-- weighing_observations keeps history instead of deleting: 000061 stamps submitted_at
+-- on bucket completion, 000073's duplicate-loser collapse stamps it on the losing row,
+-- and a reopened bucket's re-capture inserts a NEW row for a tag that already has one.
+-- A bare count(*) therefore sums every superseded round on top of the live one and
+-- reports more animals weighed than the shed holds.
+--
+-- Deduplicating by SCANNED TAG is the fix, and it is the only one that survives the
+-- lifecycle. Filtering on state instead -- "submitted_at IS NULL OR
+-- verification_status = 'rework'" -- looks like "the current round" and is not: a
+-- normally finished bucket has every row submitted AND verified, so it matches neither
+-- arm and reports ZERO animals weighed, which is the terminal state of essentially all
+-- historical weighing work. That same filter also breaks the live round, because rework
+-- is stamped per OBSERVATION, not per bucket: one bounced video out of three would
+-- reduce the shed to a count of 1 and an average weight computed over that single
+-- animal.
+--
+-- Weighing is FREE-FLOW (000078 dropped animal_id), so the animal's identity here IS
+-- the scanned tag, matched case- and whitespace-insensitively exactly as the write
+-- path's own duplicate guard does (000073's uidx grain). A blank tag cannot be
+-- collapsed with other blank tags, so it keys on its own row instead. Newest capture
+-- per tag wins, matching what 000073 chose as the defensible current proof.
 LEFT JOIN LATERAL (
     SELECT
-        count(*)                AS scan_count,
-        avg(o.weight_kg)        AS weight_avg_kg,
-        min(o.weight_kg)        AS weight_min_kg,
-        max(o.weight_kg)        AS weight_max_kg
-    FROM weighing_observations o
-    WHERE o.campaign_shed_id = cs.campaign_shed_id
-      -- CURRENT ROUND ONLY. weighing_observations keeps history instead of
-      -- deleting (000073's loser collapse stamps submitted_at, 000061 stamps it
-      -- on bucket completion), so an unfiltered count sums every superseded
-      -- round on top of the live one. A reopened+recaptured bucket would report
-      -- more animals weighed than it holds. verification_status='rework' rows
-      -- ARE the open round (000073: rework deliberately leaves submitted_at
-      -- non-null), so they are kept.
-      AND (o.submitted_at IS NULL OR o.verification_status = 'rework')
+        count(*)                    AS scan_count,
+        avg(latest.weight_kg)       AS weight_avg_kg,
+        min(latest.weight_kg)       AS weight_min_kg,
+        max(latest.weight_kg)       AS weight_max_kg
+    FROM (
+        SELECT DISTINCT ON (COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text))
+               o.weight_kg
+        FROM weighing_observations o
+        WHERE o.campaign_shed_id = cs.campaign_shed_id
+        ORDER BY COALESCE(NULLIF(lower(btrim(o.scanned_identifier)), ''), o.observation_id::text),
+                 o.accepted_at DESC, o.observation_id DESC
+    ) latest
 ) obs ON true
 -- withdrawn_at IS NULL is REQUIRED, not decorative. The uniqueness guarantee on
 -- this table is weighing_shed_observations_one_open_scope_uidx, which 000067
@@ -152,16 +187,23 @@ SELECT
     vi.tenant_id                                             AS tenant_id,
     pk.name                                                  AS park_label,
     sh.name                                                  AS shed_label,
-    COUNT(*)::bigint                                         AS total,
+    -- total is the LIVE verification workload and excludes withdrawn, so that
+    -- pending + rework + verified = total holds. withdrawn is carried in its own
+    -- column rather than dropped in the WHERE clause: filtering the rows out
+    -- removed whole SHEDS from the view, so a shed whose entire verification
+    -- history was superseded (000077 retires duplicate losers as 'withdrawn')
+    -- became indistinguishable from a shed that never weighed at all.
+    COUNT(*) FILTER (WHERE vi.status <> 'withdrawn')::bigint  AS total,
     COUNT(*) FILTER (WHERE vi.status = 'pending')::bigint    AS pending,
     COUNT(*) FILTER (WHERE vi.status = 'rejected')::bigint   AS rework,
     COUNT(*) FILTER (WHERE vi.status = 'approved')::bigint   AS verified,
+    COUNT(*) FILTER (WHERE vi.status = 'withdrawn')::bigint  AS withdrawn,
+    COUNT(*)::bigint                                         AS total_including_withdrawn,
     MIN(vi.captured_at) FILTER (WHERE vi.status = 'pending') AS oldest_pending_at
 FROM verification_items vi
 LEFT JOIN locations sh ON sh.location_id = vi.shed_id
 LEFT JOIN locations pk ON pk.location_id = vi.park_id
 WHERE vi.module = 'weighing'
-  AND vi.status <> 'withdrawn'
 GROUP BY vi.tenant_id, pk.name, sh.name;
 
 -- ===========================================================================
