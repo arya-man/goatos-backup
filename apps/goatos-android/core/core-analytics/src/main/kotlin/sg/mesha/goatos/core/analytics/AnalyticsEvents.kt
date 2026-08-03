@@ -287,6 +287,31 @@ object AnalyticsEvents {
      */
     const val API_CALL_FAILURE = "api_call_failure"
 
+    /**
+     * A durably-queued write attempt did not go through. Emitted once per ATTEMPT from the single
+     * outbox drain seam ([sg.mesha.goatos.core.common.OutboxTelemetryReporter]) — never from a
+     * feature screen.
+     *
+     * Distinct from [API_CALL_FAILURE], which only ever sees calls that REACHED the network: a
+     * write blocked behind a stalled queue head, or one whose dispatch threw before any request
+     * was made, produces this and no `api_call_failure` at all. That is the gap that made a
+     * minutes-long stuck upload invisible on-device.
+     *
+     * Carries [Params.OP_TYPE], [Params.ATTEMPT], [Params.MAX_ATTEMPTS] and [Params.REASON] (the
+     * failure's exception CLASS name). Never a payload, a server error string, or a credential.
+     */
+    const val SYNC_WRITE_ATTEMPT_FAILED = "sync_write_attempt_failed"
+
+    /**
+     * A queued write is DEAD — it will never be sent again without a manual retry. The loudest
+     * event in the outbox lifecycle, and the one whose absence meant permanently-undelivered farm
+     * data looked exactly like data still on its way.
+     *
+     * [Params.REASON] is `conflict` (a definitive server refusal) or `attempts_exhausted`.
+     * Accompanied by a throttled Crashlytics non-fatal, the same treatment a failed HTTP call gets.
+     */
+    const val SYNC_WRITE_DEAD = "sync_write_dead"
+
     object Params {
         const val METHOD = "method"
         const val REASON = "reason"
@@ -332,6 +357,16 @@ object AnalyticsEvents {
         const val SUBJECT_TYPE = "subject_type"
         /** 1-based ordinal of the upload attempt this session has observed for one proof. */
         const val ATTEMPT = "attempt"
+
+        /**
+         * Which queued write an outbox-lifecycle event refers to — the `OutboxOpType` NAME
+         * (`WEIGHING_ANIMAL_OBSERVATION`, `PROOF_UPLOAD`, …). Bounded cardinality by
+         * construction (it is an enum), and it carries no goat, shed, or operator identity.
+         */
+        const val OP_TYPE = "op_type"
+
+        /** How many attempts that queued write is allowed before it is declared dead. */
+        const val MAX_ATTEMPTS = "max_attempts"
         const val MIME_TYPE = "mime_type"
         const val WATCH_TIME_MS = "watch_time_ms"
         const val DURATION_MS = "duration_ms"
