@@ -27,7 +27,7 @@ type Service interface {
 	StoreUpload(ctx context.Context, tenantID, proofID, mimeType string, body io.Reader) (domain.Artifact, error)
 	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
 	OpenLocalDownload(ctx context.Context, tenantID, proofID string) (domain.Artifact, ports.ReadSeekCloser, error)
-	DeleteUpload(ctx context.Context, tenantID, proofID string) error
+	DeleteUpload(ctx context.Context, tenantID, proofID, actorID string) error
 	VerifySignedURL(method, path, tenantID, expires, signature string) bool
 }
 
@@ -238,7 +238,7 @@ func (h *Handler) DownloadSigned(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteUpload(w http.ResponseWriter, r *http.Request) {
-	if err := h.service.DeleteUpload(r.Context(), tenantID(r), r.PathValue("proof_id")); err != nil {
+	if err := h.service.DeleteUpload(r.Context(), tenantID(r), r.PathValue("proof_id"), actorID(r)); err != nil {
 		h.respondErr(w, r, err)
 		return
 	}
@@ -324,6 +324,8 @@ func toProofResponse(p domain.Artifact) proofResponse {
 func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
 
 func signedTenantID(r *http.Request) string { return strings.TrimSpace(r.URL.Query().Get("tenant_id")) }
+
+func actorID(r *http.Request) string { return httpmiddleware.ActorIDFromContext(r.Context()) }
 
 func actorPtr(r *http.Request) *string {
 	if a := httpmiddleware.ActorIDFromContext(r.Context()); a != "" {
