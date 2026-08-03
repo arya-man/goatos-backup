@@ -174,6 +174,11 @@ func run(ctx context.Context, args []string) error {
 			// minutes of the Asia/Kolkata business-day boundary and escalation
 			// does not wait an hour.
 			kernelstages.NewWeighingKernelStage(deps, tenantID),
+			// Per-shed rework digest: batches the weighing rework push so a verifier
+			// who bounces five captures in one shed sends the operator ONE
+			// notification naming them, not five. Same lane as the weighing kernel
+			// because the debounce it drains is measured in minutes.
+			kernelstages.NewWeighingReworkDigestStage(deps, tenantID),
 			kernelstages.NewInventoryBatchReconcilerStage(deps, tenantID),
 			kernelstages.NewSopSubmissionFanoutRetryStage(deps, tenantID),
 			kernelstages.NewSopReviewFanoutRetryStage(deps, tenantID),

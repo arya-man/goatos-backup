@@ -39,6 +39,7 @@
     "weighing.shed.reopened",
     "weighing.observation.verified",
     "weighing.observation.rework",
+    "weighing.observation.rework_digest",
     "weighing.shed.closed",
     "weighing.shed.abandoned",
     "weighing.campaign.closed",
@@ -209,6 +210,29 @@
       "e2eProof": [
         "backend/internal/weighing/app/verification_verdict_handler_test.go",
         "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.observation.rework_digest",
+      "producer": "weighing per-shed rework digest sweeper (weighing-rework-digest kernel stage transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/rework_digest.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/rework_digest_integration_test.go",
+        "backend/internal/notificationbridge/weighing_rework_digest_test.go"
       ],
       "surfaces": [
         "backend",

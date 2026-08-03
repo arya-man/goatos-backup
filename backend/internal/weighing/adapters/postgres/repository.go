@@ -3111,6 +3111,11 @@ func weighingSubjectType(eventType string) string {
 		return "weighing_campaign"
 	case "weighing.shed_submission.completed", "weighing.shed.reopened", eventTypeScopeClosed:
 		return "weighing_campaign_shed"
+	case eventTypeObservationReworkDigest:
+		// A digest names several observations at once, so it is not observation-grained. Its
+		// outbox aggregate is the campaign (see enqueue in rework_digest.go); the bucket it
+		// is about is carried in the payload.
+		return "weighing_campaign"
 	case domain.EventWorkItemDayStart, domain.EventWorkItemRolledForward, domain.EventWorkItemDelayed:
 		// Cadence events are campaign-aggregated (one per campaign+operator) and
 		// their outbox aggregate_id is the campaign id.

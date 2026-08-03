@@ -277,13 +277,29 @@ func (r *Repository) markObservationRework(
 	scope observationScope,
 ) (time.Time, error) {
 	table, idColumn := verdictTable(verdict.RefType)
+	// Re-arm the per-shed rework digest for an INDIVIDUAL bounce.
+	//
+	// rework_notified_at is the "this bounce has already been told to the operator" stamp the
+	// weighing-rework-digest sweeper writes. Clearing it in the SAME statement that sets
+	// verification_status='rework' is what makes a re-submission that is bounced a SECOND time
+	// re-enter the digest: the row is un-notified again by construction, so no reconciliation
+	// step anywhere has to notice that this is a new round. A redelivery of the same verdict
+	// event never reaches here at all -- ApplyVerificationVerdict short-circuits on the
+	// verification event id -- so this cannot resurrect an already-delivered bounce.
+	//
+	// Shed grain has no such column on purpose: a lump-sum capture is one proof for the whole
+	// shed, so its rework push is already one-per-shed and stays on the immediate path.
+	reworkDigestReset := ""
+	if verdict.RefType != domain.VerificationRefTypeShed {
+		reworkDigestReset = ",\n  rework_notified_at=NULL"
+	}
 	var decidedAt time.Time
 	if err := tx.QueryRow(ctx, `
 UPDATE `+table+`
 SET verification_status='rework',
   verified_by=$3::uuid,
   verified_at=now(),
-  rework_reason=NULLIF($4, '')
+  rework_reason=NULLIF($4, '')`+reworkDigestReset+`
 WHERE tenant_id=$1::uuid
   AND `+idColumn+`=$2::uuid
 RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy), verdict.Reason).Scan(&decidedAt); err != nil {
