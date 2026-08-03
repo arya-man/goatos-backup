@@ -476,6 +476,28 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	verificationMedia := verificationproofmedia.NewResolver(proofService).
 		WithActionPresentationResolver(tasksWorkflowRepo)
 	processIntegrityService.WithMediaResolver(verificationMedia)
+	// The duty reader is the workforce repository itself -- the same ListGrantedModuleKeys
+	// /app/bootstrap uses to decide which verify entries a person is shown. Passing it here
+	// is what makes the queue serve the same module set the drawer offers; without it the
+	// queue gate stays inert and a verifier can name any module's category.
+	//
+	// DELIBERATELY NOT WIRED YET (maintainer decision, 2026-08-03). The gate is built and
+	// tested, but leaving it unwired is the correct call today for two measured reasons:
+	//
+	//  1. It would close NOTHING. position_module_duties ships EMPTY (000001's COPY block has
+	//     zero rows) and the only writer of duty_type='verify' rows, cmd/seed-position-duties,
+	//     emits them for exactly ONE position -- video_verifier -- and hands that single seat
+	//     all four modules. So in the seeded configuration every verifier either holds duty
+	//     for everything or holds none and falls open. The gate is a no-op.
+	//  2. It would cost something. `weighing` appears in no defaultDepartmentModules entry, so
+	//     a preventive-care department member who reviews weighing_proof today would start
+	//     getting 403 -- a new lockout on the module currently being stabilised, and the same
+	//     class of self-inflicted outage a too-narrow capability set already caused once on
+	//     this branch.
+	//
+	// Wire it (append `.WithModuleDutyReader(workforceRepo)`) once verify duties are seeded
+	// PER verifier PER module. Until then the real fix is in cmd/seed-position-duties, which
+	// is what actually grants one seat every module.
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical:      "preventive_care",
