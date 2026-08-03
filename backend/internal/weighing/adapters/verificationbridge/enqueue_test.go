@@ -6,6 +6,7 @@ package verificationbridge
 
 import (
 	"context"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"testing"
 	"time"
 
@@ -132,7 +133,7 @@ func TestWeighingBridgeDeclaresAndSendsTheApplyReceipt(t *testing.T) {
 		ObservationID:  "obs-1",
 		Category:       weighingdomain.VerificationRefTypeAnimal,
 		ParkID:         "park-1",
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: "idem-ack-1",
 	}); err != nil {
 		t.Fatalf("enqueue: %v", err)
