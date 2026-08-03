@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -560,8 +561,14 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 				Message: "choose a park to view",
 				TraceID: traceID(r),
 			},
-			AvailableParks: httpmiddleware.AuthorizedParkIDsForCapability(
-				httpmiddleware.AuthGrantsFromContext(r.Context()), permissions.WeighingMonitor),
+			// The remedy must be derived from the SAME capability set the service used to
+			// decide the actor is multi-park, not from a hardcoded one. Pinning it to
+			// WeighingMonitor reintroduced two layers up exactly the coupling this branch
+			// removes everywhere else: an actor who trips this on OverseeOperators or Plan
+			// without also holding Monitor would receive "choose a park" alongside an EMPTY
+			// park list -- an error whose own remedy is unreachable. Latent today only
+			// because growth_director happens to carry both.
+			AvailableParks: weighingParkSelectionOptions(r.Context()),
 		}, nil)
 	case errors.Is(err, ports.ErrInvalidArgument):
 		h.badRequest(w, r, "invalid_request", "request is invalid")
@@ -635,3 +642,28 @@ func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContex
 func traceID(r *http.Request) string  { return httpmiddleware.TraceIDFromContext(r.Context()) }
 
 var _ = permissions.WeighingMonitor
+
+// weighingParkSelectionOptions lists every park the actor could legitimately name when the
+// service asks them to choose one. It unions the capabilities that admit the multi-park
+// surfaces rather than assuming a single one, so the remedy can never come back empty for an
+// actor the service just told to pick a park.
+func weighingParkSelectionOptions(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	seen := map[string]struct{}{}
+	parks := []string{}
+	for _, capability := range []string{
+		permissions.WeighingMonitor,
+		permissions.WeighingPlan,
+		permissions.WeighingOverseeOperators,
+	} {
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			parks = append(parks, parkID)
+		}
+	}
+	sort.Strings(parks)
+	return parks
+}
