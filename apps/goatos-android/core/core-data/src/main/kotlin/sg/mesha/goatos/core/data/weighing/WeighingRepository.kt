@@ -32,6 +32,7 @@ import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignShedDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
+import sg.mesha.goatos.core.network.dto.WeighingOperatorSummaryDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignSummaryDto
@@ -101,6 +102,15 @@ data class WeighingAssignment(
     val label: String,
     val category: String,
     val operatorUserId: String,
+    /**
+     * Backend-resolved assignee NAME, carried on the bucket itself.
+     *
+     * The oversight surface renders who did the work, so the name has to travel WITH the row.
+     * Blank with a non-blank [operatorUserId] is a roster gap, not "not assigned yet"; a user id is
+     * never rendered in its place, and the client never joins the row against a separately paged
+     * operator vocabulary to find it.
+     */
+    val operatorDisplayName: String = "",
     val status: String,
     // No expectedCount / denominator here: weighing is free-flow, so there is no expected-animal
     // list to count against. See docs/decisions/mobile-data-fetch-anti-patterns.md.
@@ -324,6 +334,36 @@ data class ShedPartitionWeighingCapture(
 data class WeighingPage<T>(
     val items: List<T> = emptyList(),
     val nextCursor: String? = null,
+    /**
+     * The backend's OPERATOR-grain roll-up for this request, carried beside the paged rows.
+     *
+     * It is deliberately NOT derived from [items]: [items] is one keyset page, so anything counted
+     * from it would describe the page rather than the person and would change as the reader
+     * scrolls. This list is whole-filter truth the server computed.
+     */
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
+)
+
+/**
+ * What ONE person's weighing work adds up to, as the backend counts it.
+ *
+ * Plain counts only. [notStarted] + [capturing] + [submitted] + [accepted] == [shedCount], which is
+ * why the oversight screen can draw a discrete state ladder; nothing here is ever a numerator,
+ * because free-flow weighing has no expected-animal total to divide by.
+ */
+data class WeighingOperatorSummary(
+    /** Blank on the "nobody is assigned yet" row. */
+    val operatorUserId: String,
+    /** Backend-resolved name. Blank with a non-blank id is a roster gap, not "unassigned". */
+    val operatorDisplayName: String,
+    val shedCount: Int,
+    val notStarted: Int,
+    val capturing: Int,
+    val submitted: Int,
+    val accepted: Int,
+    /** Buckets a verifier bounced back. Overlaps the four state counts; never added to them. */
+    val rework: Int,
+    val animalsWeighed: Int,
 )
 
 
@@ -611,6 +651,7 @@ class DefaultWeighingRepository(
                 WeighingPage(
                     items = assignments,
                     nextCursor = response.nextCursor.nextWeighingCursorAfter(requestCursor),
+                    operatorSummaries = response.operatorSummaries.map { it.toOperatorSummary() },
                 ),
             )
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing assignments.")) }
@@ -1932,6 +1973,19 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
             },
     )
 
+private fun WeighingOperatorSummaryDto.toOperatorSummary(): WeighingOperatorSummary =
+    WeighingOperatorSummary(
+        operatorUserId = operatorUserId,
+        operatorDisplayName = operatorDisplayName,
+        shedCount = shedCount,
+        notStarted = notStartedCount,
+        capturing = capturingCount,
+        submitted = submittedCount,
+        accepted = acceptedCount,
+        rework = reworkCount,
+        animalsWeighed = animalsWeighedCount,
+    )
+
 private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssignment> =
     sheds
         .filter { shed ->
@@ -1959,6 +2013,7 @@ private fun WeighingCampaignDto.toAssignments(scope: String): List<WeighingAssig
                 label = shed.displayName,
                 category = shed.weighingCategory,
                 operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
+                operatorDisplayName = shed.operatorDisplayName,
                 status = shed.status,
                 periodLabel = listOf(periodStartDate, periodEndDate)
                     .filter { it.isNotBlank() }

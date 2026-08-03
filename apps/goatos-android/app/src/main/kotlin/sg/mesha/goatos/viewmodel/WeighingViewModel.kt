@@ -37,6 +37,7 @@ import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
+import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
@@ -52,6 +53,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
 import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingProofUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
@@ -135,6 +137,16 @@ class WeighingViewModel @Inject constructor(
     private var currentPrincipalId: String? = null
     private val assignments = MutableStateFlow<List<WeighingAssignment>>(emptyList())
     private val assignmentsNextCursor = MutableStateFlow<String?>(null)
+
+    /**
+     * The backend's OPERATOR-grain roll-up for the CURRENT park filter.
+     *
+     * Held separately from [assignments] on purpose: [assignments] is a growing keyset page, and
+     * anything counted from it would describe how far the reader has scrolled rather than what a
+     * person actually did. Only a whole-filter read replaces this, so appending a page leaves it
+     * untouched.
+     */
+    private val operatorSummaries = MutableStateFlow<List<WeighingOperatorSummary>>(emptyList())
     private val appendingAssignments = MutableStateFlow(false)
     private val plannerMode = MutableStateFlow(false)
     private val plannerCatalog = MutableStateFlow<WeighingPlannerCatalog?>(null)
@@ -307,13 +319,14 @@ class WeighingViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingFormState())
 
     private val rootState: StateFlow<WeighingRootState> =
-        combine(assignments, selectedAssignmentParkId, appendingAssignments, knownAssignmentParks) {
+        combine(assignments, selectedAssignmentParkId, appendingAssignments, knownAssignmentParks, operatorSummaries) {
                 availableAssignments,
                 selectedParkId,
                 appending,
                 knownParks,
+                summaries,
             ->
-            AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks)
+            AssignmentParkSelection(availableAssignments, selectedParkId, appending, knownParks, summaries)
         }.let { assignmentSelection ->
             combine(assignmentSelection, loadingAssignments, plannerMode) { selection, loading, isPlanner ->
                 WeighingRootState(
@@ -323,6 +336,7 @@ class WeighingViewModel @Inject constructor(
                     selectedParkId = selection.selectedParkId,
                     appendingAssignments = selection.appending,
                     knownParks = selection.knownParks,
+                    operatorSummaries = selection.operatorSummaries,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
@@ -614,6 +628,7 @@ class WeighingViewModel @Inject constructor(
                 replacementAnimalId = form.replacementAnimalId,
                 availableAssignments = root.assignments,
                 knownParks = root.knownParks,
+                operatorSummaries = root.operatorSummaries,
                 loading = root.loading,
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
@@ -700,6 +715,8 @@ class WeighingViewModel @Inject constructor(
                     is AppResult.Ok -> {
                         assignments.value = loaded.value.items
                         assignmentsNextCursor.value = loaded.value.nextCursor
+                        // Whole-filter truth: replaced only by a fresh read, never accumulated.
+                        operatorSummaries.value = loaded.value.operatorSummaries
                         assignmentsError.value = null
                         rememberAssignmentParks(loaded.value.items)
                         // Do not clear a failure the planner read is still reporting.
@@ -1755,6 +1772,7 @@ class WeighingViewModel @Inject constructor(
         replacementAnimalId: String?,
         availableAssignments: List<WeighingAssignment>,
         knownParks: Map<String, String>,
+        operatorSummaries: List<WeighingOperatorSummary>,
         loading: Boolean,
         appendingAssignments: Boolean,
         isPlanner: Boolean,
@@ -1799,6 +1817,9 @@ class WeighingViewModel @Inject constructor(
             // park-filtered page -- see [knownAssignmentParks]. Fixes A22: selecting a park used
             // to collapse this to one chip with no way back to "All parks".
             parkFilters = knownParks.toParkFilters(selectedParkId),
+            // Backend-owned per-person tallies, handed to the screen untouched. Deliberately NOT
+            // rebuilt from `availableAssignments`: that list is one keyset page.
+            operatorSummaries = operatorSummaries.map { it.toUiRow() },
             loading = loading,
             assignmentsLoadingMore = appendingAssignments,
             category = category,
@@ -2057,6 +2078,19 @@ private fun normalizeWeighingCategory(raw: String): String =
         else -> raw.trim()
     }
 
+private fun WeighingOperatorSummary.toUiRow(): WeighingOperatorUiRow =
+    WeighingOperatorUiRow(
+        operatorUserId = operatorUserId,
+        name = operatorDisplayName,
+        shedCount = shedCount,
+        animalsWeighed = animalsWeighed,
+        notStarted = notStarted,
+        capturing = capturing,
+        submitted = submitted,
+        accepted = accepted,
+        rework = rework,
+    )
+
 private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
     WeighingAssignmentUiRow(
         campaignId = campaignId,
@@ -2069,6 +2103,7 @@ private fun WeighingAssignment.toUiRow(): WeighingAssignmentUiRow =
         expectedLocationLabel = expectedLocationLabel,
         label = label,
         category = category,
+        operatorName = operatorDisplayName,
         status = status.readableWeighingStatus(),
         periodLabel = periodLabel.readableWeighingPeriodLabel(),
         readyToClose = readyToClose,
@@ -2162,6 +2197,8 @@ private data class WeighingRootState(
     // see [knownAssignmentParks]. Keeps the "All parks" chip and every other park chip reachable
     // after the user selects a park (A22).
     val knownParks: Map<String, String> = emptyMap(),
+    /** Backend-owned per-person tallies for the current park filter. Never page-derived. */
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
 )
 
 private data class AssignmentParkSelection(
@@ -2169,6 +2206,7 @@ private data class AssignmentParkSelection(
     val selectedParkId: String?,
     val appending: Boolean = false,
     val knownParks: Map<String, String> = emptyMap(),
+    val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
 )
 
 private data class WeighingCaptureState(

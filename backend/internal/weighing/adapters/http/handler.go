@@ -205,7 +205,15 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
 		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
 	}
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": capabilities, "trace_id": traceID(r)}, err)
+	// operator_summaries is the OPERATOR-grain roll-up the oversight surface renders.
+	// Unlike counts it IS narrowed by park_id, because the park chip is that screen's
+	// own filter: a summary naming people who hold no work in the selected park would
+	// describe a different screen than the one on show.
+	summaries := page.OperatorSummaries
+	if summaries == nil {
+		summaries = []domain.OperatorSummary{}
+	}
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "operator_summaries": summaries, "capabilities": capabilities, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {

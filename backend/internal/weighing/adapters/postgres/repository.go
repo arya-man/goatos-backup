@@ -483,7 +483,13 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
-	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts}, nil
+	// Operator-grain roll-up for the oversight surface. Whole-filter and park-aware,
+	// so the phone never has to group a keyset page and call the result a person's total.
+	summaries, err := r.operatorSummaries(ctx, tenantID, operatorFilter, parkFilter)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts, OperatorSummaries: summaries}, nil
 }
 
 // campaignCounts is the WHOLE-FILTER task tally behind the Active / Completed tabs.

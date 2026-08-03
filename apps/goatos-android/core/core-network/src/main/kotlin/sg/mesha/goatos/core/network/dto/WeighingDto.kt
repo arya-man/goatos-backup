@@ -106,11 +106,48 @@ data class WeighingCapabilitiesDto(
     @SerialName("can_reopen") val canReopen: Boolean = false,
 )
 
+/**
+ * What ONE person's weighing work adds up to, as the BACKEND counts it.
+ *
+ * Every field is a plain count and none is ever a numerator: weighing is free-flow, there is no
+ * expected-animal roster, so no share or percentage can honestly be built from any of these.
+ * [notStartedCount] + [capturingCount] + [submittedCount] + [acceptedCount] == [shedCount]
+ * exactly — the four are disjoint and exhaustive over the live bucket statuses — which is what
+ * lets the oversight screen draw a DISCRETE state ladder instead of an invented fraction.
+ *
+ * The counts range over the whole park filter, not over a loaded page, so they do not move as the
+ * reader scrolls. The client must never rebuild them by grouping shed rows it happens to hold.
+ */
+@Serializable
+data class WeighingOperatorSummaryDto(
+    /** Empty on the "nobody is assigned yet" row, which is real work leadership must see. */
+    @SerialName("operator_user_id") val operatorUserId: String = "",
+    /**
+     * Backend-resolved name. Blank WITH a non-blank [operatorUserId] is a roster gap, NOT
+     * "unassigned"; the screen names the gap and never falls back to rendering a user id.
+     */
+    @SerialName("operator_display_name") val operatorDisplayName: String = "",
+    @SerialName("shed_count") val shedCount: Int = 0,
+    @SerialName("not_started_count") val notStartedCount: Int = 0,
+    @SerialName("capturing_count") val capturingCount: Int = 0,
+    @SerialName("submitted_count") val submittedCount: Int = 0,
+    @SerialName("accepted_count") val acceptedCount: Int = 0,
+    /** Buckets a verifier bounced back. OVERLAPS the four state counts; never added to them. */
+    @SerialName("rework_count") val reworkCount: Int = 0,
+    /**
+     * How many ANIMALS this person's buckets account for: one per individual observation plus the
+     * recorded head count of a standing lump-sum weighing. A plain total of work done.
+     */
+    @SerialName("animals_weighed_count") val animalsWeighedCount: Int = 0,
+)
+
 @Serializable
 data class WeighingCampaignListResponseDto(
     @SerialName("items") val items: List<WeighingCampaignDto> = emptyList(),
     /** Whole-filter task tally behind the two task tabs. Never derived from [items]. */
     @SerialName("counts") val counts: WeighingCampaignCountsDto = WeighingCampaignCountsDto(),
+    /** Backend-owned OPERATOR-grain roll-up behind the oversight surface. Never derived from [items]. */
+    @SerialName("operator_summaries") val operatorSummaries: List<WeighingOperatorSummaryDto> = emptyList(),
     @SerialName("capabilities") val capabilities: WeighingCapabilitiesDto = WeighingCapabilitiesDto(),
     @SerialName("next_cursor") val nextCursor: String? = null,
     @SerialName("trace_id") val traceId: String? = null,
