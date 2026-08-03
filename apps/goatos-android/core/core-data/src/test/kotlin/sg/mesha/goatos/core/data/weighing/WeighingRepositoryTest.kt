@@ -878,6 +878,176 @@ class WeighingRepositoryTest {
         assertEquals(first.value.idempotencyKey, state.individualDrafts.single().idempotencyKey)
     }
 
+    // The suppression above must mean "this capture is STILL GOING TO BE SENT", not merely
+    // "a row exists under this key". An attempt-exhausted FAILED row exists but is TERMINAL:
+    // OutboxDao.eligibleForDrain requires `attemptCount < maxAttempts AND conflict = 0`, so
+    // the drain will never claim it again. This is not hypothetical -- it is the growth-director
+    // 403 (RetryClassification keeps 403 RETRYABLE, so the proof burned all its attempts and
+    // left a terminal FAILED row behind). A bare key-existence check would make the reconciler
+    // replay see that corpse, return early, and STRAND the capture forever while the operator's
+    // screen still shows it saved locally. Re-minting the `:proof:` key is the recovery path.
+    @Test
+    fun `redelivering a proof re-enqueues when the existing write is terminally failed`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        // Burn the retry budget the way the 403 run did: the row is FAILED, non-conflict, but
+        // attemptCount has reached maxAttempts, so it is terminal.
+        store.markInFlight(queued.id, now = 1000L)
+        store.markFailed(
+            id = queued.id,
+            attemptCount = queued.maxAttempts,
+            nextAttemptAt = 0L,
+            conflict = false,
+            lastError = "403",
+            now = 1000L,
+        )
+        assertTrue(
+            "precondition: the exhausted row must no longer be drainable",
+            store.eligibleForDrain(now = Long.MAX_VALUE, limit = 10).isEmpty(),
+        )
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        val all = store.snapshot()
+        assertEquals(
+            "a terminal write must be re-enqueued under the :proof: key; rows=" + all.map { it.idempotencyKey + "/" + it.status },
+            2,
+            all.size,
+        )
+        assertTrue(
+            "the recovery row must exist",
+            store.findByIdempotencyKey("${first.value.idempotencyKey}:proof:proof-server-1") != null,
+        )
+        assertEquals(1, store.eligibleForDrain(now = Long.MAX_VALUE, limit = 10).size)
+    }
+
+    // Same rule, the other terminal shape: the row drained, SUCCEEDED, and was pruned away.
+    // Nothing is queued and nothing is on record as reaching the server under the current key,
+    // so the replay must re-enqueue rather than silently no-op.
+    @Test
+    fun `redelivering a proof re-enqueues when the existing write was drained and deleted`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        store.delete(store.findByIdempotencyKey(first.value.idempotencyKey)!!.id)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a vanished write must be re-enqueued; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // The original fan-out fix must still hold for the ACTIVE shapes: a row the dispatcher has
+    // already claimed is on its way to the server, so a redelivery of the identical proof must
+    // not mint a second key for the identical capture.
+    @Test
+    fun `redelivering the same proof does not queue a second write while in flight`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        store.markInFlight(store.findByIdempotencyKey(first.value.idempotencyKey)!!.id, now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "an in-flight write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // A SUCCEEDED row that has not been pruned yet DID reach the server. Re-minting a
+    // `:proof:` key for it would post the identical capture a second time -- the original
+    // fan-out. Terminal is not one bucket: terminally-DELIVERED suppresses, terminally-
+    // UNDELIVERABLE recovers.
+    @Test
+    fun `redelivering the same proof does not queue a second write after success`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        store.markInFlight(queued.id, now = 1000L)
+        store.markSucceeded(queued.id, resultJson = "{}", now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a delivered write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // A retryable (still-in-budget) FAILED row is likewise still going to be sent -- the drain
+    // will re-claim it once the backoff window elapses.
+    @Test
+    fun `redelivering the same proof does not queue a second write while retryable`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        store.markInFlight(queued.id, now = 1000L)
+        store.markFailed(queued.id, attemptCount = 1, nextAttemptAt = 9_000L, conflict = false, lastError = "timeout", now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a retryable write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
     @Test
     fun `correcting an accepted individual keeps proof and queues weight revision`() = runTest {
         val store = FakeOutboxStore()
