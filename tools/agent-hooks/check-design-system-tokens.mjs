@@ -60,6 +60,14 @@ const EXEMPT_PATH_PARTS = [
   '/build/',
   '/src/test/',
   '/src/androidTest/',
+  // Debug-only source set: compiled out of every release build, so nothing in it
+  // is shipped UI. It holds the edge-case galleries whose whole job is to
+  // REPRODUCE a production screen, including camera-viewfinder chrome that has no
+  // token by design (translucent scrims over live video, a translucent REC pill).
+  // Forcing tokens here would change what the gallery is meant to mirror while
+  // protecting nothing a user can see. Same category as the Preview /
+  // ScreenSamples.kt fixtures already listed below.
+  '/src/debug/',
   '/screenshot/',
   'Preview',
   'ScreenSamples.kt',
@@ -161,6 +169,29 @@ function selfTest() {
       failures++
     }
   }
+  // Path exemptions: debug-only UI is out of scope, but a real feature screen
+  // must never be able to borrow that exemption.
+  const expectExempt = [
+    'apps/goatos-android/app/src/debug/kotlin/sg/mesha/goatos/EdgeCaseGallerySamples.kt',
+    'apps/goatos-android/app/src/test/kotlin/sg/mesha/goatos/Foo.kt',
+  ]
+  for (const file of expectExempt) {
+    if (!isExempt(file)) {
+      console.error(`self-test FAILED: expected ${file} to be exempt`)
+      failures++
+    }
+  }
+  const expectScanned = [
+    'apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/BirthDeathScreen.kt',
+    'apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt',
+  ]
+  for (const file of expectScanned) {
+    if (isExempt(file)) {
+      console.error(`self-test FAILED: expected ${file} to be scanned, not exempt`)
+      failures++
+    }
+  }
+
   rmSync(dir, { recursive: true, force: true })
   if (failures > 0) {
     console.error(`design-system guard self-test: ${failures} case(s) failed`)
