@@ -9,7 +9,7 @@
 --                  the verifier ever looked at the video, so a fully verified
 --                  bucket and a bucket whose evidence is still queued read
 --                  IDENTICALLY. It is a submission marker, not a closure.
---   'closed'    -- a leader ran CloseScope / AbandonScope / CloseCampaign. Both
+--   'closed'    -- a leader ran CloseScope / CloseCampaign. Both
 --                  require a REASON, because both are ways of ENDING WORK EARLY.
 --
 -- So a task whose every animal was weighed, submitted AND verified never reached
@@ -34,16 +34,14 @@
 --                  automatically inside the verdict applier's own transaction.
 --                  No human ended it, so there is no reason to record and
 --                  close_reason stays NULL.
---   'early'     -- CloseScope / CloseCampaign: a leader ended live work. Reason
---                  mandatory, unchanged.
---   'abandoned' -- AbandonScope: a leader ended work that will never finish,
---                  bypassing the verification gate. Reason mandatory, unchanged.
+--   'early'     -- CloseScope / CloseCampaign: a leader ended live work,
+--                  bypassing the verification gate. Reason mandatory.
 --
 -- NULL is legal and means a row that reached 'closed' before this column
 -- existed. It is deliberately NOT backfilled to 'early': every pre-existing
--- closed row went through the reason-bearing path, but so does an abandon, and
--- guessing between them would write a fact nobody observed. Readers treat NULL
--- as "closed, kind not recorded".
+-- closed row went through the reason-bearing path, and stamping a kind onto a
+-- row nobody observed would write a fact we do not have. Readers treat NULL as
+-- "closed, kind not recorded".
 --
 -- Free-flow is preserved: nothing here references goats, herd rosters, expected
 -- animal counts or vaccination, and no closure decision anywhere derives from a
@@ -55,7 +53,7 @@ ALTER TABLE public.weighing_campaign_sheds
   DROP CONSTRAINT IF EXISTS weighing_campaign_sheds_closure_kind_check;
 ALTER TABLE public.weighing_campaign_sheds
   ADD CONSTRAINT weighing_campaign_sheds_closure_kind_check
-  CHECK (closure_kind IS NULL OR closure_kind = ANY (ARRAY['verified','early','abandoned']));
+  CHECK (closure_kind IS NULL OR closure_kind = ANY (ARRAY['verified','early']));
 
 ALTER TABLE public.weighing_campaigns
   ADD COLUMN IF NOT EXISTS closure_kind text;
@@ -63,7 +61,7 @@ ALTER TABLE public.weighing_campaigns
   DROP CONSTRAINT IF EXISTS weighing_campaigns_closure_kind_check;
 ALTER TABLE public.weighing_campaigns
   ADD CONSTRAINT weighing_campaigns_closure_kind_check
-  CHECK (closure_kind IS NULL OR closure_kind = ANY (ARRAY['verified','early','abandoned']));
+  CHECK (closure_kind IS NULL OR closure_kind = ANY (ARRAY['verified','early']));
 
 -- The auto-close cascade asks ONE question per verdict: "does this campaign
 -- still hold a bucket that is not terminal?". That is a
