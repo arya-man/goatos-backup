@@ -1131,9 +1131,24 @@ obligation_drive_animal_coverage AS (
          count(*) FILTER (WHERE fully_completed)::int AS completed_animals,
          count(*) FILTER (WHERE submitted_for_verification)::int AS submitted_animals
   FROM (
+    -- BOTH flags are ALL-DOSE (bool_and), never any-dose. A goat due two vaccines on
+    -- the same drive day is ONE animal that is done only when EVERY one of its drive
+    -- obligations is done -- that is the whole point of the distinct-ANIMAL progress
+    -- basis below. bool_or(submitted_for_verification) broke exactly that: a goat with
+    -- PPR submitted and ET still open counted as a finished animal, so a one-goat drive
+    -- reported 1/1, 100% while medicine was still owed. The animal-grain numerator is
+    -- completed_animals + submitted_animals, so an any-dose flag there is a silent
+    -- over-count of field work, not a display nicety.
+    --
+    -- The two flags stay DISJOINT (the numerator adds them): fully_completed is the
+    -- strict all-'completed' case, and submitted_for_verification is the all-dose
+    -- finished case that is NOT fully completed, i.e. at least one dose is sitting in
+    -- verification. An animal with any dose neither completed nor submitted falls into
+    -- neither bucket and correctly holds the ring below 100%.
     SELECT park_id, due_date, animal_id,
            bool_and(status = 'completed') AS fully_completed,
-           bool_or(submitted_for_verification) AS submitted_for_verification
+           bool_and(status = 'completed' OR submitted_for_verification)
+             AND NOT bool_and(status = 'completed') AS submitted_for_verification
     FROM obligation_drive_membership
     WHERE animal_id IS NOT NULL
     GROUP BY park_id, due_date, animal_id
