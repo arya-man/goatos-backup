@@ -160,6 +160,26 @@ Pattern worth noticing: most of these came from assuming weighing has rules it
 does not have, or from a code path nobody can actually reach. Read `AGENTS.md` → "WEIGHING IS SCAN-AND-SUBMIT" before filing a
 weighing finding.
 
+
+## COUNTS IS DISABLED (maintainer, 2026-08-03) — park Counts findings, do not work them
+
+Counts is switched off for now. **Any Counts-related finding goes in this ledger and
+waits; nobody works it until the maintainer says Counts is back on.** Do not spend
+review or agent time on it, and do not raise it as a blocker for weighing work.
+
+Parked here so far:
+
+- **Counts verify tab maps to the vaccination queue.** `VerifyQueueViewModel.kt:76-77`
+  maps only `"weighing"`; every other module falls through to `VACCINATION`, so a
+  Counts tab would silently show vaccination items. Unreachable today anyway — the
+  verifier's department grants only `verification`, and `counts` is granted to
+  leadership, who are not verifiers (confirmed against `department_module_grants`).
+  When Counts is re-enabled, this must be fixed before the tab is advertised.
+- **`verify_counts` exists in the bootstrap tests but not in production nav copy** —
+  worth confirming which is intended when Counts comes back.
+
+Anything else Counts-related found later: append here, do not open work.
+
 ## BANNED — do not reopen
 
 - **Do not narrow the Growth Director's permissions.** He executes weighing like an
