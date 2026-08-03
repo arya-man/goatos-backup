@@ -302,11 +302,11 @@ func (r *multiParkScenarioRepo) PlannerParkBuckets(context.Context, string, stri
 	return domain.PlannerParkBuckets{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListScopeRoster(context.Context, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
+func (r *multiParkScenarioRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
+func (r *multiParkScenarioRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
 	return domain.RosterPage{}, nil
 }
 

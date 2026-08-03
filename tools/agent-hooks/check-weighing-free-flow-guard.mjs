@@ -9,7 +9,7 @@
 // See context/repo-audits/weighing-implementation-do-not-reopen-ledger.md (A-6, B-4, C-3)
 // and docs/features/weighing/TRD.md.
 //
-// Fails on THIRTEEN failure modes across weighing backend code
+// Fails on FIFTEEN failure modes across weighing backend code
 // (backend/internal/weighing/**, backend/migrations/postgres/*weighing*.sql),
 // the Android weighing write-request DTOs (apps/goatos-android/**), and the
 // weighing UI surfaces (Android Compose screens + admin-web weighing pages):
@@ -67,6 +67,14 @@
 //      again.
 //  13. expected-animals-table-referenced — no live (non-comment) weighing Go code anywhere in the
 //      module may reference weighing_expected_animals at all: the table does not exist.
+//  14. roster-cursor-type-reintroduced — `type rosterCursor struct` (the AnimalID-keyed cursor
+//      that used to page the dead expected-animal roster; it and its encode/decode helpers were
+//      deleted outright once the dead `cursor`/`includeRoster` params were dropped from
+//      ListScopeRoster) must never be declared again anywhere in the weighing module.
+//  15. roster-items-populated — a `domain.RosterPage{...}` composite literal assigns Items to
+//      anything other than an empty slice. RosterPage.Items/NextCursor stay ON THE WIRE for
+//      older-client compatibility (a breaking response-shape change is out of scope), but
+//      free-flow has no expected roster to serve, so nothing may ever populate them.
 //
 // Modes:
 //   (default)     scan the real weighing backend tree + weighing migrations + Android/admin-web
@@ -493,7 +501,17 @@ const OBSERVATIONS_ANIMAL_ID_STRUCT_FIELD_RE = /\bAnimalID\s+\*?string\s+`[^`]*j
 // weighing struct is fair game: if a future struct needs a roster-identity
 // field too, add it here deliberately rather than have this guard silently
 // stop checking everything.
-const OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS = new Set(["ExpectedAnimal", "rosterCursor"]);
+//
+// ExpectedAnimal is the ONLY entry, kept for a narrower reason than the one
+// above: it is retained purely for WIRE COMPATIBILITY on domain.RosterPage
+// (RosterPage.Items []ExpectedAnimal is still serialized as `items: []` so an
+// older client reading that key does not break), and nothing in the weighing
+// module ever constructs a populated ExpectedAnimal or appends one to
+// RosterPage.Items -- see mode 15 (roster-items-populated) below, which is
+// the guard that actually enforces "always absent from responses." Do NOT
+// add rosterCursor back here: it was the AnimalID-keyed roster cursor and was
+// deleted outright, not retained (see mode 14, roster-cursor-type-reintroduced).
+const OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS = new Set(["ExpectedAnimal"]);
 
 // Struct bodies, keyed by type name, via brace counting (Go struct field types
 // can themselves contain braces -- map[string]struct{} -- so a non-greedy
@@ -539,6 +557,52 @@ export function findingsForGoSourceObservationsAnimalId(rel, source) {
       findings.push({
         rule: "observations-animal-id-field-reintroduced",
         message: `${rel}: struct ${name} declares an AnimalID field with an "animal_id" tag — weighing_observations has no animal_id column and no weighing struct outside the roster catalog (${[...OBSERVATIONS_ANIMAL_ID_FIELD_ALLOWED_STRUCTS].join(", ")}) may carry one`,
+      });
+    }
+  }
+  return findings;
+}
+
+// Failure mode 14: rosterCursor (the herd-cursor carrier keyed on `animal_id`
+// that used to page the dead expected-animal roster) was deleted outright
+// (repository.go's rosterCursor type + encodeRosterCursor/decodeRosterCursor)
+// once the `cursor`/`includeRoster` params it served were dropped from
+// ListScopeRoster/ListScopeRosterForOperator. It must never come back — not
+// as that type name, not as any struct field tagged `json:"animal_id"`
+// outside the retained-for-wire-compatibility ExpectedAnimal type.
+//
+// Failure mode 15: nothing may populate domain.RosterPage.Items with anything
+// other than an empty slice literal. RosterPage.Items and RosterPage.NextCursor
+// stay ON THE WIRE for older-client compatibility (a breaking response-shape
+// change is out of scope), but free-flow has no expected roster to serve, so
+// the field must always come back empty. A composite literal that assigns
+// Items: <anything but []domain.ExpectedAnimal{}/nil/make(...,0,...)/the
+// repository's own always-empty `out` accumulator> is this guard's signal
+// that someone is trying to resurrect the roster read. `out` is allowlisted
+// by name because adapters/postgres/repository.go declares it as
+// `out := make([]domain.ExpectedAnimal, 0)` and never appends to it -- if a
+// future edit starts appending to `out`, that is caught by the postgres
+// integration tests asserting Items stays empty, not by this textual guard.
+const ROSTER_CURSOR_TYPE_RE = /\btype\s+rosterCursor\s+struct\b/;
+const ROSTER_ITEMS_POPULATED_RE =
+  /RosterPage\{[^}]*\bItems:(?!\s*(?:\[\]domain\.ExpectedAnimal\{\}|nil\b|out\b|make\(\s*\[\]domain\.ExpectedAnimal\s*,\s*0\)))/;
+
+export function findingsForGoSourceRosterCursorAndItemsGone(rel, source) {
+  const findings = [];
+  const body = stripComments(source);
+  if (ROSTER_CURSOR_TYPE_RE.test(body)) {
+    findings.push({
+      rule: "roster-cursor-type-reintroduced",
+      message: `${rel}: declares \`type rosterCursor struct\` — this AnimalID-keyed cursor was deleted outright once the dead \`cursor\`/\`includeRoster\` roster params were dropped from ListScopeRoster. It must not come back.`,
+    });
+  }
+  const rosterLiteralRe = /domain\.RosterPage\{[^}]*\}/g;
+  let m;
+  while ((m = rosterLiteralRe.exec(body)) !== null) {
+    if (ROSTER_ITEMS_POPULATED_RE.test(m[0])) {
+      findings.push({
+        rule: "roster-items-populated",
+        message: `${rel}: a domain.RosterPage{...} composite literal assigns Items to something other than an empty slice — free-flow has no expected roster to serve; RosterPage.Items must always stay empty (kept on the wire only for older-client compatibility).`,
       });
     }
   }
@@ -702,6 +766,7 @@ function run() {
     for (const f of findingsForGoSourceStructTags(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
     for (const f of findingsForGoSourceObservationsAnimalId(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
     for (const f of findingsForGoSourceExpectedAnimalsTableGone(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
+    for (const f of findingsForGoSourceRosterCursorAndItemsGone(rel, source)) problems.push(`[${f.rule}] ${f.message}`);
   }
   for (const rel of migrationFiles) {
     const source = readFileSync(resolve(repo, rel), "utf8");
@@ -1296,6 +1361,57 @@ func (r *Repository) noop(ctx context.Context) error { return nil }
     throw new Error("self-test failed: mode 13 false positive on a comment-only mention");
   }
 
+  // 14: rosterCursor must never be declared again anywhere in the weighing module.
+  const badGo14 = `
+type rosterCursor struct {
+	CreatedAt time.Time ` + "`json:\"created_at\"`" + `
+	AnimalID  string    ` + "`json:\"animal_id\"`" + `
+}
+`;
+  const findings14 = findingsForGoSourceRosterCursorAndItemsGone("fake.go", badGo14);
+  if (!findings14.some((f) => f.rule === "roster-cursor-type-reintroduced")) {
+    throw new Error(`self-test failed: mode 14 not flagged. got: ${JSON.stringify(findings14)}`);
+  }
+  // GOOD: a comment documenting the deletion must not fire.
+  const goodGo14 = `
+// rosterCursor was deleted outright; there is no roster to page any more.
+`;
+  if (findingsForGoSourceRosterCursorAndItemsGone("fake.go", goodGo14).length) {
+    throw new Error("self-test failed: mode 14 false positive on a comment-only mention");
+  }
+
+  // 15: a domain.RosterPage{...} literal that populates Items with anything but an
+  // empty slice must be flagged.
+  const badGo15 = `
+func (r *Repository) leftoverRosterBuild(ctx context.Context) (domain.RosterPage, error) {
+	animals := []domain.ExpectedAnimal{{AnimalID: "goat-1"}}
+	return domain.RosterPage{Items: animals, Observations: nil}, nil
+}
+`;
+  const findings15 = findingsForGoSourceRosterCursorAndItemsGone("fake.go", badGo15);
+  if (!findings15.some((f) => f.rule === "roster-items-populated")) {
+    throw new Error(`self-test failed: mode 15 not flagged. got: ${JSON.stringify(findings15)}`);
+  }
+  // GOOD: the real repository shape (an always-empty `out` accumulator) must not fire.
+  const goodGo15a = `
+func (r *Repository) listScopeRoster(ctx context.Context) (domain.RosterPage, error) {
+	out := make([]domain.ExpectedAnimal, 0)
+	return domain.RosterPage{Items: out, Observations: observations, NextCursor: nextCursor, NextObservationsCursor: nextObservationsCursor}, nil
+}
+`;
+  if (findingsForGoSourceRosterCursorAndItemsGone("fake.go", goodGo15a).some((f) => f.rule === "roster-items-populated")) {
+    throw new Error("self-test failed: mode 15 false positive on the real repository's always-empty out accumulator");
+  }
+  // GOOD: an empty-slice literal directly in the composite literal must not fire either.
+  const goodGo15b = `
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
+}
+`;
+  if (findingsForGoSourceRosterCursorAndItemsGone("fake.go", goodGo15b).length) {
+    throw new Error("self-test failed: mode 15 false positive on an empty-slice Items literal");
+  }
+
   // GOOD: SQL operators that merely CONTAIN a scan keyword must not be read as table references.
   // `IS [NOT] DISTINCT FROM <expr>` compares two values; `FOR [NO KEY] UPDATE OF <alias>` locks a
   // row. Both were reported as phantom tables (`p`, `of`) on write paths doing exactly the
@@ -1325,7 +1441,7 @@ UPDATE weighing_observations observation
     );
   }
 
-  console.log("weighing-free-flow guard: self-test passed (13/13 failure modes + 4 demonstrated bypasses)");
+  console.log("weighing-free-flow guard: self-test passed (15/15 failure modes + 4 demonstrated bypasses)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file
