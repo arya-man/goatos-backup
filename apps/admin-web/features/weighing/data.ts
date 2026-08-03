@@ -494,7 +494,7 @@ function scopeFromApi(
 
   return {
     id: shed.campaign_shed_id,
-    parkName: "Park not reported by API",
+    parkName: "Park not set",
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,

@@ -225,9 +225,10 @@ private fun closeTaskLabel(state: WeighingTaskDetailUiState): String = when {
  * leadership reopen: a planner is assigned no shed, so this screen never offers a scan action --
  * "View shed" hands off to the existing capture destination, which enforces assignment itself.
  *
- * [onEditTask] and [onRepeatTask] are nullable on purpose: task authoring is a separate surface,
- * and until it is reachable the actions render disabled with the reason instead of pretending to
- * open something.
+ * [onRepeatTask] is nullable on purpose: task authoring is a separate surface, and the action is
+ * offered only when this task actually has a shed that can be placed on another date. There is
+ * deliberately no "edit task" or "reopen task" action here -- neither has a screen behind it, and
+ * a control that can never be pressed is decoration, not a disabled control.
  */
 @Composable
 fun WeighingTaskDetailScreen(
@@ -236,7 +237,6 @@ fun WeighingTaskDetailScreen(
     onRefresh: () -> Unit = {},
     onBack: () -> Unit = {},
     onOpenShed: (WeighingTaskShedUiRow) -> Unit = {},
-    onEditTask: (() -> Unit)? = null,
     onRepeatTask: (() -> Unit)? = null,
     onPublishTask: () -> Unit = {},
     onEndTask: () -> Unit = {},
@@ -396,25 +396,15 @@ fun WeighingTaskDetailScreen(
                 LaunchedEffect(index, state.sheds.size) { onBucketRowVisible(index) }
                 TaskShedCard(row = shed, onOpen = { onOpenShed(shed) })
             }
-            // Secondary actions sit BELOW the work. Each of these is a disabled-with-reason ghost
-            // about some OTHER date or some other version of this task; above the list they asked
-            // the reader to consider repeating a task before they had seen what is in it.
-            if (state.isClosed || state.isCompleted) {
-                item(key = "task-reopen") {
-                    TaskGhostAction(
-                        label = stringResource(R.string.weighing_task_reopen),
-                        onClick = null,
-                        disabledReason = stringResource(R.string.weighing_task_reopen_blocked),
-                    )
-                }
-            }
-            item(key = "task-edit") {
-                TaskGhostAction(
-                    label = stringResource(R.string.weighing_task_edit),
-                    onClick = onEditTask,
-                    disabledReason = stringResource(R.string.weighing_task_edit_blocked),
-                )
-            }
+            // Secondary actions sit BELOW the work, and ONLY actions that do something.
+            //
+            // "Reopen task" and "Edit sheds & assignment" used to render here as permanently
+            // dead cards -- neither has a backing surface, so onClick was always null and the
+            // pair showed up on every task as two grey blocks of prose the planner could not
+            // act on. A control that can never be pressed is not a disabled control, it is
+            // decoration, and it pushed the one real action off the fold. Reopening is not
+            // lost: it lives on each shed's own card, which is where its grain actually is.
+            // Reinstate either one only WITH the screen that performs it.
             item(key = "task-repeat") {
                 TaskGhostAction(
                     label = stringResource(R.string.weighing_task_repeat),
@@ -715,10 +705,16 @@ private fun TaskGhostAction(label: String, onClick: (() -> Unit)?, disabledReaso
             overflow = TextOverflow.Ellipsis,
         )
         if (!enabled) {
+            // ONE line, never a paragraph. A disabled action is a greyed button with a
+            // short why underneath it; a two-line justified block of prose inside a
+            // 24dp pill reads as a stray text box sitting above the real actions.
             Text(
                 text = disabledReason,
                 color = MeshaColors.Faint,
                 style = MeshaType.cardSubtitle,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

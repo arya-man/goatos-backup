@@ -10,7 +10,7 @@ function source(name) {
   return readFileSync(join(here, name), "utf8");
 }
 
-test("weighing UI keeps persona capabilities explicit", () => {
+test("weighing UI keeps role capabilities explicit", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
@@ -20,7 +20,10 @@ test("weighing UI keeps persona capabilities explicit", () => {
   assert.match(data, /canExecute: operator/);
   assert.match(data, /reviewOnly: role === "director"/);
   assert.match(page, /Monitor \/ review only/);
-  assert.match(page, /cannot create, publish, edit, or execute/);
+  // Copy firewall: the sentence names what a DIRECTOR can and cannot do, in farm words.
+  // "persona", "backend", "API" and other implementation talk are banned on this screen.
+  assert.match(page, /cannot create, publish, edit, or run the work/);
+  assert.doesNotMatch(page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, ""), /persona|OpenAPI/i);
 });
 
 test("weighing UI renders category-aware progress and blocks lumpsum individual truth", () => {
@@ -49,8 +52,8 @@ test("weighing UI uses product labels without fabricating live API labels", () =
   assert.match(data, /operator_display_name/);
   assert.match(data, /Roster gap \(operator not found\)/);
   assert.match(data, /Unassigned/);
-  assert.doesNotMatch(data, /operatorName: "Operator not reported by API"/);
-  assert.match(data, /Park not reported by API/);
+  assert.doesNotMatch(data, /operatorName: "No operator assigned"/);
+  assert.match(data, /Park not set/);
   assert.doesNotMatch(data, /operatorName: "Assigned operator"/);
   assert.doesNotMatch(data, /parkName: "Selected park"/);
 });

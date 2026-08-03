@@ -1012,7 +1012,6 @@ fun AppNavHost(
                 // wired: the update write replaces the whole shed set, which on a published task
                 // would drop buckets that already hold captured work. Disabled WITH the reason
                 // rather than offered and then half-honoured.
-                onEditTask = null,
                 onRepeatTask = {
                     vm.stageRepeatOfTask(campaignId)?.let { source ->
                         navController.navigate(Routes.weighingTaskRepeatRoute(source))
