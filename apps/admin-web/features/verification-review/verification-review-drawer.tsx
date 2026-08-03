@@ -14,7 +14,7 @@ import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { reassignVerificationItemAction, reworkVerificationItemAction } from "./actions";
+import { reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 
 const PATHNAME = "/actions";
@@ -23,6 +23,18 @@ function statusTone(status: VerificationQueueItem["status"]): Tone {
   if (status === "rejected") return "dng";
   if (status === "approved") return "ok";
   return "warn";
+}
+
+/**
+ * Whether the signed-in principal holds a backend-declared control on this page.
+ *
+ * /actions serves two personas (verifier vs authority) and the backend contract decides which half
+ * each one gets — see compileVerificationReviewControls. A missing control falls back to
+ * `fallback` so an older cached contract degrades to the pre-verdict behaviour instead of throwing
+ * the whole drawer, which is why this does not use the throwing `control()` helper.
+ */
+function controlEnabled(page: AdminUiPageContract, id: string, fallback: boolean): boolean {
+  return page.controls.find((item) => item.id === id)?.enabled ?? fallback;
 }
 
 export function VerificationReviewDrawer({
@@ -172,6 +184,15 @@ function VerificationReviewDrawerPanel({
   const reassignDisabled = !hasTask || !positions || positions.items.length === 0;
   const text = (key: string) => copy(pageContract, key);
 
+  // Duty split (verifier-app-and-flow.md §Roles): the verifier records the verdict, the authority
+  // acts on the source task. A principal sees only the half they hold — showing the other half
+  // disabled would advertise an authority they do not have and, for the verifier-only workspace,
+  // would put the authority's own actions in front of the person the separation exists to isolate.
+  const mayReview = controlEnabled(pageContract, "record_verdict", false);
+  const mayAct = controlEnabled(pageContract, "request_rework", true);
+  // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
+  const verdictSettled = item.status !== "pending";
+
   return (
       <aside className={`drawer${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
         <div className="dh">
@@ -199,9 +220,11 @@ function VerificationReviewDrawerPanel({
             </div>
           ) : null}
 
-          <div className="note" style={{ marginBottom: 12 }}>
-            {text("drawer.note")}
-          </div>
+          {mayAct ? (
+            <div className="note" style={{ marginBottom: 12 }}>
+              {text("drawer.note")}
+            </div>
+          ) : null}
 
           <div className="metagrid">
             <Meta label={text("drawer.meta.status")}>
@@ -255,6 +278,64 @@ function VerificationReviewDrawerPanel({
             </div>
           </section>
 
+          {mayReview ? (
+            <section className="card" style={{ marginTop: 14 }}>
+              <div className="hd">
+                <h3>{text("verdict.title")}</h3>
+              </div>
+              <div className="bd">
+                <form action={recordVerificationVerdictAction} style={{ display: "grid", gap: 8 }}>
+                  <input type="hidden" name="item_id" value={item.item_id} />
+                  {/* Guards THIS item's row: a verdict recorded elsewhere since render makes the
+                      submit 409 instead of silently overwriting the other reviewer's decision. */}
+                  <input type="hidden" name="row_version" value={item.row_version} />
+                  <input type="hidden" name="return_to" value={returnTo} />
+                  <div className="note">{text("verdict.note")}</div>
+                  <label className="fld" style={{ marginBottom: 0 }}>
+                    <span>{text("verdict.reason_label")}</span>
+                    {/* Deliberately not `required`: the same field is mandatory for Reject and
+                        unused for Approve, so the rule lives in the server action and the backend
+                        (422), not in a per-button HTML attribute. */}
+                    <textarea
+                      name="reason"
+                      rows={2}
+                      placeholder={text("verdict.reason_placeholder")}
+                      disabled={verdictSettled}
+                    />
+                  </label>
+                  <div className="small muted">{text("verdict.reason_required")}</div>
+                  {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
+                  <div className="df" style={{ padding: 0, border: 0, background: "transparent" }}>
+                    <button
+                      type="submit"
+                      name="decision"
+                      value="approved"
+                      className="btn p"
+                      disabled={verdictSettled}
+                      aria-disabled={verdictSettled}
+                      title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+                    >
+                      {text("verdict.approve")}
+                    </button>
+                    <button
+                      type="submit"
+                      name="decision"
+                      value="rejected"
+                      className="btn"
+                      disabled={verdictSettled}
+                      aria-disabled={verdictSettled}
+                      title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+                    >
+                      {text("verdict.reject")}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          ) : null}
+
+          {mayAct ? (
+          <>
           <section className="card" style={{ marginTop: 14 }}>
             <div className="hd">
               <h3>{text("rework.title")}</h3>
@@ -334,12 +415,18 @@ function VerificationReviewDrawerPanel({
               </div>
             </div>
           </section>
+          </>
+          ) : null}
         </div>
 
         <div className="df">
-          <Link href={`/operations/audit?module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
-            {text("action.open_audit_log")}
-          </Link>
+          {/* Audit Log is an authority surface. The verifier-only workspace has no Audit Log page
+              contract, so linking her there would dead-end on a route that throws. */}
+          {mayAct ? (
+            <Link href={`/operations/audit?module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
+              {text("action.open_audit_log")}
+            </Link>
+          ) : null}
           <button type="button" className="btn" onClick={onClose}>
             {text("action.close")}
           </button>

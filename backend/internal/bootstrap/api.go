@@ -111,6 +111,7 @@ import (
 	vaccexecpg "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/postgres"
 	vaccexecroster "github.com/vgoats/goatos/backend/internal/vaccinationexecution/adapters/roster"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
+	verificationadminuibridge "github.com/vgoats/goatos/backend/internal/verification/adapters/adminuibridge"
 	verificationhttp "github.com/vgoats/goatos/backend/internal/verification/adapters/http"
 	verificationpg "github.com/vgoats/goatos/backend/internal/verification/adapters/postgres"
 	verificationproofmedia "github.com/vgoats/goatos/backend/internal/verification/adapters/proofmedia"
@@ -389,7 +390,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	weighingHandler := weighinghttp.NewHandler(weighingService, log).WithMediaResolver(proofService)
 	calendarService := calendarapp.NewService(calendarpg.NewRepository(pool, cfg.Postgres.QueryTimeout))
 	calendarHandler := calendarhttp.NewHandler(calendarService, log)
-	adminUIHandler := adminuihttp.NewHandler(adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout)))
+	adminUIService := adminuiapp.NewService(adminuipg.NewRepository(pool, cfg.Postgres.QueryTimeout))
+	adminUIHandler := adminuihttp.NewHandler(adminUIService)
 	appConfigHandler := appconfighttp.NewHandler(appconfigapp.NewService(appconfigapp.ConfigFromEnv()), log)
 	countsRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	countsService := countsapp.NewService(countsRepo)
@@ -487,7 +489,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	verificationService := verificationapp.NewService(verificationRepo, verificationMedia)
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: "preventive_care", Module: "vaccination", Category: sopbridge.VaccinationVerificationCategory,
-		ExpectedMedia: []string{"video"}, NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination",
+		ExpectedMedia: []string{"video"}, MediaLabels: []string{"Vaccination proof video"},
+		NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination",
 		PageKey: "vaccination", PageLabel: "Vaccination", PageOrder: 1,
 	}); err != nil {
 		pool.Close()
@@ -504,17 +507,20 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		{
 			Vertical: weighingdomain.VerificationVerticalWeighing, Module: weighingdomain.VerificationModuleWeighing,
 			Category:      weighingdomain.VerificationCategoryWeighing,
-			ExpectedMedia: []string{"video"}, NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
+			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Weighing video"},
+			NavigationModule: "weighing", NavigationModuleLabel: "Weighing",
 			PageKey: "weighing", PageLabel: "Weighing", PageOrder: 1,
 		},
 		{
 			Vertical: "health", Module: "health", Category: "health_adults",
-			ExpectedMedia: []string{"video"}, NavigationModule: "aas_health", NavigationModuleLabel: "Health",
+			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
+			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
 			PageKey: "health_adults", PageLabel: "Adults", PageOrder: 1,
 		},
 		{
 			Vertical: "health", Module: "health", Category: "health_kids",
-			ExpectedMedia: []string{"video"}, NavigationModule: "aas_health", NavigationModuleLabel: "Health",
+			ExpectedMedia: []string{"video"}, MediaLabels: []string{"Health case video"},
+			NavigationModule: "aas_health", NavigationModuleLabel: "Health",
 			PageKey: "health_kids", PageLabel: "Kids", PageOrder: 2,
 		},
 	} {
@@ -531,6 +537,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: countsdomain.VerificationVerticalShifting, Module: countsdomain.VerificationModuleShifting,
 		Category: countsdomain.VerificationCategoryShifting, ExpectedMedia: []string{"video"},
+		MediaLabels:      []string{"Shifting video"},
 		NavigationModule: "counts", NavigationModuleLabel: "Counts",
 		PageKey: "shifting", PageLabel: "Shifting", PageOrder: 3,
 	}); err != nil {
@@ -556,7 +563,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		countsbridge.NewMilkPreparationVerificationEnqueuer(verificationService))
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: countsdomain.VerificationVerticalMilkFeeding, Module: countsdomain.VerificationModuleMilkFeeding,
-		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"}, SLAHours: 24,
+		Category: countsdomain.VerificationCategoryMilkFeeding, ExpectedMedia: []string{"video", "video"},
+		MediaLabels: []string{"Milk preparation video", "Milk feeding video"}, SLAHours: 24,
 		NavigationModule: "counts", NavigationModuleLabel: "Counts",
 		PageKey: "milk_feeding", PageLabel: "Milk Feeding", PageOrder: 5,
 	}); err != nil {
@@ -573,6 +581,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category:         feeddirectiondomain.VerificationCategoryFeed,
 		ExpectedMedia:    []string{"video", "photo_or_video"},
+		MediaLabels:      []string{"Feed distribution video", "Water distribution proof"},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_distribution", PageLabel: "Feed Distribution", PageOrder: 1,
 	}); err != nil {
@@ -590,6 +599,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category:         feeddirectiondomain.VerificationCategoryPacking,
 		ExpectedMedia:    []string{"video"},
+		MediaLabels:      []string{"Feed packing video"},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_packing", PageLabel: "Feed Packing", PageOrder: 2,
 	}); err != nil {
@@ -601,6 +611,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	if err := verificationService.RegisterCategory(verificationdomain.CategoryDefinition{
 		Vertical: feeddirectiondomain.VerificationVerticalFeed, Module: feeddirectiondomain.VerificationModuleFeed,
 		Category: feeddirectiondomain.VerificationCategoryTransport, ExpectedMedia: []string{"video"},
+		MediaLabels:      []string{"Feed transport video"},
 		NavigationModule: "feed_direction", NavigationModuleLabel: "Feed",
 		PageKey: "feed_transport", PageLabel: "Feed Transport", PageOrder: 3,
 	}); err != nil {
@@ -640,6 +651,10 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService))
 	tasksWorkflowHandler := taskshttp.NewHandler(tasksWorkflowService, log)
 	verificationHandler := verificationhttp.NewHandler(verificationService, log)
+	// The verifier-only admin-web workspace composes its sidebar from the registry above, so this
+	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
+	// be missing from the verifier's evidence groups.
+	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService))
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
 	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the

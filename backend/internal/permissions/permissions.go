@@ -218,28 +218,51 @@ const (
 	// founder/builder visibility invariant). NOT granted to RoleVerifier (checks captured work, does
 	// not dispatch) or RolePCDirector (oversight, not execution).
 	FeedDirectionComplete = "feed_direction.complete"
-	// VerificationReview is the generic Verification vertical's queue-read + verdict-write
-	// permission (context/architecture/verification-module-design.md). It is granted ONLY to the
-	// Verifier role and, per the org-role-model truth table, as a CEO/CxO override — never to
-	// Operator/Manager (capture) or Head/Director (act). Separation of duty: capturer != verifier.
+	// VerificationReview READS the generic Verification vertical's evidence queue
+	// (context/architecture/verification-module-design.md): the media, the operator/shed/park
+	// context, and whatever verdict has been recorded. It is a VISIBILITY permission — leadership
+	// must be able to watch the same videos and see the same decisions in order to act on them —
+	// so it is held by the Verifier and, per the org-role-model truth table, by CEO/CxO. It is
+	// never granted to Operator/Manager (capture).
 	VerificationReview = "verification.review"
-	VerificationAct    = "verification.act"
+	// VerificationVerdict RECORDS the approve/reject decision. Split out of VerificationReview by
+	// maintainer decision 2026-08-03: reading the evidence and DECIDING on it are different
+	// authorities, and the decision belongs to the Video Verification Team alone.
+	//
+	// Granted ONLY to RoleVerifier — deliberately NOT to RoleCEOInternal. This is a rare, explicit
+	// carve-out from the founder/builder visibility invariant: the founder cohort keeps full
+	// VISIBILITY of every verification item (VerificationReview above) and still owns the closing
+	// act (VerificationAct below), but the independent second check is worthless if the people it
+	// checks can sign it off themselves. Do not "restore" this to CEO to satisfy the visibility
+	// invariant; visibility is already satisfied by the read.
+	VerificationVerdict = "verification.verdict"
+	VerificationAct     = "verification.act"
 )
 
 var rolePermissions = map[string]map[string]struct{}{
 	RoleVerifier: {
 		GoatRead: {}, GoatWriteIdentity: {},
 		LocationsRead: {}, LocationsReview: {},
-		OperatorsRead: {}, AppBootstrap: {},
+		// AdminWebBootstrap opens the admin-web shell for the verifier-only web workspace
+		// (maintainer decision 2026-08-03). It is NOT a widening to the admin-web product: a
+		// principal holding verification.review and NOT verification.act receives the
+		// verifier lens from adminui/app/verifier_lens.go -- five registry-composed evidence
+		// modules and the /actions route ONLY. Every other page contract is omitted from her
+		// bootstrap, so requireAdminWebPageContract throws and the route fails closed rather
+		// than rendering a greyed-out shell she could still reach by URL. The data routes
+		// behind those pages remain independently gated by permissions she does not hold.
+		OperatorsRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
 		CalendarRead:    {},
 		ProcurementRead: {}, ProcurementReview: {},
 		RosterRead: {},
-		// The Video Verification Team's exclusive permission (verification-module-design.md §2.4 /
-		// org-role-model.md truth table): Verify media (approve/reject + reason). No other role holds
-		// this except the CEO/CxO override above.
-		VerificationReview: {},
+		// The Video Verification Team's permissions: read the evidence queue, and record the
+		// approve/reject verdict on it. VerificationVerdict is held by NO other role, CEO included
+		// (maintainer decision 2026-08-03) — the second check must be independent of everyone whose
+		// work it checks.
+		VerificationReview:  {},
+		VerificationVerdict: {},
 	},
 	RoleParkHead: {
 		GoatRead:      {},
