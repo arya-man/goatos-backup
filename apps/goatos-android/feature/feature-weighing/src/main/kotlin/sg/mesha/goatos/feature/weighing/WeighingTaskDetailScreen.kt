@@ -47,11 +47,39 @@ import sg.mesha.goatos.core.ui.SyncIconButton
 // that own those writes.
 
 /**
+ * How many rungs a shed bucket's state ladder has: capture started, submitted, accepted.
+ *
+ * The ladder is a POSITION, never a share. Weighing is free-flow — migration 000079 dropped the
+ * expected-animal roster and `expected_animal_count` is a fixed bucket-grain 1 — so any fraction
+ * rendered for a bucket would be a share of a total that does not exist. The rungs are drawn as
+ * discrete segments for exactly that reason: a part-filled continuous bar was read on the farm as
+ * "70% of the animals are done".
+ */
+const val WEIGHING_BUCKET_LADDER_STEPS = 3
+
+/**
+ * ONE operator's filter chip on a task, as FACTS rather than as a finished sentence.
+ *
+ * The name and the count travel separately so the screen can say what the number MEANS. Rendering
+ * them pre-joined produced "Dinakar 2", which reads as part of a person's name rather than as the
+ * two sheds he owns: a number with no unit is the same defect as a share with no denominator.
+ */
+data class WeighingOperatorFilterUiRow(
+    val id: String,
+    /** The operator's display name. Never a user id. */
+    val name: String,
+    /** How many shed buckets on this task this operator owns. Buckets, never animals. */
+    val shedCount: Int,
+    val selected: Boolean,
+)
+
+/**
  * ONE shed bucket on a task, as the planner reads it.
  *
  * Everything here is a fact the task payload actually carries. Weighing has no expected-animal
- * roster, so there is no animal denominator on this screen: [progress] is a position on the
- * bucket's own state ladder, never a fraction of animals.
+ * roster, so there is no animal denominator on this screen: [ladderStep] is a position on the
+ * bucket's own state ladder and [capturedCount] is a plain backend count reported as-is. Neither
+ * is ever divided by anything, and this row deliberately carries no fractional field at all.
  */
 data class WeighingTaskShedUiRow(
     val campaignId: String,
@@ -67,8 +95,15 @@ data class WeighingTaskShedUiRow(
     val operatorLabel: String,
     /** Raw bucket status as the backend reports it. The screen owns how it is named and coloured. */
     val status: String,
-    val captureSummary: String,
-    val progress: Float,
+    /** True when a verifier bounced this bucket's evidence back to the operator. */
+    val reworked: Boolean,
+    /**
+     * Backend-owned count of the weight records this bucket ACTUALLY holds. Reported as a plain
+     * count ("5 weighed") and never turned into a percentage.
+     */
+    val capturedCount: Int,
+    /** Rung on the bucket's state ladder, 0..[WEIGHING_BUCKET_LADDER_STEPS]. Not a fraction. */
+    val ladderStep: Int,
     val canReopen: Boolean,
 ) {
     val isLumpSum: Boolean get() = category.equals("per_shed_partition", ignoreCase = true)
@@ -100,8 +135,19 @@ data class WeighingTaskDetailUiState(
      * open work.
      */
     val closedReason: String = "",
-    /** Shed buckets whose work has NOT been accepted yet. Buckets, never animals. */
+    /**
+     * Shed buckets nobody has submitted yet — not started, part-captured, or bounced back to the
+     * operator. This is work the FARM still owes, and it is the number the close button names.
+     * Buckets, never animals.
+     */
     val openBucketCount: Int = 0,
+    /**
+     * Shed buckets the operator HAS submitted that no verifier has accepted yet. Unaccepted work
+     * the task is still carrying, but not open work — it sits in the verifier's queue, which is
+     * exactly what each of those cards says. Counted and named separately so the close button can
+     * never read "4 still open" beside two cards that say "waiting for verifier".
+     */
+    val awaitingVerificationBucketCount: Int = 0,
     /** True only while the task is still a draft that nobody can see. */
     val canPublish: Boolean = false,
     /** True while the task is live and can still be ended. */
@@ -118,7 +164,7 @@ data class WeighingTaskDetailUiState(
      * keyset page splits mid-operator and leaves a header showing part of someone's sheds with the
      * rest arriving pages later. Counts come from the whole task, never from the loaded page.
      */
-    val operatorFilters: List<WeighingFilterChipUiRow> = emptyList(),
+    val operatorFilters: List<WeighingOperatorFilterUiRow> = emptyList(),
     /** Selected operator id, or null for every operator. */
     val selectedOperatorId: String? = null,
     /** One flat, uniformly paginated list of buckets, already narrowed by the chip. */
@@ -130,7 +176,30 @@ data class WeighingTaskDetailUiState(
     val staleNotice: String = "",
     val loading: Boolean = false,
     val busy: Boolean = false,
-)
+) {
+    /** Every bucket a verifier has not accepted yet, whichever queue it is sitting in. */
+    val unacceptedBucketCount: Int get() = openBucketCount + awaitingVerificationBucketCount
+}
+
+/**
+ * The close button's label, naming the two kinds of unaccepted work separately.
+ *
+ * One screen must never carry two answers to "how much is left": the numbers here are the same
+ * buckets the cards below render, described the same way.
+ */
+@Composable
+private fun closeTaskLabel(state: WeighingTaskDetailUiState): String = when {
+    state.openBucketCount > 0 && state.awaitingVerificationBucketCount > 0 -> stringResource(
+        R.string.weighing_task_close_split_fmt,
+        state.openBucketCount,
+        state.awaitingVerificationBucketCount,
+    )
+    state.awaitingVerificationBucketCount > 0 -> stringResource(
+        R.string.weighing_task_close_awaiting_fmt,
+        state.awaitingVerificationBucketCount,
+    )
+    else -> stringResource(R.string.weighing_task_close_open_fmt, state.openBucketCount)
+}
 
 /**
  * L1: one weighing task (one park on one weigh date), with its shed buckets grouped by the
@@ -166,15 +235,15 @@ fun WeighingTaskDetailScreen(
     if (confirmEndOpen) {
         WeighingTaskConfirmSheet(
             title = stringResource(R.string.weighing_task_close_confirm_title),
-            body = if (state.openBucketCount == 1) {
+            body = if (state.unacceptedBucketCount == 1) {
                 stringResource(
                     R.string.weighing_task_close_confirm_body_one,
-                    bucketNoun(state.openBucketCount),
+                    bucketNoun(state.unacceptedBucketCount),
                 )
             } else {
                 stringResource(
                     R.string.weighing_task_close_confirm_body_other,
-                    bucketNoun(state.openBucketCount),
+                    bucketNoun(state.unacceptedBucketCount),
                 )
             },
             confirmLabel = stringResource(R.string.weighing_task_close_confirm_label),
@@ -262,19 +331,19 @@ fun WeighingTaskDetailScreen(
             }
             if (state.canEnd) {
                 item(key = "task-end") {
-                    val hasOpenWork = state.openBucketCount > 0
+                    // Ending is warned about whenever ANY bucket is unaccepted, but the label
+                    // names the two kinds separately: the same fact must read the same as the
+                    // cards below it.
+                    val hasUnacceptedWork = state.unacceptedBucketCount > 0
                     TaskPrimaryAction(
                         label = when {
                             state.busy -> stringResource(R.string.weighing_task_ending)
-                            hasOpenWork -> stringResource(
-                                R.string.weighing_task_close_open_fmt,
-                                state.openBucketCount,
-                            )
+                            hasUnacceptedWork -> closeTaskLabel(state)
                             else -> stringResource(R.string.weighing_task_mark_complete)
                         },
-                        tone = if (hasOpenWork) MeshaColors.Warn else MeshaColors.Ok,
+                        tone = if (hasUnacceptedWork) MeshaColors.Warn else MeshaColors.Ok,
                         enabled = !state.busy,
-                        onClick = { if (hasOpenWork) confirmEndOpen = true else onEndTask() },
+                        onClick = { if (hasUnacceptedWork) confirmEndOpen = true else onEndTask() },
                     )
                 }
             }
@@ -308,7 +377,15 @@ fun WeighingTaskDetailScreen(
             if (state.operatorFilters.size > 1) {
                 item(key = "operator-filters") {
                     WeighingFilterChips(
-                        options = state.operatorFilters,
+                        // The count is spelled out with its UNIT here, at render time, because
+                        // that is where the words live: "Dinakar · 2 sheds", never "Dinakar 2".
+                        options = state.operatorFilters.map { row ->
+                            WeighingFilterChipUiRow(
+                                id = row.id,
+                                label = "${row.name} · ${shedNoun(row.shedCount)}",
+                                selected = row.selected,
+                            )
+                        },
                         allLabel = stringResource(R.string.weighing_task_all_operators),
                         onSelect = onSelectOperator,
                     )
@@ -404,29 +481,13 @@ private fun TaskShedCard(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = row.captureSummary,
+            text = captureSummary(row),
             color = MeshaColors.Muted,
             style = MeshaType.cardSubtitle,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .clip(RoundedCornerShape(99.dp))
-                .background(MeshaColors.Bg),
-        ) {
-            if (row.progress > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(row.progress)
-                        .height(7.dp)
-                        .clip(RoundedCornerShape(99.dp))
-                        .background(if (row.isLumpSum) MeshaColors.Purple else MeshaColors.Ok),
-                )
-            }
-        }
+        BucketStateLadder(step = row.ladderStep, lumpSum = row.isLumpSum)
         // ONE affordance per bucket card. Reopen lives on the shed itself, behind its own
         // confirm, so a single stray tap on a card can never hand a bucket back to an operator.
         Text(
@@ -435,6 +496,60 @@ private fun TaskShedCard(
             style = MeshaType.cta,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+/**
+ * WHERE a bucket stands, in the farm's own words, plus what it actually holds.
+ *
+ * The count is the backend's plain tally of weight records and is reported as-is: weighing is
+ * free-flow, so there is no expected-animal total to take a share of. A lump-sum bucket holds ONE
+ * whole-shed weight rather than a per-animal tally, so a count is deliberately omitted there — "1
+ * weighed" would misname a whole shed as a single animal.
+ */
+@Composable
+private fun captureSummary(row: WeighingTaskShedUiRow): String {
+    val state = when {
+        row.reworked -> stringResource(R.string.weighing_bucket_state_rework)
+        row.status.trim().lowercase() == "closed" -> stringResource(R.string.weighing_bucket_state_accepted)
+        row.status.trim().lowercase() == "completed" -> stringResource(R.string.weighing_bucket_state_submitted)
+        row.status.trim().lowercase() == "in_progress" -> stringResource(R.string.weighing_bucket_state_in_progress)
+        else -> stringResource(R.string.weighing_bucket_state_not_started)
+    }
+    if (row.isLumpSum || row.capturedCount <= 0) return state
+    val weighed = stringResource(R.string.weighing_bucket_weighed_fmt, row.capturedCount)
+    return "$weighed · $state"
+}
+
+/**
+ * A bucket's position on its state ladder, drawn as DISCRETE rungs.
+ *
+ * Deliberately not a continuous bar: weighing has no expected-animal denominator, and a
+ * part-filled continuous bar was read on the farm as a percentage of animals done. Separate
+ * segments read as "step 2 of 3", which is the only thing this can honestly say.
+ */
+@Composable
+private fun BucketStateLadder(step: Int, lumpSum: Boolean) {
+    val reached = step.coerceIn(0, WEIGHING_BUCKET_LADDER_STEPS)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(WEIGHING_BUCKET_LADDER_STEPS) { index ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(
+                        when {
+                            index >= reached -> MeshaColors.Bg
+                            lumpSum -> MeshaColors.Purple
+                            else -> MeshaColors.Ok
+                        },
+                    ),
+            )
+        }
     }
 }
 

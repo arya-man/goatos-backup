@@ -148,6 +148,12 @@ data class WeighingTaskShed(
     val pendingVerificationCount: Int,
     val reworkCount: Int,
     val readyToClose: Boolean,
+    /**
+     * Backend-owned count of the weight records this bucket ACTUALLY holds, submitted or not.
+     * Reported as a plain count and never divided by anything: weighing is free-flow, so there is
+     * no expected-animal total that a share could be taken of.
+     */
+    val capturedCount: Int = 0,
 )
 
 /**
@@ -1814,6 +1820,7 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
         pendingVerificationCount = pendingVerificationCount,
         reworkCount = reworkCount,
         readyToClose = readyToClose,
+        capturedCount = capturedCount,
     )
 
 
@@ -1904,6 +1911,7 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                     pendingVerificationCount = shed.pendingVerificationCount,
                     reworkCount = shed.reworkCount,
                     readyToClose = shed.readyToClose,
+                    capturedCount = shed.capturedCount,
                 )
             },
     )

@@ -301,9 +301,9 @@ export async function WeighingPage({ searchParams, pageContract }: { searchParam
                   <td
                     aria-disabled={!row.capturedCountIsBacked}
                     style={{ opacity: row.capturedCountIsBacked ? 1 : 0.6 }}
-                    title={!row.capturedCountIsBacked ? "Weighing is free-flow; backend field 'per_shed_captured_count' required for honest count" : undefined}
+                    title={!row.capturedCountIsBacked ? "Weighing is free-flow; backend field 'captured_count' required for honest count" : undefined}
                   >
-                    {row.capturedCountIsBacked ? <><b>{row.completedCount}</b> captured</> : "captured (n/a)"}
+                    {row.capturedCountIsBacked ? <><b>{row.capturedCount}</b> captured</> : "captured (n/a)"}
                   </td>
                   <td>
                     {row.readyToClose ? (

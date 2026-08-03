@@ -5574,6 +5574,8 @@ export interface components {
             rework_count?: number;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
+            /** @description How many weight records this bucket ACTUALLY holds -- individual observations for an individual_animal bucket, the standing (non-withdrawn) shed proof for a lump-sum one -- submitted or not. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing captures by it would render a share of a total that does not exist. Clients report this number as-is ("5 weighed") or not at all, and must never turn it into a percentage or a progress bar fill. */
+            captured_count: number;
         };
         WeighingCampaign: {
             /** Format: uuid */

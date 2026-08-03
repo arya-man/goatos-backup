@@ -76,10 +76,39 @@ import sg.mesha.goatos.feature.scan.ScanStatus
 import sg.mesha.goatos.feature.scan.ScanTileLabels
 import sg.mesha.goatos.feature.scan.ScanUiState
 
-/** How many group videos a shed / partition result may carry. Unchanged from the inline 5. */
+/**
+ * The MOST group videos a shed / partition result may carry. A ceiling, never a target.
+ *
+ * Weighing is free-flow: no number of videos is required, so this must never be rendered as the
+ * denominator of a "N / 5" figure. It only gates the "Add another video" action and colours the
+ * summary once the shed can hold no more.
+ */
 private const val SHED_PROOF_VIDEO_LIMIT = 5
 
 // telemetry:exempt Weighing execution V1 has repository/viewmodel sync events; screen-level click telemetry is deferred until workflow names settle.
+
+/**
+ * What this shed's group videos ACTUALLY are, by upload state.
+ *
+ * Every part is a plain count of something that exists — uploaded, still uploading, failed. There
+ * is no denominator: weighing is free-flow, no number of videos is required, and
+ * [SHED_PROOF_VIDEO_LIMIT] is a ceiling rather than a target. "Uploaded" means the upload actually
+ * landed, so a video still in flight is never counted as done.
+ */
+@Composable
+private fun shedVideoSummary(proofs: List<WeighingProofUiRow>): String {
+    if (proofs.isEmpty()) return stringResource(R.string.weighing_videos_none)
+    val uploaded = proofs.count { it.status == ProofUploadStatus.SYNCED }
+    val uploading = proofs.count { it.status == ProofUploadStatus.UPLOADING || it.status == ProofUploadStatus.MISSING }
+    val failed = proofs.count { it.status == ProofUploadStatus.FAILED }
+    val parts = buildList {
+        if (uploaded > 0) add(stringResource(R.string.weighing_videos_uploaded_fmt, uploaded))
+        if (uploading > 0) add(stringResource(R.string.weighing_videos_uploading_fmt, uploading))
+        if (failed > 0) add(stringResource(R.string.weighing_videos_failed_fmt, failed))
+        if (proofs.size >= SHED_PROOF_VIDEO_LIMIT) add(stringResource(R.string.weighing_videos_limit_reached))
+    }
+    return parts.joinToString(" · ")
+}
 
 data class WeighingUiState(
     val title: String = "Weighing",
@@ -1468,12 +1497,12 @@ private fun WeighingLumpSumCapture(
                 style = MeshaType.bodyStrong,
             )
         }
+        // What this shed's proof ACTUALLY holds, by upload state. Deliberately not "N / 5":
+        // weighing is free-flow and there is no required video count — 5 is the MOST a shed can
+        // hold, not a target — so "1 / 5" read as "4 still missing" when nothing was missing, and
+        // it counted a video that had merely been ADDED as "uploaded" while it was still in flight.
         Text(
-            text = stringResource(
-                R.string.weighing_videos_uploaded_fmt,
-                state.shedProofs.size,
-                SHED_PROOF_VIDEO_LIMIT,
-            ),
+            text = shedVideoSummary(state.shedProofs),
             color = if (state.shedProofs.size >= SHED_PROOF_VIDEO_LIMIT) MeshaColors.Warn else MeshaColors.Muted,
             style = MeshaType.bodyStrong,
             modifier = Modifier.fillMaxWidth(),
@@ -1563,7 +1592,7 @@ private fun WeighingLumpSumCapture(
             } else {
                 stringResource(R.string.weighing_add_another_video)
             },
-            enabled = !state.actionInFlight && state.shedProofs.size < 5,
+            enabled = !state.actionInFlight && state.shedProofs.size < SHED_PROOF_VIDEO_LIMIT,
             onClick = {
                 dismissKeyboard()
                 onCaptureShedVideo()
