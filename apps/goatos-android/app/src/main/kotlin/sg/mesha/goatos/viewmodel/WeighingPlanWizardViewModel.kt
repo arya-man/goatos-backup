@@ -160,8 +160,17 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     fun selectPark(parkId: String) {
         val current = raw.value
-        if (current.parkId == parkId) return
         val date = current.date ?: return
+        // Re-picking the SAME park is not a no-op. Availability is a live, date-scoped fact
+        // owned by other people's tasks: a shed can be taken, or finish and become free
+        // again, between two visits to this step. Returning early here meant a retained
+        // wizard kept showing the availability it saw the first time -- observed on device
+        // as "Available 0" for sheds whose weighing had just completed, until the app was
+        // killed. Re-entering the park re-reads it; the planner's own answers are kept.
+        if (current.parkId == parkId) {
+            loadParkBuckets(date, parkId)
+            return
+        }
         raw.value = current.copy(
             parkId = parkId,
             buckets = emptyList(),
