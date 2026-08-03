@@ -125,6 +125,19 @@ object AnalyticsEvents {
     /** A weighing capture could not be queued or proof storage failed. */
     const val WEIGHING_CAPTURE_FAILURE = "weighing_capture_failure"
 
+    /** A weighing proof video's upload failed an attempt and will be re-tried. Emitted once per
+     *  DISTINCT failure, not once per Room emission, so the funnel counts real attempts.
+     *  [Params.SUBJECT_TYPE] separates the lump-sum shed video from the per-animal one,
+     *  [Params.ATTEMPT] is the retry ordinal this session has seen, [Params.REASON] the coarse
+     *  cause. Without this the retry loop was invisible: a shed proof re-uploaded for 15 minutes
+     *  with nothing on screen but "uploading" and not one line in logcat (phone-QA 2026-08-03). */
+    const val WEIGHING_PROOF_UPLOAD_RETRY = "weighing_proof_upload_retry"
+
+    /** A weighing proof video's upload reached its terminal FAILED state, so the capture can
+     *  never be submitted until the video is recorded again. Always paired with a Crashlytics
+     *  non-fatal — this is the state that silently disables Submit. */
+    const val WEIGHING_PROOF_UPLOAD_FAILED = "weighing_proof_upload_failed"
+
     /** Verifier opened a proof item detail screen that can stream evidence media. */
     const val VERIFY_ITEM_OPENED = "verify_item_opened"
 
@@ -292,6 +305,11 @@ object AnalyticsEvents {
 
         const val ITEM_ID = "item_id"
         const val PROOF_ID = "proof_id"
+        /** What a proof is evidence OF (`shed` for a lump-sum group video, `other` for the
+         *  per-animal one). Diagnosing a stuck upload starts with knowing which lane it is in. */
+        const val SUBJECT_TYPE = "subject_type"
+        /** 1-based ordinal of the upload attempt this session has observed for one proof. */
+        const val ATTEMPT = "attempt"
         const val MIME_TYPE = "mime_type"
         const val WATCH_TIME_MS = "watch_time_ms"
         const val DURATION_MS = "duration_ms"
