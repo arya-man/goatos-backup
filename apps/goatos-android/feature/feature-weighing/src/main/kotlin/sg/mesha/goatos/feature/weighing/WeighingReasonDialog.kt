@@ -1,5 +1,10 @@
 package sg.mesha.goatos.feature.weighing
 
+// telemetry:exempt This dialog only COLLECTS a confirmation and a typed reason; it performs no
+// write of its own. The close and reopen transitions it gates are instrumented by the weighing
+// service that owns them, and the reason text is operator-authored free prose that must not be
+// shipped to analytics.
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -25,7 +30,7 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 /**
  * Confirms a weighing state transition and collects the reason recorded against it.
  *
- * ONE dialog for close, reopen and abandon, because the requirement they share is the requirement
+ * ONE dialog for close and reopen, because the requirement they share is the requirement
  * that matters: the reason is kept forever on the audit trail, so a HUMAN authors it. Every one of
  * these used to be a single tap on a small text target inside a scrolling list, sending a constant
  * the client made up -- which put a sentence nobody wrote into the record.
@@ -80,7 +85,7 @@ internal fun WeighingReasonDialog(
                 )
                 if (showError) {
                     Text(
-                        text = stringResource(R.string.weighing_abandon_dialog_error_required),
+                        text = stringResource(R.string.weighing_reason_dialog_error_required),
                         color = MeshaColors.Danger,
                         style = MeshaType.cardSubtitle,
                         modifier = Modifier.padding(top = 4.dp),
@@ -99,7 +104,7 @@ internal fun WeighingReasonDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(
-                    text = stringResource(R.string.weighing_abandon_dialog_cancel),
+                    text = stringResource(R.string.weighing_reason_dialog_cancel),
                     color = MeshaColors.Muted,
                     style = MeshaType.cardSubtitle,
                 )

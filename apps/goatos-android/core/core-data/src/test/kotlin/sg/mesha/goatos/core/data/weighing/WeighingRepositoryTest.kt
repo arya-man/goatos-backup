@@ -1497,7 +1497,7 @@ class WeighingRepositoryTest {
     fun `two different sheds never share an idempotency key`() = runTest {
         val keys = mutableListOf<String>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun abandonWeighingScope(
+            override suspend fun closeShedWeighingCampaign(
                 campaignId: String,
                 campaignShedId: String,
                 idempotencyKey: String,
@@ -1508,8 +1508,8 @@ class WeighingRepositoryTest {
         }
         val repo = weighingRepository(api)
 
-        repo.abandonScope("campaign-1", "shed-1", "rained off")
-        repo.abandonScope("campaign-1", "shed-2", "rained off")
+        repo.closeShedCampaign("campaign-1", "shed-1", "done")
+        repo.closeShedCampaign("campaign-1", "shed-2", "done")
 
         assertEquals(2, keys.toSet().size)
     }

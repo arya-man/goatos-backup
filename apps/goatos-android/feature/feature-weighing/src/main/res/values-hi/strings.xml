@@ -196,7 +196,6 @@
     <string name="weighing_leadership_refresh">वज़न रीफ़्रेश करें</string>
     <string name="weighing_leadership_tap_to_reopen">फिर खोलने के लिए टैप करें</string>
     <string name="weighing_leadership_close">बंद करें</string>
-    <string name="weighing_leadership_abandon">छोड़ दें</string>
     <string name="weighing_leadership_awaiting_verification">वीडियो जाँच बाकी · %1$d</string>
     <string name="weighing_leadership_close_pending">अभी बंद करने के लिए तैयार नहीं</string>
     <string name="weighing_leadership_loading">निर्धारित काम लोड हो रहा है</string>
@@ -314,11 +313,6 @@
     <string name="weighing_shed_reopen_action">यह शेड फिर खोलें</string>
     <string name="weighing_shed_loading">लोड हो रहा है</string>
     <string name="weighing_shed_loading_more_records">और रिकॉर्ड लोड हो रहे हैं</string>
-    <string name="weighing_abandon_dialog_title">%1$s छोड़ दें?</string>
-    <string name="weighing_abandon_dialog_subtitle">इससे वज़न का काम स्थायी रूप से समाप्त हो जाएगा और इसे पूर्ववत नहीं किया जा सकता। कारण बताएं।</string>
-    <string name="weighing_abandon_dialog_placeholder">छोड़ने का कारण</string>
-    <string name="weighing_abandon_dialog_error_required">कारण आवश्यक है।</string>
-    <string name="weighing_abandon_dialog_cancel">रद्द करें</string>
     <string name="weighing_close_dialog_title">%1$s बंद करें?</string>
     <string name="weighing_close_dialog_subtitle">इससे शेड बकेट समाप्त हो जाएगी। इसे फिर खोला जा सकता है, और कारण दोनों ही स्थिति में रिकॉर्ड पर रहता है। कारण बताएं।</string>
     <string name="weighing_close_dialog_placeholder">बंद करने का कारण</string>
@@ -358,4 +352,6 @@
     <string name="weighing_shed_weighed_by_nobody">अभी किसी को नहीं सौंपा गया</string>
     <string name="weighing_weighed_submitted_fmt">%1$d तौले गए · %2$d भेजे गए</string>
     <string name="weighing_not_submitted_chip">नहीं भेजा गया</string>
+    <string name="weighing_reason_dialog_error_required">कारण आवश्यक है।</string>
+    <string name="weighing_reason_dialog_cancel">रद्द करें</string>
 </resources>

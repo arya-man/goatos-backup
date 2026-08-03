@@ -36,21 +36,20 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
-// telemetry:exempt Oversight renders backend read-model state; the close/reopen/abandon writes it
+// telemetry:exempt Oversight renders backend read-model state; the close/reopen writes it
 // offers are instrumented by the weighing service that owns them.
 
 // Which transition the confirmation dialog is for. Plain strings because they go through
 // rememberSaveable, which stores Bundle-native types without a custom Saver.
 private const val OVERSIGHT_ACTION_CLOSE = "close"
 private const val OVERSIGHT_ACTION_REOPEN = "reopen"
-private const val OVERSIGHT_ACTION_ABANDON = "abandon"
 
 /**
 * Oversight of weighing work assigned to SOMEONE ELSE, grouped BY PERSON.
  *
  * A SEPARATE destination from the work list and the planner list, not a mode of one shared screen.
  * It never offers a SCAN action -- capture stays with the shed's assignee, so nothing here can
- * widen what the viewer may record. It DOES offer close / reopen / abandon, but only when the
+ * widen what the viewer may record. It DOES offer close / reopen, but only when the
  * backend's own capability flags say this viewer holds the monitor authority: this is the Growth
  * Director's leadership surface, and leaving it purely read-only left them with no reachable way
  * to end or reopen the work they oversee. (Superseding note: an earlier revision of this doc
@@ -75,7 +74,6 @@ fun WeighingOperatorsScreen(
     onSelectPark: (String?) -> Unit = {},
     onReopenAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onCloseAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
-    onAbandonAssignment: (WeighingAssignmentUiRow, String) -> Unit = { _, _ -> },
     onAssignmentRowVisible: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -94,20 +92,6 @@ fun WeighingOperatorsScreen(
     val pendingRow = pendingShedId?.let { id -> state.assignments.firstOrNull { it.campaignShedId == id } }
     if (pendingRow != null) {
         when (pendingAction) {
-            OVERSIGHT_ACTION_ABANDON -> WeighingReasonDialog(
-                title = stringResource(R.string.weighing_abandon_dialog_title, pendingRow.label),
-                subtitle = stringResource(R.string.weighing_abandon_dialog_subtitle),
-                placeholder = stringResource(R.string.weighing_abandon_dialog_placeholder),
-                confirmLabel = stringResource(R.string.weighing_leadership_abandon),
-                confirmColor = MeshaColors.Danger,
-                reason = pendingReason,
-                onReasonChange = { pendingReason = it },
-                onConfirm = { reason ->
-                    dismissPending()
-                    onAbandonAssignment(pendingRow, reason)
-                },
-                onDismiss = ::dismissPending,
-            )
             OVERSIGHT_ACTION_CLOSE -> WeighingReasonDialog(
                 title = stringResource(R.string.weighing_close_dialog_title, pendingRow.label),
                 subtitle = stringResource(R.string.weighing_close_dialog_subtitle),
@@ -210,11 +194,6 @@ fun WeighingOperatorsScreen(
                             },
                             onClose = {
                                 pendingAction = OVERSIGHT_ACTION_CLOSE
-                                pendingShedId = assignment.campaignShedId
-                                pendingReason = ""
-                            },
-                            onAbandon = {
-                                pendingAction = OVERSIGHT_ACTION_ABANDON
                                 pendingShedId = assignment.campaignShedId
                                 pendingReason = ""
                             },
