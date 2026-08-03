@@ -44,8 +44,6 @@ type weighingCampaignClosedPayload struct {
 }
 
 // A per-bucket close has exactly ONE event type, eventTypeScopeClosed. The type
-// used to be a parameter so an abandon could emit weighing.shed.abandoned instead;
-// abandon is gone, so hardcoding it here removes the seam a force-close could be
 // threaded back through.
 func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult) error {
 	payload := weighingShedClosedPayload{
