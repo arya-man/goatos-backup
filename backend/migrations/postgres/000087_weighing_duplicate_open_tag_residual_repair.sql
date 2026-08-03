@@ -79,10 +79,12 @@
 -- migration is deliberately HELD OUT of this change: withdrawing the loser's
 -- verification item while weighing_observations.verification_status stays 'pending'
 -- leaves close.go's hard pending>0 gate permanently unsatisfiable, so the bucket
--- becomes closable only via abandon, which emits a semantically wrong event. It ships
--- with the widened CHECK + close.go change, not before. Until then the loser's queue
--- entry stays pending and a verifier can still clear it, which is what keeps the
--- bucket closable. The rest of
+-- could never be closed AT ALL. That is now strictly true: the close gate is
+-- UNCONDITIONAL and there is no force path of any kind, so a bucket whose loser
+-- was retired without also clearing its observation would be stuck forever. It
+-- ships with the widened CHECK + close.go change, not before. Until then the
+-- loser's queue entry stays pending and a verifier can still clear it, which is
+-- exactly what keeps the bucket closable. The rest of
 -- doing it in one migration would conflate two independent repairs. No row is
 -- deleted; every change is a submitted_at movement inside one duplicate group.
 --
