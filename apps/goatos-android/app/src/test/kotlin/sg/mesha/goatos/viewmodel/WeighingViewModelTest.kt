@@ -786,6 +786,9 @@ class WeighingViewModelTest {
         )
         val repository = FakeWeighingRepository(
             assignmentsByPark = mapOf(null to listOf(onlyPagedPark)),
+            // The catalog read is weighing.plan-gated, and can_publish IS that permission, so a
+            // viewer who may actually call it has to be stated here.
+            assignmentCapabilities = WeighingCapabilities(canPublish = true),
             plannerCatalogResult = AppResult.Ok(
                 WeighingPlannerCatalog(
                     parks = listOf(
@@ -806,6 +809,39 @@ class WeighingViewModelTest {
             setOf("park-cpt", "park-cbe"),
             vm.state.value.parkFilters.map { it.parkId }.toSet(),
         )
+    }
+
+    @Test
+    fun `oversight never calls the planner catalog without the planning capability`() = runTest(dispatcher) {
+        // /app/weighing/planner/catalog requires weighing.plan. A Growth Director oversees without
+        // it, so the old unconditional read was a guaranteed 403 for the very viewer this surface
+        // exists for; the paged park fallback is what they keep instead.
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(
+            "the paged fallback still names the parks the loaded rows carry",
+            vm.state.value.parkFilters.any { it.parkId == "park-cpt" },
+        )
+    }
+
+    @Test
+    fun `oversight does call the planner catalog when the viewer holds the planning capability`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canPublish = true, canEnd = true),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(repository.plannerCatalogRefreshes > 0)
     }
 
     @Test
@@ -1090,6 +1126,10 @@ class WeighingViewModelTest {
     ) : WeighingRepository {
         /** Every abandon this fake was asked for, as (campaignId, campaignShedId, reason). */
         val abandonCalls = mutableListOf<Triple<String, String, String>>()
+
+        /** How many times the PLANNER catalog read was issued. It is gated on weighing.plan. */
+        var plannerCatalogRefreshes = 0
+            private set
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
             private set
@@ -1172,11 +1212,13 @@ class WeighingViewModelTest {
          * A catalog refresh reports the seeded outcome, and the cache above holds whatever it
          * produced — an Err seeds NOTHING, which is what a first read that never landed looks like.
          */
-        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> =
-            when (val seeded = plannerCatalogResult) {
+        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> {
+            plannerCatalogRefreshes += 1
+            return when (val seeded = plannerCatalogResult) {
                 is AppResult.Err -> AppResult.Err(seeded.message)
                 else -> AppResult.Ok(cachedPlannerCatalog.parks.size)
             }
+        }
 
         /** The catalog this fake's cached planner stream answers with. */
         private val cachedPlannerCatalog: WeighingPlannerCatalog =

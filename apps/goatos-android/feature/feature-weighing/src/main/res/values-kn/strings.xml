@@ -303,4 +303,9 @@
     <string name="weighing_shed_reopen_action">ಈ ಶೆಡ್ ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_shed_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_shed_loading_more_records">ಇನ್ನಷ್ಟು ದಾಖಲೆಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ</string>
+    <string name="weighing_abandon_dialog_title">%1$s ಕೈಬಿಡಬೇಕೆ?</string>
+    <string name="weighing_abandon_dialog_subtitle">ಇದು ತೂಕದ ಕೆಲಸವನ್ನು ಶಾಶ್ವತವಾಗಿ ಕೊನೆಗೊಳಿಸುತ್ತದೆ ಮತ್ತು ಇದನ್ನು ಹಿಂಪಡೆಯಲಾಗದು. ಕಾರಣ ತಿಳಿಸಿ.</string>
+    <string name="weighing_abandon_dialog_placeholder">ಕೈಬಿಡುವ ಕಾರಣ</string>
+    <string name="weighing_abandon_dialog_error_required">ಕಾರಣ ಅಗತ್ಯವಿದೆ.</string>
+    <string name="weighing_abandon_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
 </resources>

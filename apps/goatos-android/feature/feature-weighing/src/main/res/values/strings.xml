@@ -316,4 +316,9 @@
     <string name="weighing_shed_reopen_action">Reopen this shed</string>
     <string name="weighing_shed_loading">Loading</string>
     <string name="weighing_shed_loading_more_records">Loading more records</string>
+    <string name="weighing_abandon_dialog_title">Abandon %1$s?</string>
+    <string name="weighing_abandon_dialog_subtitle">This ends the weighing work permanently and cannot be undone. Say why.</string>
+    <string name="weighing_abandon_dialog_placeholder">Reason for abandoning</string>
+    <string name="weighing_abandon_dialog_error_required">A reason is required.</string>
+    <string name="weighing_abandon_dialog_cancel">Cancel</string>
 </resources>

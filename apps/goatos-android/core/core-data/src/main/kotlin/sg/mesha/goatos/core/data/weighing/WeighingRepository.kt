@@ -597,6 +597,27 @@ class DefaultWeighingRepository(
 
     private val cacheJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    /**
+     * One idempotency EPOCH per scope, rotated after every state transition that landed.
+     *
+     * The backend replays a close/reopen/abandon whose key it has already recorded and returns the
+     * ORIGINAL result without touching state (weighing_idempotency_records). A key fixed per scope
+     * therefore made `close -> reopen -> close` report success while the bucket stayed open: the
+     * second close was answered from the first one's snapshot. Rotating on success -- and only on
+     * success -- keeps the property idempotency exists for: retrying the SAME attempt after an
+     * unknown outcome (timeout, dropped socket) still sends the SAME key and is deduplicated, while
+     * a genuinely NEW transition after a landed one carries a new key and is really applied.
+     */
+    private val scopeTransitionEpochs = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun transitionIdempotencyKey(transition: String, scopeId: String): String =
+        "weighing:$transition:$scopeId:${scopeTransitionEpochs.getOrPut(scopeId) { idGenerator() }}"
+
+    /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */
+    private fun advanceTransitionEpoch(scopeId: String) {
+        scopeTransitionEpochs[scopeId] = idGenerator()
+    }
+
     init {
         startProofReadyReconciler()
     }
@@ -1369,13 +1390,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:reopen:$campaignId:$campaignShedId"
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("reopen", scopeId)
                 service.reopenWeighingScope(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeReopenRequestDto(reason = reason),
                 )
+                advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't reopen weighing shed.", error)
@@ -1390,13 +1413,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:close-shed:$campaignId:$campaignShedId"
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("close-shed", scopeId)
                 service.closeShedWeighingCampaign(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
+                advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't close weighing shed.", error)
@@ -1411,13 +1436,15 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:abandon:$campaignId:$campaignShedId"
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("abandon", scopeId)
                 service.abandonWeighingScope(
                     campaignId = campaignId,
                     campaignShedId = campaignShedId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
+                advanceTransitionEpoch(scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't abandon weighing shed.", error)
@@ -1431,12 +1458,13 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = "weighing:close-campaign:$campaignId"
+                val idempotencyKey = transitionIdempotencyKey("close-campaign", campaignId)
                 service.closeWeighingCampaign(
                     campaignId = campaignId,
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
+                advanceTransitionEpoch(campaignId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.message ?: "Couldn't close weighing campaign.", error)

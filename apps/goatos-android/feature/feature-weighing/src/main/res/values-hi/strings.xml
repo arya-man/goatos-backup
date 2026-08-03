@@ -303,4 +303,9 @@
     <string name="weighing_shed_reopen_action">यह शेड फिर खोलें</string>
     <string name="weighing_shed_loading">लोड हो रहा है</string>
     <string name="weighing_shed_loading_more_records">और रिकॉर्ड लोड हो रहे हैं</string>
+    <string name="weighing_abandon_dialog_title">%1$s छोड़ दें?</string>
+    <string name="weighing_abandon_dialog_subtitle">इससे वज़न का काम स्थायी रूप से समाप्त हो जाएगा और इसे पूर्ववत नहीं किया जा सकता। कारण बताएं।</string>
+    <string name="weighing_abandon_dialog_placeholder">छोड़ने का कारण</string>
+    <string name="weighing_abandon_dialog_error_required">कारण आवश्यक है।</string>
+    <string name="weighing_abandon_dialog_cancel">रद्द करें</string>
 </resources>

@@ -44,7 +44,12 @@ internal fun WeighingOversightCard(
     canReopen: Boolean = false,
     onReopen: () -> Unit = {},
     onClose: (String) -> Unit = {},
-    onAbandon: (String) -> Unit = {},
+    /**
+     * REQUESTS an abandon; it does not perform one. Abandon emits weighing.shed.abandoned and has
+     * no inverse, so the reason belongs to the person ending the work -- the card cannot invent it
+     * and must not fire the write straight off a tap. The host collects both.
+     */
+    onAbandon: () -> Unit = {},
 ) {
     val complete = row.isClosed
     Column(
@@ -133,7 +138,7 @@ internal fun WeighingOversightCard(
                                 .clip(RoundedCornerShape(4.dp))
                                 .clickable(
                                     role = Role.Button,
-                                    onClick = { onAbandon("abandoned from mobile leadership") },
+                                    onClick = onAbandon,
                                 ),
                         )
                     }
