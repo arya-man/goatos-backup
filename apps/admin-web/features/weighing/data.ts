@@ -30,7 +30,8 @@ export type WeighingScopeRow = {
    *  there is no expected-animal total to take a share of. */
   weighedCount: number;
   /** FACT 2 of 2 (backend-owned, animals_submitted_count): the subset of weighedCount that has
-   *  been SUBMITTED for verification. Rendered WITH weighedCount as "N weighed · N submitted" —
+   *  been SUBMITTED for verification. Always shown alongside weighedCount as "N weighed ·
+   *  N submitted" —
    *  never alone, and never divided into the other. When work exists and this is 0 the row also
    *  carries a "Not submitted" chip, mirroring the operator's own Submit button. */
   submittedCount: number;
