@@ -234,6 +234,16 @@ type CampaignShed struct {
 	// work the operator still owes, so surfacing "ready" on it would bury the
 	// rework request from leadership's view.
 	ReadyToClose bool `json:"ready_to_close"`
+	// CapturedCount is how many weight records this bucket ACTUALLY holds —
+	// individual observations for an individual_animal bucket, the standing
+	// (non-withdrawn) shed proof for a lump-sum one — whether or not they have been
+	// submitted yet.
+	//
+	// It is a plain count and is NEVER a numerator. Weighing is free-flow: there is
+	// no expected-animal roster, ExpectedAnimalCount is a fixed bucket-grain 1, and
+	// dividing captures by it would render a share of a total that does not exist.
+	// Clients report this number as-is ("5 weighed") or not at all.
+	CapturedCount int `json:"captured_count"`
 }
 
 // CampaignShedPage is the task-detail (L1) bucket list as a keyset page.

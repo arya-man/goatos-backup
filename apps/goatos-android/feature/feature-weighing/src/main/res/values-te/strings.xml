@@ -86,7 +86,7 @@
     <string name="weighing_field_total_weight">మొత్తం బరువు</string>
     <string name="weighing_field_animal_count">జంతువుల సంఖ్య</string>
     <string name="weighing_average_per_animal_fmt">ఒక్కో జంతువుకు సగటు %1$s కేజీ</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d వీడియోలు అప్‌లోడ్ అయ్యాయి</string>
+    <string name="weighing_videos_uploaded_fmt">%1$d అప్‌లోడ్ అయ్యాయి</string>
     <string name="weighing_video_index_fmt">వీడియో %1$d</string>
     <string name="weighing_replace">మార్చండి</string>
     <string name="weighing_remove">తీసివేయండి</string>
@@ -155,7 +155,7 @@
     <string name="weighing_task_publishing">పని ప్రచురించబడుతోంది</string>
     <string name="weighing_task_publish">పని ప్రచురించండి</string>
     <string name="weighing_task_ending">పని ముగుస్తోంది</string>
-    <string name="weighing_task_close_open_fmt">పని మూసివేయండి · %1$d ఇంకా పెండింగ్</string>
+    <string name="weighing_task_close_open_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు</string>
     <string name="weighing_task_mark_complete">పని పూర్తిగా గుర్తించండి</string>
     <string name="weighing_task_reopen">పని మళ్లీ తెరవండి</string>
     <string name="weighing_task_reopen_blocked">ముగిసిన పనిని మళ్లీ ప్రణాళికలోకి తేవడం ఇంకా అందుబాటులో లేదు. ఒక షెడ్ సమూహాన్ని కింద దాని కార్డు నుండి మళ్లీ తెరవవచ్చు.</string>
@@ -300,4 +300,16 @@
     <string name="weighing_shed_reopen_action">ఈ షెడ్ మళ్లీ తెరవండి</string>
     <string name="weighing_shed_loading">లోడ్ అవుతోంది</string>
     <string name="weighing_shed_loading_more_records">మరిన్ని రికార్డులు లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_task_close_awaiting_fmt">పని మూసివేయండి · %1$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
+    <string name="weighing_task_close_split_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు · %2$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
+    <string name="weighing_bucket_state_not_started">ఇంకా ఏమీ నమోదు కాలేదు</string>
+    <string name="weighing_bucket_state_in_progress">తూకం కొనసాగుతోంది</string>
+    <string name="weighing_bucket_state_submitted">సమర్పించారు</string>
+    <string name="weighing_bucket_state_accepted">ఆమోదించబడింది</string>
+    <string name="weighing_bucket_state_rework">ఆపరేటర్‌కు తిరిగి పంపబడింది</string>
+    <string name="weighing_bucket_weighed_fmt">%1$d తూకం వేశారు</string>
+    <string name="weighing_videos_none">ఇంకా వీడియో లేదు</string>
+    <string name="weighing_videos_uploading_fmt">%1$d అప్‌లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_videos_failed_fmt">%1$d విఫలమయ్యాయి</string>
+    <string name="weighing_videos_limit_reached">ఈ షెడ్ గరిష్ఠ సంఖ్య</string>
 </resources>

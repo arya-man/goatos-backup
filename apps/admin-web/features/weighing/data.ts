@@ -25,8 +25,11 @@ export type WeighingScopeRow = {
   shedName: string;
   partitionName: string;
   category: WeighingCategory;
-  completedCount: number;
-  /** True if completedCount is backed by a real per-shed captured count from the backend.
+  /** Backend-owned count of the weight records this bucket actually holds (captured_count).
+   *  A plain count, NEVER a numerator: weighing is free-flow, so there is no expected-animal
+   *  total to take a share of. Render it as-is or not at all. */
+  capturedCount: number;
+  /** True if capturedCount is backed by a real per-shed captured count from the backend.
    *  False if it is fabricated (e.g., status="completed" → 1, else → 0).
    *  When false, render the element disabled-with-reason per AGENTS.md binding rules. */
   capturedCountIsBacked: boolean;
@@ -444,9 +447,11 @@ function scopeFromApi(
   campaign: ApiWeighingCampaign,
   shed: ApiWeighingCampaignShed,
 ): WeighingScopeRow {
-  // Weighing is free-flow: only show completion status, not expected vs actual.
-  // completedCount is derived from status, not from API count fields.
-  const completedCount = shed.status === "completed" ? 1 : 0; // 1 = scope is done, 0 = still open
+  // Weighing is free-flow: report what the bucket ACTUALLY holds, never a share of an
+  // expected total that does not exist. captured_count is the backend's own plain tally of
+  // this bucket's weight records; the mobile task-detail card renders the same field, so the
+  // two surfaces cannot answer "how many were weighed" differently.
+  const capturedCount = shed.captured_count;
 
   // operator_display_name is backend-resolved. Empty WITH a non-empty operator_user_id means roster gap.
   let operatorDisplay = shed.operator_display_name?.trim() || "";
@@ -464,12 +469,10 @@ function scopeFromApi(
     shedName: shed.display_name,
     partitionName: shed.location_type,
     category: shed.weighing_category,
-    completedCount,
-    // Weighing is free-flow: no per-shed captured count exists on WeighingCampaignShed.
-    // expected_animal_count exists but was explicitly rejected (maintainer 2026-07-31).
-    // The count is fabricated (status="completed" → 1, else → 0) and should render
-    // disabled-with-reason per AGENTS.md binding rule for un-backed UI.
-    capturedCountIsBacked: false,
+    capturedCount,
+    // Backed by the backend's captured_count. expected_animal_count stays rejected
+    // (maintainer 2026-07-31) and is still never divided into anything.
+    capturedCountIsBacked: true,
     proofPendingCount: shed.pending_verification_count,
     readyToClose: shed.ready_to_close,
     status:

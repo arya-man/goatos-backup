@@ -194,8 +194,8 @@ test("W15 FIX: truncated shed list disables Save draft and Publish with a visibl
 test("W20 FIX: unbacked captured count renders no fabricated digit", () => {
   const page = source("page.tsx");
 
-  assert.doesNotMatch(page, /<b>\{row\.completedCount\}<\/b> \{row\.capturedCountIsBacked \? "captured" : "captured \(n\/a\)"\}/);
-  assert.match(page, /row\.capturedCountIsBacked \? <><b>\{row\.completedCount\}<\/b> captured<\/> : "captured \(n\/a\)"/);
+  assert.doesNotMatch(page, /<b>\{row\.capturedCount\}<\/b> \{row\.capturedCountIsBacked \? "captured" : "captured \(n\/a\)"\}/);
+  assert.match(page, /row\.capturedCountIsBacked \? <><b>\{row\.capturedCount\}<\/b> captured<\/> : "captured \(n\/a\)"/);
 });
 
 test("W21-TS: operator name distinguishes genuine roster gap from unassigned using backend-resolved field", () => {
