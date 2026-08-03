@@ -5654,6 +5654,8 @@ export interface components {
             /** @description PARK-GRAIN count of this park's active sheds, computed over the park's own children. It is not a count of rows on any page: this response carries no shed rows, and a bucket page carries only ~20. Read the sheds themselves from /app/weighing/planner/parks/{park_id}/buckets. */
             shed_count: number;
             existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
+            /** @description How many non-canceled weighing tasks this park holds on the requested week. A park-week may legitimately hold SEVERAL tasks: the capture category (individual vs lump-sum) is a per-BUCKET property, so leadership plans some sheds now and the park's leftover sheds as a separate task. existing_campaign summarizes only the MOST RECENT of them, so treat this count -- not the presence of existing_campaign -- as the answer to "how much is already scheduled here". Never use either field to block creating another task: per-shed availability is reported by the buckets endpoint. */
+            existing_campaign_count?: number;
         };
         WeighingPlannerOperator: {
             /** Format: uuid */

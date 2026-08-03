@@ -105,10 +105,15 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy).
 		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "weighing_campaigns_one_active_week_per_park_idx" {
-			return domain.Campaign{}, ports.ErrImmutable
-		}
+		// NO park-week uniqueness mapping here on purpose. A park-week may hold
+		// SEVERAL tasks: the capture category is a per-BUCKET property, so
+		// leadership plans some sheds lump-sum and the park's LEFTOVER sheds as a
+		// second task in the same week. The campaign-grain unique index that used
+		// to reject that was dropped in migration 000081; the real invariant
+		// (one shed is at most one person's open work on one date) is enforced at
+		// bucket grain by uq_weighing_open_shed_per_park_date and surfaces below
+		// as a typed ShedScheduleConflict that NAMES the blocked sheds -- which is
+		// the error the planner can actually act on.
 		return domain.Campaign{}, err
 	}
 	// DUPLICATE WORK BLOCK: one open weighing row per (park, weigh date, shed).
@@ -545,10 +550,16 @@ func (r *Repository) PlannerCatalog(ctx context.Context, tenantID string, period
 	// Grain proof (existing):
 	//   producer weighing_campaigns     0..N rows per (tenant_id, park_id, period_start_date) --
 	//     nothing forbids two non-canceled tasks for one park on one date, so the many side is
-	//     pre-aggregated by DISTINCT ON rather than joined raw.
+	//     pre-aggregated by DISTINCT ON rather than joined raw. Since migration 000081 dropped
+	//     weighing_campaigns_one_active_week_per_park_idx this is the NORMAL case, not a
+	//     theoretical one: leadership plans a park's leftover sheds as a second task.
 	//   consumer park row               match: existing.park_id = park.location_id
 	//   => 0..1 existing rows per park row. LEFT JOIN, never a fan-out.
-	//   Its shed_count is a scalar aggregate over that campaign's OWN buckets, at campaign grain.
+	//   Its shed_count is a scalar aggregate over that campaign's OWN buckets, at campaign grain --
+	//   NEVER the park-week total across tasks, which would be a merge across two grains.
+	//   task_count is a WINDOW count over the same pre-DISTINCT partition, so it reports how many
+	//   tasks the park really holds that week while the summary columns still describe exactly one
+	//   of them. Without it a caller cannot tell "one task" from "the newest of three".
 	//
 	// Served by locations_tenant_type_status_order_idx
 	// (tenant_id, location_type, status, display_order, name, location_id): the three equality
@@ -567,7 +578,10 @@ WITH existing AS (
       SELECT count(*)::int
       FROM weighing_campaign_sheds wcs
       WHERE wcs.tenant_id=wc.tenant_id AND wcs.campaign_id=wc.campaign_id
-    ) AS shed_count
+    ) AS shed_count,
+    -- Evaluated BEFORE DISTINCT ON collapses the partition, so it counts every
+    -- task the park holds that week, not the one row that survives.
+    count(*) OVER (PARTITION BY wc.park_id)::int AS task_count
   FROM weighing_campaigns wc
   WHERE wc.tenant_id=$1::uuid
     AND wc.period_start_date=$2::date
@@ -592,7 +606,8 @@ SELECT
   existing.period_end_date,
   existing.start_business_date,
   existing.operator_user_id,
-  COALESCE(existing.shed_count, 0)::int
+  COALESCE(existing.shed_count, 0)::int,
+  COALESCE(existing.task_count, 0)::int
 FROM locations park
 LEFT JOIN existing ON existing.park_id=park.location_id
 WHERE park.tenant_id=$1::uuid
@@ -610,14 +625,15 @@ LIMIT $3`, tenantID, periodStartDate, domain.MaxPlannerParks)
 	for rows.Next() {
 		var park domain.PlannerPark
 		var existingID, existingStatus, existingStart, existingEnd, existingBusinessDate, existingOperator *string
-		var existingShedCount int
+		var existingShedCount, existingTaskCount int
 		if err := rows.Scan(
 			&park.ParkID, &park.Name, &park.ShedCount,
 			&existingID, &existingStatus, &existingStart, &existingEnd,
-			&existingBusinessDate, &existingOperator, &existingShedCount,
+			&existingBusinessDate, &existingOperator, &existingShedCount, &existingTaskCount,
 		); err != nil {
 			return domain.PlannerCatalog{}, err
 		}
+		park.ExistingCampaignCount = existingTaskCount
 		if existingID != nil {
 			park.ExistingCampaign = &domain.CampaignSummary{
 				CampaignID:        *existingID,
