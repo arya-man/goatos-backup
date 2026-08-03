@@ -103,6 +103,7 @@ import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
@@ -305,6 +306,12 @@ interface AppApiService {
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int,
     ): WeighingLeadershipShedPageResponseDto
+
+    @GET("app/weighing/alerts")
+    suspend fun listWeighingAlerts(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingAlertPageResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -859,6 +866,11 @@ class RetrofitAppApi(
         cursor: String?,
         limit: Int,
     ): WeighingLeadershipShedPageResponseDto = service.listWeighingLeadershipSheds(cursor, limit)
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = service.listWeighingAlerts(cursor, limit)
 
     override suspend fun submitAppTask(
         taskId: String,

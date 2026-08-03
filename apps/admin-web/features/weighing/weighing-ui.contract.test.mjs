@@ -81,11 +81,11 @@ test("weighing UI carries no herd/clinical review surface (free-flow, duplicate-
   assert.doesNotMatch(page, /row\.rfid/);
 });
 
-test("weighing leadership planner covers park-week task creation and duplicate edit state", () => {
+test("weighing leadership planner allows a second task for a park-week's leftover sheds", () => {
   const data = source("data.ts");
   const page = source("page.tsx");
 
-  assert.match(data, /duplicateBlocked/);
+  assert.match(data, /existingTaskCount/);
   assert.match(data, /existingCampaignId/);
   assert.match(data, /getWeighingPlannerCatalog/);
   assert.match(data, /plannerFromCatalog/);
@@ -106,13 +106,35 @@ test("weighing leadership planner covers park-week task creation and duplicate e
   assert.match(page, /Individual/);
   assert.match(page, /Lumpsum/);
   assert.match(page, /Assign operator/);
-  assert.match(page, /Already scheduled/);
-  assert.match(page, /task already exists/);
-  assert.match(page, /Existing task/);
+  // The "already scheduled" reason is now SHED-grain and authored in data.ts, because
+  // that is the grain at which availability is actually decided. The page only reports
+  // the park-week task COUNT, which is information rather than a gate.
+  assert.match(data, /Already scheduled on this date/);
+  assert.match(page, /already scheduled/);
+  assert.match(page, /Most recent task/);
   assert.match(page, /Edit existing task/);
-  assert.match(page, /create is blocked/);
-  assert.match(page, /It never creates a second task/);
-  assert.match(page, /duplicate_blocked/);
+
+  // A park-week holding a task must NEVER block creating another one: the capture
+  // category is a per-SHED property, so the leftover sheds are planned as their own
+  // task. The old campaign-grain gate (and the hidden duplicate_blocked field that
+  // short-circuited the server action) is gone for good.
+  assert.doesNotMatch(page, /duplicate_blocked/);
+  assert.doesNotMatch(page, /create is blocked/);
+  assert.doesNotMatch(page, /It never creates a second task/);
+  assert.doesNotMatch(page, /notice=duplicate-blocked/);
+  assert.doesNotMatch(data, /duplicateBlocked/);
+
+  // Availability is decided PER SHED and per weigh date, and a shed another task
+  // already owns must be rendered disabled with the reason -- never offered and then
+  // rejected by the API.
+  assert.match(data, /shed\.scheduled/);
+  assert.match(data, /scheduledReason/);
+  assert.match(page, /disabled={shed\.scheduled}/);
+  assert.match(page, /shed\.scheduledReason/);
+
+  // The task being EDITED must be excluded server-side, or its own sheds would read
+  // back as taken and the edit screen would disable them.
+  assert.match(data, /excludeCampaignId|editingCampaignId/);
 });
 
 test("weighing week strip is derived from campaign response", () => {
@@ -195,11 +217,47 @@ test("W15 FIX: truncated shed list disables Save draft and Publish with a visibl
   assert.match(page, /Disabled: shed list truncated at the 500-shed display cap/);
 });
 
-test("W20 FIX: unbacked captured count renders no fabricated digit", () => {
+test("W20 FIX: unbacked weighed/submitted counts render no fabricated digit", () => {
   const page = source("page.tsx");
 
-  assert.doesNotMatch(page, /<b>\{row\.completedCount\}<\/b> \{row\.capturedCountIsBacked \? "captured" : "captured \(n\/a\)"\}/);
-  assert.match(page, /row\.capturedCountIsBacked \? <><b>\{row\.completedCount\}<\/b> captured<\/> : "captured \(n\/a\)"/);
+  assert.match(page, /row\.weighedCountIsBacked \? <><b>\{row\.weighedCount\}<\/b> weighed · <b>\{row\.submittedCount\}<\/b> submitted<\/> : "weighed \/ submitted \(n\/a\)"/);
+});
+
+// The two counts are DIFFERENT facts and mid-shift they legitimately differ. A bare
+// number is ambiguous — its meaning would depend on which screen you are on — so the
+// pair is always rendered together, in this order, with these words. Same words as the
+// mobile task-detail card and the director Operators screen.
+test("WEIGHED-VS-SUBMITTED: both named facts render together, in order, with no ratio", () => {
+  const page = source("page.tsx");
+  const data = source("data.ts");
+
+  // Both backend facts are read; neither is derived from the other.
+  assert.match(data, /shed\.animals_weighed_count/);
+  assert.match(data, /shed\.animals_submitted_count/);
+
+  // Rendered as the pair, weighed first.
+  assert.match(page, /weighed · <b>\{row\.submittedCount\}<\/b> submitted/);
+
+  // The old single ambiguous count is gone from every reader.
+  assert.doesNotMatch(page, /capturedCount/);
+  assert.doesNotMatch(data, /capturedCount|captured_count/);
+
+  // No invented denominator: free-flow weighing has no expected roster, so neither
+  // count may be divided by the other or by expected_animal_count.
+  assert.doesNotMatch(page, /submittedCount\s*\/\s*row\.weighedCount/);
+  assert.doesNotMatch(page, /weighedCount\s*\/\s*row\.submittedCount/);
+});
+
+// The chip mirrors the operator's own Submit button so there is zero translation in
+// their head between what they did and what the screen says.
+test("WEIGHED-VS-SUBMITTED: unsubmitted work carries a 'Not submitted' chip", () => {
+  const page = source("page.tsx");
+
+  assert.match(page, /row\.weighedCount > 0 && row\.submittedCount === 0/);
+  assert.match(page, /<Tag tone="warn">Not submitted<\/Tag>/);
+  // Never a synonym — "sent", "handed in", "dispatched" invent vocabulary the app
+  // does not otherwise use.
+  assert.doesNotMatch(page, /Not sent|handed in|dispatched/i);
 });
 
 test("W21-TS: operator name distinguishes genuine roster gap from unassigned using backend-resolved field", () => {

@@ -19,6 +19,7 @@ import (
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
 // Real event types published by the verification module to outbox_messages
@@ -631,7 +632,20 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 	itemID := strings.TrimSpace(p.ItemID)
 	operatorID := strings.TrimSpace(p.OperatorID)
 	parkID := strings.TrimSpace(p.ParkID)
-	if tenantID == "" || itemID == "" || operatorID == "" {
+	if tenantID == "" || itemID == "" {
+		return nil
+	}
+	// A WITHDRAWAL is a retraction, not an operational closure, and it has a different
+	// audience. Operational closure tells the OPERATOR their record is done. A withdrawal
+	// says the opposite: the producing module superseded the source record, so the review
+	// this item asked for is cancelled. The person holding stale work is the VERIFIER who
+	// received the verification.item.pending push -- and the operator is the one who caused
+	// the withdrawal (they edited their own draft), so pushing them a "closed" notice would
+	// be both wrong and noisy.
+	if strings.TrimSpace(p.Status) == verificationdomain.StatusWithdrawn {
+		return c.handleItemWithdrawn(ctx, p, tenantID, itemID, parkID)
+	}
+	if operatorID == "" {
 		return nil
 	}
 	profile, known := pendingProfileFor(p.Module)
@@ -672,6 +686,70 @@ func (c *VerificationEventConsumer) handleItemClosed(ctx context.Context, p Veri
 			"priority":     priorityNormal,
 		},
 		Recipients: toQueueRecipients(operatorDevices, "operator"),
+	})
+	return err
+}
+
+// handleItemWithdrawn retracts the review request that verification.item.pending raised.
+//
+// It targets exactly the audience the pending push went to -- the park's module verify-duty
+// holders -- and reuses the pending event's CalendarEventID/TargetID so the retraction lands on
+// the same notification subject the verifier is already looking at. The producing module
+// superseded the source record; there is nothing left to review.
+func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p VerificationEventPayload, tenantID, itemID, parkID string) error {
+	if parkID == "" {
+		return nil
+	}
+	profile, known := pendingProfileFor(p.Module)
+	if !known {
+		c.logUnroutedModule(ctx, "verification_withdrawn_notification_unrouted_module", tenantID, itemID, parkID, p.Module)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	verifierDevices, err := c.recipients.ResolveModuleDutyRecipients(ctx, tenantID, scopeCenter, parkID, profile.dutyModule, dutyVerify)
+	if err != nil {
+		return fmt.Errorf("verification_notify_consumer: resolve verifier recipients: %w", err) // retryable
+	}
+	recipients := dedupeQueueRecipients(toQueueRecipients(verifierDevices, "verifier"))
+	if len(recipients) == 0 {
+		return nil
+	}
+	subject := strings.TrimSpace(p.SubjectLabel)
+	if subject == "" {
+		subject = "A record"
+	}
+	eventKey := EventVerificationItemClosed + ":withdrawn:" + itemID
+	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
+		TenantID:         tenantID,
+		CalendarEventID:  verificationCalendarEventID(itemID),
+		TargetType:       "verification_item",
+		TargetID:         itemID,
+		NotificationType: "verification_withdrawn",
+		Channel:          channelPushFCM,
+		Priority:         priorityNormal,
+		// The title names the SUBJECT (the shed or record under review), not just the action: a
+		// verifier with several pending reviews needs to know WHICH one was withdrawn without
+		// opening the app. "Verification no longer needed" alone told them nothing actionable.
+		Title:    subject + " — review withdrawn",
+		Body:     subject + " was updated by the operator, so this review request is withdrawn.",
+		TraceID:  eventKey,
+		EventKey: eventKey,
+		Context: map[string]string{
+			"type":         "verification_withdrawn",
+			"screen":       "verification",
+			"target":       "/verification/items/" + itemID,
+			"message_key":  profile.messageKeyPrefix + ".proof.withdrawn",
+			"item_id":      itemID,
+			"park_id":      parkID,
+			"shed_id":      p.ShedID,
+			"category":     p.Category,
+			"subject":      subject,
+			"group_key":    "verification:" + parkID + ":" + p.Category,
+			"collapse_key": "verification:" + parkID + ":" + p.Category,
+			"priority":     priorityNormal,
+		},
+		Recipients: recipients,
 	})
 	return err
 }

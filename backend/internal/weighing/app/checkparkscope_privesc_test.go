@@ -286,3 +286,7 @@ func (r *parkScopeCheckRepo) CloseCampaign(ctx context.Context, cmd domain.Close
 func (r *parkScopeCheckRepo) RefreshAvailability(ctx context.Context, tenantID, campaignID string) error {
 	return nil
 }
+
+func (r *parkScopeCheckRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
+}

@@ -146,6 +146,7 @@ CI guard itself checks.
 | `NoopCrashReporter` | `CrashReporter.kt` | DI fallback, same gating as `NoopAnalytics`. |
 | `FirebaseCrashReporter` | `FirebaseCrashReporter.kt` | Real `CrashReporter` backed by `com.google.firebase.crashlytics.FirebaseCrashlytics`, bound via `di/TelemetryModule.kt`. |
 | `recordException` | any call site | The actual non-fatal-report invocation the guard looks for. |
+| `FailureReportingNetworkTelemetryReporter` | `FailureReportingNetworkTelemetryReporter.kt`, bound in `di/TelemetryModule.kt` | **Structural** API-failure coverage. Decorates the `NetworkTelemetryReporter` seam that `TelemetryInterceptor` already invokes for every OkHttp call, and on `status >= 400` (or `-1`, meaning the call threw before any response) emits: a logcat WARN, a Crashlytics breadcrumb, an `AnalyticsEvents.API_CALL_FAILURE` event, and a Crashlytics non-fatal throttled to one per `(method, route, status)` per minute. Because it sits at the interceptor, a new screen that forgets its own `recordException` still produces API-failure signal. Only the Firebase **Performance** delegate is gated on `TELEMETRY_ENABLED` — the failure half runs on every flavor, so logcat is never silent during a retry storm. |
 
 **Android — funnel steps (`AnalyticsFunnels` helper):**
 
@@ -167,6 +168,7 @@ CI guard itself checks.
 |---|---|---|
 | Feature call sites for `AnalyticsFunnels` | **TODO** | `AnalyticsFunnels.kt`'s own docstring is explicit that feature-calendar (drive-open), feature-scan (`ScanViewModel`), feature-record (`RecordViewModel`), and feature-submit call sites are **not** wired by that file — they are owned by the parallel mobile-feature session. Until each feature calls the matching `AnalyticsFunnels.track*` helper, that funnel stage has no signal even though the helper exists. |
 | Per-route Faro custom events on admin-web | **TODO** | Crash/error coverage is global (§2.2, §3.1), but individual `page.tsx` routes mostly do not yet call `faro.api.pushEvent`/`trackEvent` for their primary user action. This is why `admin_web` stays `mode: "warn"` in the guard config — see §2.2. |
+| ExoPlayer media requests bypass every network seam | **TODO** | `VerifyDetailScreen.kt` and `WeighingLeadershipVideosScreen.kt` build players with `ExoPlayer.Builder(context).build()`, which uses media3's `DefaultHttpDataSource` — **not** the app's OkHttp client. Proof-video fetches therefore never reach `TelemetryInterceptor`, so neither Firebase Perf's OkHttp instrumentation nor `FailureReportingNetworkTelemetryReporter` sees them. A burst of HTTP 500s on a proof object surfaces on the client only if media3 gives up entirely and raises `onPlayerError` (→ `VERIFY_VIDEO_PLAYBACK_ERROR`); retries below that threshold are invisible on-device, and the server log is the only evidence. Fix requires adding the `androidx.media3:media3-datasource-okhttp` dependency and passing an `OkHttpDataSource.Factory` built from the injected client — a dependency addition, deliberately not bundled into the guardrail change that documented it. |
 | `apps/goatos-android/docs/TELEMETRY.md` | **TODO (other lane)** | Referenced by several Android source docstrings as the call-site-level reference doc; does not exist in this repo yet. Owned by the mobile analytics lane, not this guardrail lane — this doc intentionally does not create it (see the top of §3). |
 
 ### 3.3 Marker list used by the guard
@@ -280,6 +282,34 @@ for admin-web today (§2.2, §3.2) is the missing per-route `pushEvent` call
 above, not missing crash coverage.
 
 ## 6. How the CI guard works
+
+### 6.0 What the guard CANNOT see (read this before trusting a PASS)
+
+The guard is a **substring-presence check over a git diff**. It proves a
+marker string appears; it can never prove telemetry works. Specifically it
+cannot see:
+
+- **Whether the call is on the path that actually runs.** A file containing
+  `analytics.track(...)` in a branch nothing reaches passes.
+- **Sibling contamination.** `sibling_lookup: true` means a marker in ANY
+  `.kt` in the same directory satisfies every `Screen.kt`/`ViewModel.kt` in
+  that directory. One instrumented file can carry a whole package.
+- **Whether the port is a real vendor impl or a `Noop`.** `NoopAnalytics` /
+  `NoopCrashReporter` are bound for any flavor without `TELEMETRY_ENABLED`,
+  and they are silent — no logcat, no local echo. A PASS says nothing about
+  whether an event leaves the device.
+- **Anything outside the diff.** Untouched screens are never re-checked, so
+  the guard reports no backlog; use `make telemetry-guard-audit` (`--all`)
+  for that.
+- **Non-OkHttp network paths.** See §3.2's ExoPlayer row.
+- **The backend entirely.** There is no guard on backend log coverage; the
+  `http_4xx`/`http_5xx` lines in `platform/httpresponse` are covered by unit
+  tests, not by this script.
+
+Treat a PASS as "nobody removed the markers", not as "this failure will be
+visible".
+
+### 6.1 Mechanics
 
 Local CI script: `tools/telemetry-guard/telemetry-guard.py` (Python 3,
 stdlib only). Config: `tools/telemetry-guard/config.json`. Tests:

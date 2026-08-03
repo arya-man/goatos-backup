@@ -88,6 +88,7 @@ import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
@@ -101,6 +102,13 @@ import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
  * viewport-triggered continuation (see docs/decisions/mobile-data-fetch-anti-patterns.md).
  */
 const val WEIGHING_PAGE_SIZE = 20
+
+/**
+ * One phone-screen page of weighing ALERTS. Same ~20-rows-per-screen budget as every other
+ * mobile list; the backend clamps anything larger, so this is the client's half of one contract
+ * rather than an independent guess.
+ */
+const val WEIGHING_ALERTS_PAGE_SIZE = 20
 
 /**
  * The three weighing surfaces. Each is a separate destination with its own authority, so the
@@ -478,6 +486,19 @@ interface AppApi {
         cursor: String? = null,
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingLeadershipShedPageResponseDto
+
+    /**
+     * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
+     * submitted for verification, proof sent back for rework, shed reopened, work closed, each
+     * routed to whoever owns the next action.
+     *
+     * NOT the vaccination process-integrity feed. The backend scopes the rows to the caller and
+     * authors every visible string (title/body plus the page's title and empty-state sentence).
+     */
+    suspend fun listWeighingAlerts(
+        cursor: String? = null,
+        limit: Int = WEIGHING_ALERTS_PAGE_SIZE,
+    ): WeighingAlertPageResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -1227,6 +1248,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int,
     ): WeighingLeadershipShedPageResponseDto = WeighingLeadershipShedPageResponseDto()
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = WeighingAlertPageResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,

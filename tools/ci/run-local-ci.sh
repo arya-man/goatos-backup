@@ -216,6 +216,7 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
@@ -299,6 +300,7 @@ run_android_guards() {
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "nav-entry-point-placement-guard" make nav-entry-point-placement-guard
   step "mobile-contract-ownership-guard" make mobile-contract-ownership-guard
   step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard
   step "telemetry-guard"              make telemetry-guard

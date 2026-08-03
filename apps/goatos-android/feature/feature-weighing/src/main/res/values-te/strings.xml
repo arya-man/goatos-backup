@@ -7,7 +7,6 @@
     <!-- Shared weighing chrome -->
     <string name="weighing_eyebrow">బరువు</string>
     <string name="weighing_refresh">బరువు పనిని రిఫ్రెష్ చేయండి</string>
-    <string name="weighing_alerts">అలర్ట్‌లు</string>
     <string name="weighing_category_lumpsum">మొత్తం బరువు</string>
     <string name="weighing_category_individual">వ్యక్తిగతం</string>
     <string name="weighing_action_scan_animals">జంతువులను స్కాన్ చేయండి →</string>
@@ -61,6 +60,14 @@
     <string name="weighing_no_matching_rows_body">వేరే ట్యాగ్ లేదా షెడ్ పేరు ప్రయత్నించండి.</string>
     <string name="weighing_submit_lump_sum">మొత్తం బరువు సమర్పించండి</string>
     <string name="weighing_submit">సమర్పించండి</string>
+    <string name="weighing_blocked_saving">మీరు నమోదు చేసినది భద్రపరుస్తున్నాం. ఒక క్షణం ఆగండి.</string>
+    <string name="weighing_blocked_no_shed_open">ఈ తూకం నమోదు చేసే ముందు ఒక షెడ్ తెరవండి.</string>
+    <string name="weighing_blocked_need_weight">సమర్పించే ముందు బరువు నమోదు చేయండి.</string>
+    <string name="weighing_blocked_need_count">త్రాసుపై ఎన్ని జంతువులు ఉన్నాయో నమోదు చేయండి.</string>
+    <string name="weighing_blocked_need_video">సమర్పించే ముందు ఈ తూకం వీడియో రికార్డ్ చేయండి.</string>
+    <string name="weighing_blocked_video_uploading">వీడియో ఇంకా పైకి వెళ్తోంది. పూర్తయిన వెంటనే సమర్పించు అందుబాటులోకి వస్తుంది.</string>
+    <string name="weighing_blocked_video_failed">వీడియో వెళ్లలేదు. వీడియోపై మళ్లీ ప్రయత్నించు నొక్కి, ఆపై సమర్పించండి.</string>
+    <string name="weighing_blocked_nothing_captured">సమర్పించే ముందు ఒక ట్యాగ్ స్కాన్ చేసి బరువు భద్రపరచండి.</string>
     <string name="weighing_animals_captured_one">%1$d జంతువు సేకరించబడింది</string>
     <string name="weighing_animals_captured_other">%1$d జంతువులు సేకరించబడ్డాయి</string>
     <string name="weighing_scan_to_begin">ప్రారంభించడానికి RFID ట్యాగ్ స్కాన్ చేయండి</string>
@@ -86,7 +93,11 @@
     <string name="weighing_field_total_weight">మొత్తం బరువు</string>
     <string name="weighing_field_animal_count">జంతువుల సంఖ్య</string>
     <string name="weighing_average_per_animal_fmt">ఒక్కో జంతువుకు సగటు %1$s కేజీ</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d వీడియోలు అప్‌లోడ్ అయ్యాయి</string>
+    <string name="weighing_videos_saved_fmt">%1$d సేవ్ అయ్యాయి</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d సేవ్ అయ్యాయి · %2$d ఇంకా అప్‌లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d అప్‌లోడ్ అవుతోంది</string>
+    <string name="weighing_videos_limit_reached">గరిష్ఠంగా 5 వీడియోలు రికార్డ్ చేయబడ్డాయి</string>
+    <string name="weighing_videos_uploaded_fmt">%1$d అప్‌లోడ్ అయ్యాయి</string>
     <string name="weighing_video_index_fmt">వీడియో %1$d</string>
     <string name="weighing_replace">మార్చండి</string>
     <string name="weighing_remove">తీసివేయండి</string>
@@ -155,7 +166,7 @@
     <string name="weighing_task_publishing">పని ప్రచురించబడుతోంది</string>
     <string name="weighing_task_publish">పని ప్రచురించండి</string>
     <string name="weighing_task_ending">పని ముగుస్తోంది</string>
-    <string name="weighing_task_close_open_fmt">పని మూసివేయండి · %1$d ఇంకా పెండింగ్</string>
+    <string name="weighing_task_close_open_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు</string>
     <string name="weighing_task_mark_complete">పని పూర్తిగా గుర్తించండి</string>
     <string name="weighing_task_reopen">పని మళ్లీ తెరవండి</string>
     <string name="weighing_task_reopen_blocked">ముగిసిన పనిని మళ్లీ ప్రణాళికలోకి తేవడం ఇంకా అందుబాటులో లేదు. ఒక షెడ్ సమూహాన్ని కింద దాని కార్డు నుండి మళ్లీ తెరవవచ్చు.</string>
@@ -315,4 +326,36 @@
     <string name="weighing_reopen_dialog_subtitle">ఇది షెడ్ బకెట్‌ను తిరిగి తెరిచిన పనిలోకి చేరుస్తుంది. కారణం చెప్పండి.</string>
     <string name="weighing_reopen_dialog_placeholder">మళ్లీ తెరవడానికి కారణం</string>
     <string name="weighing_reopen_dialog_confirm">మళ్లీ తెరవండి</string>
+    <string name="weighing_task_close_awaiting_fmt">పని మూసివేయండి · %1$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
+    <string name="weighing_task_close_split_fmt">పని మూసివేయండి · %1$d సమర్పించలేదు · %2$d తనిఖీ కోసం ఎదురుచూస్తున్నాయి</string>
+    <string name="weighing_bucket_state_not_started">ఇంకా ఏమీ నమోదు కాలేదు</string>
+    <string name="weighing_bucket_state_in_progress">తూకం కొనసాగుతోంది</string>
+    <string name="weighing_bucket_state_submitted">సమర్పించారు</string>
+    <string name="weighing_bucket_state_accepted">ఆమోదించబడింది</string>
+    <string name="weighing_bucket_state_rework">ఆపరేటర్‌కు తిరిగి పంపబడింది</string>
+    <string name="weighing_videos_none">ఇంకా వీడియో లేదు</string>
+    <string name="weighing_videos_uploading_fmt">%1$d అప్‌లోడ్ అవుతున్నాయి</string>
+    <string name="weighing_videos_failed_fmt">%1$d విఫలమయ్యాయి</string>
+
+    <string name="weighing_operators_people_heading">ఎవరు తూకం చేస్తున్నారు</string>
+    <string name="weighing_operators_sheds_heading">షెడ్ వారీగా</string>
+    <string name="weighing_operators_unassigned">ఇంకా ఎవరికీ ఇవ్వలేదు</string>
+    <string name="weighing_operators_roster_gap">ఇచ్చారు, కానీ రోస్టర్‌లో లేరు</string>
+    <string name="weighing_operators_sheds_one">%1$d షెడ్</string>
+    <string name="weighing_operators_sheds_other">%1$d షెడ్లు</string>
+    <string name="weighing_operators_nothing_weighed_yet">ఇంకా ఏదీ తూకం కాలేదు</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d మొదలవలేదు</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d తూకం జరుగుతోంది</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d సమర్పించారు</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d ఆమోదించారు</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d వెనక్కి పంపారు</string>
+    <string name="weighing_operators_no_people_title">ఇప్పుడు ఎవరూ తూకం చేయడం లేదు</string>
+    <string name="weighing_shed_state_not_started">ఇంకా ఏదీ నమోదు కాలేదు</string>
+    <string name="weighing_shed_state_capturing">తూకం జరుగుతోంది</string>
+    <string name="weighing_shed_state_submitted">సమర్పించారు, ధృవీకరణ పెండింగ్</string>
+    <string name="weighing_shed_state_accepted">ఆమోదించారు</string>
+    <string name="weighing_shed_weighed_by_fmt">%1$s తూకం చేశారు</string>
+    <string name="weighing_shed_weighed_by_nobody">ఇంకా ఎవరికీ ఇవ్వలేదు</string>
+    <string name="weighing_weighed_submitted_fmt">%1$d తూకం వేశారు · %2$d సమర్పించారు</string>
+    <string name="weighing_not_submitted_chip">సమర్పించలేదు</string>
 </resources>

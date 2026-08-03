@@ -1105,6 +1105,12 @@ export async function getWeighingPlannerParkBuckets(
   periodStartDate: string,
   cursor?: string,
   limit = 100,
+  // excludeCampaignId is the task being EDITED. Its own buckets must not read back
+  // as "already scheduled" or the edit screen would disable exactly the sheds the
+  // task already owns. Omit it when planning a NEW task, so every other task's
+  // buckets -- including a sibling task in the same park-week -- correctly read as
+  // taken.
+  excludeCampaignId?: string,
 ): Promise<ApiResult<WeighingPlannerParkBucketsResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -1119,7 +1125,12 @@ export async function getWeighingPlannerParkBuckets(
         {
           cache: "no-store",
           signal,
-          query: compactQuery({ period_start_date: periodStartDate, cursor, limit }),
+          query: compactQuery({
+            period_start_date: periodStartDate,
+            cursor,
+            limit,
+            exclude_campaign_id: excludeCampaignId,
+          }),
         },
       ),
     ),

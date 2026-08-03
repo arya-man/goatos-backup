@@ -84,6 +84,12 @@ redirect stdout with `>` for the keystore.
 Before every release, bump `versionCode` and `versionName` in
 `apps/goatos-android/app/build.gradle.kts`.
 
+Firebase App Distribution uploads for Android STG must go through the Gradle
+upload task below. Do not manually distribute an APK through the Firebase
+console, `firebase appdistribution:distribute`, or any other upload path unless
+the maintainer explicitly asks for a one-off rescue build and the release notes
+still include the source label.
+
 ```bash
 cd apps/goatos-android
 
@@ -93,6 +99,20 @@ cd apps/goatos-android
   --no-configuration-cache \
   -PfadReleaseNotes="Staging release: points to stg-api.dashboard.mesha.sg"
 ```
+
+Every Firebase App Distribution upload is traceable to source:
+
+- the APK bakes `BuildConfig.SOURCE_COMMIT`, `BuildConfig.SOURCE_TAG`,
+  `BuildConfig.SOURCE_BRANCH`, `BuildConfig.SOURCE_LABEL`, and matching string
+  resources into the build;
+- default Firebase release notes append the same source label;
+- `appDistributionUploadStgRelease` refuses dirty local worktrees unless the
+  builder deliberately passes `-PallowDirtyFirebaseDistribution=true` for a
+  throwaway/debug build.
+
+Do not use a dirty upload to answer whether a production-like phone APK contains
+a feature. If `-PallowDirtyFirebaseDistribution=true` is used, mark the Firebase
+release notes as throwaway/debug and record the dirty source label.
 
 After upload, install the Firebase App Distribution build on the phone and
 verify:
@@ -104,6 +124,12 @@ verify:
    active `workforce_members.user_id` profile.
 5. Firebase Analytics/Crashlytics show the backend workforce member id as the
    user id after bootstrap.
+
+When answering whether the Firebase APK installed on a phone contains a feature,
+verify and record the source label first. Compare the APK/Firebase source label
+against the commit or tag that introduced the feature. If the source label is
+missing or cannot be verified, say that the phone APK cannot be proven from the
+available evidence; do not infer it from local `HEAD`, `origin/main`, or memory.
 
 ## Stg signing is not prod signing
 

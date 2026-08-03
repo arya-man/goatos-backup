@@ -301,6 +301,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the weighing lifecycle alerts routed to the caller.
+         * @description The weighing module's OWN alerts feed: the work-state transitions of weighing -- work assigned, a shed submitted for verification, a proof sent back for rework, a shed reopened, work closed -- each routed to whoever owns the next action.
+         *
+         *     This is NOT the vaccination process-integrity feed at /alerts, and it is gated on weighing capabilities only, never ObligationRead/VaccinationRead.
+         *
+         *     Rows are the durable notifications that were ALREADY routed to this caller when the transition happened, so the feed needs no second audience model: an operator reads only their own buckets because they were never a recipient of anyone else's. Weighing is free-flow and fully herd-isolated, so no alert names a goat, resolves a herd identity, or reports a share of an expected roster.
+         *
+         *     title and empty_message are BACKEND-OWNED copy. Clients render them and hardcode no weighing strings of their own.
+         */
+        get: operations["appListWeighingAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -5626,6 +5652,10 @@ export interface components {
             rework_count?: number;
             /** @description True only when the bucket is submitted (status=completed), holds at least one submitted observation, and none of its observations have a verification_status other than 'verified'. An outstanding 'rework' observation also makes this false. */
             ready_to_close: boolean;
+            /** @description FACT 1 of 2. How many ANIMALS this bucket has a RECORDED weight for, submitted or not: one per individual observation, plus the recorded head count of the standing (non-withdrawn) shed proof for a lump-sum bucket. ANIMAL grain, not record grain -- it replaces captured_count, which counted the lump-sum proof ROW and so read as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for the same work. Identical predicate to WeighingOperatorSummary.animals_weighed_count, so no two surfaces can disagree. A plain count, NEVER a numerator: weighing is free-flow, there is no expected-animal roster, expected_animal_count is a fixed bucket-grain 1, and dividing weighings by it would render a share of a total that does not exist. Clients report this number as-is and must never turn it into a percentage or a progress bar fill. */
+            animals_weighed_count: number;
+            /** @description FACT 2 of 2. The subset of animals_weighed_count that has been SUBMITTED for verification. An individual observation counts only once submitted; a lump-sum shed proof IS the submission, so a standing one counts as soon as it exists. Identical predicate to WeighingOperatorSummary.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. Never render either number bare, and never divide one by the other. */
+            animals_submitted_count: number;
         };
         WeighingCampaign: {
             /** Format: uuid */
@@ -5660,6 +5690,8 @@ export interface components {
             counts?: components["schemas"]["WeighingCampaignCounts"];
             /** @description SURFACE-grain, not row-grain. The envelope covers a page whose rows may span several parks, so this is an upper bound ("the caller holds this permission somewhere on this surface") and must NOT be used to gate a per-row button. The single-task read answers at row grain. */
             capabilities?: components["schemas"]["WeighingCampaignCapabilities"];
+            /** @description OPERATOR-grain roll-up behind the weighing oversight surface: one row per person holding weighing work in this scope. Unlike `counts` it IS narrowed by `park_id`, because the park chip is that screen's own filter. Served whole (capped at 50), not paged: a roll-up that pages cannot answer "who did what". */
+            operator_summaries?: components["schemas"]["WeighingOperatorSummary"][];
             trace_id?: string;
         };
         /** @description Which task-level writes the caller may attempt. Publish is `weighing.plan` while ending and reopening are `weighing.monitor`, so a client that gates buttons on task status alone renders a live button that fails. On the single-task read these are answered for the task's OWN park, matching the park scope the corresponding writes enforce -- a caller who monitors another park gets false rather than a button whose tap answers 404. */
@@ -5667,6 +5699,28 @@ export interface components {
             can_publish: boolean;
             can_end: boolean;
             can_reopen: boolean;
+        };
+        /** @description What ONE person's weighing work adds up to. GRAIN: one row per operator_user_id over that person's non-canceled shed buckets in scope. Every field is a PLAIN COUNT and none is ever a numerator -- weighing is free-flow, there is no expected-animal roster, so no share or percentage can honestly be rendered from any of these. not_started_count + capturing_count + submitted_count + accepted_count == shed_count exactly (the four are disjoint and exhaustive over the live bucket statuses), so a client may lay them out as a discrete state ladder but must never draw a part-filled fraction. */
+        WeighingOperatorSummary: {
+            /** @description Empty on the "nobody is assigned yet" row, which is real work leadership must see. */
+            operator_user_id: string;
+            /** @description Backend-resolved name. Blank WITH a non-blank operator_user_id is a roster gap, not "unassigned"; clients render the gap and never fall back to the user id. */
+            operator_display_name: string;
+            shed_count: number;
+            /** @description Buckets holding nothing captured yet. */
+            not_started_count: number;
+            /** @description Buckets where weighing is under way but nothing is submitted. */
+            capturing_count: number;
+            /** @description Buckets submitted and waiting for a verifier. */
+            submitted_count: number;
+            /** @description Buckets verified and closed. */
+            accepted_count: number;
+            /** @description Buckets a verifier bounced back. OVERLAPS the four state counts on purpose (a bounced bucket is still in one of them) and is never added to them. */
+            rework_count: number;
+            /** @description FACT 1 of 2. How many ANIMALS this person has RECORDED a weight for, submitted or not: one per individual observation plus the recorded head count of a standing lump-sum weighing. Whole-filter aggregate computed by the backend over every bucket the person holds in scope -- never grouped client-side from a page of rows. Same predicate as WeighingCampaignShed.animals_weighed_count. A plain total of work done; never a numerator. */
+            animals_weighed_count: number;
+            /** @description FACT 2 of 2. The subset of animals_weighed_count this person has SUBMITTED for verification. Whole-filter aggregate, same predicate as WeighingCampaignShed.animals_submitted_count. Clients render the PAIR, in this order and these words: "N weighed · N submitted". When work exists and this is zero they show a "Not submitted" chip -- the same word as the operator's Submit button. This pair is what makes visible the mid-shift state where an operator has weighed animals and walked away without submitting them. */
+            animals_submitted_count: number;
         };
         /** @description Whole-filter task tally behind the Active / Completed tabs. GRAIN: one task = one park on one weigh date. Computed over the entire scope the caller may see, never from the returned page and never narrowed by `park_id`. `completed` is status completed or closed; `active` is every other live status. A canceled task is in neither. */
         WeighingCampaignCounts: {
@@ -5726,6 +5780,8 @@ export interface components {
             /** @description PARK-GRAIN count of this park's active sheds, computed over the park's own children. It is not a count of rows on any page: this response carries no shed rows, and a bucket page carries only ~20. Read the sheds themselves from /app/weighing/planner/parks/{park_id}/buckets. */
             shed_count: number;
             existing_campaign?: components["schemas"]["WeighingPlannerCampaignSummary"];
+            /** @description How many non-canceled weighing tasks this park holds on the requested week. A park-week may legitimately hold SEVERAL tasks: the capture category (individual vs lump-sum) is a per-BUCKET property, so leadership plans some sheds now and the park's leftover sheds as a separate task. existing_campaign summarizes only the MOST RECENT of them, so treat this count -- not the presence of existing_campaign -- as the answer to "how much is already scheduled here". Never use either field to block creating another task: per-shed availability is reported by the buckets endpoint. */
+            existing_campaign_count?: number;
         };
         WeighingPlannerOperator: {
             /** Format: uuid */
@@ -5893,6 +5949,42 @@ export interface components {
             lump_sum?: components["schemas"]["WeighingObservation"];
             /** @description Backend-owned sentence for the weigh period this bucket belongs to. A client must not build this label by concatenating dates itself. */
             period_label?: string;
+        };
+        /** @description ONE weighing work-state transition that was routed to the caller. GRAIN: one row = one transition for one recipient, collapsed across that person's devices. Every human-visible string is authored by the backend. No goat, herd identity, or expected-roster denominator appears here: weighing is free-flow and fully isolated. */
+        WeighingAlert: {
+            alert_id: string;
+            /** @description Producer's transition type, e.g. weighing_campaign_published, weighing_shed_submitted, weighing_shed_reopened, weighing_rework, weighing_shed_closed. Clients may branch on it for iconography; they must NOT rebuild the sentence from it. */
+            kind: string;
+            /**
+             * @description Which way this alert travelled FOR THIS RECIPIENT. downstream = it landed on the person who must do the work; upstream = on the person who oversees it. Derived from the recipient role the producer stamped, not from the event type, because one transition can travel both ways at once (a rework goes down to the operator and up to the director).
+             * @enum {string}
+             */
+            direction: "downstream" | "upstream";
+            /** @description Backend-owned headline. Render verbatim. */
+            title: string;
+            /** @description Backend-owned sentence naming the sheds and the reason. Render verbatim. */
+            body: string;
+            /** @enum {string} */
+            severity: "normal" | "high";
+            /** @description In-app destination this row opens, chosen by the producer (e.g. /weighing). */
+            target: string;
+            /** @description Shed or shed list this transition concerns, as the producer named it. */
+            shed_label?: string;
+            campaign_id?: string;
+            park_id?: string;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /** @description ONE keyset page of the caller's weighing alerts, newest first. */
+        WeighingAlertPageResponse: {
+            items: components["schemas"]["WeighingAlert"][];
+            /** @description Keyset cursor on (occurred_at DESC, alert_id DESC). Absent/empty means the last page. */
+            next_cursor?: string;
+            /** @description Backend-owned screen title. The client MUST render this rather than hardcode a weighing string, so the surface can be renamed without an app release. */
+            title: string;
+            /** @description Backend-owned empty-state sentence, shown when items is empty. Also client-owned never. */
+            empty_message: string;
+            trace_id?: string;
         };
         /** @description ONE keyset page of shed buckets across tasks, each carrying its own context and its FIRST page of captured evidence. GRAIN: one row = one bucket = one shed on one task. There is no denominator; each bucket states its own evidence cursor. */
         WeighingLeadershipShedPageResponse: {
@@ -7600,6 +7692,34 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appListWeighingAlerts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor returned as next_cursor by the previous page. */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the caller's weighing alerts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingAlertPageResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             500: components["responses"]["ServerError"];
         };
     };

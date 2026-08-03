@@ -105,10 +105,15 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		cmd.TenantID, cmd.ParkID, cmd.PeriodStartDate, cmd.PeriodEndDate, cmd.StartBusinessDate, cmd.PlannedCapPerDay, cmd.OperatorUserID, cmd.CreatedBy).
 		Scan(&c.CampaignID, &c.TenantID, &c.ParkID, &c.PeriodStartDate, &c.PeriodEndDate, &c.StartBusinessDate, &c.Status, &c.PlannedCapPerDay, &c.OperatorUserID, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt, &c.RowVersion)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "weighing_campaigns_one_active_week_per_park_idx" {
-			return domain.Campaign{}, ports.ErrImmutable
-		}
+		// NO park-week uniqueness mapping here on purpose. A park-week may hold
+		// SEVERAL tasks: the capture category is a per-BUCKET property, so
+		// leadership plans some sheds lump-sum and the park's LEFTOVER sheds as a
+		// second task in the same week. The campaign-grain unique index that used
+		// to reject that was dropped in migration 000081; the real invariant
+		// (one shed is at most one person's open work on one date) is enforced at
+		// bucket grain by uq_weighing_open_shed_per_park_date and surfaces below
+		// as a typed ShedScheduleConflict that NAMES the blocked sheds -- which is
+		// the error the planner can actually act on.
 		return domain.Campaign{}, err
 	}
 	// DUPLICATE WORK BLOCK: one open weighing row per (park, weigh date, shed).
@@ -125,12 +130,17 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		// FREE-FLOW: weighing has no expected set. This bucket write is the ONLY
 		// membership fact -- the selected shed/location becomes a task bucket, full
 		// stop. No herd read, no per-goat roster row, no expected count derived from
-		// goats/herd_register_is_kid. expected_animal_count is a fixed bucket-grain
-		// value (1), never a herd-derived denominator.
+		// goats/herd_register_is_kid. expected_animal_count is written as 0 -- the
+		// column's own default, meaning NO EXPECTATION. It used to be written as a
+		// literal 1, which every CEO-side progress figure then read as "this shed
+		// expects one animal": a shed where five animals were weighed reported an
+		// expectation of one. Nothing derives business truth from this column any
+		// more (see progress() and kernel.go); 0 is the only value free-flow can
+		// honestly store.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
 			`
 INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 1,
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, denormalized from the campaign so the one-open-row-per
     -- (park, weigh date, shed) unique index can exist at all. Every write path
     -- must set these; migration 000062 fails loudly if one forgets.
@@ -205,7 +215,10 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds
 SET status='canceled', updated_at=now()
-WHERE weighing_campaigns.tenant_id=$1::uuid
+-- The predicate must qualify with the table being UPDATEd. Qualifying with
+-- weighing_campaigns (which is not in this statement's FROM) made Postgres
+-- reject the statement at parse time, so EVERY campaign edit failed.
+WHERE weighing_campaign_sheds.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed', 'closed', 'canceled')
   AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
@@ -222,11 +235,12 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
 		var campaignShedID string
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
 		// FREE-FLOW: an edit re-states the SAME bucket membership fact create does --
-		// no herd read, no per-goat roster row, no herd-derived expected count.
+		// no herd read, no per-goat roster row, no expected count of any kind
+		// (expected_animal_count is written 0 = no expectation, same as create).
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
 INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 1,
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, re-stated on every edit: an edit that moved the task's park
     -- or weigh date must move its buckets with it, or the duplicate guard would
     -- keep defending the OLD slot and stop defending the new one.
@@ -242,7 +256,10 @@ DO UPDATE SET
   expected_animal_count=EXCLUDED.expected_animal_count,
   status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
   updated_at=now()
-WHERE weighing_campaign_sheds.status NOT IN ('completed','closed','canceled')
+-- 'canceled' is deliberately NOT in this list: re-selecting a shed the planner had
+-- deselected must revive it, which is exactly what the CASE above does. Excluding
+-- canceled here made that CASE unreachable, so a re-added shed stayed canceled.
+WHERE weighing_campaign_sheds.status NOT IN ('completed','closed')
 RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -553,7 +570,13 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
-	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts}, nil
+	// Operator-grain roll-up for the oversight surface. Whole-filter and park-aware,
+	// so the phone never has to group a keyset page and call the result a person's total.
+	summaries, err := r.operatorSummaries(ctx, tenantID, operatorFilter, parkFilter)
+	if err != nil {
+		return domain.CampaignPage{}, err
+	}
+	return domain.CampaignPage{Items: out, NextCursor: nextCursor, Counts: counts, OperatorSummaries: summaries}, nil
 }
 
 // campaignCounts is the WHOLE-FILTER task tally behind the Active / Completed tabs.
@@ -635,10 +658,16 @@ func (r *Repository) PlannerCatalog(ctx context.Context, tenantID string, period
 	// Grain proof (existing):
 	//   producer weighing_campaigns     0..N rows per (tenant_id, park_id, period_start_date) --
 	//     nothing forbids two non-canceled tasks for one park on one date, so the many side is
-	//     pre-aggregated by DISTINCT ON rather than joined raw.
+	//     pre-aggregated by DISTINCT ON rather than joined raw. Since migration 000081 dropped
+	//     weighing_campaigns_one_active_week_per_park_idx this is the NORMAL case, not a
+	//     theoretical one: leadership plans a park's leftover sheds as a second task.
 	//   consumer park row               match: existing.park_id = park.location_id
 	//   => 0..1 existing rows per park row. LEFT JOIN, never a fan-out.
-	//   Its shed_count is a scalar aggregate over that campaign's OWN buckets, at campaign grain.
+	//   Its shed_count is a scalar aggregate over that campaign's OWN buckets, at campaign grain --
+	//   NEVER the park-week total across tasks, which would be a merge across two grains.
+	//   task_count is a WINDOW count over the same pre-DISTINCT partition, so it reports how many
+	//   tasks the park really holds that week while the summary columns still describe exactly one
+	//   of them. Without it a caller cannot tell "one task" from "the newest of three".
 	//
 	// Served by locations_tenant_type_status_order_idx
 	// (tenant_id, location_type, status, display_order, name, location_id): the three equality
@@ -657,7 +686,10 @@ WITH existing AS (
       SELECT count(*)::int
       FROM weighing_campaign_sheds wcs
       WHERE wcs.tenant_id=wc.tenant_id AND wcs.campaign_id=wc.campaign_id
-    ) AS shed_count
+    ) AS shed_count,
+    -- Evaluated BEFORE DISTINCT ON collapses the partition, so it counts every
+    -- task the park holds that week, not the one row that survives.
+    count(*) OVER (PARTITION BY wc.park_id)::int AS task_count
   FROM weighing_campaigns wc
   WHERE wc.tenant_id=$1::uuid
     AND wc.period_start_date=$2::date
@@ -682,7 +714,8 @@ SELECT
   existing.period_end_date,
   existing.start_business_date,
   existing.operator_user_id,
-  COALESCE(existing.shed_count, 0)::int
+  COALESCE(existing.shed_count, 0)::int,
+  COALESCE(existing.task_count, 0)::int
 FROM locations park
 LEFT JOIN existing ON existing.park_id=park.location_id
 WHERE park.tenant_id=$1::uuid
@@ -700,14 +733,15 @@ LIMIT $3`, tenantID, periodStartDate, domain.MaxPlannerParks)
 	for rows.Next() {
 		var park domain.PlannerPark
 		var existingID, existingStatus, existingStart, existingEnd, existingBusinessDate, existingOperator *string
-		var existingShedCount int
+		var existingShedCount, existingTaskCount int
 		if err := rows.Scan(
 			&park.ParkID, &park.Name, &park.ShedCount,
 			&existingID, &existingStatus, &existingStart, &existingEnd,
-			&existingBusinessDate, &existingOperator, &existingShedCount,
+			&existingBusinessDate, &existingOperator, &existingShedCount, &existingTaskCount,
 		); err != nil {
 			return domain.PlannerCatalog{}, err
 		}
+		park.ExistingCampaignCount = existingTaskCount
 		if existingID != nil {
 			park.ExistingCampaign = &domain.CampaignSummary{
 				CampaignID:        *existingID,
@@ -1478,6 +1512,10 @@ func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pg
 	businessDayStart := biztime.BusinessDayStart(time.Now())
 	businessDayEnd := businessDayStart.Add(24 * time.Hour)
 	var obs domain.Observation
+	// rowExisted distinguishes the `updated` CTE branch from `inserted`; obs.Superseded says
+	// whether that update opened a NEW evidence round. Both false = brand-new capture;
+	// rowExisted && !Superseded = a content-identical re-post that changed nothing.
+	var rowExisted bool
 	err = tx.QueryRow(ctx, `
 WITH campaign AS (
   SELECT campaign_id
@@ -1548,21 +1586,73 @@ WITH campaign AS (
 	   AND observation.submitted_at >= $10::timestamptz
 	   AND observation.submitted_at < $11::timestamptz
 	  LIMIT 1
+	), prior AS (
+	  -- Pre-update snapshot of the row the updated CTE is about to touch, so the write can tell
+	  -- a REAL edit from a content-identical re-post. All CTEs see the same snapshot, so
+	  -- prior.* is the OLD weight/proof even though the UPDATE below runs in the same
+	  -- statement (observation.* inside RETURNING is already the NEW value and cannot
+	  -- answer "did anything change?").
+	  --
+	  -- The row lock is taken here, AFTER assigned_shed's bucket lock, and the join on
+	  -- assigned_shed forces that ordering: campaign -> bucket -> observation, always.
+	  -- Locking here (rather than trusting the pre-query unknownAnimalObservationBefore
+	  -- read) is what makes the comparison race-free against a concurrent editor.
+	  SELECT observation.observation_id, observation.weight_kg, observation.proof_artifact_id
+	  FROM assigned_shed s
+	  JOIN weighing_observations observation
+	    ON observation.tenant_id=$1::uuid
+	   AND observation.campaign_id=$2::uuid
+	   AND observation.campaign_shed_id=s.campaign_shed_id
+	   AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
+	   AND (observation.submitted_at IS NULL OR observation.verification_status='rework')
+	  FOR NO KEY UPDATE OF observation
 	), updated AS (
+	  -- A re-post that changes NOTHING is not a new evidence round.
+	  --
+	  -- The Android client captures in two phases (weight, then the same weight again
+	  -- carrying the uploaded proof id) under two different idempotency keys. Keys are all
+	  -- this statement can compare, so both phases land here and the second one used to
+	  -- stamp a fresh accepted_at and report is_update=true -- an EDIT. The service layer
+	  -- then withdrew the pending verification item and raised a second round, and a second
+	  -- weighing.observation_accepted event was emitted, for a capture nobody edited.
+	  --
+	  -- The changed-test is the same weight-or-proof comparison auditAnimalObservation already
+	  -- makes to choose between 'weighing.observation_updated' and the no-op action
+	  -- 'weighing.observation_reaccepted'. The audit trail has always distinguished these
+	  -- two cases; the evidence round and the outbox now do too. A genuine edit (either
+	  -- field differs) is untouched: it still resets verification, still advances
+	  -- accepted_at, and still reports is_update=true.
 	  UPDATE weighing_observations observation
 	  SET weight_kg=$4,
 	      proof_artifact_id=p.proof_id,
 	      recorded_by=$7::uuid,
-	      accepted_at=now(),
-	      submitted_at=NULL,
-	      verification_status='pending',
-	      verified_by=NULL,
-	      verified_at=NULL,
-	      rework_reason=NULL
+	      accepted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN now() ELSE observation.accepted_at END,
+	      submitted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                          OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                        THEN NULL ELSE observation.submitted_at END,
+	      verification_status=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                                 OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                               THEN 'pending' ELSE observation.verification_status END,
+	      verified_by=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN NULL ELSE observation.verified_by END,
+	      verified_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN NULL ELSE observation.verified_at END,
+	      rework_reason=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                           OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                         THEN NULL ELSE observation.rework_reason END
 	  FROM campaign c
 	  JOIN assigned_shed s ON true
 	  JOIN proof_ok p ON true
-	  WHERE observation.tenant_id=$1::uuid
+	  -- Correlated in WHERE, not in an ON clause: a FROM-item join condition may not
+	  -- reference the UPDATE target. prior yields at most one row (the single open row for
+	  -- this tag, guaranteed by weighing_observations_one_open_tag_uidx).
+	  JOIN prior ON true
+	  WHERE prior.observation_id=observation.observation_id
+	    AND observation.tenant_id=$1::uuid
     AND observation.campaign_id=$2::uuid
 	    AND observation.campaign_shed_id=s.campaign_shed_id
 	    AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
@@ -1575,14 +1665,27 @@ WITH campaign AS (
     observation.scanned_identifier AS scanned_identifier_text, observation.weight_kg::float8,
     observation.proof_artifact_id::text,
     COALESCE(observation.expected_location_id::text,'') AS expected_location_id_text,
-    '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at,
-    TRUE AS is_update
+    -- The row's REAL actual location, not a hardcoded ''. These two used to return empty
+    -- strings, so every edit-path event silently dropped the operator-supplied location that
+    -- the inserted-path event carries -- a value the row itself has had all along (the UPDATE
+    -- above deliberately does not touch actual_location_id, so this is the location captured
+    -- when the animal was first scanned). The fan-out fix removes the two-phase traffic that
+    -- was flooding this path, but the path still runs for what it was always for: a genuine
+    -- weight correction and a verifier-rework re-capture. Those must not lose the location.
+    COALESCE(observation.actual_location_id::text,'') AS actual_location_id_text,
+    COALESCE(observation.actual_location_label,'') AS actual_location_label_text, observation.accepted_at,
+    -- is_update means "this write opened a NEW evidence round", not merely "a row already
+    -- existed". A content-identical re-post reports FALSE so the service does not withdraw
+    -- and re-raise a verification item for evidence that never changed.
+    (prior.weight_kg IS DISTINCT FROM $4::numeric
+       OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id) AS is_update,
+    TRUE AS row_existed
 ), inserted AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, scanned_identifier,
     weight_kg, proof_artifact_id, expected_location_id, expected_location_label,
     actual_location_id, actual_location_label,
-    mismatch_status, recorded_by, idempotency_key
+    recorded_by, idempotency_key
   )
   SELECT $1::uuid, $2::uuid, s.campaign_shed_id, $3,
     $4, p.proof_id, s.location_id, s.display_name,
@@ -1591,20 +1694,24 @@ WITH campaign AS (
     -- NOT resolved here: the write path is restricted to weighing-owned tables, so
     -- the locations catalogue is joined on the READ path instead.
     NULLIF($9, '')::uuid, NULL,
-    'extra_scan', $7::uuid, $6
+    -- No roster verdict is stored. mismatch_status was DROPPED (000081): free-flow
+    -- has no expected set, so a scan cannot be "expected", "wrong shed" or "extra".
+    -- Stamping 'extra_scan' on every row turned an operator's correct, in-shed work
+    -- into an exception queue for whoever read the table.
+    $7::uuid, $6
   FROM campaign c
   JOIN assigned_shed s ON true
   JOIN proof_ok p ON true
   WHERE NOT EXISTS (SELECT 1 FROM updated)
     AND NOT EXISTS (SELECT 1 FROM submitted_duplicate)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update
+  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update, FALSE AS row_existed
 )
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM updated
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM updated
 UNION ALL
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM inserted`,
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM inserted`,
 		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded)
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded, &rowExisted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
@@ -1626,8 +1733,19 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_observation", obs.ObservationID, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
-		return domain.Observation{}, err
+	// weighing.observation_accepted announces an accepted observation STATE. A re-post that
+	// left every field exactly as it was announces nothing: the state consumers already saw
+	// is still the current state. Emitting it anyway is pure fan-out -- the first real device
+	// run put 20 of these on the outbox for 10 captures, because the two-phase client posted
+	// each capture under two keys and each key minted its own event. The idempotency record
+	// above is still written for the new key, so an exact replay of that key still short-
+	// circuits to the cached result.
+	//
+	// A brand-new capture (!rowExisted) and a genuine edit (obs.Superseded) both still emit.
+	if !rowExisted || obs.Superseded {
+		if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
+			return domain.Observation{}, err
+		}
 	}
 	if err := r.auditAnimalObservation(ctx, tx, cmd, before, obs); err != nil {
 		return domain.Observation{}, err
@@ -2539,7 +2657,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
@@ -2581,7 +2699,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err
 		}
@@ -3047,7 +3165,7 @@ func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType
 		"visibility_scope": map[string]any{"tenant_id": tenantID},
 		"evidence_refs":    []any{},
 		"payload":          payload,
-		"trace_id":         idem,
+		"trace_id":         boundedTraceID(idem),
 	})
 	if err != nil {
 		return err
@@ -3062,9 +3180,42 @@ func (r *Repository) enqueue(ctx context.Context, tx pgx.Tx, tenantID, eventType
 	}
 	_, err = tx.Exec(ctx, `
 INSERT INTO outbox_messages (tenant_id, event_id, event_type, schema_version, aggregate_type, aggregate_id, topic, payload, headers, idempotency_key, trace_id, status, next_attempt_at)
-VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, $7, 'pending', now())
-ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem)
+VALUES ($1::uuid, $2::uuid, $3, '1.0.0', 'weighing', $4::uuid, 'domain-events', $5::jsonb, $6::jsonb, $7, $8, 'pending', now())
+ON CONFLICT DO NOTHING`, tenantID, eventID, eventType, aggregateID, string(raw), string(headers), idem, boundedTraceID(idem))
 	return err
+}
+
+// maxEnvelopeTraceIDLen mirrors trace_id's maxLength in
+// contracts/jsonschema/domain-event-envelope.schema.json. The envelope allows an
+// idempotency_key of up to 320 characters but a trace_id of only 200, and this
+// producer used the idempotency key verbatim as the trace id -- so any key longer
+// than 200 produced an envelope that could never validate.
+const maxEnvelopeTraceIDLen = 200
+
+// boundedTraceID keeps trace_id inside the envelope contract.
+//
+// This is the ACTUAL cause of the 12 undeliverable events in the first relay run
+// against real device data -- not the missing actual_location_id, which is a real
+// but separate data-loss bug on the edit path (the envelope schema does not
+// constrain payload contents at all, so a missing payload field cannot fail
+// validation). The two were perfectly correlated because the client's second,
+// `:proof:`-suffixed post was BOTH the one that took the edit path AND the one
+// whose key was long enough (226 chars) to overflow trace_id; the 15 that
+// published had 183-char keys. Two campaign_created events failed the same way at
+// 249 and 431 characters.
+//
+// The relay marks a failed envelope 'failed' on attempt 1 and never retries it, so
+// this is silent, permanent event loss. trace_id is a correlation id, not an
+// identity, so shortening it loses nothing -- but a plain truncation would make two
+// distinct long keys collide, so the overflow keeps a readable prefix plus a
+// deterministic digest of the WHOLE key.
+func boundedTraceID(idem string) string {
+	if len(idem) <= maxEnvelopeTraceIDLen {
+		return idem
+	}
+	sum := sha256.Sum256([]byte(idem))
+	digest := hex.EncodeToString(sum[:])[:32]
+	return idem[:maxEnvelopeTraceIDLen-1-len(digest)] + ":" + digest
 }
 
 func weighingSubjectType(eventType string) string {
@@ -3087,10 +3238,14 @@ func weighingSubjectType(eventType string) string {
 func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wrongShed, missing int) domain.Progress {
 	p := domain.Progress{}
 	for _, shed := range sheds {
-		switch shed.WeighingCategory {
-		case domain.CategoryIndividualAnimal:
-			p.IndividualExpectedCount += shed.ExpectedAnimalCount
-		case domain.CategoryPerShedPartition:
+		// FREE-FLOW: an individual_animal bucket has NO expected animal total. It
+		// is a place to weigh whatever walks through, so IndividualExpectedCount
+		// stays 0 ("no expectation") and is never summed from
+		// expected_animal_count, which the write path stores as 0 and which no
+		// longer carries any signal. A per_shed_partition bucket is different: the
+		// unit there is the BUCKET itself (one lump-sum weight per bucket), so
+		// counting buckets is a real, non-invented expectation.
+		if shed.WeighingCategory == domain.CategoryPerShedPartition {
 			p.PerScopeExpectedCount++
 		}
 	}
@@ -3098,7 +3253,12 @@ func progress(sheds []domain.CampaignShed, completedAnimals, completedScopes, wr
 	p.PerScopeCompletedCount = completedScopes
 	p.WrongShedCount = wrongShed
 	p.MissingCount = missing
-	p.RemainingCount = (p.IndividualExpectedCount - p.IndividualCompletedCount) + (p.PerScopeExpectedCount - p.PerScopeCompletedCount)
+	// "Still open" can only be counted where an expectation actually exists: the
+	// lump-sum buckets. The individual side used to be folded in as
+	// (IndividualExpectedCount - IndividualCompletedCount), which with a real
+	// expectation of 0 turns every animal an operator weighs into a NEGATIVE
+	// remainder that silently eats the lump-sum figure next to it.
+	p.RemainingCount = p.PerScopeExpectedCount - p.PerScopeCompletedCount
 	if p.RemainingCount < 0 {
 		p.RemainingCount = 0
 	}

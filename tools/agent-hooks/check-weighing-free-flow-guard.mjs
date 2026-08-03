@@ -256,7 +256,13 @@ export function writePathTableFindings(rel, fn, body) {
       message: `${rel}: ${fn}() defines a CTE named \`${shadow}\`, which collides with a banned table name — a CTE may not shadow goats/weighing_expected_animals/vaccination/herd tables, because that would make every reference to the real table look like a local CTE reference and silently defeat the allowlist. Rename the CTE.`,
     });
   }
-  const re = /\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+  // `IS [NOT] DISTINCT FROM <expr>` is a COMPARISON OPERATOR whose right-hand side is a value,
+  // not a table. Without the negative lookbehind the guard reads the operator's FROM as a table
+  // reference and reports whatever alias follows -- e.g. `prior.proof_artifact_id IS DISTINCT
+  // FROM p.proof_id` was reported as a phantom table `p`. That fired on the fan-out fix, i.e. it
+  // punished the correct change-detection this guard exists to encourage, exactly as the `FOR
+  // UPDATE OF` case below did for correct row locking.
+  const re = /(?<!\bDISTINCT\s)\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi;
   let m;
   const seen = new Set();
   while ((m = re.exec(body)) !== null) {
@@ -1290,7 +1296,36 @@ func (r *Repository) noop(ctx context.Context) error { return nil }
     throw new Error("self-test failed: mode 13 false positive on a comment-only mention");
   }
 
-  console.log("weighing-free-flow guard: self-test passed (13/13 failure modes + 3 demonstrated bypasses)");
+  // GOOD: SQL operators that merely CONTAIN a scan keyword must not be read as table references.
+  // `IS [NOT] DISTINCT FROM <expr>` compares two values; `FOR [NO KEY] UPDATE OF <alias>` locks a
+  // row. Both were reported as phantom tables (`p`, `of`) on write paths doing exactly the
+  // change-detection and row-locking this guard exists to encourage. A guard that punishes the
+  // correct fix teaches people to disable it.
+  const goodOperatorSql = `
+func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, ` + "`" + `
+WITH proof_ok AS (SELECT proof_id FROM proof_artifacts WHERE tenant_id=$1),
+prior AS (
+  SELECT observation_id, proof_artifact_id FROM weighing_observations
+   WHERE tenant_id=$1 FOR NO KEY UPDATE OF weighing_observations
+)
+UPDATE weighing_observations observation
+   SET proof_artifact_id=p.proof_id
+  FROM proof_ok p JOIN prior ON true
+ WHERE prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+   AND observation.weight_kg IS NOT DISTINCT FROM prior.weight_kg
+` + "`" + `, "t")
+	return err
+}
+`;
+  const operatorFindings = writePathTableFindings("fake.go", "recordUnknownAnimalObservationTx", goodOperatorSql);
+  if (operatorFindings.length) {
+    throw new Error(
+      `self-test failed: SQL operator false positive -- IS DISTINCT FROM / FOR UPDATE OF must not be read as tables. got: ${JSON.stringify(operatorFindings)}`,
+    );
+  }
+
+  console.log("weighing-free-flow guard: self-test passed (13/13 failure modes + 4 demonstrated bypasses)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file

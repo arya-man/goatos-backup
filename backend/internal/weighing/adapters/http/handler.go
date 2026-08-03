@@ -43,6 +43,7 @@ type Service interface {
 	AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
+	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 }
 
 type Handler struct {
@@ -95,6 +96,27 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
 	mux.HandleFunc("GET /weighing/process-state", h.WeighingProcessState)
+	// The weighing module's OWN lifecycle feed. Deliberately under /app/weighing/*
+	// so the href carries the module scoping and the nav tab can stay labelled
+	// just "Alerts" (maintainer ruling 2026-08-03).
+	mux.HandleFunc("GET /app/weighing/alerts", h.ListAlerts)
+}
+
+// ListAlerts serves the weighing alerts feed. Title and empty-state copy travel
+// in the response because the BACKEND owns every visible label on this surface;
+// the phone renders what it is given and hardcodes no weighing strings.
+func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	limit, ok := h.queryLimit(w, r, domain.AlertPageSize)
+	if !ok {
+		return
+	}
+	page, err := h.service.ListAlerts(r.Context(), actor(r), r.URL.Query().Get("cursor"), limit)
+	h.respond(w, r, map[string]any{
+		"items":         page.Items,
+		"next_cursor":   page.NextCursor,
+		"title":         page.Title,
+		"empty_message": page.EmptyMessage,
+	}, err)
 }
 
 // WeighingProcessState serves Calendar day markers and the Control Tower gap
@@ -209,7 +231,15 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
 	caller := actor(r)
 	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+	// operator_summaries is the OPERATOR-grain roll-up the oversight surface renders.
+	// Unlike counts it IS narrowed by park_id, because the park chip is that screen's
+	// own filter: a summary naming people who hold no work in the selected park would
+	// describe a different screen than the one on show.
+	summaries := page.OperatorSummaries
+	if summaries == nil {
+		summaries = []domain.OperatorSummary{}
+	}
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "operator_summaries": summaries, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
 }
 
 // campaignCapabilities names which task-level writes THIS caller may attempt SOMEWHERE. Publish

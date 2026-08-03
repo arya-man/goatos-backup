@@ -38,7 +38,14 @@ class LocalBackendConnectivityGate(
         delegate.isOnline() || apiBaseUrl.isLoopbackHttpBase()
 }
 
-private fun String.isLoopbackHttpBase(): Boolean {
+/**
+ * Whether an API base URL points at the device's own loopback interface — i.e. a request to it
+ * cannot possibly need internet. THE single source of truth for that question: both
+ * [LocalBackendConnectivityGate] (the drain-time gate) and `SyncWorkScheduler` (the WorkManager
+ * enqueue-time `Constraints`) must agree, or the OS-level constraint silently vetoes work the
+ * gate would have allowed and a queued write never leaves the phone.
+ */
+fun String.isLoopbackHttpBase(): Boolean {
     val uri = runCatching { URI(this) }.getOrNull() ?: return false
     val scheme = uri.scheme?.lowercase() ?: return false
     if (scheme != "http" && scheme != "https") return false

@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 27,
-    "identityHash": "93b42c4c9e214eec57cfed63787c8e7c",
+    "identityHash": "7fb2483cb65ca04e94aa79c68126b99f",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -3083,18 +3083,18 @@
         }
       },
       {
-        "tableName": "weighing_transition_epoch",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeId` TEXT NOT NULL, `epoch` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeId`))",
+        "tableName": "weighing_alerts_cache",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`cacheKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`cacheKey`))",
         "fields": [
           {
-            "fieldPath": "scopeId",
-            "columnName": "scopeId",
+            "fieldPath": "cacheKey",
+            "columnName": "cacheKey",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "epoch",
-            "columnName": "epoch",
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -3108,14 +3108,14 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeId"
+            "cacheKey"
           ]
         }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '93b42c4c9e214eec57cfed63787c8e7c')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7fb2483cb65ca04e94aa79c68126b99f')"
     ]
   }
 }

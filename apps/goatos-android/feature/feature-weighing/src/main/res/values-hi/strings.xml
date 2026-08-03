@@ -7,7 +7,6 @@
     <!-- Shared weighing chrome -->
     <string name="weighing_eyebrow">वज़न</string>
     <string name="weighing_refresh">वज़न का काम रीफ़्रेश करें</string>
-    <string name="weighing_alerts">अलर्ट</string>
     <string name="weighing_category_lumpsum">कुल वज़न</string>
     <string name="weighing_category_individual">व्यक्तिगत</string>
     <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>
@@ -61,6 +60,14 @@
     <string name="weighing_no_matching_rows_body">कोई दूसरा टैग या शेड नाम आज़माएँ।</string>
     <string name="weighing_submit_lump_sum">कुल वज़न भेजें</string>
     <string name="weighing_submit">भेजें</string>
+    <string name="weighing_blocked_saving">आपकी दर्ज जानकारी सहेजी जा रही है। एक पल रुकें।</string>
+    <string name="weighing_blocked_no_shed_open">यह तौल दर्ज करने से पहले एक शेड खोलें।</string>
+    <string name="weighing_blocked_need_weight">भेजने से पहले वज़न दर्ज करें।</string>
+    <string name="weighing_blocked_need_count">तराजू पर कितने पशु थे, वह संख्या दर्ज करें।</string>
+    <string name="weighing_blocked_need_video">भेजने से पहले इस तौल का वीडियो रिकॉर्ड करें।</string>
+    <string name="weighing_blocked_video_uploading">वीडियो अभी भेजा जा रहा है। पूरा होते ही भेजें बटन चालू हो जाएगा।</string>
+    <string name="weighing_blocked_video_failed">वीडियो नहीं गया। वीडियो पर फिर कोशिश करें दबाएँ, फिर भेजें।</string>
+    <string name="weighing_blocked_nothing_captured">भेजने से पहले एक टैग स्कैन करें और वज़न सहेजें।</string>
     <string name="weighing_animals_captured_one">%1$d पशु लिया गया</string>
     <string name="weighing_animals_captured_other">%1$d पशु लिए गए</string>
     <string name="weighing_scan_to_begin">शुरू करने के लिए RFID टैग स्कैन करें</string>
@@ -86,7 +93,11 @@
     <string name="weighing_field_total_weight">कुल वज़न</string>
     <string name="weighing_field_animal_count">पशु संख्या</string>
     <string name="weighing_average_per_animal_fmt">औसत %1$s किग्रा प्रति पशु</string>
-    <string name="weighing_videos_uploaded_fmt">%1$d / %2$d वीडियो अपलोड हुए</string>
+    <string name="weighing_videos_saved_fmt">%1$d सहेजे गए</string>
+    <string name="weighing_videos_saved_and_uploading_fmt">%1$d सहेजे गए · %2$d अभी अपलोड हो रहे हैं</string>
+    <string name="weighing_videos_uploading_only_fmt">%1$d अपलोड हो रहा है</string>
+    <string name="weighing_videos_limit_reached">अधिकतम 5 वीडियो रिकॉर्ड किए गए</string>
+    <string name="weighing_videos_uploaded_fmt">%1$d अपलोड हुए</string>
     <string name="weighing_video_index_fmt">वीडियो %1$d</string>
     <string name="weighing_replace">बदलें</string>
     <string name="weighing_remove">हटाएँ</string>
@@ -155,7 +166,7 @@
     <string name="weighing_task_publishing">काम प्रकाशित हो रहा है</string>
     <string name="weighing_task_publish">काम प्रकाशित करें</string>
     <string name="weighing_task_ending">काम खत्म हो रहा है</string>
-    <string name="weighing_task_close_open_fmt">काम बंद करें · %1$d अभी बाकी</string>
+    <string name="weighing_task_close_open_fmt">काम बंद करें · %1$d जमा नहीं हुए</string>
     <string name="weighing_task_mark_complete">काम पूर्ण करें</string>
     <string name="weighing_task_reopen">काम फिर खोलें</string>
     <string name="weighing_task_reopen_blocked">पूरे हो चुके काम को दोबारा योजना में लाना अभी उपलब्ध नहीं है। एक शेड समूह को नीचे उसके अपने कार्ड से फिर खोला जा सकता है।</string>
@@ -315,4 +326,36 @@
     <string name="weighing_reopen_dialog_subtitle">इससे शेड बकेट फिर से खुले काम में आ जाएगी। कारण बताएं।</string>
     <string name="weighing_reopen_dialog_placeholder">फिर खोलने का कारण</string>
     <string name="weighing_reopen_dialog_confirm">फिर खोलें</string>
+    <string name="weighing_task_close_awaiting_fmt">काम बंद करें · %1$d जाँच के इंतज़ार में</string>
+    <string name="weighing_task_close_split_fmt">काम बंद करें · %1$d जमा नहीं हुए · %2$d जाँच के इंतज़ार में</string>
+    <string name="weighing_bucket_state_not_started">अभी कुछ दर्ज नहीं</string>
+    <string name="weighing_bucket_state_in_progress">तौल जारी है</string>
+    <string name="weighing_bucket_state_submitted">जमा किया गया</string>
+    <string name="weighing_bucket_state_accepted">स्वीकृत</string>
+    <string name="weighing_bucket_state_rework">ऑपरेटर को वापस भेजा गया</string>
+    <string name="weighing_videos_none">अभी कोई वीडियो नहीं</string>
+    <string name="weighing_videos_uploading_fmt">%1$d अपलोड हो रहे हैं</string>
+    <string name="weighing_videos_failed_fmt">%1$d विफल</string>
+
+    <string name="weighing_operators_people_heading">कौन तौल रहा है</string>
+    <string name="weighing_operators_sheds_heading">शेड दर शेड</string>
+    <string name="weighing_operators_unassigned">अभी किसी को नहीं सौंपा गया</string>
+    <string name="weighing_operators_roster_gap">सौंपा गया, पर रोस्टर में नहीं</string>
+    <string name="weighing_operators_sheds_one">%1$d शेड</string>
+    <string name="weighing_operators_sheds_other">%1$d शेड</string>
+    <string name="weighing_operators_nothing_weighed_yet">अभी कुछ नहीं तौला गया</string>
+    <string name="weighing_operators_state_not_started_fmt">%1$d शुरू नहीं हुआ</string>
+    <string name="weighing_operators_state_capturing_fmt">%1$d तौल जारी</string>
+    <string name="weighing_operators_state_submitted_fmt">%1$d जमा किया</string>
+    <string name="weighing_operators_state_accepted_fmt">%1$d स्वीकृत</string>
+    <string name="weighing_operators_state_rework_fmt">%1$d वापस भेजा</string>
+    <string name="weighing_operators_no_people_title">अभी कोई तौल नहीं रहा</string>
+    <string name="weighing_shed_state_not_started">अभी कुछ दर्ज नहीं</string>
+    <string name="weighing_shed_state_capturing">तौल जारी है</string>
+    <string name="weighing_shed_state_submitted">जमा किया, जाँच बाकी</string>
+    <string name="weighing_shed_state_accepted">स्वीकृत</string>
+    <string name="weighing_shed_weighed_by_fmt">%1$s ने तौला</string>
+    <string name="weighing_shed_weighed_by_nobody">अभी किसी को नहीं सौंपा गया</string>
+    <string name="weighing_weighed_submitted_fmt">%1$d तौले गए · %2$d भेजे गए</string>
+    <string name="weighing_not_submitted_chip">नहीं भेजा गया</string>
 </resources>

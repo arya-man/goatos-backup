@@ -340,9 +340,9 @@ button{font-family:inherit}
     </div>
 
     <div class="try">
-      <h4>One task per park per week</h4>
-      <p>A park that already has a task this week cannot get a second one. The button becomes <b>Edit task</b>, and forcing a create is blocked with the existing task and an Edit action.</p>
-      <button onclick="selWeek('w31');leadHome();startWiz('new')">Try creating a duplicate</button>
+      <h4>Leftover sheds get their own task</h4>
+      <p>A park may hold several tasks in one week: the capture category is chosen per shed, so leadership plans some sheds lump-sum now and the leftover sheds as a separate task. Only the individual sheds another task already holds are locked, with the reason on the row.</p>
+      <button onclick="selWeek('w31');leadHome();startWiz('new')">Try planning the leftover sheds</button>
     </div>
 
     <p class="foot">Operator submissions update this view. Switch to Operator, submit a shed, then come back — Week 31's counters, shed rows and activity feed all move.</p>
@@ -728,13 +728,13 @@ function renderWiz(){
 
   /* duplicate blocked */
   if(wz.conflict){
-    box.innerHTML=`<div class="lt" style="padding-top:14px">Cannot create</div>
+    box.innerHTML=`<div class="lt" style="padding-top:14px">Already scheduled this week</div>
       <div class="card" style="border-color:rgba(240,181,75,.4)">
-        <div class="ch"><span class="pill warn">task already exists</span></div>
+        <div class="ch"><span class="pill info">task already scheduled</span></div>
         <h4>${wz.conflict} · ${w.lbl}</h4>
-        <div class="cs">This park already has a weighing task for this week. One task per park per week — create is blocked.</div>
+        <div class="cs">This park already has work scheduled this week. You can still plan the sheds it did not cover — sheds another task already holds are locked on the row.</div>
       </div>
-      <div class="fgrp"><div class="frow"><span class="fk">Existing task</span><span class="fv">${w.lbl} · ${w.dt}</span></div>
+      <div class="fgrp"><div class="frow"><span class="fk">Most recent task</span><span class="fv">${w.lbl} · ${w.dt}</span></div>
         <div class="frow"><span class="fk">Status</span><span class="fv"><span class="pill ${w.pill}">${w.state}</span></span></div>
         <div class="frow"><span class="fk">Operator</span><span class="fv">${w.op||'Amit Kumar'}</span></div>
         <div class="frow"><span class="fk">Sheds</span><span class="fv">${(w.sheds||[]).length}</span></div></div>
@@ -750,7 +750,7 @@ function renderWiz(){
     ${edit?`<div class="banner" style="margin-top:16px">Editing <b>${w.lbl} · CPT</b>. The lane and park are fixed for an existing task.</div>`:''}`;
   else if(wz.step===1){
     const parks=[['CPT','CPT · Channapatna','Castro, Gandhi, Godel',516],['CBE','CBE · Coimbatore','Castro 1 / 2 / 3',286]];
-    b=`<div class="wlab">Step 2 · Park</div><h2 class="wtit">${edit?'Park':'Select one park'}</h2><p class="wsub">${edit?'The park cannot change on an existing task.':'One task per park per week. A park that already has a task this week cannot get a second one.'}</p>
+    b=`<div class="wlab">Step 2 · Park</div><h2 class="wtit">${edit?'Park':'Select one park'}</h2><p class="wsub">${edit?'The park cannot change on an existing task.':'A park may hold several tasks in one week; sheds another task already holds are locked.'}</p>
     ${parks.map(([id,nm,sub,c])=>{
       const taken=hasTask(CUR,id);
       if(edit)return `<div class="opt ${wz.park===id?'sel':'dis'}"><span class="rb"></span><div><div class="ot">${nm}</div><div class="os">${wz.park===id?'current park · locked':sub}</div></div><span class="cnt">${wz.park===id?'🔒':c}</span></div>`;
