@@ -1286,7 +1286,7 @@ and the existing guard then enforces it permanently.
 ID: ALERTS-002  
 Priority: P2  
 Title: Vaccination's alerts feed is still on the generic `/alerts` route  
-Status: OPEN — cosmetic/structural, content is already vaccination-scoped  
+Status: FIXED — vaccination's bar now points at `/vaccination/alerts`; `/alerts` stays hosted as a legacy alias only  
 Origin: maintainer question 2026-08-03 ("what is /alerts, the process-integrity feed?")  
 Verdict: CONFIRMED (registry + route table read at HEAD)  
 Prior mapping: same rule as ALERTS-001  
@@ -1305,12 +1305,13 @@ Business impact: none directly; it is a trap for the next author.
 Root-cause-or-band-aid verdict: root — a generically-named route for feature-owned content.  
 Counterargument: renaming a live route costs a migration of deep links and notification targets.  
 Why it survives: the rule is that alerts are feature-scoped; the address should say so.  
-E2E / guardrail status: `module-alerts-tab-guard` enforces wiring and label, but deliberately
-does NOT enforce a route-name convention while `/alerts` is still the live vaccination route.  
-Fix sketch: introduce `/vaccination/alerts`, keep `/alerts` hosted as an alias for existing
-notification targets, move the nav contribution, then tighten the guard to require the href to
-start with the module's own prefix.  
-Guardrail needed: the href-prefix assertion above, added once the alias exists.
+E2E / guardrail status: CLOSED with a guard. `module-alerts-tab-guard` now requires every
+alerts href to start with its own module's prefix, with an adversarial self-test case for the
+generic-route regression. Backend nav tests updated to the new href; the locale label test now
+matches the alerts item by KEY rather than a hardcoded href, so it cannot pin a route again.  
+Fix applied: `/vaccination/alerts` is the bar's destination and is a hosted bottom-bar root;
+`/alerts` remains hosted (and a root) purely so alerts already delivered to phones still open
+the feed, and it appears in no bar.
 
 ## 7. Dropped / Countered / Out-of-Scope Findings
 
