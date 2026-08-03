@@ -1581,7 +1581,7 @@ WITH campaign AS (
     -- NOT resolved here: the write path is restricted to weighing-owned tables, so
     -- the locations catalogue is joined on the READ path instead.
     NULLIF($9, '')::uuid, NULL,
-    -- No roster verdict is stored. mismatch_status was DROPPED (000081): free-flow
+    -- No roster verdict is stored. mismatch_status was DROPPED (000082): free-flow
     -- has no expected set, so a scan cannot be "expected", "wrong shed" or "extra".
     -- Stamping 'extra_scan' on every row turned an operator's correct, in-shed work
     -- into an exception queue for whoever read the table.

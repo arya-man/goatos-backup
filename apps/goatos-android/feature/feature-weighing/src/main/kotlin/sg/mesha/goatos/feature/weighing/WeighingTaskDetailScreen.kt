@@ -125,15 +125,6 @@ data class WeighingTaskShedUiRow(
  * every card below it talks about animals captured. Keeping the number separate lets the screen name
  * the unit it is counting, in the reader's own language.
  */
-data class WeighingTaskOperatorFilterUiRow(
-    /** Stable filter key: the operator's user id, or "unassigned" for the no-operator bucket. */
-    val id: String,
-    /** The operator's display NAME as the backend resolved it. A user id is never rendered. */
-    val operatorLabel: String,
-    /** Shed buckets this operator owns across the WHOLE task, never just the loaded page. */
-    val shedCount: Int,
-    val selected: Boolean,
-)
 
 /**
  * The buckets one operator owns on this task.
