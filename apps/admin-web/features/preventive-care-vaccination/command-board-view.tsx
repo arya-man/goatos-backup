@@ -5,8 +5,10 @@ import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 import {
   commonDriveName,
+  driveSelectionValue,
   formatDateSpan,
   formatScheduledDriveDates,
+  parseDriveSelectionValue,
   scheduledDriveCampaigns,
   scheduledDriveRows,
   type CommandBoardDriveOption,
@@ -281,12 +283,15 @@ interface CommandBoardViewProps {
   board: CommandBoard;
   pageContract: AdminUiPageContract;
   driveBatchId?: string;
+  // Park of the selected drive. The API's drive-option grain is (batch, park), so the batch id
+  // alone does not identify a row once the same batch runs in two parks.
+  driveParkId?: string;
 }
 
 const STATUS_KEYS = ["verified", "awaiting", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
-export function CommandBoardView({ board, pageContract, driveBatchId }: CommandBoardViewProps) {
+export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
@@ -301,7 +306,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
 
   const selectDrive = (next: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    if (next) params.set("cb_drive", next); else params.delete("cb_drive");
+    const selection = next ? parseDriveSelectionValue(next) : undefined;
+    if (selection?.driveBatchId) params.set("cb_drive", selection.driveBatchId); else params.delete("cb_drive");
+    if (selection?.parkId) params.set("cb_drive_park", selection.parkId); else params.delete("cb_drive_park");
     const query = params.toString();
     router.push(query ? `?${query}` : "?", { scroll: false });
   };
@@ -349,7 +356,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
         <select
           id="cbm-drive"
           className="cbm-select cbm-select-wide"
-          value={driveBatchId ?? ""}
+          value={driveBatchId ? driveSelectionValue(driveBatchId, driveParkId) : ""}
           onChange={(e) => selectDrive(e.target.value)}
           disabled={driveOptions.length === 0}
           aria-disabled={driveOptions.length === 0}
@@ -362,10 +369,16 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
               label={`${campaign.name} · ${formatScheduledDriveDates(campaign.dateKeys)} · ${campaign.targetCount} animals`}
             >
               {driveOptions
-                .filter((drive) => campaign.batchIds.includes(drive.driveBatchId))
+                // The campaign is park-specific, so its operator days must be too: filtering on the
+                // batch id alone pulled the OTHER park's row for a batch that spans both parks into
+                // this campaign, duplicating the React key and offering a foreign park's day here.
+                .filter((drive) => (drive.parkId ?? "") === campaign.parkId && campaign.batchIds.includes(drive.driveBatchId))
                 .sort((a, b) => (a.plannedDate ?? "").localeCompare(b.plannedDate ?? ""))
                 .map((drive, index) => (
-                  <option key={drive.driveBatchId} value={drive.driveBatchId}>
+                  <option
+                    key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                    value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                  >
                     {`Operator day ${index + 1} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
                   </option>
                 ))}
@@ -374,7 +387,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId }: CommandB
           {completedDriveOptions.length > 0 && (
             <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
               {completedDriveOptions.map((drive) => (
-                <option key={drive.driveBatchId} value={drive.driveBatchId}>
+                <option
+                  key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                  value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                >
                   {`${commonDriveName(drive.driveName || drive.label, drive.parkName)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
                 </option>
               ))}
