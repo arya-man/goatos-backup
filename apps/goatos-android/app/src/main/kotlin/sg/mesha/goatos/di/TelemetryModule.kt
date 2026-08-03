@@ -5,7 +5,9 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FailureReportingNetworkTelemetryReporter
 import sg.mesha.goatos.core.analytics.FirebaseCrashReporter
 import sg.mesha.goatos.core.analytics.FirebasePerfNetworkTelemetryReporter
 import sg.mesha.goatos.core.analytics.FirebasePerformanceTracer
@@ -41,8 +43,27 @@ object TelemetryModule {
     fun providePerformanceTracer(): PerformanceTracer =
         if (BuildConfig.TELEMETRY_ENABLED) FirebasePerformanceTracer() else NoopPerformanceTracer()
 
+    /**
+     * Only the Firebase Performance DELEGATE is gated on [BuildConfig.TELEMETRY_ENABLED]. The
+     * failure-reporting wrapper is always installed: a flavor without a confirmed Firebase
+     * project still gets logcat visibility for every refused or failed API call (its crash and
+     * analytics halves are no-ops there anyway, because those ports are themselves gated
+     * above/in `AnalyticsModule`). On-device silence during a retry storm is the exact defect
+     * this wrapper exists to remove — see its docstring.
+     */
     @Provides
     @Singleton
-    fun provideNetworkTelemetryReporter(): NetworkTelemetryReporter =
-        if (BuildConfig.TELEMETRY_ENABLED) FirebasePerfNetworkTelemetryReporter() else NoopNetworkTelemetryReporter
+    fun provideNetworkTelemetryReporter(
+        crashReporter: CrashReporter,
+        analytics: AnalyticsPort,
+    ): NetworkTelemetryReporter =
+        FailureReportingNetworkTelemetryReporter(
+            delegate = if (BuildConfig.TELEMETRY_ENABLED) {
+                FirebasePerfNetworkTelemetryReporter()
+            } else {
+                NoopNetworkTelemetryReporter
+            },
+            crashReporter = crashReporter,
+            analytics = analytics,
+        )
 }
