@@ -171,6 +171,12 @@ func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, fami
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
 	resp = applyConfigEntries(resp, families.UIConfig)
+	// The verifier-only workspace narrows the fully-compiled contract instead of building a
+	// parallel one, so /actions keeps the same controls/copy/options every other principal gets.
+	// It runs before familyHashes so the contract revision reflects what is actually served.
+	if isVerifierLensPrincipal(input) {
+		resp = applyVerifierLens(resp, s.verifierNavModules())
+	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes
 	resp.ContractRevision = hashStruct(hashes)
@@ -771,6 +777,8 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
+		case "verification-review":
+			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
 		}
 	}
 	return out
@@ -793,6 +801,67 @@ func compileConfigControls(controls []domain.Control, input BootstrapInput, copy
 		DisabledReason: reason,
 		Action:         "POST /protocols/versions/{version_id}/publish",
 	})
+}
+
+// compileVerificationReviewControls splits /actions by duty (verifier-app-and-flow.md §Roles):
+// the VERIFIER records the verdict, the AUTHORITY acts on the source task. One page serves both
+// personas, so the backend contract -- not the renderer -- decides which half each principal gets.
+//
+// Boundary worth knowing: the rework/reassign controls are gated on verification.act because that
+// is the authority permission the doctrine names, but the routes behind them
+// (POST /admin/tasks/{task_id}/rework, /assign) require task.verify and task.assign. A verifier
+// holds task.verify, so hiding rework from her lens is a duty split at the contract layer, not a
+// hard backend lockout on that generic SOP route. Narrowing reworkTask itself would change every
+// other caller of a shared route and belongs in its own change.
+func compileVerificationReviewControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps every control
+	// enabled, matching how compileConfigControls treats the same case.
+	ungated := len(input.Grants) == 0
+	// The VERDICT control follows verification.verdict, not verification.review: leadership reads
+	// the same queue but may not decide on it (maintainer decision 2026-08-03).
+	mayDecide := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationVerdict})
+	mayAct := ungated || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.VerificationAct})
+
+	reviewReason := ""
+	if !mayDecide {
+		reviewReason = controlCopy(copy, "verdict.disabled_no_access", "Recording a verdict is limited to the video verification team.")
+	}
+	actReason := ""
+	if !mayAct {
+		actReason = controlCopy(copy, "action.disabled_no_authority", "Acting on the source task is limited to the park head, director, or CEO.")
+	}
+
+	out := upsertControl(controls, domain.Control{
+		ID:             "record_verdict",
+		Label:          copy["verdict.title"],
+		Kind:           "primary_action",
+		Enabled:        mayDecide,
+		DisabledReason: reviewReason,
+		Action:         "POST /verification/items/{item_id}/verdict",
+	})
+	out = upsertControl(out, domain.Control{
+		ID:             "request_rework",
+		Label:          copy["rework.submit"],
+		Kind:           "action",
+		Enabled:        mayAct,
+		DisabledReason: actReason,
+		Action:         "POST /admin/tasks/{task_id}/rework",
+	})
+	return upsertControl(out, domain.Control{
+		ID:             "reassign_task",
+		Label:          copy["reassign.submit"],
+		Kind:           "action",
+		Enabled:        mayAct,
+		DisabledReason: actReason,
+		Action:         "POST /admin/tasks/{task_id}/assign",
+	})
+}
+
+func controlCopy(copy map[string]string, key, fallback string) string {
+	if value := strings.TrimSpace(copy[key]); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func compileConfigOptionGroups(groups []domain.OptionGroup, families ReferenceFamilies) []domain.OptionGroup {
@@ -1027,7 +1096,11 @@ func roleLensForRole(role string) domain.RoleLensContract {
 	case permissions.RoleParkHead:
 		return domain.RoleLensContract{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"}
 	case permissions.RoleVerifier:
-		return domain.RoleLensContract{ID: "health-manager", Name: "Health Manager", AuditShort: "Health Mgr", Scope: "health vertical · assigned park", Description: "Assigned-park PC manager view"}
+		// The Verifier is the cross-vertical Video Verification Team (verifier-app-and-flow.md), not
+		// a health manager and not park-scoped. The old "Health Manager · health vertical · assigned
+		// park" label was invisible while the role had no admin-web access; it is the account chip on
+		// her own workspace now, so it has to say what she actually is.
+		return domain.RoleLensContract{ID: "verifier", Name: "Verifier", AuditShort: "Verifier", Scope: "video verification · all verticals", Description: "Independent proof review"}
 	case permissions.RoleOperator:
 		return domain.RoleLensContract{ID: "ground", Name: "Assist / Ground", AuditShort: "Assist", Scope: "tasks · assigned park", Description: "field execution queue"}
 	default:
@@ -1048,7 +1121,7 @@ func roleInitials(role string) string {
 	case permissions.RoleParkHead:
 		return "PH"
 	case permissions.RoleVerifier:
-		return "HV"
+		return "VF"
 	case permissions.RoleOperator:
 		return "OP"
 	default:

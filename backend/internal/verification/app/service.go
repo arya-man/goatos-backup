@@ -293,9 +293,35 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 				media = append(media, m)
 			}
 		}
+		labelMedia(media, s.categoryFor(it.Category))
 		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceAvailable: resolutionOK && len(media) == len(it.MediaRefs)}
 	}
 	return rows
+}
+
+// categoryFor returns the registered definition for a category, or a zero definition when the
+// category predates its registry entry — MediaLabelFor still yields a numbered header from that.
+func (s *Service) categoryFor(category string) domain.CategoryDefinition {
+	if s.registry == nil {
+		return domain.CategoryDefinition{}
+	}
+	def, _ := s.registry.Get(category)
+	return def
+}
+
+// labelMedia guarantees every proof carries a header before it reaches a renderer.
+//
+// A label already resolved from workflow task truth is the most specific thing available and is
+// left alone; only blanks are filled from the category's registry copy. Doing this here rather than
+// in the client is what keeps the rule in verifier-app-and-flow.md true — the backend owns the
+// label and the client never derives one from category or list position.
+func labelMedia(media []domain.MediaItem, def domain.CategoryDefinition) {
+	for i := range media {
+		if strings.TrimSpace(media[i].Label) != "" {
+			continue
+		}
+		media[i].Label = def.MediaLabelFor(i, len(media))
+	}
 }
 
 // RecordVerdict applies the verifier's approve/reject decision with optimistic concurrency. Reject

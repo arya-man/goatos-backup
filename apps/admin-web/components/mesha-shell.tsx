@@ -3,7 +3,7 @@
 import Link from "@/components/no-prefetch-link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ElementType } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -79,6 +79,31 @@ function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
   ].map((item) => item.href);
 }
 
+/**
+ * Query keys that tell apart nav entries sharing one route, keyed by href.
+ *
+ * A route with a single nav entry is absent from the map and keeps plain pathname matching, so this
+ * cannot regress an existing leaf that carries `extra` purely as a landing default (e.g. Config's
+ * `?category=vaccination`, which must still highlight on a bare `/config`).
+ */
+function sharedNavKeys(contract: AdminWebBootstrapResponse): Map<string, string[]> {
+  const byHref = new Map<string, { count: number; keys: Set<string> }>();
+  for (const item of [
+    ...contract.navigation.primary.filter((entry) => entry.enabled),
+    ...contract.navigation.groups.flatMap((group) => group.leaves.filter((entry) => entry.enabled)),
+  ]) {
+    const bucket = byHref.get(item.href) ?? { count: 0, keys: new Set<string>() };
+    bucket.count += 1;
+    for (const key of Object.keys(item.extra ?? {})) bucket.keys.add(key);
+    byHref.set(item.href, bucket);
+  }
+  const out = new Map<string, string[]>();
+  for (const [href, bucket] of byHref) {
+    if (bucket.count > 1 && bucket.keys.size > 0) out.set(href, [...bucket.keys]);
+  }
+  return out;
+}
+
 // A route can prefix-match several nav hrefs; only the longest (most specific) match highlights.
 function activeHref(pathname: string, contract: AdminWebBootstrapResponse): string {
   let best = "";
@@ -152,6 +177,7 @@ export function MeshaShell({
   // hiccup or an unknown future value never blanks a leader's navigation.
   const showSidebar = contract.nav_chrome !== "minimal";
   const active = activeHref(pathname, contract);
+  const sharedNavKeysByHref = useMemo(() => sharedNavKeys(contract), [contract]);
   // Single top-bar scope contract: parse the URL scope params (scope_mode/park/range/as_of) once and render
   // HUMAN labels (the park dropdown writes the backend-safe location UUID). Every screen reads the same
   // params, so the bar can never disagree with a page body.
@@ -374,7 +400,18 @@ export function MeshaShell({
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
   function navActive(leaf: NavItem): boolean {
-    return active === leaf.href;
+    if (active !== leaf.href) return false;
+    // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
+    // the exception: every evidence module points at /actions and is told apart only by its
+    // `category` param, so without this the whole sidebar would highlight at once. Discriminating
+    // keys are compared for ALL leaves on a shared route — including the one with no `extra` (the
+    // "All evidence" landing), which must highlight only when no category is selected.
+    const keys = sharedNavKeysByHref.get(leaf.href);
+    if (!keys) return true;
+    for (const key of keys) {
+      if ((searchParams?.get(key) ?? "") !== (leaf.extra?.[key] ?? "")) return false;
+    }
+    return true;
   }
   function currentScopeHref(
     overrides: Parameters<typeof scopeHref>[2] = {},

@@ -49,14 +49,30 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RolePCDirector, OperationsRepair, false},
 		{RoleParkHead, OperationsRepair, false},
 		{RolePCDirector, AdminWebBootstrap, true},
-		{RoleVerifier, AdminWebBootstrap, false},
+		// The verifier reaches admin-web to run the verifier-only web workspace (maintainer
+		// decision 2026-08-03). What she sees there is the verifier lens, not the admin product:
+		// adminui/app/verifier_lens.go drops every page contract except the evidence queue.
+		{RoleVerifier, AdminWebBootstrap, true},
 		{RoleParkHead, AdminWebBootstrap, false},
 		{RoleOperator, AdminWebBootstrap, false},
+		// Seeing the evidence is leadership VISIBILITY: verifier and CEO/CxO both read the queue.
 		{RoleVerifier, VerificationReview, true},
 		{RoleCEOInternal, VerificationReview, true},
 		{RoleOperator, VerificationReview, false},
 		{RoleParkHead, VerificationReview, false},
 		{RolePCDirector, VerificationReview, false},
+		// DECIDING on it is the Verifier's alone (maintainer decision 2026-08-03). CEO/CxO reads the
+		// same queue and still closes the work, but may not sign off the second check on itself.
+		{RoleVerifier, VerificationVerdict, true},
+		{RoleCEOInternal, VerificationVerdict, false},
+		{RoleParkHead, VerificationVerdict, false},
+		{RolePCDirector, VerificationVerdict, false},
+		{RoleGrowthDirector, VerificationVerdict, false},
+		{RoleOperator, VerificationVerdict, false},
+		// Acting on the result is leadership's: verdict WITHOUT act is what selects the verifier lens.
+		{RoleVerifier, VerificationAct, false},
+		{RoleCEOInternal, VerificationAct, true},
+		{RoleParkHead, VerificationAct, true},
 		{RoleGrowthDirector, WeighingMonitor, true},
 		{RoleGrowthDirector, WeighingExecute, true},
 		{RoleGrowthDirector, TaskExecute, false},
@@ -444,8 +460,10 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		operationID string
 		permission  string
 	}{
+		// Read and decide are DIFFERENT gates (maintainer decision 2026-08-03): leadership sees the
+		// evidence queue, only the Verifier records the verdict on it.
 		{"GET", "/verification/queue", "listVerificationQueue", VerificationReview},
-		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationReview},
+		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationVerdict},
 		{"GET", "/verification/action-queue", "listVerificationActionQueue", VerificationAct},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
 		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},
@@ -490,6 +508,18 @@ func TestVerificationSeparationOfDuty(t *testing.T) {
 	}
 	if RoleHasPermission(RoleOperator, VerificationReview) {
 		t.Fatal("operator role must not hold verification.review")
+	}
+	// The CEO/CxO override was retired for the DECISION only (maintainer decision 2026-08-03): the
+	// founder cohort keeps evidence visibility and the closing act, but the independent second check
+	// must not be signable by the people it checks.
+	if RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
+		t.Fatal("ceo_internal must NOT authorize verification verdict — the second check must stay independent")
+	}
+	if !RoleHasPermission(RoleCEOInternal, VerificationReview) {
+		t.Fatal("ceo_internal must keep verification.review so leadership can still see the evidence")
+	}
+	if !RoleHasPermission(RoleCEOInternal, VerificationAct) {
+		t.Fatal("ceo_internal must keep verification.act so leadership can still close the work")
 	}
 }
 

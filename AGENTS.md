@@ -313,6 +313,43 @@ a new proof attempt; rejected proof attempts remain immutable history. Canonical
 `docs/decisions/feed-transport-verification.md`; migration
 `000054_feed_transport_daily_verification.sql`.
 
+Confirmed verifier verdict-exclusivity rule (maintainer decision 2026-08-03, SUPERSEDING the
+CEO/CxO `verification.review` override for the DECISION only): approve/reject on a verification
+item belongs to the Verifier role ALONE. `verification.verdict` is split out of
+`verification.review` and granted to `verifier` only — never `ceo_internal`, `pc_director`,
+`growth_director`, `park_head`, or `operator`. Leadership KEEPS `verification.review` (see the
+evidence queue, media, and recorded verdicts) and KEEPS `verification.act` (close the work, rework
+or reassign the source task); it simply cannot sign the second check itself. Do not "fix" this by
+restoring the verdict grant to CEO to satisfy the founder/builder visibility invariant — that
+invariant is satisfied by the read, and an independent check the checked party can approve is not
+independent. Route `POST /verification/items/{item_id}/verdict` is gated on
+`verification.verdict`; `GET /verification/queue` stays on `verification.review`. The admin-web
+`record_verdict` control and `isVerifierLensPrincipal` both key on `verification.verdict`.
+Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (truth table
+alignment)"; pinned by `TestVerificationSeparationOfDuty` and
+`TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
+
+Confirmed verifier admin-web workspace rule (maintainer decision 2026-08-03): the
+verifier-only workspace, previously mobile-only, also runs on admin-web with the SAME
+five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health. `verifier`
+now holds `admin_web.bootstrap`, but that opens the SHELL ONLY. A principal holding
+`verification.review` and NOT `verification.act` receives the verifier LENS: the sidebar
+is composed from the Verification type registry's navigation metadata (one group per
+`NavigationModule`, one leaf per `PageKey`, each pointing at
+`/actions?category=<disjoint category>`), and EVERY other admin-web page contract is
+dropped so a typed URL fails closed at `requireAdminWebPageContract`. Never express this
+as a per-role nav template — registering a producer category is the only way to add a
+module, and `make nav-composition-guard` still applies. CEO/CxO holds review AND act as
+the documented override and therefore keeps the full admin IA; the lens must never narrow
+a leadership principal. `/actions` serves both personas, split by the page contract's
+controls: `record_verdict` (`verification.review`) vs `request_rework`/`reassign_task`
+(`verification.act`). A page rendering from LOCAL literal copy has no contract to
+withhold and must gate itself with `adminWebRouteOffered` (`/approvals` does). Known
+boundary: the rework/assign routes require `task.verify`/`task.assign` and a verifier
+holds `task.verify`, so that half of the split is contract-layer, not a backend lockout on
+that shared SOP route. Canonical source: `context/architecture/verifier-app-and-flow.md`
+→ "Verifier WEB workspace"; code `backend/internal/adminui/app/verifier_lens.go`.
+
 Confirmed feed-direction shifting-projection timing rule (maintainer decision
 2026-07-27, SUPERSEDING the priority-based lead-day rule — normal 2-day /
 high-priority 1-day — that the projection previously applied): the feed sheet's

@@ -159,10 +159,13 @@ export type TaskResponse = AdminApiComponents["schemas"]["TaskResponse"];
 export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest"];
 
 // Generic Verification vertical (context/architecture/verification-module-design.md +
-// verifier-app-and-flow.md). Admin-web is the AUTHORITY act surface: it reads the Verifier's
-// approve/reject queue and acts on the SOURCE task via the EXISTING /admin/tasks/{task_id}/verify|
-// rework|assign contract below — it never writes a verdict itself (that is the standalone Verifier
-// mobile app's job, gated on verification.review, built separately).
+// verifier-app-and-flow.md). /actions serves BOTH personas of that vertical, split by the page
+// contract's controls rather than by route:
+//   - the VERIFIER (verification.review) records the approve/reject verdict on the item itself;
+//   - the AUTHORITY (verification.act) acts on the SOURCE task via /admin/tasks/{task_id}/rework
+//     |assign.
+// Admin-web gained the verdict half on 2026-08-03, when the verifier-only web workspace landed;
+// before that, verdicts were mobile-only.
 //
 // Real generated app-api types — the backend Verification module (1a) landed on main and the
 // client regenerated (`packages/api-client/src/generated/app-api.ts`,
@@ -174,6 +177,9 @@ export type VerificationSourceRef = AppApiComponents["schemas"]["VerificationSou
 export type VerificationMediaItem = AppApiComponents["schemas"]["VerificationMediaItem"];
 export type VerificationQueueItem = AppApiComponents["schemas"]["VerificationQueueItem"];
 export type VerificationQueueResponse = AppApiComponents["schemas"]["VerificationQueueResponse"];
+export type VerificationDecision = AppApiComponents["schemas"]["VerificationDecision"];
+export type VerificationVerdictRequest = AppApiComponents["schemas"]["VerificationVerdictRequest"];
+export type VerificationVerdictResponse = AppApiComponents["schemas"]["VerificationVerdictResponse"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -386,6 +392,43 @@ export async function requireAdminWebPageContract(routeId: string): Promise<Admi
     throw new Error(`Admin-web page contract missing route_id=${routeId}`);
   }
   return page;
+}
+
+/**
+ * The first route this principal's compiled navigation actually offers — their landing.
+ *
+ * Returns null when the contract is unavailable (the shell renders its own contract-unavailable
+ * state) or the navigation is empty.
+ */
+export async function adminWebLandingHref(): Promise<string | null> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) return null;
+  const first =
+    contract.data.navigation.primary.find((item) => item.enabled) ??
+    contract.data.navigation.groups.flatMap((group) => group.leaves).find((item) => item.enabled);
+  return first?.href ?? null;
+}
+
+/**
+ * Whether this principal's compiled navigation offers `href`.
+ *
+ * Contract-backed pages fail closed on their own: a principal who may not open one has no page
+ * contract for it, so requireAdminWebPageContract throws. A page that renders from LOCAL literal
+ * copy has no such contract to withhold, so it must ask this explicitly — otherwise it would render
+ * its module chrome to anyone who types the URL, even though its data calls 403. `/approvals` is
+ * the current instance; a future contract-less route needs the same call.
+ *
+ * Returns true when the contract is unavailable, leaving that failure to the shell rather than
+ * turning a backend hiccup into a spurious redirect.
+ */
+export async function adminWebRouteOffered(href: string): Promise<boolean> {
+  const contract = await getAdminWebBootstrap();
+  if (!contract.ok) return true;
+  const offered = [
+    ...contract.data.navigation.primary,
+    ...contract.data.navigation.groups.flatMap((group) => group.leaves),
+  ];
+  return offered.some((item) => item.enabled && item.href === href);
 }
 
 export async function searchGoats(params: HerdSearchParams): Promise<ApiResult<GoatSearchResponse>> {
@@ -1562,6 +1605,38 @@ export async function listVerificationQueue(
   );
   if (!result.ok) return result;
   return { ok: true, data: absolutizeVerificationMedia(result.data, config.data.baseUrl) };
+}
+
+/**
+ * Record the Verifier's approve/reject decision on one verification item
+ * (POST /verification/items/{item_id}/verdict, gated on verification.review).
+ *
+ * `row_version` is the item's optimistic-concurrency guard: a stale value returns 409 rather than
+ * overwriting a verdict someone else recorded between page render and submit. A rejection without
+ * a reason is refused by the backend with 422 — the UI requires the reason too, but the backend is
+ * the rule's owner.
+ *
+ * The Idempotency-Key header is REQUIRED (8-200 chars) — the route rejects a request without one.
+ * Note the rejection is reported as `invalid_json`, the same code a malformed body gets, so a
+ * missing key looks exactly like a broken payload when debugging.
+ */
+export async function recordVerificationVerdict(
+  itemId: string,
+  body: VerificationVerdictRequest,
+  idempotencyKey: string,
+): Promise<ApiResult<VerificationVerdictResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/verification/items/${encodeURIComponent(itemId)}/verdict` as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VerificationVerdictResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
 }
 
 function absolutizeVerificationMedia(queue: VerificationQueueResponse, baseUrl: string): VerificationQueueResponse {

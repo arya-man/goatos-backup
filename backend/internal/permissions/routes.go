@@ -316,12 +316,14 @@ var protectedRoutes = []Route{
 	{OperationID: "getGoatVaccinationPassport", Method: "GET", Pattern: "/goats/{goat_id}/passport", Permissions: []string{GoatRead}},
 
 	// Generic Verification vertical (context/architecture/verification-module-design.md): the
-	// standalone Verifier queue read + approve/reject verdict write. Gated on verification.review
-	// ONLY (Verifier role + CEO/CxO override) — separation of duty from capture (task.execute) and
-	// act (task.verify).
+	// standalone Verifier queue read + approve/reject verdict write, split across THREE authorities
+	// so no one holds two of them (separation of duty from capture via task.execute):
+	//   verification.review  — SEE the evidence (Verifier + CEO/CxO leadership visibility)
+	//   verification.verdict — DECIDE approve/reject (Verifier ONLY, maintainer decision 2026-08-03)
+	//   verification.act     — CLOSE the work / act on the source task (leadership, not the Verifier)
 	{OperationID: "listVerificationQueue", Method: "GET", Pattern: "/verification/queue", Permissions: []string{VerificationReview}},
 	{OperationID: "listVerificationActionQueue", Method: "GET", Pattern: "/verification/action-queue", Permissions: []string{VerificationAct}},
-	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationReview}},
+	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationVerdict}},
 	{OperationID: "closeVerificationItem", Method: "POST", Pattern: "/verification/items/{item_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVerificationSubmission", Method: "POST", Pattern: "/verification/submissions/{submission_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVaccinationBatch", Method: "POST", Pattern: "/verification/vaccination-batches/{batch_id}/close", Permissions: []string{VerificationAct}},

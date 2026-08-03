@@ -10,12 +10,15 @@ import (
 )
 
 type Service struct {
-	repo            ReferenceRepository
-	mu              sync.Mutex
-	cache           map[string]cacheEntry
-	cacheTTL        time.Duration
-	cacheMaxEntries int
-	now             func() time.Time
+	repo ReferenceRepository
+	// verificationModules sources the verifier-only workspace's evidence modules from the generic
+	// Verification type registry. Injected via WithVerificationModules; see verifier_lens.go.
+	verificationModules VerificationModuleSource
+	mu                  sync.Mutex
+	cache               map[string]cacheEntry
+	cacheTTL            time.Duration
+	cacheMaxEntries     int
+	now                 func() time.Time
 }
 
 func NewService(repo ...ReferenceRepository) *Service {
@@ -958,6 +961,19 @@ func pageSpecificCopy(id string) map[string]string {
 			"penalty.reason_placeholder":    "Log a penalty or escalation note",
 			"penalty.submit":                "Log penalty note",
 			"penalty.disabled":              "Penalty and escalation logging is not backed by an API yet.",
+			// Verifier verdict copy. Approve/reject is the verifier's ONLY act: the wording must
+			// not promise that approving closes or completes the underlying work, because it does
+			// not -- an authority closes the submission afterwards.
+			"verdict.title":                "Video verification",
+			"verdict.reason_label":         "Rejection reason",
+			"verdict.reason_placeholder":   "What did the video show that failed the standard?",
+			"verdict.approve":              "Approve",
+			"verdict.reject":               "Reject",
+			"verdict.reason_required":      "A rejection must say what was wrong. Approving needs no reason.",
+			"verdict.disabled_not_pending": "This action already has a verdict and cannot be reviewed again.",
+			"verdict.disabled_no_access":   "Recording a verdict is limited to the video verification team.",
+			"action.disabled_no_authority": "Acting on the source task is limited to the park head, director, or CEO.",
+			"verdict.note":                 "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
 		}
 	case "calendar":
 		return map[string]string{

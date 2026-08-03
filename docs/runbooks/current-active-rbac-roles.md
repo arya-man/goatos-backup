@@ -12,7 +12,7 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | `operator` | Ground execution and scanning for the modules explicitly granted to that person | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
 | `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant |
 | `growth_director` | Growth Director; Weighing visibility/action across parks | `tenant` when both parks are needed | Dinakar |
-| `verifier` | Video verification review | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
+| `verifier` | Video verification review (mobile + the admin-web verifier workspace) | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
 
 ## Dormant Catalog Roles
 
@@ -147,6 +147,13 @@ that proof:
 This mirrors the same-shaped verifier flow used by Vaccination shed
 proof/verification; the two modules share the generic verification module,
 not each other's business rules.
+
+Since 2026-08-03 the `verifier` role also holds `admin_web.bootstrap` so the same
+review can be done on a laptop. That grant opens the shell ONLY: a principal with
+`verification.review` and without `verification.act` receives the verifier lens —
+five registry-composed evidence modules and `/actions` — and every other admin-web
+page contract is withheld, so a typed URL fails closed. See
+`context/architecture/verifier-app-and-flow.md` → "Verifier WEB workspace".
 
 ## FCM Up/Down Hierarchy (Weighing)
 

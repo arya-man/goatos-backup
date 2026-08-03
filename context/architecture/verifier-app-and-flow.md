@@ -83,6 +83,47 @@ operator/leadership pages:
   it indicates whether the selected page/location has any pending item captured
   before today's business-day start and toggles that bounded missed-only queue.
 
+## Verifier WEB workspace (admin-web, maintainer decision 2026-08-03)
+
+The same verifier-only workspace also runs on admin-web, so proof video can be reviewed on a
+laptop-sized screen. It is a LENS over the existing `/actions` screen, not a second product, and it
+carries the SAME five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health —
+with the same registry-declared page tabs.
+
+- **Access.** `verifier` now holds `admin_web.bootstrap`. That grants the shell only; what she sees
+  inside it is the lens.
+- **Selection.** `verification.verdict` AND NOT `verification.act` (`isVerifierLensPrincipal`) —
+  the principal who DECIDES and does not act, which is the Verifier alone. It keys on the verdict
+  rather than the read because CEO/CxO holds `verification.review` for leadership visibility and
+  must keep the full admin IA; the lens must never narrow a leadership principal.
+- **Composition.** The sidebar is built from the Verification type registry's navigation metadata
+  (`NavigationModule`/`PageKey`/`PageOrder`), NOT a per-role nav template: one group per evidence
+  module, one leaf per page tab, every leaf pointing at `/actions?category=<disjoint category>`.
+  Registering a new producer category adds it to both the mobile drawer and this sidebar with no
+  nav change. Module order is alphabetical by label because the registry declares no module order;
+  page order inside a module is the registry's `PageOrder`.
+- **Lockout is route-level, not just nav.** Every other admin-web page contract is dropped from her
+  bootstrap, so `requireAdminWebPageContract` fails closed on a typed URL. `/approvals` renders
+  from local literal copy and therefore has no contract to withhold, so it checks
+  `adminWebRouteOffered("/approvals")` itself and redirects to her landing. Data endpoints behind
+  those pages stay independently permission-gated.
+- **Duty split on the shared page.** The `verification-review` page contract carries three controls:
+  `record_verdict` (gated on `verification.verdict`) and `request_rework` / `reassign_task` (gated
+  on `verification.act`). The verifier sees only the verdict card; leadership sees the evidence and
+  only the source-task actions — the verdict card is OMITTED for them (CEO/CxO included) rather
+  than rendered disabled, because an action they can never perform is noise on a screen whose job
+  is acting on someone else's decision. Known boundary: the rework/assign ROUTES require
+  `task.verify` / `task.assign`, and a verifier holds `task.verify`, so hiding rework from her lens
+  is a contract-layer duty split rather than a hard backend lockout on that generic SOP route.
+- **Verdict write.** `POST /verification/items/{item_id}/verdict` with a derived Idempotency-Key
+  (`verification-verdict-<item>-<row_version>-<decision>`) so a double-submit is one write, and the
+  item's `row_version` for optimistic concurrency. Approve needs no reason; Reject requires one.
+  An already-decided item is view-only.
+
+Canonical code: `backend/internal/adminui/app/verifier_lens.go`,
+`backend/internal/verification/adapters/adminuibridge`,
+`apps/admin-web/features/verification-review`.
+
 ## Backend (generic — see verification-module-design.md)
 - Producers (vaccination, diagnosis, death, feed, …) emit `verification_item`
   (module-agnostic) with `{vertical, module, category, media[], status, verdict}`;
@@ -108,7 +149,23 @@ verification state/evidence contract, so no domain event or leadership-assistant
 write/read mapping changes.
 
 ## Roles (truth table alignment)
+
+Three permissions, three different authorities — nobody holds two of the first three roles for the
+same work:
+
+| Permission | Means | Held by |
+|---|---|---|
+| `verification.review` | SEE the evidence queue, media and verdicts | Verifier + CEO/CxO |
+| `verification.verdict` | DECIDE approve/reject + reason | **Verifier ONLY** |
+| `verification.act` | CLOSE the work / rework / reassign the source task | Park Head, Director, CEO/CxO |
+
 - **Capture** = ground operator only (mobile capture app). **Verify** = Verifier
-  (`verification.review`, this app). **Act** = scoped Park Head/Director or
-  CEO/CxO (`verification.act`, leadership app).
-  Separation of duty — nobody captures and verifies the same work.
+  (`verification.verdict`). **Act** = scoped Park Head/Director or CEO/CxO
+  (`verification.act`). Separation of duty — nobody captures and verifies the same work.
+- **The CEO/CxO verdict override was RETIRED for the DECISION only (maintainer decision
+  2026-08-03).** `verification.verdict` was split out of `verification.review` so leadership keeps
+  full VISIBILITY of every item (and still owns the closing act) while the approve/reject decision
+  belongs to the Video Verification Team alone. An independent second check that the checked party
+  can sign off itself is not an independent check. This is a deliberate, narrow carve-out from the
+  founder/builder visibility invariant in AGENTS.md: visibility is satisfied by the read, so do not
+  "restore" the verdict grant to CEO to satisfy that invariant.

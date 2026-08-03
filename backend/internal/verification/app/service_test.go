@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -698,5 +699,88 @@ func TestCloseSubmissionRequiresEveryGoatApprovedAndClosesDriveTogether(t *testi
 	}
 	if len(items) != 2 || items[0].ClosedAt == nil || items[1].ClosedAt == nil {
 		t.Fatalf("closed items=%+v", items)
+	}
+}
+
+// labellingMedia mimics the real resolver's richer path: it returns a workflow-task title for one
+// proof and nothing for the other, which is exactly the mixed case the fallback has to respect.
+type labellingMedia struct{ labelled map[string]string }
+
+func (m labellingMedia) ResolveMedia(_ context.Context, _ string, proofIDs []string) ([]domain.MediaItem, error) {
+	out := make([]domain.MediaItem, 0, len(proofIDs))
+	for _, id := range proofIDs {
+		out = append(out, domain.MediaItem{ProofID: id, DownloadURL: "https://signed.example/" + id, Label: m.labelled[id]})
+	}
+	return out, nil
+}
+
+// Every proof reaching a renderer carries a header, and a richer workflow-task title is never
+// clobbered by the registry fallback.
+func TestListQueueLabelsEveryProof(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, labellingMedia{labelled: map[string]string{"proof-b": "Iodine dipping of umbilical cord"}})
+	if err := svc.RegisterCategory(domain.CategoryDefinition{
+		Vertical: "feed", Module: "feed", Category: "feed_distribution",
+		ExpectedMedia: []string{"video", "photo_or_video"},
+		MediaLabels:   []string{"Feed distribution video", "Water distribution proof"},
+	}); err != nil {
+		t.Fatalf("RegisterCategory: %v", err)
+	}
+	if _, err := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "feed", Module: "feed", Category: "feed_distribution",
+		Source:    domain.SourceRef{Module: "feed", RefType: "feed_distribution_completion", RefID: testTenant},
+		MediaRefs: []string{"proof-a", "proof-b"}, IdempotencyKey: "label-key-1", CapturedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	media := result.Items[0].Media
+	if len(media) != 2 {
+		t.Fatalf("media = %d, want 2", len(media))
+	}
+	// Blank label filled from the registry's declared copy.
+	if media[0].Label != "Feed distribution video" {
+		t.Fatalf("media[0].Label = %q, want the declared registry label", media[0].Label)
+	}
+	// Workflow-task truth is more specific than the registry's positional copy and must survive.
+	if media[1].Label != "Iodine dipping of umbilical cord" {
+		t.Fatalf("media[1].Label = %q, want the workflow task title preserved", media[1].Label)
+	}
+	for i, m := range media {
+		if strings.TrimSpace(m.Label) == "" {
+			t.Fatalf("media[%d] reached the renderer with no header", i)
+		}
+	}
+}
+
+// A category registered without media labels still yields a header for every proof.
+func TestListQueueLabelsProofsForCategoryWithoutDeclaredLabels(t *testing.T) {
+	repo := newFakeRepo()
+	svc := NewService(repo, fakeMedia{})
+	if err := svc.RegisterCategory(domain.CategoryDefinition{
+		Vertical: "counts", Module: "counts", Category: "milk_preparation",
+		ExpectedMedia: []string{"video", "video", "video"},
+	}); err != nil {
+		t.Fatalf("RegisterCategory: %v", err)
+	}
+	if _, err := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "counts", Module: "counts", Category: "milk_preparation",
+		Source:    domain.SourceRef{Module: "counts", RefType: "milk_preparation", RefID: testTenant},
+		MediaRefs: []string{"p1", "p2", "p3"}, IdempotencyKey: "label-key-2", CapturedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	result, err := svc.ListQueue(context.Background(), ports.ListQueueParams{TenantID: testTenant})
+	if err != nil {
+		t.Fatalf("ListQueue: %v", err)
+	}
+	for i, want := range []string{"Video 1", "Video 2", "Video 3"} {
+		if got := result.Items[0].Media[i].Label; got != want {
+			t.Fatalf("media[%d].Label = %q, want %q", i, got, want)
+		}
 	}
 }
