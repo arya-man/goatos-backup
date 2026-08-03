@@ -703,17 +703,31 @@ tools:
     kind: postgres-sql
     source: mesha-postgres-readonly
     description: |
-      Proof / verification backlog by area and scope: pending, rejected,
-      accepted, oldest pending time, and owner. Use for "where are proof gaps",
-      "what is pending verification", "rejected proofs by shed".
+      Proof / verification backlog by area and scope: total live workload,
+      pending, rejected, accepted, oldest pending time, and owner. Use for
+      "where are proof gaps", "what is pending verification", "rejected proofs
+      by shed", "how many proofs were accepted".
+
+      pending + rejected + accepted = total. `total` deliberately EXCLUDES
+      withdrawn items -- a withdrawn submission was superseded (reopened and
+      resubmitted, or retired as a duplicate) and is not a verification outcome,
+      so it is reported separately rather than inflating the live backlog. Say
+      "superseded", not "rejected", when reporting withdrawn.
+
+      Until migration 000085 the `accepted` column filtered on status values
+      that the verification_items CHECK constraint does not permit and was
+      therefore ZERO on every row. Any accepted count read from this tool
+      against a database older than 000085 is meaningless, not empty.
     statement: |
       SELECT
         area,
         park_label,
         shed_label,
+        total,
         pending,
         rejected,
         accepted,
+        withdrawn,
         oldest_pending_at,
         owner_label
       FROM ceo_ai.verification_queue_status
