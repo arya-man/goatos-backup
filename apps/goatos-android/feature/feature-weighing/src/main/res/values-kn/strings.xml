@@ -98,9 +98,6 @@
     <string name="weighing_videos_saved_and_uploading_fmt">%1$d ಉಳಿಸಲಾಗಿದೆ · %2$d ಇನ್ನೂ ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_videos_uploading_only_fmt">%1$d ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_videos_limit_reached">ಗರಿಷ್ಠ 5 ವೀಡಿಯೊಗಳನ್ನು ರೆಕಾರ್ಡ್ ಮಾಡಲಾಗಿದೆ</string>
-    <string name="weighing_submit_blocked_uploading">ವೀಡಿಯೊ ಉಳಿಯುವವರೆಗೆ ಕಾಯುತ್ತಿದೆ. ಒಂದು ವೀಡಿಯೊ ಉಳಿದ ತಕ್ಷಣ ನೀವು ಸಲ್ಲಿಸಬಹುದು.</string>
-    <string name="weighing_submit_blocked_failed">ವೀಡಿಯೊ ಉಳಿಸಲಾಗಲಿಲ್ಲ. ಮೇಲಿನ ವೀಡಿಯೊದಲ್ಲಿ Replace ಒತ್ತಿ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
-    <string name="weighing_submit_blocked_no_video">ಸಲ್ಲಿಸುವ ಮೊದಲು ಗುಂಪು ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡಿ.</string>
     <string name="weighing_video_index_fmt">ವೀಡಿಯೊ %1$d</string>
     <string name="weighing_replace">ಬದಲಿಸಿ</string>
     <string name="weighing_remove">ತೆಗೆಯಿರಿ</string>
