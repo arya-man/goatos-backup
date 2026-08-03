@@ -107,6 +107,16 @@ var (
 	// a transient 409/503-class failure the client is expected to resubmit, not
 	// as "you already did this."
 	ErrWriteConflict = errors.New("weighing: write conflict, retry")
+
+	// ErrFinishedShedBlocksReschedule refuses to MOVE a task that already holds
+	// finished work. A weighed bucket records the day it was actually weighed, and
+	// its proof video hangs off that day, so moving the task cannot drag it along
+	// without falsifying when the work happened -- and leaving it behind silently
+	// is worse: the task reads "Tuesday" while the finished shed still belongs to
+	// Monday, on neither day's list. The planner is told instead, and chooses:
+	// drop the finished shed from this task, or leave the task where it is and
+	// plan the new date as its own task.
+	ErrFinishedShedBlocksReschedule = errors.New("weighing: task has finished sheds and cannot be moved")
 )
 
 // ShedScheduleConflict names the buckets that blocked a create/update/publish so
@@ -125,6 +135,23 @@ func (c *ShedScheduleConflict) Error() string {
 }
 
 func (c *ShedScheduleConflict) Unwrap() error { return ErrShedAlreadyScheduled }
+
+// FinishedShedConflict names the already-weighed buckets that blocked a task move,
+// in the same shape as ShedScheduleConflict so the client renders it through the
+// path it already has for "these sheds are the problem".
+type FinishedShedConflict struct {
+	// WeighDate is the Asia/Kolkata business DATE those buckets were weighed on --
+	// the date they keep, and the reason the task cannot leave it behind quietly.
+	WeighDate string `json:"weigh_date"`
+	// Sheds are the human-readable bucket names, ordered, deduplicated.
+	Sheds []string `json:"sheds"`
+}
+
+func (c *FinishedShedConflict) Error() string {
+	return "weighing: sheds already weighed on " + c.WeighDate + ": " + strings.Join(c.Sheds, ", ")
+}
+
+func (c *FinishedShedConflict) Unwrap() error { return ErrFinishedShedBlocksReschedule }
 
 // CampaignAccess is the caller's authority over ONE task, expressed as data the single-task
 // query can evaluate against the row it is about to return. The arms are alternatives, in the

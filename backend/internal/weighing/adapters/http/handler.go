@@ -659,6 +659,30 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
+	case errors.Is(err, ports.ErrFinishedShedBlocksReschedule):
+		// Same shape as the already-scheduled conflict: the blocking bucket NAMES
+		// travel with the 409 so the planner reads which sheds are the problem
+		// without asking again. The copy says what happened in farm words -- the work
+		// was already done on the task's own day, so the task cannot take that day
+		// with it -- and never mentions statuses or columns.
+		finished := &ports.FinishedShedConflict{}
+		if !errors.As(err, &finished) {
+			finished = &ports.FinishedShedConflict{}
+		}
+		fieldErrors := make([]conflictFieldError, 0, len(finished.Sheds))
+		for _, shed := range finished.Sheds {
+			fieldErrors = append(fieldErrors, conflictFieldError{
+				Field:   "start_business_date",
+				Code:    "weighing_shed_already_weighed",
+				Message: shed + " was already weighed on " + finished.WeighDate + ".",
+			})
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
+			Code:        "weighing_shed_already_weighed",
+			Message:     "This task already has weighed sheds, so it cannot be moved to another date or park. Remove those sheds from it, or leave this task and plan the new date as its own.",
+			FieldErrors: fieldErrors,
+			TraceID:     traceID(r),
+		}, nil)
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "idempotency_conflict", Message: "idempotency key was reused with a different request", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrDuplicateScan):
