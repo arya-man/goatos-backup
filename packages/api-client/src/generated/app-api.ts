@@ -1965,6 +1965,8 @@ export interface paths {
         /**
          * Record the Verifier's approve/reject decision on one verification item.
          * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; an authorized Park Head/Director/CEO/CxO closes the complete drive submission only after every goat proof in it has been approved.
+         *
+         *     APPROVE additionally verifies that every proof object still EXISTS in storage, not merely that a signed link can be issued for it (a link resolves from the DB row alone). A missing object answers 422 evidence_missing (terminal, retryable=false); a failed availability check answers 422 evidence_check_failed (retryable=true). This costs a stat per proof for ONE item at decision time and is deliberately NOT done on the queue read, where it would be an N+1. REJECT is never gated on evidence: when the proof is gone, sending the work back for rework is the only correct action left, so it must always remain available.
          */
         post: operations["recordVerificationVerdict"];
         delete?: never;
