@@ -296,9 +296,12 @@ func (c *WeighingLifecycleEventConsumer) handlePublished(ctx context.Context, ev
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":         "weighing_campaign_published",
-			"screen":       "weighing_overview",
-			"target":       "/weighing",
+			"type":   "weighing_campaign_published",
+			"screen": "weighing_overview",
+			// The task itself, not the module landing: this push exists to tell leadership a
+			// PARTICULAR plan is live, and "/weighing" answered that with the recipient's own
+			// (empty) operator work list.
+			"target":       weighingTaskTarget(campaignID),
 			"message_key":  "weighing.plan_published",
 			"shed_count":   strconv.Itoa(len(payload.Buckets)),
 			"campaign_id":  campaignID,
@@ -380,6 +383,14 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 		priority = priorityHigh
 		messageKey = "weighing.verdict.rework"
 	}
+	// An APPROVED verdict is an evidence fact for leadership, so it opens the bucket whose proof
+	// was accepted. A REWORK is work: its audience is the operator who must re-capture, and their
+	// capture entry point is the module landing -- one push carries one target, and sending the
+	// person who has to act to a read-only record would be the worse trade.
+	verdictTarget := weighingBucketTarget(payload.CampaignID, payload.CampaignShedID)
+	if rework {
+		verdictTarget = weighingModuleTarget
+	}
 	eventKey := event.Type + ":" + observationID
 	_, err := c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -396,7 +407,7 @@ func (c *WeighingLifecycleEventConsumer) handleVerdict(ctx context.Context, even
 		Context: map[string]string{
 			"type":             "weighing_" + payload.VerificationStatus,
 			"screen":           screen,
-			"target":           "/weighing",
+			"target":           verdictTarget,
 			"message_key":      messageKey,
 			"shed_label":       shedLabel,
 			"rework_reason":    reworkReason,
@@ -481,9 +492,11 @@ func (c *WeighingLifecycleEventConsumer) handleShedClosed(ctx context.Context, e
 		TraceID:          eventKey,
 		EventKey:         eventKey,
 		Context: map[string]string{
-			"type":               contextType,
-			"screen":             "weighing_overview",
-			"target":             "/weighing",
+			"type":   contextType,
+			"screen": "weighing_overview",
+			// A closed bucket has no capture left to do for anyone, so both audiences want the
+			// same thing: the record of the bucket that was closed.
+			"target":             weighingBucketTarget(payload.CampaignID, campaignShedID),
 			"message_key":        messageKey,
 			"shed_label":         shedLabel,
 			"reason":             strings.TrimSpace(payload.Reason),
@@ -596,7 +609,7 @@ func (c *WeighingLifecycleEventConsumer) handleCampaignClosed(ctx context.Contex
 		Context: map[string]string{
 			"type":               "weighing_campaign_closed",
 			"screen":             "weighing_overview",
-			"target":             "/weighing",
+			"target":             weighingTaskTarget(campaignID),
 			"message_key":        "weighing.campaign_closed",
 			"campaign_id":        campaignID,
 			"park_id":            payload.ParkID,

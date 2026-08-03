@@ -52,6 +52,19 @@ var (
 	// unaffected.
 	ErrOperatorOutsidePark = errors.New("weighing: operator is not scoped to this park")
 
+	// ErrStaleEvidence is returned when a verdict names a proof that is no longer
+	// the proof attached to the observation -- the reviewer decided on evidence that
+	// has since been superseded (a rework re-shoot swapped the video out from under
+	// an in-flight review). It lives HERE, not in the postgres adapter that raises
+	// it, because the event consumer in weighing/app has to recognise it: a verdict
+	// against superseded evidence can never become applicable no matter how many
+	// times the bus redelivers it, so the consumer must fail it permanently rather
+	// than retry it forever as an unclassified store error. Distinct from
+	// ErrIdempotencyConflict (same key, different request) and ErrImmutable (target
+	// already terminal): the verdict is well-formed and the target is writable --
+	// it is the EVIDENCE that moved on.
+	ErrStaleEvidence = errors.New("weighing: stale verification evidence")
+
 	// ErrWriteConflict is a Postgres SERIALIZABLE (SSI) conflict, SQLSTATE
 	// 40001, on a write that touches no duplicate at all -- it means "this
 	// transaction lost a race against another that overlapped it in time",
@@ -119,7 +132,15 @@ type Repository interface {
 	// tasks, each with its own first page of evidence. It replaces the client
 	// pattern of expanding a task page into buckets and calling the single-shed
 	// read once per bucket.
-	ListLeadershipSheds(ctx context.Context, tenantID, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
+	//
+	// parkIDs is the caller's capability-scoped park set and is part of the QUERY, not a
+	// post-filter: dropping unauthorized rows after the page was cut returned short (or
+	// empty) pages to a park-scoped monitor whenever another park's buckets happened to
+	// occupy the page, while authorized buckets sat unreachable further down the keyset.
+	// A nil/empty slice means unrestricted (tenant-wide authority or an internal caller);
+	// it is NOT "authorized for nothing", because this port has no way to tell the two
+	// apart and the service is the layer that knows.
+	ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error

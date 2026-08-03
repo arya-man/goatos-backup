@@ -948,7 +948,7 @@ func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, strin
 func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int, bool) (domain.RosterPage, error) {
 	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
 }
-func (f fakeRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (f fakeRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 
@@ -1163,7 +1163,7 @@ func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID,
 	return domain.RosterPage{}, ports.ErrNotFound
 }
 
-func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 

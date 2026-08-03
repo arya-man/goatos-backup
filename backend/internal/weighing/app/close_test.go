@@ -287,7 +287,7 @@ func (r *multiParkScenarioRepo) GetLeadershipShedVideos(context.Context, string,
 	return domain.LeadershipShedVideos{}, nil
 }
 
-func (r *multiParkScenarioRepo) ListLeadershipSheds(context.Context, string, string, int, int) (domain.LeadershipShedPage, error) {
+func (r *multiParkScenarioRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
 	return domain.LeadershipShedPage{}, nil
 }
 

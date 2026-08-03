@@ -533,13 +533,16 @@ func (s *Service) GetLeadershipShedVideos(ctx context.Context, actor domain.Acto
 // ListLeadershipSheds pages the leadership gallery at BUCKET grain. Same
 // monitor-only authority as the single-bucket evidence read it pages.
 //
-// The repository has no park filter parameter (it pages across every campaign in the
-// tenant), so a tenant-wide WeighingMonitor role check alone is not enough: a park-scoped
-// monitor for park A would otherwise see every OTHER park's buckets too. Each returned
-// bucket is therefore authorized, per-campaign, against the actor's actual capability-scoped
-// parks before being handed back; buckets outside the actor's authorized parks are dropped.
-// This is a service-layer stopgap -- the correct long-term fix is a park filter pushed into
-// the repository query, which is out of scope for this authorization fix.
+// A tenant-wide WeighingMonitor role check alone is not enough here: the role says the actor
+// monitors SOMEWHERE, so a monitor scoped to park A would otherwise page every OTHER park's
+// buckets. The actor's capability-scoped park set therefore goes INTO the repository query.
+//
+// It used to be applied to the page the repository had already cut, and that stopgap was itself
+// a defect: the keyset walks every park in the tenant, so a page could be filled entirely with
+// parks the actor may not see and come back EMPTY -- indistinguishable from "no evidence" --
+// while their own buckets sat further down the same order with no cursor able to reach them.
+// Paginating over already-authorized rows is the only shape in which a page boundary and an
+// authorization boundary cannot collide.
 func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error) {
 	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
 		return domain.LeadershipShedPage{}, ports.ErrForbidden
@@ -550,40 +553,22 @@ func (s *Service) ListLeadershipSheds(ctx context.Context, actor domain.Actor, c
 	if limit > domain.MaxLeadershipShedPageSize {
 		limit = domain.MaxLeadershipShedPageSize
 	}
-	page, err := s.repo.ListLeadershipSheds(ctx, actor.TenantID, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
-	if err != nil {
-		return domain.LeadershipShedPage{}, err
-	}
-
+	// An empty slice is the repository's "unrestricted" arm, which is why the tenant-wide and
+	// no-grants cases (see authorizedParkSet) must reach it as nil rather than as an empty set:
+	// a tenant-wide monitor is authorized everywhere, not nowhere.
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
-	if hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) {
-		return page, nil
-	}
-	authorizedParkIDs := map[string]struct{}{}
-	for _, id := range httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor) {
-		authorizedParkIDs[id] = struct{}{}
-	}
-	parkIDCache := map[string]bool{}
-	filtered := page.Items[:0]
-	for _, item := range page.Items {
-		allowed, ok := parkIDCache[item.CampaignID]
-		if !ok {
-			// Memoized by parkIDCache: this runs once per DISTINCT campaign on an
-			// already-paginated page (in practice 1), not once per row.
-			// scale-guard:ignore: memoized per distinct campaign on a bounded page
-			parkID, err := s.repo.CampaignParkID(ctx, actor.TenantID, item.CampaignID)
-			if err != nil {
-				continue
-			}
-			_, allowed = authorizedParkIDs[parkID]
-			parkIDCache[item.CampaignID] = allowed
-		}
-		if allowed {
-			filtered = append(filtered, item)
+	var parkIDs []string
+	if !hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) &&
+		len(grants) > 0 {
+		parkIDs = httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor)
+		if len(parkIDs) == 0 {
+			// Park-scoped grants that carry no monitor capability anywhere: the actor passed the
+			// flat role gate but owns no park here. An unrestricted read would be the escalation
+			// this whole path exists to prevent, so the answer is an empty page.
+			return domain.LeadershipShedPage{Items: []domain.LeadershipShedVideos{}}, nil
 		}
 	}
-	page.Items = filtered
-	return page, nil
+	return s.repo.ListLeadershipSheds(ctx, actor.TenantID, parkIDs, strings.TrimSpace(cursor), limit, domain.LeadershipShedVideosPageSize)
 }
 
 // hasTenantWideCapability reports whether any grant is scoped to the whole tenant AND carries

@@ -129,7 +129,11 @@ func TestVerificationLifecycleRoutesToOwningDirectorInOwnWords(t *testing.T) {
 					if strings.Contains(lowered, tc.bannedWord) {
 						t.Fatalf("%s %s borrows vaccination wording: %q / %q", tc.module, lc.name, queued.Title, queued.Body)
 					}
-					if queued.Context["target"] == tc.wantTarget {
+					// Prefix, not equality: a module may deep-link INTO its own surface (weighing's
+					// leadership pushes open the proof gallery rather than the operator's work
+					// list). What must never happen is landing in ANOTHER module, which the
+					// /vaccination guard below asserts.
+					if strings.HasPrefix(queued.Context["target"], tc.wantTarget) {
 						sawTarget = true
 					}
 					if strings.HasPrefix(queued.Context["target"], "/vaccination") {

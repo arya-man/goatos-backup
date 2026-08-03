@@ -556,7 +556,7 @@ func TestListLeadershipShedsPagesBucketsAndBoundsEvidencePerBucket(t *testing.T)
 	seedLeadershipObservations(t, ctx, pool, base, 25)
 	repo := NewRepository(pool, 5*time.Second)
 
-	page, err := repo.ListLeadershipSheds(ctx, repoTenant, "", 0, 0)
+	page, err := repo.ListLeadershipSheds(ctx, repoTenant, nil, "", 0, 0)
 	if err != nil {
 		t.Fatalf("gallery page: %v", err)
 	}
@@ -610,14 +610,14 @@ func TestListLeadershipShedsWalksEveryBucketOnceAndTerminates(t *testing.T) {
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	whole, err := repo.ListLeadershipSheds(ctx, repoTenant, "", 0, 0)
+	whole, err := repo.ListLeadershipSheds(ctx, repoTenant, nil, "", 0, 0)
 	if err != nil {
 		t.Fatalf("whole page: %v", err)
 	}
 	seen := map[string]bool{}
 	cursor := ""
 	for i := 0; i < len(whole.Items)+2; i++ {
-		page, err := repo.ListLeadershipSheds(ctx, repoTenant, cursor, 1, 0)
+		page, err := repo.ListLeadershipSheds(ctx, repoTenant, nil, cursor, 1, 0)
 		if err != nil {
 			t.Fatalf("bucket page %d: %v", i, err)
 		}
@@ -649,4 +649,42 @@ INSERT INTO locations (location_id, tenant_id, location_type, name, parent_locat
 VALUES ($1::uuid, $2::uuid, 'shed', $3, $4::uuid, 'active', $5)
 ON CONFLICT (location_id) DO UPDATE SET name=EXCLUDED.name, display_order=EXCLUDED.display_order`,
 		shedID, repoTenant, name, parkID, displayOrder)
+}
+
+// The gallery's park restriction must be part of the KEYSET WALK, not something applied to the
+// page it produced. Filtering afterwards handed a park-scoped monitor a short (often empty) page
+// whenever another park's buckets occupied it, with their own buckets unreachable further down the
+// same order. An empty park set is the "unrestricted" arm and must not read as "no parks".
+func TestListLeadershipShedsRestrictsToRequestedParksInsideTheQuery(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	unrestricted, err := repo.ListLeadershipSheds(ctx, repoTenant, nil, "", 0, 0)
+	if err != nil {
+		t.Fatalf("unrestricted gallery page: %v", err)
+	}
+	if len(unrestricted.Items) == 0 {
+		t.Fatalf("unrestricted gallery page returned no buckets")
+	}
+
+	own, err := repo.ListLeadershipSheds(ctx, repoTenant, []string{repoPark}, "", 0, 0)
+	if err != nil {
+		t.Fatalf("own-park gallery page: %v", err)
+	}
+	if len(own.Items) != len(unrestricted.Items) {
+		t.Fatalf("own-park page has %d buckets, want the same %d the unrestricted read returned",
+			len(own.Items), len(unrestricted.Items))
+	}
+
+	foreign, err := repo.ListLeadershipSheds(ctx, repoTenant, []string{"7f000000-0000-4000-8000-00000000ffff"}, "", 0, 0)
+	if err != nil {
+		t.Fatalf("foreign-park gallery page: %v", err)
+	}
+	if len(foreign.Items) != 0 {
+		t.Fatalf("gallery returned %d buckets for a park with none: %#v", len(foreign.Items), foreign.Items)
+	}
 }

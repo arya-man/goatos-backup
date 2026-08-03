@@ -98,6 +98,72 @@ WHERE pr.tenant_id = $1::uuid AND pr.rule_id = ANY($2::uuid[])`, tenantID, clean
 	return out
 }
 
+// ResolveVaccineLabelsForTask returns the distinct dose labels of the vaccination obligations the
+// SOP task sopTaskID carried, derived from the same protocol schema (and the same canonical
+// formatter) as ResolveVaccineLabels.
+//
+// It exists because the verification producer contract never carried a rule id at all: an item
+// created from a vaccination SOP submission (sopbridge/vaccination_submission.go) carries
+// Category="vaccination_proof" and Source.TaskID -- the sop task -- and nothing dose-shaped. The
+// only durable link from that task back to the doses it discharged is
+// obligation_instances(tenant_id, sop_task_id) -> rule_id, which is what this reads.
+//
+// A task may discharge a COMBO (several rules in one visit), which is exactly what a label such as
+// "ET+TT" means, so several labels are a normal answer, not an error. The read is bounded by
+// maxTaskVaccineLabels so a pathological task can never turn one push into an unbounded string;
+// it walks idx_obligation_instances_sop_task and is one query per approved item, in line with the
+// single batched location read beside it.
+//
+// Errors degrade to no labels (generic copy) after a WARN, never a blocked notification.
+func (r *VaccineLabelResolver) ResolveVaccineLabelsForTask(ctx context.Context, tenantID, sopTaskID string) []string {
+	if r == nil || r.pool == nil || strings.TrimSpace(tenantID) == "" {
+		return nil
+	}
+	sopTaskID = strings.TrimSpace(sopTaskID)
+	if !looksLikeUUID(sopTaskID) {
+		return nil
+	}
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT pd.name, pr.dose_code
+FROM obligation_instances oi
+JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+JOIN protocol_versions pv
+  ON pv.tenant_id = pr.tenant_id AND pv.protocol_version_id = pr.protocol_version_id
+JOIN protocol_definitions pd
+  ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+WHERE oi.tenant_id = $1::uuid AND oi.sop_task_id = $2::uuid
+ORDER BY pd.name, pr.dose_code
+LIMIT $3`, tenantID, sopTaskID, maxTaskVaccineLabels)
+	if err != nil {
+		r.logger.WarnContext(ctx, "vaccine label lookup by sop task failed, falling back to generic copy",
+			"tenant_id", tenantID, "sop_task_id", sopTaskID, "error", err)
+		return nil
+	}
+	defer rows.Close()
+	labels := make([]string, 0, maxTaskVaccineLabels)
+	for rows.Next() {
+		var protocolName, doseCode string
+		if err := rows.Scan(&protocolName, &doseCode); err != nil {
+			r.logger.WarnContext(ctx, "vaccine label row scan failed", "tenant_id", tenantID, "error", err)
+			continue
+		}
+		if label := vaccinationdomain.DoseDisplayLabel(protocolName, doseCode); label != "" {
+			labels = append(labels, label)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		r.logger.WarnContext(ctx, "vaccine label lookup by sop task iteration failed",
+			"tenant_id", tenantID, "error", err)
+	}
+	return labels
+}
+
+// maxTaskVaccineLabels caps how many dose labels one push may name. A real combo visit is two or
+// three doses; anything beyond that is data noise and must not be allowed to grow the notification
+// body without bound.
+const maxTaskVaccineLabels = 3
+
 // vaccineLabelOrFallback renders a resolved human label, or a neutral fallback ("vaccination")
 // when the lookup is unavailable/empty -- never a raw code and never a blank segment in the copy.
 func vaccineLabelOrFallback(label string) string {
