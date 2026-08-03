@@ -169,6 +169,60 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 	return c, nil
 }
 
+// assertNoFinishedShedBlocksMove refuses an edit that would MOVE a task (its weigh
+// date or its park) while any of its buckets is already 'completed' or 'closed'.
+//
+// It reads the task's CURRENT identity and compares it with the requested one, so
+// an ordinary edit -- adding or removing sheds, changing the operator or the cap,
+// re-saving the same date -- is untouched. Only a move is refused, and only when
+// there is finished work that would be left behind by it.
+//
+// scale-guard:ignore: single-row campaign lookup plus a bounded read of THIS task's
+// finished buckets, one per edit
+func (r *Repository) assertNoFinishedShedBlocksMove(ctx context.Context, tx pgx.Tx, tenantID, campaignID, parkID, startBusinessDate string) error {
+	var currentPark, currentDate string
+	if err := tx.QueryRow(ctx, `
+SELECT park_id::text, start_business_date::text
+FROM weighing_campaigns
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, tenantID, campaignID).Scan(&currentPark, &currentDate); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // the update itself reports a missing task
+		}
+		return err
+	}
+	movesDate := strings.TrimSpace(startBusinessDate) != "" && startBusinessDate != currentDate
+	movesPark := strings.TrimSpace(parkID) != "" && parkID != currentPark
+	if !movesDate && !movesPark {
+		return nil
+	}
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT display_name
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status IN ('completed','closed')
+ORDER BY display_name`, tenantID, campaignID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var finished []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		finished = append(finished, name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(finished) == 0 {
+		return nil
+	}
+	return &ports.FinishedShedConflict{WeighDate: currentDate, Sheds: finished}
+}
+
 func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd domain.UpdateCampaign) (domain.Campaign, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -186,6 +240,19 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 	}
 	// Editing a task must not smuggle in a cross-park assignee either.
 	if err := r.assertOperatorsScopedToPark(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.Sheds); err != nil {
+		return domain.Campaign{}, err
+	}
+	// A task that already holds FINISHED work cannot be moved to another day or
+	// park. The bucket upsert below deliberately refuses to touch a 'completed' or
+	// 'closed' bucket -- a weighed shed records the day it was actually weighed and
+	// its proof hangs off that day, so dragging it to a new date would falsify when
+	// the work happened. But letting the MOVE succeed anyway is the silent half of
+	// the same bug: the campaign lands on Tuesday while the finished bucket still
+	// says Monday, and the shed shows up on neither day's task while the screen
+	// reports success. Refuse the move and name the sheds; the planner then either
+	// drops the finished shed from this task or leaves the task where it is and
+	// plans the new date as its own.
+	if err := r.assertNoFinishedShedBlocksMove(ctx, tx, cmd.TenantID, campaignID, cmd.ParkID, cmd.StartBusinessDate); err != nil {
 		return domain.Campaign{}, err
 	}
 	tag, err := tx.Exec(ctx, `

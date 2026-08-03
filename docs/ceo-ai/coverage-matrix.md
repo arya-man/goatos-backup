@@ -754,3 +754,19 @@ only the route string changed, and the old generic route was deleted rather than
 aliased. It is an operator/leadership worklist for ONE feature, not an aggregate:
 leadership sees vaccination health through the existing vaccination read APIs and
 the Control Tower summary.
+
+**EXCLUDED — `func:Error`, `func:Unwrap` on `FinishedShedConflict`** (weighing
+ports) — the two error-interface methods of the typed refusal that blocks MOVING
+a weighing task which already holds weighed sheds. A weighed bucket records the
+day the work actually happened and its proof hangs off that day, so the task
+cannot take that day with it; the refusal names the sheds so the planner can act
+(maintainer priority 2026-08-04).
+
+They render an error string and unwrap to `ErrFinishedShedBlocksReschedule` —
+no query, no aggregate, no metric, no read surface, and nothing a leader can ask
+a question about. It is the same shape as the existing `ShedScheduleConflict`,
+which is already excluded above for the same reason. Leadership continues to see
+weighing progress through `GET /weighing/campaigns` and the Control Tower
+process-state summary; a refused edit writes nothing, so those numbers are
+unchanged by definition.
+
