@@ -338,6 +338,10 @@ fun GoatOsShell(navState: NavState) {
             showProtocolAdherenceCard = navState.featureFlags["protocol_adherence_card"] == true,
             canExecuteVaccination = canExecuteVaccination,
             canExecuteWeighing = canExecuteWeighing,
+            // The SAME "has this person's own navigation arrived yet" test the push-route effect
+            // above applies. Destinations that redirect on an absent capability must not act while
+            // every flag still reads false because bootstrap has not answered.
+            navStateResolved = navState.items.isNotEmpty() || navState.modules.isNotEmpty(),
             verificationVideoControlsEnabled = verificationVideoControlsEnabled,
         )
     }

@@ -309,6 +309,13 @@
     <string name="weighing_shed_reopen_action">ಈ ಶೆಡ್ ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_shed_loading">ಲೋಡ್ ಆಗುತ್ತಿದೆ</string>
     <string name="weighing_shed_loading_more_records">ಇನ್ನಷ್ಟು ದಾಖಲೆಗಳು ಲೋಡ್ ಆಗುತ್ತಿವೆ</string>
+    <string name="weighing_close_dialog_title">%1$s ಮುಚ್ಚಬೇಕೆ?</string>
+    <string name="weighing_close_dialog_subtitle">ಇದು ಶೆಡ್ ಬಕೆಟ್ ಅನ್ನು ಕೊನೆಗೊಳಿಸುತ್ತದೆ. ಇದನ್ನು ಮತ್ತೆ ತೆರೆಯಬಹುದು, ಮತ್ತು ಕಾರಣ ಎರಡೂ ಸಂದರ್ಭದಲ್ಲಿ ದಾಖಲೆಯಲ್ಲಿ ಉಳಿಯುತ್ತದೆ. ಕಾರಣ ತಿಳಿಸಿ.</string>
+    <string name="weighing_close_dialog_placeholder">ಮುಚ್ಚುವ ಕಾರಣ</string>
+    <string name="weighing_reopen_dialog_title">%1$s ಮತ್ತೆ ತೆರೆಯಬೇಕೆ?</string>
+    <string name="weighing_reopen_dialog_subtitle">ಇದು ಶೆಡ್ ಬಕೆಟ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆದ ಕೆಲಸಕ್ಕೆ ಸೇರಿಸುತ್ತದೆ. ಕಾರಣ ತಿಳಿಸಿ.</string>
+    <string name="weighing_reopen_dialog_placeholder">ಮತ್ತೆ ತೆರೆಯುವ ಕಾರಣ</string>
+    <string name="weighing_reopen_dialog_confirm">ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_task_close_awaiting_fmt">ಕೆಲಸ ಮುಚ್ಚಿ · %1$d ಪರಿಶೀಲನೆಗೆ ಕಾಯುತ್ತಿವೆ</string>
     <string name="weighing_task_close_split_fmt">ಕೆಲಸ ಮುಚ್ಚಿ · %1$d ಸಲ್ಲಿಸಿಲ್ಲ · %2$d ಪರಿಶೀಲನೆಗೆ ಕಾಯುತ್ತಿವೆ</string>
     <string name="weighing_bucket_state_not_started">ಇನ್ನೂ ಏನೂ ದಾಖಲಾಗಿಲ್ಲ</string>
@@ -341,4 +348,6 @@
     <string name="weighing_shed_weighed_by_nobody">ಇನ್ನೂ ಯಾರಿಗೂ ನೀಡಿಲ್ಲ</string>
     <string name="weighing_weighed_submitted_fmt">%1$d ತೂಗಲಾಗಿದೆ · %2$d ಸಲ್ಲಿಸಲಾಗಿದೆ</string>
     <string name="weighing_not_submitted_chip">ಸಲ್ಲಿಸಲಾಗಿಲ್ಲ</string>
+    <string name="weighing_reason_dialog_error_required">ಕಾರಣ ಅಗತ್ಯವಿದೆ.</string>
+    <string name="weighing_reason_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
 </resources>

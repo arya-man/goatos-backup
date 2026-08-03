@@ -331,6 +331,13 @@
     <string name="weighing_shed_reopen_action">Reopen this shed</string>
     <string name="weighing_shed_loading">Loading</string>
     <string name="weighing_shed_loading_more_records">Loading more records</string>
+    <string name="weighing_close_dialog_title">Close %1$s?</string>
+    <string name="weighing_close_dialog_subtitle">This ends the shed bucket. It can be reopened, and the reason stays on the record either way. Say why.</string>
+    <string name="weighing_close_dialog_placeholder">Reason for closing</string>
+    <string name="weighing_reopen_dialog_title">Reopen %1$s?</string>
+    <string name="weighing_reopen_dialog_subtitle">This puts the shed bucket back into open work. Say why.</string>
+    <string name="weighing_reopen_dialog_placeholder">Reason for reopening</string>
+    <string name="weighing_reopen_dialog_confirm">Reopen</string>
     <string name="weighing_task_close_awaiting_fmt">Close task · %1$d waiting for verifier</string>
     <string name="weighing_task_close_split_fmt">Close task · %1$d not submitted · %2$d waiting for verifier</string>
     <string name="weighing_bucket_state_not_started">Nothing captured yet</string>
@@ -367,4 +374,6 @@
     <string name="weighing_shed_weighed_by_nobody">Not assigned to anyone yet</string>
     <string name="weighing_weighed_submitted_fmt">%1$d weighed · %2$d submitted</string>
     <string name="weighing_not_submitted_chip">Not submitted</string>
+    <string name="weighing_reason_dialog_error_required">A reason is required.</string>
+    <string name="weighing_reason_dialog_cancel">Cancel</string>
 </resources>

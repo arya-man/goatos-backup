@@ -140,7 +140,7 @@ test("weighing leadership planner allows a second task for a park-week's leftove
 test("weighing week strip is derived from campaign response", () => {
   const data = source("data.ts");
 
-  assert.match(data, /selectCampaign\(result\.data\.items, selectedWeek, selectedCampaignId, selectedParkId\)/);
+  assert.match(data, /selectCampaign\(result\.data\.items, thisWeekStart, selectedWeek, selectedCampaignId, selectedParkId\)/);
   assert.match(data, /weeksFromCampaigns\(result\.data\.items, campaign\)/);
   assert.match(data, /sort\(\(a, b\) => a\.period_start_date\.localeCompare\(b\.period_start_date\)\)/);
   assert.match(data, /weekRangeLabel\(item\.period_start_date, item\.period_end_date\)/);
@@ -185,13 +185,17 @@ test("W14 FIX: campaign selection is park-scoped, never crosses parks on a plain
   const data = source("data.ts");
   const page = source("page.tsx");
   const parkSelector = source("park-selector.tsx");
+  // selectCampaign moved into campaign-selection.ts so the rule can be unit-tested;
+  // data.ts is "server-only" and cannot be imported by node --test.
+  const selection = source("campaign-selection.ts");
 
   // selectCampaign is park-scoped: an explicit park filters the candidate campaigns
   // before any week/campaign-id lookup, and never falls back to another park's row.
-  assert.match(data, /function selectCampaign\(/);
-  assert.match(data, /selectedParkId\?: string,/);
-  assert.match(data, /const scoped = selectedParkId/);
-  assert.match(data, /item\.park_id === selectedParkId/);
+  assert.match(selection, /export function selectCampaign</);
+  assert.match(selection, /selectedParkId\?: string,/);
+  assert.match(selection, /const scoped = selectedParkId/);
+  assert.match(selection, /item\.park_id === selectedParkId/);
+  assert.match(data, /import \{ selectCampaign, weekStartOfDay \} from "\.\/campaign-selection";/);
 
   // ParkSelector must clear the stale campaign/week selection on every park switch so
   // Park A's campaign can never be treated as "the current campaign" for Park B.
@@ -263,4 +267,23 @@ test("W21-TS: operator name distinguishes genuine roster gap from unassigned usi
   assert.match(data, /if \(shed\.operator_user_id\) \{/);
   assert.match(data, /operatorDisplay = "Roster gap \(operator not found\)";/);
   assert.match(data, /operatorDisplay = "Unassigned";/);
+});
+
+test("the planner week follows the SELECTED campaign, and 'this week' is the IST business day", () => {
+  const data = source("data.ts");
+  const selection = source("campaign-selection.ts");
+
+  // selectCampaign may decline the URL's week and land on a different campaign. Preferring the URL
+  // week for the planner read then showed that campaign's header above another week's catalog.
+  assert.match(data, /const plannerWeek = campaign\.weekStart \|\| selectedWeek \|\| thisWeekStart;/);
+  assert.doesNotMatch(data, /const plannerWeek = selectedWeek \|\|/);
+
+  // "This week" must come from the Asia/Kolkata business day, not the UTC calendar date.
+  assert.match(data, /import \{ todayIso \} from "@\/lib\/format";/);
+  assert.match(data, /const thisWeekStart = weekStartOfDay\(todayIso\(\)\);/);
+  assert.match(data, /selectCampaign\(result\.data\.items, thisWeekStart, selectedWeek, selectedCampaignId, selectedParkId\)/);
+
+  // campaign-selection.ts must not reach for a clock of its own.
+  assert.doesNotMatch(selection, /new Date\(\)/);
+  assert.doesNotMatch(selection, /getUTCFullYear\(\)\, now/);
 });

@@ -380,27 +380,29 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 	}
 
 	t.Run("KPIAnimalGrainOneToManyMultipleDimensionsPaginationPageBoundaryDateShiftScheduledDateExecutionDateParkScopeStatusMatrixEveryStatusStatusBuckets", func(t *testing.T) {
-		// KPI targets and status cards count distinct animals. A goat can still appear in more
-		// than one status if different vaccines for the same drive are at different states.
+		// KPI targets and the four status tiles are all distinct-animal counts, so the tiles
+		// must partition targets. This assertion used to allow a sum of 4 against 3 targets:
+		// goat 1 holds BOTH the verified ET obligation and the scheduled-ahead PPR obligation
+		// and was counted in two tiles, which is exactly the double-count the animal-grain
+		// priority chain in the KPI query now removes.
 		expectedTargets := 3
 		if resp.KPIs.Targets != expectedTargets {
 			t.Fatalf("KPI targets = %d, want %d", resp.KPIs.Targets, expectedTargets)
 		}
 
-		// Status buckets are distinct-animal counts within each state; they do not have to sum
-		// to animal targets when one animal has multiple vaccine obligations.
 		sumVerified := resp.KPIs.DosesVerified
 		sumAwaiting := resp.KPIs.AwaitingVerification
 		sumOverdue := resp.KPIs.OverdueNotGiven
 		sumScheduled := resp.KPIs.ScheduledAhead
 		sumAll := sumVerified + sumAwaiting + sumOverdue + sumScheduled
 
-		if sumAll != 4 {
-			t.Fatalf("status bucket sum = %d (verified=%d, awaiting=%d, overdue=%d, scheduled=%d), want %d",
-				sumAll, sumVerified, sumAwaiting, sumOverdue, sumScheduled, 4)
+		if sumAll != expectedTargets {
+			t.Fatalf("status bucket sum = %d (verified=%d, awaiting=%d, overdue=%d, scheduled=%d), want %d = targets",
+				sumAll, sumVerified, sumAwaiting, sumOverdue, sumScheduled, expectedTargets)
 		}
 
-		// Verify individual buckets have expected counts
+		// Verify individual buckets have expected counts. goat 1 lands in verified alone:
+		// verified outranks scheduled in the documented precedence chain.
 		if sumVerified != 1 {
 			t.Fatalf("verified count = %d, want 1", sumVerified)
 		}
@@ -410,8 +412,8 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 		if sumOverdue != 1 {
 			t.Fatalf("overdue count = %d, want 1", sumOverdue)
 		}
-		if sumScheduled != 1 {
-			t.Fatalf("scheduled count = %d, want 1", sumScheduled)
+		if sumScheduled != 0 {
+			t.Fatalf("scheduled count = %d, want 0; goat 1's scheduled PPR dose must not double-count against its verified ET dose", sumScheduled)
 		}
 	})
 

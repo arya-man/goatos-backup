@@ -175,7 +175,7 @@ tracked as gaps below.
 | source_entry_health_status | draft | load_label (no stored load label) |
 | ops_exception_queue | draft | — (UNION across modules) |
 | sop_execution_status | draft | — |
-| verification_queue_status | draft | — |
+| verification_queue_status | draft | owner_label (always NULL — operator_id is sensitive, shed position holder not joined). `accepted` returned 0 unconditionally from the 000001 baseline until migration 000085: it filtered on status values the verification_items CHECK does not permit. Any accepted figure read before 000085 was broken, not empty. 000085 also appends `total` / `withdrawn` / `total_including_withdrawn` on 000080's rule — withdrawn rows are kept so an all-superseded scope still appears, and are excluded from `total` so pending + rejected + accepted = total. |
 | inventory_stock_position | draft | reorder_flag (no threshold config — gap G1), last_reconciled_at (partial) |
 | workforce_coverage_status | draft | — |
 | action_center_current | draft | — (UNION) |
@@ -688,3 +688,38 @@ scoped to a single role, not an aggregate or KPI: same rows, same grain, and the
 same `verification_items` source the existing verification queue already serves.
 Leadership continues to see verification health through the module read APIs and
 the Control Tower process-state summary, not through this endpoint.
+
+**EXCLUDED — `table:weighing_repair_batch_progress`** (migration 000086) —
+bookkeeping for the batched weighing data repairs. It records how far a one-time
+repair procedure has drained so an interrupted run can resume; it holds no
+business fact, no herd or weighing measurement, and nothing reads it for
+correctness. A leader has no question this table answers. The weighing facts it
+protects are already covered by `ceo_ai.weighing_capture_activity` and
+`ceo_ai.weighing_verification_status` (000080).
+
+**EXCLUDED — `func:ResolveAuthorizedParkScopeForCapabilities`,
+`func:HasTenantWideCapability`** (platform HTTP middleware),
+**`func:HasTenantWideAuthority`, `func:AuthorizedParks`**
+(vaccination-execution domain) — authorization primitives. They answer "which
+parks may this actor exercise this capability in", which is a question about the
+CALLER, not about the herd. They carry no metric and expose no new data: every
+one of them can only ever NARROW what an already-covered read API returns. They
+exist because the capability-blind versions let an actor combine an unrelated
+park grant with a capability-carrying grant scoped to a different park. Making
+them assistant-visible would be a category error.
+
+**EXCLUDED — `func:ResolveVaccineLabelsForTask`** (notification bridge) — a copy
+resolver. It turns the sop task a push payload actually carries into that dose's
+display label ("ET+TT") so a vaccination notification stops degrading to generic
+text. It is presentation for a push notification, reading protocol rules the
+assistant already reaches through the vaccination read APIs. It adds no fact.
+
+**EXCLUDED — `func:ListLeadershipSheds`** (weighing app service) — the
+leadership weighing gallery, one page of buckets with their proof videos for a
+Growth Director reviewing operator capture. It is a paged, evidence-level
+worklist at bucket grain, scoped to the actor's monitor parks — the same shape
+as the verifier alerts list excluded above, and the same reason: leadership
+aggregates for weighing are served by `ceo_ai.weighing_capture_activity` and
+`ceo_ai.weighing_verification_status`, which answer "how many animals were
+weighed, where, and how much verification is outstanding" without paging
+per-bucket video evidence.

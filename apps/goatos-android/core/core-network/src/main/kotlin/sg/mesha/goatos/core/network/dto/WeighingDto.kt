@@ -124,6 +124,40 @@ data class WeighingCapabilitiesDto(
 )
 
 /**
+ * ONE task resolved by id (`GET /app/weighing/campaigns/{campaign_id}`).
+ *
+ * Separate from [WeighingCampaignResponseDto], which answers the create/update/publish WRITES and
+ * carries no capabilities: this read is what a notification deep link resolves against, so it has
+ * to state what the tapper may do to the task it just opened.
+ */
+@Serializable
+data class WeighingCampaignDetailResponseDto(
+    @SerialName("campaign") val campaign: WeighingCampaignDto = WeighingCampaignDto(),
+    @SerialName("capabilities") val capabilities: WeighingCapabilitiesDto = WeighingCapabilitiesDto(),
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+/**
+ * One park the caller may filter weighing by (`GET /app/weighing/parks`). Identity ONLY: anything
+ * date-scoped or count-bearing is planner-catalog grain and sits behind the planner permission.
+ */
+@Serializable
+data class WeighingParkDto(
+    @SerialName("park_id") val parkId: String = "",
+    @SerialName("name") val name: String = "",
+)
+
+/**
+ * The caller's authorized weighing parks. UNPAGED on purpose -- a chip row cannot offer the parks
+ * it has not paged to, which is the exact defect that made the chips a function of loaded rows.
+ */
+@Serializable
+data class WeighingParkListResponseDto(
+    @SerialName("parks") val parks: List<WeighingParkDto> = emptyList(),
+    @SerialName("trace_id") val traceId: String? = null,
+)
+
+/**
  * What ONE person's weighing work adds up to, as the BACKEND counts it.
  *
  * Every field is a plain count and none is ever a numerator: weighing is free-flow, there is no

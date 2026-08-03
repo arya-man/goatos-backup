@@ -309,6 +309,13 @@
     <string name="weighing_shed_reopen_action">यह शेड फिर खोलें</string>
     <string name="weighing_shed_loading">लोड हो रहा है</string>
     <string name="weighing_shed_loading_more_records">और रिकॉर्ड लोड हो रहे हैं</string>
+    <string name="weighing_close_dialog_title">%1$s बंद करें?</string>
+    <string name="weighing_close_dialog_subtitle">इससे शेड बकेट समाप्त हो जाएगी। इसे फिर खोला जा सकता है, और कारण दोनों ही स्थिति में रिकॉर्ड पर रहता है। कारण बताएं।</string>
+    <string name="weighing_close_dialog_placeholder">बंद करने का कारण</string>
+    <string name="weighing_reopen_dialog_title">%1$s फिर खोलें?</string>
+    <string name="weighing_reopen_dialog_subtitle">इससे शेड बकेट फिर से खुले काम में आ जाएगी। कारण बताएं।</string>
+    <string name="weighing_reopen_dialog_placeholder">फिर खोलने का कारण</string>
+    <string name="weighing_reopen_dialog_confirm">फिर खोलें</string>
     <string name="weighing_task_close_awaiting_fmt">काम बंद करें · %1$d जाँच के इंतज़ार में</string>
     <string name="weighing_task_close_split_fmt">काम बंद करें · %1$d जमा नहीं हुए · %2$d जाँच के इंतज़ार में</string>
     <string name="weighing_bucket_state_not_started">अभी कुछ दर्ज नहीं</string>
@@ -341,4 +348,6 @@
     <string name="weighing_shed_weighed_by_nobody">अभी किसी को नहीं सौंपा गया</string>
     <string name="weighing_weighed_submitted_fmt">%1$d तौले गए · %2$d भेजे गए</string>
     <string name="weighing_not_submitted_chip">नहीं भेजा गया</string>
+    <string name="weighing_reason_dialog_error_required">कारण आवश्यक है।</string>
+    <string name="weighing_reason_dialog_cancel">रद्द करें</string>
 </resources>

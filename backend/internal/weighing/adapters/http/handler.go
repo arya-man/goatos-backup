@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -26,6 +27,12 @@ type Service interface {
 	PlannerParkBuckets(ctx context.Context, actor domain.Actor, parkID, periodStartDate, excludeCampaignID, cursor string, limit int) (domain.PlannerParkBuckets, error)
 	ListScopeRoster(ctx context.Context, actor domain.Actor, campaignID, campaignShedID string, cursor string, observationsCursor string, limit int, includeRoster bool) (domain.RosterPage, error)
 	ListCampaignSheds(ctx context.Context, actor domain.Actor, campaignID, cursor string, limit int) (domain.CampaignShedPage, error)
+	GetCampaign(ctx context.Context, actor domain.Actor, campaignID string) (domain.Campaign, error)
+	// CampaignCapabilities takes the RESOLVED campaign, not an id: the buttons are park-scoped
+	// and must be answered for the park on the row that was just authorized and returned, never
+	// for a park fetched again afterwards.
+	CampaignCapabilities(ctx context.Context, actor domain.Actor, campaign domain.Campaign) domain.CampaignCapabilities
+	ListParks(ctx context.Context, actor domain.Actor) ([]domain.WeighingPark, error)
 	GetLeadershipShedVideos(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, cursor string, limit int) (domain.LeadershipShedVideos, error)
 	ListLeadershipSheds(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, actor domain.Actor, cmd domain.RecordAnimalObservation) (domain.Observation, error)
@@ -33,7 +40,6 @@ type Service interface {
 	SubmitIndividualScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey string, scannedIdentifiers []string) error
 	ReopenScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) error
 	CloseScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
-	AbandonScope(ctx context.Context, actor domain.Actor, campaignID, campaignShedID, idempotencyKey, reason string) (domain.CloseResult, error)
 	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
@@ -70,6 +76,11 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/planner/parks/{park_id}/buckets", h.PlannerParkBuckets)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
+	// Registered BEFORE the {campaign_id} pattern is irrelevant to net/http's precedence (it
+	// picks the most specific pattern), but the two are listed together so the literal
+	// "/app/weighing/parks" segment is visibly not a campaign id.
+	mux.HandleFunc("GET /app/weighing/parks", h.ListParks)
+	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}", h.GetCampaign)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds", h.ListCampaignSheds)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", h.ListScopeRoster)
 	mux.HandleFunc("GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", h.GetLeadershipShedVideos)
@@ -79,7 +90,6 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", h.SubmitIndividualScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/reopen", h.ReopenScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/close", h.CloseScope)
-	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon", h.AbandonScope)
 	mux.HandleFunc("POST /app/weighing/campaigns/{campaign_id}/close", h.CloseCampaign)
 	// PHASE 2 Calendar / Control Tower binding. Backend-owned grain + disjoint
 	// buckets + whole-filter summary; renderers never recompute totals.
@@ -219,14 +229,6 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	// Active/Completed tab numbers do not move when the park chip changes or the user pages.
 	caller := actor(r)
 	page, err := h.service.ListCampaigns(r.Context(), caller, scope, r.URL.Query().Get("park_id"), r.URL.Query().Get("cursor"), limit)
-	// Which task-level writes THIS caller may attempt. Publish and end are held by
-	// DIFFERENT permissions (plan vs monitor), so a client that gates only on status
-	// shows a live button that 403s -- a growth director holds monitor and not plan.
-	capabilities := map[string]bool{
-		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
-		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
-		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
-	}
 	// operator_summaries is the OPERATOR-grain roll-up the oversight surface renders.
 	// Unlike counts it IS narrowed by park_id, because the park chip is that screen's
 	// own filter: a summary naming people who hold no work in the selected park would
@@ -235,7 +237,24 @@ func (h *Handler) listCampaigns(w http.ResponseWriter, r *http.Request, fallback
 	if summaries == nil {
 		summaries = []domain.OperatorSummary{}
 	}
-	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "operator_summaries": summaries, "capabilities": capabilities, "trace_id": traceID(r)}, err)
+	h.respond(w, r, map[string]any{"items": page.Items, "next_cursor": page.NextCursor, "counts": page.Counts, "operator_summaries": summaries, "capabilities": campaignCapabilities(caller), "trace_id": traceID(r)}, err)
+}
+
+// campaignCapabilities names which task-level writes THIS caller may attempt SOMEWHERE. Publish
+// and end are held by DIFFERENT permissions (plan vs monitor), so a client that gates only on
+// status shows a live button that 403s -- a growth director holds monitor and not plan.
+//
+// It is the LIST envelope's answer only, and it is deliberately park-blind: the envelope is one
+// object over a page whose rows may span several parks, so it cannot carry a per-park answer.
+// It is therefore an upper bound -- "you hold this permission somewhere on this surface" -- and
+// a client must not treat it as per-row authority. The single-task read answers at row grain
+// (Service.CampaignCapabilities) and is what a task screen gates its buttons on.
+func campaignCapabilities(caller domain.Actor) map[string]bool {
+	return map[string]bool{
+		"can_publish": permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingPlan}, false),
+		"can_end":     permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+		"can_reopen":  permissions.RolesAuthorize(caller.Roles, []string{permissions.WeighingMonitor}, false),
+	}
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +303,35 @@ func (h *Handler) PlannerParkBuckets(w http.ResponseWriter, r *http.Request) {
 		limit,
 	)
 	h.respond(w, r, map[string]any{"park_id": page.ParkID, "sheds": page.Sheds, "next_cursor": page.NextCursor, "trace_id": traceID(r)}, err)
+}
+
+// GetCampaign resolves ONE task by id, which is what a notification deep link names. The task
+// list is a keyset page with no id filter, so without this a cold tap on a task outside the
+// first pages could only be answered by walking the keyset and giving up.
+//
+// It returns `capabilities` because a client that reached the task through a push never saw the
+// list response, so gating its buttons on status alone showed a live Publish to a monitor
+// (publish is WeighingPlan, ending is WeighingMonitor) that then 403'd.
+//
+// Those capabilities are computed for the RESOLVED campaign, not for the caller in the
+// abstract. The park-blind version was the same defect one level down: end/reopen are
+// park-scoped writes that answer ErrNotFound outside the caller's parks, so a monitor scoped
+// elsewhere saw a live Close button that failed on tap. Passing the campaign the read
+// just returned also means the park the buttons are computed against is the park that was
+// authorized, with no extra lookup to disagree with.
+func (h *Handler) GetCampaign(w http.ResponseWriter, r *http.Request) {
+	caller := actor(r)
+	campaign, err := h.service.GetCampaign(r.Context(), caller, r.PathValue("campaign_id"))
+	h.respond(w, r, map[string]any{"campaign": campaign, "capabilities": h.service.CampaignCapabilities(r.Context(), caller, campaign), "trace_id": traceID(r)}, err)
+}
+
+// ListParks serves the oversight park chips. A separate read rather than a field on the task
+// list envelope, because the list can refuse to answer at all until a park is NAMED
+// (ErrParkSelectionRequired for a multi-park actor) -- so an envelope-carried vocabulary would
+// be missing in precisely the case the client needs it to pick a park.
+func (h *Handler) ListParks(w http.ResponseWriter, r *http.Request) {
+	parks, err := h.service.ListParks(r.Context(), actor(r))
+	h.respond(w, r, map[string]any{"parks": parks, "trace_id": traceID(r)}, err)
 }
 
 func (h *Handler) PublishCampaign(w http.ResponseWriter, r *http.Request) {
@@ -480,25 +528,6 @@ func (h *Handler) CloseScope(w http.ResponseWriter, r *http.Request) {
 	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
 }
 
-// AbandonScope is the explicit force-close. It is a DIFFERENT endpoint from close so
-// that ending unverified work is a deliberate act, never a fallback the UI can slip
-// into when the normal close is refused.
-func (h *Handler) AbandonScope(w http.ResponseWriter, r *http.Request) {
-	var req closeRequest
-	if !h.decode(w, r, &req) {
-		return
-	}
-	result, err := h.service.AbandonScope(
-		r.Context(),
-		actor(r),
-		r.PathValue("campaign_id"),
-		r.PathValue("campaign_shed_id"),
-		h.idempotencyKey(r, req.IdempotencyKey),
-		req.Reason,
-	)
-	h.respond(w, r, map[string]any{"close": result, "trace_id": traceID(r)}, err)
-}
-
 func (h *Handler) CloseCampaign(w http.ResponseWriter, r *http.Request) {
 	var req closeRequest
 	if !h.decode(w, r, &req) {
@@ -542,6 +571,28 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	switch {
 	case errors.Is(err, ports.ErrForbidden):
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{Code: "permission_denied", Message: "permission denied", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrParkSelectionRequired):
+		// Same shape the vaccination park scope decision returns, so both modules teach the
+		// client one remedy. The park list is re-derived from the actor's own grants here
+		// rather than threaded through the service signature.
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, struct {
+			errorEnvelope
+			AvailableParks []string `json:"available_parks"`
+		}{
+			errorEnvelope: errorEnvelope{
+				Code:    "park_selection_required",
+				Message: "choose a park to view",
+				TraceID: traceID(r),
+			},
+			// The remedy must be derived from the SAME capability set the service used to
+			// decide the actor is multi-park, not from a hardcoded one. Pinning it to
+			// WeighingMonitor reintroduced two layers up exactly the coupling this branch
+			// removes everywhere else: an actor who trips this on OverseeOperators or Plan
+			// without also holding Monitor would receive "choose a park" alongside an EMPTY
+			// park list -- an error whose own remedy is unreachable. Latent today only
+			// because growth_director happens to carry both.
+			AvailableParks: weighingParkSelectionOptions(r.Context()),
+		}, nil)
 	case errors.Is(err, ports.ErrInvalidArgument):
 		h.badRequest(w, r, "invalid_request", "request is invalid")
 	case errors.Is(err, ports.ErrNotFound):
@@ -646,3 +697,28 @@ func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContex
 func traceID(r *http.Request) string  { return httpmiddleware.TraceIDFromContext(r.Context()) }
 
 var _ = permissions.WeighingMonitor
+
+// weighingParkSelectionOptions lists every park the actor could legitimately name when the
+// service asks them to choose one. It unions the capabilities that admit the multi-park
+// surfaces rather than assuming a single one, so the remedy can never come back empty for an
+// actor the service just told to pick a park.
+func weighingParkSelectionOptions(ctx context.Context) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	seen := map[string]struct{}{}
+	parks := []string{}
+	for _, capability := range []string{
+		permissions.WeighingMonitor,
+		permissions.WeighingPlan,
+		permissions.WeighingOverseeOperators,
+	} {
+		for _, parkID := range httpmiddleware.AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			parks = append(parks, parkID)
+		}
+	}
+	sort.Strings(parks)
+	return parks
+}
