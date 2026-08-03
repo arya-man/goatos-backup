@@ -21,7 +21,7 @@ const (
 	VerificationStatusRework   = "rework"
 
 	// HOW a bucket or a campaign ended. Recorded on weighing_campaign_sheds /
-	// weighing_campaigns.closure_kind (migration 000084) beside status='closed',
+	// weighing_campaigns.closure_kind (migration 000085) beside status='closed',
 	// because 'closed' alone cannot tell a normal completion from a leader
 	// ending work early — and before this existed there was no normal
 	// completion path at all.
