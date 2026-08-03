@@ -60,7 +60,7 @@ class RoleChromeScreenshotTest {
     // Operator / preventive-care field lens: Drives/Alerts/You.
     private fun vaccinationFieldNavItems() = listOf(
         NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
         // Backend emits the You tab (module contribution, priority 100) — the bar is 3 tabs.
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
@@ -80,14 +80,14 @@ class RoleChromeScreenshotTest {
         NavItem(key = "overview", label = "Overview", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
     )
 
     private fun vaccinationCloserNavItems() = listOf(
         NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 

@@ -102,10 +102,15 @@ Every feed is addressed by the feature that owns it: `/vaccination/alerts`,
 (`/verify/alerts?category=…`) because one verifier reviews several features from one
 bar; it is exempt from the prefix check.
 
-`/alerts` remains **hosted on the phone as a legacy alias** for the vaccination feed —
-alerts already delivered carry it as their tap target, and those rows are durable, so
-retiring the route would strand every alert sent before the rename. It is not in any
-bar, and it must never be put in one.
+There is **no generic `/alerts` route**. It was deleted, not kept as an alias: a
+generic address is what made the vaccination feed look shared, which is how it ended
+up in weighing's bar. Keeping it "just for old links" would have preserved exactly the
+thing the rule bans.
+
+The alias was checked before removal rather than assumed: nothing ever produced
+`/alerts` as a notification tap target. The bridge emits only `/vaccination`,
+`/weighing`, `/counts`, `/feed`, so no delivered alert names it and nothing was
+stranded. Profile's notifications action now opens `/vaccination/alerts` by name.
 
 ## Related
 
