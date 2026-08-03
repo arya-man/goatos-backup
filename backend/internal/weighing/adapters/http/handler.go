@@ -512,6 +512,22 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	switch {
 	case errors.Is(err, ports.ErrForbidden):
 		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{Code: "permission_denied", Message: "permission denied", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrParkSelectionRequired):
+		// Same shape the vaccination park scope decision returns, so both modules teach the
+		// client one remedy. The park list is re-derived from the actor's own grants here
+		// rather than threaded through the service signature.
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, struct {
+			errorEnvelope
+			AvailableParks []string `json:"available_parks"`
+		}{
+			errorEnvelope: errorEnvelope{
+				Code:    "park_selection_required",
+				Message: "choose a park to view",
+				TraceID: traceID(r),
+			},
+			AvailableParks: httpmiddleware.AuthorizedParkIDsForCapability(
+				httpmiddleware.AuthGrantsFromContext(r.Context()), permissions.WeighingMonitor),
+		}, nil)
 	case errors.Is(err, ports.ErrInvalidArgument):
 		h.badRequest(w, r, "invalid_request", "request is invalid")
 	case errors.Is(err, ports.ErrNotFound):

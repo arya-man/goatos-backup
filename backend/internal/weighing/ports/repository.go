@@ -15,6 +15,15 @@ var (
 	ErrIdempotencyConflict = errors.New("weighing: idempotency conflict")
 	ErrImmutable           = errors.New("weighing: immutable")
 	ErrScopeIncomplete     = errors.New("weighing: scope incomplete")
+
+	// ErrParkSelectionRequired is returned when the actor legitimately covers SEVERAL parks
+	// without a tenant grant and the surface can only answer for one. It is deliberately its
+	// own class rather than ErrInvalidArgument: the request was not malformed, the client
+	// simply has to name a park, and it needs a code it can act on. The vaccination side
+	// already answers this exact situation with park_selection_required plus the park list;
+	// weighing returning a bare "request is invalid" left the Android task list permanently
+	// blank with no way to discover the remedy.
+	ErrParkSelectionRequired = errors.New("weighing: park selection required")
 	// ErrDuplicateScan is returned when a scanned_identifier was already
 	// captured AND SUBMITTED in an earlier round for the same campaign_shed_id
 	// and business day. It is deliberately distinct from ErrIdempotencyConflict:

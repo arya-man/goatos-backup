@@ -144,6 +144,15 @@ func (s *Service) WeighingProcessState(ctx context.Context, actor domain.Actor, 
 	if campaignID != "" && !uuidutil.IsUUIDString(campaignID) {
 		return domain.ProcessState{}, ports.ErrInvalidArgument
 	}
+	// Same park-blind role check as ListCampaignSheds had: WeighingMonitor answers "somewhere",
+	// not "here", so a park-scoped monitor could read any park's campaign aggregates by naming
+	// its id. An EMPTY campaign id is the whole-window summary and carries no park to check --
+	// it is bounded by tenant only, which is the surface's existing contract.
+	if campaignID != "" {
+		if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+			return domain.ProcessState{}, err
+		}
+	}
 	from := strings.TrimSpace(fromBusinessDate)
 	to := strings.TrimSpace(toBusinessDate)
 	if !isBusinessDate(from) || !isBusinessDate(to) || to < from {
@@ -312,8 +321,8 @@ func (s *Service) ListCampaigns(ctx context.Context, actor domain.Actor, scope d
 			default:
 				// Multi-park without a tenant grant. One query filters one park, so answering
 				// for an arbitrary one would show half the work and no error. Make the client
-				// name the park -- every one of these screens already has a park selector.
-				return domain.CampaignPage{}, ports.ErrInvalidArgument
+				// name the park -- but with a code it can act on, not a bare 400.
+				return domain.CampaignPage{}, ports.ErrParkSelectionRequired
 			}
 		}
 	}
@@ -350,13 +359,42 @@ func (s *Service) PlannerCatalog(ctx context.Context, actor domain.Actor, period
 	if tenantWide {
 		return catalog, nil
 	}
-	filtered := catalog.Parks[:0]
+	// New slices, NOT an in-place catalog.Parks[:0] filter: that overwrites the repository's own
+	// backing array, which is harmless for a per-call Postgres read and silently corrupting for
+	// any future memoizing decorator.
+	parks := make([]domain.PlannerPark, 0, len(catalog.Parks))
 	for _, park := range catalog.Parks {
 		if _, ok := authorizedParks[park.ParkID]; ok {
-			filtered = append(filtered, park)
+			parks = append(parks, park)
 		}
 	}
-	catalog.Parks = filtered
+	catalog.Parks = parks
+
+	// The OPERATOR list needs the same filter, and not filtering it made the park fix a
+	// half-fix: the operator query is tenant-wide with no park predicate and every row carries
+	// that person's park_ids, so a park-scoped planner still received every assignable member of
+	// the whole tenant -- names, display codes and park membership. It also drove admin-web to
+	// pre-select operators[0], who could belong to a park the planner cannot see, producing an
+	// operator_outside_park 409 on save with no way to understand why.
+	//
+	// An operator is offered when ANY of their parks is one the actor may plan in -- or when
+	// their ParkIDs is EMPTY, which on this type means "every park" (a cross-park director), NOT
+	// "no parks". Dropping the empty case would hide exactly the people who can cover both parks,
+	// and they are the ones a planner reaches for when their own park is short-handed.
+	operators := make([]domain.PlannerOperator, 0, len(catalog.Operators))
+	for _, operator := range catalog.Operators {
+		if len(operator.ParkIDs) == 0 {
+			operators = append(operators, operator)
+			continue
+		}
+		for _, parkID := range operator.ParkIDs {
+			if _, ok := authorizedParks[parkID]; ok {
+				operators = append(operators, operator)
+				break
+			}
+		}
+	}
+	catalog.Operators = operators
 	return catalog, nil
 }
 
@@ -493,6 +531,19 @@ func (s *Service) ListCampaignSheds(ctx context.Context, actor domain.Actor, cam
 	operatorFilter := ""
 	if !canMonitor && !canPlan {
 		operatorFilter = actor.UserID
+	} else {
+		// A monitor/planner reads the campaign UNFILTERED, so the campaign id off the request
+		// is the only thing naming what they see -- and the role checks above are park-blind
+		// ("do I monitor SOMEWHERE"), which a park-scoped actor passes for every campaign in
+		// the tenant. Without this they could page another park's buckets, operator names
+		// included, by naming its campaign id. Newly easy to exploit, too: leadership
+		// notifications now carry campaign ids to devices as deep links.
+		//
+		// The operator branch needs no park check -- it is already narrowed to the actor's own
+		// assignments, and nobody is assigned work in a park they do not work in.
+		if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+			return domain.CampaignShedPage{}, err
+		}
 	}
 	if limit <= 0 {
 		limit = domain.CampaignShedPageSize

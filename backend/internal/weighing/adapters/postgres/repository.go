@@ -462,7 +462,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 	if err := r.hydrateCampaigns(ctx, tenantID, ids, out, operatorFilter); err != nil {
 		return domain.CampaignPage{}, err
 	}
-	counts, err := r.campaignCounts(ctx, tenantID, operatorFilter)
+	counts, err := r.campaignCounts(ctx, tenantID, operatorFilter, parkID)
 	if err != nil {
 		return domain.CampaignPage{}, err
 	}
@@ -495,7 +495,7 @@ LIMIT $5`, tenantID, nullableString(cur.PeriodStartDate), nullableTime(cur.Creat
 // Buckets are disjoint and exhaustive over the live statuses: completed/closed on one
 // side, draft/published/in_progress/delayed on the other. 'canceled' is retracted work
 // and belongs to neither tab, so it is counted in neither.
-func (r *Repository) campaignCounts(ctx context.Context, tenantID, operatorUserID string) (domain.CampaignCounts, error) {
+func (r *Repository) campaignCounts(ctx context.Context, tenantID, operatorUserID, parkID string) (domain.CampaignCounts, error) {
 	var counts domain.CampaignCounts
 	err := r.pool.QueryRow(ctx, `
 SELECT
@@ -513,7 +513,10 @@ WHERE wc.tenant_id=$1::uuid
         AND scope.operator_user_id=$2::uuid
         AND scope.status <> 'canceled'
     )
-  )`, tenantID, nullableString(strings.TrimSpace(operatorUserID))).Scan(&counts.Active, &counts.Completed)
+  )
+  AND ($3::uuid IS NULL OR wc.park_id = $3::uuid)`,
+		tenantID, nullableString(strings.TrimSpace(operatorUserID)), nullableString(strings.TrimSpace(parkID))).
+		Scan(&counts.Active, &counts.Completed)
 	if err != nil {
 		return domain.CampaignCounts{}, err
 	}
