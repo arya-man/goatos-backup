@@ -112,11 +112,27 @@ function stripSqlComments(text) {
     .join("\n");
 }
 
+// A goose Down block only RESTORES the shape that existed before this migration.
+// It cannot introduce a seed/config/SOP contract: whatever it recreates was
+// already covered by whichever migration originally created it. Dropping a
+// weighing column that carried an FK to `goats` therefore has to write
+// `REFERENCES public.goats(goat_id)` in its rollback, and that mention alone
+// used to make the guard demand vaccination/HRMS fixture companions for a
+// weighing-only schema change.
+//
+// Relevance is decided on the Up block ONLY. Everything the guard actually
+// protects -- a real forward change to a seeded vaccination/HRMS/goats table --
+// lives in Up and is still tested exactly as before.
+function upBlock(diff) {
+  const down = diff.search(/^[+ -]?\s*--\s*\+goose\s+Down\b/mi);
+  return down < 0 ? diff : diff.slice(0, down);
+}
+
 function migrationCouplesToSeedContract(diff) {
   if (/Collapsed clean-slate baseline generated from migrations 000001\.\.000046/.test(diff)) {
     return false;
   }
-  if (!RELEVANT_MIGRATION_TERMS.test(stripSqlComments(diff))) return false;
+  if (!RELEVANT_MIGRATION_TERMS.test(stripSqlComments(upBlock(diff)))) return false;
   const addedDdl = diff
     .split("\n")
     .filter((line) => /^\+/.test(line) && !/^\+\+\+/.test(line))
@@ -288,6 +304,25 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000999_ceo_ai_view.sql"], ceoAiOnlyMigration).length !== 0) {
     throw new Error("contract coupling self-test wrongly flagged a ceo_ai-only reporting-view migration");
+  }
+  // A weighing-only DROP whose goose Down block has to restore an FK to `goats`
+  // must NOT couple: the rollback recreates a shape that already existed, so it
+  // introduces no seed/config/SOP contract.
+  const downOnlyGoatsReference = new Map([[
+    "backend/migrations/postgres/000993_weighing_drop.sql",
+    "+-- +goose Up\n+ALTER TABLE public.weighing_observations\n+  DROP COLUMN IF EXISTS animal_id;\n+\n+-- +goose Down\n+ALTER TABLE public.weighing_observations\n+  ADD COLUMN IF NOT EXISTS animal_id uuid REFERENCES public.goats(goat_id);\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000993_weighing_drop.sql"], downOnlyGoatsReference).length !== 0) {
+    throw new Error("contract coupling self-test wrongly flagged a rollback-only canonical-table reference");
+  }
+  // ...but the SAME term in the Up block still couples. The Down-block carve-out
+  // must never become a way to launder a forward seed-schema change.
+  const upBlockGoatsChange = new Map([[
+    "backend/migrations/postgres/000990_goats_alter.sql",
+    "+-- +goose Up\n+ALTER TABLE public.goats\n+  ADD COLUMN IF NOT EXISTS species text;\n+\n+-- +goose Down\n+ALTER TABLE public.goats DROP COLUMN IF EXISTS species;\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000990_goats_alter.sql"], upBlockGoatsChange).length !== REQUIRED_COMPANIONS.length) {
+    throw new Error("contract coupling self-test let an Up-block canonical-table change skip its companions");
   }
   // An OPERATIONAL table declaring the explicit opt-out marker must NOT couple.
   const operationalMigration = new Map([[

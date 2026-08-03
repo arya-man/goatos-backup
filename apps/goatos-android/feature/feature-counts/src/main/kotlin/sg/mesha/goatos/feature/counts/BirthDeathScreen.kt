@@ -37,6 +37,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
  * Record a birth or a death (`/counts/birth-death`) — a hosted destination with Up/Back.
@@ -252,7 +253,7 @@ fun BirthDeathScreen(
 
             state.validationMessage?.let { message ->
                 item(key = "validation") {
-                    Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                    Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                 }
             }
             item(key = "submit") {
@@ -291,7 +292,7 @@ fun BirthDeathScreen(
                 Text(
                     text = stringResource(R.string.counts_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.caption,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -431,7 +432,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 enabled = sheds.isNotEmpty(),
             )
             state.destinationsMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
             FormExpanderToggle(expanded = damExpanded, onToggle = { damExpanded = !damExpanded }, label = stringResource(R.string.counts_field_dam_optional))
             if (damExpanded) {
@@ -478,8 +479,7 @@ private fun FormExpanderToggle(expanded: Boolean, onToggle: () -> Unit, label: S
         Text(
             text = label ?: stringResource(R.string.counts_more_fields),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
             modifier = Modifier.weight(1f),
         )
         Icon(
@@ -519,7 +519,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
                 onClick = { onEvent(BirthDeathEvent.LookupAnimals) },
             )
             state.animalLookupMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
         }
     }
@@ -555,7 +555,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
             Text(
                 text = stringResource(R.string.counts_death_guardrail_note),
                 color = MeshaColors.Faint,
-                fontSize = 11.sp,
+                style = MeshaType.caption,
             )
         }
     }
@@ -579,14 +579,12 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
         Text(
             text = stringResource(R.string.counts_group_recording_death_for),
             color = MeshaColors.Faint,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pill,
         )
         Text(
             text = animal.displayId.ifBlank { animal.tag },
             color = MeshaColors.Ink,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.W800,
+            style = MeshaType.screenTitle,
         )
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
