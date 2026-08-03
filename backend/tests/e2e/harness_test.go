@@ -112,6 +112,13 @@ func (d e2eProofDownloader) DownloadURL(ctx context.Context, tenantID, proofID s
 	return "http://stub-proof-url/" + proofID, nil
 }
 
+// EnsureObjectAvailable satisfies the verdict-time evidence gate (verification/ports.
+// EvidenceAvailabilityChecker via proofmedia.ObjectAvailabilityChecker). This stub stands for
+// "the object is present", which is the state every e2e verification flow assumes.
+func (d e2eProofDownloader) EnsureObjectAvailable(ctx context.Context, tenantID, proofID string) error {
+	return nil
+}
+
 // NewFixture boots a fresh throwaway Postgres container (all committed migrations applied) and
 // wires the repositories/services each story needs. The container is removed via t.Cleanup.
 func NewFixture(t *testing.T) *Fixture {

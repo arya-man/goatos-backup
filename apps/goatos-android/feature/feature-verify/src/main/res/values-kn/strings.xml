@@ -60,4 +60,9 @@
     <string name="verify_status_approved">ಅನುಮೋದಿಸಲಾಗಿದೆ</string>
     <string name="verify_status_rejected">ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
     <string name="verify_category_all">ಎಲ್ಲಾ</string>
+    <string name="verify_detail_media_unavailable_send_back">ಈ ವೀಡಿಯೊ ಪ್ಲೇ ಆಗುವುದಿಲ್ಲ, ಆದ್ದರಿಂದ ಇದನ್ನು ಅನುಮೋದಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ತಂಡ ಮತ್ತೆ ರೆಕಾರ್ಡ್ ಮಾಡಲು ಇದನ್ನು ಹಿಂತಿರುಗಿಸಿ.</string>
+    <string name="verify_approve_dialog_title">ಈ ಸಾಕ್ಷ್ಯವನ್ನು ಅನುಮೋದಿಸಬೇಕೆ?</string>
+    <string name="verify_approve_dialog_subtitle">ಅನುಮೋದನೆ ಅಂತಿಮ — ನಂತರ ಹಿಂಪಡೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ.</string>
+    <string name="verify_approve_dialog_confirm">ಅನುಮೋದನೆ ಖಚಿತಪಡಿಸಿ</string>
+    <string name="verify_approve_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
 </resources>
