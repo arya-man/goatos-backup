@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"testing"
 	"time"
 
@@ -232,7 +233,7 @@ func enqueueWeighingVerificationItem(t *testing.T, ctx context.Context, repo *ve
 		MediaRefs:      []string{ackShedProof},
 		OperatorID:     repoOperator,
 		ShedID:         repoExpectedShed,
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: idempotencyKey,
 	}); err != nil {
 		t.Fatalf("enqueue verification item: %v", err)
