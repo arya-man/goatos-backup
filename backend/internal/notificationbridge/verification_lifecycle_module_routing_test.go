@@ -180,3 +180,74 @@ func TestVerificationLifecycleDropsUnroutedModule(t *testing.T) {
 		})
 	}
 }
+
+// withdrawnPayload is a verification.item.closed carrying status='withdrawn' -- the retraction
+// the producing module publishes from WithdrawItemsBySource when the source record behind a
+// still-pending item is superseded.
+func withdrawnPayload(module string) []byte {
+	raw, err := json.Marshal(map[string]any{
+		"tenant_id":     pendTenant,
+		"item_id":       pendItem,
+		"vertical":      module,
+		"module":        module,
+		"category":      module,
+		"subject_label": "Shed 4",
+		"shed_id":       pendShed,
+		"park_id":       pendPark,
+		"operator_id":   lifecycleOperator,
+		"status":        "withdrawn",
+		"decision":      "withdrawn",
+		"source":        map[string]any{"module": module, "ref_type": "weighing_animal_observation", "ref_id": pendItem},
+	})
+	if err != nil {
+		panic(err)
+	}
+	return raw
+}
+
+// TestVerificationWithdrawalRetractsToTheVerifierNotTheOperator is the P1-B consumer half.
+//
+// WithdrawItemsBySource used to be a bare UPDATE with no outbox event: the item's
+// verification.item.pending had already been published and turned into a push telling a
+// verifier to review the proof, and nothing ever told them it was retracted. The withdrawal
+// now publishes verification.item.closed with status='withdrawn', and the consumer must route
+// it to the audience that is actually holding stale work -- the park's module verify-duty
+// holders -- rather than reusing the operational-closure copy aimed at the operator.
+func TestVerificationWithdrawalRetractsToTheVerifierNotTheOperator(t *testing.T) {
+	recipients := &lifecycleRecipients{}
+	queue := &fakeQueue{}
+	consumer := notificationbridge.NewVerificationEventConsumer(recipients, queue, slog.Default())
+
+	if err := consumer.HandleEvent(context.Background(), eventbus.Event{
+		Type:    notificationbridge.EventVerificationItemClosed,
+		Payload: withdrawnPayload("weighing"),
+	}); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if len(queue.queued) != 1 {
+		t.Fatalf("withdrawal queued %d notifications, want exactly 1 retraction", len(queue.queued))
+	}
+	queued := queue.queued[0]
+	if queued.NotificationType != "verification_withdrawn" {
+		t.Fatalf("notification type=%q, want verification_withdrawn: a retraction must be distinguishable from an operational closure", queued.NotificationType)
+	}
+	// The verify duty for the item's module is what the pending push asked for; the retraction
+	// must ask for the same audience.
+	sawVerifyDuty := false
+	for _, ask := range recipients.dutyAsks {
+		if ask.duty == "verify" {
+			sawVerifyDuty = true
+		}
+	}
+	if !sawVerifyDuty {
+		t.Fatalf("withdrawal never resolved the verify-duty holders; duty asks: %+v", recipients.dutyAsks)
+	}
+	for _, recipient := range queued.Recipients {
+		if recipient.RoleLabel == "operator" {
+			t.Fatalf("withdrawal pushed the operator, who caused it by editing their own draft")
+		}
+	}
+	if queued.Context["item_id"] != pendItem {
+		t.Fatalf("retraction context item_id=%q, want %q so the client can clear the right item", queued.Context["item_id"], pendItem)
+	}
+}
