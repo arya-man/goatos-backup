@@ -219,7 +219,7 @@ func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (str
 	return "", nil
 }
 
-func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string) error {
+func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string, string) error {
 	return nil
 }
 
