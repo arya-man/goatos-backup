@@ -32,11 +32,22 @@ operator video -> generic Verification -> verified or evidence rework
 - Missing high-priority feed config blocks the task. The app echoes a semantic config fingerprint;
   completion re-resolves it while holding the shifting row lock and rejects changed config with
   `409 feed_config_changed`. No feed type or quantity is guessed.
-- Every raise explicitly chooses `keep_current`, `select_stage`, or `destination_stage`. A selected
-  target is snapshotted on the shifting event; sheds may contain mixed stages and `shed_profiles`
-  is not movement-stage authority. Selecting `Mother` changes only `management_stage` and creates
-  no pregnancy or lactation record.
-- `goats.shed_id` and, when selected by the raise-time choice, `management_stage` update in
+- The raiser does not choose a management stage (maintainer decision 2026-08-03, superseding the
+  `keep_current` / `select_stage` / `destination_stage` chooser). A movement ADOPTS THE DESTINATION
+  SHED's cohort, resolved server-side at raise time by
+  `counts/domain.ResolveShiftingDestinationStage` and snapshotted on the shifting event, so the park
+  head approves the same stage the completion applies. Clients send neither
+  `management_stage_mode` nor `target_management_stage`; both are rejected as unknown fields.
+  The animal KEEPS ITS CURRENT STAGE when the destination is a Flushing shed (flushing is a
+  nutrition cohort owned by its own workflow, not a placement consequence), and — because an
+  ambiguous destination has no truthful answer — when the shed holds more than one cohort, holds no
+  live animals, or holds a cohort absent from active `animal_stage_lookup`. That last case is not
+  hypothetical: real sheds carry `ICU-Kid`, `ICU-Non-Pregnant` and `Quarantine kids`, which the
+  relocation cannot write, so adopting them would pass the raise and then fail at the second gate
+  after the operator's video and the park head's approval. `shed_profiles` remains not
+  movement-stage authority. A resolved `Mother` changes only `management_stage` and creates no
+  pregnancy or lactation record.
+- `goats.shed_id` and, when the raise resolved one, `management_stage` update in
   the same transaction as `shifting_events.event_status='applied'`. Herd Register and Counts read
   that canonical location, so their count changes at this exact second-gate transaction.
 - Verification is evidence quality only. APPROVE sets `verification_state='verified'`. REWORK sets

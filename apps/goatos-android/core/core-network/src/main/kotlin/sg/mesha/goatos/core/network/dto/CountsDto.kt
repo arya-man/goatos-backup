@@ -230,6 +230,9 @@ data class CountsShiftingDestinationsResponseDto(
  *  - `source_park_id` / `source_shed_id` — the animal's CURRENT location is fetched with the
  *    animal and shown read-only, so there is nothing for the operator to type and nothing for the
  *    client to assert. The server reads the source from the animal itself.
+ *  - `management_stage_mode` / `target_management_stage` — the movement adopts the DESTINATION
+ *    SHED's cohort, resolved server-side at raise time. The operator is not asked, so the client
+ *    sends nothing. These are not optional-and-ignored: the server rejects them as unknown fields.
  *
  * `priority` and `category` are now always sent EXPLICITLY (`normal`/`emergency` and
  * `routine`/`pregnancy`/`medical`/`quarantine`), because the screen defaults them visibly. A
@@ -239,8 +242,6 @@ data class CountsShiftingDestinationsResponseDto(
 data class CountsShiftingEventRequestDto(
     @SerialName("destination_park_id") val destinationParkId: String,
     @SerialName("destination_shed_id") val destinationShedId: String,
-    @SerialName("management_stage_mode") val managementStageMode: String = "keep_current",
-    @SerialName("target_management_stage") val targetManagementStage: String? = null,
     @SerialName("priority") val priority: String = "",
     @SerialName("category") val category: String = "",
     @SerialName("proof_ref") val proofRef: String? = null,

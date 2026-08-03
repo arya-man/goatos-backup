@@ -404,9 +404,8 @@ func decodeBody(t *testing.T, rec *httptest.ResponseRecorder, dest any) {
 // fixture rather than something individual tests opt into.
 func shiftingBody(headCount int) map[string]any {
 	return map[string]any{
-		"destination_park_id":   testParkID,
-		"destination_shed_id":   testShedID,
-		"management_stage_mode": "keep_current",
+		"destination_park_id": testParkID,
+		"destination_shed_id": testShedID,
 		"impacts": []map[string]any{
 			{"breed_key": "sirohi", "breed_label": "Sirohi", "head_count": headCount},
 		},
@@ -1298,10 +1297,9 @@ func TestRecordDeathEventRejectsUnknownFields(t *testing.T) {
 // the exact shape the phone now sends.
 func shiftingBodyNoImpacts(goatIDs ...string) map[string]any {
 	return map[string]any{
-		"destination_park_id":   testParkID,
-		"destination_shed_id":   testShedID,
-		"management_stage_mode": "keep_current",
-		"goat_ids":              goatIDs,
+		"destination_park_id": testParkID,
+		"destination_shed_id": testShedID,
+		"goat_ids":            goatIDs,
 	}
 }
 
@@ -1367,6 +1365,108 @@ const (
 	testSourceParkID = "66666666-6666-4666-8666-666666666666"
 	testSourceShedID = "77777777-7777-4777-8777-777777777788"
 )
+
+// TestRecordShiftingEventAdoptsDestinationShedStage drives the REAL raise path (HTTP handler ->
+// resolution -> stored event + approval payload) for the maintainer's 2026-08-03 rule: the operator
+// sends NO stage, and the movement adopts the destination shed's cohort by itself.
+//
+// Asserting on repo.lastEvent AND on the approval payload matters because they are what the two
+// downstream gates read: the stored snapshot is what the completion transaction applies, and the
+// payload is what the park head approves. A resolution that reached only one of them would apply a
+// stage nobody approved.
+func TestRecordShiftingEventAdoptsDestinationShedStage(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		shedStages    []string
+		vocabulary    []string
+		wantStageMode string
+		wantTarget    string
+	}{
+		{
+			name:          "clean single-cohort shed hands over its tag",
+			shedStages:    []string{"Non-Pregnant"},
+			vocabulary:    []string{"Mother", "Non-Pregnant", "Buck"},
+			wantStageMode: "destination_stage",
+			wantTarget:    "Non-Pregnant",
+		},
+		{
+			name:          "flushing destination keeps the animal's current stage",
+			shedStages:    []string{"Flushing"},
+			vocabulary:    []string{"Mother", "Non-Pregnant", "Flushing"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "mixed destination keeps the animal's current stage",
+			shedStages:    []string{"Mother", "Pregnant"},
+			vocabulary:    []string{"Mother", "Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "empty destination keeps the animal's current stage",
+			shedStages:    nil,
+			vocabulary:    []string{"Mother", "Non-Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+		{
+			name:          "cohort absent from the stage vocabulary keeps the current stage",
+			shedStages:    []string{"ICU-Kid"},
+			vocabulary:    []string{"Mother", "Non-Pregnant"},
+			wantStageMode: "keep_current",
+			wantTarget:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newFakeShiftingRepo()
+			repo.destinations = domain.ShiftingDestinationCatalog{
+				Parks: []domain.ShiftingDestinationPark{{
+					ParkID: testParkID,
+					Name:   "Channapatna",
+					Sheds: []domain.ShiftingDestinationShed{{
+						ShedID:           testShedID,
+						Name:             "Gandhi 1",
+						ManagementStages: tc.shedStages,
+					}},
+				}},
+				ManagementStages: tc.vocabulary,
+			}
+			repo.goatFacts = map[string]domain.GoatShiftingFact{
+				testGoatID: {
+					GoatID: testGoatID, BreedKey: "sirohi", BreedLabel: "Sirohi",
+					ParkID: strPtrTest(testParkID), ShedID: strPtrTest(testSourceShedID),
+				},
+			}
+			approvals := newFakeApprovalWorkflow()
+			mux := newTestServer(t, countsapp.NewService(repo), approvals, newFakeGoatValidator())
+
+			res := post(t, mux, appShiftingEventRoute, "shift-stage-"+tc.name, shiftingBodyNoImpacts(testGoatID))
+			if res.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s, want 200", res.Code, res.Body.String())
+			}
+
+			if got := repo.lastEvent.ManagementStageMode; got != tc.wantStageMode {
+				t.Fatalf("stored management_stage_mode=%q, want %q", got, tc.wantStageMode)
+			}
+			if got := repo.lastEvent.TargetManagementStage; got != tc.wantTarget {
+				t.Fatalf("stored target_management_stage=%q, want %q", got, tc.wantTarget)
+			}
+
+			var payload struct {
+				ManagementStageMode   string `json:"management_stage_mode"`
+				TargetManagementStage string `json:"target_management_stage"`
+			}
+			if err := json.Unmarshal(approvals.lastSubmission.Payload, &payload); err != nil {
+				t.Fatalf("decode approval payload: %v", err)
+			}
+			if payload.ManagementStageMode != tc.wantStageMode || payload.TargetManagementStage != tc.wantTarget {
+				t.Fatalf("approval payload mode=%q target=%q, want mode=%q target=%q -- the park head must approve the SAME stage the completion will apply",
+					payload.ManagementStageMode, payload.TargetManagementStage, tc.wantStageMode, tc.wantTarget)
+			}
+		})
+	}
+}
 
 // TestRecordShiftingEventStoresDerivedSourceParkAndShed is the regression for the blank-source bug.
 //
@@ -2017,11 +2117,10 @@ func TestNormalizeShiftingEventRequest_CrossParkMove(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := appShiftingEventRequest{
-				SourceParkID:        tt.sourcePark,
-				DestinationParkID:   tt.destPark,
-				DestinationShedID:   testShedID,
-				ManagementStageMode: "keep_current",
-				GoatIDs:             []string{testGoatID},
+				SourceParkID:      tt.sourcePark,
+				DestinationParkID: tt.destPark,
+				DestinationShedID: testShedID,
+				GoatIDs:           []string{testGoatID},
 			}
 			_, err := normalizeShiftingEventRequest(req)
 			if tt.expectError && err == nil {
@@ -2038,10 +2137,9 @@ func TestNormalizeShiftingEventRequest_CrossParkMove(t *testing.T) {
 // P1: Unmovable animals at submit.
 func TestNormalizeShiftingEventRequest_MissingGoatIDs(t *testing.T) {
 	req := appShiftingEventRequest{
-		DestinationParkID:   testParkID,
-		DestinationShedID:   testShedID,
-		ManagementStageMode: "keep_current",
-		GoatIDs:             []string{}, // Empty goat_ids
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{}, // Empty goat_ids
 	}
 	_, err := normalizeShiftingEventRequest(req)
 	if err == nil {
@@ -2054,10 +2152,9 @@ func TestNormalizeShiftingEventRequest_MissingGoatIDs(t *testing.T) {
 func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
 	// Use only a single animal so we don't need to provide impacts
 	req := appShiftingEventRequest{
-		DestinationParkID:   testParkID,
-		DestinationShedID:   testShedID,
-		ManagementStageMode: "keep_current",
-		GoatIDs:             []string{testGoatID, testGoatID, testGoatID}, // Has duplicates
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{testGoatID, testGoatID, testGoatID}, // Has duplicates
 	}
 	normalized, err := normalizeShiftingEventRequest(req)
 	if err != nil {
@@ -2072,22 +2169,39 @@ func TestNormalizeShiftingEventRequest_DeduplicatesGoatIDs(t *testing.T) {
 	}
 }
 
-func TestNormalizeShiftingEventRequestRequiresExplicitStageChoice(t *testing.T) {
-	base := appShiftingEventRequest{DestinationParkID: testParkID, DestinationShedID: testShedID, GoatIDs: []string{testGoatID}}
-	if _, err := normalizeShiftingEventRequest(base); err == nil {
-		t.Fatal("missing management-stage choice must be rejected")
+// TestShiftingEventRequestRejectsClientSuppliedStage pins the contract change (maintainer decision
+// 2026-08-03): the raiser no longer chooses the destination stage, so the two fields that carried
+// that choice are GONE from the request rather than accepted-and-ignored.
+//
+// Accepting them silently would be the worse failure: a stale client would keep sending a stage
+// the server no longer honours, and the next author reading the payload would reasonably assume the
+// operator's choice was still being applied. decodeStrictJSON rejects unknown fields, so this
+// asserts the request is refused outright.
+func TestShiftingEventRequestRejectsClientSuppliedStage(t *testing.T) {
+	for _, field := range []string{"management_stage_mode", "target_management_stage"} {
+		t.Run(field, func(t *testing.T) {
+			body := []byte(`{"destination_park_id":"` + testParkID + `","destination_shed_id":"` + testShedID +
+				`","goat_ids":["` + testGoatID + `"],"` + field + `":"select_stage"}`)
+			var req appShiftingEventRequest
+			if err := decodeStrictJSON(body, &req, "RecordShiftingEventRequest"); err == nil {
+				t.Fatalf("client-supplied %s was accepted; it must be rejected as an unknown field", field)
+			}
+		})
 	}
-	base.ManagementStageMode = "select_stage"
-	if _, err := normalizeShiftingEventRequest(base); err == nil {
-		t.Fatal("select_stage without target must be rejected")
+}
+
+// TestNormalizeShiftingEventRequestNoLongerDemandsAStageChoice is the other half: with the fields
+// removed, a request that names only a destination and its animals is COMPLETE. The stage is
+// resolved server-side from the destination shed, so there is nothing left for the operator to
+// answer and nothing to reject.
+func TestNormalizeShiftingEventRequestNoLongerDemandsAStageChoice(t *testing.T) {
+	req := appShiftingEventRequest{
+		DestinationParkID: testParkID,
+		DestinationShedID: testShedID,
+		GoatIDs:           []string{testGoatID},
 	}
-	base.TargetManagementStage = "Mother"
-	normalized, err := normalizeShiftingEventRequest(base)
-	if err != nil {
-		t.Fatalf("Mother stage choice rejected: %v", err)
-	}
-	if normalized.TargetManagementStage != "Mother" {
-		t.Fatalf("target=%q", normalized.TargetManagementStage)
+	if _, err := normalizeShiftingEventRequest(req); err != nil {
+		t.Fatalf("a request with no stage choice must be accepted, got %v", err)
 	}
 }
 
@@ -2101,11 +2215,10 @@ func TestNormalizeShiftingEventRequestRequiresExplicitStageChoice(t *testing.T) 
 func TestNormalizeShiftingEventRequest_Comment(t *testing.T) {
 	base := func(comment *string) appShiftingEventRequest {
 		return appShiftingEventRequest{
-			DestinationParkID:   testParkID,
-			DestinationShedID:   testShedID,
-			ManagementStageMode: "keep_current",
-			GoatIDs:             []string{testGoatID},
-			Comment:             comment,
+			DestinationParkID: testParkID,
+			DestinationShedID: testShedID,
+			GoatIDs:           []string{testGoatID},
+			Comment:           comment,
 		}
 	}
 

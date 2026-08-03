@@ -242,15 +242,5 @@
     <string name="counts_workflow_rerecord_video">Re-record video</string>
     <string name="counts_workflow_weight_kg">Weight (kg)</string>
     <string name="counts_workflow_weight_continue">Continue to record video</string>
-    <string name="counts_shifting_after_title">After shifting</string>
-    <string name="counts_shifting_stage_label">Management stage</string>
-    <string name="counts_shifting_stage_placeholder">Choose what happens to the animal type</string>
-    <string name="counts_shifting_stage_keep">Use current type</string>
-    <string name="counts_shifting_stage_select">Select management stage</string>
-    <string name="counts_shifting_stage_destination">Use a type in destination shed</string>
-    <string name="counts_shifting_new_stage">New management stage</string>
-    <string name="counts_shifting_no_stage">No stage available</string>
-    <string name="counts_shifting_select_stage">Select stage</string>
-    <string name="counts_shifting_stage_notice">This changes only management stage. It does not create pregnancy or lactation records.</string>
     <string name="counts_shifting_videos_label">Videos recorded</string>
 </resources>

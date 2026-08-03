@@ -6546,13 +6546,6 @@ export interface components {
             /** Format: uuid */
             destination_shed_id: string;
             /**
-             * @description Mandatory raise-time decision for the post-shift management stage.
-             * @enum {string}
-             */
-            management_stage_mode: "keep_current" | "select_stage" | "destination_stage";
-            /** @description Required for select_stage/destination_stage; omitted for keep_current. */
-            target_management_stage?: string;
-            /**
              * Format: date-time
              * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
              */

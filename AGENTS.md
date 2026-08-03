@@ -194,12 +194,24 @@ terminal transferred/sold exit, never a move. Initial placement is exempt. See
 Semantics.
 
 Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
-2026-07-29, SUPERSEDING the 2026-07-20 destination `shed_profiles` authority rule):
-a shed may contain multiple management stages. Every newly raised shifting must choose one
-of three modes: keep the animal's current stage, explicitly select an active stage, or select
-one of the stages currently represented in the destination shed. The request snapshots the
-chosen mode and concrete target; neither `shed_profiles` nor a single inferred resident cohort
-overrides it at completion. Once Park Head approval and operator completion both exist, the
+2026-08-03, SUPERSEDING the 2026-07-29 three-mode operator chooser, which in turn
+superseded the 2026-07-20 destination `shed_profiles` authority rule): the raiser no
+longer chooses a management stage. A movement ADOPTS THE DESTINATION SHED's cohort,
+resolved by the BACKEND at raise time and snapshotted onto the request. The mobile form
+must not ask; `management_stage_mode` and `target_management_stage` are no longer accepted
+from clients and are rejected as unknown fields. The single exception is a FLUSHING
+destination: flushing is a nutrition cohort owned by its own workflow, so moving an animal
+into a flushing shed keeps that animal's current stage. Because the resolution cannot be
+guessed when the destination is ambiguous, three cases also keep the current stage — a shed
+holding more than one cohort, an empty shed, and a cohort absent from active
+`animal_stage_lookup` (real sheds carry `ICU-Kid`, `ICU-Non-Pregnant`, `Quarantine kids`,
+which the relocation cannot write and which would otherwise fail at the SECOND GATE, after
+the operator's video and the park head's approval). Keeping the current stage is the
+already-shipped empty-target behaviour, never a fabricated cohort; do not "improve" it into
+a majority-resident pick, which stamps a stage on thin evidence and flips as animals move.
+Canonical rule: `backend/internal/counts/domain.ResolveShiftingDestinationStage`; resolution
+happens at RAISE time so the park head approves the same stage the completion applies.
+Once Park Head approval and operator completion both exist, the
 second-gate transaction must atomically update the goat's `shed_id` and, when selected,
 `management_stage`, write identity audit, and publish
 per-animal `goat.location.changed` plus `goat.stage_changed` when the stage
