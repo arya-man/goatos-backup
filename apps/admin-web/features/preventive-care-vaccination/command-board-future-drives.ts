@@ -2,8 +2,8 @@ export interface CommandBoardDriveOption {
   driveBatchId: string;
   driveName: string;
   label: string;
-  // Park of the drive. Optional because the command-board API does not carry it yet; while it
-  // is absent the park stays out of the rendered label rather than being guessed.
+  // Park of the drive. Optional because a skinny API catalogue can omit it; while it is absent the
+  // park stays out of the rendered label rather than being guessed at.
   parkId?: string | null;
   parkName?: string | null;
   status: string;
@@ -13,6 +13,10 @@ export interface CommandBoardDriveOption {
   targetCount: number;
   doseCount: number;
   shedNames: string[];
+  // Set when the option's counts were reconstructed from the projection matrices instead of being
+  // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
+  // fold below must not add it to its siblings.
+  derivedFromMatrix?: boolean;
 }
 
 export interface ScheduledDriveRow {
@@ -84,9 +88,9 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   const rows = new Map<string, ScheduledDriveRow>();
   options.filter((option) => option.status === "planned").forEach((option) => {
     const name = option.driveName || option.label;
-    // Park belongs in the key: two parks routinely run the same vaccine over the same window,
-    // and a park-less key summed CBE's and CPT's animal counts into a single row that was then
-    // shown under whichever park's name the label happened to hardcode.
+    // Park belongs in the key: two parks routinely run the same vaccine over the same window, and a
+    // park-less key summed both parks' animal counts into a single row that was then shown under
+    // whichever park's name the label happened to carry.
     const parkId = option.parkId ?? "";
     const parkName = option.parkName ?? "";
     const key = `${parkId}|${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
@@ -97,10 +101,18 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     }
     const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
     if (planned && !row.dateKeys.includes(planned)) row.dateKeys.push(planned);
-    row.targetCount += option.targetCount;
-    row.doseCount += option.doseCount;
+    // Genuine API rows are one executable operator day each, so they sum. Matrix-derived options all
+    // reconstruct the same campaign-wide total, so summing them would multiply it by the number of
+    // days; the campaign total is the max, not the sum.
+    if (option.derivedFromMatrix) {
+      row.targetCount = Math.max(row.targetCount, option.targetCount ?? 0);
+      row.doseCount = Math.max(row.doseCount, option.doseCount ?? 0);
+    } else {
+      row.targetCount += option.targetCount ?? 0;
+      row.doseCount += option.doseCount ?? 0;
+    }
     row.batchIds.push(option.driveBatchId);
-    option.shedNames.forEach((shed) => {
+    (option.shedNames ?? []).forEach((shed) => {
       if (!row.shedNames.includes(shed)) row.shedNames.push(shed);
     });
   });
@@ -111,14 +123,13 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }
 
-// The park prefix used to be the literal "CPT", which mislabelled every other park's drive.
-// It now comes from the drive row, and is simply omitted while the API does not supply it --
-// no park name is better than the wrong one.
+// The park prefix used to be the literal "CPT", which mislabelled every other park's drive. It now
+// comes from the drive row, and is simply omitted while the API does not supply it -- no park name
+// is better than the wrong one.
 export function commonDriveName(driveName: string, parkName?: string | null): string {
   const isAnnualPoxTreatment = driveName === "Blue Tongue + Sheep Pox" || driveName === "Goat Pox";
-  const vaccineLabel = isAnnualPoxTreatment ? "Annual Pox + Blue Tongue" : driveName;
   const prefix = parkName?.trim() ? `${parkName.trim()} ` : "";
-  return `${prefix}Adult ${vaccineLabel}`;
+  return isAnnualPoxTreatment ? `${prefix}Adult Annual Pox + Blue Tongue` : `${prefix}Adult ${driveName}`;
 }
 
 function campaignIdentity(row: ScheduledDriveRow): { key: string; name: string } {
@@ -202,9 +213,17 @@ export function resolveSelectedDrive(
   parkId?: string,
 ): CommandBoardDriveOption | undefined {
   if (!driveBatchId) return undefined;
-  const matches = options.filter(
+  const exactMatches = options.filter(
     (option) =>
       option.driveBatchId === driveBatchId && (!parkId || (option.parkId ?? "") === parkId),
   );
-  return matches.length === 1 ? matches[0] : undefined;
+  if (exactMatches.length === 1) return exactMatches[0];
+
+  // Older/skinny API catalogues may omit parkId even though the URL carries it. If the batch itself
+  // is unique, keep the user's selection instead of falling back to the all-drives board. Ambiguous
+  // same-batch multi-park catalogues still fail closed above.
+  const batchMatches = options.filter(
+    (option) => option.driveBatchId === driveBatchId && !(option.parkId ?? ""),
+  );
+  return batchMatches.length === 1 ? batchMatches[0] : undefined;
 }

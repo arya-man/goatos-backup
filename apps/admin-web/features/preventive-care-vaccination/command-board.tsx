@@ -68,9 +68,10 @@ async function VaccinationCommandBoardContent({
     return <CommandBoardView board={result.data} pageContract={pageContract} />;
   }
 
+  const selectedParkId = selectedDrive.parkId || driveParkId || parkId;
   const driveResult = await getVaccinationCommandBoard({
     driveBatchId: selectedDrive.driveBatchId,
-    parkId: selectedDrive.parkId || parkId,
+    parkId: selectedParkId,
   });
   // A FAILED narrowed read used to fall through to the still-loaded all-drives payload while the
   // selector kept showing the chosen drive: the heading named one operator day and every number
@@ -87,7 +88,7 @@ async function VaccinationCommandBoardContent({
       board={{ ...driveResult.data, driveOptions }}
       pageContract={pageContract}
       driveBatchId={selectedDrive.driveBatchId}
-      driveParkId={selectedDrive.parkId ?? ""}
+      driveParkId={selectedParkId}
     />
   );
 }

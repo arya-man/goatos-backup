@@ -1,6 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
 import {
@@ -235,49 +236,18 @@ function buildShedGrid(
   };
 }
 
-interface CommandBoardKpis {
-  targets: number;
-  dosesVerified: number;
-  awaitingVerification: number;
-  overdueNotGiven: number;
-  scheduledAhead: number;
-}
-interface CohortCell {
-  cohort: { parkId: string; parkName: string; managementStage: string; sex: string; animalCount: number };
-  vaccineLabel: string;
-  pendingCount: number;
-  submittedCount: number;
-  verifiedCount: number;
-  minAdministeredDate?: string | null;
-  maxAdministeredDate?: string | null;
-}
-interface ShedDoseCell {
-  shedId?: string;
-  shedName: string;
-  doseRule: string;
-  state: string;
-  animalCount: number;
-  minAdministeredDate?: string | null;
-  maxAdministeredDate?: string | null;
-  minDueDate?: string | null;
-  maxDueDate?: string | null;
-}
-interface QueueRow {
-  shedId?: string;
-  shedName: string;
-  doseRule: string;
-  awaitingCount: number;
-  totalCount: number;
-  lastGivenOnDate?: string | null;
-  daysInQueue?: number | null;
-}
-interface CommandBoard {
-  kpis: CommandBoardKpis;
-  cohortMatrix: CohortCell[];
-  shedDoseMatrix: ShedDoseCell[];
-  verificationQueue: QueueRow[];
+// Derived from the generated client rather than hand-declared. Local mirrors of the response
+// schema are why the compiler stayed green while closedWithoutDose and driveOptionsTruncated --
+// both REQUIRED by the contract -- were dropped before they reached the render. Deriving makes the
+// next dropped field a type error instead of a silent hole in the page.
+type CommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
+type CohortCell = CommandBoardResponse["cohortMatrix"][number];
+type ShedDoseCell = CommandBoardResponse["shedDoseMatrix"][number];
+// driveOptions is the one field the view widens: enrichDriveOptions reconstructs counts the skinny
+// API catalogue omits and tags them, so the rendered option carries more than the wire schema does.
+type CommandBoard = Omit<CommandBoardResponse, "driveOptions"> & {
   driveOptions?: CommandBoardDriveOption[];
-}
+};
 
 interface CommandBoardViewProps {
   board: CommandBoard;
@@ -291,14 +261,73 @@ interface CommandBoardViewProps {
 const STATUS_KEYS = ["verified", "awaiting", "overdue", "scheduled"] as const;
 type StatusKey = (typeof STATUS_KEYS)[number];
 
+function keyDate(value?: string | null): string {
+  return value?.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? "";
+}
+
+function splitDriveDoseRules(label: string): string[] {
+  const head = label.split(" — ")[0] ?? label;
+  return head.split(" + ").map((part) => part.trim()).filter(Boolean);
+}
+
+function enrichDriveOptions(
+  options: CommandBoardDriveOption[],
+  matrix: ShedDoseCell[],
+  cohortMatrix: CohortCell[],
+  targetCap: number,
+): CommandBoardDriveOption[] {
+  const defaultParkId = cohortMatrix.find((cell) => cell.cohort.parkId)?.cohort.parkId ?? "";
+  const defaultParkName = cohortMatrix.find((cell) => cell.cohort.parkName)?.cohort.parkName ?? "";
+  return options.map((option) => {
+    if (Number.isFinite(option.targetCount) && option.shedNames) return option;
+    const doseRules = splitDriveDoseRules(option.driveName || option.label);
+    const start = keyDate(option.windowStart || option.plannedDate);
+    const end = keyDate(option.windowEnd || option.windowStart || option.plannedDate);
+    const cells = matrix.filter((cell) => {
+      if (!doseRules.includes(cell.doseRule)) return false;
+      const date =
+        option.status === "planned"
+          ? keyDate(cell.minDueDate)
+          : keyDate(cell.minAdministeredDate);
+      const expectedState = option.status === "planned" ? "scheduled" : "verified";
+      if (cell.state !== expectedState || !date) return false;
+      if (option.status !== "planned") return true;
+      return (!start || date >= start) && (!end || date <= end);
+    });
+    const shedNames = Array.from(new Set(cells.map((cell) => cell.shedName).filter(Boolean))).sort();
+    const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
+    let targetCount = 0;
+    if ((option.driveName || option.label).includes(" + ")) {
+      const byShed = new Map<string, number>();
+      cells.forEach((cell) => byShed.set(cell.shedName, Math.max(byShed.get(cell.shedName) ?? 0, cell.animalCount ?? 0)));
+      targetCount = Array.from(byShed.values()).reduce((sum, count) => sum + count, 0);
+    } else {
+      targetCount = doseCount;
+    }
+    return {
+      ...option,
+      driveName: option.driveName || option.label,
+      parkId: option.parkId ?? defaultParkId,
+      parkName: option.parkName ?? defaultParkName,
+      plannedDate: option.plannedDate ?? option.windowStart,
+      targetCount: targetCap > 0 ? Math.min(targetCount, targetCap) : targetCount,
+      doseCount,
+      shedNames,
+      derivedFromMatrix: true,
+    };
+  }).filter((option) => option.status !== "planned" || (option.targetCount ?? 0) > 0);
+}
+
 export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
   const searchParams = useSearchParams();
-  const driveOptions = board.driveOptions ?? [];
+  const driveOptions = useMemo(
+    () => enrichDriveOptions(board.driveOptions ?? [], board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
+    [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
+  );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
-  const futureCampaigns = useMemo(() => scheduledDriveCampaigns(futureDrives), [futureDrives]);
   const completedDriveOptions = useMemo(
     () => driveOptions.filter((drive) => drive.status !== "planned"),
     [driveOptions],
@@ -319,6 +348,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
   const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set(STATUS_KEYS));
+  const futureCampaigns = useMemo(
+    () => statuses.has("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
+    [futureDrives, statuses],
+  );
 
   const view = useMemo(() => {
     const matchesVaccine = (label?: string) => !vaccine || (label ?? "").startsWith(vaccine);
@@ -368,18 +401,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               key={campaign.key}
               label={`${campaign.name} · ${formatScheduledDriveDates(campaign.dateKeys)} · ${campaign.targetCount} animals`}
             >
-              {driveOptions
-                // The campaign is park-specific, so its operator days must be too: filtering on the
-                // batch id alone pulled the OTHER park's row for a batch that spans both parks into
-                // this campaign, duplicating the React key and offering a foreign park's day here.
-                .filter((drive) => (drive.parkId ?? "") === campaign.parkId && campaign.batchIds.includes(drive.driveBatchId))
-                .sort((a, b) => (a.plannedDate ?? "").localeCompare(b.plannedDate ?? ""))
-                .map((drive, index) => (
+              {campaign.treatments.map((drive, index) => (
                   <option
-                    key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
-                    value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                    key={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
+                    value={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
                   >
-                    {`Operator day ${index + 1} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
+                    {`Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`}
                   </option>
                 ))}
             </optgroup>
@@ -397,6 +424,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </optgroup>
           )}
         </select>
+        {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
+            drive that was never planned. Say the picker is partial rather than let it read as the
+            whole programme. */}
+        {board.driveOptionsTruncated && (
+          <span className="cbm-filter-note" role="status">
+            {copy(pageContract, "command_board.filter.drives_truncated")}
+          </span>
+        )}
       </div>
       <div className="cbm-filter-row">
         {STATUS_KEYS.map((key) => (
@@ -453,6 +488,15 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="lbl">{copy(pageContract, "command_board.kpi.scheduled_ahead")}</div>
             <div className="val">{view.kpis.scheduledAhead}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.scheduled_dl")}</div>
+          </div>
+          {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
+              left the tiles summing to less than the total, so a reader could not tell a projection
+              bug from animals whose obligations genuinely closed with no dose. */}
+          <div className="kpi mut">
+            <div className="stripe"></div>
+            <div className="lbl">{copy(pageContract, "command_board.kpi.closed_without_dose")}</div>
+            <div className="val">{view.kpis.closedWithoutDose}</div>
+            <div className="dl">{copy(pageContract, "command_board.kpi.closed_without_dose_dl")}</div>
           </div>
         </div>
 
