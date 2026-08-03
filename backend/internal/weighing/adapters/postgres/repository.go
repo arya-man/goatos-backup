@@ -1365,6 +1365,10 @@ func (r *Repository) recordUnknownAnimalObservationTx(ctx context.Context, tx pg
 	businessDayStart := biztime.BusinessDayStart(time.Now())
 	businessDayEnd := businessDayStart.Add(24 * time.Hour)
 	var obs domain.Observation
+	// rowExisted distinguishes the `updated` CTE branch from `inserted`; obs.Superseded says
+	// whether that update opened a NEW evidence round. Both false = brand-new capture;
+	// rowExisted && !Superseded = a content-identical re-post that changed nothing.
+	var rowExisted bool
 	err = tx.QueryRow(ctx, `
 WITH campaign AS (
   SELECT campaign_id
@@ -1435,21 +1439,73 @@ WITH campaign AS (
 	   AND observation.submitted_at >= $10::timestamptz
 	   AND observation.submitted_at < $11::timestamptz
 	  LIMIT 1
+	), prior AS (
+	  -- Pre-update snapshot of the row the updated CTE is about to touch, so the write can tell
+	  -- a REAL edit from a content-identical re-post. All CTEs see the same snapshot, so
+	  -- prior.* is the OLD weight/proof even though the UPDATE below runs in the same
+	  -- statement (observation.* inside RETURNING is already the NEW value and cannot
+	  -- answer "did anything change?").
+	  --
+	  -- The row lock is taken here, AFTER assigned_shed's bucket lock, and the join on
+	  -- assigned_shed forces that ordering: campaign -> bucket -> observation, always.
+	  -- Locking here (rather than trusting the pre-query unknownAnimalObservationBefore
+	  -- read) is what makes the comparison race-free against a concurrent editor.
+	  SELECT observation.observation_id, observation.weight_kg, observation.proof_artifact_id
+	  FROM assigned_shed s
+	  JOIN weighing_observations observation
+	    ON observation.tenant_id=$1::uuid
+	   AND observation.campaign_id=$2::uuid
+	   AND observation.campaign_shed_id=s.campaign_shed_id
+	   AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
+	   AND (observation.submitted_at IS NULL OR observation.verification_status='rework')
+	  FOR NO KEY UPDATE OF observation
 	), updated AS (
+	  -- A re-post that changes NOTHING is not a new evidence round.
+	  --
+	  -- The Android client captures in two phases (weight, then the same weight again
+	  -- carrying the uploaded proof id) under two different idempotency keys. Keys are all
+	  -- this statement can compare, so both phases land here and the second one used to
+	  -- stamp a fresh accepted_at and report is_update=true -- an EDIT. The service layer
+	  -- then withdrew the pending verification item and raised a second round, and a second
+	  -- weighing.observation_accepted event was emitted, for a capture nobody edited.
+	  --
+	  -- The changed-test is the same weight-or-proof comparison auditAnimalObservation already
+	  -- makes to choose between 'weighing.observation_updated' and the no-op action
+	  -- 'weighing.observation_reaccepted'. The audit trail has always distinguished these
+	  -- two cases; the evidence round and the outbox now do too. A genuine edit (either
+	  -- field differs) is untouched: it still resets verification, still advances
+	  -- accepted_at, and still reports is_update=true.
 	  UPDATE weighing_observations observation
 	  SET weight_kg=$4,
 	      proof_artifact_id=p.proof_id,
 	      recorded_by=$7::uuid,
-	      accepted_at=now(),
-	      submitted_at=NULL,
-	      verification_status='pending',
-	      verified_by=NULL,
-	      verified_at=NULL,
-	      rework_reason=NULL
+	      accepted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN now() ELSE observation.accepted_at END,
+	      submitted_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                          OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                        THEN NULL ELSE observation.submitted_at END,
+	      verification_status=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                                 OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                               THEN 'pending' ELSE observation.verification_status END,
+	      verified_by=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN NULL ELSE observation.verified_by END,
+	      verified_at=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                         OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                       THEN NULL ELSE observation.verified_at END,
+	      rework_reason=CASE WHEN prior.weight_kg IS DISTINCT FROM $4::numeric
+	                           OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id
+	                         THEN NULL ELSE observation.rework_reason END
 	  FROM campaign c
 	  JOIN assigned_shed s ON true
 	  JOIN proof_ok p ON true
-	  WHERE observation.tenant_id=$1::uuid
+	  -- Correlated in WHERE, not in an ON clause: a FROM-item join condition may not
+	  -- reference the UPDATE target. prior yields at most one row (the single open row for
+	  -- this tag, guaranteed by weighing_observations_one_open_tag_uidx).
+	  JOIN prior ON true
+	  WHERE prior.observation_id=observation.observation_id
+	    AND observation.tenant_id=$1::uuid
     AND observation.campaign_id=$2::uuid
 	    AND observation.campaign_shed_id=s.campaign_shed_id
 	    AND lower(btrim(observation.scanned_identifier))=lower(btrim($3))
@@ -1463,7 +1519,12 @@ WITH campaign AS (
     observation.proof_artifact_id::text,
     COALESCE(observation.expected_location_id::text,'') AS expected_location_id_text,
     '' AS actual_location_id_text, '' AS actual_location_label_text, observation.accepted_at,
-    TRUE AS is_update
+    -- is_update means "this write opened a NEW evidence round", not merely "a row already
+    -- existed". A content-identical re-post reports FALSE so the service does not withdraw
+    -- and re-raise a verification item for evidence that never changed.
+    (prior.weight_kg IS DISTINCT FROM $4::numeric
+       OR prior.proof_artifact_id IS DISTINCT FROM p.proof_id) AS is_update,
+    TRUE AS row_existed
 ), inserted AS (
   INSERT INTO weighing_observations (
     tenant_id, campaign_id, campaign_shed_id, scanned_identifier,
@@ -1485,13 +1546,13 @@ WITH campaign AS (
   WHERE NOT EXISTS (SELECT 1 FROM updated)
     AND NOT EXISTS (SELECT 1 FROM submitted_duplicate)
   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
-  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update
+  RETURNING observation_id::text, campaign_id::text, COALESCE(campaign_shed_id::text,'') AS campaign_shed_id_text, scanned_identifier AS scanned_identifier_text, weight_kg::float8, proof_artifact_id::text, COALESCE(expected_location_id::text,'') AS expected_location_id_text, COALESCE(actual_location_id::text,'') AS actual_location_id_text, COALESCE(actual_location_label,'') AS actual_location_label_text, accepted_at, FALSE AS is_update, FALSE AS row_existed
 )
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM updated
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM updated
 UNION ALL
-SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update FROM inserted`,
+SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_text, weight_kg, proof_artifact_id::text, expected_location_id_text, actual_location_id_text, actual_location_label_text, accepted_at, is_update, row_existed FROM inserted`,
 		cmd.TenantID, cmd.CampaignID, tag, cmd.WeightKg, cmd.ProofArtifactID, cmd.IdempotencyKey, cmd.RecordedBy, cmd.CampaignShedID, cmd.ActualLocationID, businessDayStart, businessDayEnd).
-		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded)
+		Scan(&obs.ObservationID, &obs.CampaignID, &obs.CampaignShedID, &obs.ScannedIdentifier, &obs.WeightKg, &obs.ProofArtifactID, &obs.ExpectedLocationID, &obs.ActualLocationID, &obs.ActualLocationLabel, &obs.AcceptedAt, &obs.Superseded, &rowExisted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Observation{}, r.classifyFreeFlowObservationRejection(ctx, tx, cmd, tag, businessDayStart, businessDayEnd)
 	}
@@ -1513,8 +1574,19 @@ SELECT observation_id, campaign_id, campaign_shed_id_text, scanned_identifier_te
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.observation_accepted", cmd.IdempotencyKey, fingerprint, "weighing_observation", obs.ObservationID, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
-		return domain.Observation{}, err
+	// weighing.observation_accepted announces an accepted observation STATE. A re-post that
+	// left every field exactly as it was announces nothing: the state consumers already saw
+	// is still the current state. Emitting it anyway is pure fan-out -- the first real device
+	// run put 20 of these on the outbox for 10 captures, because the two-phase client posted
+	// each capture under two keys and each key minted its own event. The idempotency record
+	// above is still written for the new key, so an exact replay of that key still short-
+	// circuits to the cached result.
+	//
+	// A brand-new capture (!rowExisted) and a genuine edit (obs.Superseded) both still emit.
+	if !rowExisted || obs.Superseded {
+		if err := r.enqueue(ctx, tx, cmd.TenantID, "weighing.observation_accepted", obs.ObservationID, cmd.IdempotencyKey, fingerprint, obs); err != nil {
+			return domain.Observation{}, err
+		}
 	}
 	if err := r.auditAnimalObservation(ctx, tx, cmd, before, obs); err != nil {
 		return domain.Observation{}, err
