@@ -12,6 +12,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.auth.AuthRepository
+import sg.mesha.goatos.core.network.BootstrapError
 import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.datastore.DeviceStore
 import sg.mesha.goatos.core.model.nav.NavChrome
@@ -27,7 +28,9 @@ import javax.inject.Inject
 sealed interface BootstrapUiState {
     data object Loading : BootstrapUiState
     data class Ready(val navState: NavState) : BootstrapUiState
-    data class Error(val message: String) : BootstrapUiState
+    data class Error(
+        val errorType: BootstrapErrorType,
+    ) : BootstrapUiState
 }
 
 /**
@@ -92,6 +95,18 @@ class BootstrapViewModel @Inject constructor(
                     val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
                     val firebaseUid = runCatching { authRepository.currentFirebaseUid() }.getOrNull()?.ifBlank { null }
                     logError("Bootstrap failed email=${email.orEmpty()} uid=${firebaseUid.orEmpty()}", throwable)
+
+                    // Distinguish auth failures (401/expired token) from connectivity failures.
+                    val errorType = when (throwable) {
+                        is BootstrapError.AuthSessionExpired -> BootstrapErrorType.AUTH_SESSION_EXPIRED
+                        is BootstrapError.AccessNotProvisioned -> BootstrapErrorType.ACCESS_NOT_PROVISIONED
+                        is BootstrapError.ConnectivityFailure -> BootstrapErrorType.CONNECTIVITY_FAILURE
+                        else -> {
+                            // Fallback for unexpected errors (should not occur with the new mapping).
+                            BootstrapErrorType.CONNECTIVITY_FAILURE
+                        }
+                    }
+
                     analytics.track(
                         AnalyticsEvents.BOOTSTRAP_FAILED,
                         buildMap {
@@ -100,9 +115,7 @@ class BootstrapViewModel @Inject constructor(
                             firebaseUid?.let { put(AnalyticsEvents.Params.FIREBASE_UID, it) }
                         },
                     )
-                    _state.value = BootstrapUiState.Error(
-                        "Couldn't load your workspace. Check your connection and try again.",
-                    )
+                    _state.value = BootstrapUiState.Error(errorType)
                 }
         }
     }

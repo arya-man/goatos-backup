@@ -37,7 +37,111 @@ const (
 	eventTypeCampaignClosed = "weighing.campaign.closed"
 )
 
+// readyToCloseCountsSQL is a correlated-subquery fragment for a `cs` alias over
+// weighing_campaign_sheds. It returns (submitted_count, pending_verification_count,
+// rework_count, animals_weighed_count, animals_submitted_count) for that row,
+// using the SAME definition as
+// pendingVerificationCount below: a submitted individual observation is
+// submitted_at IS NOT NULL, a lump-sum shed observation IS the submission, and
+// 'rework' counts as pending on purpose. It is evaluated by the planner as part of
+// ONE query (no per-row application loop), so this is not the banned N+1 shape.
+//
+// animals_weighed_count and animals_submitted_count are the TWO NAMED FACTS every
+// weighing surface renders, and this fragment is one of exactly two places their
+// predicates are written (the other is operatorSummaries, which sums these same
+// two expressions per person). They exist because a single number could not answer
+// the question that loses work on the farm: an operator who has weighed animals but
+// has NOT pressed Submit. Rendered as "N weighed · N submitted".
+//
+//	animals_weighed_count   = animals whose weight is RECORDED, submitted or not.
+//	animals_submitted_count = animals whose weight has been SUBMITTED for verification.
+//
+// Both are ANIMAL grain, not record grain: one animal per individual observation,
+// and the recorded head count of a standing lump-sum proof. The old captured_count
+// this replaces counted the lump-sum proof ROW, so a 40-animal shed proof read as
+// "1 weighed" on the bucket surface while the per-operator roll-up said 40 for the
+// same work -- the cross-surface count-parity defect AGENTS.md names.
+//
+// A lump-sum shed observation IS the submission, so a standing (non-withdrawn) one
+// counts toward BOTH facts as soon as it exists; an individual observation counts
+// toward `submitted` only once submitted_at is set. Withdrawn lump-sum proofs are
+// excluded from both because a withdrawn proof is history, not work the bucket
+// still holds.
+//
+// Both are plain counts and NEVER numerators: weighing is free-flow, so there is no
+// expected-animal roster to divide by. No client may turn either into a percentage
+// or a progress-bar fill.
+// closure_kind rides on this fragment rather than on each of the three call
+// sites' own select lists for the same reason the counts do: all three read the
+// SAME bucket facts, and a fact added to only two of them is the cross-surface
+// parity defect this fragment exists to prevent.
+const readyToCloseCountsSQL = `COALESCE(cs.closure_kind, '') AS closure_kind,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL)
+) AS submitted_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status <> 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status <> 'verified')
+) AS pending_verification_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'rework')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'rework')
+) AS rework_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL AND wo.verification_status = 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL AND wso.verification_status = 'verified')
+) AS verified_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+) AS animals_weighed_count,
+(
+  (SELECT count(*) FROM weighing_observations wo WHERE wo.tenant_id=cs.tenant_id AND wo.campaign_shed_id=cs.campaign_shed_id AND wo.submitted_at IS NOT NULL)
+  + COALESCE((SELECT sum(wso.animal_count) FROM weighing_shed_observations wso WHERE wso.tenant_id=cs.tenant_id AND wso.campaign_shed_id=cs.campaign_shed_id AND wso.withdrawn_at IS NULL), 0)
+) AS animals_submitted_count`
+
+// pendingVerificationCount counts submitted evidence in this bucket that still has
+// no verdict.
+//
+// A bucket is "ready to close" only when every video an operator submitted has been
+// looked at. `rework` counts as PENDING on purpose: a bounced video is unfinished
+// work the operator still owes, so closing on it would bury the rework request.
+//
+// Weighing-owned tables only (weighing_observations + weighing_shed_observations) —
+// no goats, no roster, no vaccination. Individual rows count only once submitted
+// (submitted_at NOT NULL); a lump-sum shed observation IS the submission, so it
+// counts as soon as it exists.
+func (r *Repository) pendingVerificationCount(ctx context.Context, tx pgx.Tx, tenantID, campaignShedID string) (int, int, error) {
+	var submitted, pending int
+	if err := tx.QueryRow(ctx, `
+SELECT
+  (SELECT count(*) FROM weighing_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL)
+  + (SELECT count(*) FROM weighing_shed_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL),
+  (SELECT count(*) FROM weighing_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND submitted_at IS NOT NULL
+       AND verification_status <> 'verified')
+  + (SELECT count(*) FROM weighing_shed_observations
+     WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL
+       AND verification_status <> 'verified')`,
+		tenantID, campaignShedID).Scan(&submitted, &pending); err != nil {
+		return 0, 0, err
+	}
+	return submitted, pending, nil
+}
+
 // CloseScope closes exactly one weighing bucket (campaign shed).
+//
+// Close is UNCONDITIONALLY GATED (maintainer decision 2026-08-03): leadership may
+// not close a bucket while any submitted video is still waiting on the verifier.
+// There is no bypass and no force variant. The vocabulary is close or reopen, so
+// no caller can end a bucket that still holds unreviewed evidence.
+//
+// The gate is only about closing EARLY — it never blocks the operator scanning or
+// submitting, and never blocks the verifier reviewing. A bucket that must end
+// gets its pending evidence resolved by the verifier first.
 func (r *Repository) CloseScope(ctx context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
@@ -53,7 +157,11 @@ func (r *Repository) CloseScope(ctx context.Context, cmd domain.CloseCommand) (d
 		"closed_by":        cmd.ClosedBy,
 		"reason":           cmd.Reason,
 	})
-	if result, ok, err := r.closeByIdempotency(ctx, tx, cmd.TenantID, eventTypeScopeClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed"); err != nil || ok {
+	const (
+		eventType   = eventTypeScopeClosed
+		auditAction = "weighing.scope_closed"
+	)
+	if result, ok, err := r.closeByIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed"); err != nil || ok {
 		if err != nil {
 			return domain.CloseResult{}, err
 		}
@@ -82,11 +190,30 @@ FOR UPDATE OF cs`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID).Scan(&categ
 		return domain.CloseResult{}, ports.ErrImmutable
 	}
 
+	// THE CLOSE GATE. UNCONDITIONAL — there is no force flag and no caller-supplied
+	// way past it. If a bucket will not close, the answer is to resolve its
+	// verification, never to add a path around this. Checked under the same row lock
+	// taken above, so a verdict landing concurrently cannot slip between the check and
+	// the status flip.
+	_, pending, err := r.pendingVerificationCount(ctx, tx, cmd.TenantID, cmd.CampaignShedID)
+	if err != nil {
+		return domain.CloseResult{}, err
+	}
+	if pending > 0 {
+		return domain.CloseResult{}, ports.ErrVerificationPending
+	}
+
 	notAcceptedCount, notAccepted, err := r.scopeNotAcceptedWork(ctx, tx, cmd, category)
 	if err != nil {
 		return domain.CloseResult{}, err
 	}
 
+	// closureKind records that a human ended this bucket early. It is never
+	// 'verified': that kind belongs exclusively to the normal completion path in
+	// verified_closure.go, which no human performs. Keeping them apart in the
+	// column is the whole reason the column exists — the status alone cannot say
+	// whether work finished or was cut short.
+	closureKind := domain.ClosureKindEarly
 	var closedAt time.Time
 	if err := tx.QueryRow(ctx, `
 UPDATE weighing_campaign_sheds
@@ -95,12 +222,13 @@ SET status='closed',
   closed_by=$4::uuid,
   close_reason=$5,
   closed_not_accepted_count=$6,
+  closure_kind=$7,
   updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND campaign_shed_id=$3::uuid
   AND status NOT IN ('closed','canceled')
-RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ClosedBy, cmd.Reason, notAcceptedCount).Scan(&closedAt); err != nil {
+RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.ClosedBy, cmd.Reason, notAcceptedCount, closureKind).Scan(&closedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.CloseResult{}, ports.ErrImmutable
 		}
@@ -117,10 +245,10 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, cmd.Clos
 		NotAcceptedCount: notAcceptedCount,
 		NotAccepted:      notAccepted,
 	}
-	if err := r.auditClose(ctx, tx, cmd, "weighing.scope_closed", "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
+	if err := r.auditClose(ctx, tx, cmd, auditAction, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventTypeScopeClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
+	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventType, cmd.IdempotencyKey, fingerprint, "weighing_campaign_shed", cmd.CampaignShedID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
 	if err := r.enqueueScopeClosed(ctx, tx, cmd, result); err != nil {
@@ -159,17 +287,101 @@ func (r *Repository) CloseCampaign(ctx context.Context, cmd domain.CloseCommand)
 SELECT status
 FROM weighing_campaigns
 WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid
-FOR UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
+-- FOR NO KEY UPDATE, not FOR UPDATE: a plain FOR UPDATE on the parent campaign row
+-- conflicts with the FOR KEY SHARE locks that foreign-key checks take when a
+-- concurrent observation is inserted, so an in-flight capture DEADLOCKED against a
+-- campaign close. NO KEY UPDATE still serialises closers against each other while
+-- letting child rows reference the campaign.
+FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID).Scan(&status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.CloseResult{}, ports.ErrNotFound
 		}
+		return domain.CloseResult{}, err
+	}
+	// Lock every non-terminal bucket too, not just the campaign row.
+	//
+	// The gate below asks "does any bucket hold unverified submitted evidence?".
+	// Locking only the campaign row left a write-skew window: a submit could commit
+	// between that SELECT and the cascade, so a freshly-submitted bucket's unverified
+	// video was never weighed by the gate and ended up stranded under a closed
+	// campaign. Taking the bucket locks first serialises this close against
+	// SubmitIndividualScope / RecordShedObservation, which both update these rows.
+	//
+	// Bounded by the number of buckets in ONE campaign (tens), and ordered by
+	// campaign_shed_id so two concurrent closes cannot deadlock against each other.
+	if _, err := tx.Exec(ctx, `
+SELECT 1
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_id=$2::uuid
+  AND status NOT IN ('closed','canceled')
+ORDER BY campaign_shed_id
+FOR NO KEY UPDATE`, cmd.TenantID, cmd.CampaignID); err != nil {
 		return domain.CloseResult{}, err
 	}
 	if status == domain.StatusClosed || status == "canceled" {
 		return domain.CloseResult{}, ports.ErrImmutable
 	}
 
+	// THE SAME CLOSE GATE, at campaign grain.
+	//
+	// CloseScope refuses to close one bucket with unreviewed videos, but this
+	// cascade is a SECOND door to status='closed', so it must obey the same rule.
+	//
+	// The predicate below deliberately includes 'completed' buckets. An earlier
+	// version excluded them by reasoning about which buckets the CASCADE rewrites
+	// — but `completed` IS the status of a bucket the operator has submitted and
+	// whose videos are waiting on the verifier, i.e. precisely the case this gate
+	// exists to catch. Excluding it let the entire normal flow (submit -> pending
+	// verification -> campaign close) walk straight through the gate. The question
+	// is "does any bucket in this campaign hold unverified submitted evidence",
+	// NOT "which buckets would this UPDATE touch".
+	//
+	// Only genuinely terminal buckets are exempt: 'closed' was already settled by
+	// the gated per-bucket close, and 'canceled' work was withdrawn and never
+	// needs a verdict.
+	var campaignPending int
+	if err := tx.QueryRow(ctx, `
+SELECT count(*)
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.status NOT IN ('closed','canceled')
+  AND (
+    EXISTS (
+      SELECT 1 FROM weighing_observations o
+      WHERE o.tenant_id=cs.tenant_id AND o.campaign_shed_id=cs.campaign_shed_id
+        AND o.submitted_at IS NOT NULL AND o.verification_status <> 'verified'
+    )
+    OR EXISTS (
+      SELECT 1 FROM weighing_shed_observations so
+      WHERE so.tenant_id=cs.tenant_id AND so.campaign_shed_id=cs.campaign_shed_id
+        AND so.withdrawn_at IS NULL
+        AND so.verification_status <> 'verified'
+    )
+  )`, cmd.TenantID, cmd.CampaignID).Scan(&campaignPending); err != nil {
+		return domain.CloseResult{}, err
+	}
+	if campaignPending > 0 {
+		return domain.CloseResult{}, ports.ErrVerificationPending
+	}
+
 	buckets, notAcceptedCount, err := r.campaignNotAcceptedBuckets(ctx, tx, cmd)
+	if err != nil {
+		return domain.CloseResult{}, err
+	}
+
+	// The audit/idempotency snapshot uses the capped `buckets` sample above (see
+	// campaignNotAcceptedBuckets) — that is a display/audit sample and is allowed
+	// to be bounded. Operator notification fanout is a DIFFERENT concern: every
+	// affected operator must be told, not just the first
+	// domain.CloseNotAcceptedSampleLimit alphabetically. This query is the SAME
+	// filter with NO LIMIT. That is safe at the 5k-50k animal envelope because
+	// weighing_campaign_sheds rows are SHEDS assigned to one campaign (a physical,
+	// small-cardinality entity — tens to low hundreds per campaign), not animals;
+	// there is no per-animal fan-out here, so an uncapped read of this table
+	// cannot blow up the way an uncapped animal-level query would.
+	notifyBuckets, err := r.campaignNotAcceptedBucketsUncapped(ctx, tx, cmd)
 	if err != nil {
 		return domain.CloseResult{}, err
 	}
@@ -183,6 +395,7 @@ SET status='closed',
   closed_at=now(),
   closed_by=$3::uuid,
   close_reason=$4,
+  closure_kind='early',
   updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_id=$2::uuid
@@ -199,6 +412,7 @@ SET status='closed',
   closed_by=$3::uuid,
   close_reason=$4,
   closed_not_accepted_count=$5,
+  closure_kind='early',
   updated_at=now(),
   row_version=row_version+1
 WHERE tenant_id=$1::uuid
@@ -230,7 +444,7 @@ RETURNING closed_at`, cmd.TenantID, cmd.CampaignID, cmd.ClosedBy, cmd.Reason, no
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, eventTypeCampaignClosed, cmd.IdempotencyKey, fingerprint, "weighing_campaign", cmd.CampaignID, result); err != nil {
 		return domain.CloseResult{}, err
 	}
-	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, buckets); err != nil {
+	if err := r.enqueueCampaignClosed(ctx, tx, cmd, result, notifyBuckets); err != nil {
 		return domain.CloseResult{}, err
 	}
 	return result, tx.Commit(ctx)
@@ -275,7 +489,7 @@ func (r *Repository) scopeNotAcceptedWork(ctx context.Context, tx pgx.Tx, cmd do
 		if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
   SELECT 1 FROM weighing_shed_observations
-  WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+  WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL
 )`, cmd.TenantID, cmd.CampaignShedID).Scan(&accepted); err != nil {
 			return 0, nil, err
 		}
@@ -291,25 +505,23 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.Campa
 		return 1, []string{label}, nil
 	}
 
-	var count int
-	var sample []string
+	// FREE-FLOW: an individual_animal bucket has no expected roster, so "not
+	// accepted work" cannot be a per-animal sample -- there is no per-animal list
+	// to sample from. It is the SAME bucket-grain fact the per_shed_partition
+	// branch above already uses: the bucket itself has (or has not) reached a
+	// terminal accepted status.
+	var accepted bool
+	var label string
 	if err := tx.QueryRow(ctx, `
-WITH open_work AS (
-  SELECT COALESCE(NULLIF(btrim(ea.scanned_identifier), ''), ea.animal_id::text) AS label
-  FROM weighing_expected_animals ea
-  WHERE ea.tenant_id=$1::uuid
-    AND ea.campaign_id=$2::uuid
-    AND ea.campaign_shed_id=$3::uuid
-    AND ea.status NOT IN ('weighed','unavailable','canceled','closed_by_override')
-)
-SELECT
-  (SELECT count(*)::int FROM open_work),
-  COALESCE((SELECT array_agg(label ORDER BY label) FROM (SELECT label FROM open_work ORDER BY label LIMIT $4) capped), '{}')`,
-		cmd.TenantID, cmd.CampaignID, cmd.CampaignShedID, domain.CloseNotAcceptedSampleLimit,
-	).Scan(&count, &sample); err != nil {
+SELECT status IN ('completed','closed'), display_name FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, cmd.TenantID, cmd.CampaignShedID).
+		Scan(&accepted, &label); err != nil {
 		return 0, nil, err
 	}
-	return count, sample, nil
+	if accepted {
+		return 0, nil, nil
+	}
+	return 1, []string{label}, nil
 }
 
 // closedBucket is one campaign shed that a campaign close ends with work that was
@@ -360,6 +572,40 @@ LIMIT $3`, cmd.TenantID, cmd.CampaignID, domain.CloseNotAcceptedSampleLimit)
 		return nil, 0, err
 	}
 	return buckets, total, nil
+}
+
+// campaignNotAcceptedBucketsUncapped returns EVERY not-accepted bucket in the
+// campaign (same predicate as campaignNotAcceptedBuckets, no LIMIT). It exists
+// ONLY to build the notification-fanout event payload (see enqueueCampaignClosed
+// call site in CloseCampaign): campaignNotAcceptedBuckets's LIMIT
+// domain.CloseNotAcceptedSampleLimit is a display/audit sample, and reusing that
+// capped list for notification silently dropped operators whose only buckets
+// sorted past the cap (B13). Bounded by shed cardinality, not animal
+// cardinality — see the call-site comment in CloseCampaign.
+func (r *Repository) campaignNotAcceptedBucketsUncapped(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand) ([]closedBucket, error) {
+	rows, err := tx.Query(ctx, `
+SELECT cs.campaign_shed_id::text, cs.location_id::text, cs.display_name, cs.operator_user_id::text, cs.status
+FROM weighing_campaign_sheds cs
+WHERE cs.tenant_id=$1::uuid
+  AND cs.campaign_id=$2::uuid
+  AND cs.status NOT IN ('completed','closed','canceled')
+ORDER BY cs.display_name, cs.campaign_shed_id`, cmd.TenantID, cmd.CampaignID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	buckets := make([]closedBucket, 0, 8)
+	for rows.Next() {
+		var bucket closedBucket
+		if err := rows.Scan(&bucket.CampaignShedID, &bucket.ShedID, &bucket.ShedLabel, &bucket.OperatorID, &bucket.Status); err != nil {
+			return nil, err
+		}
+		buckets = append(buckets, bucket)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return buckets, nil
 }
 
 func (r *Repository) auditClose(

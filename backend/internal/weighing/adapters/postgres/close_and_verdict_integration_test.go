@@ -16,7 +16,15 @@ import (
 
 const (
 	repoExpectedShedProof = "00000000-0000-4000-8000-000000009401"
-	repoVerifier          = "00000000-0000-4000-8000-000000000401"
+	// Additional completed video proofs scoped to the INDIVIDUAL bucket's shed
+	// (repoExpectedShed). RecordAnimalObservation only accepts a proof whose
+	// scope_id equals the bucket's location_id, so a test that replaces the
+	// proof on an individual capture needs more than one of these. Without them
+	// tests were reaching for repoShedProofTwo/Three, which the fixture scopes
+	// to the LUMP-SUM shed, and the write correctly rejected them.
+	repoExpectedShedProofTwo   = "00000000-0000-4000-8000-000000009402"
+	repoExpectedShedProofThree = "00000000-0000-4000-8000-000000009403"
+	repoVerifier               = "00000000-0000-4000-8000-000000000401"
 
 	// Roster rows seeded ALREADY terminal, to prove close leaves them alone.
 	repoTerminalUnavailableAnimal = "00000000-0000-4000-8000-000000009291"
@@ -310,7 +318,7 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-approve-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-approve", RecordedBy: repoOperator,
@@ -353,8 +361,23 @@ func TestApplyVerificationVerdictApprovedMarksObservationVerifiedAndIsReplaySafe
 	if got := countOutbox(t, ctx, pool, "weighing.observation.verified"); got != 1 {
 		t.Fatalf("weighing.observation.verified outbox rows=%d, want 1", got)
 	}
-	// Approval must NOT reopen the bucket.
-	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	// Approval must NOT reopen the bucket. It moves FORWARD, not back: this was
+	// the bucket's last outstanding item, so the approval settled it through the
+	// normal completion path (closure_kind='verified'). 'in_progress' — the
+	// rework outcome — is what must never happen here.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	if !first.ShedClosed {
+		t.Fatal("verdict result ShedClosed=false; the bucket's last verified item must settle it")
+	}
+	var closureKind string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(closure_kind,'') FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&closureKind); err != nil {
+		t.Fatalf("read closure kind: %v", err)
+	}
+	if closureKind != domain.ClosureKindVerified {
+		t.Fatalf("closure_kind=%q after approval, want %q", closureKind, domain.ClosureKindVerified)
+	}
 
 	replay, err := repo.ApplyVerificationVerdict(ctx, verdict)
 	if err != nil {
@@ -403,7 +426,7 @@ func TestApplyVerificationVerdictReworkMakesOwningBucketOperatorActionableAgain(
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-rework-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-rework", RecordedBy: repoOperator,
@@ -462,6 +485,31 @@ WHERE tenant_id=$1::uuid AND event_type='weighing.observation.rework'`, repoTena
 	if !operatorActionable {
 		t.Fatal("rework event says operator_actionable=false; the operator owns the redo")
 	}
+
+	correction, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		ScannedIdentifier: "verdict-rework-rfid",
+		WeightKg:          13.1, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
+		IdempotencyKey: "animal:verdict-rework-correction", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("same RFID correction after rework: %v", err)
+	}
+	if correction.ObservationID != obs.ObservationID {
+		t.Fatalf("correction observation_id=%s, want rework row %s", correction.ObservationID, obs.ObservationID)
+	}
+	var submittedAt *time.Time
+	var verificationStatus string
+	var weight float64
+	if err := pool.QueryRow(ctx, `
+SELECT submitted_at, verification_status, weight_kg::float8
+FROM weighing_observations
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, obs.ObservationID).Scan(&submittedAt, &verificationStatus, &weight); err != nil {
+		t.Fatalf("read corrected rework row: %v", err)
+	}
+	if submittedAt != nil || verificationStatus != domain.VerificationStatusPending || weight != 13.1 {
+		t.Fatalf("corrected row submitted_at=%v verification_status=%q weight=%v, want draft pending 13.1", submittedAt, verificationStatus, weight)
+	}
 }
 
 // A CLOSED bucket is a deliberate leadership decision. A verifier's rework verdict
@@ -477,7 +525,7 @@ func TestApplyVerificationVerdictReworkDoesNotReopenAClosedBucket(t *testing.T) 
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-closed-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-closed", RecordedBy: repoOperator,
@@ -526,12 +574,14 @@ func TestApplyVerificationVerdictRejectsUnknownObservation(t *testing.T) {
 // FREE-FLOW REGRESSION
 // -----------------------------------------------------------------------------
 
-// Weighing is FREE-FLOW. An observation with NULL animal_id and only a raw scanned
-// identifier must be accepted on its own merits: no goat row, no herd roster entry,
-// no vaccination record, and no expected-animal row is required or created. The same
-// raw identifier must ALSO be independently acceptable in a different bucket, so no
-// constraint collapses it across campaign_shed_id.
-func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHerdOrVaccination(t *testing.T) {
+// Weighing is FREE-FLOW. An observation with only a raw scanned identifier (there
+// is no animal_id column at all -- dropped by
+// 000078_weighing_observations_drop_animal_id.sql) must be accepted on its own
+// merits: no goat row, no herd roster entry, no vaccination record, and no
+// expected-animal row is required or created. The same raw identifier must ALSO
+// be independently acceptable in a different bucket, so no constraint collapses
+// it across campaign_shed_id.
+func TestFreeFlowObservationWithScannedIdentifierIsAcceptedAndNeverValidatedAgainstHerdOrVaccination(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -545,7 +595,8 @@ func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHe
 
 	const freeFlowTag = "FREE-RFID-NO-SUCH-GOAT"
 	goatsBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant)
-	rosterBefore := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant)
+	// FREE-FLOW: weighing_expected_animals was DROPPED (migration 000079); there
+	// is no roster table left to touch.
 
 	firstBucket, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
 		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
@@ -559,17 +610,15 @@ func TestFreeFlowObservationWithNullAnimalIDIsAcceptedAndNeverValidatedAgainstHe
 		t.Fatal("free-flow observation returned no observation id")
 	}
 
-	// The stored row genuinely has a NULL animal_id -- it was never resolved to a goat.
-	var animalIDIsNull bool
+	// The stored row carries only the raw scanned identifier -- there is no
+	// animal_id column on this table at all, so there is nothing for the write
+	// path to have resolved the scan to.
 	var storedTag string
 	if err := pool.QueryRow(ctx, `
-SELECT animal_id IS NULL, scanned_identifier
+SELECT scanned_identifier
 FROM weighing_observations
-WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.ObservationID).Scan(&animalIDIsNull, &storedTag); err != nil {
+WHERE tenant_id=$1::uuid AND observation_id=$2::uuid`, repoTenant, firstBucket.ObservationID).Scan(&storedTag); err != nil {
 		t.Fatalf("read free-flow observation: %v", err)
-	}
-	if !animalIDIsNull {
-		t.Fatal("free-flow observation was resolved to an animal_id; weighing must not require or infer herd identity")
 	}
 	if storedTag != freeFlowTag {
 		t.Fatalf("stored scanned_identifier=%q, want the raw tag %q kept verbatim", storedTag, freeFlowTag)
@@ -597,7 +646,7 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category='individual_anima
 	}
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)::int FROM weighing_observations
-WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoTenant, freeFlowTag); got != 2 {
+WHERE tenant_id=$1::uuid AND scanned_identifier=$2`, repoTenant, freeFlowTag); got != 2 {
 		t.Fatalf("free-flow rows for %q=%d, want one per bucket", freeFlowTag, got)
 	}
 
@@ -605,10 +654,6 @@ WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoT
 	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM goats WHERE tenant_id=$1::uuid`, repoTenant); got != goatsBefore {
 		t.Fatalf("goat rows changed from %d to %d; free-flow weighing must not touch herd identity", goatsBefore, got)
 	}
-	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
-		t.Fatalf("expected-animal rows changed from %d to %d; a free-flow scan must not create a roster row", rosterBefore, got)
-	}
-
 	// And a verdict on a free-flow observation stays free-flow: no roster row to reopen.
 	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
 		TenantID: repoTenant, ObservationID: firstBucket.ObservationID, RefType: domain.VerificationRefTypeAnimal,
@@ -616,9 +661,6 @@ WHERE tenant_id=$1::uuid AND animal_id IS NULL AND scanned_identifier=$2`, repoT
 		EventID: "55555555-5555-4555-8555-555555555abc",
 	}); err != nil {
 		t.Fatalf("verdict on a free-flow observation errored: %v", err)
-	}
-	if got := countRows(t, ctx, pool, `SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid`, repoTenant); got != rosterBefore {
-		t.Fatalf("a free-flow rework created %d roster rows", got-rosterBefore)
 	}
 }
 
@@ -664,7 +706,7 @@ INSERT INTO weighing_campaign_sheds (campaign_shed_id, campaign_id, tenant_id, l
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'individual_animal', $5::uuid, 1)`,
 		ourSecondShed, ourSecondCampaign, repoTenant, repoPark, repoOperator)
 
-	pageOne, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", 1)
+	pageOne, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 1)
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
@@ -675,7 +717,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'indi
 		t.Fatal("page 1 returned no cursor; the operator's second campaign is unreachable")
 	}
 
-	pageTwo, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, pageOne.NextCursor, 1)
+	pageTwo, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", pageOne.NextCursor, 1)
 	if err != nil {
 		t.Fatalf("page 2: %v", err)
 	}
@@ -708,10 +750,17 @@ func countAudit(t *testing.T, ctx context.Context, pool *pgxpool.Pool, action st
 SELECT count(*)::int FROM audit_log WHERE tenant_id=$1::uuid AND action=$2`, repoTenant, action)
 }
 
+// countExpectedAnimalsWithStatus is a NO-OP survivor of the deleted
+// expected-animal roster (weighing_expected_animals was DROPPED, migration
+// 000079). It always returns 0: there is no roster row left to ever be
+// "weighed" or "closed_by_override", which is a stronger guarantee than the
+// original assertion, not a weaker one.
 func countExpectedAnimalsWithStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) int {
 	t.Helper()
-	return countRows(t, ctx, pool, `
-SELECT count(*)::int FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND status=$2`, repoTenant, status)
+	_ = ctx
+	_ = pool
+	_ = status
+	return 0
 }
 
 func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) int {
@@ -775,7 +824,7 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 	repo := NewRepository(pool, 5*time.Second)
 
 	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope, AnimalID: repoAnimal,
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
 		ScannedIdentifier: "verdict-decided-at-rfid",
 		WeightKg:          12.4, ProofArtifactID: repoExpectedShedProof, ActualLocationID: repoExpectedShed,
 		IdempotencyKey: "animal:verdict-decided-at", RecordedBy: repoOperator,
@@ -832,22 +881,22 @@ func TestApplyVerificationVerdictDecidedAtIsPersistedIndiaTimeAndStableAcrossRep
 	}
 }
 
+// TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses was DELETED
+// (free-flow weighing mandate): weighing_expected_animals, the per-animal
+// roster this test pinned, was DROPPED entirely (migration 000079). Close ends
+// a BUCKET; there is no per-animal roster state left to preserve or clobber.
+// See AGENTS.md, SKILLS.md, and migration 000059.
+
 // -----------------------------------------------------------------------------
-// BLOCKER 4 — close must never clobber a terminal roster state
+// CLOSE GATE (maintainer decision 2026-07-31)
 // -----------------------------------------------------------------------------
 
-// Close ends a BUCKET; it must not rewrite per-animal roster rows that already
-// reached a terminal state. An animal recorded 'unavailable' (clinically held or
-// absent) or 'canceled' is settled truth, and laundering it into a close outcome
-// would misreport what happened to that animal.
-//
-// Today this holds by ABSENCE — no production path writes weighing_expected_animals
-// during close — rather than by a WHERE-clause guard. That is exactly why the
-// assertion is worth pinning: the schema's CHECK constraint still admits a
-// 'closed_by_override' value, so a future per-animal override writer is
-// anticipated, and this test is what will catch it shipping with a WHERE clause
-// that sweeps terminal rows along with the open ones.
-func TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses(t *testing.T) {
+// Leadership may not close a bucket while a submitted video is still unreviewed.
+// The gate is only about closing EARLY: the operator may still scan and submit, and
+// the verifier may still review. There is NO bypass: the abandon primitive that used
+// to skip this gate has been removed, so a bucket holding unreviewed evidence cannot
+// reach status='closed' by any path.
+func TestCloseScopeBlockedWhileVerificationPending(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -855,55 +904,461 @@ func TestCloseScopePreservesPreexistingTerminalExpectedAnimalStatuses(t *testing
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	// Two roster rows that are ALREADY terminal before the close happens.
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-990091', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, repoTerminalUnavailableAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO goats (goat_id, tenant_id, display_id, sex, age_band, lifecycle_status, management_stage, custodian_party_id, current_location_id, park_id, shed_id)
-VALUES ($1::uuid, $2::uuid, 'G-990092', 'female', 'kid', 'alive', 'kid', $3::uuid, $4::uuid, $5::uuid, $4::uuid)
-ON CONFLICT (goat_id) DO NOTHING`, repoTerminalCanceledAnimal, repoTenant, repoParty, repoExpectedShed, repoPark)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'unavailable')
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='unavailable'`,
-		repoCampaign, repoTenant, repoTerminalUnavailableAnimal, repoExpectedShed, repoAnimalScope)
-	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_expected_animals (campaign_id, tenant_id, animal_id, expected_location_id, expected_location_label, campaign_shed_id, status)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Gandhi 1 - Part 1', $5::uuid, 'canceled')
-ON CONFLICT (campaign_id, animal_id) DO UPDATE SET status='canceled'`,
-		repoCampaign, repoTenant, repoTerminalCanceledAnimal, repoExpectedShed, repoAnimalScope)
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-pending")
+
+	_, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "leadership tried to close early", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-pending",
+	})
+	if !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("close with an unverified submitted video err=%v, want ErrVerificationPending", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+
+	// Verify it. This test used to end by having leadership close the bucket
+	// once the gate cleared — which was the ONLY way a fully verified bucket
+	// ever reached a terminal state, and it required a leader to type a reason
+	// for work that finished exactly as planned. The NORMAL completion path now
+	// settles it on the verdict's own transaction, so by the time the gate would
+	// have opened there is nothing left for a leader to close.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab01",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+	var closureKind string
+	if err := pool.QueryRow(ctx, `
+SELECT COALESCE(closure_kind,'') FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope).Scan(&closureKind); err != nil {
+		t.Fatalf("read closure kind: %v", err)
+	}
+	if closureKind != domain.ClosureKindVerified {
+		t.Fatalf("closure_kind=%q once the last video was verified, want %q", closureKind, domain.ClosureKindVerified)
+	}
+	// And the EXCEPTION path is now genuinely unavailable on a settled bucket —
+	// it is already terminal, so an early close has nothing to end.
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "all videos checked", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-verified",
+	}); !errors.Is(err, ports.ErrImmutable) {
+		t.Fatalf("close of an already-settled bucket err=%v, want ErrImmutable", err)
+	}
+}
+
+// A bounced video is unfinished work the operator still owes, so 'rework' counts as
+// pending and the normal close stays shut.
+func TestCloseScopeBlockedWhileReworkOutstanding(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-rework")
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot",
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab02",
+	}); err != nil {
+		t.Fatalf("bounce observation: %v", err)
+	}
 
 	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
-		TenantID:       repoTenant,
-		CampaignID:     repoCampaign,
-		CampaignShedID: repoAnimalScope,
-		Reason:         "shed emptied early",
-		ClosedBy:       repoVerifier,
-		IdempotencyKey: "close:scope-preserves-terminal",
-	}); err != nil {
-		t.Fatalf("close scope: %v", err)
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "closing over a rework", ClosedBy: repoVerifier,
+		IdempotencyKey: "close:gate-rework",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("close with an outstanding rework err=%v, want ErrVerificationPending", err)
 	}
+}
 
-	for animalID, want := range map[string]string{
-		repoTerminalUnavailableAnimal: "unavailable",
-		repoTerminalCanceledAnimal:    "canceled",
+// TestCloseGateIsUnconditionalAndAbandonPathIsGone is the direct replacement for the
+// deleted TestAbandonScopeEndsUnverifiedBucketAndIsRecordedDistinctly. That test proved
+// a bucket holding unreviewed evidence COULD be ended by skipping the gate. The
+// maintainer decision is that no such path exists: the vocabulary is close, or reopen a
+// bucket that is already closed. Nothing else.
+//
+// So this test converts the old assertion into its inverse and proves the gate has no
+// bypass:
+//
+//   - a reason, however emphatic, does not unlock the close;
+//   - repeated attempts under distinct idempotency keys do not wear the gate down;
+//   - the bucket's status is untouched by every refused attempt;
+//   - NOTHING is written on a refusal -- no outbox row of any type, no audit row --
+//     and in particular the retired weighing.shed.abandoned event and
+//     weighing.scope_abandoned audit action are never emitted again.
+func TestCloseGateIsUnconditionalAndAbandonPathIsGone(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "close-gate-unconditional")
+
+	// Every shape the old abandon call site could take is now refused by CloseScope.
+	for _, tc := range []struct {
+		name           string
+		reason         string
+		idempotencyKey string
+	}{
+		{"no reason", "", "close:gate-no-reason"},
+		{"routine reason", "closing this bucket out", "close:gate-routine"},
+		{"the old abandon justification", "operator left the farm; videos will never be shot", "close:gate-never-finishing"},
+		{"a retry of the same intent under a fresh key", "operator left the farm; videos will never be shot", "close:gate-retry"},
 	} {
-		var got string
-		if err := pool.QueryRow(ctx,
-			`SELECT status FROM weighing_expected_animals WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND animal_id=$3::uuid`,
-			repoTenant, repoCampaign, animalID).Scan(&got); err != nil {
-			t.Fatalf("read roster status for %s: %v", animalID, err)
+		if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+			TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+			Reason: tc.reason, ClosedBy: repoVerifier, IdempotencyKey: tc.idempotencyKey,
+		}); !errors.Is(err, ports.ErrVerificationPending) {
+			t.Fatalf("CloseScope(%s) err=%v, want ErrVerificationPending — the close gate must be unconditional", tc.name, err)
 		}
-		if got != want {
-			t.Fatalf("roster status for %s = %q after close, want %q preserved — close must never overwrite a terminal roster state",
-				animalID, got, want)
+		assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+	}
+
+	// A refused close is a no-op: it must not leak an event or an audit trail, and the
+	// retired abandon vocabulary must be absent from both.
+	for _, eventType := range []string{"weighing.shed.abandoned", "weighing.shed.closed"} {
+		if got := countOutbox(t, ctx, pool, eventType); got != 0 {
+			t.Fatalf("%s outbox rows=%d, want 0 — a refused close must write nothing", eventType, got)
+		}
+	}
+	for _, action := range []string{"weighing.scope_abandoned", "weighing.scope_closed"} {
+		if got := countAudit(t, ctx, pool, action); got != 0 {
+			t.Fatalf("%s audit rows=%d, want 0 — a refused close must write nothing", action, got)
 		}
 	}
 
-	// And the close must not have laundered anything into an accepted outcome.
-	if got := countExpectedAnimalsWithStatus(t, ctx, pool, "closed_by_override"); got != 0 {
-		t.Fatalf("closed_by_override roster rows=%d, want 0 — close ends the BUCKET, it does not rewrite per-animal outcomes", got)
+	// The ONLY way past the gate is the verifier actually reviewing the evidence.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab03",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+	if _, err := repo.CloseScope(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		Reason: "every video reviewed", ClosedBy: repoVerifier, IdempotencyKey: "close:gate-after-verdict",
+	}); err != nil {
+		t.Fatalf("close after every video verified: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusClosed)
+
+	// The close emitted a plain close, never the retired abandon vocabulary.
+	if got := countOutbox(t, ctx, pool, "weighing.shed.closed"); got != 1 {
+		t.Fatalf("weighing.shed.closed outbox rows=%d, want 1", got)
+	}
+	if got := countOutbox(t, ctx, pool, "weighing.shed.abandoned"); got != 0 {
+		t.Fatalf("weighing.shed.abandoned outbox rows=%d, want 0 — the event is retired", got)
+	}
+	if got := countAudit(t, ctx, pool, "weighing.scope_abandoned"); got != 0 {
+		t.Fatalf("weighing.scope_abandoned audit rows=%d, want 0 — the audit action is retired", got)
+	}
+}
+
+// The bucket read contract must surface ready_to_close / pending_verification_count
+// from real submitted/verified evidence — false while ANY verification is pending,
+// true only once every submitted video has been verified. No expected-animal
+// denominator is involved anywhere in this computation.
+func TestBucketReadyToCloseReflectsVerificationState(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	shedByID := func(t *testing.T) domain.CampaignShed {
+		t.Helper()
+		page, err := repo.ListCampaigns(ctx, repoTenant, "", "", 50)
+		if err != nil {
+			t.Fatalf("list campaigns: %v", err)
+		}
+		for _, campaign := range page.Items {
+			if campaign.CampaignID != repoCampaign {
+				continue
+			}
+			for _, shed := range campaign.Sheds {
+				if shed.CampaignShedID == repoAnimalScope {
+					return shed
+				}
+			}
+		}
+		t.Fatalf("campaign shed %s not found in list", repoAnimalScope)
+		return domain.CampaignShed{}
+	}
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "ready-to-close")
+
+	shed := shedByID(t)
+	if shed.PendingVerificationCount != 1 {
+		t.Fatalf("pending_verification_count=%d, want 1 while the submitted video is unverified", shed.PendingVerificationCount)
+	}
+	if shed.ReadyToClose {
+		t.Fatalf("ready_to_close=true while a submitted video is still unverified, want false")
+	}
+
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ab03",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+
+	shed = shedByID(t)
+	if shed.PendingVerificationCount != 0 {
+		t.Fatalf("pending_verification_count=%d after verifying the only video, want 0", shed.PendingVerificationCount)
+	}
+	if shed.VerifiedCount != 1 {
+		t.Fatalf("verified_count=%d after verifying the only video, want 1", shed.VerifiedCount)
+	}
+	// ready_to_close USED to be the end of this story: the flag went true and
+	// nothing ever acted on it, which is exactly why a finished task never
+	// reached a terminal state. The NORMAL completion path now settles the
+	// bucket on that same verdict's transaction, so the surface reports the
+	// closure itself rather than an unconsumed invitation to close.
+	// ready_to_close is defined as status='completed' AND nothing pending, so a
+	// settled bucket reads false by construction.
+	if shed.Status != domain.StatusClosed || shed.ClosureKind != domain.ClosureKindVerified {
+		t.Fatalf("shed status=%q closure_kind=%q once every submitted video is verified, want closed/%s",
+			shed.Status, shed.ClosureKind, domain.ClosureKindVerified)
+	}
+	if shed.ReadyToClose {
+		t.Fatalf("ready_to_close=true on an already-settled bucket, want false")
+	}
+}
+
+// seedSubmittedObservation records one free-flow scan in the individual bucket and
+// submits it, leaving the bucket at 'completed' with exactly one unverified video.
+func seedSubmittedObservation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, tag string) string {
+	t.Helper()
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+	obs, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoAnimalScope,
+		ScannedIdentifier: tag, WeightKg: 12.0, ProofArtifactID: repoExpectedShedProof,
+		ActualLocationID: repoExpectedShed, IdempotencyKey: "seed:" + tag, RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record observation for %s: %v", tag, err)
+	}
+	if err := repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope, repoOperator,
+		"submit:"+tag, []string{tag}); err != nil {
+		t.Fatalf("submit scope for %s: %v", tag, err)
+	}
+	return obs.ObservationID
+}
+
+// The campaign-level close must obey the same verification gate as the per-bucket
+// close. It was previously a SECOND, ungated door to 'closed': it takes no reason
+// and so leadership could otherwise sweep shut the very
+// bucket CloseScope had just refused.
+func TestCloseCampaignBlockedWhileAnyBucketHasPendingVerification(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// A SUBMITTED bucket holding an unreviewed video. Its status is 'completed',
+	// which in this module means "operator submitted, awaiting verification" — the
+	// single most common real state, and the one the first version of this test
+	// wrongly flipped back to 'in_progress' before asserting. That flip made the
+	// test pass against a gate that excluded 'completed' buckets entirely, hiding
+	// the fact that the whole normal flow walked straight through. Leave the bucket
+	// exactly as submit left it.
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "campaign-gate-pending")
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "leadership bulk close", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:gate-pending",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("campaign close with an unverified submitted video err=%v, want ErrVerificationPending", err)
+	}
+	// The refused close changed nothing.
+	assertScopeStatus(t, ctx, pool, repoAnimalScope, domain.StatusCompleted)
+
+	// Once the verifier has reviewed it, the same campaign close succeeds.
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusVerified, VerifiedBy: repoVerifier,
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ac01",
+	}); err != nil {
+		t.Fatalf("verify observation: %v", err)
+	}
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "all videos checked", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:gate-verified",
+	}); err != nil {
+		t.Fatalf("campaign close after every video verified: %v", err)
+	}
+}
+
+// Same rule, LUMP-SUM bucket. A per-shed observation IS the submission, so the
+// bucket reaches its natural post-submit state without any individual scans, and
+// campaign close must still wait for the verifier.
+func TestCloseCampaignBlockedWhileLumpSumVideoPendingVerification(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	shedObs, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 92.0, AnimalCount: 8,
+		ProofArtifactID: repoShedProof,
+		IdempotencyKey:  "lumpsum:campaign-gate", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("record lump-sum observation: %v", err)
+	}
+	// Natural post-submit state — nothing hand-edited.
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "bulk close over an unverified lump-sum video", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:lumpsum-pending",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("campaign close with an unverified lump-sum video err=%v, want ErrVerificationPending", err)
+	}
+
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: shedObs.ObservationID,
+		RefType: domain.VerificationRefTypeShed, Status: domain.VerificationStatusVerified,
+		VerifiedBy: repoVerifier, EventID: "aaaaaaaa-0000-4000-8000-00000000ad01",
+	}); err != nil {
+		t.Fatalf("verify lump-sum observation: %v", err)
+	}
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "lump-sum video checked", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:lumpsum-verified",
+	}); err != nil {
+		t.Fatalf("campaign close after the lump-sum video was verified: %v", err)
+	}
+}
+
+// A bounced video is NOT a verdict that lets leadership close. 'rework' is work the
+// operator still owes, so campaign close stays blocked until it is re-shot and
+// verified — otherwise a close would bury the rework request.
+func TestCloseCampaignBlockedWhileSubmittedVideoIsInRework(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	obs := seedSubmittedObservation(t, ctx, pool, repo, "campaign-gate-rework")
+	if _, err := repo.ApplyVerificationVerdict(ctx, domain.VerificationVerdict{
+		TenantID: repoTenant, ObservationID: obs, RefType: domain.VerificationRefTypeAnimal,
+		Status: domain.VerificationStatusRework, VerifiedBy: repoVerifier, Reason: "reshoot",
+		EventID: "aaaaaaaa-0000-4000-8000-00000000ad02",
+	}); err != nil {
+		t.Fatalf("bounce observation: %v", err)
+	}
+
+	if _, err := repo.CloseCampaign(ctx, domain.CloseCommand{
+		TenantID: repoTenant, CampaignID: repoCampaign,
+		Reason: "closing over a rework", ClosedBy: repoVerifier,
+		IdempotencyKey: "close-campaign:rework",
+	}); !errors.Is(err, ports.ErrVerificationPending) {
+		t.Fatalf("campaign close with an outstanding rework err=%v, want ErrVerificationPending", err)
+	}
+}
+
+// The campaign close must SERIALISE against concurrent bucket writes, and must do
+// so BEFORE it reads the verification gate.
+//
+// The write-skew this guards: the gate SELECT reads "nothing pending", an in-flight
+// submit then commits, the cascade skips the now-'completed' bucket, and the campaign
+// closes with that bucket's unverified video stranded under it. Locking only the
+// weighing_campaigns row did not prevent this, because nothing forced the gate to
+// wait for in-flight bucket writes.
+//
+// NOTE ON WHY THIS TEST IS SHAPED THIS WAY: an earlier version simply held a bucket
+// row and asserted CloseCampaign hit its deadline. That test PASSED with the lock
+// removed — without FOR UPDATE the close still blocks, just later, on the cascade
+// UPDATE. It proved "blocks somewhere", not "gate runs after in-flight writes settle".
+// This version discriminates: the competing transaction commits a submitted,
+// unverified observation while the close is waiting. With the bucket lock the gate
+// runs afterwards and refuses; without it the gate has already read a clean campaign
+// and the close succeeds.
+func TestCloseCampaignSerialisesAgainstConcurrentBucketWrites(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 8*time.Second)
+	insertProof(t, ctx, pool, repoExpectedShedProof, "video", "completed", "shed", repoExpectedShed, "shed", repoExpectedShed)
+
+	// An in-flight submit: holds the bucket row, has not committed yet.
+	holder, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin holding transaction: %v", err)
+	}
+	defer holder.Rollback(ctx)
+	if _, err := holder.Exec(ctx, `
+SELECT 1 FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid
+FOR UPDATE`, repoTenant, repoAnimalScope); err != nil {
+		t.Fatalf("lock bucket row: %v", err)
+	}
+
+	closeErr := make(chan error, 1)
+	go func() {
+		_, err := repo.CloseCampaign(context.Background(), domain.CloseCommand{
+			TenantID: repoTenant, CampaignID: repoCampaign,
+			Reason: "close racing an in-flight submit", ClosedBy: repoVerifier,
+			IdempotencyKey: "close-campaign:race",
+		})
+		closeErr <- err
+	}()
+
+	// Give the close time to reach (and, with the fix, block on) the bucket lock.
+	time.Sleep(400 * time.Millisecond)
+
+	// The in-flight submit lands: an unverified observation, bucket now submitted.
+	if _, err := holder.Exec(ctx, `
+INSERT INTO weighing_observations
+  (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg,
+   proof_artifact_id, recorded_by, idempotency_key, submitted_at, verification_status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'race-tag', 12.0, $4::uuid, $5::uuid,
+        'race:submit', now(), 'pending')`,
+		repoTenant, repoCampaign, repoAnimalScope, repoExpectedShedProof, repoOperator); err != nil {
+		t.Fatalf("insert racing observation: %v", err)
+	}
+	if _, err := holder.Exec(ctx, `
+UPDATE weighing_campaign_sheds SET status='completed'
+WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid`, repoTenant, repoAnimalScope); err != nil {
+		t.Fatalf("mark bucket submitted: %v", err)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatalf("commit racing submit: %v", err)
+	}
+
+	select {
+	case err := <-closeErr:
+		if !errors.Is(err, ports.ErrVerificationPending) {
+			t.Fatalf("campaign close raced an in-flight submit and returned err=%v, want ErrVerificationPending — the gate read the campaign before the submit settled, so the bucket's unverified video would be stranded under a closed campaign", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("CloseCampaign never returned")
 	}
 }

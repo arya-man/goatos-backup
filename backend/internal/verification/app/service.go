@@ -261,6 +261,14 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 
 // resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
 // storage signed-URL port (never a per-row lookup — bounded by page size x media-per-item).
+//
+// It deliberately does NOT verify that each stored object is retrievable. Doing so would cost one
+// stat/HEAD per proof per row: on GCS (the production provider) a signed HEAD is ~20-50ms, so a
+// 20-item page with ~3 proofs each is ~60 sequential round trips (~1.2-3s) — far past the sub-500ms
+// operator hot-read budget, and an N+1 on a queue read. The honest contract is therefore
+// EvidenceLinkResolved ("a link was issued for every media_ref"), and terminal unavailability is
+// reported by the download route as 410 proof_object_missing / retryable=false for the client to
+// render as "evidence unavailable".
 func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []domain.Item) []domain.QueueRow {
 	rows := make([]domain.QueueRow, len(items))
 	allProofIDs := make([]string, 0, len(items)*3)
@@ -294,7 +302,7 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 			}
 		}
 		labelMedia(media, s.categoryFor(it.Category))
-		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceAvailable: resolutionOK && len(media) == len(it.MediaRefs)}
+		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: resolutionOK && len(media) == len(it.MediaRefs)}
 	}
 	return rows
 }
@@ -352,22 +360,86 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	if in.IdempotencyKey != "" && (len(in.IdempotencyKey) < 8 || len(in.IdempotencyKey) > 200) {
 		return domain.Item{}, BadRequest("invalid_idempotency_key", "Idempotency-Key must be between 8 and 200 characters")
 	}
-	itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
-	if err != nil {
-		return domain.Item{}, mapRepoErr(err)
-	}
-	if s.media == nil || len(itemForEvidence.MediaRefs) == 0 {
-		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
-	}
-	resolved, err := s.media.ResolveMedia(ctx, in.TenantID, itemForEvidence.MediaRefs)
-	if err != nil || len(resolved) != len(itemForEvidence.MediaRefs) {
-		return domain.Item{}, Unprocessable("evidence_unavailable", "verification evidence is unavailable")
+	// The evidence gate guards APPROVE only. Approve is the one irreversible action in this module
+	// (there is no un-approve), so it must never be recorded against proof nobody can look at.
+	// Reject/rework is deliberately NOT gated: when the proof is gone, sending the work back so the
+	// team records it again is the ONLY correct move left, and gating it would strand the verifier
+	// with an item she can neither approve nor return.
+	if in.Decision == domain.DecisionApproved {
+		itemForEvidence, err := s.repo.GetItem(ctx, in.TenantID, in.ItemID)
+		if err != nil {
+			return domain.Item{}, mapRepoErr(err)
+		}
+		if err := s.assertEvidenceApprovable(ctx, in.TenantID, itemForEvidence); err != nil {
+			return domain.Item{}, err
+		}
 	}
 	item, err := s.repo.RecordVerdict(ctx, in)
 	if err != nil {
 		return domain.Item{}, mapRepoErr(err)
 	}
 	return item, nil
+}
+
+// assertEvidenceApprovable is the REAL evidence gate for a single approve.
+//
+// Two layers, because they answer two different questions:
+//  1. ResolveMedia — can a signed link be issued for every media_ref? (row-level completeness)
+//  2. EnsureEvidenceAvailable — do the stored objects still EXIST? (byte-level truth)
+//
+// Layer 2 is the one that matters and the one that used to be missing: RecordVerdict called the
+// same non-statting resolver the queue read uses, so the gate was a tautology — if the DB row
+// existed it passed, and an approve could be recorded against an object that had been deleted or
+// relocated (the download route then answers 410 proof_object_missing to a verifier who has
+// already, irreversibly, approved it).
+//
+// The N+1 objection that ListQueue/resolveMedia correctly raises does NOT apply here: this is ONE
+// item at decision time, not ~20 rows x ~3 proofs on a hot read. Paying a handful of stats once,
+// before an irreversible act nobody can undo, is the correct trade. Do not move this into the
+// queue path, and do not delete it to "make approve faster".
+func (s *Service) assertEvidenceApprovable(ctx context.Context, tenantID string, item domain.Item) error {
+	if s.media == nil || len(item.MediaRefs) == 0 {
+		return evidenceMissingErr()
+	}
+	resolved, err := s.media.ResolveMedia(ctx, tenantID, item.MediaRefs)
+	if err != nil || len(resolved) != len(item.MediaRefs) {
+		return evidenceMissingErr()
+	}
+	checker, ok := s.media.(ports.EvidenceAvailabilityChecker)
+	if !ok {
+		// No adapter can confirm the bytes. Fail CLOSED on the irreversible action rather than
+		// repeat the old tautology, and say so honestly: this is "we could not check", not "the
+		// video is gone".
+		return evidenceUncheckableErr()
+	}
+	switch err := checker.EnsureEvidenceAvailable(ctx, tenantID, item.MediaRefs); {
+	case err == nil:
+		return nil
+	case errors.Is(err, ports.ErrEvidenceMissing):
+		return evidenceMissingErr()
+	default:
+		return evidenceUncheckableErr()
+	}
+}
+
+// evidenceMissingErr is terminal: the proof video is not there and retrying cannot change that.
+// The copy tells her the one thing she can still do — send it back so the team records it again.
+func evidenceMissingErr() *Error {
+	return Unprocessable(
+		"evidence_missing",
+		"The proof video for this record is not there, so it cannot be approved. Send it back for rework so the team records it again.",
+	)
+}
+
+// evidenceUncheckableErr is NOT proof of absence — the check itself did not complete, so it is
+// retryable and must not accuse the operator of losing the video.
+func evidenceUncheckableErr() *Error {
+	err := Unprocessable(
+		"evidence_check_failed",
+		"The proof video could not be opened just now, so it cannot be approved yet. Try again in a moment, or send it back for rework.",
+	)
+	err.Retryable = true
+	return err
 }
 
 // CloseItem applies the leadership action after independent verifier approval. The owning module
@@ -500,4 +572,87 @@ func mapRepoErr(err error) error {
 	default:
 		return err
 	}
+}
+
+// WithdrawItemsBySource is the producing module's retire seam: the module that
+// raised the items tells verification that the source records they point at are
+// superseded, so the items must stop being decidable. It is not a verdict and is
+// not reachable from the verifier-facing HTTP surface.
+func (s *Service) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	refs := make([]string, 0, len(sourceRefIDs))
+	for _, ref := range sourceRefIDs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(ref) {
+			return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+		}
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	withdrawn, err := s.repo.WithdrawItemsBySource(ctx, tenantID, sourceModule, sourceRefType, refs)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return withdrawn, nil
+}
+
+// MarkVerdictApplied is the producing module's APPLY-RECEIPT seam, the mirror of
+// the retire seam above: the module that raised the items tells verification that
+// its applier has written the verdict's outcome onto its own record, so the item
+// stops reading as decided-but-not-yet-in-effect.
+//
+// Like the retire seam it is not a verdict and is not reachable from the
+// verifier-facing HTTP surface -- only a module's own applier may ack its own
+// items, and it may only ack that something happened, never what.
+func (s *Service) MarkVerdictApplied(
+	ctx context.Context,
+	tenantID, sourceModule, sourceRefType string,
+	sourceRefIDs []string,
+	appliedByModule string,
+) (int, error) {
+	tenantID = strings.TrimSpace(tenantID)
+	sourceModule = strings.TrimSpace(sourceModule)
+	sourceRefType = strings.TrimSpace(sourceRefType)
+	appliedByModule = strings.TrimSpace(appliedByModule)
+	if !uuidutil.IsUUIDString(tenantID) {
+		return 0, BadRequest("invalid_tenant", "tenant_id must be a UUID")
+	}
+	if sourceModule == "" || sourceRefType == "" {
+		return 0, BadRequest("invalid_source_ref", "source module and ref_type are required")
+	}
+	if appliedByModule == "" {
+		return 0, BadRequest("invalid_applied_by_module", "applied_by_module is required")
+	}
+	refs := make([]string, 0, len(sourceRefIDs))
+	for _, ref := range sourceRefIDs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		if !uuidutil.IsUUIDString(ref) {
+			return 0, BadRequest("invalid_source_ref", "source ref_id must be a UUID")
+		}
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	applied, err := s.repo.MarkVerdictApplied(ctx, tenantID, sourceModule, sourceRefType, refs, appliedByModule)
+	if err != nil {
+		return 0, mapRepoErr(err)
+	}
+	return applied, nil
 }

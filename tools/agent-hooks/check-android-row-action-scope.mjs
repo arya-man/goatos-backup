@@ -42,8 +42,24 @@ function findFunctionBody(source, signatureRe) {
   if (open < 0) return null;
   let depth = 0;
   let inStr = null;
+  let inComment = null; // "line" | "block"
   for (let i = open; i < source.length; i++) {
     const c = source[i];
+    // Comments are skipped FIRST. Kotlin prose is full of apostrophes ("the
+    // row's own tag"); treating those as string delimiters used to swallow the
+    // rest of the function and make this guard report a missing parameter that
+    // was in fact present.
+    if (inComment === "line") {
+      if (c === "\n") inComment = null;
+      continue;
+    }
+    if (inComment === "block") {
+      if (c === "*" && source[i + 1] === "/") {
+        inComment = null;
+        i++;
+      }
+      continue;
+    }
     if (inStr) {
       if (c === "\\") {
         i++;
@@ -52,7 +68,19 @@ function findFunctionBody(source, signatureRe) {
       if (c === inStr) inStr = null;
       continue;
     }
-    if (c === '"' || c === "'") {
+    if (c === "/" && source[i + 1] === "/") {
+      inComment = "line";
+      i++;
+      continue;
+    }
+    if (c === "/" && source[i + 1] === "*") {
+      inComment = "block";
+      i++;
+      continue;
+    }
+    // Only double quotes delimit a Kotlin string here. A bare `'` is either a
+    // char literal (self-balancing) or prose, never a multi-line delimiter.
+    if (c === '"') {
       inStr = c;
       continue;
     }
@@ -138,7 +166,12 @@ function validate(root) {
       requiredTestName,
       "CompletableDeferred<AppResult<IndividualWeighingDraft>>",
       "assertTrue(firstPendingState.getValue(SECOND_TAG).canSaveWeight)",
-      "assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.animalId })",
+      // Identity moved from animalId -> scannedIdentifier when weighing became
+      // fully herd-isolated (migration 000078 dropped
+      // weighing_observations.animal_id). The property under protection is
+      // unchanged: two overlapping row saves must reach the repository as two
+      // DISTINCT identities, in order.
+      "assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.scannedIdentifier })",
     ]) {
       if (!test.includes(token)) errors.push(`${TEST}: missing overlapping row-save regression token: ${token}`);
     }
@@ -178,7 +211,7 @@ class WeighingViewModelTest {
   fun \`free flow saving one animal does not block saving the next animal\`() {
     val firstGate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
     assertTrue(firstPendingState.getValue(SECOND_TAG).canSaveWeight)
-    assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.animalId })
+    assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.scannedIdentifier })
   }
 }`;
     write(root, VIEW_MODEL, goodVm);
@@ -196,6 +229,38 @@ class WeighingViewModelTest {
     const globalBusyCanSave = validate(root);
     if (!globalBusyCanSave.some((x) => x.includes("row canSaveWeight must not depend on global busy"))) {
       throw new Error("self-test did not catch canSaveWeight depending on global busy");
+    }
+
+    // Apostrophes in Kotlin comments must not blind the brace matcher. This is
+    // a real regression this guard shipped with: prose like "the row's own tag"
+    // made every recordIndividualRow assertion silently unreachable.
+    write(
+      root,
+      VIEW_MODEL,
+      goodVm.replace(
+        "if (useGlobalBusyGate && actionInFlight.value) return",
+        "// identity is the row's own tag, never the shared box; don't reuse it\n    if (useGlobalBusyGate && actionInFlight.value) return",
+      ),
+    );
+    write(root, TEST, goodTest);
+    const commentedProse = validate(root);
+    if (commentedProse.length) {
+      throw new Error(`self-test: apostrophes in comments must not break parsing: ${commentedProse.join("; ")}`);
+    }
+
+    // ...and the assertions must still bite through those comments.
+    write(
+      root,
+      VIEW_MODEL,
+      goodVm
+        .replace(
+          "if (useGlobalBusyGate && actionInFlight.value) return",
+          "// identity is the row's own tag, never the shared box; don't reuse it\n    if (actionInFlight.value) return",
+        ),
+    );
+    const commentedRegression = validate(root);
+    if (!commentedRegression.some((x) => x.includes("conditional on useGlobalBusyGate"))) {
+      throw new Error("self-test did not catch an unconditional busy gate hidden behind comment prose");
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

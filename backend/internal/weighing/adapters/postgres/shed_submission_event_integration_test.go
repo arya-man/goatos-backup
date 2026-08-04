@@ -22,17 +22,24 @@ func TestCompletedWeighingShedEnqueuesSubmissionEventInSameTransaction(t *testin
 			campaignShedID: repoAnimalScope,
 			record: func(ctx context.Context, repo *Repository) error {
 				_, err := repo.RecordAnimalObservation(ctx, domain.RecordAnimalObservation{
-					TenantID:         repoTenant,
-					CampaignID:       repoCampaign,
-					CampaignShedID:   repoAnimalScope,
-					AnimalID:         repoAnimal,
-					WeightKg:         12.4,
-					ProofArtifactID:  repoExpectedShedProof,
-					ActualLocationID: repoExpectedShed,
-					IdempotencyKey:   "animal:submission-event",
-					RecordedBy:       repoOperator,
+					TenantID:          repoTenant,
+					CampaignID:        repoCampaign,
+					CampaignShedID:    repoAnimalScope,
+					ScannedIdentifier: "tag-submission-event",
+					WeightKg:          12.4,
+					ProofArtifactID:   repoExpectedShedProof,
+					ActualLocationID:  repoExpectedShed,
+					IdempotencyKey:    "animal:submission-event",
+					RecordedBy:        repoOperator,
 				})
-				return err
+				if err != nil {
+					return err
+				}
+				// FREE-FLOW: the individual bucket completes -- and therefore
+				// emits the submission-completed event -- on the operator's
+				// SUBMIT ack, not on the scan.
+				return repo.SubmitIndividualScope(ctx, repoTenant, repoCampaign, repoAnimalScope,
+					repoOperator, "animal:submission-event-submit", []string{"tag-submission-event"})
 			},
 		},
 		{
@@ -43,7 +50,9 @@ func TestCompletedWeighingShedEnqueuesSubmissionEventInSameTransaction(t *testin
 					TenantID:         repoTenant,
 					CampaignID:       repoCampaign,
 					CampaignShedID:   repoShedScope,
+					WeightKg:         536.0,
 					AverageWeightKg:  13.4,
+					AnimalCount:      40,
 					ProofArtifactIDs: []string{repoShedProof},
 					IdempotencyKey:   "shed:submission-event",
 					RecordedBy:       repoOperator,
@@ -73,7 +82,7 @@ func TestCompletedWeighingShedEnqueuesSubmissionEventInSameTransaction(t *testin
 SELECT count(*)::int,
        COALESCE(max(payload->'payload'->>'campaign_shed_id'), ''),
        COALESCE(max(payload->'payload'->>'tenant_id'), ''),
-       max(payload)::text
+       max(payload::text)
 FROM outbox_messages
 WHERE tenant_id=$1::uuid
   AND event_type=$2

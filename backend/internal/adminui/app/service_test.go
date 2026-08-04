@@ -61,6 +61,37 @@ func TestBootstrapDoesNotPublishHardcodedLocationTruth(t *testing.T) {
 	}
 }
 
+func TestVaccinationLeadershipCopyUsesActionableShedAndDateLanguage(t *testing.T) {
+	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "vaccination")
+	if got := page.Copy["note.sheds_counts"]; got != "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above." {
+		t.Fatalf("vaccination shed note = %q", got)
+	}
+	if page.Copy["command_board.cohort_matrix.date_unavailable"] == "" {
+		t.Fatal("vaccination cohort matrix must publish explicit unavailable-date copy")
+	}
+	if page.Copy["command_board.filter.operator_day"] != "Operator day (optional)" {
+		t.Fatalf("operator-day filter copy = %q", page.Copy["command_board.filter.operator_day"])
+	}
+
+	var found bool
+	for _, table := range page.Tables {
+		if table.ID != "shed-summary" {
+			continue
+		}
+		found = true
+		labels := map[string]string{}
+		for _, column := range table.Columns {
+			labels[column.Key] = column.Label
+		}
+		if labels["due"] != "Needs action" || labels["done"] != "Up to date" {
+			t.Fatalf("shed status labels = %#v", labels)
+		}
+	}
+	if !found {
+		t.Fatal("vaccination shed-summary table missing")
+	}
+}
+
 func TestActionCenterParkDisplayChipsAreOptionalDbCompiledOverrides(t *testing.T) {
 	page := pageByRouteID(t, NewService().Bootstrap(context.Background(), BootstrapInput{}).Pages, "action-center")
 	group := optionGroupByID(t, page.OptionGroups, "park_display_chips")
@@ -678,7 +709,11 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 	}
 }
 
-func TestWeighingAdminWebSurfaceIsHiddenUntilProductApproval(t *testing.T) {
+// Weighing is MOBILE ONLY (maintainer decision 2026-08-03). The admin-web weighing
+// frontend was deleted; the backend admin-web bootstrap contract must never publish a
+// weighing nav leaf, route label, or page contract again. Backend weighing APIs stay --
+// the Android app is their only client.
+func TestWeighingAdminWebSurfaceStaysMobileOnly(t *testing.T) {
 	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
 		TenantID: "00000000-0000-4000-8000-000000000001",
 		ActorID:  "00000000-0000-4000-8000-000000000099",
@@ -688,13 +723,13 @@ func TestWeighingAdminWebSurfaceIsHiddenUntilProductApproval(t *testing.T) {
 	})
 
 	if leaf := optionalNavLeafByID(resp.Navigation.Groups, "preventive-care-weighing"); leaf != nil {
-		t.Fatalf("weighing admin-web sidebar leaf must stay hidden until product approval: %#v", leaf)
+		t.Fatalf("weighing is mobile-only: no admin-web sidebar leaf: %#v", leaf)
 	}
 	if label := optionalRouteLabelByPattern(resp.RouteLabels, "/weighing"); label != nil {
-		t.Fatalf("/weighing admin-web route label must stay hidden until product approval: %#v", label)
+		t.Fatalf("weighing is mobile-only: no /weighing admin-web route label: %#v", label)
 	}
 	if page := optionalPageByRouteID(resp.Pages, "weighing"); page != nil {
-		t.Fatalf("weighing admin-web page contract must stay hidden until product approval: %#v", page)
+		t.Fatalf("weighing is mobile-only: no admin-web page contract: %#v", page)
 	}
 }
 

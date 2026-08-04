@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 26,
-    "identityHash": "585af2f450573c68f29fb4db9f6ffc04",
+    "identityHash": "cae5a49414f16ea5ed7c36ba003e08b2",
     "entities": [
       {
         "tableName": "bootstrap_cache",
@@ -1909,102 +1909,6 @@
         }
       },
       {
-        "tableName": "feed_transport_scoped_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `taskId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `taskId`))",
-        "fields": [
-          {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "taskId",
-            "columnName": "taskId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "sortIndex",
-            "columnName": "sortIndex",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "dtoJson",
-            "columnName": "dtoJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "scopeKey",
-            "taskId"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_feed_transport_scoped_items_scopeKey_sortIndex",
-            "unique": false,
-            "columnNames": [
-              "scopeKey",
-              "sortIndex"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_feed_transport_scoped_items_scopeKey_sortIndex` ON `${TABLE_NAME}` (`scopeKey`, `sortIndex`)"
-          }
-        ]
-      },
-      {
-        "tableName": "feed_transport_scoped_remote_keys",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `filtersJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
-        "fields": [
-          {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "nextCursor",
-            "columnName": "nextCursor",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "endReached",
-            "columnName": "endReached",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "filtersJson",
-            "columnName": "filtersJson",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "scopeKey"
-          ]
-        }
-      },
-      {
         "tableName": "weighing_roster_row",
         "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, `displayAnimalId` TEXT NOT NULL, `primaryTag` TEXT NOT NULL, `secondaryTag` TEXT, `normalizedPrimaryTag` TEXT NOT NULL, `normalizedSecondaryTag` TEXT, `status` TEXT NOT NULL, `availabilityStatus` TEXT, `seq` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
@@ -2185,7 +2089,7 @@
       },
       {
         "tableName": "weighing_observation",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `animalId` TEXT NOT NULL, `scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`observationId` TEXT NOT NULL, `scopeKey` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `workGroupId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `expectedLocationId` TEXT NOT NULL, `expectedLocationLabel` TEXT NOT NULL, `actualLocationId` TEXT, `actualLocationLabel` TEXT, `scannedIdentifier` TEXT NOT NULL, `weightKg` REAL NOT NULL, `proofCaptureId` TEXT, `serverProofId` TEXT, `syncStatus` TEXT NOT NULL, `idempotencyKey` TEXT NOT NULL, `capturedAtMs` INTEGER NOT NULL, `lastError` TEXT, PRIMARY KEY(`observationId`))",
         "fields": [
           {
             "fieldPath": "observationId",
@@ -2244,12 +2148,6 @@
             "fieldPath": "actualLocationLabel",
             "columnName": "actualLocationLabel",
             "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "animalId",
-            "columnName": "animalId",
-            "affinity": "TEXT",
-            "notNull": true
           },
           {
             "fieldPath": "scannedIdentifier",
@@ -2324,15 +2222,15 @@
             "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_observation_scopeKey_capturedAtMs` ON `${TABLE_NAME}` (`scopeKey`, `capturedAtMs`)"
           },
           {
-            "name": "index_weighing_observation_campaignId_campaignShedId_animalId",
+            "name": "index_weighing_observation_campaignId_campaignShedId_scannedIdentifier",
             "unique": true,
             "columnNames": [
               "campaignId",
               "campaignShedId",
-              "animalId"
+              "scannedIdentifier"
             ],
             "orders": [],
-            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_animalId` ON `${TABLE_NAME}` (`campaignId`, `campaignShedId`, `animalId`)"
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_weighing_observation_campaignId_campaignShedId_scannedIdentifier` ON `${TABLE_NAME}` (`campaignId`, `campaignShedId`, `scannedIdentifier`)"
           },
           {
             "name": "index_weighing_observation_campaignId_workGroupId_campaignShedId",
@@ -2478,18 +2376,18 @@
         ]
       },
       {
-        "tableName": "health_work_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `healthSessionId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`, `healthSessionId`))",
+        "tableName": "weighing_task_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `campaignId`))",
         "fields": [
           {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "healthSessionId",
-            "columnName": "healthSessionId",
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -2515,30 +2413,378 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeKey",
-            "healthSessionId"
+            "queryKey",
+            "campaignId"
           ]
         },
         "indices": [
           {
-            "name": "index_health_work_items_scopeKey_sortIndex",
+            "name": "index_weighing_task_row_queryKey_sortIndex",
             "unique": false,
             "columnNames": [
-              "scopeKey",
+              "queryKey",
               "sortIndex"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_health_work_items_scopeKey_sortIndex` ON `${TABLE_NAME}` (`scopeKey`, `sortIndex`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_task_row_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
           }
         ]
       },
       {
-        "tableName": "health_remote_keys",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        "tableName": "weighing_task_remote_key",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `activeCount` INTEGER NOT NULL, `completedCount` INTEGER NOT NULL, `canPublish` INTEGER NOT NULL, `canEnd` INTEGER NOT NULL, `canReopen` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         "fields": [
           {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "activeCount",
+            "columnName": "activeCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "completedCount",
+            "columnName": "completedCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canPublish",
+            "columnName": "canPublish",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canEnd",
+            "columnName": "canEnd",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "canReopen",
+            "columnName": "canReopen",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey"
+          ]
+        }
+      },
+      {
+        "tableName": "weighing_task_bucket_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`, `campaignShedId`))",
+        "fields": [
+          {
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignShedId",
+            "columnName": "campaignShedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "campaignId",
+            "campaignShedId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_task_bucket_row_campaignId_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "campaignId",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_task_bucket_row_campaignId_sortIndex` ON `${TABLE_NAME}` (`campaignId`, `sortIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_task_bucket_remote_key",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`campaignId` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `totalCount` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`campaignId`))",
+        "fields": [
+          {
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalCount",
+            "columnName": "totalCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "campaignId"
+          ]
+        }
+      },
+      {
+        "tableName": "weighing_leadership_shed",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shedKey` TEXT NOT NULL, `campaignId` TEXT NOT NULL, `campaignShedId` TEXT NOT NULL, `shedName` TEXT NOT NULL, `parkName` TEXT NOT NULL, `weighDate` TEXT NOT NULL, `operatorUserId` TEXT NOT NULL, `operatorDisplayName` TEXT NOT NULL, `category` TEXT NOT NULL, `status` TEXT NOT NULL, `periodLabel` TEXT NOT NULL, `estimatedAnimalCount` INTEGER NOT NULL, `maxShedVideos` INTEGER NOT NULL, `lumpSumJson` TEXT, `galleryQueryKey` TEXT, `gallerySortIndex` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+        "fields": [
+          {
+            "fieldPath": "shedKey",
+            "columnName": "shedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignId",
+            "columnName": "campaignId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "campaignShedId",
+            "columnName": "campaignShedId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shedName",
+            "columnName": "shedName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parkName",
+            "columnName": "parkName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weighDate",
+            "columnName": "weighDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operatorUserId",
+            "columnName": "operatorUserId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operatorDisplayName",
+            "columnName": "operatorDisplayName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "periodLabel",
+            "columnName": "periodLabel",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "estimatedAnimalCount",
+            "columnName": "estimatedAnimalCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "maxShedVideos",
+            "columnName": "maxShedVideos",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lumpSumJson",
+            "columnName": "lumpSumJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "galleryQueryKey",
+            "columnName": "galleryQueryKey",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "gallerySortIndex",
+            "columnName": "gallerySortIndex",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shedKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_leadership_shed_campaignId",
+            "unique": false,
+            "columnNames": [
+              "campaignId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_campaignId` ON `${TABLE_NAME}` (`campaignId`)"
+          },
+          {
+            "name": "index_weighing_leadership_shed_galleryQueryKey_gallerySortIndex",
+            "unique": false,
+            "columnNames": [
+              "galleryQueryKey",
+              "gallerySortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_shed_galleryQueryKey_gallerySortIndex` ON `${TABLE_NAME}` (`galleryQueryKey`, `gallerySortIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_leadership_record",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shedKey` TEXT NOT NULL, `observationId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`, `observationId`))",
+        "fields": [
+          {
+            "fieldPath": "shedKey",
+            "columnName": "shedKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "observationId",
+            "columnName": "observationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dtoJson",
+            "columnName": "dtoJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "shedKey",
+            "observationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_leadership_record_shedKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "shedKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_leadership_record_shedKey_sortIndex` ON `${TABLE_NAME}` (`shedKey`, `sortIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_leadership_record_remote_key",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`shedKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`shedKey`))",
+        "fields": [
+          {
+            "fieldPath": "shedKey",
+            "columnName": "shedKey",
             "affinity": "TEXT",
             "notNull": true
           },
@@ -2563,18 +2809,209 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeKey"
+            "shedKey"
           ]
         }
       },
       {
-        "tableName": "health_page_meta",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`scopeKey` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`scopeKey`))",
+        "tableName": "weighing_leadership_gallery_remote_key",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         "fields": [
           {
-            "fieldPath": "scopeKey",
-            "columnName": "scopeKey",
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
             "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey"
+          ]
+        }
+      },
+      {
+        "tableName": "weighing_planner_park_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `parkId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `name` TEXT NOT NULL, `kidCount` INTEGER NOT NULL, `shedCount` INTEGER NOT NULL, `existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `parkId`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parkId",
+            "columnName": "parkId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kidCount",
+            "columnName": "kidCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shedCount",
+            "columnName": "shedCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "existingCampaignJson",
+            "columnName": "existingCampaignJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey",
+            "parkId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_planner_park_row_queryKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "queryKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_planner_park_row_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_planner_shed_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `locationId` TEXT NOT NULL, `parkId` TEXT NOT NULL, `parkName` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `shedJson` TEXT NOT NULL, `existingCampaignJson` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `locationId`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locationId",
+            "columnName": "locationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parkId",
+            "columnName": "parkId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parkName",
+            "columnName": "parkName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "shedJson",
+            "columnName": "shedJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "existingCampaignJson",
+            "columnName": "existingCampaignJson",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queryKey",
+            "locationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_weighing_planner_shed_row_queryKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "queryKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          }
+        ]
+      },
+      {
+        "tableName": "weighing_planner_operator_row",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `userId` TEXT NOT NULL, `sortIndex` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`, `userId`))",
+        "fields": [
+          {
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortIndex",
+            "columnName": "sortIndex",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -2593,24 +3030,42 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "scopeKey"
+            "queryKey",
+            "userId"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_weighing_planner_operator_row_queryKey_sortIndex",
+            "unique": false,
+            "columnNames": [
+              "queryKey",
+              "sortIndex"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_weighing_planner_operator_row_queryKey_sortIndex` ON `${TABLE_NAME}` (`queryKey`, `sortIndex`)"
+          }
+        ]
       },
       {
-        "tableName": "health_work_item_details",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`healthSessionId` TEXT NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`healthSessionId`))",
+        "tableName": "weighing_planner_remote_key",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queryKey` TEXT NOT NULL, `nextCursor` TEXT, `endReached` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`queryKey`))",
         "fields": [
           {
-            "fieldPath": "healthSessionId",
-            "columnName": "healthSessionId",
+            "fieldPath": "queryKey",
+            "columnName": "queryKey",
             "affinity": "TEXT",
             "notNull": true
           },
           {
-            "fieldPath": "dtoJson",
-            "columnName": "dtoJson",
-            "affinity": "TEXT",
+            "fieldPath": "nextCursor",
+            "columnName": "nextCursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "endReached",
+            "columnName": "endReached",
+            "affinity": "INTEGER",
             "notNull": true
           },
           {
@@ -2623,67 +3078,14 @@
         "primaryKey": {
           "autoGenerate": false,
           "columnNames": [
-            "healthSessionId"
-          ]
-        }
-      },
-      {
-        "tableName": "capture_evidence_drafts",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`flowKey` TEXT NOT NULL, `entityId` TEXT NOT NULL, `step` TEXT NOT NULL, `outboxItemId` TEXT, `idempotencyKey` TEXT, `fingerprint` TEXT, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`flowKey`, `entityId`, `step`))",
-        "fields": [
-          {
-            "fieldPath": "flowKey",
-            "columnName": "flowKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "entityId",
-            "columnName": "entityId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "step",
-            "columnName": "step",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "outboxItemId",
-            "columnName": "outboxItemId",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "idempotencyKey",
-            "columnName": "idempotencyKey",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "fingerprint",
-            "columnName": "fingerprint",
-            "affinity": "TEXT"
-          },
-          {
-            "fieldPath": "updatedAt",
-            "columnName": "updatedAt",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "flowKey",
-            "entityId",
-            "step"
+            "queryKey"
           ]
         }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '585af2f450573c68f29fb4db9f6ffc04')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'cae5a49414f16ea5ed7c36ba003e08b2')"
     ]
   }
 }

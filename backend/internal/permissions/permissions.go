@@ -1,6 +1,9 @@
 package permissions
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 const (
 	RoleVerifier   = "verifier"
@@ -9,6 +12,26 @@ const (
 	// RoleGrowthDirector is the concrete grant key for the Growth Director business role.
 	// Business role keys use name_director order (`growth_director`), matching `pc_director`.
 	RoleGrowthDirector = "growth_director"
+	// RoleFeedDirector is the concrete grant key for the Feed Director business role
+	// (wiki/Handbooks/Feed_Director.pdf, ROLE PURPOSE: "owns the full feed chain: from
+	// procuring and stocking feed and UHT milk, to directing consumption, monitoring
+	// wastage, updating data, and verifying that ground-level feeding SOPs are actually
+	// being followed"). Maintainer decision 2026-08-01: Feed -> feed_director.
+	RoleFeedDirector = "feed_director"
+	// RoleHealthDirector is the concrete grant key for the Health Director business role.
+	//
+	// It is a DISTINCT role from RolePCDirector, and merging them is prohibited: the org
+	// model lists "Preventive Care — Vaccination, biosecurity & routine health protocols"
+	// and "Health — Diagnosis, treatment & veterinary care" as separate departments
+	// (wiki/Handbooks/Mesha-dept-directors.pdf, DEPARTMENTS grid; corroborated by
+	// COO.pdf "VERTICALS UNDER COO").
+	//
+	// Counts ownership is a MAINTAINER EXTENSION, not a handbook fact: no handbook assigns
+	// census/counting/headcount to anyone. The nearest written anchor is Health_Director.pdf
+	// Responsibility 6 (Tagging: ear tag/RFID at birth, purchase, and re-tag — the identity
+	// substrate a census sits on) and Responsibility 9 (death assessment). Recorded as a
+	// decision in AGENTS.md and docs/runbooks/current-active-rbac-roles.md.
+	RoleHealthDirector = "health_director"
 	RoleOperator       = "operator"
 	RoleCEOInternal    = "ceo_internal"
 
@@ -60,16 +83,44 @@ const (
 	VaccinationOverviewRead   = "vaccination.overview_read"
 	VaccinationVerify         = "vaccination.verify"
 	VaccinationCampaign       = "vaccination.campaign"
-	WeighingPlan              = "weighing.plan"
-	WeighingMonitor           = "weighing.monitor"
-	WeighingExecute           = "weighing.execute"
-	CalendarRead              = "calendar.read"
-	CalendarAction            = "calendar.action"
-	ProcurementRead           = "procurement.read"
-	ProcurementWrite          = "procurement.write"
-	ProcurementReview         = "procurement.review"
-	RosterRead                = "roster.read"
-	RosterManage              = "roster.manage"
+	// VaccinationOverseeExecution gates the READ-ONLY, park-scoped OVERSIGHT view of vaccination
+	// execution on the app routes (/app/vaccination/execution): every shed/partition in the
+	// actor's authorized park(s) instead of only the drives the caller was assigned.
+	//
+	// It is a capability, deliberately, and not a role-name check. The handler previously asked
+	// "is your role one of {ceo_internal, pc_director, park_head}", which meant the org-role
+	// catalog's composed preventive-care Director/Head -- the successors of exactly those flat
+	// roles -- fell into the operator-assignment branch: they hold no task.execute and are
+	// assigned no drive, so the read returned zero rows AND the response was not marked
+	// read-only, leaving a tappable shed whose scan/submit is refused `task_not_assigned`.
+	//
+	// Holding this NEVER widens a write: scan/submit still require the caller to be the task's
+	// assignee, and the handler marks the response viewerReadOnly for whoever holds it. Mirrors
+	// WeighingOverseeOperators, the same see-other-people's-work capability for weighing.
+	VaccinationOverseeExecution = "vaccination.oversee_execution"
+	WeighingPlan                = "weighing.plan"
+	WeighingMonitor             = "weighing.monitor"
+	WeighingExecute             = "weighing.execute"
+	// WeighingOverseeOperators gates SEEING OTHER PEOPLE'S weighing shed tasks -- the extra
+	// "Operators" surface that lists work assigned to someone else, across parks, READ-ONLY.
+	//
+	// It is deliberately its own capability rather than a reuse of WeighingMonitor or a role check.
+	// WeighingMonitor is the reopen/close AUTHORITY over a submitted scope; it is not "may browse
+	// everyone's work", and conflating the two is what made the work list ask a role instead of a
+	// capability -- an actor holding both execute and monitor fell into the unfiltered branch and
+	// got every shed in every park with a live scan action, including sheds whose submit would be
+	// refused because they belong to another assignee.
+	//
+	// Whoever holds this may only LOOK: the weighing write still requires the caller to be the
+	// shed's assignee, so this capability never widens what anyone can record.
+	WeighingOverseeOperators = "weighing.oversee_operators"
+	CalendarRead             = "calendar.read"
+	CalendarAction           = "calendar.action"
+	ProcurementRead          = "procurement.read"
+	ProcurementWrite         = "procurement.write"
+	ProcurementReview        = "procurement.review"
+	RosterRead               = "roster.read"
+	RosterManage             = "roster.manage"
 	// CountsWrite gates the app-tier Counts write surface: an operator recording a shifting
 	// (movement) event, a birth, or a death from the phone (/app/counts/*).
 	//
@@ -207,6 +258,32 @@ const (
 	// the generation result. A future capture surface needs its own write permission, and reusing
 	// this one for it would silently turn every reader into a recorder.
 	FeedPackingRead = "feed_packing.read"
+	// FeedDirectionRead gates the feed-DIRECTION read surface (/feed-direction/preview,
+	// /feed-direction/generation-preview, and the counts-projection exception list).
+	//
+	// These routes were gated on ProtocolRead, which is the VACCINATION protocol read. That was
+	// too broad in both directions: it handed every feed reader the vaccination protocol surface,
+	// and — the reason it had to change — it made the Feed Director inexpressible. Giving
+	// feed_director ProtocolRead to reach today's dispatch sheet would also give them Vaccination,
+	// breaking the one-module-one-director segregation this role exists to enforce.
+	//
+	// It is granted to operator, park_head, verifier and ceo_internal (who all held ProtocolRead)
+	// plus feed_director. It is DELIBERATELY NOT granted to pc_director, who therefore LOSES the
+	// feed reads he reached only as a side effect of holding the vaccination protocol permission
+	// (/feed-direction/preview, /feed-direction/generation-preview and the counts-projection
+	// exception list). That narrowing is the point of the split -- one module, one director --
+	// and TestDirectorHoldsNoOtherModulesCapabilities pins it. Recording it here because an
+	// earlier version of this comment claimed the split narrowed nothing, which was false.
+	FeedDirectionRead = "feed_direction.read"
+	// FeedDirectionOversee gates the feed-projection EXCEPTION verdicts
+	// (/feed-direction/counts-projection/exceptions/{id}/{resolve,dismiss}): deciding that a shed
+	// whose projected head count could not be resolved is either corrected or knowingly ignored.
+	//
+	// Previously ProtocolWrite, which only RoleCEOInternal holds — so this is CEO plus the Feed
+	// Director who owns the chain that produced the exception (Feed_Director.pdf C2 Feeding
+	// Monitoring: "Any feeding that happened late, in the wrong quantity, or to the wrong cohort
+	// must be flagged, investigated, and corrected immediately"). No role loses anything.
+	FeedDirectionOversee = "feed_direction.oversee"
 	// FeedDirectionComplete is the operator WRITE twin FeedPackingRead's comment anticipated: it gates
 	// POST /feed-direction/complete, where an operator records that one shed-session's feed direction
 	// was carried out (with optional video proof). It is deliberately separate from the feed reads --
@@ -254,8 +331,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		TaskRead: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {},
-		CalendarRead:    {},
-		ProcurementRead: {}, ProcurementReview: {},
+		FeedDirectionRead: {},
+		CalendarRead:      {},
+		ProcurementRead:   {}, ProcurementReview: {},
 		RosterRead: {},
 		// The Video Verification Team's permissions: read the evidence queue, and record the
 		// approve/reject verdict on it. VerificationVerdict is held by NO other role, CEO included
@@ -269,7 +347,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		LocationsRead: {},
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, AppBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
-		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {},
+		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationOverseeExecution: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
@@ -282,6 +360,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// record a shed-session as fed. They still hold no feed_config.* grant: executing a ration is
 		// not authoring one.
 		FeedPackingRead:       {},
+		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		VerificationAct:       {},
 		HealthRead:            {},
@@ -292,11 +371,140 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsRead: {}, OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, TaskRead: {}, TaskAssign: {}, TaskExecute: {}, TaskVerify: {},
 		ProtocolRead: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
+		VaccinationOverseeExecution: {},
+		CalendarRead:                {}, CalendarAction: {},
+		ProcurementRead: {},
+		RosterRead:      {}, RosterManage: {},
+		// NOT FeedDirectionRead. pc_director reached the feed dispatch sheet only as a side
+		// effect of holding protocol.read, which gated both the vaccination protocol and the
+		// feed reads. Splitting feed_direction.read off is what makes one-module-one-director
+		// enforceable, and keeping the incidental feed access here would defeat it: the PC
+		// Director owns Vaccination, and Feed belongs to feed_director.
+		VerificationAct: {},
+		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
+		// raising a report is HealthReport, which every field tier holds.
+		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
+	},
+	// RoleGrowthDirector runs Weighing and ONLY Weighing. The role key existed with no entry in
+	// this map, which meant every RoleHasPermission check returned false and a growth_director
+	// grant authorized nothing at all -- the Growth Director could not weigh, and their
+	// `weighing_execute` bootstrap flag was false.
+	//
+	// Deliberately NO vaccination permission: the module drawer is composed from granted modules,
+	// so this role gets exactly one nav item (Weighing). Adding a vaccination permission here later
+	// is what would give them a second item -- that is the intended lever, not a nav template.
+	//
+	// A director's shed reach is broader than an operator's (both parks, via tenant scope) while an
+	// operator stays inside their own park, but the weighing WRITE stays per-shed-assignment for
+	// both: you weigh the sheds you were assigned, and nothing else. Weighing itself is free-flow
+	// (raw RFID, no herd-animal join, no vaccination rules, weighing tables only), so no goat or
+	// protocol read is needed here.
+	//
+	// THIS ENTRY IS THE SINGLE SOURCE OF TRUTH for growth_director. It used to be
+	// shadowed: permissions_orgrole.go's init() reassigned
+	// rolePermissions[RoleGrowthDirector] to a second, hand-maintained map, and every
+	// permission declared here but absent there was silently inert. That override is
+	// gone; registerRole now panics on any attempt to re-declare a role. The
+	// director-tier permissions the override carried (goat/roster/task/verification
+	// oversight) are merged in below so nothing that worked before is narrowed.
+	RoleGrowthDirector: {
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		LocationsRead: {}, OperatorsRead: {},
+		// NOT WeighingPlan: planning a weighing task is CEO-only (maintainer decision
+		// 2026-08-01). The Growth Director monitors weighing across both parks, oversees
+		// the operators, and can execute -- but the task itself is raised by the CEO.
+		WeighingMonitor: {}, WeighingExecute: {},
+		// Only this role browses other people's weighing work (the Operators surface). The CEO does
+		// not get it: a planner's first surface is the flat all-tasks list, so a second
+		// someone-else's-work tab would be redundant for them.
+		WeighingOverseeOperators: {},
+		CalendarRead:             {}, CalendarAction: {},
+		// Merged from the removed permissions_orgrole.go override -- these were the
+		// EFFECTIVE grants before this fix, so dropping them here would trade one
+		// silent authorization defect for another.
+		GoatRead: {}, GoatWriteHealth: {},
+		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {},
+		ProcurementRead: {},
+		RosterRead:      {}, RosterManage: {},
+		VerificationAct: {},
+	},
+	// RoleFeedDirector runs the FEED chain and only the feed chain (maintainer decision
+	// 2026-08-01; wiki/Handbooks/Feed_Director.pdf ROLE PURPOSE + P1-P6/C1-C4/M1).
+	//
+	// What it gets, and why:
+	//   - FeedConfigRead/FeedConfigWrite: C1 Feed Directions and the authored ration grid the
+	//     directions are computed from. The handbook makes this the role's own instrument
+	//     ("Directions must be issued in writing the day before"), so unlike every other
+	//     non-CEO role it authors the grid.
+	//   - FeedDirectionRead + FeedPackingRead: the dispatch sheet and the packing worklist,
+	//     i.e. daily checks 4-6 (directions issued / feeding compliance / wastage review).
+	//   - FeedDirectionOversee: the exception verdicts on the projected-count feed inputs.
+	//   - VerificationAct: M1 SOP Video Double Verification is REVIEW-OF-A-VERIFIER —
+	//     the director confirms the verifier is reviewing, and acts on flagged violations.
+	//
+	// What it deliberately does NOT get:
+	//   - FeedDirectionComplete: "All field execution happens through the Park Head"; the
+	//     ground team feeds and records, the director directs. Executing is not directing.
+	//   - VerificationReview: separation of duty. Double-verifying the verifier is not
+	//     becoming the verifier; the verdict stays with RoleVerifier (tenant-level).
+	//   - Any vaccination, weighing, or counts permission: one module, one director. This is
+	//     the same shape as RoleGrowthDirector's "Weighing and ONLY Weighing" entry, and it is
+	//     what TestDirectorModuleSegregation pins in both directions.
+	RoleFeedDirector: {
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		LocationsRead: {}, OperatorsRead: {},
+		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
+		GoatRead: {}, SOPRead: {}, TaskRead: {}, TaskAssign: {},
+		FeedConfigRead: {}, FeedConfigWrite: {},
+		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {},
 		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
-		HealthRead:      {}, HealthReport: {}, HealthDiagnose: {},
+	},
+	// RoleHealthDirector owns COUNTS (maintainer decision 2026-08-01) and is a DISTINCT role
+	// from RolePCDirector -- Preventive Care and Health are separate departments in the org
+	// model, and merging them is prohibited.
+	//
+	// Counts ownership is an EXTENSION of the handbook, recorded as a decision. What the
+	// handbook does put on this desk, and what this grant therefore mirrors:
+	//   - CountsRead: the census/herd-register surface this role is now accountable for.
+	//   - GoatWriteIdentity: Responsibility 6 Tagging -- "Ensure all animals are correctly
+	//     tagged (ear tags, RFID) at birth, purchase, and whenever tags are lost or replaced".
+	//     This is the only written clause that puts population-changing events on the Health
+	//     Director's desk, and it is the anchor for the counts extension.
+	//   - GoatWriteHealth: Responsibilities 1-4 (observations, diagnosis, treatment tracking).
+	//   - VerificationAct: Responsibility 5, the same double-verify-the-verifier duty.
+	//
+	// Deliberately NOT granted:
+	//   - CountsWrite: capture is ground work (/app/counts/* is the operator's phone surface).
+	//     Owning the census is not recording it.
+	//   - CountsApproveLifecycle / CountsApproveShifting / CountsApproveAccess: birth/death
+	//     admission sits with the CEO tier and shifting approval with the park head, per the
+	//     existing comments on those permissions. Moving either onto this role is a SECOND
+	//     undocumented extension (shifting is written to the BREEDING Director) and was not
+	//     decided; it is listed as an open question rather than silently taken.
+	//   - Any vaccination, weighing, or feed permission -- including every vaccination
+	//     permission, precisely because health_director is NOT pc_director.
+	RoleHealthDirector: {
+		AppBootstrap: {}, AdminWebBootstrap: {},
+		LocationsRead: {}, OperatorsRead: {},
+		OperatorsManageRoster: {}, OperatorsManageDevice: {}, OperatorsViewAudit: {},
+		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},
+		SOPRead: {}, TaskRead: {}, TaskAssign: {},
+		// DELIBERATELY NO CountsRead / CountsWrite. COUNTS IS AN OFF FEATURE (AGENTS.md): the
+		// module is registered moduleStatusAvailable in workforce/app/bootstrap_copy.go and is
+		// held back ONLY by counts.read / counts.write, which today only ceo_internal holds.
+		// Granting counts.read here would light the Counts nav for this role and thereby switch
+		// the feature on. health_director gets counts OWNERSHIP (it is the leadership recipient
+		// for a counts proof, replacing the silent vaccination default) and NOT counts ACCESS
+		// until the feature is deliberately turned on. Ownership and access are separate
+		// decisions here.
+		CalendarRead: {}, CalendarAction: {},
+		ProcurementRead: {},
+		RosterRead:      {}, RosterManage: {},
+		VerificationAct: {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},
@@ -310,6 +518,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		// authoring the ration grid (feed_config.write) stays with the CEO/CXO tier and is NOT added.
 		ProtocolRead:          {},
 		FeedPackingRead:       {},
+		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
 		HealthRead:            {}, HealthReport: {}, HealthExecute: {},
 	},
@@ -321,11 +530,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		OperatorsManageRoster: {}, OperatorsViewAudit: {}, OperationsRepair: {}, AppBootstrap: {}, AdminWebBootstrap: {},
 		SOPRead: {}, SOPWrite: {}, SOPPublish: {}, TaskRead: {}, TaskAssign: {}, TaskVerify: {},
 		ProtocolRead: {}, ProtocolWrite: {}, ProtocolPublish: {}, ObligationRead: {}, VaccinationRead: {}, VaccinationVerify: {}, VaccinationCampaign: {},
-		VaccinationOverviewRead: {},
-		WeighingPlan:            {},
-		WeighingMonitor:         {},
-		WeighingExecute:         {},
-		CalendarRead:            {}, CalendarAction: {},
+		VaccinationOverviewRead:     {},
+		VaccinationOverseeExecution: {},
+		WeighingPlan:                {},
+		WeighingMonitor:             {},
+		// NOT WeighingExecute: the CEO plans weighing work and oversees it, and must never reach a
+		// scan screen. Holding execute put a scannable surface in front of a planner who is assigned
+		// no sheds, and the submit would be refused anyway because the write requires the caller to
+		// be the shed's assignee. Reopen/close authority is WeighingMonitor and is unaffected.
+		CalendarRead: {}, CalendarAction: {},
 		ProcurementRead: {}, ProcurementWrite: {}, ProcurementReview: {},
 		RosterRead: {}, RosterManage: {},
 		CountsWrite:            {},
@@ -339,6 +552,8 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedConfigRead:        {},
 		FeedConfigWrite:       {},
 		FeedPackingRead:       {},
+		FeedDirectionRead:     {},
+		FeedDirectionOversee:  {},
 		FeedDirectionComplete: {},
 		VerificationReview:    {},
 		VerificationAct:       {},
@@ -407,6 +622,40 @@ type PendingEmailGrantClaimer interface {
 	ClaimPendingEmailGrant(ctx context.Context, claim PendingEmailGrantClaim) (PendingEmailGrantResult, error)
 }
 
+// registeredRoleOrigins records every role key whose permission set has been
+// installed. It is seeded once from the rolePermissions literal (package-level
+// vars are fully initialized before any init() runs, so this is deterministic
+// regardless of file order) and then extended by registerRole.
+var (
+	registeredRoleOrigins   = map[string]struct{}{}
+	registerRoleOriginsOnce sync.Once
+)
+
+// registerRole installs a role's permission set and is the ONLY supported way to
+// do so from an init(). It PANICS on a role that already has an entry.
+//
+// This exists because a silent overwrite has now voided a declared permission
+// TWICE. permissions_orgrole.go's init() used to reassign
+// rolePermissions[RoleGrowthDirector] to a freshly built map; every permission
+// present in the permissions.go literal but absent from that map became inert
+// with no compile error, no test failure, and no runtime signal --
+// WeighingOverseeOperators first, then WeighingPlan, which left the Growth
+// Director 403'd out of the weighing planner routes they own. A guard that only
+// re-added the missing permission would leave the next one to be dropped the
+// same way; failing loudly at process start is what actually closes the class.
+func registerRole(role string, perms map[string]struct{}) {
+	registerRoleOriginsOnce.Do(func() {
+		for existing := range rolePermissions {
+			registeredRoleOrigins[existing] = struct{}{}
+		}
+	})
+	if _, exists := registeredRoleOrigins[role]; exists {
+		panic("permissions: role " + role + " is already declared; a second declaration would SILENTLY DROP every permission missing from the new set. Edit the single rolePermissions entry instead of reassigning it.")
+	}
+	registeredRoleOrigins[role] = struct{}{}
+	rolePermissions[role] = perms
+}
+
 func RoleHasPermission(role, permission string) bool {
 	perms, ok := rolePermissions[role]
 	if !ok {
@@ -441,6 +690,20 @@ func RolesAuthorize(roles []string, required []string, adminOnly bool) bool {
 		}
 	}
 	return true
+}
+
+// RolesAuthorizeAny is the OR counterpart of RolesAuthorize: it reports whether
+// the caller holds AT LEAST ONE of the listed permissions. An empty list denies,
+// matching RolesAuthorize.
+func RolesAuthorizeAny(roles []string, anyOf []string) bool {
+	for _, permission := range anyOf {
+		for _, role := range roles {
+			if RoleHasPermission(role, permission) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isProductAdminRole(role string) bool {

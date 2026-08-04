@@ -139,12 +139,19 @@ func (a *AuthMiddleware) Wrap(next http.Handler) http.Handler {
 		}
 		ctx = WithAuthGrants(ctx, grants)
 		roles := routeRoles(route, grants, tenantID)
-		if !permissions.RolesAuthorize(roles, route.Permissions, route.AdminOnly) {
+		if !permissions.AuthorizeRoute(route, roles) {
+			// required_* travel with the denial: `roles:""` alone says the caller
+			// held nothing, but not what the route WANTED — and that missing half
+			// is what turns a 403 into an actionable grant/seeding fix instead of
+			// a code-reading expedition.
 			a.logAuthFailure(r, http.StatusForbidden, "permission_denied",
 				slog.String("route", route.OperationID),
 				slog.String("actor_id", userID),
 				slog.String("tenant_id", tenantID),
 				slog.String("roles", strings.Join(roles, ",")),
+				slog.String("required_permissions", strings.Join(route.Permissions, ",")),
+				slog.String("required_any_permissions", strings.Join(route.AnyPermissions, ",")),
+				slog.Bool("required_admin_only", route.AdminOnly),
 			)
 			writeAuthError(w, r.WithContext(ctx), http.StatusForbidden, "permission_denied", "permission denied")
 			return
@@ -428,7 +435,11 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, status int, code, me
 // which park the actor may see, or why access is denied. Handlers clamp their repository queries
 // to Decision.ParkID when Allowed, else return Status/Code/Message.
 type ParkScopeDecision struct {
-	ParkID  string
+	ParkID string
+	// Every park the actor may see. Populated whenever the actor is park-scoped, so a
+	// caller that can genuinely serve a multi-park view has the set rather than having to
+	// re-derive it from the grants.
+	ParkIDs []string
 	Allowed bool
 	Status  int
 	Code    string
@@ -444,7 +455,55 @@ func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID s
 	if len(grants) == 0 || HasTenantWideGrant(grants, tenantID) {
 		return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
 	}
-	parkIDs := AuthorizedParkIDs(grants)
+	return decideParkScope(AuthorizedParkIDs(grants), requestedParkID)
+}
+
+// ResolveAuthorizedParkScopeForCapabilities is the CAPABILITY-AWARE form of
+// ResolveAuthorizedParkScope and is what every authorization decision must call.
+//
+// It differs on both halves of the check:
+//
+//   - tenant-wide is HasTenantWideCapability, not HasTenantWideGrant: a tenant grant for an
+//     unrelated role (a growth director's weighing grant) no longer waves through another
+//     module's park scope.
+//   - the park set is the union of AuthorizedParkIDsForCapability over `capabilities`, so a
+//     grant's park counts only when THAT grant's own role carries one of them. The blind
+//     AuthorizedParkIDs form let an actor combine an unrelated park-A grant with a
+//     capability-carrying park-B grant and act in park A.
+//
+// `capabilities` is a set of alternatives (any one suffices), which is how a surface that
+// serves both an executor and a read-only overseer expresses itself. Passing none is a
+// programming error and fails closed.
+func ResolveAuthorizedParkScopeForCapabilities(ctx context.Context, tenantID, requestedParkID string, capabilities ...string) ParkScopeDecision {
+	grants := AuthGrantsFromContext(ctx)
+	// No grants at all = internal/service context (e.g. context.Background() in an
+	// integration test or a CLI), same escape hatch the blind form has always had.
+	if len(grants) == 0 {
+		return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+	}
+	for _, capability := range capabilities {
+		if HasTenantWideCapability(grants, tenantID, capability) {
+			return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+		}
+	}
+	seen := map[string]struct{}{}
+	parkIDs := []string{}
+	for _, capability := range capabilities {
+		for _, parkID := range AuthorizedParkIDsForCapability(grants, capability) {
+			if _, ok := seen[parkID]; ok {
+				continue
+			}
+			seen[parkID] = struct{}{}
+			parkIDs = append(parkIDs, parkID)
+		}
+	}
+	sort.Strings(parkIDs)
+	return decideParkScope(parkIDs, requestedParkID)
+}
+
+// decideParkScope is the shared tail of both resolvers: match the request against an
+// already-computed authorized park set.
+func decideParkScope(parkIDs []string, requestedParkID string) ParkScopeDecision {
 	if len(parkIDs) == 0 {
 		return ParkScopeDecision{
 			Allowed: false,
@@ -456,20 +515,49 @@ func ResolveAuthorizedParkScope(ctx context.Context, tenantID, requestedParkID s
 	if requestedParkID != "" {
 		for _, parkID := range parkIDs {
 			if parkID == requestedParkID {
-				return ParkScopeDecision{ParkID: requestedParkID, Allowed: true}
+				return ParkScopeDecision{ParkID: requestedParkID, ParkIDs: parkIDs, Allowed: true}
 			}
 		}
 		return ParkScopeDecision{
+			ParkIDs: parkIDs,
 			Allowed: false,
 			Status:  http.StatusForbidden,
 			Code:    "park_scope_forbidden",
 			Message: "requested park is outside the actor's authorized scope",
 		}
 	}
-	return ParkScopeDecision{ParkID: parkIDs[0], Allowed: true}
+	if len(parkIDs) > 1 {
+		// Someone who covers more than one park without holding a tenant grant. Silently
+		// answering for parkIDs[0] would show a director half their herd and no error --
+		// the worst possible outcome, because a wrong number that looks right is acted on.
+		return ParkScopeDecision{
+			ParkIDs: parkIDs,
+			Allowed: false,
+			Status:  http.StatusBadRequest,
+			Code:    "park_selection_required",
+			Message: "choose a park to view",
+		}
+	}
+	return ParkScopeDecision{ParkID: parkIDs[0], ParkIDs: parkIDs, Allowed: true}
+}
+
+// HasTenantWideCapability reports whether any grant is scoped to the whole tenant AND that
+// SAME grant's role carries `capability`. This is the role-aware counterpart to
+// HasTenantWideGrant, which checks scope only and therefore treats an unrelated tenant-wide
+// role as authority over every module.
+func HasTenantWideCapability(grants []permissions.ActiveGrant, tenantID, capability string) bool {
+	for _, grant := range grants {
+		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID &&
+			permissions.RoleHasPermission(grant.Role, capability) {
+			return true
+		}
+	}
+	return false
 }
 
 // HasTenantWideGrant reports whether any grant is scoped to the whole tenant.
+//
+// SCOPE-ONLY -- prefer HasTenantWideCapability for authorization decisions.
 func HasTenantWideGrant(grants []permissions.ActiveGrant, tenantID string) bool {
 	for _, grant := range grants {
 		if grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
@@ -479,7 +567,19 @@ func HasTenantWideGrant(grants []permissions.ActiveGrant, tenantID string) bool 
 	return false
 }
 
-// AuthorizedParkIDs returns the distinct, sorted park scope ids across the actor's grants.
+// AuthorizedParkIDs returns the distinct, sorted park scope ids across the actor's grants,
+// WITHOUT regard to what capability the grant's role actually carries.
+//
+// CAPABILITY-BLIND -- DO NOT USE FOR AUTHORIZATION DECISIONS. It only tells you which parks
+// the actor has ANY grant in, not which parks they may exercise a given capability in. A
+// caller that separately checks "does any role in my flat role list carry capability X" and
+// then intersects with this list is vulnerable to privilege escalation: an actor with an
+// unrelated park-A grant plus a capability-X-carrying grant scoped to park B gets capability X
+// in park A too, because the two checks were decoupled from each other's grant.
+//
+// Use AuthorizedParkIDsForCapability instead for any authorization/scoping decision. This
+// function is kept only for existing non-authorization callers (e.g. building a set of "parks
+// I have some presence in" for display purposes); it must never gate a capability.
 func AuthorizedParkIDs(grants []permissions.ActiveGrant) []string {
 	seen := map[string]struct{}{}
 	out := []string{}
@@ -495,4 +595,19 @@ func AuthorizedParkIDs(grants []permissions.ActiveGrant) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// AuthorizedParkIDsForCapability returns the distinct, sorted park scope ids across the
+// actor's grants, ONLY counting a grant's park if that grant's own role carries the given
+// capability (per the permissions role -> capability table, permissions.RoleHasPermission).
+//
+// This is the capability-aware replacement for AuthorizedParkIDs: it keeps each grant's role
+// and its scope bound together, so an actor cannot combine an unrelated park grant with a
+// capability-carrying grant scoped to a DIFFERENT park to gain that capability in the first
+// park. Every caller that authorizes a park-scoped action or read MUST use this function (or
+// permissions.ScopeIDsForPermission directly), never AuthorizedParkIDs.
+func AuthorizedParkIDsForCapability(grants []permissions.ActiveGrant, capability string) []string {
+	ids := permissions.ScopeIDsForPermission(grants, capability, "park")
+	sort.Strings(ids)
+	return ids
 }

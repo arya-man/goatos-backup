@@ -88,12 +88,23 @@ type VerificationNotifier struct {
 	recipients      RecipientResolver
 	queue           NotificationQueue
 	logger          *slog.Logger
+	// locations is optional park/shed name enrichment (see location_names.go). A nil resolver
+	// degrades copy to the neutral "this park" fallback rather than failing the notification.
+	locations *LocationNameResolver
 }
 
 // NewVerificationNotifier constructs the bridge over the calendar/workforce/calendar app-layer seams.
 // logger is the process logger from platform/observability.New; when nil, gap warnings are skipped.
 func NewVerificationNotifier(contextResolver CompletionContextResolver, recipients RecipientResolver, queue NotificationQueue, logger *slog.Logger) *VerificationNotifier {
 	return &VerificationNotifier{contextResolver: contextResolver, recipients: recipients, queue: queue, logger: logger}
+}
+
+// WithLocationNames attaches park/shed name enrichment. Chainable at construction time
+// (bootstrap/api.go) so the notifier's own package owns the query -- no other module's port is
+// touched to get a human place name for a push.
+func (n *VerificationNotifier) WithLocationNames(resolver *LocationNameResolver) *VerificationNotifier {
+	n.locations = resolver
+	return n
 }
 
 var _ eventbus.Handler = (*VerificationNotifier)(nil)
@@ -197,18 +208,32 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 		)
 	}
 
-	body := "The verifier rejected a vaccination proof. This drive needs rework."
+	// Name the park the proof was rejected at: "The verifier rejected a vaccination proof at
+	// <Park>" is something an operator/park head can act on immediately; a bare "This drive needs
+	// rework" with no place is exactly the abstract-push defect the maintainer confirmed.
+	parkName := ""
+	if n.locations != nil {
+		parkName = n.locations.ResolveNames(ctx, tenantID, completionCtx.ParkID)[completionCtx.ParkID]
+	}
+	park := locationLabelOrFallback(parkName)
+
+	body := "The verifier rejected a vaccination proof at " + park + ". This drive needs rework."
 	if reason != "" {
 		body += " Reason: " + reason
 	}
 
 	// Build context fields for FCM deep-linking: type, obligation_id, park_id (all required),
 	// plus priority for android. The gateway will merge these into fcmData and set android priority.
+	// message_key/park_name are auxiliary (analytics/future client rendering, see
+	// gateway.sendFCMWithResult's localization-decision comment) -- Title/Body above are ALWAYS the
+	// final, specific copy the OS renders, never a code the client must decode.
 	notificationContext := map[string]string{
 		"type":          NotificationTypeRework,
 		"obligation_id": completionCtx.ObligationID,
 		"park_id":       completionCtx.ParkID,
+		"park_name":     parkName,
 		"priority":      priorityHigh,
+		"message_key":   "vaccination.verify.rework",
 	}
 
 	_, err = n.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
@@ -219,7 +244,7 @@ func (n *VerificationNotifier) notifyRework(ctx context.Context, tenantID string
 		NotificationType: NotificationTypeRework,
 		Channel:          channelPushFCM,
 		Priority:         priorityHigh,
-		Title:            "Vaccination proof rejected — rework needed",
+		Title:            "Vaccination proof rejected — " + park,
 		Body:             body,
 		TraceID:          eventKey,
 		EventKey:         eventKey,

@@ -577,6 +577,13 @@ func (s *Service) ResolveVaccinationCompletionContext(ctx context.Context, tenan
 	return s.repo.ResolveVaccinationCompletionContext(ctx, tenantID, completionID)
 }
 
+// ResolveMissedObligationContext resolves a missed obligation to its module/park/shed/due-date and
+// the operator assigned the drive that covered it, so the notification layer can route a
+// "work was missed" message without importing the vaccination or obligation modules.
+func (s *Service) ResolveMissedObligationContext(ctx context.Context, tenantID, obligationID string) (ports.MissedObligationContext, error) {
+	return s.repo.ResolveMissedObligationContext(ctx, tenantID, obligationID)
+}
+
 // ReconcileEventReferencesPage (FINDING 4 fix: migration 000192, CAL-MAIN-03 fix: migration 000202)
 // surfaces a bounded page of notification_requests/calendar_snoozes rows whose calendar_event_id
 // no longer resolves to any canonical obligation/batch/drive/task/completion. Uses stable keyset

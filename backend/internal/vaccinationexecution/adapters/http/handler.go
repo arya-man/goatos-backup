@@ -503,11 +503,19 @@ func (h *Handler) ListVaccinationExecution(w http.ResponseWriter, r *http.Reques
 		h.internal(w, r, err)
 		return
 	}
-	// A leadership oversight read (app route, no operator scope) is read-only unless
-	// the role also has explicit capture authority. PC Director is tenant-scoped for
-	// park visibility but can execute vaccination work in STG, so its shed click must
-	// stay open while CEO/Park Head remain oversight-only.
-	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) && !h.canExecuteTasks(r) {
+	// A leadership read on an app execution route is OVERSIGHT: read-only, park-scoped, every
+	// shed. Vaccination execution belongs to the operator the drive is assigned to -- CBE to one
+	// operator, CPT to the other -- so a director sees both parks and opens neither into the
+	// scan/submit loop (maintainer decision; supersedes the earlier carve-out that kept the shed
+	// click open for a PC Director because the role happens to hold task.execute).
+	//
+	// Holding task.execute is no longer sufficient here: the scan and submit writes are refused
+	// `task_not_assigned` for a non-assignee anyway, so leaving the click open produced a scan
+	// screen that recorded a proof video and then failed every write in background sync.
+	//
+	// Weighing is deliberately NOT gated this way: it is free-flow, and a director is allowed to
+	// weigh anything. This branch is scoped to the vaccination execution routes only.
+	if isAppExecutionRoute(r) && h.isLeadershipExecutionActor(r) {
 		page.ViewerReadOnly = true
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, page)
@@ -641,13 +649,9 @@ func (h *Handler) executionQuery(w http.ResponseWriter, r *http.Request, default
 		}
 		q.Limit = n
 	}
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-		q.AuthorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if q.AuthorizedParkIDs == nil {
-			q.AuthorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope.
+	q.AuthorizedParkIDs = authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 	if !h.applyExecutionParkScope(w, r, &q) {
 		return vaccexecd.ExecutionQuery{}, false
 	}
@@ -686,17 +690,27 @@ func (h *Handler) ScanRoster(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" || !uuidutil.IsUUIDString(actorID) {
+		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
+		return
+	}
 	q := vaccexecd.ScanRosterQuery{
 		TenantID:             tenantID(r),
 		ShedID:               shedID,
 		TaskID:               taskID,
-		OperatorScopeActorID: httpmiddleware.ActorIDFromContext(r.Context()),
+		OperatorScopeActorID: actorID,
 		Limit:                limit,
 	}
-	if q.OperatorScopeActorID == "" || !uuidutil.IsUUIDString(q.OperatorScopeActorID) {
-		h.badRequest(w, r, "operator_scope_required", "app vaccination roster requires an authenticated operator scope")
-		return
-	}
+	// The scan roster stays OPERATOR-ASSIGNMENT scoped for every caller, leadership included.
+	// Vaccination execution belongs to the operator the drive is assigned to; a director oversees
+	// both parks read-only and must never receive scan-roster animals, because the writes that
+	// screen exists to make are refused as `task_not_assigned` anyway. Widening this read for
+	// leadership (briefly done to explain an empty roster) handed a director a fully populated
+	// scan screen whose every write then failed silently in background sync.
+	//
+	// Weighing is deliberately NOT like this: it is free-flow, so it has its own gate and must not
+	// inherit this assignment scoping.
 	if rawCursor := query.Get("cursor"); rawCursor != "" {
 		cursor, err := vaccexecd.DecodeScanRosterCursor(rawCursor)
 		if err != nil {
@@ -736,19 +750,19 @@ func isAppExecutionRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/app/vaccination/execution")
 }
 
-// leadershipExecutionRoles get the park-scoped read-only oversight view of vaccination
-// execution on the app routes, rather than operator-assignment-scoped work.
-var leadershipExecutionRoles = map[string]bool{
-	permissions.RoleCEOInternal: true,
-	permissions.RolePCDirector:  true,
-	permissions.RoleParkHead:    true,
-}
-
-// isLeadershipExecutionActor reports whether any of the caller's active grants is a
-// leadership role, in which case the app execution read is NOT operator-assignment scoped.
+// isLeadershipExecutionActor reports whether the caller holds the vaccination execution
+// OVERSIGHT capability, in which case the app execution read is NOT operator-assignment scoped
+// but park-scoped and read-only.
+//
+// This asks the permission model, not a role-name allowlist. The previous
+// {ceo_internal, pc_director, park_head} literal set excluded the org-role catalog's composed
+// preventive-care Director/Head -- the same authority under the tier x vertical model -- so they
+// fell into the operator-assignment branch, saw zero rows (they are assigned no drive), and got a
+// tappable shed whose every write is refused `task_not_assigned`. Granting the capability, not
+// renaming a role, is the lever for any future oversight tier.
 func (h *Handler) isLeadershipExecutionActor(r *http.Request) bool {
 	for _, g := range httpmiddleware.AuthGrantsFromContext(r.Context()) {
-		if leadershipExecutionRoles[g.Role] {
+		if permissions.RoleHasPermission(g.Role, permissions.VaccinationOverseeExecution) {
 			return true
 		}
 	}
@@ -839,14 +853,10 @@ func (h *Handler) RescheduleObligation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestTenantID := tenantID(r)
-	var authorizedParkIDs []string
-	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-	if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, requestTenantID) {
-		authorizedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		if authorizedParkIDs == nil {
-			authorizedParkIDs = []string{}
-		}
-	}
+	// Apply park scope: use the proper vaccination-execution authority check that
+	// verifies the tenant-wide grant's role, not just its scope. Empty array means
+	// "access denied to any park" (fail-closed); nil means "unrestricted" (tenant-wide).
+	authorizedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), requestTenantID)
 	// india-date-guard:ignore: owner=ravi issue=GH-india-date scope=reschedule-decision-comparison-instant expiry=2026-12-31
 	id, isReplay, err := h.writer.RescheduleObligationByID(r.Context(), requestTenantID, obligationID, idempotencyKey, authorizedParkIDs, req.DueAt, windowStart, req.WindowEnd, h.now().UTC())
 	if err != nil {
@@ -1350,11 +1360,9 @@ func (h *Handler) GetOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		// -- silently picking one would let a CEO save a default operator for park A while reading a
 		// roster blended across A+B+C -- but the refusal carries the backend-owned options so the
 		// client renders a selector instead of dead-ending.
-		grants := httpmiddleware.AuthGrantsFromContext(r.Context())
-		var scopedParkIDs []string
-		if len(grants) > 0 && !httpmiddleware.HasTenantWideGrant(grants, tenantID(r)) {
-			scopedParkIDs = httpmiddleware.AuthorizedParkIDs(grants)
-		}
+		// Use the proper vaccination-execution authority check that verifies the tenant-wide
+		// grant's role, not just its scope.
+		scopedParkIDs := authorizedParkFilterVaccinationExecution(r.Context(), tenantID(r))
 		parks, err := h.reader.AuthorizedParkOptions(r.Context(), tenantID(r), scopedParkIDs)
 		if err != nil {
 			h.internal(w, r, err)
@@ -1589,8 +1597,40 @@ func (h *Handler) allowParkID(w http.ResponseWriter, r *http.Request, parkID str
 	return ok
 }
 
+// authorizedParkFilterVaccinationExecution returns the park IDs a park-scoped actor may
+// access for vaccination execution, or nil when the caller is tenant-wide with vaccination
+// authority (no restriction).
+//
+// Both the tenant-wide test and the park set come from vaccexecd (ParkAuthorities /
+// HasTenantWideAuthority) instead of being spelled out here. This file used to carry its
+// own two lists and the Postgres adapter a third; they disagreed, and a gate that
+// disagrees with the filter behind it produces an empty screen rather than a 403 anybody
+// can diagnose. See vaccexecd.ParkAuthorities for why that set is what it is.
+//
+// A park-scoped actor with no resolvable parks gets a non-nil empty slice -> matches nothing.
+func authorizedParkFilterVaccinationExecution(ctx context.Context, tenantID string) []string {
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	if vaccexecd.HasTenantWideAuthority(grants, tenantID) {
+		return nil
+	}
+	return vaccexecd.AuthorizedParks(grants)
+}
+
+// authorizedParkID clamps a requested park to the parks in which the actor actually holds a
+// VACCINATION-EXECUTION capability. Every park-scoped read on this module funnels through it
+// (applyExecutionParkScope / applyGapsParkScope / applyShedSummaryParkScope / the command
+// board), so it is the single place that decision is made.
+//
+// It resolves against vaccexecd.ParkAuthorities rather than the capability-BLIND
+// ResolveAuthorizedParkScope it used to call. The blind form asked two decoupled questions --
+// "does some role of mine carry vaccination authority" and "which parks do I have any grant
+// in" -- and an actor could answer them with two DIFFERENT grants: a vaccination grant in park
+// B plus an unrelated grant (say a growth-director weighing grant) in park A got them park A's
+// vaccination execution data. The capability-aware form keeps each grant's role bound to its
+// own scope, and applies the same rule to the tenant-wide escape hatch.
 func (h *Handler) authorizedParkID(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
-	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), tenantID(r), requested)
+	decision := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID(r), requested, vaccexecd.ParkAuthorities...)
 	if decision.Allowed {
 		return decision.ParkID, true
 	}
@@ -1624,14 +1664,23 @@ func (h *Handler) GetVaccinationCommandBoard(w http.ResponseWriter, r *http.Requ
 		driveBatchIDPtr = &driveBatchID
 	}
 
-	parkID := r.URL.Query().Get("park_id")
+	// projection-review: park scope is BACKEND-owned here exactly as in
+	// ListVaccinationExecution/Schedule/Gaps/Coverage/ShedSummary. Reading park_id straight off
+	// the query string let a park-bound actor see the OTHER park's board by omitting it (and
+	// forbade nothing when they named it); authorizedParkID clamps the request to the actor's
+	// grants -- tenant-wide callers keep the verbatim (possibly empty) request.
+	requestedPark := r.URL.Query().Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
+			errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
+		return
+	}
+	parkID, ok := h.authorizedParkID(w, r, requestedPark)
+	if !ok {
+		return
+	}
 	var parkIDPtr *string
 	if parkID != "" {
-		if !uuidutil.IsUUIDString(parkID) {
-			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest,
-				errorEnvelope{Code: "invalid_park_id", Message: "park_id must be a valid UUID", TraceID: traceID(r)}, nil)
-			return
-		}
 		parkIDPtr = &parkID
 	}
 

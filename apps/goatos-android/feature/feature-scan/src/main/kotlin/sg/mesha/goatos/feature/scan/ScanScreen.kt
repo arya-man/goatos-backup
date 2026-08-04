@@ -289,6 +289,24 @@ private object ScanTokens {
     val onPrimary = MeshaColors.OnBrand
 }
 
+/**
+ * DELIBERATELY EXEMPT from [sg.mesha.goatos.core.ui.RefreshOnResume].
+ *
+ * This is a MID-CAPTURE surface, the exact case the refresh-on-open rule carves out ("Do not use
+ * this on screens with in-progress user input (scan-capture, forms)" — RefreshOnResume KDoc,
+ * docs/decisions/android-offline-first.md). The operator's session state here — the per-animal
+ * draft done overlay built from live RFID reads, the captured-but-unsynced proofs, the grown scan
+ * window — is UNSUBMITTED work that exists only in the ViewModel. A resume-triggered
+ * `refreshScanRoster` re-pulls the backend roster; every camera/proof capture, permission dialog
+ * and app-switch fires ON_RESUME, so a resume refresh would repeatedly re-baseline the roster
+ * under a half-finished shed and could discard reads the operator has already made. That is lost
+ * operator work, which is strictly worse than showing a roster that is a few minutes stale.
+ *
+ * There is accordingly no `ScanEvent.Refresh` to call: the roster is refreshed once on entry
+ * (`ScanViewModel.init`) and continuation pages are pulled explicitly via [ScanEvent.LoadMore].
+ * Post-submit freshness is covered by the LIST screens the operator returns to, which ARE
+ * RefreshOnResume.
+ */
 @Composable
 fun ScanScreen(
     state: ScanUiState,
@@ -325,7 +343,6 @@ fun ScanScreen(
                             connected = false,
                             actionLabel = "Reconnect",
                         ),
-                        progressLabel = "${state.ringDone}/${state.ringTotal}",
                         onReconnect = { onEvent(ScanEvent.ReconnectReader) },
                     )
                 }
@@ -467,7 +484,6 @@ fun ScanScreen(
 @Composable
 private fun ReaderConnectionBanner(
     reader: ScanReaderConnection,
-    progressLabel: String,
     onReconnect: () -> Unit,
 ) {
     val bg = if (reader.connected) ScanTokens.okX else ScanTokens.dangerX
@@ -498,7 +514,6 @@ private fun ReaderConnectionBanner(
             Text(reader.readerName, color = ScanTokens.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Text(reader.statusLabel, color = fg, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
-        Text(progressLabel, color = ScanTokens.muted, fontSize = 12.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
         if (!reader.connected) {
             Spacer(Modifier.width(10.dp))
             Text(reader.actionLabel, color = fg, fontSize = 12.sp, fontWeight = FontWeight.Black)
@@ -1058,15 +1073,19 @@ private fun FeedRow(
     val tagColor = if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.ink else toneColor
     val secondary = when {
         armedForReplacement -> stringResource(R.string.scan_proof_replace_armed)
+        // Synced is terminal: check it BEFORE failed/uploading so a green row can never also claim
+        // its proof is still uploading or failed.
+        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
+            entry.proofStatusLabel ?: entry.scannedAtLabel
         entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED ->
             entry.proofStatusLabel ?: "Upload failed · auto retrying"
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING ->
             entry.proofStatusLabel ?: "Uploading proof…"
-        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
-            entry.proofStatusLabel ?: entry.scannedAtLabel
         else -> entry.scannedAtLabel
     }
     val secondaryColor = when {
+        entry.proofUploadStatus == ProofUploadStatus.SYNCED || entry.evidenceSyncedCount > 0 ->
+            if (entry.tone == ScanFeedTone.ACCEPTED) ScanTokens.brandD else toneColor
         entry.evidenceFailed || entry.proofUploadStatus == ProofUploadStatus.FAILED -> ScanTokens.danger
         entry.evidenceUploading || entry.proofUploadStatus == ProofUploadStatus.UPLOADING -> ScanTokens.warning
         entry.tone == ScanFeedTone.ACCEPTED -> ScanTokens.brandD
@@ -1567,16 +1586,18 @@ fun ScanListSheet(
 @Composable
 private fun InlineScannedGoatCard(row: RosterRow, onEvent: (ScanEvent) -> Unit) {
     val vaccineHeading = if (row.status == ScanStatus.DONE) "Vaccines covered for this goat" else "Due vaccines for this goat"
+    // Synced is terminal and is checked before syncing/failed, so a goat whose clip already reached
+    // the backend never reads as still syncing.
     val proofText = when {
         row.captureInFlight -> "Opening camera…"
+        row.evidenceSyncedCount > 0 -> "${row.evidenceSyncedCount} clip${if (row.evidenceSyncedCount == 1) "" else "s"} ready"
         row.evidenceUploading -> "${row.evidenceCount} clip${if (row.evidenceCount == 1) "" else "s"} syncing"
         row.evidenceFailed -> "Proof upload needs retry"
-        row.evidenceSyncedCount > 0 -> "${row.evidenceSyncedCount} clip${if (row.evidenceSyncedCount == 1) "" else "s"} ready"
         else -> "Proof needed"
     }
     val proofColor = when {
-        row.evidenceFailed -> ScanTokens.danger
         row.evidenceSyncedCount > 0 -> ScanTokens.brand
+        row.evidenceFailed -> ScanTokens.danger
         else -> ScanTokens.warning
     }
     Column(
@@ -1646,12 +1667,14 @@ private fun ScanListRow(row: RosterRow) {
     }
     val secondaryLine = when {
         row.status == ScanStatus.PENDING -> null
+        // Synced is terminal: check it BEFORE uploading/failed so a row that renders green can never
+        // also claim its proof is still uploading.
+        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
+            row.proofStatusLabel ?: row.scannedAtLabel
         row.proofUploadStatus == ProofUploadStatus.UPLOADING || row.evidenceUploading ->
             row.proofStatusLabel ?: "Uploading proof · retrying if needed"
         row.proofUploadStatus == ProofUploadStatus.FAILED || row.evidenceFailed ->
             row.proofStatusLabel ?: "Upload failed · retry or scan again"
-        row.proofUploadStatus == ProofUploadStatus.SYNCED || row.evidenceSyncedCount > 0 ->
-            row.proofStatusLabel ?: row.scannedAtLabel
         row.scannedAtLabel != null -> row.scannedAtLabel
         row.status == ScanStatus.DONE && tone == ScanFeedTone.DUPLICATE -> "Scan again to record proof"
         else -> null

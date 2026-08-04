@@ -32,10 +32,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.time.Clock
 import java.time.LocalDate
-import java.time.ZoneOffset
+import java.time.ZoneId
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
  * Record a birth or a death (`/counts/birth-death`) — a hosted destination with Up/Back.
@@ -174,6 +176,19 @@ enum class BirthDeathField {
     ID_KIND, TAG, TAG2, SPECIES, SEX, BREED, DOB, ENTRY_DATE, DAM_ID, REASON,
 }
 
+/** The zone the whole counts/birth-death path stamps entry dates on (BirthDeathViewModel,
+ *  AddBirthViewModel) -- never UTC. See A24. */
+private val BIRTH_DEATH_BUSINESS_ZONE: ZoneId = ZoneId.of("Asia/Kolkata")
+
+/**
+ * Today's Asia/Kolkata business date, as an ISO string. A [clock] parameter (rather than the bare
+ * `LocalDate.now(ZoneId)` call this replaced) so a test can simulate a wall-clock instant -- e.g.
+ * 01:00 IST, which is still the PREVIOUS day in UTC -- without needing to change the device's
+ * system clock.
+ */
+internal fun birthEntryIstBusinessDate(clock: Clock = Clock.systemUTC()): String =
+    LocalDate.now(clock.withZone(BIRTH_DEATH_BUSINESS_ZONE)).toString()
+
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
@@ -190,8 +205,13 @@ fun BirthDeathScreen(
     // already entered or cleared.
     LaunchedEffect(state.mode) {
         if (state.mode == BirthDeathMode.BIRTH && state.entryDate.isBlank()) {
-            val today = LocalDate.now(ZoneOffset.UTC).toString()
-            onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, today))
+            // A24: the rest of the counts/birth-death path (BirthDeathViewModel.todayBusinessDate,
+            // AddBirthViewModel.IST) stamps entry date on the Asia/Kolkata business day, never UTC.
+            // This LaunchedEffect used to prefill UTC's date and there is no server-side rescue for
+            // it (BirthDeathViewModel only substitutes the business date when entryDate is BLANK,
+            // and this effect had already filled it) -- between 00:00-05:29 IST that recorded the
+            // PREVIOUS business date.
+            onEvent(BirthDeathEvent.EditField(BirthDeathField.ENTRY_DATE, birthEntryIstBusinessDate()))
         }
     }
 
@@ -233,7 +253,7 @@ fun BirthDeathScreen(
 
             state.validationMessage?.let { message ->
                 item(key = "validation") {
-                    Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                    Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                 }
             }
             item(key = "submit") {
@@ -272,7 +292,7 @@ fun BirthDeathScreen(
                 Text(
                     text = stringResource(R.string.counts_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.caption,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -412,7 +432,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 enabled = sheds.isNotEmpty(),
             )
             state.destinationsMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
             FormExpanderToggle(expanded = damExpanded, onToggle = { damExpanded = !damExpanded }, label = stringResource(R.string.counts_field_dam_optional))
             if (damExpanded) {
@@ -459,8 +479,7 @@ private fun FormExpanderToggle(expanded: Boolean, onToggle: () -> Unit, label: S
         Text(
             text = label ?: stringResource(R.string.counts_more_fields),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
             modifier = Modifier.weight(1f),
         )
         Icon(
@@ -500,7 +519,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
                 onClick = { onEvent(BirthDeathEvent.LookupAnimals) },
             )
             state.animalLookupMessage?.let { message ->
-                Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
             }
         }
     }
@@ -536,7 +555,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.deathFields(
             Text(
                 text = stringResource(R.string.counts_death_guardrail_note),
                 color = MeshaColors.Faint,
-                fontSize = 11.sp,
+                style = MeshaType.caption,
             )
         }
     }
@@ -560,14 +579,12 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
         Text(
             text = stringResource(R.string.counts_group_recording_death_for),
             color = MeshaColors.Faint,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pill,
         )
         Text(
             text = animal.displayId.ifBlank { animal.tag },
             color = MeshaColors.Ink,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.W800,
+            style = MeshaType.screenTitle,
         )
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)

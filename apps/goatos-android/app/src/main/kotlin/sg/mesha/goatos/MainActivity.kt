@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
@@ -25,12 +26,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dagger.hilt.android.AndroidEntryPoint
+import sg.mesha.goatos.boot.BootstrapErrorType
 import sg.mesha.goatos.boot.BootstrapUiState
 import sg.mesha.goatos.boot.BootstrapViewModel
 import sg.mesha.goatos.boot.SessionViewModel
@@ -42,6 +45,8 @@ import kotlinx.coroutines.flow.first
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
+import sg.mesha.goatos.core.media.ProofPlayerFactory
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.feature.auth.LoginScreen
 import sg.mesha.goatos.push.PendingNavigation
@@ -74,6 +79,10 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var pendingNavigation: PendingNavigation
 
+    /** Builds proof-video players over the telemetry-instrumented OkHttp client (W-22). */
+    @Inject
+    lateinit var proofPlayerFactory: ProofPlayerFactory
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -84,6 +93,10 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { runCatching { AppLocaleState.set(sessionStore.language.first()) } }
                 LaunchedEffect(AppLocaleState.tag) { runCatching { sessionStore.setLanguage(AppLocaleState.tag) } }
                 ProvideAppLocale {
+                // Proof-video players below this point fetch over the app's instrumented OkHttp
+                // client, so a 403/404/500 on a signed playback URL produces the same logcat +
+                // Crashlytics + api_call_failure signal a failed API call does (W-22).
+                CompositionLocalProvider(LocalProofPlayerFactory provides proofPlayerFactory) {
                 // Force-update gate sits ABOVE auth + bootstrap: an out-of-date build is
                 // blocked whether or not anyone is signed in. Fails open, so an
                 // unconfigured environment (e.g. the dev flavor) renders the app normally.
@@ -139,12 +152,40 @@ class MainActivity : ComponentActivity() {
                     when (val s = bootstrap) {
                         BootstrapUiState.Loading -> BootstrapLoading()
                         is BootstrapUiState.Ready -> GoatOsShell(navState = s.navState)
-                        is BootstrapUiState.Error ->
-                            BootstrapError(message = s.message, onRetry = bootstrapViewModel::load)
+                        is BootstrapUiState.Error -> {
+                            when (s.errorType) {
+                                BootstrapErrorType.AUTH_SESSION_EXPIRED -> {
+                                    // Auth failure: sign out and return to login screen.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_auth_session_expired),
+                                        actionLabel = stringResource(R.string.bootstrap_action_sign_in_again),
+                                        onAction = { sessionViewModel.signOut() }
+                                    )
+                                }
+                                BootstrapErrorType.ACCESS_NOT_PROVISIONED -> {
+                                    // Valid sign-in, access not set up. Retry only: signing out
+                                    // would wipe unsynced work and could not fix this.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_access_not_provisioned),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
+                                BootstrapErrorType.CONNECTIVITY_FAILURE -> {
+                                    // Connectivity failure: show retryable error.
+                                    BootstrapError(
+                                        message = stringResource(R.string.bootstrap_error_connectivity),
+                                        actionLabel = stringResource(R.string.bootstrap_action_retry),
+                                        onAction = bootstrapViewModel::load
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                     } // UpdateGateUiState.Allowed
                 } // when (updateGate)
+                } // CompositionLocalProvider(LocalProofPlayerFactory)
                 } // ProvideAppLocale
             }
         }
@@ -190,7 +231,9 @@ class MainActivity : ComponentActivity() {
             .mapNotNull { key -> extras.getString(key)?.takeIf { it.isNotBlank() }?.let { key to it } }
             .toMap()
         if (payload.isEmpty()) return
-        pendingNavigation.set(resolvePushRoute(payload))
+        // No recognisable destination is not an error and not a reason to pick a module: leaving
+        // the pending route unset opens the app on this person's own home screen.
+        resolvePushRoute(payload)?.let { pendingNavigation.set(it) }
     }
 
     /**
@@ -243,7 +286,11 @@ private fun BootstrapLoading() {
 }
 
 @Composable
-private fun BootstrapError(message: String, onRetry: () -> Unit) {
+private fun BootstrapError(
+    message: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -259,7 +306,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Retry",
+            text = actionLabel,
             color = MaterialTheme.colorScheme.primary,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
@@ -268,7 +315,7 @@ private fun BootstrapError(message: String, onRetry: () -> Unit) {
                 .padding(top = 20.dp)
                 .minimumInteractiveComponentSize()
                 .clip(RoundedCornerShape(10.dp))
-                .clickable(onClick = onRetry)
+                .clickable(onClick = onAction)
                 .padding(horizontal = 24.dp, vertical = 10.dp),
         )
     }

@@ -9,6 +9,9 @@ import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -16,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -64,9 +68,20 @@ import sg.mesha.goatos.core.data.cache.WorkflowCardEntity
 import sg.mesha.goatos.core.data.cache.WorkflowChipsCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowDetailCacheEntity
 import sg.mesha.goatos.core.data.cache.WorkflowRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipGalleryRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipRecordRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedEntity
 import sg.mesha.goatos.core.data.weighing.WeighingObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperatorRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerShedRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketRowEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRemoteKeyEntity
+import sg.mesha.goatos.core.data.weighing.WeighingTaskRowEntity
 
 /**
  * Upgrade-crash E2E for [GoatDatabase]: simulates an already-installed APK whose on-device DB was
@@ -134,6 +149,11 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_24_25,
                 MIGRATION_25_26,
                 MIGRATION_26_27,
+                MIGRATION_27_28,
+                MIGRATION_28_29,
+                MIGRATION_29_30,
+                MIGRATION_30_31,
+                MIGRATION_31_32,
             )
             .build()
         try {
@@ -364,6 +384,11 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 12. The v22 Weighing tables are separate from Vaccination capture state and round-trip.
             assertWeighingTablesRoundTrip(upgraded, base = 120L)
+
+            // 13. The ten v24 Weighing LEADERSHIP read-model tables (MIGRATION_23_24). Additive, so
+            //     an omitted CREATE would still compile and still pass every fresh-install test —
+            //     only reopening a real old file like this one catches it.
+            assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
         } finally {
             upgraded.close()
         }
@@ -483,6 +508,11 @@ class GoatDatabaseUpgradeCrashTest {
                 MIGRATION_24_25,
                 MIGRATION_25_26,
                 MIGRATION_26_27,
+                MIGRATION_27_28,
+                MIGRATION_28_29,
+                MIGRATION_29_30,
+                MIGRATION_30_31,
+                MIGRATION_31_32,
             )
             .build()
         try {
@@ -588,9 +618,186 @@ class GoatDatabaseUpgradeCrashTest {
 
             // 10. The three v22 Weighing tables (MIGRATION_21_22) exist and round-trip.
             assertWeighingTablesRoundTrip(upgraded, base = 120L)
+
+            // 11. The ten v24 Weighing LEADERSHIP read-model tables (MIGRATION_23_24) round-trip.
+            assertWeighingLeadershipTablesRoundTrip(upgraded, base = 140L)
         } finally {
             upgraded.close()
         }
+    }
+
+    /**
+     * Round-trips every v24 Weighing LEADERSHIP table so an omitted CREATE fails on upgrade.
+     *
+     * Each of the five read models is exercised through the SAME bounded observed read the screens
+     * will use, so a table that exists with the wrong columns/indices fails here rather than on a
+     * user's phone after an update.
+     */
+    private suspend fun assertWeighingLeadershipTablesRoundTrip(upgraded: GoatDatabase, base: Long) {
+        val taskDao = upgraded.weighingTaskDao()
+        taskDao.upsertAll(
+            listOf(
+                WeighingTaskRowEntity(
+                    queryKey = "weighing-tasks:all:",
+                    campaignId = "task-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base,
+                ),
+            ),
+        )
+        assertEquals("task-1", taskDao.observeWindow("weighing-tasks:all:", 20).first().single().campaignId)
+
+        val taskKeyDao = upgraded.weighingTaskRemoteKeyDao()
+        taskKeyDao.upsert(
+            WeighingTaskRemoteKeyEntity(
+                queryKey = "weighing-tasks:all:",
+                nextCursor = "cursor-1",
+                endReached = false,
+                activeCount = 3,
+                completedCount = 1,
+                canPublish = true,
+                canEnd = false,
+                canReopen = false,
+                updatedAt = base + 1,
+            ),
+        )
+        assertEquals(3, taskKeyDao.get("weighing-tasks:all:")?.activeCount)
+
+        val bucketDao = upgraded.weighingTaskBucketDao()
+        bucketDao.upsertAll(
+            listOf(
+                WeighingTaskBucketRowEntity(
+                    campaignId = "task-1",
+                    campaignShedId = "bucket-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 2,
+                ),
+            ),
+        )
+        assertEquals("bucket-1", bucketDao.observeWindow("task-1", 20).first().single().campaignShedId)
+
+        val bucketKeyDao = upgraded.weighingTaskBucketRemoteKeyDao()
+        bucketKeyDao.upsert(
+            WeighingTaskBucketRemoteKeyEntity(
+                campaignId = "task-1",
+                nextCursor = null,
+                endReached = true,
+                totalCount = 76,
+                updatedAt = base + 3,
+            ),
+        )
+        // The WHOLE-TASK count survives, not the page length.
+        assertEquals(76, bucketKeyDao.get("task-1")?.totalCount)
+
+        val shedDao = upgraded.weighingLeadershipShedDao()
+        shedDao.upsert(
+            WeighingLeadershipShedEntity(
+                shedKey = "task-1:bucket-1",
+                campaignId = "task-1",
+                campaignShedId = "bucket-1",
+                shedName = "Gandhi 1",
+                parkName = "Channapatna",
+                weighDate = "2026-07-31",
+                operatorUserId = "user-1",
+                operatorDisplayName = "Amit Kumar",
+                category = "individual_animal",
+                status = "in_progress",
+                periodLabel = "",
+                estimatedAnimalCount = 40,
+                maxShedVideos = 5,
+                lumpSumJson = null,
+                galleryQueryKey = "weighing-videos",
+                gallerySortIndex = 0,
+                updatedAt = base + 4,
+            ),
+        )
+        val cachedShed = shedDao.observe("task-1:bucket-1").first()
+        // The deep-link context columns are what let a cold open render without route arguments.
+        assertEquals("Channapatna", cachedShed?.parkName)
+        assertEquals("2026-07-31", cachedShed?.weighDate)
+        assertEquals("Amit Kumar", cachedShed?.operatorDisplayName)
+        assertEquals(1, shedDao.observeGalleryWindow("weighing-videos", 20).first().size)
+
+        val recordDao = upgraded.weighingLeadershipRecordDao()
+        recordDao.upsertAll(
+            listOf(
+                WeighingLeadershipRecordEntity(
+                    shedKey = "task-1:bucket-1",
+                    observationId = "obs-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 5,
+                ),
+            ),
+        )
+        assertEquals("obs-1", recordDao.observeWindow("task-1:bucket-1", 20).first().single().observationId)
+
+        val recordKeyDao = upgraded.weighingLeadershipRecordRemoteKeyDao()
+        recordKeyDao.upsert(
+            WeighingLeadershipRecordRemoteKeyEntity(
+                shedKey = "task-1:bucket-1",
+                nextCursor = "obs-cursor",
+                endReached = false,
+                updatedAt = base + 6,
+            ),
+        )
+        assertEquals("obs-cursor", recordKeyDao.get("task-1:bucket-1")?.nextCursor)
+
+        // v25: the gallery's OWN cursor table. It used to share the task-list remote-key table,
+        // where the task list's newest-N-filters prune could evict it mid-scroll.
+        val galleryKeyDao = upgraded.weighingLeadershipGalleryRemoteKeyDao()
+        galleryKeyDao.upsert(
+            WeighingLeadershipGalleryRemoteKeyEntity(
+                queryKey = "weighing-videos",
+                nextCursor = "gallery-cursor",
+                endReached = false,
+                updatedAt = base + 6,
+            ),
+        )
+        assertEquals("gallery-cursor", galleryKeyDao.get("weighing-videos")?.nextCursor)
+
+        val plannerDao = upgraded.weighingPlannerCatalogDao()
+        plannerDao.upsertSheds(
+            listOf(
+                WeighingPlannerShedRowEntity(
+                    queryKey = "2026-08-03",
+                    locationId = "loc-1",
+                    parkId = "park-1",
+                    parkName = "Channapatna",
+                    sortIndex = 0,
+                    shedJson = "{}",
+                    existingCampaignJson = null,
+                    updatedAt = base + 7,
+                ),
+            ),
+        )
+        assertEquals("park-1", plannerDao.observeShedWindow("2026-08-03", 20).first().single().parkId)
+
+        plannerDao.upsertOperators(
+            listOf(
+                WeighingPlannerOperatorRowEntity(
+                    queryKey = "2026-08-03",
+                    userId = "user-1",
+                    sortIndex = 0,
+                    dtoJson = "{}",
+                    updatedAt = base + 8,
+                ),
+            ),
+        )
+        assertEquals(1, plannerDao.observeOperators("2026-08-03", 20).first().size)
+
+        val plannerKeyDao = upgraded.weighingPlannerRemoteKeyDao()
+        plannerKeyDao.upsert(
+            WeighingPlannerRemoteKeyEntity(
+                queryKey = "2026-08-03",
+                nextCursor = "catalog-cursor",
+                endReached = false,
+                updatedAt = base + 9,
+            ),
+        )
+        assertEquals("catalog-cursor", plannerKeyDao.get("2026-08-03")?.nextCursor)
     }
 
     /** Round-trips the v22 Weighing local tables so an omitted migration fails on upgrade. */
@@ -637,7 +844,6 @@ class GoatDatabaseUpgradeCrashTest {
                 expectedLocationLabel = "Gandhi 1",
                 actualLocationId = "loc-1",
                 actualLocationLabel = "Gandhi 1",
-                animalId = "animal-1",
                 scannedIdentifier = "RFID-1",
                 weightKg = 12.4,
                 proofCaptureId = null,
@@ -648,7 +854,11 @@ class GoatDatabaseUpgradeCrashTest {
                 lastError = null,
             ),
         )
-        assertEquals("obs-1", upgraded.weighingObservationDao().findByAnimal(scope, "animal-1")?.observationId)
+        // Lookup is keyed on the scanned tag -- free-flow weighing carries no animal identity at all.
+        assertEquals(
+            "obs-1",
+            upgraded.weighingObservationDao().findByScannedIdentifier(scope, "RFID-1")?.observationId,
+        )
 
         upgraded.weighingShedObservationDao().insert(
             WeighingShedObservationEntity(
@@ -752,10 +962,191 @@ class GoatDatabaseUpgradeCrashTest {
         assertEquals("G-000101", upgraded.awaitingRfidRemoteKeyDao().get(AwaitingRfidRemoteKeyEntity.SCOPE)?.nextCursor)
     }
 
+    /**
+     * v25 -> v26: the installed-APK upgrade that drops `weighing_observation.animalId` and re-keys
+     * the bucket's unique index onto `scannedIdentifier`.
+     *
+     * This is the class of bug a plain in-memory Room test is BLIND to: an `@Entity` change with no
+     * matching `Migration` compiles, passes every in-memory test and works on a FRESH install, then
+     * throws `IllegalStateException: Migration didn't properly handle weighing_observation` on the
+     * first launch of every UPGRADED phone. So the v25 file is built on disk from the real
+     * migration chain, seeded through raw SQL with the v25 column set (`animalId` present), closed
+     * at user_version = 25, and reopened with the CURRENT schema + the real migrations.
+     *
+     * The rebuild must also be NON-DESTRUCTIVE: `weighing_observation` holds unsynced operator
+     * captures, so the seeded PENDING_LOCAL row must still be there afterwards with its weight,
+     * idempotency key and proof ids intact.
+     */
+    @Test
+    fun `installed v25 db upgrades to v26 dropping animalId without crashing or losing captures`() = runTest {
+        // 1. A real v25 file: v1 schema + every migration up to 24->25, seeded like a phone that
+        //    captured two weights offline and has not synced them.
+        seedV25DatabaseFile { db ->
+            db.execSQL(
+                "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, " +
+                    "`workGroupId`, `campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, " +
+                    "`actualLocationId`, `actualLocationLabel`, `animalId`, `scannedIdentifier`, `weightKg`, " +
+                    "`proofCaptureId`, `serverProofId`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                    "VALUES ('obs-v25-1', 'campaign-1:work-1:shed-1', 'tenant-1', 'campaign-1', 'work-1', " +
+                    "'shed-1', 'loc-1', 'Gandhi 1', 'loc-1', 'Gandhi 1', '', 'RFID-V25-1', 12.4, " +
+                    "'proof-local-1', 'proof-server-1', 'PENDING_LOCAL', 'weighing:individual:v25-1', 900, NULL)",
+            )
+            db.execSQL(
+                "INSERT INTO `weighing_observation` (`observationId`, `scopeKey`, `tenantId`, `campaignId`, " +
+                    "`workGroupId`, `campaignShedId`, `expectedLocationId`, `expectedLocationLabel`, " +
+                    "`actualLocationId`, `actualLocationLabel`, `animalId`, `scannedIdentifier`, `weightKg`, " +
+                    "`proofCaptureId`, `serverProofId`, `syncStatus`, `idempotencyKey`, `capturedAtMs`, `lastError`) " +
+                    "VALUES ('obs-v25-2', 'campaign-1:work-1:shed-1', 'tenant-1', 'campaign-1', 'work-1', " +
+                    "'shed-1', 'loc-1', 'Gandhi 1', NULL, NULL, 'legacy-animal-2', 'RFID-V25-2', 13.5, " +
+                    "NULL, NULL, 'READY_TO_SUBMIT', 'weighing:individual:v25-2', 950, NULL)",
+            )
+        }
+
+        // 2. The app update: SAME file, current schema, real migration chain. A missing or wrong
+        //    MIGRATION_25_26 throws right here.
+        val upgraded = Room.databaseBuilder(context, GoatDatabase::class.java, DB_NAME)
+            .addMigrations(*ALL_TEST_MIGRATIONS)
+            .build()
+        try {
+            upgraded.openHelper.writableDatabase // force open + migrate + schema validate
+
+            // 3. Neither unsynced capture was lost, and every field the outbox needs survived.
+            val dao = upgraded.weighingObservationDao()
+            val kept = dao.observeForScope("campaign-1:work-1:shed-1", 20).first()
+            assertEquals(
+                listOf("RFID-V25-1", "RFID-V25-2"),
+                kept.map { it.scannedIdentifier },
+            )
+            val first = kept.first()
+            assertEquals(12.4, first.weightKg, 0.0)
+            assertEquals("PENDING_LOCAL", first.syncStatus)
+            assertEquals("weighing:individual:v25-1", first.idempotencyKey)
+            assertEquals("proof-local-1", first.proofCaptureId)
+            assertEquals("proof-server-1", first.serverProofId)
+            assertEquals(900L, first.capturedAtMs)
+
+            // 4. The column really is gone -- not merely ignored by the entity.
+            val columns = mutableListOf<String>()
+            upgraded.openHelper.writableDatabase
+                .query("PRAGMA table_info(`weighing_observation`)").use { c ->
+                    while (c.moveToNext()) columns += c.getString(1)
+                }
+            assertTrue("animalId must be dropped by MIGRATION_25_26, got $columns", "animalId" !in columns)
+            assertTrue("scannedIdentifier must survive", "scannedIdentifier" in columns)
+
+            // 5. And the re-keyed unique index is the one that exists.
+            val indices = mutableListOf<String>()
+            upgraded.openHelper.writableDatabase
+                .query("PRAGMA index_list(`weighing_observation`)").use { c ->
+                    while (c.moveToNext()) indices += c.getString(1)
+                }
+            assertTrue(
+                "unique index must be re-keyed onto scannedIdentifier, got $indices",
+                "index_weighing_observation_campaignId_campaignShedId_scannedIdentifier" in indices,
+            )
+            assertTrue(
+                "the animalId-keyed unique index must be gone, got $indices",
+                "index_weighing_observation_campaignId_campaignShedId_animalId" !in indices,
+            )
+
+            // 6. THE CAPTURE-DROP DEFECT: two different scanned tags in the SAME bucket must both
+            //    persist. Under the old (campaignId, campaignShedId, animalId) unique index both
+            //    collided on animalId = "" and the DAO's OnConflictStrategy.IGNORE silently threw
+            //    the second capture away -- a weight taken in a shed, gone with no error.
+            dao.insert(observationRow("obs-new-a", "RFID-NEW-A", 20.0, capturedAtMs = 1_000))
+            dao.insert(observationRow("obs-new-b", "RFID-NEW-B", 21.0, capturedAtMs = 1_001))
+            val afterTwoScans = dao.observeForScope("campaign-1:work-1:shed-1", 20).first()
+            assertEquals(
+                listOf("RFID-V25-1", "RFID-V25-2", "RFID-NEW-A", "RFID-NEW-B"),
+                afterTwoScans.map { it.scannedIdentifier },
+            )
+        } finally {
+            upgraded.close()
+        }
+    }
+
+    /**
+     * Builds a genuine on-disk v25 database: the real v1 schema, then every real migration object
+     * up to 24->25, then [seed], closed at user_version = 25 with Room's identity row written so
+     * the file is indistinguishable from one a shipped v25 APK left behind.
+     */
+    private fun seedV25DatabaseFile(seed: (SupportSQLiteDatabase) -> Unit) {
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(DB_NAME)
+            .callback(object : SupportSQLiteOpenHelper.Callback(25) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `bootstrap_cache` " +
+                            "(`id` INTEGER NOT NULL, `dtoJson` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, " +
+                            "PRIMARY KEY(`id`))",
+                    )
+                    V25_MIGRATIONS.forEach { it.migrate(db) }
+                    // Room's own bookkeeping, as a shipped APK would have left it.
+                    db.execSQL("CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)")
+                    db.execSQL(
+                        "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '$V25_IDENTITY_HASH')",
+                    )
+                    seed(db)
+                }
+
+                override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+            })
+            .build()
+        FrameworkSQLiteOpenHelperFactory().create(configuration).use { helper ->
+            helper.writableDatabase // force onCreate + seed
+        }
+    }
+
+    private fun observationRow(
+        observationId: String,
+        scannedIdentifier: String,
+        weightKg: Double,
+        capturedAtMs: Long,
+    ) = WeighingObservationEntity(
+        observationId = observationId,
+        scopeKey = "campaign-1:work-1:shed-1",
+        tenantId = "tenant-1",
+        campaignId = "campaign-1",
+        workGroupId = "work-1",
+        campaignShedId = "shed-1",
+        expectedLocationId = "loc-1",
+        expectedLocationLabel = "Gandhi 1",
+        actualLocationId = "loc-1",
+        actualLocationLabel = "Gandhi 1",
+        scannedIdentifier = scannedIdentifier,
+        weightKg = weightKg,
+        proofCaptureId = null,
+        serverProofId = null,
+        syncStatus = "PENDING_LOCAL",
+        idempotencyKey = "weighing:individual:$observationId",
+        capturedAtMs = capturedAtMs,
+        lastError = null,
+    )
+
     private companion object {
         const val DB_NAME = "upgrade-crash-goat.db"
         const val SEEDED_BOOTSTRAP_JSON = "{\"probe\":\"pre-upgrade\"}"
         const val SEEDED_AT = 111L
+
+        /** The v25 identity hash, from schemas/<db>/25.json — what a shipped v25 APK wrote. */
+        const val V25_IDENTITY_HASH = "9caa0d79deccc9a2ea32c22de09aa909"
+
+        /** Every real migration object, in order — the chain DatabaseFactory installs. */
+        val ALL_TEST_MIGRATIONS = arrayOf(
+            MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+            MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+            MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21,
+            MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26,
+            MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31,
+            MIGRATION_31_32,
+        )
+
+        /** The chain that produces a v25 file: everything up to and including MIGRATION_24_25 —
+         *  i.e. everything except MIGRATION_25_26 onwards, the last SEVEN entries of
+         *  ALL_TEST_MIGRATIONS. Keep this drop count in lockstep with the array above: adding a
+         *  migration without bumping it silently writes a wrong-version file. */
+        val V25_MIGRATIONS = ALL_TEST_MIGRATIONS.dropLast(7)
     }
 }
 

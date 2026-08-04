@@ -95,14 +95,17 @@ the real IdP for JWKS verification. Firebase is auth only for Goat OS bring-up:
 do not use Firebase Hosting or Firebase App Hosting, and do not introduce an
 external OIDC provider or static dev JWKS.
 
-Admin-web login uses Google Identity Services for the browser account chooser,
-then exchanges the returned Google ID token with Firebase Auth using
-`signInWithCredential`. Do not use Firebase `signInWithPopup` or
+Admin-web login uses Google Identity Services redirect mode for the browser
+account chooser, then exchanges the returned Google ID token with Firebase Auth
+using `signInWithCredential`. Do not use Firebase `signInWithPopup` or
 `signInWithRedirect` for this dashboard: both send the browser through
 `goatos-dev.firebaseapp.com/__/auth/handler`, which has timed out in live dev
-testing. Keep `auto_select=false` and `hd=mesha.sg`; do not enable One Tap for
+testing. Keep `auto_select=false`, `button_auto_select=false`, `hd=mesha.sg`,
+and `ux_mode=redirect`; do not enable One Tap or the GSI popup button flow for
 this internal dashboard without proving account-picker behavior on
-`https://dev.dashboard.mesha.sg`.
+`https://dev.dashboard.mesha.sg`. The redirect callback must validate Google's
+CSRF token and keep any posted Google credential short-lived and httpOnly until
+the browser exchanges it with Firebase.
 
 Admin-web also supports Firebase email/password sign-in and password-reset
 email from the same login page. This is still Firebase Auth, not a Goat OS

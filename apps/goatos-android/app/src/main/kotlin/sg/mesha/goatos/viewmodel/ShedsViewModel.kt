@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
+import sg.mesha.goatos.core.data.BootstrapRepository
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.ExecutionParkOptionDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
@@ -47,6 +48,7 @@ import javax.inject.Inject
 private const val PAGE_LIMIT = 20
 private const val OPERATOR_WINDOW_DAYS = 7
 private const val OPEN_ONLY_QUERY = false
+private const val CALENDAR_PARK_ARG = "parkId"
 private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 
 /**
@@ -67,6 +69,7 @@ private val KOLKATA: ZoneId = ZoneId.of("Asia/Kolkata")
 class ShedsViewModel @Inject constructor(
     private val repo: ExecutionRepository,
     private val crashReporter: CrashReporter,
+    private val bootstrapRepository: BootstrapRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -78,8 +81,10 @@ class ShedsViewModel @Inject constructor(
             ?.let(::parseExecutionDate)
             ?.takeIf { it >= workWindow.firstDay && it <= workWindow.lastDay }
             ?: workWindow.today
+    private val initialParkId: String? = savedStateHandle.get<String>(CALENDAR_PARK_ARG)?.takeIf { it.isNotBlank() }
     private val _selectedDay = MutableStateFlow(initialDay)
     private val _selectedParkId = MutableStateFlow<String?>(null)
+    private val _leadershipMode = MutableStateFlow(false)
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -108,8 +113,9 @@ class ShedsViewModel @Inject constructor(
         _isRefreshing,
         _isOffline,
         _isLoadingMore,
-    ) { selectedDay, isRefreshing, isOffline, isLoadingMore ->
-        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore)
+        _leadershipMode,
+    ) { selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode ->
+        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode)
     }
 
     // Combines observed resource with transient flags; lifecycle-aware
@@ -142,6 +148,8 @@ class ShedsViewModel @Inject constructor(
             }
         base.copy(
             hostedFromCalendar = calendarHosted,
+            leadershipMode = transient.leadershipMode,
+            selectedParkId = initialParkId,
             isRefreshing = transient.isRefreshing,
             isInitialLoading = isInitialLoading,
             isLoadingMore = transient.isLoadingMore,
@@ -156,7 +164,15 @@ class ShedsViewModel @Inject constructor(
     )
 
     init {
+        loadLeadershipMode()
         refresh()
+    }
+
+    private fun loadLeadershipMode() {
+        viewModelScope.launch {
+            val role = runCatching { bootstrapRepository.operatorProfile()?.primaryRoleHint }.getOrNull()
+            _leadershipMode.value = role.isLeadershipShedsRole()
+        }
     }
 
     /** Network side of stale-while-revalidate: upserts Room on success (the [observeRows]
@@ -235,12 +251,12 @@ class ShedsViewModel @Inject constructor(
             when {
                 !hasVisibleWork -> false
                 dueDate == null -> selectedDay == workWindow.today
-                // Today folds in the deep backlog (due strictly before the visible yesterday
-                // tab) plus today's own open/review work; completed rows stay on their actual
-                // scheduled day so finished shed cards do not disappear or flood today's list.
+                // Today folds in the deep backlog (due strictly before today) plus today's own
+                // open/review work; completed rows stay on their actual scheduled day so finished
+                // shed cards do not disappear or flood today's list.
                 selectedDay == workWindow.today ->
                     dueDate.isEqual(workWindow.today) ||
-                        (dueDate.isBefore(workWindow.firstDay) && row.hasOpenOrReviewWork())
+                        (dueDate.isBefore(workWindow.today) && row.hasOpenOrReviewWork())
                 else -> dueDate == selectedDay
             }
         }
@@ -262,6 +278,8 @@ class ShedsViewModel @Inject constructor(
             ShedRow(
                 id = identity.cardId,
                 name = first.shedName,
+                parkId = first.parkId,
+                parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),
                 physicalShed = first.physicalShed.ifBlank { first.shedName },
                 partition = first.partition,
@@ -386,7 +404,17 @@ private data class ShedsTransientState(
     val isRefreshing: Boolean,
     val isOffline: Boolean,
     val isLoadingMore: Boolean,
+    val leadershipMode: Boolean,
 )
+
+internal fun String?.isLeadershipShedsRole(): Boolean {
+    val normalized = this?.lowercase(Locale.US)?.replace('-', '_') ?: return false
+    return normalized == "ceo" ||
+        normalized == "cxo" ||
+        normalized == "director" ||
+        normalized == "pc_director" ||
+        normalized.endsWith("_director")
+}
 
 internal fun protocolAdherenceSummary(counts: ExecutionCounts): ProtocolAdherenceSummary? =
     protocolAdherenceSummary(emptyList(), counts)
@@ -541,15 +569,27 @@ private fun VaccinationExecutionRowDto.isVerificationPending(): Boolean =
         sopStatus.equals("needs_review", ignoreCase = true) ||
         workState.equals("verification_pending", ignoreCase = true)
 
+/**
+ * Overdue-ness is BACKEND-OWNED: `workState` already carries `overdue`/`missed`
+ * (vaccinationexecution/app/service.go compares dueAt to as_of and, crucially, returns
+ * verification_pending BEFORE it can ever return overdue). The local date comparison
+ * below is only a stale-cache safety net for rows served from Room whose workState was
+ * computed against an older as_of.
+ *
+ * That net must carry the same submission term the backend uses — and that the calendar
+ * `canonical_read.go` genuine_overdue predicate uses: work that has been SUBMITTED and is
+ * awaiting verification is not late. Dropping that term is what painted a red "Overdue"
+ * chip next to "In review" on already-submitted sheds after the IST midnight rollover.
+ */
 private fun VaccinationExecutionRowDto.isOverdueWork(): Boolean {
     val work = workState.lowercase()
     if (work.contains("overdue") || work.contains("missed")) return true
-    if (isFinalClosed()) return false
+    if (isFinalClosed() || isVerificationPending()) return false
     val scheduleDate = currentScheduleDate
         ?.takeIf { it.isNotBlank() }
         ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
         ?: return false
-    return scheduleDate.isBefore(LocalDate.now(ZoneId.systemDefault()))
+    return scheduleDate.isBefore(LocalDate.now(ZoneId.of("Asia/Kolkata")))
 }
 
 private fun VaccinationExecutionRowDto.isAcceptedForProtocolSummary(): Boolean =

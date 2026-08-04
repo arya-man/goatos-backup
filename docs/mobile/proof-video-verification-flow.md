@@ -25,6 +25,27 @@ The backend proof-media foundation exists:
 - GCS storage can issue signed PUT/GET URLs when the backend is configured with
   `GOATOS_MEDIA_STORAGE=gcs`.
 
+### Terminal "evidence unavailable" on the download path
+
+Both download routes (`GET /app/proofs/{proof_id}/download` and
+`.../download/signed`) answer **`410 Gone`** with error code
+**`proof_object_missing`** and **`retryable: false`** when the proof row exists
+but its stored object is missing or unreadable. This is a known, terminal
+failure class — clients MUST render "evidence unavailable" and MUST NOT retry.
+(Distinct from `404 not_found`, which means there is no such proof row.)
+
+Under `storage_provider=local` the object key resolves relative to the API
+process working directory, so restarting the API from a different worktree
+moves the media root and makes every previously stored object unreadable — the
+2026-08-02 verifier incident, where a `500 internal_error` caused ~5 retries per
+proof.
+
+`evidence_available` on the verification queue means "a signed download link was
+resolved for every `media_ref`". It is a link-resolution claim, not a proof that
+the bytes are retrievable: the queue read deliberately does not stat storage
+(that would be an N+1 on a sub-500ms operator hot read). The `410` above is the
+authoritative unavailability signal.
+
 The Android app now has the integration pieces:
 
 - CameraX live in-app video recording into app-private storage;

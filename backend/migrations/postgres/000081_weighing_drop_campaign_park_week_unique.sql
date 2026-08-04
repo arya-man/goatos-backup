@@ -1,0 +1,68 @@
+-- +goose Up
+-- +goose NO TRANSACTION
+-- seed-fixture-guard:ignore: operational Weighing planner index only; no Vaccination HRMS seed contract change
+--
+-- DROP THE CAMPAIGN-GRAIN PARK-WEEK UNIQUE INDEX. It enforced a rule the
+-- business does not have, and it could not enforce the rule it does have.
+--
+-- What it was:
+--   weighing_campaigns_one_active_week_per_park_idx
+--     UNIQUE (tenant_id, park_id, period_type, cadence_type, period_start_date)
+--     WHERE status <> 'canceled'
+--
+-- Why it is wrong, not merely too strict:
+--   * `weighing_category` (individual_animal vs per_shed_partition) is a column
+--     on weighing_campaign_sheds, NOT on weighing_campaigns. The campaign-grain
+--     index therefore cannot tell a lump-sum plan from an individual one. It
+--     also must not be taught to: a single campaign may legitimately MIX both
+--     categories across its buckets, so denormalizing a category onto the
+--     campaign to feed this index would be a lie about the data.
+--   * `period_type` is pinned by CHECK (period_type = 'week') and
+--     `cadence_type` by CHECK (cadence_type = 'weekly_kids'). Both key columns
+--     are single-valued and discriminate nothing.
+--   Net effect: ONE campaign per park per week, full stop.
+--
+--   That refused a real flow: leadership plans some of a park's sheds as a
+--   lump-sum task, then plans the park's LEFTOVER sheds as a second task in the
+--   same week (or the reverse order). Those are disjoint sets of work on
+--   disjoint buckets. The create came back 409.
+--
+--   It was also a one-way door in practice: the predicate excludes only
+--   'canceled', so a 'closed' campaign -- finished history -- kept occupying
+--   its park-week slot permanently, and that park could never be scheduled for
+--   that week again.
+--
+-- What still enforces the invariant that DOES exist:
+--   uq_weighing_open_shed_per_park_date (migration 000062)
+--     UNIQUE (tenant_id, park_id, start_business_date, location_id)
+--     WHERE status NOT IN ('canceled', 'closed')
+--   on weighing_campaign_sheds. That is the real rule -- one shed is at most one
+--   person's open work on one date -- at the correct (bucket) grain, and it
+--   holds ACROSS campaigns, so splitting work into two tasks cannot double-book
+--   a shed. It also correctly frees the slot once the work is closed.
+--   weighing_campaign_sheds_campaign_location_uidx additionally stops a shed
+--   appearing twice inside ONE campaign, and the weighing_operator_park_bound
+--   trigger (000065) keeps every bucket's operator inside the campaign's park.
+--
+-- Reader safety: no read model depended on the uniqueness. PlannerCatalog
+-- already pre-aggregates the park's tasks with DISTINCT ON (park_id) and its
+-- own grain proof already documents the producer as "0..N rows per (tenant_id,
+-- park_id, period_start_date)"; every other campaign reader is keyed by
+-- campaign_id or joins campaign->bucket on campaign_id, so none can fan out or
+-- merge when a park-week holds two tasks.
+--
+-- Lock safety: DROP INDEX CONCURRENTLY takes no ACCESS EXCLUSIVE lock on the
+-- table and so cannot block concurrent planner reads or writes. It cannot run
+-- inside a transaction block, hence NO TRANSACTION.
+DROP INDEX CONCURRENTLY IF EXISTS public.weighing_campaigns_one_active_week_per_park_idx;
+
+-- +goose Down
+-- +goose NO TRANSACTION
+-- Recreating the index can FAIL by design: once leadership has planned two
+-- tasks in one park-week -- the whole point of this migration -- the data no
+-- longer satisfies the constraint. That is a correct, loud failure, not a bug
+-- in this Down. Cancel or close the extra task first if the old behaviour is
+-- genuinely wanted back.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS weighing_campaigns_one_active_week_per_park_idx
+  ON public.weighing_campaigns (tenant_id, park_id, period_type, cadence_type, period_start_date)
+  WHERE status <> 'canceled';

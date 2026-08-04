@@ -119,11 +119,19 @@ data class VerifyStatusOption(val value: String, val label: String)
 
 data class VerifyLocationFilterOption(val value: String?, val label: String)
 
+enum class VerifyModuleTab { VACCINATION, WEIGHING }
+
 @Immutable
 data class VerifyQueueUiState(
     val rows: List<VerificationQueueRow> = emptyList(),
+    /** Backend-owned module identity + display label for this queue's chrome. Blank when the
+     *  category has no module to name -- never substituted with a client-invented one. */
     val moduleKey: String = "",
     val moduleLabel: String = "",
+    /** Null when the queue's category has no dedicated chrome here (counts, feed) or could not
+     *  be resolved at all -- never coerced to a module the verifier did not ask for. */
+    val selectedModule: VerifyModuleTab? = null,
+    val isUnsupportedModule: Boolean = false,
     val isActionQueue: Boolean = false,
     val categoryOptions: List<VerifyCategoryOption> = emptyList(),
     val selectedCategory: String? = null,
@@ -152,6 +160,7 @@ data class VerifyQueueUiState(
 
 sealed interface VerifyQueueEvent {
     data class SelectCategory(val category: String?) : VerifyQueueEvent
+    data class SelectModule(val module: VerifyModuleTab) : VerifyQueueEvent
     data class SelectPark(val parkId: String?) : VerifyQueueEvent
     data class SelectShed(val shedId: String?) : VerifyQueueEvent
     data class SelectStatus(val status: String) : VerifyQueueEvent
@@ -272,6 +281,16 @@ fun VerifyQueueScreen(
             }
             if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
                 item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
+            } else if (state.isUnsupportedModule) {
+                // An empty "all caught up" here would be a lie: nothing was read at all.
+                item {
+                    EmptyState(
+                        title = stringResource(R.string.verify_queue_unsupported_module),
+                        subtitle = stringResource(R.string.verify_queue_unsupported_module_subtitle),
+                        icon = MeshaIcons.Video,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
             } else if (state.rows.isEmpty()) {
                 item {
                     EmptyState(
@@ -500,6 +519,10 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
 }
 
 @Composable
+// The eyebrow is the BACKEND's own module label (filterOptions.moduleLabel), not a client
+// string table keyed off a guessed module: it is blank exactly when there is no module to name,
+// which is the case main's client-side `when` existed to protect (a Counts verifier must never
+// read "VACCINATION"), and it satisfies the backend-owns-visible-copy rule at the same time.
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMissed: () -> Unit) {
     MeshaScreenHeader(
         eyebrow = state.moduleLabel.takeIf { !state.isActionQueue && it.isNotBlank() }?.uppercase(),

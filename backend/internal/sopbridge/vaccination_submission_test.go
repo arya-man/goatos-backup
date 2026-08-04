@@ -352,3 +352,93 @@ func TestVaccinationSubmissionBridgeFailsClosedOnVerificationError(t *testing.T)
 // unreachable in the intended shape for this offline-first submit flow. The reachable in_progress
 // trigger now lives entirely in obligation.Repository.MarkCompleted's sibling-transition logic; see
 // backend/internal/obligation/adapters/postgres/inprogress_integration_test.go for its proof.
+
+// TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePayload is the adversarial
+// two-shed regression for the media_refs shed leak: the Android client posts a CUMULATIVE payload,
+// so by the Nth shed submission of a shared parent task it re-sends every earlier shed's goat
+// proof_refs. sop_submission_items is already narrowed server-side to goats whose goats.shed_id
+// matches the submission's shed subject; verification_items.media_refs was NOT, so a verifier
+// reviewing shed B was shown shed A's animals as evidence. media_refs must carry only the proofs of
+// goats that actually belong to this submission's shed.
+func TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePayload(t *testing.T) {
+	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
+	goatA1, goatA2 := "goat-a1", "goat-a2"
+	goatB1, goatB2 := "goat-b1", "goat-b2"
+	shedA, shedB := "shed-a", "shed-b"
+
+	// Submission 2 of the parent task: server fanout materialized ONLY shed B's completions
+	// (the shed filter did its job), but the client payload still carries shed A's proofs.
+	rec := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "c-b1", SubmissionID: "sub-2", GoatID: goatB1, ShedID: shedB, ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "c-b2", SubmissionID: "sub-2", GoatID: goatB2, ShedID: shedB, ShedLabel: "Mandela 2", ParkID: "park-1", AdministeredAt: administeredAt.Add(time.Minute)},
+		},
+	}
+	producer := &captureVerificationProducer{}
+	bridge := NewVaccinationSubmissionBridge(rec).WithVerificationProducer(producer)
+	submission := sopdomain.SubmissionSummary{
+		SubmissionID: "sub-2",
+		SubmittedBy:  "operator-1",
+		ProofRefs: []sopdomain.ProofReference{
+			{ProofID: "proof-a1", SubjectType: "goat", SubjectID: &goatA1}, // shed A - foreign
+			{ProofID: "proof-a2", SubjectType: "goat", SubjectID: &goatA2}, // shed A - foreign
+			{ProofID: "proof-b1", SubjectType: "goat", SubjectID: &goatB1},
+			{ProofID: "proof-b2", SubjectType: "goat", SubjectID: &goatB2},
+			{ProofID: "shed-video-a", SubjectType: "shed", SubjectID: &shedA}, // shed A - foreign
+			{ProofID: "shed-video-b", SubjectType: "shed", SubjectID: &shedB},
+		},
+	}
+	task := sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}
+	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", task, submission); err != nil {
+		t.Fatalf("vaccination submit: %v", err)
+	}
+	if producer.calls != 1 {
+		t.Fatalf("verification producer calls = %d, want 1", producer.calls)
+	}
+	got := map[string]bool{}
+	for _, ref := range producer.last.MediaRefs {
+		got[ref] = true
+	}
+	for _, foreign := range []string{"proof-a1", "proof-a2", "shed-video-a"} {
+		if got[foreign] {
+			t.Fatalf("media_refs leaked foreign-shed proof %q: %v", foreign, producer.last.MediaRefs)
+		}
+	}
+	for _, own := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
+		if !got[own] {
+			t.Fatalf("media_refs dropped own-shed proof %q: %v", own, producer.last.MediaRefs)
+		}
+	}
+	if len(producer.last.MediaRefs) != 3 {
+		t.Fatalf("media refs = %v, want exactly shed B's 3 proofs", producer.last.MediaRefs)
+	}
+
+	// Mirror image: the shed A submission must carry ONLY shed A's proofs.
+	recA := &captureVaccinationRecorder{
+		count: 2,
+		completions: []vaccinationdomain.SubmissionCompletion{
+			{CompletionID: "c-a1", SubmissionID: "sub-1", GoatID: goatA1, ShedID: shedA, ShedLabel: "Castro 1", ParkID: "park-1", AdministeredAt: administeredAt},
+			{CompletionID: "c-a2", SubmissionID: "sub-1", GoatID: goatA2, ShedID: shedA, ShedLabel: "Castro 1", ParkID: "park-1", AdministeredAt: administeredAt},
+		},
+	}
+	producerA := &captureVerificationProducer{}
+	bridgeA := NewVaccinationSubmissionBridge(recA).WithVerificationProducer(producerA)
+	submissionA := submission
+	submissionA.SubmissionID = "sub-1"
+	if err := bridgeA.OnTaskSubmitted(context.Background(), "tenant-1", task, submissionA); err != nil {
+		t.Fatalf("shed A submit: %v", err)
+	}
+	gotA := map[string]bool{}
+	for _, ref := range producerA.last.MediaRefs {
+		gotA[ref] = true
+	}
+	for _, foreign := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
+		if gotA[foreign] {
+			t.Fatalf("shed A media_refs leaked shed B proof %q: %v", foreign, producerA.last.MediaRefs)
+		}
+	}
+	if len(producerA.last.MediaRefs) != 3 {
+		t.Fatalf("shed A media refs = %v, want exactly shed A's 3 proofs", producerA.last.MediaRefs)
+	}
+}

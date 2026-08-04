@@ -14,6 +14,9 @@ import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.common.OutboxTelemetryEvent
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxWritePhase
 import sg.mesha.goatos.core.database.outbox.DEFAULT_MAX_ATTEMPTS
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
 import sg.mesha.goatos.core.database.outbox.OutboxOpType
@@ -513,6 +516,11 @@ class DefaultSyncRepository(
      *  closed mid-upload. [ForegroundSyncController.Noop] by default so every existing/test
      *  construction of this class keeps compiling unchanged. */
     private val foregroundSyncController: ForegroundSyncController = ForegroundSyncController.Noop,
+    /** Queue-lifecycle visibility (see [OutboxTelemetryReporter]). This half covers the ONE
+     *  transition [SyncEngine] cannot see — the moment a write becomes durable but has not yet
+     *  been attempted, which is exactly the state a never-draining queue is stuck in.
+     *  [OutboxTelemetryReporter.Noop] by default so existing/test constructions keep compiling. */
+    private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
 ) : SyncRepository {
 
     private val onlineFlow = MutableStateFlow(connectivityGate.isOnline())
@@ -1042,6 +1050,20 @@ class DefaultSyncRepository(
             return store.findByIdempotencyKey(idempotencyKey)?.let {
                 existingReplayIdOrThrow(it, opType, groupKey, payloadJson, fingerprint)
             } ?: throw e
+        }
+        // Only a genuinely NEW row is announced. An idempotent replay returns above without
+        // reporting, so the enqueue count stays a count of distinct writes rather than of taps.
+        // Telemetry is diagnostics, never control flow — a broken reporter cannot fail a write.
+        runCatching {
+            telemetry.onOutboxWrite(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.ENQUEUED,
+                    opType = opType.name,
+                    itemId = id,
+                    attempt = 0,
+                    maxAttempts = DEFAULT_MAX_ATTEMPTS,
+                ),
+            )
         }
         return id
     }

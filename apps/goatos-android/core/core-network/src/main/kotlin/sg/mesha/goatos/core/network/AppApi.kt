@@ -91,11 +91,17 @@ import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto
@@ -108,6 +114,26 @@ import sg.mesha.goatos.core.network.dto.WeighingScopeSubmitRequestDto
  * viewport-triggered continuation (see docs/decisions/mobile-data-fetch-anti-patterns.md).
  */
 const val WEIGHING_PAGE_SIZE = 20
+
+/**
+ * One phone-screen page of weighing ALERTS. Same ~20-rows-per-screen budget as every other
+ * mobile list; the backend clamps anything larger, so this is the client's half of one contract
+ * rather than an independent guess.
+ */
+const val WEIGHING_ALERTS_PAGE_SIZE = 20
+
+/**
+ * The three weighing surfaces. Each is a separate destination with its own authority, so the
+ * client names the surface it is rendering instead of the server inferring it from the viewer's
+ * roles. Values match the backend `scope` query parameter.
+ */
+const val WEIGHING_SCOPE_MINE = "mine"
+
+/** The planner's flat all-tasks list across parks. Read-only; requires weighing.plan. */
+const val WEIGHING_SCOPE_ALL = "all"
+
+/** Read-only oversight of other people's work. Requires weighing.oversee_operators. */
+const val WEIGHING_SCOPE_OPERATORS = "operators"
 
 /** Hard ceiling for a caller-requested Room window (e.g., observeScope). */
 const val MAX_OBSERVED_WINDOW = WEIGHING_PAGE_SIZE * 2  // 40
@@ -192,6 +218,10 @@ data class RegisterDeviceRequestDto(
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
     @SerialName("fcm_token") val fcmToken: String? = null,
+    /** Whether this phone will actually SHOW what we send it
+     *  (`NotificationManagerCompat.areNotificationsEnabled()`), so the backend can mark the device
+     *  push-muted and stop counting a dropped push as delivered. `null` = not reported. */
+    @SerialName("notifications_enabled") val notificationsEnabled: Boolean? = null,
 )
 
 /** Request body for POST /app/devices/{device_id}/heartbeat (HeartbeatDeviceRequest).
@@ -202,6 +232,9 @@ data class HeartbeatDeviceRequestDto(
     @SerialName("os_version") val osVersion: String = "",
     @SerialName("push_token_hash") val pushTokenHash: String? = null,
     @SerialName("fcm_token") val fcmToken: String? = null,
+    /** Re-reported on every heartbeat: someone who switches notifications off (or back on) in
+     *  system settings after registering is picked up on the next bootstrap. */
+    @SerialName("notifications_enabled") val notificationsEnabled: Boolean? = null,
 )
 
 /** Response for register/heartbeat (DeviceResponse). */
@@ -357,10 +390,64 @@ interface AppApi {
     suspend fun getShedCompletionSummary(taskId: String, shedId: String? = null): ShedCompletionSummaryDto
 
     /** GET /app/weighing/campaigns — operator-visible Weighing campaigns (keyset paginated). */
-    suspend fun listWeighingCampaigns(cursor: String? = null, limit: Int = WEIGHING_PAGE_SIZE): WeighingCampaignListResponseDto
+    suspend fun listWeighingCampaigns(
+        scope: String? = null,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+        parkId: String? = null,
+    ): WeighingCampaignListResponseDto
 
-    /** GET /app/weighing/planner/catalog — leadership planner vocabulary for weekly kids task creation. */
-    suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto
+    /**
+     * GET /app/weighing/campaigns/{campaign_id} — ONE task resolved by id.
+     *
+     * The read behind a notification deep link. The task list is a keyset page with no id filter,
+     * so a cold tap on a task further down the keyset could only be answered by walking pages;
+     * this answers it in one call. A 404 means "not yours or not there" and the two are
+     * deliberately indistinguishable -- the client must not report which.
+     */
+    suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto
+
+    /**
+     * GET /app/weighing/parks — the parks whose weighing this caller may look at.
+     *
+     * Identity-only park VOCABULARY, already capability-scoped by the backend and unpaged. It
+     * exists because the only other park list is the planner catalog, which is gated on the
+     * planning permission a Growth Director does not hold.
+     */
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    /**
+     * GET /app/weighing/campaigns/{campaign_id}/sheds — ONE task's shed buckets, keyset-paged on
+     * (display_name, campaign_shed_id). The task-detail read; the task LIST is not a substitute,
+     * because a park holds 76+ sheds and a 20-task page would carry over a thousand bucket rows.
+     */
+    suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingCampaignShedPageResponseDto
+
+    /**
+     * GET /app/weighing/planner/catalog — the PARK-grain planner vocabulary for one weigh date.
+     *
+     * Every park the planner may use, each with its own shed COUNT, plus the operator picker. No
+     * cursor and no limit: the park step must offer them ALL. The many side pages separately
+     * through [getWeighingPlannerParkBuckets].
+     */
+    suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto
+
+    /**
+     * GET /app/weighing/planner/parks/{park_id}/buckets — ONE keyset page of ONE park's sheds,
+     * carrying the date-scoped availability the bucket step renders.
+     */
+    suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingPlannerParkBucketsResponseDto
 
     suspend fun createWeighingCampaign(
         idempotencyKey: String,
@@ -378,19 +465,52 @@ interface AppApi {
         idempotencyKey: String,
     ): WeighingCampaignResponseDto
 
-    /** GET /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster — active scope RFID roster. */
+    /**
+     * GET .../roster — the active scope's SCAN HISTORY. Free-flow weighing has no expected-animal
+     * roster (`weighing_expected_animals` dropped by 000079), so the response's `items` array is
+     * permanently empty and the roster cursor/`include_roster` gate are gone with it: this read
+     * pages `observations` only.
+     */
     suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
-        cursor: String? = null,
         observationsCursor: String? = null,
         limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingRosterResponseDto
 
+    /**
+     * GET .../videos — the shed bucket as leadership reads it. `individual` is a keyset page on
+     * (accepted_at, observation_id); the lump-sum row is a single latest read and is not paged.
+     */
     suspend fun getWeighingLeadershipShedVideos(
         campaignId: String,
         campaignShedId: String,
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
     ): WeighingLeadershipShedVideosResponseDto
+
+    /**
+     * GET /app/weighing/leadership/sheds — ONE keyset page of shed buckets across tasks, each with
+     * its own context and its first page of evidence. The gallery's own read: building this page
+     * client-side meant one HTTP call per bucket (~1,500 on a 76-shed park) on every resume.
+     */
+    suspend fun listWeighingLeadershipSheds(
+        cursor: String? = null,
+        limit: Int = WEIGHING_PAGE_SIZE,
+    ): WeighingLeadershipShedPageResponseDto
+
+    /**
+     * GET /app/weighing/alerts — the weighing module's OWN lifecycle feed: work assigned, shed
+     * submitted for verification, proof sent back for rework, shed reopened, work closed, each
+     * routed to whoever owns the next action.
+     *
+     * NOT the vaccination process-integrity feed. The backend scopes the rows to the caller and
+     * authors every visible string (title/body plus the page's title and empty-state sentence).
+     */
+    suspend fun listWeighingAlerts(
+        cursor: String? = null,
+        limit: Int = WEIGHING_ALERTS_PAGE_SIZE,
+    ): WeighingAlertPageResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -990,7 +1110,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         visibleNavigation = listOf(
             NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
             NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-            NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+            NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
         ),
         // Mirrors the backend moduleNavRegistry shape (available + soon) so previews and
         // screenshot tests render the real backend-composed drawer, not a client stub.
@@ -1003,7 +1123,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
                 navItems = listOf(
                     NavItemDto(key = "vaccination", label = "Drives", href = "/vaccination"),
                     NavItemDto(key = "calendar", label = "Calendar", href = "/calendar"),
-                    NavItemDto(key = "alerts", label = "Alerts", href = "/alerts"),
+                    NavItemDto(key = "alerts", label = "Alerts", href = "/vaccination/alerts"),
                 ),
             ),
             BootstrapModuleDto(
@@ -1112,10 +1232,34 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
             submitState = "draft",
         )
 
-    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto = WeighingCampaignListResponseDto()
 
-    override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
-        WeighingPlannerCatalogResponseDto()
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        WeighingCampaignDetailResponseDto()
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = WeighingParkListResponseDto()
+
+    override suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingCampaignShedPageResponseDto = WeighingCampaignShedPageResponseDto()
+
+    override suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto = WeighingPlannerCatalogResponseDto()
+
+    override suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingPlannerParkBucketsResponseDto = WeighingPlannerParkBucketsResponseDto()
 
     override suspend fun createWeighingCampaign(
         idempotencyKey: String,
@@ -1136,7 +1280,6 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
-        cursor: String?,
         observationsCursor: String?,
         limit: Int,
     ): WeighingRosterResponseDto = WeighingRosterResponseDto()
@@ -1144,7 +1287,19 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
     override suspend fun getWeighingLeadershipShedVideos(
         campaignId: String,
         campaignShedId: String,
+        cursor: String?,
+        limit: Int,
     ): WeighingLeadershipShedVideosResponseDto = WeighingLeadershipShedVideosResponseDto()
+
+    override suspend fun listWeighingLeadershipSheds(
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedPageResponseDto = WeighingLeadershipShedPageResponseDto()
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = WeighingAlertPageResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,

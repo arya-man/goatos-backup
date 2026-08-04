@@ -27,6 +27,7 @@ import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ProofCaptureEntity
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.FakeAppApi
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -40,7 +41,7 @@ import sg.mesha.goatos.core.network.dto.WeighingPlannerOperatorDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerParkDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerShedDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
-import sg.mesha.goatos.core.network.dto.WeighingRosterRowDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationDto
@@ -99,7 +100,6 @@ class WeighingRepositoryTest {
                 campaignId = "campaign-1",
                 workGroupId = "group-1",
                 campaignShedId = "campaign-shed-1",
-                animalId = "animal-5001",
                 scannedIdentifier = "TAG-5001",
                 weightKg = 12.4,
             ),
@@ -108,109 +108,95 @@ class WeighingRepositoryTest {
 
         val after = repository.observeScope(scopeKey, windowSize = 20).first()
         assertEquals(20, after.rosterWindow.size)
-        assertEquals(listOf("animal-5001"), after.individualDrafts.map { it.animalId })
+        assertEquals(listOf("TAG-5001"), after.individualDrafts.map { it.scannedIdentifier })
     }
 
     @Test
     fun `leadership videos map individual animals and lump sum summaries`() = runTest {
-        val campaigns = WeighingCampaignListResponseDto(
-            items = listOf(
-                WeighingCampaignDto(
-                    campaignId = "campaign",
-                    status = "completed",
-                    periodStartDate = "2026-07-27",
-                    periodEndDate = "2026-08-02",
-                    sheds = listOf(
-                        campaignShed("campaign", "individual", "Gandhi 1", "individual_animal"),
-                        campaignShed("campaign", "lump", "Castro 1", "per_shed_partition"),
-                    ),
-                ),
-            ),
-        )
+        // ONE request at BUCKET grain. The gallery used to build this page itself by expanding a
+        // task page and calling the single-bucket read once per bucket.
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int) = campaigns
-
-            override suspend fun getWeighingLeadershipShedVideos(
-                campaignId: String,
-                campaignShedId: String,
-            ) = WeighingLeadershipShedVideosResponseDto(
-                shed = if (campaignShedId == "individual") {
-                    WeighingLeadershipShedVideosDto(
-                        campaignId = campaignId,
-                        campaignShedId = campaignShedId,
-                        shedName = "Gandhi 1",
-                        weighingCategory = "individual_animal",
-                        status = "completed",
-                        individual = listOf(
-                            WeighingObservationDto(
-                                animalId = "RFID-000123",
-                                weightKg = 18.25,
-                                acceptedAt = "2026-07-29T06:00:00Z",
-                                media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
+            override suspend fun listWeighingLeadershipSheds(cursor: String?, limit: Int) =
+                WeighingLeadershipShedPageResponseDto(
+                    items = listOf(
+                        WeighingLeadershipShedVideosDto(
+                            campaignId = "campaign",
+                            campaignShedId = "individual",
+                            shedName = "Gandhi 1",
+                            weighingCategory = "individual_animal",
+                            status = "completed",
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            individual = listOf(
+                                WeighingObservationDto(
+                                    scannedIdentifier = "RFID-000123",
+                                    weightKg = 18.25,
+                                    acceptedAt = "2026-07-29T06:00:00Z",
+                                    media = listOf(WeighingProofMediaDto("proof-1", "https://proof/1")),
+                                ),
                             ),
                         ),
-                    )
-                } else {
-                    WeighingLeadershipShedVideosDto(
-                        campaignId = campaignId,
-                        campaignShedId = campaignShedId,
-                        shedName = "Castro 1",
-                        weighingCategory = "per_shed_partition",
-                        status = "completed",
-                        lumpSum = WeighingObservationDto(
-                            weightKg = 250.0,
-                            averageWeightKg = 25.0,
-                            animalCount = 10,
-                            media = listOf(
-                                WeighingProofMediaDto("proof-2", "https://proof/2"),
-                                WeighingProofMediaDto("proof-3", "https://proof/3"),
+                        WeighingLeadershipShedVideosDto(
+                            campaignId = "campaign",
+                            campaignShedId = "lump",
+                            shedName = "Castro 1",
+                            weighingCategory = "per_shed_partition",
+                            status = "completed",
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            lumpSum = WeighingObservationDto(
+                                weightKg = 250.0,
+                                averageWeightKg = 25.0,
+                                animalCount = 10,
+                                media = listOf(
+                                    WeighingProofMediaDto("proof-2", "https://proof/2"),
+                                    WeighingProofMediaDto("proof-3", "https://proof/3"),
+                                ),
                             ),
                         ),
-                    )
-                },
-            )
+                    ),
+                )
         }
         val subject = DefaultWeighingRepository(
             api = api,
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val result = subject.listLeadershipVideos() as AppResult.Ok
+        subject.refreshLeadershipVideos()
+        val items = subject.observeLeadershipVideos().first()
 
-        assertEquals("RFID-000123", result.value.items[0].animals.single().rfid)
-        assertEquals(18.25, result.value.items[0].animals.single().weightKg, 0.0)
-        assertEquals(10, result.value.items[1].animalCount)
-        assertEquals(250.0, result.value.items[1].totalWeightKg!!, 0.0)
-        assertEquals(25.0, result.value.items[1].averageWeightKg!!, 0.0)
-        assertEquals(2, result.value.items[1].videos.size)
+        assertEquals("RFID-000123", items[0].animals.single().rfid)
+        assertEquals(18.25, items[0].animals.single().weightKg, 0.0)
+        assertEquals(10, items[1].animalCount)
+        assertEquals(250.0, items[1].totalWeightKg!!, 0.0)
+        assertEquals(25.0, items[1].averageWeightKg!!, 0.0)
+        assertEquals(2, items[1].videos.size)
     }
 
+    // FREE-FLOW: the scope read has no expected-animal roster to hydrate -- `items` is permanently
+    // `[]` since the backend dropped `weighing_expected_animals` (000079). What refreshScope must
+    // restore is the bucket's ACCEPTED observations, keyed on the scanned tag. The old code guarded
+    // that restore on a non-empty `animal_id`, a field the backend has not sent since 000078, so
+    // nothing was ever restored.
     @Test
-    fun `refresh scope hydrates Room roster from backend rows`() = runTest {
+    fun `refresh scope restores accepted observations with no animal id in the payload`() = runTest {
         val api = object : AppApi by FakeAppApi() {
             override suspend fun getWeighingRoster(
                 campaignId: String,
                 campaignShedId: String,
-                cursor: String?,
                 observationsCursor: String?,
                 limit: Int,
             ): WeighingRosterResponseDto = WeighingRosterResponseDto(
-                items = listOf(
-                    WeighingRosterRowDto(
+                observations = listOf(
+                    WeighingAcceptedObservationDto(
+                        observationId = "observation-1",
                         campaignId = campaignId,
                         campaignShedId = campaignShedId,
-                        animalId = "animal-9",
-                        displayAnimalId = "KID-A-009",
-                        primaryIdentifier = "WG-RFID-0009",
-                        expectedLocationId = "shed-a",
-                        expectedLocationLabel = "Kid Shed A",
-                        currentLocationId = "shed-b",
-                        currentLocationLabel = "Kid Shed B",
-                        status = "pending",
-                        availabilityStatus = "moved_other_shed",
-                        seq = 9,
+                        scannedIdentifier = "WG-RFID-0009",
+                        weightKg = 12.4,
+                        proofArtifactId = "proof-1",
+                        acceptedAt = "2026-07-30T10:00:00Z",
                     ),
                 ),
             )
@@ -226,108 +212,141 @@ class WeighingRepositoryTest {
         val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
         assertEquals(1, (refreshed as AppResult.Ok).value)
 
-        val match = repository.matchTag(scopeKey, "WG-RFID-0009")
-        assertEquals("animal-9", match.row?.animalId)
-        assertEquals("tenant-live", match.row?.tenantId)
-        assertEquals("wrong_shed", match.outcome)
+        val drafts = repository.observeScope(scopeKey, windowSize = 20).first().individualDrafts
+        assertEquals(listOf("WG-RFID-0009"), drafts.map { it.scannedIdentifier })
+        assertTrue(drafts.single().syncedToBackend)
     }
 
     @Test
-    fun `refresh scope follows roster cursors and keeps off-page RFID matchable`() = runTest {
-        val requested = mutableListOf<Pair<String?, Int>>()
+    fun `refresh scope drops stale accepted observations but keeps pending local work`() = runTest {
+        repository.replaceRoster(
+            scopeKey,
+            listOf(
+                rosterRow(animalId = "animal-accepted", tag = "TAG-ACCEPTED"),
+                rosterRow(animalId = "animal-pending", tag = "TAG-PENDING"),
+            ),
+        )
+        val accepted = repository.recordIndividual(
+            individualCapture("animal-accepted", "TAG-ACCEPTED", weightKg = 10.2),
+        ) as AppResult.Ok
+        db.weighingObservationDao().markAcceptedByIdempotencyKey(accepted.value.idempotencyKey)
+        repository.recordIndividual(
+            individualCapture("animal-pending", "TAG-PENDING", weightKg = 11.4),
+        ) as AppResult.Ok
+
         val api = object : AppApi by FakeAppApi() {
             override suspend fun getWeighingRoster(
                 campaignId: String,
                 campaignShedId: String,
-                cursor: String?,
                 observationsCursor: String?,
                 limit: Int,
-            ): WeighingRosterResponseDto {
-                requested += cursor to limit
-                return if (cursor == null) {
-                    WeighingRosterResponseDto(
-                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-page-1", "WG-RFID-0001", 1)),
-                        nextCursor = "cursor-page-2",
-                    )
-                } else {
-                    WeighingRosterResponseDto(
-                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-page-2", "WG-RFID-5001", 101)),
-                        nextCursor = null,
-                    )
-                }
-            }
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(observations = emptyList())
         }
         repository = DefaultWeighingRepository(
             api = api,
-            tenantId = "tenant-live",
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
         )
 
-        val refreshed = repository.refreshScope("campaign-1", "group-1", "campaign-shed-1", maxRows = WEIGHING_PAGE_SIZE * 2)
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
 
-        assertEquals(2, (refreshed as AppResult.Ok).value)
-        assertEquals(listOf(null to 20, "cursor-page-2" to 20), requested)
-        val match = repository.matchTag(scopeKey, "WG-RFID-5001")
-        assertEquals("animal-page-2", match.row?.animalId)
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(listOf("TAG-PENDING"), state.individualDrafts.map { it.scannedIdentifier })
     }
 
-    // A shed can hold more accepted observations than roster rows -- re-weighs and
-    // free-flow scans have no roster row at all -- so the two streams paginate
-    // INDEPENDENTLY. The refresh previously advanced only the roster cursor, which
-    // meant everything past the first observations page was silently dropped and a
-    // re-weighed animal kept reading as un-weighed on the device. Both cursors must
-    // drain, even after the roster stream is already exhausted.
     @Test
-    fun `refresh scope drains the observations cursor after the roster cursor is exhausted`() = runTest {
-        val rosterCursors = mutableListOf<String?>()
+    fun `refresh scope drops stale accepted shed partition so backend open shed can be recorded again`() = runTest {
+        val first = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 180.5, "unit": "kg"}""",
+            ),
+        ) as AppResult.Ok
+        db.weighingShedObservationDao().markAcceptedByIdempotencyKey(first.value.idempotencyKey)
+
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(observations = emptyList())
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            clock = { 2000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        val second = repository.recordShedPartition(
+            ShedPartitionWeighingCapture(
+                tenantId = "tenant",
+                campaignId = "campaign-1",
+                workGroupId = "group-1",
+                campaignShedId = "campaign-shed-1",
+                expectedLocationId = "shed-1",
+                expectedLocationLabel = "Gandhi 1",
+                resultJson = """{"weight": 181.0, "unit": "kg"}""",
+            ),
+        )
+
+        assertTrue(second is AppResult.Ok)
+        assertEquals(1, repository.observeScope(scopeKey, windowSize = 20).first().shedDrafts.size)
+    }
+
+    // FREE-FLOW: the roster leg of this read is GONE (no `items`, no roster cursor, no
+    // `include_roster` gate). Only the observations cursor is drained, and it must drain fully --
+    // everything past page one used to be dropped, so a re-weighed animal kept reading as
+    // un-weighed on the device.
+    @Test
+    fun `refresh scope drains the observations cursor to the last page`() = runTest {
         val observationCursors = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
             override suspend fun getWeighingRoster(
                 campaignId: String,
                 campaignShedId: String,
-                cursor: String?,
                 observationsCursor: String?,
                 limit: Int,
             ): WeighingRosterResponseDto {
-                rosterCursors += cursor
                 observationCursors += observationsCursor
-                // Roster finishes on the FIRST page; observations need a second.
                 return if (observationsCursor == null) {
                     WeighingRosterResponseDto(
-                        items = listOf(rosterDto(campaignId, campaignShedId, "animal-obs-1", "WG-RFID-7001", 1)),
                         observations = listOf(
                             WeighingAcceptedObservationDto(
                                 observationId = "observation-page-1",
                                 campaignId = campaignId,
                                 campaignShedId = campaignShedId,
-                                animalId = "animal-obs-1",
                                 scannedIdentifier = "WG-RFID-7001",
                                 weightKg = 12.0,
                                 proofArtifactId = "proof-1",
                                 acceptedAt = "2026-07-30T10:00:00Z",
                             ),
                         ),
-                        nextCursor = null,
                         nextObservationsCursor = "obs-page-2",
                     )
                 } else {
                     WeighingRosterResponseDto(
-                        items = emptyList(),
                         observations = listOf(
                             WeighingAcceptedObservationDto(
                                 observationId = "observation-page-2",
                                 campaignId = campaignId,
                                 campaignShedId = campaignShedId,
-                                animalId = "animal-obs-2",
                                 scannedIdentifier = "WG-RFID-7002",
                                 weightKg = 13.0,
                                 proofArtifactId = "proof-2",
                                 acceptedAt = "2026-07-30T10:05:00Z",
                             ),
                         ),
-                        nextCursor = null,
                         nextObservationsCursor = null,
                     )
                 }
@@ -343,26 +362,29 @@ class WeighingRepositoryTest {
 
         repository.refreshScope("campaign-1", "group-1", "campaign-shed-1", maxRows = WEIGHING_PAGE_SIZE * 2)
 
-        // The second call is driven purely by the observations cursor: the roster
-        // cursor was already null. Before the fix this list was [null] only.
         assertEquals(listOf(null, "obs-page-2"), observationCursors)
-        assertEquals(listOf(null, null), rosterCursors)
+        assertEquals(
+            listOf("WG-RFID-7001", "WG-RFID-7002"),
+            repository.observeScope(scopeKey, windowSize = 20).first()
+                .individualDrafts.map { it.scannedIdentifier }.sorted(),
+        )
     }
 
     @Test
-    fun `planner catalog maps parks sheds operators and existing campaign guard`() = runTest {
+    fun `planner catalog maps parks shed counts operators and existing campaign guard`() = runTest {
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
+            override suspend fun getWeighingPlannerCatalog(
+                periodStartDate: String,
+            ): WeighingPlannerCatalogResponseDto =
                 WeighingPlannerCatalogResponseDto(
                     parks = listOf(
                         WeighingPlannerParkDto(
                             parkId = "park-cpt",
                             name = "CPT - Channapatna",
                             kidCount = 144,
-                            sheds = listOf(
-                                WeighingPlannerShedDto(locationId = "shed-castro-1", name = "Castro 1", kidCount = 80),
-                                WeighingPlannerShedDto(locationId = "shed-castro-2", name = "Castro 2", kidCount = 64),
-                            ),
+                            // Park grain: the catalog carries the park's shed COUNT. The shed rows
+                            // are a separate per-park keyset page.
+                            shedCount = 2,
                             existingCampaign = WeighingCampaignSummaryDto(
                                 campaignId = "campaign-existing",
                                 status = "in_progress",
@@ -382,14 +404,16 @@ class WeighingRepositoryTest {
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val result = repository.plannerCatalog("2026-07-27") as AppResult.Ok
+        repository.refreshPlannerCatalog("2026-07-27")
+        val catalog = repository.observePlannerCatalog("2026-07-27").first().catalog
 
-        assertEquals("CPT - Channapatna", result.value.parks.single().name)
-        assertEquals("campaign-existing", result.value.parks.single().existingCampaign?.campaignId)
-        assertEquals(listOf("Castro 1", "Castro 2"), result.value.parks.single().sheds.map { it.name })
-        assertEquals("Amit Kumar", result.value.operators.single().displayName)
+        assertEquals("CPT - Channapatna", catalog.parks.single().name)
+        assertEquals("campaign-existing", catalog.parks.single().existingCampaign?.campaignId)
+        assertEquals(2, catalog.parks.single().shedCount)
+        assertEquals("Amit Kumar", catalog.operators.single().displayName)
     }
 
     @Test
@@ -472,7 +496,7 @@ class WeighingRepositoryTest {
     @Test
     fun `operator assignments exclude canceled campaign sheds from backend spelling`() = runTest {
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto =
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
                 WeighingCampaignListResponseDto(
                     items = listOf(
                         weighingCampaign(
@@ -495,6 +519,73 @@ class WeighingRepositoryTest {
         val result = repository.listAssignments() as AppResult.Ok
 
         assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `operator surface still excludes closed sheds, only canceled ones dropped for real`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-closed", "Castro 2", "closed"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        // Default scope is WEIGHING_SCOPE_MINE -- the operator's own executable work. A closed
+        // bucket has nothing left for the operator to do, so it must stay excluded there.
+        val result = repository.listAssignments() as AppResult.Ok
+
+        assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
+    }
+
+    @Test
+    fun `leadership oversight surface receives closed sheds so history and reopen are reachable`() = runTest {
+        // A23: toAssignments() used to drop status == "closed" unconditionally, which fed BOTH the
+        // operator screen AND LeadershipWeighingScreen from the same list. LeadershipWeighingScreen
+        // implements tap-to-reopen driven by `row.isClosed`, but a closed row could never arrive --
+        // reopen was permanently dead code. WEIGHING_SCOPE_OPERATORS is the leadership/oversight
+        // surface (per WeighingRepository.listAssignments's own scope doc), so it must see closed
+        // buckets.
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto =
+                WeighingCampaignListResponseDto(
+                    items = listOf(
+                        weighingCampaign(
+                            status = "published",
+                            sheds = listOf(
+                                weighingShed("campaign-plan", "campaign-shed-live", "Castro 1", "pending"),
+                                weighingShed("campaign-plan", "campaign-shed-closed", "Castro 2", "closed"),
+                                weighingShed("campaign-plan", "campaign-shed-canceled", "Castro 3", "canceled"),
+                            ),
+                        ),
+                    ),
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+        )
+
+        val result = repository.listAssignments(scope = WEIGHING_SCOPE_OPERATORS) as AppResult.Ok
+
+        // Closed reaches the surface (and stays reopen-able); canceled never becomes real work.
+        assertEquals(listOf("Castro 1", "Castro 2"), result.value.items.map { it.label })
+        assertTrue(result.value.items.single { it.label == "Castro 2" }.status.equals("closed", ignoreCase = true))
     }
 
     @Test
@@ -550,7 +641,7 @@ class WeighingRepositoryTest {
     fun `blank or repeated assignment cursor terminates instead of requesting again`() = runTest {
         val requested = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
                 requested += cursor
                 return WeighingCampaignListResponseDto(
                     items = listOf(weighingCampaign(status = "published", sheds = listOf(weighingShed("campaign-plan", "campaign-shed-1", "Castro 1", "pending")))),
@@ -578,58 +669,51 @@ class WeighingRepositoryTest {
     fun `leadership video pages follow the backend cursor across two distinct pages`() = runTest {
         val requested = mutableListOf<String?>()
         val api = object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingLeadershipSheds(
+                cursor: String?,
+                limit: Int,
+            ): WeighingLeadershipShedPageResponseDto {
                 requested += cursor
                 val suffix = if (cursor == null) "p1" else "p2"
-                return WeighingCampaignListResponseDto(
+                return WeighingLeadershipShedPageResponseDto(
                     items = listOf(
-                        WeighingCampaignDto(
+                        WeighingLeadershipShedVideosDto(
                             campaignId = "campaign",
+                            campaignShedId = "shed-$suffix",
+                            shedName = "Gandhi $suffix",
+                            weighingCategory = "individual_animal",
                             status = "completed",
-                            periodStartDate = "2026-07-27",
-                            periodEndDate = "2026-08-02",
-                            sheds = listOf(campaignShed("campaign", "shed-$suffix", "Gandhi $suffix", "individual_animal")),
+                            periodLabel = "2026-07-27 - 2026-08-02",
+                            individual = listOf(
+                                WeighingObservationDto(
+                                    scannedIdentifier = "RFID-shed-$suffix",
+                                    weightKg = 18.25,
+                                    acceptedAt = "2026-07-29T06:00:00Z",
+                                    media = listOf(WeighingProofMediaDto("proof-$suffix", "https://proof/$suffix")),
+                                ),
+                            ),
                         ),
                     ),
                     nextCursor = if (cursor == null) "cursor-page-2" else null,
                 )
             }
-
-            override suspend fun getWeighingLeadershipShedVideos(
-                campaignId: String,
-                campaignShedId: String,
-            ) = WeighingLeadershipShedVideosResponseDto(
-                shed = WeighingLeadershipShedVideosDto(
-                    campaignId = campaignId,
-                    campaignShedId = campaignShedId,
-                    shedName = campaignShedId,
-                    weighingCategory = "individual_animal",
-                    status = "completed",
-                    individual = listOf(
-                        WeighingObservationDto(
-                            animalId = "RFID-$campaignShedId",
-                            weightKg = 18.25,
-                            acceptedAt = "2026-07-29T06:00:00Z",
-                            media = listOf(WeighingProofMediaDto("proof-$campaignShedId", "https://proof/$campaignShedId")),
-                        ),
-                    ),
-                ),
-            )
         }
         repository = DefaultWeighingRepository(
             api = api,
             rosterDao = db.weighingRosterDao(),
             observationDao = db.weighingObservationDao(),
             shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
         )
 
-        val first = (repository.listLeadershipVideos() as AppResult.Ok).value
-        assertEquals(listOf("shed-p1"), first.items.map { it.campaignShedId })
-        assertEquals("cursor-page-2", first.nextCursor)
+        repository.refreshLeadershipVideos()
+        assertEquals(listOf("shed-p1"), repository.observeLeadershipVideos().first().map { it.campaignShedId })
 
-        val second = (repository.listLeadershipVideos(first.nextCursor) as AppResult.Ok).value
-        assertEquals(listOf("shed-p2"), second.items.map { it.campaignShedId })
-        assertEquals(null, second.nextCursor)
+        repository.refreshLeadershipVideos(reset = false)
+        assertEquals(
+            listOf("shed-p1", "shed-p2"),
+            repository.observeLeadershipVideos().first().map { it.campaignShedId },
+        )
         assertEquals(listOf(null, "cursor-page-2"), requested)
     }
 
@@ -670,15 +754,35 @@ class WeighingRepositoryTest {
         )
         assertFalse(first.value.readyToSubmit)
 
-        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+        repository.attachIndividualProof(scopeKey, "TAG-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
         val state = repository.observeScope(scopeKey, windowSize = 20).first()
 
         assertEquals(1, state.individualDrafts.size)
         assertTrue(state.individualDrafts.single().readyToSubmit)
         assertEquals(
-            "weighing:individual:campaign-1:group-1:campaign-shed-1:animal-1:local-1",
+            "weighing:individual:campaign-1:group-1:campaign-shed-1:TAG-1:local-1",
             state.individualDrafts.single().idempotencyKey,
         )
+    }
+
+    // THE CAPTURE-DROP DEFECT: the observation table's unique index used to be
+    // (campaignId, campaignShedId, animalId) -- a column the backend stopped sending when it
+    // dropped weighing_observations.animal_id (000078). Every free-flow capture therefore carried
+    // animalId = "", two different scanned tags in the SAME bucket collided on that index, and
+    // WeighingObservationDao.insert uses OnConflictStrategy.IGNORE -- so the second scan was
+    // silently DROPPED with no error surfaced to the operator. The index is now keyed on the
+    // scanned tag, which is the real free-flow identity.
+    @Test
+    fun `two different scanned tags in one bucket both persist`() = runTest {
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-A", weightKg = 10.2))
+        val second = repository.recordIndividual(individualCapture("ignored", "TAG-B", weightKg = 11.4))
+
+        assertTrue(first is AppResult.Ok)
+        assertTrue(second is AppResult.Ok)
+
+        val drafts = repository.observeScope(scopeKey, windowSize = 20).first().individualDrafts
+        assertEquals(listOf("TAG-A", "TAG-B"), drafts.map { it.scannedIdentifier }.sorted())
+        assertEquals(listOf(10.2, 11.4), drafts.map { it.weightKg }.sorted())
     }
 
     @Test
@@ -691,7 +795,6 @@ class WeighingRepositoryTest {
                 campaignId = "campaign-1",
                 workGroupId = "group-1",
                 campaignShedId = "campaign-shed-2",
-                animalId = "TAG-1",
                 scannedIdentifier = "TAG-1",
                 weightKg = 11.4,
             ),
@@ -725,7 +828,7 @@ class WeighingRepositoryTest {
         repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
 
         val first = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
-        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+        repository.attachIndividualProof(scopeKey, "TAG-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
         assertEquals(first.value.idempotencyKey, store.findByIdempotencyKey(first.value.idempotencyKey)?.idempotencyKey)
 
         val corrected = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 11.4)) as AppResult.Ok
@@ -733,7 +836,237 @@ class WeighingRepositoryTest {
 
         assertEquals(null, store.findByIdempotencyKey(first.value.idempotencyKey))
         assertEquals(listOf(11.4), state.individualDrafts.map { it.weightKg })
-        assertEquals("weighing:individual:campaign-1:group-1:campaign-shed-1:animal-1:local-2", corrected.value.idempotencyKey)
+        assertEquals("weighing:individual:campaign-1:group-1:campaign-shed-1:TAG-1:local-2", corrected.value.idempotencyKey)
+    }
+
+    // The campaign-create idempotency key embedded the full bucket list verbatim, so it grew
+    // without bound -- the first real device run produced 249- and 431-character keys. The
+    // envelope caps idempotency_key at 320 and trace_id at 200, so both campaign_created events
+    // were written and then permanently rejected by the relay (failed on attempt 1, never
+    // retried). A digest holds the key at a constant width while keeping the identity the key is
+    // supposed to name: the same bucket SET is the same task.
+    @Test
+    fun `campaign create key is bounded and order-independent`() {
+        val buckets = (1..40).map { "9100000$it-0000-4000-8000-00000000020$it:individual_animal:op-$it" }
+        val key = "weighing:create:2026-08-03:park-1:" + weighingBucketSetDigest(buckets)
+        assertTrue(
+            "campaign create key is ${key.length} chars; the envelope caps idempotency_key at 320 and trace_id at 200",
+            key.length <= 200,
+        )
+        // Same SET, different order, must be the same task -- otherwise a re-ordered selection
+        // creates a duplicate campaign.
+        assertEquals(weighingBucketSetDigest(buckets), weighingBucketSetDigest(buckets.reversed()))
+        // A genuinely different set must be a different task.
+        assertTrue(weighingBucketSetDigest(buckets) != weighingBucketSetDigest(buckets.drop(1)))
+    }
+
+    // THE TWO-PHASE FAN-OUT DEFECT (first real device run): a capture is posted TWICE.
+    // attachIndividualProof is invoked once directly by the ViewModel and again by the
+    // observeReadyProofs() reconciler for the SAME row. The first call leaves the row's key
+    // at the base key; the second sees a row that now carries serverProofId and therefore
+    // treats the redelivery as a proof REVISION, minting `<base>:proof:<serverProofId>` and
+    // enqueueing a SECOND write for identical content. The backend cannot tell those two keys
+    // apart from a genuine edit, so it withdraws round 1's verification item and raises round
+    // 2 -- 20 verification_items and 20 accepted events for 10 real captures.
+    //
+    // A redelivery of the SAME proof for a row that is ALREADY queued is not a revision.
+    @Test
+    fun `redelivering the same proof does not queue a second write`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        // Phase 2: the ViewModel attaches the uploaded proof.
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        // The reconciler redelivers the very same ready proof for the very same row.
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        val queued = store.observeActive().first()
+        assertEquals(
+            "one capture must queue exactly one write; queued keys=" + queued.map { it.idempotencyKey },
+            1,
+            queued.size,
+        )
+        assertEquals(first.value.idempotencyKey, queued.single().idempotencyKey)
+        val state = repository.observeScope(scopeKey, windowSize = 20).first()
+        assertEquals(first.value.idempotencyKey, state.individualDrafts.single().idempotencyKey)
+    }
+
+    // The suppression above must mean "this capture is STILL GOING TO BE SENT", not merely
+    // "a row exists under this key". An attempt-exhausted FAILED row exists but is TERMINAL:
+    // OutboxDao.eligibleForDrain requires `attemptCount < maxAttempts AND conflict = 0`, so
+    // the drain will never claim it again. This is not hypothetical -- it is the growth-director
+    // 403 (RetryClassification keeps 403 RETRYABLE, so the proof burned all its attempts and
+    // left a terminal FAILED row behind). A bare key-existence check would make the reconciler
+    // replay see that corpse, return early, and STRAND the capture forever while the operator's
+    // screen still shows it saved locally. Re-minting the `:proof:` key is the recovery path.
+    @Test
+    fun `redelivering a proof re-enqueues when the existing write is terminally failed`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        // Burn the retry budget the way the 403 run did: the row is FAILED, non-conflict, but
+        // attemptCount has reached maxAttempts, so it is terminal.
+        store.markInFlight(queued.id, now = 1000L)
+        store.markFailed(
+            id = queued.id,
+            attemptCount = queued.maxAttempts,
+            nextAttemptAt = 0L,
+            conflict = false,
+            lastError = "403",
+            now = 1000L,
+        )
+        assertTrue(
+            "precondition: the exhausted row must no longer be drainable",
+            store.eligibleForDrain(now = Long.MAX_VALUE, limit = 10).isEmpty(),
+        )
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        val all = store.snapshot()
+        assertEquals(
+            "a terminal write must be re-enqueued under the :proof: key; rows=" + all.map { it.idempotencyKey + "/" + it.status },
+            2,
+            all.size,
+        )
+        assertTrue(
+            "the recovery row must exist",
+            store.findByIdempotencyKey("${first.value.idempotencyKey}:proof:proof-server-1") != null,
+        )
+        assertEquals(1, store.eligibleForDrain(now = Long.MAX_VALUE, limit = 10).size)
+    }
+
+    // Same rule, the other terminal shape: the row drained, SUCCEEDED, and was pruned away.
+    // Nothing is queued and nothing is on record as reaching the server under the current key,
+    // so the replay must re-enqueue rather than silently no-op.
+    @Test
+    fun `redelivering a proof re-enqueues when the existing write was drained and deleted`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        store.delete(store.findByIdempotencyKey(first.value.idempotencyKey)!!.id)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a vanished write must be re-enqueued; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // The original fan-out fix must still hold for the ACTIVE shapes: a row the dispatcher has
+    // already claimed is on its way to the server, so a redelivery of the identical proof must
+    // not mint a second key for the identical capture.
+    @Test
+    fun `redelivering the same proof does not queue a second write while in flight`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        store.markInFlight(store.findByIdempotencyKey(first.value.idempotencyKey)!!.id, now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "an in-flight write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // A SUCCEEDED row that has not been pruned yet DID reach the server. Re-minting a
+    // `:proof:` key for it would post the identical capture a second time -- the original
+    // fan-out. Terminal is not one bucket: terminally-DELIVERED suppresses, terminally-
+    // UNDELIVERABLE recovers.
+    @Test
+    fun `redelivering the same proof does not queue a second write after success`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        store.markInFlight(queued.id, now = 1000L)
+        store.markSucceeded(queued.id, resultJson = "{}", now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a delivered write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
+    }
+
+    // A retryable (still-in-budget) FAILED row is likewise still going to be sent -- the drain
+    // will re-claim it once the backoff window elapses.
+    @Test
+    fun `redelivering the same proof does not queue a second write while retryable`() = runTest {
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
+
+        val first = repository.recordIndividual(individualCapture("ignored", "TAG-1", weightKg = 10.2)) as AppResult.Ok
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+        val queued = store.findByIdempotencyKey(first.value.idempotencyKey)!!
+        store.markInFlight(queued.id, now = 1000L)
+        store.markFailed(queued.id, attemptCount = 1, nextAttemptAt = 9_000L, conflict = false, lastError = "timeout", now = 1000L)
+
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        assertEquals(
+            "a retryable write must not fan out; rows=" + store.snapshot().map { it.idempotencyKey },
+            1,
+            store.snapshot().size,
+        )
     }
 
     @Test
@@ -750,7 +1083,7 @@ class WeighingRepositoryTest {
         repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
 
         val first = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
-        repository.attachIndividualProof(scopeKey, "animal-1", "proof-local-1", "proof-server-1")
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
         db.weighingObservationDao().markAcceptedByIdempotencyKey(
             first.value.idempotencyKey,
         )
@@ -758,7 +1091,7 @@ class WeighingRepositoryTest {
         val corrected = repository.recordIndividual(
             individualCapture("animal-1", "TAG-1", weightKg = 11.4),
         ) as AppResult.Ok
-        repository.attachIndividualProof(scopeKey, "animal-1", "proof-local-1", "proof-server-1")
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
         val state = repository.observeScope(scopeKey, windowSize = 20).first()
         val queued = store.findByIdempotencyKey(
             "${corrected.value.idempotencyKey}:proof:proof-server-1",
@@ -784,8 +1117,8 @@ class WeighingRepositoryTest {
         repository = concrete
         repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
         val draft = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
-        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = null)
-        db.proofCaptureDao().insert(syncedProof("proof-local-1", subjectId = "animal-1", serverProofId = "proof-server-1"))
+        repository.attachIndividualProof(scopeKey, "TAG-1", proofCaptureId = "proof-local-1", serverProofId = null)
+        db.proofCaptureDao().insert(syncedProof("proof-local-1", subjectId = "TAG-1", serverProofId = "proof-server-1"))
 
         concrete.reconcileReadyProofsOnce()
 
@@ -841,7 +1174,7 @@ class WeighingRepositoryTest {
         )
         repository.replaceRoster(scopeKey, listOf(rosterRow(animalId = "animal-1", tag = "TAG-1")))
         val draft = repository.recordIndividual(individualCapture("animal-1", "TAG-1", weightKg = 10.2)) as AppResult.Ok
-        repository.attachIndividualProof(scopeKey, "animal-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
+        repository.attachIndividualProof(scopeKey, "TAG-1", proofCaptureId = "proof-local-1", serverProofId = "proof-server-1")
 
         val engine = SyncEngine(
             store = store,
@@ -948,13 +1281,12 @@ class WeighingRepositoryTest {
         )
     }
 
-    private fun individualCapture(animalId: String, tag: String, weightKg: Double) =
+    private fun individualCapture(@Suppress("UNUSED_PARAMETER") animalId: String, tag: String, weightKg: Double) =
         IndividualWeighingCapture(
             tenantId = "tenant",
             campaignId = "campaign-1",
             workGroupId = "group-1",
             campaignShedId = "campaign-shed-1",
-            animalId = animalId,
             scannedIdentifier = tag,
             weightKg = weightKg,
         )
@@ -975,7 +1307,7 @@ class WeighingRepositoryTest {
     /** Two full screen-pages of shed assignments, keyset-linked by cursor, with no overlap. */
     private fun pagedCampaignApi(requested: MutableList<Pair<String?, Int>>): AppApi =
         object : AppApi by FakeAppApi() {
-            override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto {
+            override suspend fun listWeighingCampaigns(scope: String?, cursor: String?, limit: Int, parkId: String?): WeighingCampaignListResponseDto {
                 requested += cursor to limit
                 val start = if (cursor == null) 1 else WEIGHING_PAGE_SIZE + 1
                 return WeighingCampaignListResponseDto(
@@ -1067,27 +1399,6 @@ class WeighingRepositoryTest {
         updatedAt = 1L,
     )
 
-    private fun rosterDto(
-        campaignId: String,
-        campaignShedId: String,
-        animalId: String,
-        tag: String,
-        seq: Long,
-    ) = WeighingRosterRowDto(
-        campaignId = campaignId,
-        campaignShedId = campaignShedId,
-        animalId = animalId,
-        displayAnimalId = animalId,
-        primaryIdentifier = tag,
-        expectedLocationId = "shed-a",
-        expectedLocationLabel = "Kid Shed A",
-        currentLocationId = "shed-a",
-        currentLocationLabel = "Kid Shed A",
-        status = "pending",
-        availabilityStatus = "expected_shed",
-        seq = seq,
-    )
-
     private fun campaignShed(
         campaignId: String,
         campaignShedId: String,
@@ -1117,6 +1428,180 @@ class WeighingRepositoryTest {
         idempotencyKey = "proof-key-$id",
         serverProofId = serverProofId,
     )
+
+    @Test
+    fun `close reopen close each carry a DIFFERENT idempotency key`() = runTest {
+        // The backend replays a key it has already recorded and returns the ORIGINAL result without
+        // touching state, so a key fixed per scope made the second close a silent no-op that still
+        // reported success.
+        val keys = mutableListOf<String>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+
+            override suspend fun reopenWeighingScope(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+        }
+        val repo = weighingRepository(api)
+
+        assertTrue(repo.closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+        assertTrue(repo.reopenScope("campaign-1", "shed-1", "more animals") is AppResult.Ok)
+        assertTrue(repo.closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(3, keys.size)
+        assertEquals(3, keys.toSet().size)
+    }
+
+    @Test
+    fun `retrying a FAILED close reuses its idempotency key`() = runTest {
+        // Idempotency still has to do its job: an attempt whose outcome is unknown must be
+        // deduplicated when the operator taps again, so only a LANDED transition rotates the key.
+        val keys = mutableListOf<String>()
+        var failNext = true
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+                if (failNext) {
+                    failNext = false
+                    throw java.io.IOException("timeout")
+                }
+            }
+        }
+        val repo = weighingRepository(api)
+
+        assertTrue(repo.closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Err)
+        assertTrue(repo.closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(2, keys.size)
+        assertEquals(keys[0], keys[1])
+    }
+
+    @Test
+    fun `two different sheds never share an idempotency key`() = runTest {
+        val keys = mutableListOf<String>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+        }
+        val repo = weighingRepository(api)
+
+        repo.closeShedCampaign("campaign-1", "shed-1", "done")
+        repo.closeShedCampaign("campaign-1", "shed-2", "done")
+
+        assertEquals(2, keys.toSet().size)
+    }
+
+    @Test
+    fun `a close retried after PROCESS DEATH reuses its idempotency key`() = runTest {
+        // The exact failure the on-disk epoch exists for: the Close request reached the server but
+        // the response was lost, and the app was then killed. A second repository over the SAME
+        // database stands in for the next launch. With the epoch in the heap the retry minted a
+        // fresh key and the backend applied a SECOND close instead of replaying the first.
+        val keys = mutableListOf<String>()
+        var failNext = true
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+                if (failNext) {
+                    failNext = false
+                    throw java.io.IOException("socket closed")
+                }
+            }
+        }
+
+        assertTrue(persistentWeighingRepository(api, "before").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Err)
+        assertTrue(persistentWeighingRepository(api, "after").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(2, keys.size)
+        assertEquals(keys[0], keys[1])
+    }
+
+    @Test
+    fun `a LANDED close rotates the on-disk epoch so the next transition is really applied`() = runTest {
+        val keys = mutableListOf<String>()
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun closeShedWeighingCampaign(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+
+            override suspend fun reopenWeighingScope(
+                campaignId: String,
+                campaignShedId: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.WeighingScopeReopenRequestDto,
+            ) {
+                keys += idempotencyKey
+            }
+        }
+
+        assertTrue(persistentWeighingRepository(api, "a").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+        assertTrue(persistentWeighingRepository(api, "b").reopenScope("campaign-1", "shed-1", "more animals") is AppResult.Ok)
+        assertTrue(persistentWeighingRepository(api, "c").closeShedCampaign("campaign-1", "shed-1", "done") is AppResult.Ok)
+
+        assertEquals(3, keys.size)
+        assertEquals(3, keys.toSet().size)
+    }
+
+    /**
+     * A repository backed by the shared test database, with a per-instance id generator so any key
+     * two instances agree on can only have come from the DATABASE, never from a shared generator.
+     */
+    private fun persistentWeighingRepository(api: AppApi, launch: String): WeighingRepository =
+        DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
+            clock = { 1000L },
+            idGenerator = sequence {
+                var index = 0
+                while (true) yield("$launch-${++index}")
+            }.iterator()::next,
+        )
+
+    private fun weighingRepository(api: AppApi): WeighingRepository =
+        DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            clock = { 1000L },
+            idGenerator = stableIds().iterator()::next,
+        )
 
     private fun stableIds(): Sequence<String> = sequence {
         var index = 0

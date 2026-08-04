@@ -666,6 +666,25 @@ ORDER BY position_code, module_code, duty_type`, tenantID, positionCodes, at)
 
 // ---- Notification recipient resolution (vaccination-notification-rules.md §4c) ----------------
 
+// pushReachableDeviceSQL is the ONE definition of "a device we can actually reach", spliced into
+// every recipient query below (alias `d` = workforce_member_devices). It used to be six hand-copied
+// copies of `status = 'active' AND fcm_token IS NOT NULL`, which is how the third condition went
+// missing everywhere at once.
+//
+// The third condition is the one that was absent: on Android 13+ the OS notification permission
+// defaults to DENIED and a person can switch notifications off later. Such a phone still holds a
+// perfectly valid FCM token, so FCM accepts the send and reports success while the OS silently
+// drops it — the backend then records a delivery that never happened. A device that has REPORTED
+// itself muted (notifications_enabled = false, written by register/heartbeat, migration 000066) is
+// therefore not a recipient at all: nobody is told we reached them.
+//
+// `IS DISTINCT FROM false` (not `= true`): a device that has never reported the switch is NULL, and
+// an app build older than this contract must keep receiving exactly as before.
+const pushReachableDeviceSQL = `
+ AND d.status = 'active'
+ AND d.fcm_token IS NOT NULL
+ AND d.notifications_enabled IS DISTINCT FROM false`
+
 // ResolveModuleDutyRecipients returns active, reachable devices held by members whose position
 // carries (moduleCode, dutyType) at (scopeType, scopeID) `at`. One set-based query joining
 // workforce_positions -> position_module_duties -> workforce_members -> workforce_member_devices,
@@ -694,8 +713,7 @@ JOIN workforce_members m
 JOIN workforce_member_devices d
   ON d.tenant_id = p.tenant_id
  AND d.workforce_member_id = m.workforce_member_id
- AND d.status = 'active'
- AND d.fcm_token IS NOT NULL
+`+pushReachableDeviceSQL+`
 WHERE p.tenant_id = $1::uuid
   AND p.scope_type = $2
   AND p.scope_id = $3::uuid
@@ -738,9 +756,7 @@ WITH target_member AS (
 SELECT DISTINCT d.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_member_devices d
 JOIN target_member tm ON tm.workforce_member_id = d.workforce_member_id
-WHERE d.tenant_id = $1::uuid
-  AND d.status = 'active'
-  AND d.fcm_token IS NOT NULL
+WHERE d.tenant_id = $1::uuid`+pushReachableDeviceSQL+`
 ORDER BY 1, 2
 LIMIT 1000`, tenantID, memberOrUserID)
 	if err != nil {
@@ -764,8 +780,7 @@ FROM workforce_positions p
 JOIN workforce_member_devices d
   ON d.tenant_id = p.tenant_id
  AND d.workforce_member_id = p.workforce_member_id
- AND d.status = 'active'
- AND d.fcm_token IS NOT NULL
+`+pushReachableDeviceSQL+`
 WHERE p.tenant_id = $1::uuid
   AND p.scope_type = $2
   AND p.scope_id = $3::uuid
@@ -783,14 +798,13 @@ JOIN workforce_members m
 JOIN workforce_member_devices d
   ON d.tenant_id = m.tenant_id
  AND d.workforce_member_id = m.workforce_member_id
- AND d.status = 'active'
- AND d.fcm_token IS NOT NULL
+`+pushReachableDeviceSQL+`
 WHERE $2 = 'tenant'
   AND g.tenant_id = $1::uuid
   AND g.scope_type = 'tenant'
   AND g.scope_id = $3::uuid
   AND g.role = $4
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
@@ -829,8 +843,7 @@ FROM workforce_positions p
 JOIN workforce_member_devices d
   ON d.tenant_id = p.tenant_id
  AND d.workforce_member_id = p.workforce_member_id
- AND d.status = 'active'
- AND d.fcm_token IS NOT NULL
+`+pushReachableDeviceSQL+`
 WHERE p.tenant_id = $1::uuid
   AND p.scope_type = $2
   AND p.scope_id = ANY($3::uuid[])
@@ -848,14 +861,13 @@ JOIN workforce_members m
 JOIN workforce_member_devices d
   ON d.tenant_id = m.tenant_id
  AND d.workforce_member_id = m.workforce_member_id
- AND d.status = 'active'
- AND d.fcm_token IS NOT NULL
+`+pushReachableDeviceSQL+`
 WHERE $2 = 'tenant'
   AND g.tenant_id = $1::uuid
   AND g.scope_type = 'tenant'
   AND g.scope_id = ANY($3::uuid[])
   AND g.role = ANY($4::text[])
-  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director'])
+  AND g.role = ANY(ARRAY['ceo_internal','pc_director','growth_director','feed_director','health_director'])
   AND g.status = 'active'
   AND g.valid_from <= $5::timestamptz
   AND (g.valid_to IS NULL OR g.valid_to > $5::timestamptz)
@@ -880,6 +892,63 @@ LIMIT 5000`, tenantID, scopeType, scopeIDs, positionCodes, at)
 		}
 		key := scopeID + "|" + positionCode
 		out[key] = append(out[key], item)
+	}
+	return out, rows.Err()
+}
+
+// ResolveModuleDutyRecipientsBatch resolves, in ONE set-based query, the devices of every seat that
+// carries (moduleCode, any of dutyTypes) at any of scopeIDs. Same active-seat/active-member/reachable-
+// device filters and the same "<scopeID>|<positionCode>" result key as ResolvePositionRecipientsBatch,
+// so a caller can swap a hardcoded position-code audience for the duty audience without changing how
+// it folds recipients. Indexed by position_module_duties_by_module (tenant_id, module_code,
+// duty_type), the active-seat index, and workforce_member_devices_member_status_idx.
+// scale-guard: bounded recipient fan-out LIMIT 5000 (many parks x few duty seats) prevents unbounded
+// multi-device notifications.
+func (r *Repository) ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]domain.NotificationRecipient, error) {
+	out := map[string][]domain.NotificationRecipient{}
+	if len(scopeIDs) == 0 || strings.TrimSpace(moduleCode) == "" || len(dutyTypes) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT p.scope_id::text, p.position_code, p.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM workforce_positions p
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = p.tenant_id
+ AND pmd.position_code = p.position_code
+ AND pmd.module_code = $4
+ AND pmd.duty_type = ANY($5::text[])
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= $6::timestamptz
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > $6::timestamptz)
+JOIN workforce_members m
+  ON m.tenant_id = p.tenant_id
+ AND m.workforce_member_id = p.workforce_member_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = p.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+`+pushReachableDeviceSQL+`
+WHERE p.tenant_id = $1::uuid
+  AND p.scope_type = $2
+  AND p.scope_id = ANY($3::uuid[])
+  AND p.status = 'active'
+  AND p.valid_from <= $6::timestamptz
+  AND (p.valid_to IS NULL OR p.valid_to > $6::timestamptz)
+ORDER BY 1, 2, 3, 4
+LIMIT 5000`, tenantID, scopeType, scopeIDs, moduleCode, dutyTypes, at)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var scopeID, positionCode string
+		var item domain.NotificationRecipient
+		if err := rows.Scan(&scopeID, &positionCode, &item.WorkforceMemberID, &item.DeviceID, &item.FCMToken); err != nil {
+			return nil, err
+		}
+		out[scopeID+"|"+positionCode] = append(out[scopeID+"|"+positionCode], item)
 	}
 	return out, rows.Err()
 }

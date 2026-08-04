@@ -103,6 +103,16 @@ func (s *Service) RunOnce(ctx context.Context) (result *domain.RunResult, err er
 		ClaimedCount:        len(claim.Messages),
 		DeadLetterCount:     claim.DeadLetterCount,
 	}
+	// ClaimPending dead-letters attempt-exhausted rows in SQL, so those deaths never reach
+	// processMessage's logging below — without this they were a pure counter increment and no
+	// human would ever learn that events had been abandoned.
+	if claim.DeadLetterCount > 0 {
+		s.log.ErrorContext(ctx, "outbox_messages_dead_lettered_on_claim",
+			"count", claim.DeadLetterCount,
+			"max_attempts", s.config.MaxAttempts,
+			"reason", "max_attempts_exhausted",
+		)
+	}
 
 	// Track claimed IDs and which ones were successfully processed.
 	// On ctx cancellation mid-batch, release unprocessed messages so the next
@@ -163,6 +173,12 @@ func (s *Service) processMessage(ctx context.Context, message domain.Message, re
 			return fmt.Errorf("mark invalid outbox message failed: %w", markErr)
 		}
 		result.FailedCount++
+		// This row is now DEAD: never retried, never dead-lettered. It was also,
+		// until now, completely silent -- no counter and no log line, only a status
+		// column somebody had to think to query. That is how 12 undeliverable
+		// weighing events survived a whole real device run unnoticed. A write that
+		// dies must at minimum be VISIBLE.
+		s.recordTerminalFailure(ctx, message, "invalid_event_envelope")
 		return nil
 	}
 
@@ -182,8 +198,19 @@ func (s *Service) processMessage(ctx context.Context, message domain.Message, re
 		if markErr := s.repo.MarkFailed(ctx, message.OutboxID, sanitizeError("publish_permanent_failure"), now); markErr != nil {
 			return fmt.Errorf("mark permanently failed outbox message failed: %w", markErr)
 		}
+		// A permanently-failed row was previously recorded only as a metric counter, which a
+		// human learns about only if a dashboard/alert happens to be watching it. This event
+		// is a domain event that will NEVER be published — log it at Error so it also lands in
+		// the service log a human actually reads when investigating "why did nothing happen".
+		s.log.ErrorContext(ctx, "outbox_message_permanently_failed",
+			"outbox_id", message.OutboxID,
+			"event_type", message.EventType,
+			"attempt_count", message.AttemptCount,
+			"reason", "publish_permanent_failure",
+		)
 		result.FailedCount++
 		kmetrics.RecordOutboxPublish(ctx, kmetrics.OutboxOutcomeFailed, message.EventType, publishDuration)
+		s.recordTerminalFailure(ctx, message, "publish_permanent_failure")
 		return nil
 	}
 
@@ -191,8 +218,24 @@ func (s *Service) processMessage(ctx context.Context, message domain.Message, re
 		if markErr := s.repo.MarkDeadLetter(ctx, message.OutboxID, sanitizeError("max_attempts_exhausted"), now); markErr != nil {
 			return fmt.Errorf("mark dead-letter outbox message failed: %w", markErr)
 		}
+		// Same reasoning as the permanent-failure branch above, and this one matters more: a
+		// dead-lettered row is a domain event the rest of the system will simply never see, and
+		// until now the ONLY trace was a counter. Logged with the outbox id so an operator report
+		// ("my write never showed up") can be joined straight to the row that died.
+		s.log.ErrorContext(ctx, "outbox_message_dead_lettered",
+			"outbox_id", message.OutboxID,
+			"event_type", message.EventType,
+			"attempt_count", message.AttemptCount,
+			"max_attempts", s.config.MaxAttempts,
+			"reason", "max_attempts_exhausted",
+		)
 		result.DeadLetterCount++
 		kmetrics.RecordOutboxPublish(ctx, kmetrics.OutboxOutcomeDeadLetter, message.EventType, publishDuration)
+		// A dead-letter nothing reads is the same as a drop. The DLQ is queryable at
+		// GET /operations/dlq, but nothing ANNOUNCES an arrival; say it out loud so
+		// the row is discoverable from logs, not only by someone who already
+		// suspected a loss.
+		s.recordTerminalFailure(ctx, message, "max_attempts_exhausted")
 		return nil
 	}
 
@@ -203,6 +246,38 @@ func (s *Service) processMessage(ctx context.Context, message domain.Message, re
 	result.RetryScheduledCount++
 	kmetrics.RecordOutboxPublish(ctx, kmetrics.OutboxOutcomeRetry, message.EventType, publishDuration)
 	return nil
+}
+
+// recordTerminalFailure makes a dead write VISIBLE.
+//
+// Every terminal outbox path -- 'failed' via invalid_event_envelope, 'failed'
+// via publish_permanent_failure, and 'dead_letter' via max_attempts_exhausted --
+// ends with an event that will never be delivered. Only the dead_letter path had
+// a counter, and only two of the three had any metric at all; none of them said
+// anything a human would ever read. This emits a WARN naming the message and the
+// reason for all three, and counts the two 'failed' terminals that nothing was
+// counting.
+//
+// It deliberately does NOT change retry behaviour: nothing here retries anything
+// or extends any attempt budget.
+func (s *Service) recordTerminalFailure(ctx context.Context, message domain.Message, reason string) {
+	// The dead_letter terminal already has its own counter
+	// (kernel.outbox.dead_letters, via RecordOutboxBatch); counting it here too
+	// would double-count it. Only the two 'failed' terminals were uncounted.
+	if reason != "max_attempts_exhausted" {
+		kmetrics.RecordOutboxFailed(ctx, 1)
+	}
+	if s.log == nil {
+		return
+	}
+	s.log.WarnContext(ctx, "outbox_message_undeliverable",
+		"outbox_id", message.OutboxID,
+		"tenant_id", message.TenantID,
+		"event_type", message.EventType,
+		"aggregate_id", message.AggregateID,
+		"attempt_count", message.AttemptCount,
+		"reason", reason,
+	)
 }
 
 // publishWithTrace starts an "outbox.publish" span - continuing the

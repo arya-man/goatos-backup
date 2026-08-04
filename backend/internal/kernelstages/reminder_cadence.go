@@ -17,16 +17,28 @@ import (
 	workforcedomain "github.com/vgoats/goatos/backend/internal/workforce/domain"
 )
 
+// cadenceAudienceResolver is the slice of the workforce roster service the ladder needs to resolve
+// who a fire is addressed to. Declared as an interface at the point of use so the audience rule can
+// be unit-tested against a roster fake that mirrors the real seeded seat vocabulary, without a
+// database.
+type cadenceAudienceResolver interface {
+	// ResolveModuleDutyRecipientsBatch resolves the park-scoped operational audience by module duty.
+	ResolveModuleDutyRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs []string, moduleCode string, dutyTypes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error)
+	// ResolvePositionRecipientsBatch resolves the tenant leadership audience, which is role-grant
+	// truth (ceo_internal / pc_director), not a module duty.
+	ResolvePositionRecipientsBatch(ctx context.Context, tenantID, scopeType string, scopeIDs, positionCodes []string, at time.Time) (map[string][]workforcedomain.NotificationRecipient, error)
+}
+
 // ReminderCadenceStage materializes the vaccination reminder cadence ladder
 // (T-7 days, day-start/afternoon/EOD, due-today) by calling SweepReminderCadence to find
-// fires at each ladder slot, resolving recipients from the workforce roster
-// (operators, park heads, PHC managers), and queueing notification_requests rows
-// via QueueReminderCadenceBatch. This replaces the deleted cmd/calendar-reminder-sweeper.
-// Operational (15m) cadence.
+// fires at each ladder slot, resolving recipients from the workforce roster (every seat holding the
+// vaccination execute/manage duty in the park, plus tenant leadership on the EOD rung), and queueing
+// notification_requests rows via QueueReminderCadenceBatch. This replaces the deleted
+// cmd/calendar-reminder-sweeper. Operational (15m) cadence.
 type ReminderCadenceStage struct {
 	deps     Deps
 	calendar *calendarapp.Service
-	roster   *workforceapp.RosterService
+	roster   cadenceAudienceResolver
 	tenantID string
 	logger   *slog.Logger
 	// now is the clock the sweep is evaluated at. Production uses the real IST wall clock; tests
@@ -39,9 +51,23 @@ type ReminderCadenceStage struct {
 	lastRunIterations int
 }
 
-// reminderCadencePositionCodes is the park-scoped operational audience for the reminder ladder:
-// the operator(s), park head, and PHC manager for the park the drive is due in.
-var reminderCadencePositionCodes = []string{"operator", "park_head", "phc_manager"}
+// The park-scoped operational audience for the reminder ladder is resolved by MODULE DUTY, not by a
+// literal position-code list.
+//
+// It used to be []string{"operator", "park_head", "phc_manager"}. None of those three except
+// park_head is a code the roster seeder ever writes: real seats are named
+// "vaccination_operator_<name>" and "preventive_care_manager", and "phc_manager" exists nowhere
+// outside that list. So the ladder addressed one seat out of three, and the operator who actually
+// has to run the drive received no T-7, no 08:00, no 13:00 and no due-today reminder. A literal list
+// that silently drifts from the seeder is the defect class; naming the DUTY instead means a renamed
+// seat that still holds the duty is still notified, and a same-named seat without the duty is not.
+//
+// (module_code, duty_type) here is exactly what seed-position-duties derives into
+// position_module_duties (migration 000157) for vaccination seats: operators carry 'execute';
+// park_head / preventive_care_manager / shed_manager (manager+ tiers) carry 'manage'.
+const reminderCadenceModuleCode = "pc.vaccination"
+
+var reminderCadenceDutyTypes = []string{"execute", "manage"}
 
 // reminderCadenceTenantPositionCodes is the tenant-scoped leadership audience for the same ladder.
 var reminderCadenceTenantPositionCodes = []string{"pc_director", "ceo_internal"}
@@ -72,7 +98,7 @@ func (s *ReminderCadenceStage) Name() string { return "reminder-cadence" }
 
 // Run performs one reminder cadence sweep pass:
 // 1. SweepReminderCadence finds drives at each ladder slot (T-7, T-daily, T-0)
-// 2. For each fire, resolve recipients from workforce (operators, park heads, PHC managers)
+// 2. For each fire, resolve recipients from workforce (the park's vaccination duty holders)
 // 3. QueueReminderCadenceBatch inserts notification_requests rows (idempotent per fire)
 func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 	if strings.TrimSpace(s.tenantID) == "" {
@@ -142,40 +168,19 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 				parks = append(parks, parkID)
 			}
 
-			// Resolve recipients for all parks at once (batch query, not per-park N+1). The park is a
-			// 'center' scope in the workforce model; tenant leaders are resolved separately and then
-			// attached to every park fire.
-			// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
-			recipientsByParkPosition, err := s.roster.ResolvePositionRecipientsBatch(
-				ctx,
-				s.tenantID,
-				"center", // parks are 'center'-scoped positions
-				parks,
-				reminderCadencePositionCodes,
-				now,
-			)
+			// Resolve the audience for every park on this page in ONE batched pair of reads (never a
+			// per-park N+1): the park-scoped operational audience by MODULE DUTY, plus the tenant
+			// leadership audience, which is attached only to the EOD leadership rung.
+			recipientsByPark, tenantRecipients, err := s.resolveCadenceAudience(ctx, parks, now)
 			if err != nil {
-				return fmt.Errorf("resolve position recipients batch: %w", err)
-			}
-			// scale-guard:ignore: per-PAGE tenant leadership batch read; one fixed-size lookup, not per-row fanout.
-			tenantRecipientsByPosition, err := s.roster.ResolvePositionRecipientsBatch(
-				ctx,
-				s.tenantID,
-				"tenant",
-				[]string{s.tenantID},
-				reminderCadenceTenantPositionCodes,
-				now,
-			)
-			if err != nil {
-				return fmt.Errorf("resolve tenant position recipients batch: %w", err)
+				return err
 			}
 
-			// ResolvePositionRecipientsBatch keys its result by "<scopeID>|<positionCode>", so a park with
-			// three seats (operator, park_head, phc_manager) yields three separate keys. Fold every seat's
-			// devices back to the bare park id and dedup by device (one member may hold two seats, or one
-			// device serve two members) so a recipient is pushed at most once per fire.
-			recipientsByPark := foldRecipientsByPark(recipientsByParkPosition)
-			tenantRecipients := foldTenantRecipients(tenantRecipientsByPosition)
+			// Park NAMES for the same page, in the SAME batched shape as the audience reads above:
+			// one query for every distinct park id on this page, never one per fire/per recipient.
+			// This is the confirmed maintainer defect's fix -- "Vaccination due today" + a bare count
+			// names nothing a farm worker can act on; every rendered push below now names the park.
+			parkNames := s.resolveParkNames(ctx, parks)
 
 			// Map fires to fire inputs with resolved recipients.
 			var fireInputs []calendarports.ReminderCadenceFireInput
@@ -184,11 +189,12 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 				if isLeadershipCadenceSlot(fire) {
 					recipients = appendRecipients(recipients, tenantRecipients)
 				}
+				parkName := parkNames[fire.ParkID]
 				fireInputs = append(fireInputs, calendarports.ReminderCadenceFireInput{
 					Fire:       fire,
-					Title:      renderReminderTitle(fire),
-					Body:       renderReminderBody(fire),
-					Context:    renderReminderContext(fire),
+					Title:      renderReminderTitle(fire, parkName),
+					Body:       renderReminderBody(fire, parkName),
+					Context:    renderReminderContext(fire, parkName),
 					Recipients: recipients,
 				})
 			}
@@ -277,6 +283,48 @@ func (s *ReminderCadenceStage) Run(ctx context.Context) error {
 	return nil
 }
 
+// resolveCadenceAudience resolves, for one swept page, who each fire is addressed to:
+//
+//   - the park-scoped OPERATIONAL audience, by module duty (pc.vaccination execute|manage) -- the
+//     operator(s) who run the drive plus the park's managing seats, whatever those seats are named;
+//   - the tenant-scoped LEADERSHIP audience (pc_director, ceo_internal), which is role-grant truth
+//     rather than a module duty, and which the caller attaches ONLY to the EOD exception rung.
+//
+// Two batched reads for the whole page -- never one per park.
+func (s *ReminderCadenceStage) resolveCadenceAudience(ctx context.Context, parks []string, now time.Time) (map[string][]calendarports.NotificationRecipient, []calendarports.NotificationRecipient, error) {
+	// scale-guard:ignore: per-PAGE batched read in the bounded drain loop, not per-park/per-row.
+	recipientsByParkPosition, err := s.roster.ResolveModuleDutyRecipientsBatch(
+		ctx,
+		s.tenantID,
+		"center", // parks are 'center'-scoped positions
+		parks,
+		reminderCadenceModuleCode,
+		reminderCadenceDutyTypes,
+		now,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve module duty recipients batch: %w", err)
+	}
+	// scale-guard:ignore: per-PAGE tenant leadership batch read; one fixed-size lookup, not per-row fanout.
+	tenantRecipientsByPosition, err := s.roster.ResolvePositionRecipientsBatch(
+		ctx,
+		s.tenantID,
+		"tenant",
+		[]string{s.tenantID},
+		reminderCadenceTenantPositionCodes,
+		now,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve tenant position recipients batch: %w", err)
+	}
+
+	// Both reads key their result by "<scopeID>|<positionCode>", so a park with three duty-holding
+	// seats yields three separate keys. Fold every seat's devices back to the bare park id and dedup
+	// by device (one member may hold two seats, or one device serve two members) so a recipient is
+	// pushed at most once per fire.
+	return foldRecipientsByPark(recipientsByParkPosition), foldTenantRecipients(tenantRecipientsByPosition), nil
+}
+
 // foldRecipientsByPark collapses the "<parkID>|<positionCode>"-keyed roster batch result into one
 // deduped calendar-recipient slice per park id, converting the workforce recipient shape into the
 // calendar ports shape. Dedup is by device id within a park (a member holding two seats, or two
@@ -349,6 +397,55 @@ func appendRecipients(base []calendarports.NotificationRecipient, extra []calend
 	return out
 }
 
+// resolveParkNames resolves the human `locations.name` for every park id on this sweep page, in ONE
+// query -- the same batching discipline as resolveCadenceAudience above, never a per-fire or
+// per-park round trip. A query failure degrades to an empty map (renderReminderTitle/Body fall back
+// to neutral wording) rather than blocking the sweep: name enrichment is decoration on an
+// already-correct notification, not a precondition for sending it.
+func (s *ReminderCadenceStage) resolveParkNames(ctx context.Context, parks []string) map[string]string {
+	out := map[string]string{}
+	if s.deps.Pool == nil || len(parks) == 0 {
+		return out
+	}
+	rows, err := s.deps.Pool.Query(ctx, `
+SELECT location_id::text, name
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])`, s.tenantID, parks)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			continue
+		}
+		out[id] = name
+	}
+	return out
+}
+
+// parkLabelOrFallback renders a resolved park name, or a neutral farm-language fallback when the
+// lookup is unavailable -- never a raw park UUID and never a blank segment in the copy.
+func parkLabelOrFallback(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "this park"
+	}
+	return name
+}
+
+// fireDayForCopy renders the fire's "YYYY-MM-DD" IST calendar day (fire.FireDayIST) as farm-readable
+// text ("Aug 2") instead of a raw ISO date. Falls back to the raw string if it somehow fails to
+// parse, rather than dropping the date from the message.
+func fireDayForCopy(fireDayIST string) string {
+	t, err := time.Parse("2006-01-02", fireDayIST)
+	if err != nil {
+		return fireDayIST
+	}
+	return t.Format("Jan 2")
+}
+
 func isLeadershipCadenceSlot(fire calendarports.ReminderCadenceFire) bool {
 	return fire.NotificationType == "due_today" && fire.Slot == "20:30"
 }
@@ -362,56 +459,136 @@ func splitParkPositionKey(key string) (scopeID, positionCode string, ok bool) {
 	return key[:idx], key[idx+1:], true
 }
 
-// renderReminderTitle returns a generic reminder title based on the fire type.
-// The actual title/body rendering could be enhanced to include obligation/drive
-// details (e.g., "Vaccination due today: ET (5 drives)") when that data is
-// available in the fire structure.
-func renderReminderTitle(fire calendarports.ReminderCadenceFire) string {
+// renderReminderTitle names the PARK the fire is for. A bare "Vaccination due today" with no place
+// is the exact abstract-push defect the maintainer confirmed: it is confirmed by fixed-park test
+// fixture in reminder_cadence_test.go that this always renders a real park name (or the neutral
+// "this park" fallback), never a UUID.
+func renderReminderTitle(fire calendarports.ReminderCadenceFire, parkName string) string {
+	park := parkLabelOrFallback(parkName)
 	switch fire.NotificationType {
 	case "advance_notice":
-		return "Vaccination due next week"
+		return "Vaccination due next week — " + park
 	case "reminder":
-		return "Vaccination reminder"
+		return "Vaccination reminder — " + park
 	case "due_today":
 		if isLeadershipCadenceSlot(fire) {
-			return "Vaccination EOD exception"
+			return "Vaccination not submitted — " + park
 		}
-		return "Vaccination due today"
+		return "Vaccination due today — " + park
 	case "overdue":
-		return "Vaccination overdue"
+		return "Vaccination overdue — " + park
 	default:
-		return "Vaccination notification"
+		return "Vaccination notification — " + park
 	}
 }
 
-// renderReminderBody returns a body message with the collapsed obligation count.
-func renderReminderBody(fire calendarports.ReminderCadenceFire) string {
+// renderReminderBody names the park, shed(s), vaccine(s), and the farm-readable fire date, so a
+// recipient knows WHERE to go, WHAT to vaccinate, and roughly how much work is outstanding without
+// opening the app. Shed and vaccine labels are extracted from the collapsed obligations (see
+// calendar/adapters/postgres/reminder_cadence.go enrichReminderCadenceFiresWithDetails).
+//
+// Lists are capped for readability: names a few sheds/vaccines, then "and N more" if the full set
+// is longer. The full set is available as structured parameters in renderReminderContext for
+// localization and deep-linking.
+func renderReminderBody(fire calendarports.ReminderCadenceFire, parkName string) string {
+	park := parkLabelOrFallback(parkName)
+	when := fireDayForCopy(fire.FireDayIST)
+	count := fire.ObligationCount
+
+	// Format shed and vaccine specificity into the body copy.
+	shedDetail := formatListDetail("shed", fire.ShedLabels)
+	vaccineDetail := formatListDetail("vaccine", fire.VaccineLabels)
+
 	switch fire.NotificationType {
 	case "advance_notice":
-		return fmt.Sprintf("%d vaccination(s) due in 7 days", fire.ObligationCount)
+		if shedDetail != "" && vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s (%s) due around %s. Plan the drive.", park, vaccineDetail, shedDetail, when)
+		} else if vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s due around %s. Plan the drive.", park, vaccineDetail, when)
+		}
+		return fmt.Sprintf("%s: %d vaccination task(s) due around %s. Plan the drive.", park, count, when)
+
 	case "reminder":
-		return fmt.Sprintf("%d vaccination(s) due soon", fire.ObligationCount)
+		if shedDetail != "" && vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s (%s) due by %s.", park, vaccineDetail, shedDetail, when)
+		} else if vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s due by %s.", park, vaccineDetail, when)
+		}
+		return fmt.Sprintf("%s: %d vaccination task(s) due by %s.", park, count, when)
+
 	case "due_today":
 		if isLeadershipCadenceSlot(fire) {
-			return fmt.Sprintf("%d scheduled vaccination shed(s) still not submitted by 8:30 PM", fire.ObligationCount)
+			// Leadership escalation at 20:30: name which sheds are still unsubmitted.
+			if shedDetail != "" {
+				return fmt.Sprintf("%s: %s not yet submitted. Complete the drive by 8:30 PM today.", park, shedDetail)
+			}
+			return fmt.Sprintf("%s: %d scheduled vaccination shed(s) still not submitted by 8:30 PM today.", park, count)
 		}
-		return fmt.Sprintf("%d vaccination(s) due today", fire.ObligationCount)
+		if shedDetail != "" && vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s (%s) due today (%s).", park, vaccineDetail, shedDetail, when)
+		} else if vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s due today (%s).", park, vaccineDetail, when)
+		}
+		return fmt.Sprintf("%s: %d vaccination task(s) due today (%s).", park, count, when)
+
 	case "overdue":
-		return fmt.Sprintf("%d vaccination(s) overdue", fire.ObligationCount)
+		if shedDetail != "" && vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s (%s) overdue since %s.", park, vaccineDetail, shedDetail, when)
+		} else if vaccineDetail != "" {
+			return fmt.Sprintf("%s: %s overdue since %s.", park, vaccineDetail, when)
+		}
+		return fmt.Sprintf("%s: %d vaccination task(s) overdue since %s.", park, count, when)
+
 	default:
-		return fmt.Sprintf("%d vaccination(s)", fire.ObligationCount)
+		return fmt.Sprintf("%s: %d vaccination task(s).", park, count)
 	}
 }
 
-// renderReminderContext returns context metadata for deep-linking and observability.
-func renderReminderContext(fire calendarports.ReminderCadenceFire) map[string]string {
-	return map[string]string{
+// formatListDetail formats a list of labels into readable inline copy. If empty, returns "".
+// Examples: "Gandhi 1, Gandhi 2" or "ET+TT, PPR · Booster" or "Gandhi 1 and 2 more sheds".
+func formatListDetail(typ string, labels []string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	if len(labels) == 1 {
+		return labels[0]
+	}
+	// Multiple items: join with comma/and, omitting the "and N more" suffix if it was already
+	// added by formatLabelsWithCap.
+	return strings.Join(labels, ", ")
+}
+
+// renderReminderContext returns context metadata for deep-linking, observability, and localization.
+// Title/Body above are ALWAYS the final, specific copy the OS renders (see gateway.sendFCMWithResult's
+// localization-decision comment); shed_labels/vaccine_labels here are structured parameters (arrays)
+// available for localized rendering by another layer -- they are never required for the English push
+// to be meaningful, but they enable building the same facts in hi/kn/te without re-parsing English text.
+//
+// Parameter keys:
+//   - shed_labels: array of human shed/partition names (e.g., ["Gandhi 1", "Gandhi 2", "and 1 more shed"])
+//   - vaccine_labels: array of human vaccine names (e.g., ["ET+TT", "PPR · Booster"])
+//   - obligation_count: total collapsed obligation count (integer as string)
+func renderReminderContext(fire calendarports.ReminderCadenceFire, parkName string) map[string]string {
+	context := map[string]string{
 		"type":             "vaccination_reminder",
+		"message_key":      "vaccination.reminder." + fire.NotificationType,
 		"obligation_id":    fire.RepresentativeObligationID,
 		"park_id":          fire.ParkID,
+		"park_name":        parkName,
 		"fire_type":        fire.NotificationType,
+		"fire_day":         fire.FireDayIST,
 		"fire_slot":        fire.Slot,
 		"obligation_count": fmt.Sprintf("%d", fire.ObligationCount),
 		"screen":           "vaccination",
 	}
+
+	// Add structured shed and vaccine labels as comma-separated arrays (for future localization).
+	if len(fire.ShedLabels) > 0 {
+		context["shed_labels"] = strings.Join(fire.ShedLabels, ", ")
+	}
+	if len(fire.VaccineLabels) > 0 {
+		context["vaccine_labels"] = strings.Join(fire.VaccineLabels, ", ")
+	}
+
+	return context
 }

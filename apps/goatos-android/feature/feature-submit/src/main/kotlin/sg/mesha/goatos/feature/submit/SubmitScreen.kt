@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 // ---------------------------------------------------------------------------
 // Submit (v-submit) — ONE shed record covering every due vaccine in a shed.
@@ -52,6 +53,14 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 
 /** Write-path lifecycle of the shed record in the Room outbox / sync engine. */
 enum class SyncState { DRAFT, QUEUED, SYNCING, ACKED, CONFLICT, DEAD_LETTER }
+
+/** Snackbar outcome message types for submit feedback. */
+enum class SubmitSnackbarMessage {
+    QUEUED,        // Submission queued for sync when online
+    SUCCEEDED,     // Submission synced successfully
+    CONFLICT,      // Server rejected the submission
+    DEAD_LETTER,   // Submission failed after retries
+}
 
 /**
  * One due vaccine group inside the shed record. Proof is deliberately not attached to a vaccine
@@ -131,6 +140,8 @@ data class SubmitUiState(
     val vaccineBreakdown: List<VaccineSummaryItem> = emptyList(),
     /** Human-readable blocking reason when submit not enabled. */
     val blockingReason: String? = null,
+    /** Snackbar message type for submit outcomes (success, failure, offline). Null when no snackbar should be shown. */
+    val snackbarMessage: SubmitSnackbarMessage? = null,
 )
 
 /** Shed completion summary data class (mirror of backend ShedCompletionSummaryDto). */
@@ -200,6 +211,16 @@ private fun SyncState.tone(): BannerTone = when (this) {
     SyncState.DRAFT, SyncState.QUEUED -> BannerTone(T.muted, T.surf2)
 }
 
+/** Resolves snackbar message enum to localized string resource ID. */
+@Composable
+private fun snackbarMessageStringFor(message: SubmitSnackbarMessage?): String? = when (message) {
+    SubmitSnackbarMessage.QUEUED -> stringResource(R.string.submit_snackbar_queued)
+    SubmitSnackbarMessage.SUCCEEDED -> stringResource(R.string.submit_snackbar_succeeded)
+    SubmitSnackbarMessage.CONFLICT -> stringResource(R.string.submit_snackbar_conflict)
+    SubmitSnackbarMessage.DEAD_LETTER -> stringResource(R.string.submit_snackbar_dead_letter)
+    null -> null
+}
+
 /** Localized label for the sync state banner. Renders based on SyncState + ancillary state. */
 @Composable
 private fun syncLabelFor(state: SubmitUiState): String = when {
@@ -249,6 +270,7 @@ fun SubmitScreen(
     ) {
         SubmitHeader(state)
         SyncBanner(state)
+        SubmitSnackbar(state)
 
         LazyColumn(
             modifier = Modifier
@@ -268,8 +290,7 @@ fun SubmitScreen(
                         Text(
                             text = stringResource(R.string.submit_vaccine_breakdown_label),
                             color = T.faint,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.cardSubtitle,
                             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                         )
                     }
@@ -294,8 +315,7 @@ fun SubmitScreen(
                         Text(
                             text = state.proofSummaryTitle.ifBlank { stringResource(R.string.submit_summary_proof_ready) },
                             color = T.faint,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.cardSubtitle,
                             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                         )
                     }
@@ -317,8 +337,7 @@ fun SubmitScreen(
                             Text(
                                 text = reason,
                                 color = T.warn,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MeshaType.caption,
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
                         }
@@ -329,8 +348,7 @@ fun SubmitScreen(
                         Text(
                             text = runner.title,
                             color = T.faint,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            style = MeshaType.cardSubtitle,
                             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                         )
                     }
@@ -355,8 +373,7 @@ fun SubmitScreen(
                             Text(
                                 text = reason,
                                 color = T.warn,
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                style = MeshaType.caption,
                                 modifier = Modifier.padding(vertical = 4.dp),
                             )
                         }
@@ -367,8 +384,7 @@ fun SubmitScreen(
                     Text(
                         text = state.dueSectionLabel,
                         color = T.faint,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        style = MeshaType.cardSubtitle,
                         modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                     )
                 }
@@ -400,15 +416,13 @@ private fun SubmitHeader(state: SubmitUiState) {
         Text(
             state.eyebrow.ifBlank { stringResource(R.string.submit_eyebrow) },
             color = T.brandD,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.SemiBold,
+            style = MeshaType.caption,
         )
         Spacer(Modifier.height(2.dp))
         Text(
             title,
             color = T.ink,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
+            style = MeshaType.screenTitle,
         )
     }
 }
@@ -436,14 +450,34 @@ private fun SyncBanner(state: SubmitUiState) {
             Text(
                 text = label,
                 color = tone.fg,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                style = MeshaType.pillStrong,
             )
         }
         if (state.syncState == SyncState.SYNCING) {
             Spacer(Modifier.height(8.dp))
             ProgressBar(fraction = state.syncProgress, color = tone.fg)
         }
+    }
+}
+
+/** Displays a snackbar notification for submit outcomes (success, failure, offline queued). */
+@Composable
+private fun SubmitSnackbar(state: SubmitUiState) {
+    val message = snackbarMessageStringFor(state.snackbarMessage)
+    if (message == null) return
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(T.surf3)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(
+            text = message,
+            color = T.ink,
+            style = MeshaType.bodyStrong,
+            lineHeight = 18.sp,
+        )
     }
 }
 
@@ -474,14 +508,13 @@ private fun SummaryRow(key: String, value: String) {
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(key, color = T.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(key, color = T.muted, style = MeshaType.listTitle)
         Spacer(Modifier.width(16.dp))
         Text(
             value,
             color = T.ink,
-            fontSize = 13.sp,
+            style = MeshaType.listTitle,
             lineHeight = 17.sp,
-            fontWeight = FontWeight.SemiBold,
             textAlign = androidx.compose.ui.text.style.TextAlign.End,
             modifier = Modifier.weight(1f),
         )
@@ -493,15 +526,14 @@ private fun VaccineGroupCard(group: VaccineGroup) {
     GoatCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(group.name, color = T.ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(group.name, color = T.ink, style = MeshaType.cardTitle)
                 Spacer(Modifier.height(2.dp))
-                Text(stringResource(R.string.submit_dose_label) + " · ${group.dose}", color = T.muted, fontSize = 12.sp)
+                Text(stringResource(R.string.submit_dose_label) + " · ${group.dose}", color = T.muted, style = MeshaType.cardSubtitle)
             }
             Text(
                 text = "${group.given} / ${group.due}",
                 color = if (group.given >= group.due) T.brandD else T.warn,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
+                style = MeshaType.cardTitle,
                 fontFamily = FontFamily.Monospace,
             )
         }
@@ -541,14 +573,12 @@ private fun ProofSummary(state: SubmitUiState) {
                 Text(
                     text = state.proofSummaryTitle,
                     color = T.ink,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
+                    style = MeshaType.bodyStrong,
                 )
                 Text(
                     text = state.proofSummarySyncedLabel,
                     color = statusColor,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MeshaType.caption,
                 )
             }
         }
@@ -559,14 +589,14 @@ private fun ProofSummary(state: SubmitUiState) {
                     Text(
                         stringResource(R.string.submit_goat_proof_uploading, state.proofUploading),
                         color = T.warn,
-                        fontSize = 11.sp,
+                        style = MeshaType.pill,
                     )
                 }
                 if (state.proofFailed > 0) {
                     Text(
                         stringResource(R.string.submit_goat_proof_failed, state.proofFailed),
                         color = T.danger,
-                        fontSize = 11.sp,
+                        style = MeshaType.pill,
                     )
                 }
             }
@@ -576,7 +606,7 @@ private fun ProofSummary(state: SubmitUiState) {
             Text(
                 text = state.proofSummaryFinalizeHint,
                 color = T.muted,
-                fontSize = 11.sp,
+                style = MeshaType.pill,
             )
         }
     }
@@ -610,7 +640,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
                 disabledContentColor = T.faint,
             ),
         ) {
-            Text(submitLabel, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(submitLabel, style = MeshaType.button)
         }
         if (needsRetry) {
             Spacer(Modifier.height(10.dp))
@@ -622,7 +652,7 @@ private fun SubmitFooter(state: SubmitUiState, onEvent: (SubmitEvent) -> Unit) {
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = T.danger),
             ) {
-                Text(stringResource(R.string.submit_retry_label), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.submit_retry_label), style = MeshaType.button)
             }
         }
     }
@@ -656,13 +686,12 @@ private fun ShedCompletionSummaryCard(summary: ShedCompletionSummary) {
 private fun VaccineBreakdownRow(item: VaccineSummaryItem) {
     GoatCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(item.vaccine, color = T.ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(item.vaccine, color = T.ink, style = MeshaType.bodyStrong)
             Spacer(Modifier.width(16.dp))
             Text(
                 text = "${item.count}",
                 color = T.brandD,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
+                style = MeshaType.bodyStrong,
                 fontFamily = FontFamily.Monospace,
                 modifier = Modifier.weight(1f),
                 textAlign = androidx.compose.ui.text.style.TextAlign.End,

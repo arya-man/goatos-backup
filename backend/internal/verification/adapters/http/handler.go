@@ -37,6 +37,7 @@ func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/queue", h.ListQueue)
 	mux.HandleFunc("GET /verification/action-queue", h.ListActionQueue)
+	mux.HandleFunc("GET /verify/alerts", h.ListAlerts)
 	mux.HandleFunc("POST /verification/items/{item_id}/verdict", h.RecordVerdict)
 	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
 	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
@@ -52,25 +53,33 @@ type queueItemResponse struct {
 	// SubjectNote is the raiser's own words about this work item (e.g. why a movement was
 	// requested), shown to the verifier alongside the evidence. Distinct from SubjectLabel,
 	// which is system-composed identity.
-	SubjectNote       *string            `json:"subject_note,omitempty"`
-	Status            string             `json:"status"`
-	VerdictReason     *string            `json:"verdict_reason,omitempty"`
-	OperatorID        *string            `json:"operator_id,omitempty"`
-	OperatorName      *string            `json:"operator_name,omitempty"` // backend-owned display label
-	ShedID            *string            `json:"shed_id,omitempty"`
-	ShedLabel         *string            `json:"shed_label,omitempty"` // backend-owned display label
-	ParkID            *string            `json:"park_id,omitempty"`
-	ParkLabel         *string            `json:"park_label,omitempty"` // backend-owned display label
-	CapturedAt        string             `json:"captured_at"`
-	VerifiedBy        *string            `json:"verified_by,omitempty"`
-	VerifiedByName    *string            `json:"verified_by_name,omitempty"` // backend-owned display label
-	VerifiedAt        *string            `json:"verified_at,omitempty"`
-	ClosedBy          *string            `json:"closed_by,omitempty"`
-	ClosedAt          *string            `json:"closed_at,omitempty"`
-	RowVersion        int                `json:"row_version"`
-	Media             []domain.MediaItem `json:"media"`
-	EvidenceAvailable bool               `json:"evidence_available"`
-	Source            sourceResponse     `json:"source"`
+	SubjectNote *string `json:"subject_note,omitempty"`
+	Status      string  `json:"status"`
+	// VerdictState is what this item is DOING, as opposed to Status, which is only what the
+	// verifier decided. "awaiting_review" | "applying" | "settled" -- see
+	// domain.VerdictState* for why the two are not the same thing. Clients must render
+	// "applying" as work still in flight, NEVER as finished.
+	VerdictState   string             `json:"verdict_state"`
+	VerdictReason  *string            `json:"verdict_reason,omitempty"`
+	OperatorID     *string            `json:"operator_id,omitempty"`
+	OperatorName   *string            `json:"operator_name,omitempty"` // backend-owned display label
+	ShedID         *string            `json:"shed_id,omitempty"`
+	ShedLabel      *string            `json:"shed_label,omitempty"` // backend-owned display label
+	ParkID         *string            `json:"park_id,omitempty"`
+	ParkLabel      *string            `json:"park_label,omitempty"` // backend-owned display label
+	CapturedAt     string             `json:"captured_at"`
+	VerifiedBy     *string            `json:"verified_by,omitempty"`
+	VerifiedByName *string            `json:"verified_by_name,omitempty"` // backend-owned display label
+	VerifiedAt     *string            `json:"verified_at,omitempty"`
+	ClosedBy       *string            `json:"closed_by,omitempty"`
+	ClosedAt       *string            `json:"closed_at,omitempty"`
+	RowVersion     int                `json:"row_version"`
+	Media          []domain.MediaItem `json:"media"`
+	// evidence_available means "a signed download link was resolved for every media_ref" — it does
+	// NOT assert the bytes are retrievable (see domain.QueueRow.EvidenceLinkResolved). A link that
+	// later 410s with proof_object_missing is the terminal signal clients must render.
+	EvidenceAvailable bool           `json:"evidence_available"`
+	Source            sourceResponse `json:"source"`
 }
 
 type sourceResponse struct {
@@ -112,6 +121,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		SubjectLabel:      row.Item.SubjectLabel,
 		SubjectNote:       row.Item.SubjectNote,
 		Status:            row.Item.Status,
+		VerdictState:      row.Item.VerdictState(),
 		VerdictReason:     row.Item.VerdictReason,
 		OperatorID:        row.Item.OperatorID,
 		OperatorName:      row.Item.OperatorName,
@@ -127,7 +137,7 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		ClosedAt:          closedAt,
 		RowVersion:        row.Item.RowVersion,
 		Media:             media,
-		EvidenceAvailable: row.EvidenceAvailable,
+		EvidenceAvailable: row.EvidenceLinkResolved,
 		Source: sourceResponse{
 			Module:       row.Item.Source.Module,
 			TaskID:       row.Item.Source.TaskID,
@@ -146,6 +156,19 @@ func (h *Handler) ListQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (h *Handler) ListActionQueue(w nethttp.ResponseWriter, r *nethttp.Request) {
 	h.listQueue(w, r, permissions.VerificationAct, "", true)
+}
+
+// ListAlerts returns pending verification items for a module/feature. The verifier is
+// tenant-scoped, so this endpoint returns all pending items across all parks for the
+// requested category. The category query parameter is required.
+func (h *Handler) ListAlerts(w nethttp.ResponseWriter, r *nethttp.Request) {
+	q := r.URL.Query()
+	category := strings.TrimSpace(q.Get("category"))
+	if category == "" {
+		h.respondError(w, r, app.BadRequest("missing_category", "category query parameter is required"))
+		return
+	}
+	h.listQueue(w, r, permissions.VerificationReview, domain.StatusPending, false)
 }
 
 func (h *Handler) listQueue(
@@ -210,6 +233,12 @@ func (h *Handler) listQueue(
 		IncludeAllStatuses:   includeAllStatuses,
 		SubmissionScopedOnly: actionQueue,
 		OpenOnly:             actionQueue,
+		// awaiting_application=true is the verifier's "what I decided that has not landed yet"
+		// view. It is what stops an emptied pending queue from being the ONLY feedback a verifier
+		// gets: a verdict is applied asynchronously, so "I decided it" and "the farm's records
+		// changed" are two different moments and the surface has to be able to name the gap.
+		// Status is deliberately left alone -- the caller asks for the state, not for a status.
+		AwaitingApplicationOnly: strings.EqualFold(strings.TrimSpace(q.Get("awaiting_application")), "true"),
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {

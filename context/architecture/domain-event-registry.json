@@ -45,8 +45,11 @@
     "weighing.shed.reopened",
     "weighing.observation.verified",
     "weighing.observation.rework",
+    "weighing.observation.rework_digest",
     "weighing.shed.closed",
     "weighing.campaign.closed",
+    "weighing.shed.verified_closed",
+    "weighing.campaign.verified_closed",
     "weighing.work_item.day_start",
     "weighing.work_item.rolled_forward",
     "weighing.work_item.delayed"
@@ -222,6 +225,29 @@
       ]
     },
     {
+      "eventType": "weighing.observation.rework_digest",
+      "producer": "weighing per-shed rework digest sweeper (weighing-rework-digest kernel stage transaction)",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/rework_digest.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/rework_digest_integration_test.go",
+        "backend/internal/notificationbridge/weighing_rework_digest_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
       "eventType": "weighing.shed.closed",
       "producer": "weighing explicit bucket close transaction",
       "producerFiles": [
@@ -261,6 +287,54 @@
       "owningDoc": "context/architecture/domain-event-integration-contract.md",
       "e2eProof": [
         "backend/internal/weighing/app/service_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.shed.verified_closed",
+      "producer": "weighing NORMAL completion — emitted by the verification verdict applier's own transaction when the last SUBMITTED item in a bucket is verified. No human performs it: closure_kind='verified', no reason, no closing actor. DISTINCT from weighing.shed.closed, which is a leader ending work early and always carries a reason.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verified_closure.go",
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/verified_closure_integration_test.go",
+        "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
+    },
+    {
+      "eventType": "weighing.campaign.verified_closed",
+      "producer": "weighing NORMAL completion CASCADE — same verdict transaction, emitted when the bucket that just settled was the task's last non-terminal one. closure_kind='verified', no reason, no closing actor.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/verified_closure.go",
+        "backend/internal/weighing/adapters/postgres/verification_verdict.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go"
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/verified_closure_integration_test.go",
         "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer_test.go"
       ],
       "surfaces": [
@@ -699,6 +773,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and closes the death review gate. BirthVerificationHandler filters ref_type=workflow_birth_signoff, whose ref_id is one mother or child workflow_id, and closes only that subject's gate. Death carries two proofs; each Birth item carries only its workflow's task-proof bundle. Keys include workflow, review round, and proof refs so retries deduplicate and re-shoots create a fresh item."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -713,7 +792,9 @@
         "backend/internal/feeddirection/adapters/postgres/feed_packing_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
         "backend/internal/eventwiring/appliers_test.go",
-        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
       "durableBusRegistration": "backend/internal/eventwiring/appliers.go (RegisterVerificationAppliers) is the SINGLE registration of the shifting + feed-distribution + feed-packing verdict appliers, called by bootstrap/api.go, cmd/outbox-relay, AND cmd/domain-event-consumer. The verdict is delivered ONLY via the outbox, so the durable-bus consumers (outbox-relay local / domain-event-consumer prod) MUST register them; before 2026-07-27 they did not and every feed/shifting approval was silently dropped while the API-bus registration never fired. appliers_test.go is the drift guard.",
       "surfaces": [
@@ -766,6 +847,11 @@
           "module": "tasks",
           "file": "backend/internal/tasks/app/event_handlers.go",
           "notes": "DeathVerificationHandler filters source.module=counts + ref_type=workflow_death_signoff and resets both death videos. BirthVerificationHandler filters ref_type=workflow_birth_signoff and calls BounceBirthVideoForRework at workflow_id grain, reopening only that mother or child's video tasks while preserving permanent RFID and count decisions."
+        },
+        {
+          "module": "weighing",
+          "file": "backend/internal/weighing/app/verification_verdict_handler.go",
+          "notes": "VerificationVerdictHandler filters source.module=weighing + source.ref_type in (weighing_observation, weighing_shed_observation) and calls weighingpg.ApplyVerificationVerdict, the SINGLE writer of the verdict's effect on the observation (approved -> verification_status='verified'; rework -> 'rework', slot withdrawn, bucket + work items reactivated). Idempotent on the verification event id. APPLY-RECEIPT (W-18): after that transaction commits the handler calls verification MarkVerdictApplied via weighing/adapters/verificationbridge, stamping verification_items.applied_at/applied_by_module. That ack publishes NO event by design -- it is the END of the chain, not a new fact, and minting a consumer-less event is the very silent drop this registry exists to prevent. Until the ack lands the item reads as domain.VerdictStateApplying ('decided, not yet in effect') instead of vanishing out of the pending queue, so a stopped relay or dead-lettered verdict is visible rather than looking like completed work. Approval deliberately does NOT close the bucket: close is a separate WeighingMonitor leadership action (CloseScope) that approval merely UNBLOCKS via the close gate."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
@@ -777,7 +863,9 @@
         "backend/internal/counts/domain/milk_feeding_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_distribution_verification_integration_test.go",
         "backend/internal/feeddirection/adapters/postgres/feed_transport_integration_test.go",
-        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go"
+        "backend/internal/tasks/adapters/postgres/workflow_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/close_and_verdict_integration_test.go",
+        "backend/internal/weighing/adapters/postgres/verdict_application_ack_integration_test.go"
       ],
       "surfaces": [
         "backend",
@@ -787,24 +875,28 @@
     },
     {
       "eventType": "verification.item.closed",
-      "producer": "scoped leadership drive closure",
+      "producer": "scoped leadership drive closure, AND the producing module's retire seam (Repository.WithdrawItemsBySource) when a still-pending item's source record is superseded -- published on the SAME transaction as the status flip, with status/decision='withdrawn' so a consumer can tell a retraction from a verdict",
       "producerFiles": [
         "backend/internal/verification/adapters/postgres/repository.go"
       ],
       "consumers": [
         {
           "module": "vaccination",
-          "file": "backend/internal/vaccination/app/verification_handler.go"
+          "file": "backend/internal/vaccination/app/verification_handler.go",
+          "notes": "verification.item.closed is POLYSEMOUS -- it carries both an operational closure and a WithdrawItemsBySource retraction -- so every consumer must read payload.status. handleGenericEvent filters Source.Module='vaccination' with a non-empty Source.SubmissionID (weighing withdrawals, the only producer of the 'withdrawn' variant today, never reach it) AND returns early on status='withdrawn', so a future vaccination supersede path cannot apply a verdict-shaped outcome with an empty actor to work that was taken back."
         },
         {
           "module": "notification",
-          "file": "backend/internal/notificationbridge/verification_notify_consumer.go"
+          "file": "backend/internal/notificationbridge/verification_notify_consumer.go",
+          "notes": "handleItemClosed branches on status: an operational closure notifies the OPERATOR that their record is done; a 'withdrawn' retraction instead routes handleItemWithdrawn to the park's module verify-duty holders -- the same audience verification.item.pending pushed to -- because they are the ones left holding a review request that no longer exists. The operator caused the withdrawal by editing their own draft and is deliberately not pushed."
         }
       ],
       "owningDoc": "context/architecture/verifier-app-and-flow.md",
       "e2eProof": [
         "backend/internal/verification/app/service_test.go",
-        "backend/internal/vaccination/app/completion_test.go"
+        "backend/internal/vaccination/app/completion_test.go",
+        "backend/internal/verification/adapters/postgres/withdraw_emits_retraction_integration_test.go",
+        "backend/internal/notificationbridge/verification_notify_consumer_test.go"
       ],
       "surfaces": [
         "backend",
@@ -1155,6 +1247,33 @@
       "owningDoc": "docs/decisions/health-workflows.md",
       "e2eProof": ["backend/internal/health/adapters/postgres/repository_integration_test.go"],
       "surfaces": ["backend", "frontend", "mobile"]
+    },
+    {
+      "eventType": "weighing.work_item.merged_on_carry_over",
+      "producer": "weighing kernel carry-over merge pass; a carried-over work item whose new due date lands on a (park, shed, date) another OPEN item already covers is CLOSED and linked to it via merged_into_work_item_id. Nothing is re-assigned and no capture is moved: the closed item keeps its own observations as history, and the task already planned for that day simply carries on. Fires only on collision; an ordinary carry-over rolls forward untouched.",
+      "producerFiles": [
+        "backend/internal/weighing/adapters/postgres/kernel.go",
+        "backend/internal/kernelstages/weighing_kernel.go",
+        "backend/cmd/kernel-worker/main.go"
+      ],
+      "consumers": [
+        {
+          "module": "notification",
+          "file": "backend/internal/notificationbridge/weighing_lifecycle_notify_consumer.go",
+          "handler": "WeighingLifecycleEventConsumer.handleWorkItemCadence",
+          "notes": "DOWNWARD to the operator whose item closed, so the shed leaving their day is told to them rather than discovered as an empty list. Copy states the shed is already covered today; it must never imply a transfer, because no work item changes hands."
+        }
+      ],
+      "owningDoc": "context/architecture/domain-event-integration-contract.md",
+      "e2eProof": [
+        "backend/internal/weighing/adapters/postgres/kernel_integration_test.go",
+        "backend/internal/notificationbridge/weighing_work_item_cadence_notify_test.go"
+      ],
+      "surfaces": [
+        "backend",
+        "frontend",
+        "mobile"
+      ]
     }
   ],
   "allowedHerdMutationWriters": [

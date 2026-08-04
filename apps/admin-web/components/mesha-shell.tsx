@@ -166,11 +166,8 @@ export function MeshaShell({
   const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
-  const primary = contract.navigation.primary.filter((item) => item.href !== "/weighing");
-  const groups = contract.navigation.groups.map((group) => ({
-    ...group,
-    leaves: group.leaves.filter((item) => item.href !== "/weighing"),
-  }));
+  const primary = contract.navigation.primary;
+  const groups = contract.navigation.groups;
   // Nav chrome is 100% backend-owned. The frontend NEVER counts modules, checks
   // role, or computes chrome — it renders the enum only. Fail open:
   // anything other than an explicit "minimal" keeps the sidebar, so a contract

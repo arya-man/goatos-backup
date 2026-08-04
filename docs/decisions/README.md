@@ -27,6 +27,11 @@ Active ADRs:
   owner keys, including the `all` filter and reserved `sales_commerce` key;
   vaccination Calendar scope for the current Preventive Care (PC) slice; system crons excluded
   unless they raise human work.
+- `docs/decisions/proof-capture-authorization.md` - Proof/evidence capture is
+  authorized by the SAME execution right that authorizes the work it proves,
+  never by another vertical's task permission; widen the `/app/proofs` ROUTE via
+  `AnyPermissions`, never hand a module role the broad `task.execute`. Enforced
+  by `make proof-capture-authorization-guard`.
 - `docs/decisions/observability.md` - Observability and logging: single
   `platform/observability` logger seam, env-selected sink
   (`stdout_json`/`otlp`/`gcm`, OTLP over HTTP), log-once-at-boundaries,

@@ -200,7 +200,14 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 	if err != nil {
 		return domain.Artifact{}, err
 	}
-	row := r.pool.QueryRow(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+	row := tx.QueryRow(ctx, `
 	UPDATE proof_artifacts
 	SET content_hash = COALESCE(NULLIF($3, ''), content_hash),
 	    mime_type = COALESCE(NULLIF($4, ''), mime_type),
@@ -229,13 +236,171 @@ func (r *Repository) CompleteProof(ctx context.Context, in domain.CompleteUpload
 		metadata,
 	)
 	artifact, err := scanArtifact(row)
+	completedNow := true
 	if errors.Is(err, pgx.ErrNoRows) {
-		return r.getCompletedProof(ctx, in.TenantID, in.ProofID)
+		completedNow = false
+		artifact, err = r.getCompletedProof(ctx, in.TenantID, in.ProofID)
 	}
-	return artifact, err
+	if err != nil {
+		return domain.Artifact{}, err
+	}
+	if completedNow {
+		if err := r.supersedeOlderTaskGoatVideos(ctx, tx, artifact); err != nil {
+			return domain.Artifact{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Artifact{}, err
+	}
+	return artifact, nil
 }
 
-func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID string) (domain.Artifact, error) {
+// supersedeOlderTaskGoatVideos keeps exactly the AUTHORSHIP-newest completed
+// task/goat video marked current for a (tenant, task, goat) scope, regardless
+// of which upload happened to finish LAST.
+//
+// B04: the old predicate was blind to time entirely -- any other completed
+// video for the same (tenant, task, goat) was superseded by whichever upload
+// completed LAST. Uploads can interleave (operator re-shoots a replacement B
+// while a delayed original A is still retrying its upload): if A completes
+// AFTER B, the OLDER video A used to win and the newer replacement B was
+// marked superseded -- the wrong video stood as evidence.
+//
+// The fix orders by `created_at`, stamped once at CreateProof (the
+// upload-INTENT/authorship instant), never by when CompleteProof happens to
+// run -- completion timing is pure network/retry jitter and must never decide
+// which proof is current. (created_at, proof_id) is used as a total order so
+// two rows can never supersede each other.
+//
+// This is deliberately symmetric, not just "don't let the older one win":
+// whichever proof JUST completed looks up the true authorship-newest
+// completed video for the scope.
+//   - If the one that just completed IS the newest, it supersedes every
+//     older completed video (the original behaviour, now ordered correctly).
+//   - If something authorship-newer already completed earlier (the B04
+//     interleave case), the one that just completed is ITSELF marked
+//     superseded by that newer video, instead of silently sitting as a second
+//     unmarked "completed" video. This is the conservative choice for
+//     evidence integrity: exactly one completed video per scope is ever left
+//     unsuperseded.
+//
+// No new column is required: `created_at` is already on proof_artifacts and
+// already scanned into domain.Artifact. If the maintainer later wants an
+// explicit `replaces_proof_id` lineage captured at upload-intent time, that is
+// a schema addition owned by the migrations agent, not this repository.
+func (r *Repository) supersedeOlderTaskGoatVideos(ctx context.Context, tx pgx.Tx, artifact domain.Artifact) error {
+	if artifact.ScopeType != "task" || artifact.SubjectType != "goat" || artifact.ProofType != "video" || artifact.SubjectID == nil {
+		return nil
+	}
+
+	// F7: two concurrent CompleteProof calls for the SAME (tenant, task,
+	// goat) scope race under the pool's default READ COMMITTED isolation.
+	// There is no `is_current` column and no dedicated parent/aggregate row
+	// for a (task, goat) scope in this schema to take a FOR NO KEY UPDATE
+	// lock on (unlike weighing's campaign/bucket rows -- see
+	// lockCampaignRowForNoKeyUpdate in internal/weighing/adapters/postgres
+	// for that convention). Currency is inferred purely from the newest-wins
+	// SELECT below, and under READ COMMITTED each concurrent transaction's
+	// snapshot is taken independently: both can run this SELECT before
+	// either commits, both see themselves as the sole completed row, and
+	// both return without superseding anything -- two "current" videos for
+	// one goat.
+	//
+	// A session-scoped advisory lock keyed on the (tenant, task, goat) scope
+	// closes this without a new table or column: pg_advisory_xact_lock
+	// serialises every CompleteProof for the same scope so the second
+	// transaction's newest-wins lookup always runs AFTER the first has
+	// committed its supersede/mark-superseded write, and always sees the
+	// correct, up-to-date state. The lock is released automatically at
+	// transaction end (commit or rollback), matching this repository's
+	// per-call transaction lifetime. hashtextextended(..., 0) folds the
+	// three-part scope key into the single bigint pg_advisory_xact_lock
+	// takes; the salt is fixed (0) so the same scope always hashes to the
+	// same lock key across calls.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+		fmt.Sprintf("proof:task-goat-video:%s:%s:%s", artifact.TenantID, artifact.ScopeID, *artifact.SubjectID),
+	); err != nil {
+		return err
+	}
+
+	var newestProofID string
+	var newestCreatedAt time.Time
+	err := tx.QueryRow(ctx, `
+SELECT proof_id::text, created_at
+FROM proof_artifacts
+WHERE tenant_id = $1::uuid
+  AND scope_type = 'task'
+  AND scope_id = $2::uuid
+  AND subject_type = 'goat'
+  AND subject_id = $3::uuid
+  AND proof_type = 'video'
+  AND upload_state = 'completed'
+ORDER BY created_at DESC, proof_id DESC
+LIMIT 1`,
+		artifact.TenantID,
+		artifact.ScopeID,
+		*artifact.SubjectID,
+	).Scan(&newestProofID, &newestCreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The artifact that just completed is itself the only completed row
+		// (the WHERE above cannot miss it: it just transitioned to
+		// 'completed' in this same transaction), so nothing to do.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if newestProofID == artifact.ProofID {
+		// artifact IS the authorship-newest completed video: supersede every
+		// other completed video for this scope, whatever order they completed in.
+		_, err := tx.Exec(ctx, `
+UPDATE proof_artifacts
+SET metadata = metadata || jsonb_build_object(
+      'superseded_by_proof_id', $3::text,
+      'superseded_at', now(),
+      'superseded_reason', 'replacement_video'
+    ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND scope_type = 'task'
+  AND scope_id = $2::uuid
+  AND subject_type = 'goat'
+  AND subject_id = $4::uuid
+  AND proof_type = 'video'
+  AND upload_state = 'completed'
+  AND proof_id <> $3::uuid`,
+			artifact.TenantID,
+			artifact.ScopeID,
+			artifact.ProofID,
+			*artifact.SubjectID,
+		)
+		return err
+	}
+
+	// artifact is NOT the newest: an authorship-newer video already completed
+	// earlier (the B04 interleave). Mark the artifact that just completed as
+	// the superseded one -- it must never overwrite the genuinely newer video.
+	_, err = tx.Exec(ctx, `
+UPDATE proof_artifacts
+SET metadata = metadata || jsonb_build_object(
+      'superseded_by_proof_id', $3::text,
+      'superseded_at', now(),
+      'superseded_reason', 'replacement_video'
+    ),
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND proof_id = $2::uuid`,
+		artifact.TenantID,
+		artifact.ProofID,
+		newestProofID,
+	)
+	return err
+}
+
+func (r *Repository) DeleteUnattachedProof(ctx context.Context, tenantID, proofID, actorID string) (domain.Artifact, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	row := r.pool.QueryRow(ctx, `
@@ -244,6 +409,9 @@ WITH doomed AS (
   FROM proof_artifacts p
   WHERE p.tenant_id = $1::uuid
     AND p.proof_id = $2::uuid
+    -- Owner scope lives in the DELETE itself, not only in Go, so a future caller cannot
+    -- bypass it. uploaded_by is nullable, so an ownerless row matches nobody (fail closed).
+    AND p.uploaded_by = $3::uuid
     AND p.retention_policy <> 'legal_hold'
     AND NOT EXISTS (
       SELECT 1
@@ -272,7 +440,7 @@ deleted AS (
     p.created_at, p.uploaded_at, p.retention_policy, p.retention_expires_at,
     p.upload_expires_at, p.updated_at, p.row_version
 )
-SELECT * FROM deleted`, tenantID, proofID)
+SELECT * FROM deleted`, tenantID, proofID, actorID)
 	artifact, err := scanArtifact(row)
 	if err == nil {
 		return artifact, nil
@@ -280,10 +448,17 @@ SELECT * FROM deleted`, tenantID, proofID)
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return domain.Artifact{}, err
 	}
-	if _, getErr := r.GetProof(ctx, tenantID, proofID); errors.Is(getErr, ports.ErrNotFound) {
+	existing, getErr := r.GetProof(ctx, tenantID, proofID)
+	if errors.Is(getErr, ports.ErrNotFound) {
 		return domain.Artifact{}, ports.ErrNotFound
 	} else if getErr != nil {
 		return domain.Artifact{}, getErr
+	}
+	// Someone else's proof (or an ownerless legacy row) must not be distinguishable from a
+	// proof id that does not exist, so it gets the same not-found shape rather than a
+	// distinct forbidden/in-use answer that would confirm the id is real.
+	if existing.UploadedBy == nil || *existing.UploadedBy != actorID {
+		return domain.Artifact{}, ports.ErrNotFound
 	}
 	return domain.Artifact{}, ports.ErrInUse
 }

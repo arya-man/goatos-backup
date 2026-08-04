@@ -39,6 +39,40 @@ export function driveCoverage(
   return { completed: completedDoses, total: totalDoses, usesAnimals: false };
 }
 
+// The drive progress the card renders. The backend owns the numerator, the denominator and the
+// GRAIN they are counted on (progress_basis), and BOTH clients render it verbatim -- this is the
+// cross-surface parity contract. Before it existed this card used completed_animals while the
+// Android card used max(submitted, completed), so the SAME drive showed two different completion
+// numbers and two different ring percentages. The numerator is verified completion only; submitted-
+// but-unverified work stays visible through submitted_animals and the verification-pending strip.
+// The local derivation is a LEGACY fallback for a mixed-version response from an older backend that
+// predates these fields (they arrive undefined, not 0).
+export function driveVisibleProgress(summary: {
+  progress_basis?: string | null;
+  progress_completed?: number | null;
+  progress_total?: number | null;
+  completed_animals?: number | null;
+  total_animals?: number | null;
+  completed_count: number;
+  total_count: number;
+}): DriveCoverage {
+  if (typeof summary.progress_completed === "number" && typeof summary.progress_total === "number") {
+    return {
+      completed: summary.progress_completed,
+      total: summary.progress_total,
+      usesAnimals: summary.progress_basis !== "doses",
+    };
+  }
+  return driveCoverage(summary.completed_animals, summary.total_animals, summary.completed_count, summary.total_count);
+}
+
+// Backend-rounded percentage wins verbatim so the ring reads identically on web and mobile; the
+// local half-up rounding is the same legacy fallback.
+export function drivePctFor(summary: { progress_pct?: number | null }, coverage: DriveCoverage): number {
+  if (typeof summary.progress_pct === "number") return summary.progress_pct;
+  return driveCoveragePct(coverage.completed, coverage.total);
+}
+
 export interface DriveStatusChip {
   key: "completed" | "submitted" | "due" | "overdue" | "deferred";
   count: number;

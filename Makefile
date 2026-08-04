@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -93,6 +93,8 @@ ai-telemetry-ui:
 	else echo "Open: $(REPO_ROOT)/ai-telemetry.html"; fi
 
 guardrails:
+	$(MAKE) domain-event-envelope-enum-guard
+	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
 	$(MAKE) guardrail-registration-guard
 	$(MAKE) local-stack-service-guard
@@ -114,12 +116,15 @@ guardrails:
 	node tools/agent-hooks/check-refresh-binding.mjs
 	bash tools/agent-hooks/check-contract-drift.sh
 	$(MAKE) aggregate-projection-guard
+	$(MAKE) vaccination-adult-drive-contract-guard
 	$(MAKE) vaccination-shed-ack-guard
+	$(MAKE) module-alerts-tab-guard
 	$(MAKE) vaccination-schedule-canonical-guard
 	$(MAKE) vaccination-shared-source-sync-guard
 	$(MAKE) fcm-recipient-routing-guard
 	$(MAKE) calendar-endpoint-grain-guard
 	$(MAKE) goat-shed-scope-guard
+	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
@@ -143,6 +148,7 @@ guardrails:
 	$(MAKE) atomic-readmodel-sync-guard
 	$(MAKE) config-validate-guard
 	$(MAKE) ui-vaccine-labels-guard
+	$(MAKE) notification-specificity-guard
 	$(MAKE) no-mismatch-review-queue-guard
 	$(MAKE) review-lens-ledger-guard
 	$(MAKE) seed-migration-guard
@@ -156,6 +162,7 @@ guardrails:
 	$(MAKE) android-vaccination-submit-gate-guard
 	$(MAKE) android-compose-lists-guard
 	$(MAKE) android-navigation-stack-guard
+	$(MAKE) nav-entry-point-placement-guard
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
@@ -249,6 +256,10 @@ calendar-endpoint-grain-guard:
 goat-shed-scope-guard:
 	node tools/agent-hooks/check-goat-shed-scope.mjs --self-test
 	node tools/agent-hooks/check-goat-shed-scope.mjs
+
+proof-capture-authorization-guard:
+	node tools/agent-hooks/check-proof-capture-authorization.mjs --self-test
+	node tools/agent-hooks/check-proof-capture-authorization.mjs
 
 weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
@@ -345,11 +356,26 @@ vaccination-drive-clubbing-guard:
 	cd backend && go test ./internal/calendar/adapters/postgres -run 'TestCalendar(ParkDriveTargetsIncludeParkScopedBatchMembers|DefaultListKeepsPlannedDriveWhenSameDayCatchupDeferred)' -count=1
 	cd backend && go test ./tests/e2e -run TestKernelStoryAK_DriveClubbingWithinBuffer -count=1 -timeout=5m
 
+vaccination-adult-drive-contract-guard:
+	node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs --self-test
+	node tools/agent-hooks/check-vaccination-adult-drive-contract.mjs
+	cd backend && go test ./internal/vaccination/app -run 'Test(GenerateForVersionAutomaticallySchedulesAdultBlankHistoryCampaignByShed|GenerateForVersionClubsAdultBlankHistoryWithSameVaccineRepeatDate|GenerateForVersionRealignsExistingStableBlankHistoryWhenRepeatHistoryArrivesLater|ScheduleNextDoseUsesEachOperatorSubmissionDateAfterDelayedVerification)' -count=1
+	cd backend && go test ./internal/obligation/app -run 'TestLimitParkSelection(PacksWholePhysicalShedsBeforeFillingCap|FallsBackToWholePartitionsWhenShedExceedsRemainingCapacity)' -count=1
+	cd backend && go test ./internal/vaccinationexecution/app -run 'TestOperatorDrivePlanner(CPTAdultsOneOperatorKeepsWholeShedsAcrossTwoDays|CarriesWholePhysicalShedPastResidualCapacity)' -count=1
+	cd backend && go test ./internal/calendar/adapters/postgres -run 'TestDriveSummaryEmitsSharedLogicalDriveNameAndTotal' -count=1
+
 vaccination-drive-clubbing-db-proof:
 	bash tools/dev/check-vaccination-drive-clubbing-proof.sh
 
 vaccination-shed-ack-guard:
 	node tools/agent-hooks/check-no-vaccination-shed-form-fields.mjs
+
+# Every available feature's bottom bar carries its own feature-scoped Alerts tab,
+# wired end to end: icon token, hosted route, and bottom-bar root destination.
+# Rule: docs/decisions/module-alerts-tab.md
+module-alerts-tab-guard:
+	node tools/agent-hooks/check-module-alerts-tab.mjs --self-test
+	node tools/agent-hooks/check-module-alerts-tab.mjs
 
 sweeper-deployment-guard:
 	node tools/agent-hooks/check-sweeper-deployment.mjs --self-test
@@ -479,6 +505,15 @@ ui-vaccine-labels-guard:
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs --self-test
 	node tools/agent-hooks/check-ui-vaccine-labels.mjs
 
+# notification-specificity-guard: maintainer decision 2026-08-02. Every user-facing notification
+# must be MEANINGFUL (park, shed/partition, human vaccine/work-item name, count, farm-readable
+# IST due date), never an abstract count-only sentence like "Vaccination(s) due soon · 3".
+# Composes with (does not duplicate) ui-vaccine-labels-guard. See
+# docs/decisions/2026-08-02-meaningful-notification-copy.md.
+notification-specificity-guard:
+	node tools/agent-hooks/check-notification-specificity.mjs --self-test
+	node tools/agent-hooks/check-notification-specificity.mjs
+
 # review-lens-ledger-guard: the review-lens closed-decisions ledger
 # (.agents/skills/goatos-code-review/references/review-lens-ledger.md) is the
 # always-loaded record of what was already fixed/banned/locked, so agents don't
@@ -539,6 +574,15 @@ scale-guard:
 # calendar overview parsing events instead of day-markers, O(n^2) date scans). Diff-scoped:
 # a commit with no mobile Kotlin passes instantly. See
 # docs/decisions/mobile-data-fetch-anti-patterns.md. `mobile-guard-audit` scans the whole tree.
+.PHONY: domain-event-envelope-enum-guard
+domain-event-envelope-enum-guard: ## Fail if a module emits a domain event absent from the envelope enum (the relay would drop it as invalid_event_envelope)
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs --self-test
+	node tools/agent-hooks/check-domain-event-envelope-enum.mjs
+
+.PHONY: design-system-guard
+design-system-guard: ## Fail if a screen invents its own colour or text style instead of using the central design system
+	node tools/agent-hooks/check-design-system-tokens.mjs
+
 mobile-guard:
 	bash tools/android/check-no-hardcoded-design.sh
 	node tools/agent-hooks/check-android-ui-foundations.mjs --self-test
@@ -551,6 +595,8 @@ mobile-guard:
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs
 	node tools/agent-hooks/check-android-row-action-scope.mjs --self-test
 	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs --self-test
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --self-test
 	node tools/agent-hooks/check-mobile-list-fetch.mjs
 
@@ -561,6 +607,7 @@ mobile-guard-audit:
 	node tools/agent-hooks/check-android-orientation-lock.mjs
 	node tools/agent-hooks/check-android-camera-only-proof-capture.mjs --all
 	node tools/agent-hooks/check-android-row-action-scope.mjs
+	node tools/agent-hooks/check-android-alerts-gate-composed.mjs
 	node tools/agent-hooks/check-mobile-list-fetch.mjs --all
 
 # android-row-action-scope-guard: row actions in repeated Android cards must use
@@ -584,6 +631,18 @@ android-vaccination-submit-gate-guard:
 android-navigation-stack-guard:
 	node tools/agent-hooks/check-android-navigation-stack.mjs --self-test
 	node tools/agent-hooks/check-android-navigation-stack.mjs
+
+# nav-entry-point-placement-guard: a FEATURE ENTRY POINT never lives in the top-right app bar.
+# The app bar carries actions ON the current screen (refresh/filter/search); a doorway to another
+# feature surface (alerts, inbox, videos) is a nav destination and belongs in the bottom bar or
+# the module drawer. Diff-scoped. See docs/decisions/nav-entry-point-placement.md.
+nav-entry-point-placement-guard:
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs --self-test
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs
+
+# Whole-tree backlog view (not wired into CI; the guard above is diff-scoped).
+nav-entry-point-placement-guard-audit:
+	node tools/agent-hooks/check-nav-entry-point-placement.mjs --all
 
 # nav-composition-guard: block hardcoded per-role/per-module nav templates. Navigation (nav bar,
 # bottom-bar icons/labels, screens) must be COMPOSED from the person's granted modules and reused

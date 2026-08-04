@@ -106,11 +106,17 @@ import sg.mesha.goatos.core.network.dto.WorkflowDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowListResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignDetailResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingParkListResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingCreateCampaignRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
+import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingShedObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingScopeCloseRequestDto
@@ -226,16 +232,51 @@ interface AppApiService {
         @Query("shed_id") shedId: String?,
     ): ShedCompletionSummaryDto
 
+    /**
+     * Lists weighing campaigns for ONE weighing surface.
+     *
+     * [scope] names the surface the caller is rendering rather than letting the server infer it
+     * from the actor's roles: "mine" is the caller's own assigned sheds (the only executable
+     * list), "all" is the planner's flat all-tasks list, and "operators" is read-only oversight
+     * of other people's work. Omitting it means "mine".
+     */
     @GET("app/weighing/campaigns")
     suspend fun listWeighingCampaigns(
+        @Query("scope") scope: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = WEIGHING_PAGE_SIZE,
+        @Query("park_id") parkId: String? = null,
     ): WeighingCampaignListResponseDto
+
+    // Declared before the {campaign_id} pattern so the literal "parks" segment reads as what it
+    // is -- a sibling route, not a campaign id. Retrofit matches on the annotation, not order.
+    @GET("app/weighing/parks")
+    suspend fun listWeighingParks(): WeighingParkListResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}")
+    suspend fun getWeighingCampaign(
+        @Path("campaign_id") campaignId: String,
+    ): WeighingCampaignDetailResponseDto
+
+    @GET("app/weighing/campaigns/{campaign_id}/sheds")
+    suspend fun listWeighingCampaignSheds(
+        @Path("campaign_id") campaignId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingCampaignShedPageResponseDto
 
     @GET("app/weighing/planner/catalog")
     suspend fun getWeighingPlannerCatalog(
         @Query("period_start_date") periodStartDate: String,
     ): WeighingPlannerCatalogResponseDto
+
+    @GET("app/weighing/planner/parks/{park_id}/buckets")
+    suspend fun getWeighingPlannerParkBuckets(
+        @Path("park_id") parkId: String,
+        @Query("period_start_date") periodStartDate: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingPlannerParkBucketsResponseDto
 
     @POST("weighing/campaigns")
     suspend fun createWeighingCampaign(
@@ -260,7 +301,6 @@ interface AppApiService {
     suspend fun getWeighingRoster(
         @Path("campaign_id") campaignId: String,
         @Path("campaign_shed_id") campaignShedId: String,
-        @Query("cursor") cursor: String?,
         @Query("observations_cursor") observationsCursor: String?,
         @Query("limit") limit: Int,
     ): WeighingRosterResponseDto
@@ -269,7 +309,21 @@ interface AppApiService {
     suspend fun getWeighingLeadershipShedVideos(
         @Path("campaign_id") campaignId: String,
         @Path("campaign_shed_id") campaignShedId: String,
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
     ): WeighingLeadershipShedVideosResponseDto
+
+    @GET("app/weighing/leadership/sheds")
+    suspend fun listWeighingLeadershipSheds(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingLeadershipShedPageResponseDto
+
+    @GET("app/weighing/alerts")
+    suspend fun listWeighingAlerts(
+        @Query("cursor") cursor: String?,
+        @Query("limit") limit: Int,
+    ): WeighingAlertPageResponseDto
 
     @POST("app/tasks/{task_id}/submissions")
     suspend fun submitAppTask(
@@ -810,11 +864,36 @@ class RetrofitAppApi(
     override suspend fun getShedCompletionSummary(taskId: String, shedId: String?): ShedCompletionSummaryDto =
         service.getShedCompletionSummary(taskId, shedId)
 
-    override suspend fun listWeighingCampaigns(cursor: String?, limit: Int): WeighingCampaignListResponseDto =
-        service.listWeighingCampaigns(cursor = cursor, limit = limit)
+    override suspend fun listWeighingCampaigns(
+        scope: String?,
+        cursor: String?,
+        limit: Int,
+        parkId: String?,
+    ): WeighingCampaignListResponseDto =
+        service.listWeighingCampaigns(scope = scope, cursor = cursor, limit = limit, parkId = parkId)
 
-    override suspend fun getWeighingPlannerCatalog(periodStartDate: String): WeighingPlannerCatalogResponseDto =
-        service.getWeighingPlannerCatalog(periodStartDate)
+    override suspend fun getWeighingCampaign(campaignId: String): WeighingCampaignDetailResponseDto =
+        service.getWeighingCampaign(campaignId)
+
+    override suspend fun listWeighingParks(): WeighingParkListResponseDto = service.listWeighingParks()
+
+    override suspend fun listWeighingCampaignSheds(
+        campaignId: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingCampaignShedPageResponseDto = service.listWeighingCampaignSheds(campaignId, cursor, limit)
+
+    override suspend fun getWeighingPlannerCatalog(
+        periodStartDate: String,
+    ): WeighingPlannerCatalogResponseDto = service.getWeighingPlannerCatalog(periodStartDate)
+
+    override suspend fun getWeighingPlannerParkBuckets(
+        parkId: String,
+        periodStartDate: String,
+        cursor: String?,
+        limit: Int,
+    ): WeighingPlannerParkBucketsResponseDto =
+        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit)
 
     override suspend fun createWeighingCampaign(
         idempotencyKey: String,
@@ -835,16 +914,27 @@ class RetrofitAppApi(
     override suspend fun getWeighingRoster(
         campaignId: String,
         campaignShedId: String,
-        cursor: String?,
         observationsCursor: String?,
         limit: Int,
-    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, cursor, observationsCursor, limit)
+    ): WeighingRosterResponseDto = service.getWeighingRoster(campaignId, campaignShedId, observationsCursor, limit)
 
     override suspend fun getWeighingLeadershipShedVideos(
         campaignId: String,
         campaignShedId: String,
+        cursor: String?,
+        limit: Int,
     ): WeighingLeadershipShedVideosResponseDto =
-        service.getWeighingLeadershipShedVideos(campaignId, campaignShedId)
+        service.getWeighingLeadershipShedVideos(campaignId, campaignShedId, cursor, limit)
+
+    override suspend fun listWeighingLeadershipSheds(
+        cursor: String?,
+        limit: Int,
+    ): WeighingLeadershipShedPageResponseDto = service.listWeighingLeadershipSheds(cursor, limit)
+
+    override suspend fun listWeighingAlerts(
+        cursor: String?,
+        limit: Int,
+    ): WeighingAlertPageResponseDto = service.listWeighingAlerts(cursor, limit)
 
     override suspend fun submitAppTask(
         taskId: String,

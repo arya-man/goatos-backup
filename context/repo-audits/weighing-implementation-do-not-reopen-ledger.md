@@ -161,9 +161,11 @@ animal that was off-roster, or whose roster snapshot said it was away, produced 
 empty CTE, inserted no row, and reached the operator as a **404**. That is the same
 ban one table over — and worse, `availability_status` is a periodically-refreshed
 snapshot, so it gated on stale data. The join is now a LEFT JOIN with no status
-predicate: the roster supplies `expected_location_id` for wrong-shed
-classification only, an off-roster scan records as `extra_scan`, and the bucket the
-operator is working owns the row. Writing progress BACK to the roster
+predicate: the bucket the operator is working owns the row. (LATER: the roster
+table itself was DROPPED by `000079`, and `weighing_observations.mismatch_status`
+by `000081`. There is no wrong-shed classification and no `extra_scan` verdict any
+more — with no expected set, nothing can be "expected", "wrong" or "extra". Do not
+reintroduce either.) Writing progress BACK to the roster
 (`SET status='weighed'`) remains allowed — the ban is on the roster deciding
 whether the write happens.
 
@@ -401,6 +403,45 @@ Handler expects: verification.ProofRef to match /verification/ path pattern
 
 ---
 
+### D-5: Weighing Vocabulary — Close/Reopen Only, No Abandon (Permanent Guardrail)
+
+**Maintainer Decision:** 2026-08-03  
+**Status:** ENFORCED by machine guard `check-weighing-abandon-guard.mjs`
+
+**The Rule:** Weighing workflow vocabulary is CLOSED (finish) or REOPEN (undo finish). No "abandon."
+
+**Context:** `AbandonScope` was a service method that closed a weighing bucket WITHOUT the verification gate—a code path, not a concept. Verification is the safety check that proof-ready submissions are reviewed by an authorized director before marking complete. Bypassing it (even with a reason field) was a seam that could allow incomplete work to be recorded. The decision: disallow that bypass.
+
+**Banned (New Write Paths):**
+- Service methods: `Service.AbandonScope()`, `Service.abandonScope()`
+- Repository methods: `Repository.AbandonScope()`, `Repository.abandonScope()`
+- HTTP routes: `POST /app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/abandon`
+- Event types: `weighing.shed.abandoned`, `weighing_shed_abandoned`, `EventWeighingShedAbandoned`
+- Audit actions: `weighing.scope_abandoned`
+- Android API/ViewModel/Repository methods: `abandonScope`, `AbandonScope`
+- String resources: `weighing_abandon_*` (button labels, dialog text, etc.)
+
+**Allowed (Read-Side Tolerance for Historical Data):**
+- Migrations (`.sql` files) may contain `'abandoned'` enum values or CHECK constraints on historical rows already written
+- Read-side consumers may tolerate a legacy `status = 'abandoned'` on old rows (for data reconciliation or reporting)
+- Comments explaining why abandon was removed
+- Test assertions on historical data (verifying the feature's absence, not writing new abandons)
+
+**If You Cannot Close Because Verification Is Pending:**  
+Resolve the verification (get a director's approval/rejection), then close. The answer is never "bypass verification."
+
+**How to Detect Regressions:**
+- Machine: `make weighing-abandon-guard` runs on every CI gate
+- Manual: Grep for `Abandon`, `abandon`, `weighing.shed.abandoned`, `weighing_scope_abandoned` in source code (non-comment, non-migration)
+- Test: Calls to abandon endpoints in your test suite indicate you're testing an old feature path — delete those tests
+
+**Related Docs:**
+- `AGENTS.md` → "Weighing vocabulary is close or reopen"
+- `backend/internal/weighing/adapters/postgres/close.go` — explanation of why the parameter was removed
+- `tools/agent-hooks/check-weighing-abandon-guard.mjs` — machine enforcement
+
+---
+
 ## Section E: TRAPS FROM RECENT COMMITS (Do Not Repeat)
 
 ### E-1: Operator Scoping at Shed Level, Not Park Level
@@ -489,3 +530,39 @@ Handler expects: verification.ProofRef to match /verification/ path pattern
 
 **Generated:** 2026-07-31  
 **Applies to:** Any upcoming weighing feature work (new commands, reports, reconciliation, multi-operator collaboration, etc.)
+
+---
+
+## B-5 — Verification queue grain is PER PIECE OF EVIDENCE. Do not "batch" it.
+
+**Status: CLOSED, NOT A BUG. Maintainer ruling 2026-08-03. Do not reopen.**
+
+Raised during the 2026-08-03 device-E2E review as a scale/operating-model defect
+("the weighing verifier queue is per-animal; at 5k kids that is ~5,000 videos a
+week for one human"). It was raised by a review agent and repeated by the
+orchestrator. **Both were wrong.**
+
+The grain follows the EVIDENCE, and it is already consistent across every module:
+
+| Path | Evidence the operator records | Verification items |
+|---|---|---|
+| weighing — individual | one video PER ANIMAL | one per animal |
+| weighing — lump-sum | one video per SHED | one per shed |
+| vaccination (SOP) | one proof per SUBMISSION | one per submission |
+
+One review per piece of evidence, everywhere. The modules differ in what evidence
+is captured, not in the rule applied to it. The "weighing is inconsistent with
+vaccination" argument is false: vaccination is one-per-submission *because it has
+one proof per submission*, not because submission is the universal grain.
+
+What remains is arithmetic, not a defect: 5,000 individually-weighed kids means
+5,000 videos to review **because 5,000 videos were recorded**. The work exists
+because the evidence exists.
+
+**If review volume becomes an operational problem**, the question is whether
+per-animal video is still required — a product decision about what to capture.
+It is NEVER a reason to batch separately-captured evidence into one review item,
+which would mean a verifier approving footage they did not watch.
+
+Related bans: B-0 (no clinical gate on the weighing write path), and the free-flow
+mandate that forbids an expected-animal denominator.

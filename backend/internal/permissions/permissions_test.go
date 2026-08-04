@@ -365,16 +365,21 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if route.OperationID != item.operationID {
 			t.Fatalf("operation_id=%q, want %s", route.OperationID, item.operationID)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolRead {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolRead)
+		// The feed reads moved OFF protocol.read (the vaccination protocol permission) onto their
+		// own feed_direction.read, so the Feed Director can hold the feed surface without also
+		// holding Vaccination. Every role that authorized this route before still does.
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedDirectionRead {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, FeedDirectionRead)
 		}
-		// Maintainer decision 2026-07-22: operators now hold protocol.read, so they DO authorize the
-		// Feed Direction read surface (the Feed vertical is visible to the operator on the phone).
+		// Maintainer decision 2026-07-22: operators see the Feed vertical on the phone.
 		if !RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("operator should authorize Feed Direction read route via protocol.read: %s", item.path)
+			t.Fatalf("operator should authorize Feed Direction read route: %s", item.path)
 		}
 		if !RolesAuthorize([]string{RoleParkHead}, route.Permissions, route.AdminOnly) {
-			t.Fatalf("park head should authorize Feed Direction read route via protocol.read: %s", item.path)
+			t.Fatalf("park head should authorize Feed Direction read route: %s", item.path)
+		}
+		if !RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("feed_director must authorize their OWN module read route: %s", item.path)
 		}
 	}
 
@@ -400,11 +405,16 @@ func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 		if !ok {
 			t.Fatalf("feed direction counts exception action route is not registered: %s", path)
 		}
-		if len(route.Permissions) != 1 || route.Permissions[0] != ProtocolWrite {
-			t.Fatalf("permissions=%v, want [%s]", route.Permissions, ProtocolWrite)
+		// Moved off protocol.write (CEO-only) onto feed_direction.oversee: CEO keeps it and the
+		// Feed Director, who owns the chain that produced the exception, gains it. Nobody loses it.
+		if len(route.Permissions) != 1 || route.Permissions[0] != FeedDirectionOversee {
+			t.Fatalf("permissions=%v, want [%s]", route.Permissions, FeedDirectionOversee)
 		}
 		if RolesAuthorize([]string{RoleOperator}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("operator must not authorize Feed Direction counts exception action: %s", path)
+		}
+		if !RolesAuthorize([]string{RoleFeedDirector}, route.Permissions, route.AdminOnly) {
+			t.Fatalf("feed_director should authorize Feed Direction counts exception action: %s", path)
 		}
 		if !RolesAuthorize([]string{RoleCEOInternal}, route.Permissions, route.AdminOnly) {
 			t.Fatalf("ceo_internal should authorize Feed Direction counts exception action: %s", path)

@@ -12,6 +12,8 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | `operator` | Ground execution and scanning for the modules explicitly granted to that person | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
 | `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant |
 | `growth_director` | Growth Director; Weighing visibility/action across parks | `tenant` when both parks are needed | Dinakar |
+| `feed_director` | Feed Director; owns the FEED chain (config/ration grid, dispatch sheet, packing worklist, feed proof oversight) across parks | `tenant` when both parks are needed | Feed Director cohort |
+| `health_director` | Health Director; owns COUNTS (census / herd register) and health/tagging identity. DISTINCT from `pc_director` | `tenant` when both parks are needed | Health Director cohort |
 | `verifier` | Video verification review (mobile + the admin-web verifier workspace) | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
 
 ## Dormant Catalog Roles
@@ -32,9 +34,61 @@ Those rows are **catalog scaffolding only right now**:
 Vaccination cards, scan/capture, submit, and use vaccination close flows. It must
 not get Weighing.
 
+`feed_director` is the current live role for Feed Director (live as of 2026-08-01: backend
+permissions, routes, notification routing, seed and tests shipped together). It holds
+`feed_config.read`/`feed_config.write` (the authored ration grid), `feed_direction.read`
+(today's dispatch sheet), `feed_packing.read` (the packing worklist), `feed_direction.oversee`
+(the projected-count exception verdicts) and `verification.act`. Scope: `tenant` when the
+director must see both parks. It must NOT get Vaccination, Weighing, or Counts. It also does
+NOT get `feed_direction.complete`: the handbook puts field execution with the Park Head and
+ground team ("All field execution happens through the Park Head"), and directing feeding is
+not performing it. It does not get `verification.review` either — Feed_Director.pdf M1 is
+double-verifying THE VERIFIER, not becoming one.
+
+`health_director` is the current live role for Health Director, and it is a **distinct role
+from `pc_director`**. Preventive Care and Health are separate departments in the org model
+(`wiki/Handbooks/Mesha-dept-directors.pdf` DEPARTMENTS grid; `COO.pdf` VERTICALS UNDER COO),
+so the two must never be merged or treated as synonyms. It holds `counts.read` (the census /
+herd-register surface it owns), `goat.write_identity` (Responsibility 6 Tagging: ear tag/RFID
+at birth, purchase and re-tag), `goat.write_health` (observations/diagnosis/treatment) and
+`verification.act`. Scope: `tenant` when both parks are needed. It must NOT get Vaccination,
+Weighing or Feed. It deliberately does NOT get `counts.write` (capture is ground work) or any
+`counts.approve_*` (birth/death admission sits with the CEO tier, shifting approval with the
+park head).
+
+**Counts ownership is a maintainer decision, not a documented handbook duty** (2026-08-01).
+No handbook assigns census, counting, headcount, roll call or reconciliation to anyone; a
+full-text search of `Health_Director.pdf`, `Feed_Director.pdf`, `Mesha-dept-directors.pdf` and
+`COO.pdf` returns zero matches, and every "count" token in them is an EOD tally field or a
+non-animal stock count. The nearest written anchors on the Health Director's desk are
+Responsibility 6 (Tagging, the identity substrate a census sits on) and Responsibility 9
+(assessing every death for insurance). Feed ownership, by contrast, IS documented
+(`Feed_Director.pdf` ROLE PURPOSE + M1 daily video double verification). Open questions that
+were NOT decided and must not be inferred: whether Counts includes shifting/animal movement
+(the handbooks give shifting to the BREEDING Director), who owns mortality reconciliation into
+the census, and whether the Health Director's tagging duty becomes part of the Counts module.
+
+Notification routing follows the same one-module-one-director rule: Feed proofs notify
+`feed_director` and Counts proofs notify `health_director`, each in that module's own wording
+and tap route (`pendingModuleProfiles` in
+`backend/internal/notificationbridge/verification_notify_consumer.go`). A module that enqueues
+a verification item MUST have a profile there AND at least one `verify` duty holder in
+`position_module_duties`; both are asserted by tests, and the verify duty rows are seeded by
+`backend/cmd/seed-position-duties` onto the tenant `video_verifier` seat that
+`backend/cmd/seed-roster-real` creates.
+
 `growth_director` is the current live role for Growth Director. It can open
 Weighing tasks across parks, scan/capture, submit, monitor videos, and reopen a
 completed weighing shed bucket. It must not get Vaccination.
+
+It holds `weighing.execute` and deliberately **not** `task.execute`. Because it
+executes weighing, it also reaches the `/app/proofs` write routes — those accept
+`task.execute` OR `weighing.execute`, since capturing the mandatory video is part
+of doing the work, not a separate task-execution act. Never "fix" a proof-upload
+403 for this role by granting it `task.execute`: that carries vaccination SOP
+submission (`POST /app/tasks/{task_id}/submissions`) with it. See
+`docs/decisions/proof-capture-authorization.md`; enforced by
+`make proof-capture-authorization-guard`.
 
 ## Hard Rule
 
@@ -154,6 +208,25 @@ review can be done on a laptop. That grant opens the shell ONLY: a principal wit
 five registry-composed evidence modules and `/actions` — and every other admin-web
 page contract is withheld, so a typed URL fails closed. See
 `context/architecture/verifier-app-and-flow.md` → "Verifier WEB workspace".
+
+**Bucket close is a separate, later gate than an individual verifier verdict**
+(maintainer decision 2026-07-31). Per-item verify/rework happens observation by
+observation as proof comes in. A `weighing_campaign_sheds` bucket may only move
+to `closed` after EVERY submitted observation in that bucket has been verified
+(`weighing_campaign_sheds.status`: `pending` → `in_progress` → `completed`
+[operator submitted, awaiting verification] → `closed`, via CEO/Growth Director
+action once all proof is verified). A verifier `rework` bounce does not itself
+reopen or close the bucket; it only puts that one observation back in front of
+the operator. Only CEO/Growth Director can reopen a `closed` (or `completed`)
+bucket back to `in_progress`, after which the same assigned operator may add
+more scanned RFIDs and submit again. Reopen must never allow the same
+`scanned_identifier` (case-insensitive) to be recorded twice within the same
+`campaign_shed_id`/day; the same RFID may still appear in a different bucket.
+
+There is no expected-animal denominator for Weighing: no `"N/N"` and no
+`"/100"`-style progress computed against a roster or expected count. Expected
+animal counts are unknown for weighing; progress is reported only as counts of
+scanned/accepted/pending/verified observations.
 
 ## FCM Up/Down Hierarchy (Weighing)
 

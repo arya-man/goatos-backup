@@ -20,6 +20,9 @@ import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.ScanRosterRowDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionRowDto
+import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
+import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
+import retrofit2.HttpException
 
 /**
  * Scan roster is a per-row SSOT ([ScanRosterRowDao]), never a whole-collection JSON blob
@@ -177,6 +180,89 @@ class ExecutionRepositoryPaginationTest {
     }
 
     @Test
+    fun `refresh prunes synced local scan overlay when backend no longer reports completion`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-pending",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-2",
+                    goatId = "goat-2",
+                    obligationId = "obl-2",
+                    capturedAtMs = 2L,
+                    syncStatus = CaptureSyncStatus.PENDING.name,
+                ),
+            )
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "due", obligationId = "obl-1"),
+                            ScanRosterRowDto(goatId = "goat-2", primaryTag = "tag-2", vaccineLabel = "FMD", status = "due", obligationId = "obl-2"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            assertEquals(listOf("scan-pending"), scans.map { it.id })
+        }
+    }
+
+    @Test
+    fun `refresh keeps synced local scan overlay that backend still reports done`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "done", obligationId = "obl-1"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            assertEquals(listOf("scan-synced"), scans.map { it.id })
+        }
+    }
+
+    @Test
     fun `shed-wide and task-scoped rosters keep separate SSOT scopes`() = runTest {
         withRepository { repository, backend, _ ->
             backend.response = ::numberedPage
@@ -188,6 +274,73 @@ class ExecutionRepositoryPaginationTest {
             repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
             assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
             assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+        }
+    }
+
+    @Test
+    fun `task-scoped roster falls back to shed roster but publishes into task scope`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 404
+            backend.response = ::numberedPage
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            assertEquals(TOTAL_ROWS, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, taskId = null).first())
+            assertEquals(
+                listOf(TASK_ID, null, null, null),
+                requests.map { it.taskId },
+            )
+        }
+    }
+
+    @Test
+    fun `task-scoped roster fallback does not prune synced local scan evidence`() = runTest {
+        withRepositoryAndDatabase { repository, backend, _, database ->
+            database.scannedGoatDao().insert(
+                ScannedGoatEntity(
+                    id = "scan-synced",
+                    taskId = TASK_ID,
+                    fieldKey = "__scan_roster__",
+                    tag = "tag-1",
+                    goatId = "goat-1",
+                    obligationId = "obl-1",
+                    capturedAtMs = 1L,
+                    syncStatus = CaptureSyncStatus.SYNCED.name,
+                ),
+            )
+            backend.taskScopedFailureStatus = 404
+            backend.response = { cursor ->
+                if (cursor == null) {
+                    ScanRosterResponseDto(
+                        source = "api",
+                        rows = listOf(
+                            ScanRosterRowDto(goatId = "goat-1", primaryTag = "tag-1", vaccineLabel = "FMD", status = "due", obligationId = "obl-1"),
+                        ),
+                    )
+                } else {
+                    error("single page")
+                }
+            }
+
+            repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE).getOrThrow()
+
+            val scans = database.scannedGoatDao().listForField(TASK_ID, "__scan_roster__")
+            assertEquals(listOf("scan-synced"), scans.map { it.id })
+        }
+    }
+
+    @Test
+    fun `task-scoped roster non-404 failure does not fall back to shed roster`() = runTest {
+        withRepository { repository, backend, requests ->
+            backend.taskScopedFailureStatus = 500
+            backend.response = ::numberedPage
+
+            val result = repository.refreshScanRoster(SHED_ID, TASK_ID, PAGE_SIZE)
+
+            assertTrue(result.exceptionOrNull() is HttpException)
+            assertEquals(0, repository.observeScanRosterTotal(SHED_ID, TASK_ID).first())
+            assertEquals(listOf(TASK_ID), requests.map { it.taskId })
         }
     }
 
@@ -209,6 +362,12 @@ class ExecutionRepositoryPaginationTest {
 
     private suspend fun withRepository(
         block: suspend (DefaultExecutionRepository, Backend, MutableList<Request>) -> Unit,
+    ) = withRepositoryAndDatabase { repository, backend, requests, _ ->
+        block(repository, backend, requests)
+    }
+
+    private suspend fun withRepositoryAndDatabase(
+        block: suspend (DefaultExecutionRepository, Backend, MutableList<Request>, GoatDatabase) -> Unit,
     ) {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val database = Room.inMemoryDatabaseBuilder(context, GoatDatabase::class.java)
@@ -230,6 +389,11 @@ class ExecutionRepositoryPaginationTest {
                         if (backend.offlineCursor != null && backend.offlineCursor == request.cursor) {
                             throw IOException("offline")
                         }
+                        backend.taskScopedFailureStatus?.let { status ->
+                            if (request.taskId != null) {
+                                throw HttpException(status)
+                            }
+                        }
                         backend.response(request.cursor)
                     }
                     "toString" -> "ScanRosterAppApiTestProxy"
@@ -249,6 +413,7 @@ class ExecutionRepositoryPaginationTest {
                 ),
                 backend,
                 requests,
+                database,
             )
         } finally {
             database.close()
@@ -257,6 +422,7 @@ class ExecutionRepositoryPaginationTest {
 
     private class Backend {
         var offlineCursor: String? = null
+        var taskScopedFailureStatus: Int? = null
         var response: (String?) -> ScanRosterResponseDto = { error("response not configured") }
     }
 

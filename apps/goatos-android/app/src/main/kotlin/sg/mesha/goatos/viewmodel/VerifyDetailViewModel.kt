@@ -44,6 +44,10 @@ private data class VerifyDetailFlags(
     val errorMessage: String? = null,
     val awaitingBackendDecision: Boolean = false,
     val autoCloseAfterDecision: Boolean = false,
+    /** Proof ids whose player actually failed to load on this screen. A signed URL string is NOT
+     *  evidence that the video exists — the object behind it can be gone while the link still
+     *  resolves — so a real playback failure is the honest client-side "she cannot see this". */
+    val unplayableProofIds: Set<String> = emptySet(),
 )
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
@@ -162,6 +166,9 @@ class VerifyDetailViewModel @Inject constructor(
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
+        // Same belt-and-braces shape for the irreversible side: an approve can never be enqueued
+        // from a screen state where the evidence is not watchable, whatever produced the event.
+        if (decision == VerificationDecision.APPROVED && !state.value.isApproveEnabled) return@launch
 
         val rowVersion = observedItem.value?.rowVersion ?: 1
         _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
@@ -229,6 +236,9 @@ class VerifyDetailViewModel @Inject constructor(
             }
             VideoPlaybackAction.PLAYBACK_ERROR -> {
                 val reason = event.reason ?: "unknown"
+                // The player told us the truth the URL could not: this proof will not play. Approve
+                // must go dead for this item; Reject/rework stays open (see toUiState).
+                _flags.update { it.copy(unplayableProofIds = it.unplayableProofIds + event.proofSubject) }
                 runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
@@ -282,13 +292,29 @@ class VerifyDetailViewModel @Inject constructor(
                 isOffline = flags.isOffline,
                 isSubmitting = flags.isSubmitting,
                 errorMessage = flags.errorMessage,
-                isDecisionEnabled = false,
+                isApproveEnabled = false,
+                isRejectEnabled = false,
                 autoCloseAfterDecision = flags.autoCloseAfterDecision,
             )
         }
         val effectiveStatus = status
-        val playableEvidenceAvailable = evidenceAvailable && media.any { it.downloadUrl.isNotBlank() }
-        val canDecide = !isActionMode && effectiveStatus == VerificationStatus.PENDING && playableEvidenceAvailable
+        // What "evidence available" honestly means on this screen:
+        //  - the server resolved a link for EVERY media_ref (any() would have passed an item whose
+        //    second proof silently vanished), and
+        //  - no proof on this screen has actually failed to play.
+        // downloadUrl.isNotBlank() alone proves nothing: the string is present even when the stored
+        // object is gone, which is exactly how Approve stayed enabled over evidence that no longer
+        // existed. The backend runs the authoritative existence check at verdict time; this is the
+        // honest client half of it.
+        val everyProofLinked = media.isNotEmpty() && media.all { it.downloadUrl.isNotBlank() }
+        val nothingFailedToPlay = media.none { flags.unplayableProofIds.contains(it.proofId) }
+        val evidenceIsWatchable = evidenceAvailable && everyProofLinked && nothingFailedToPlay
+        val isOpen = !isActionMode && effectiveStatus == VerificationStatus.PENDING
+        // Approve needs watchable evidence. Reject/rework must stay available on an open item even
+        // when the video will not load — that is the only correct move left, and blocking it would
+        // strand the verifier.
+        val canApprove = isOpen && evidenceIsWatchable
+        val canReject = isOpen
         return VerifyDetailUiState(
             itemId = itemId,
             category = category,
@@ -312,10 +338,11 @@ class VerifyDetailViewModel @Inject constructor(
             // R50-017: the backend now fails evidence resolution closed instead of silently
             // omitting media, so a verdict with no resolvable evidence must stay disabled even
             // though the item itself is still PENDING.
-            isDecisionEnabled = canDecide,
+            isApproveEnabled = canApprove,
+            isRejectEnabled = canReject,
             decisionUnavailableReason = when {
-                isActionMode || canDecide -> VerifyDecisionUnavailableReason.NONE
-                effectiveStatus == VerificationStatus.PENDING -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
+                isActionMode || canApprove -> VerifyDecisionUnavailableReason.NONE
+                isOpen -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
                 else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
             },
             isSubmitting = flags.isSubmitting,

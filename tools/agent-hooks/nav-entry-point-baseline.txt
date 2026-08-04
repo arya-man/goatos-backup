@@ -1,0 +1,11 @@
+# nav-entry-point-placement baseline — PRE-EXISTING violations on main, pinned so the rule is
+# enforced going forward without a mass refactor. Format: <path>:<rule>.
+#
+# Shrink this file, never grow it. A new entry needs the maintainer's sign-off: the whole point
+# of docs/decisions/nav-entry-point-placement.md is that a feature entry point does not get to
+# live in the top-right app bar.
+#
+# The weighing "My work" screen renders a Bell in the top-right next to the sync icon, with a
+# no-op onClick. Vaccination ships the same concept correctly as a bottom-bar [ Drives | Alerts ]
+# tab. This is THE incident that produced the rule; the placement fix itself is owned by a
+# separate change (it moves weighing alerts onto nav chrome). Delete both lines when it lands.

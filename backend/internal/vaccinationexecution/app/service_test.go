@@ -244,7 +244,7 @@ func TestVaccinationExecutionSubmittedProofOverridesInProgressProjection(t *test
 			p.ScheduledCount = 2
 			p.InProgressCount = 2
 			p.ScannedCount = 2
-			p.ProofSubmittedCount = 1
+			p.ProofSubmittedCount = 2
 			p.WorkState = domain.WorkStateInProgress
 		}),
 	}
@@ -569,6 +569,16 @@ func TestExecutionDisplayCountsUseAggregatedObligations(t *testing.T) {
 	})
 	if target != 4 || open != 1 || done != 2 {
 		t.Fatalf("counts=(target=%d open=%d done=%d) want (4,1,2)", target, open, done)
+	}
+}
+
+func TestExecutionDisplayCountsDoNotTreatScansAsDone(t *testing.T) {
+	target, open, done := executionDisplayCounts(domain.ExecutionProjection{
+		ObligationCount: 2,
+		ScannedCount:    2,
+	})
+	if target != 2 || open != 2 || done != 0 {
+		t.Fatalf("counts=(target=%d open=%d done=%d) want (2,2,0)", target, open, done)
 	}
 }
 

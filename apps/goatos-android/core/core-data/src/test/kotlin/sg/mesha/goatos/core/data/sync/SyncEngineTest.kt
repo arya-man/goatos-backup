@@ -1165,6 +1165,27 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         rows.removeAll { it.taskId == taskId }
     }
 
+    override suspend fun deleteSyncedForField(taskId: String, fieldKey: String) {
+        rows.removeAll {
+            it.taskId == taskId &&
+                it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name
+        }
+    }
+
+    override suspend fun deleteSyncedForFieldExceptObligations(
+        taskId: String,
+        fieldKey: String,
+        serverDoneObligationIds: List<String>,
+    ) {
+        rows.removeAll {
+            it.taskId == taskId &&
+                it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name &&
+                (it.obligationId == null || it.obligationId !in serverDoneObligationIds)
+        }
+    }
+
     override suspend fun clearAll() {
         rows.clear()
     }

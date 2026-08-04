@@ -1074,7 +1074,18 @@ func hasAnyRole(roles []string, targets ...string) bool {
 }
 
 func highestRole(roles []string) string {
-	for _, role := range []string{permissions.RoleCEOInternal, permissions.RolePCDirector, permissions.RoleParkHead, permissions.RoleVerifier, permissions.RoleOperator} {
+	// Director seats rank between CEO and Park Head. feed_director / health_director were absent,
+	// so a principal holding one fell through to roles[0] and was lensed by an arbitrary role.
+	for _, role := range []string{
+		permissions.RoleCEOInternal,
+		permissions.RolePCDirector,
+		permissions.RoleGrowthDirector,
+		permissions.RoleFeedDirector,
+		permissions.RoleHealthDirector,
+		permissions.RoleParkHead,
+		permissions.RoleVerifier,
+		permissions.RoleOperator,
+	} {
 		for _, got := range roles {
 			if got == role {
 				return role
@@ -1091,8 +1102,17 @@ func roleLensForRole(role string) domain.RoleLensContract {
 	switch role {
 	case permissions.RoleCEOInternal:
 		return domain.RoleLensContract{ID: "coo", Name: "CEO / CXO", AuditShort: "CXO", Scope: "all · deep", Description: "Central Command · all parks", FullAccess: true}
+	// pc_director is PREVENTIVE CARE, not Health. Labelling it "Health Director" conflated it
+	// with health_director, which the 2026-08-01 maintainer decision makes a separate role in a
+	// separate department -- a user-facing merge of exactly the two roles that must not merge.
 	case permissions.RolePCDirector:
-		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health vertical · all parks", Description: "PC / health governance view"}
+		return domain.RoleLensContract{ID: "pc-director", Name: "Preventive Care Director", AuditShort: "PC Dir", Scope: "preventive care · all parks", Description: "Vaccination governance view"}
+	case permissions.RoleGrowthDirector:
+		return domain.RoleLensContract{ID: "growth-director", Name: "Growth Director", AuditShort: "Growth Dir", Scope: "weighing · all parks", Description: "Weighing governance view"}
+	case permissions.RoleFeedDirector:
+		return domain.RoleLensContract{ID: "feed-director", Name: "Feed Director", AuditShort: "Feed Dir", Scope: "feed · all parks", Description: "Feed governance view"}
+	case permissions.RoleHealthDirector:
+		return domain.RoleLensContract{ID: "health-director", Name: "Health Director", AuditShort: "Health Dir", Scope: "health · all parks", Description: "Health / counts governance view"}
 	case permissions.RoleParkHead:
 		return domain.RoleLensContract{ID: "park-head", Name: "Park Head", AuditShort: "Park Head", Scope: "all verticals · assigned park", Description: "Assigned park leadership view"}
 	case permissions.RoleVerifier:
@@ -1116,7 +1136,15 @@ func roleInitials(role string) string {
 	switch role {
 	case permissions.RoleCEOInternal:
 		return "CX"
+	// "HD" belongs to the Health Director; the PC Director gets his own initials for the same
+	// reason his lens name changed.
 	case permissions.RolePCDirector:
+		return "PC"
+	case permissions.RoleGrowthDirector:
+		return "GD"
+	case permissions.RoleFeedDirector:
+		return "FD"
+	case permissions.RoleHealthDirector:
 		return "HD"
 	case permissions.RoleParkHead:
 		return "PH"
@@ -1152,8 +1180,6 @@ func permissionsForNav(id string) []string {
 	switch id {
 	case "control-tower", "action-center", "protocol-adherence", "workflows", "preventive-care-vaccination":
 		return []string{permissions.ObligationRead, permissions.VaccinationRead}
-	case "preventive-care-weighing":
-		return []string{permissions.WeighingMonitor}
 	case "calendar":
 		return []string{permissions.CalendarRead, permissions.VaccinationRead, permissions.ObligationRead}
 	case "procurement-source-entry":

@@ -15,8 +15,8 @@ import android.os.Build
  *    branded pairing wizard". The keyboard-wedge reader is read via `InputManager`
  *    (no permission) plus `BluetoothAdapter.getBondedDevices()` / ACL broadcasts as a
  *    secondary signal, which is what needs runtime `BLUETOOTH_CONNECT` on API 31+.
- *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` and location are
- *    deliberately not part of this login-time catalog.
+ *    V1 never calls `startDiscovery()`/BLE scan, so `BLUETOOTH_SCAN` is deliberately not
+ *    part of this login-time catalog. LOCATION is mandatory for operators (maintainer 2026-08-02).
  *  - docs/mobile/trd-operator-mobile.md §7 — CameraX proof capture, FCM alerts.
  */
 // Permission constants added after minSdk (BLUETOOTH_CONNECT API 31, POST_NOTIFICATIONS
@@ -27,6 +27,11 @@ enum class AppPermission(
     val manifestPermission: String,
     val minSdkInt: Int,
     val optional: Boolean,
+    /** Highest SDK on which this permission is declared in the manifest and can therefore be
+     *  granted. Requesting past it can never succeed, which would strand the operator behind a
+     *  mandatory gate forever (seen live: ACCESS_FINE_LOCATION is capped at 30, so on Android 13
+     *  `pm grant` silently fails and the app is unusable). Int.MAX_VALUE = no cap. */
+    val maxSdkInt: Int = Int.MAX_VALUE,
 ) {
     /** CameraX proof capture (shed-record submit video/photo evidence). Needed on every
      *  supported OS version (minSdk 29). */
@@ -52,13 +57,25 @@ enum class AppPermission(
         minSdkInt = Build.VERSION_CODES.TIRAMISU,
         optional = true,
     ),
+
+    /** Location for operator field work (maintainer directive 2026-08-02). NOTE the manifest
+     *  declares ACCESS_FINE_LOCATION with android:maxSdkVersion="30": from Android 12 the RFID
+     *  reader scans with BLUETOOTH_SCAN android:usesPermissionFlags="neverForLocation", so
+     *  location is neither needed nor grantable there. Capping it here keeps the mandatory gate
+     *  satisfiable on modern phones instead of locking the operator out. */
+    LOCATION(
+        manifestPermission = Manifest.permission.ACCESS_FINE_LOCATION,
+        minSdkInt = 0,
+        optional = true,
+        maxSdkInt = Build.VERSION_CODES.R,
+    ),
     ;
 
     companion object {
         /** The OS-appropriate subset of [AppPermission] to request/display on the given
          *  (default: current) device — this IS the OS-version-aware gate. */
         fun requiredForSdkInt(sdkInt: Int = Build.VERSION.SDK_INT): List<AppPermission> =
-            entries.filter { sdkInt >= it.minSdkInt }
+            entries.filter { sdkInt >= it.minSdkInt && sdkInt <= it.maxSdkInt }
     }
 }
 

@@ -25,7 +25,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.capture.CapturedVideo
+import sg.mesha.goatos.capture.ChannelBackedProofCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
+import sg.mesha.goatos.capture.ProofCaptureSource
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -39,10 +42,15 @@ import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
+import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
+import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
+import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
 import sg.mesha.goatos.core.data.weighing.WeighingPage
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalogCache
+import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkBucketsCache
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
@@ -50,11 +58,21 @@ import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
+import sg.mesha.goatos.core.data.weighing.WeighingTask
+import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
+import sg.mesha.goatos.core.data.weighing.WeighingTaskLookup
+import sg.mesha.goatos.core.data.weighing.WeighingParkRef
+import sg.mesha.goatos.core.data.weighing.WeighingTaskShed
+import sg.mesha.goatos.core.data.weighing.WeighingTaskPage
 import sg.mesha.goatos.core.model.nav.NavState
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
+import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.core.network.BootstrapOperatorProfileDto
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -71,44 +89,6 @@ class WeighingViewModelTest {
     fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `planner create uses selected shed categories instead of first three defaults`() = runTest(dispatcher) {
-        val repository = FakeWeighingRepository()
-        val vm = weighingViewModel(repository = repository)
-        backgroundScope.launch(dispatcher) {
-            vm.state.collect {}
-        }
-
-        advanceUntilIdle()
-        val initial = vm.state.value.plannerParks.single().sheds
-        assertEquals(
-            listOf("shed-1", "shed-2", "shed-3"),
-            initial.filter { it.selected }.map { it.locationId },
-        )
-
-        vm.togglePlannerShed("shed-1")
-        vm.togglePlannerShed("shed-4")
-        vm.setPlannerShedCategory("shed-2", "individual_animal")
-        vm.setPlannerShedCategory("shed-3", "per_shed_partition")
-        vm.setPlannerShedCategory("shed-4", "individual_animal")
-        vm.createOrEditDefaultPlan()
-        advanceUntilIdle()
-
-        val draft = repository.createdDraft
-        requireNotNull(draft)
-        assertEquals("park-cpt", draft.parkId)
-        assertEquals("operator-amit", draft.operatorUserId)
-        assertEquals(
-            listOf("shed-2", "shed-3", "shed-4"),
-            draft.sheds.map { it.locationId },
-        )
-        assertEquals(
-            listOf("individual_animal", "per_shed_partition", "individual_animal"),
-            draft.sheds.map { it.category },
-        )
-        assertNull(repository.updatedDraft)
-    }
-
-    @Test
     fun `individual submit ready survives navigation before accepted sync restores`() {
         val state = WeighingUiState(
             hasScope = true,
@@ -118,11 +98,7 @@ class WeighingViewModelTest {
                     id = "row-1",
                     animalId = "901007000504407",
                     displayAnimalId = "901007000504407",
-                    expectedLocationLabel = "Kid Shed B",
-                    actualLocationLabel = null,
                     status = "Scanned",
-                    availabilityStatus = null,
-                    wrongShed = false,
                     weightSaved = true,
                     proofUploadStatus = ProofUploadStatus.SYNCED,
                     backendSynced = false,
@@ -133,12 +109,99 @@ class WeighingViewModelTest {
         assertTrue(state.individualSubmitReady)
     }
 
+    /**
+     * The oversight surface answers "who did what", from the BACKEND's own numbers.
+     *
+     * The fixture is the phone-QA farm of 2026-08-03: six buckets across three people, five
+     * individual and one lump-sum. The per-person totals are the ones the server computed over the
+     * whole park filter — Amit 1 shed / 13 animals, Dinakar 3 sheds / 27, Pramod 2 sheds / 10 —
+     * and the ViewModel hands them through UNCHANGED. It must never rebuild them by grouping the
+     * shed page, which is a ~20-row keyset window: a total taken from it would describe how far the
+     * reader scrolled rather than what the person did.
+     */
+    @Test
+    fun `operators surface reports per-person work from backend totals`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to phoneQaBuckets()),
+            operatorSummariesByPark = mapOf(
+                null to listOf(
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Amit", operatorDisplayName = "Amit",
+                        shedCount = 1, notStarted = 0, capturing = 0, submitted = 1, accepted = 0,
+                        rework = 0, animalsWeighed = 13, animalsSubmitted = 13,
+                    ),
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
+                        shedCount = 3, notStarted = 0, capturing = 3, submitted = 0, accepted = 0,
+                        rework = 0, animalsWeighed = 27, animalsSubmitted = 0,
+                    ),
+                    WeighingOperatorSummary(
+                        operatorUserId = "user-Pramod", operatorDisplayName = "Pramod",
+                        shedCount = 2, notStarted = 0, capturing = 0, submitted = 2, accepted = 0,
+                        rework = 0, animalsWeighed = 10, animalsSubmitted = 10,
+                    ),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_OPERATORS)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+
+        advanceUntilIdle()
+
+        val people = vm.state.value.operatorSummaries
+        assertEquals(listOf("Amit", "Dinakar", "Pramod"), people.map { it.name })
+        assertEquals(listOf(1, 3, 2), people.map { it.shedCount })
+        assertEquals(listOf(13, 27, 10), people.map { it.animalsWeighed })
+        // The SECOND named fact, carried per person exactly as the backend reports it. Dinakar is
+        // mid-shift: 27 animals weighed and NOTHING submitted. One number could not say that --
+        // it would have read 27 here and 0 on the task detail for the same work at the same second.
+        assertEquals(listOf(13, 0, 10), people.map { it.animalsSubmitted })
+        // Disjoint and exhaustive: the four state counts add up to the person's sheds, which is
+        // what lets the card draw discrete segments instead of an invented fraction.
+        assertTrue(
+            people.all { it.notStarted + it.capturing + it.submitted + it.accepted == it.shedCount },
+        )
+    }
+
+    /**
+     * Paging the shed list must not move a per-person total.
+     *
+     * The totals are whole-filter server truth. Appending page two adds shed rows and NOTHING else;
+     * a client that recomputed the totals from what it holds would make Dinakar's animal count grow
+     * as the reader scrolled.
+     */
+    @Test
+    fun `appending a shed page leaves the per-person totals alone`() = runTest(dispatcher) {
+        val summary = listOf(
+            WeighingOperatorSummary(
+                operatorUserId = "user-Dinakar", operatorDisplayName = "Dinakar",
+                shedCount = 3, notStarted = 0, capturing = 0, submitted = 3, accepted = 0,
+                rework = 0, animalsWeighed = 27, animalsSubmitted = 27,
+            ),
+        )
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to phoneQaBuckets()),
+            operatorSummariesByPark = mapOf(null to summary),
+        )
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_OPERATORS)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val before = vm.state.value.operatorSummaries
+        vm.onAssignmentRowVisible(vm.state.value.assignments.lastIndex)
+        advanceUntilIdle()
+
+        assertEquals(before, vm.state.value.operatorSummaries)
+        assertEquals(27, vm.state.value.operatorSummaries.single().animalsWeighed)
+        assertEquals(27, vm.state.value.operatorSummaries.single().animalsSubmitted)
+    }
+
     @Test
     fun `read failure hides raw localhost transport detail from weighing screen`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(
             plannerCatalogResult = AppResult.Err("Failed to connect to localhost/127.0.0.1:8080"),
         )
-        val vm = weighingViewModel(repository = repository)
+        val vm = weighingViewModel(repository = repository, surface = WEIGHING_SCOPE_ALL)
         backgroundScope.launch(dispatcher) {
             vm.state.collect {}
         }
@@ -256,7 +319,7 @@ class WeighingViewModelTest {
         vm.recordIndividual(SECOND_TAG, "13.5")
         runCurrent()
 
-        assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.animalId })
+        assertEquals(listOf(TEST_TAG, SECOND_TAG), repository.captures.map { it.scannedIdentifier })
         val bothPendingState = vm.state.value.visibleRows.associateBy { it.animalId }
         assertTrue(bothPendingState.getValue(TEST_TAG).weightUpdating)
         assertTrue(bothPendingState.getValue(SECOND_TAG).weightUpdating)
@@ -266,6 +329,53 @@ class WeighingViewModelTest {
         advanceUntilIdle()
 
         assertFalse(vm.state.value.visibleRows.any { it.weightUpdating })
+    }
+
+    /**
+     * The per-row weight save must bind the weight to the ROW it was typed against, not to whatever
+     * tag the shared scan box happens to be holding.
+     *
+     * recordIndividualRow built its capture with `scannedIdentifier = scanInput.value.ifBlank {
+     * row.primaryTag }`. scanInput is a single ViewModel-wide field written by every scan and by
+     * the typed-scan box; the per-row save path deliberately runs WITHOUT the global busy gate
+     * (`useGlobalBusyGate = false`), so nothing holds that field still while the save is dispatched.
+     * The operator scans the next animal, then goes back and saves the weight for the previous row:
+     * that row's weight leaves the phone under the OTHER animal's tag.
+     *
+     * The backend cannot catch this. RecordAnimalObservation clears AnimalID outright and takes
+     * scanned_identifier verbatim (service.go:419-426) -- free-flow has no roster to cross-check
+     * against, so the client's binding IS the record.
+     */
+    @Test
+    fun `per-row weight save binds to its own row not the shared scan box`() = runTest(dispatcher) {
+        val gate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow(), rosterRow(animalId = SECOND_TAG, rowId = "row-2")),
+                emptyList(),
+                emptyList(),
+                0,
+            ),
+            recordIndividualGate = gate,
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG)
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, SECOND_TAG)
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // The operator has moved on: the scan box now holds the SECOND animal's tag.
+        vm.onScanInputChange(SECOND_TAG)
+        // ...and now saves the weight typed against the FIRST animal's row.
+        vm.onAnimalWeightInputChange(TEST_TAG, "12.0")
+        vm.recordIndividual(TEST_TAG, "12.0")
+        runCurrent()
+
+        assertEquals(TEST_TAG, repository.lastCapture?.scannedIdentifier)
+
+        gate.complete(AppResult.Ok(acceptedDraft(weightKg = 12.0)))
+        advanceUntilIdle()
     }
 
     @Test
@@ -317,7 +427,7 @@ class WeighingViewModelTest {
         val repository = FakeWeighingRepository(
             scopeState = WeighingScopeState(
                 listOf(rosterRow()),
-                listOf(acceptedDraft(weightKg = 12.0, capturedAtMs = 1_000)),
+                listOf(acceptedDraft(weightKg = 12.0, capturedAtMs = 1_000, proofCaptureId = "proof-replacement")),
                 emptyList(),
                 0,
             ),
@@ -335,6 +445,182 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `stale synced individual proof is ignored after backend reopens weighing row`() = runTest(dispatcher) {
+        val staleProof = ProofCaptureRow(
+            id = "proof-stale",
+            fieldKey = "weighing_individual_video",
+            proofSubject = ProofSubject.GOAT,
+            subjectId = TEST_TAG,
+            localUri = "file://stale.mp4",
+            mimeType = "video/mp4",
+            caption = TEST_TAG,
+            capturedAtMs = 3_600_000,
+            capturedStartMs = 3_600_000,
+            capturedEndMs = 3_601_000,
+            capturedByPrincipalId = null,
+            syncStatus = CaptureSyncStatus.SYNCED,
+            serverProofId = "server-proof-stale",
+            lastError = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(listOf(rosterRow()), emptyList(), emptyList(), 0),
+        )
+        val scans = FakeScanCaptureRepository()
+        scans.recordScan(SCOPE_KEY, WEIGHING_SCAN_FIELD_KEY, TEST_TAG, capturedAtMs = 4_000)
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(staleProof) }
+        val vm = weighingViewModel(repository, scoped = true, scanCaptureRepository = scans, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertNull(row.proofCaptureId)
+        assertNull(row.proofStatusLabel)
+    }
+
+    @Test
+    fun `stale synced shed proofs do not block new group video after backend reopen`() = runTest(dispatcher) {
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { repo ->
+            repeat(5) { index ->
+                repo.seedProofs(
+                    ProofCaptureRow(
+                        id = "old-shed-proof-$index",
+                        fieldKey = "weighing_shed_partition_video",
+                        proofSubject = ProofSubject.SHED,
+                        subjectId = "shed-1",
+                        localUri = "file://old-$index.mp4",
+                        mimeType = "video/mp4",
+                        caption = "old $index",
+                        capturedAtMs = index.toLong(),
+                        capturedStartMs = index.toLong(),
+                        capturedEndMs = index.toLong() + 1,
+                        capturedByPrincipalId = null,
+                        syncStatus = CaptureSyncStatus.SYNCED,
+                        serverProofId = "server-old-$index",
+                        lastError = null,
+                    ),
+                )
+            }
+        }
+        val proofSource = FakeProofCaptureSource()
+        proofSource.queue(sg.mesha.goatos.capture.CapturedVideo(localUri = "file://new.mp4", startedAtMs = 10_000, endedAtMs = 12_000))
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.captureShedVideo()
+        advanceUntilIdle()
+
+        assertEquals(1, proofs.captureCalls.size)
+    }
+
+    @Test
+    fun `stale caption-only proof is not reused after backend reset removes accepted draft`() = runTest(dispatcher) {
+        val staleProof = proofRow(
+            id = "proof-before-reset",
+            syncStatus = CaptureSyncStatus.SYNCED,
+            serverProofId = "server-proof-before-reset",
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "observation-after-reset",
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 12.0,
+                        capturedAtMs = 3_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:after-reset",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(staleProof) }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertNull(row.proofCaptureId)
+        assertEquals(ProofUploadStatus.MISSING, row.proofUploadStatus)
+    }
+
+    @Test
+    fun `pending individual proof survives viewmodel recreation without backend draft`() = runTest(dispatcher) {
+        val pendingProof = proofRow(
+            id = "proof-pending-restart",
+            syncStatus = CaptureSyncStatus.PENDING,
+            serverProofId = null,
+        )
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                listOf(rosterRow()),
+                listOf(
+                    IndividualWeighingDraft(
+                        observationId = "local-observation",
+                        scannedIdentifier = TEST_TAG,
+                        weightKg = 12.0,
+                        capturedAtMs = 3_000,
+                        proofCaptureId = null,
+                        proofReady = false,
+                        readyToSubmit = false,
+                        syncedToBackend = false,
+                        idempotencyKey = "weighing:individual:local",
+                    ),
+                ),
+                emptyList(),
+                1,
+            ),
+        )
+        val proofs = FakeProofCaptureRepository().also { it.seedProofs(pendingProof) }
+        val vm = weighingViewModel(repository, scoped = true, proofCaptureRepository = proofs)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.visibleRows.single()
+        assertEquals("proof-pending-restart", row.proofCaptureId)
+        assertEquals(ProofUploadStatus.UPLOADING, row.proofUploadStatus)
+    }
+
+    @Test
+    fun `pending shed proof survives viewmodel recreation without session id`() = runTest(dispatcher) {
+        val pendingProof = proofRow(
+            id = "shed-proof-pending-restart",
+            fieldKey = "weighing_shed_partition_video",
+            proofSubject = ProofSubject.SHED,
+            subjectId = "shed-1",
+            caption = "Lump-sum group video 1",
+            syncStatus = CaptureSyncStatus.PENDING,
+            serverProofId = null,
+        )
+        val proofs = FakeProofCaptureRepository(maxProofs = 10).also { it.seedProofs(pendingProof) }
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(scopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0)),
+            scoped = true,
+            proofCaptureRepository = proofs,
+            weighingCategory = "per_shed_partition",
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val proof = vm.state.value.shedProofs.single()
+        assertEquals("shed-proof-pending-restart", proof.id)
+        assertEquals(ProofUploadStatus.UPLOADING, proof.status)
+    }
+
+    @Test
     fun `shed partition category is normalized before field gates run`() = runTest(dispatcher) {
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(),
@@ -348,22 +634,450 @@ class WeighingViewModelTest {
         assertTrue(vm.state.value.isShedPartition)
     }
 
+    /**
+     * Free-flow weighing has the SAME wrong-animal capture window vaccination had (fixed in
+     * 2db1eb207): scanning animal A opened the camera bound to A, and a scan of animal B while A's
+     * recording was still in progress was dropped on the floor with no camera, no message and no
+     * retarget — so footage actually shot at B was saved under A's tag, and the weight typed next
+     * landed on A too. Free-flow does not make this safe: it just means the wrong SCANNED TAG is
+     * written instead of the wrong animal id.
+     */
+    @Test
+    fun `scanning a second animal while the first video is recording never saves that video under the first animal`() = runTest(dispatcher) {
+        val proofSource = FakeProofCaptureSource()
+        val proofs = FakeProofCaptureRepository()
+        val scans = FakeScanCaptureRepository()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            scanCaptureRepository = scans,
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Animal A is scanned; its camera opens and is still recording (captureVideo() has not
+        // returned — nothing written yet) when the operator walks to animal B and scans it.
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("animal A's camera opened", 1, proofSource.captureCount)
+        assertEquals(0, proofs.captureCalls.size)
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        assertEquals(
+            "scanning animal B must cancel A's unfinished recording and reopen the camera for B",
+            2,
+            proofSource.captureCount,
+        )
+        assertEquals("no video may be saved until a recording actually finishes", 0, proofs.captureCalls.size)
+        assertTrue(
+            "the operator must be told animal A was left without its video, not silently ignored",
+            vm.state.value.message.orEmpty().contains(TEST_TAG),
+        )
+
+        // A's cancelled recording finishing late must never be saved under anyone.
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        advanceUntilIdle()
+        assertEquals("a cancelled recording's late result must never be saved", 0, proofs.captureCalls.size)
+
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+    }
+
+    /**
+     * The same defect one layer down, on the shared singleton `DelegatingProofCaptureSource`.
+     * [FakeProofCaptureSource]'s per-call gates cannot express it; production shares ONE buffered
+     * result channel across every capture request (`VideoCaptureLauncher.kt:38/52/87`), so animal
+     * A's clip -- finalized by CameraX only after the operator turned to animal B -- is left in
+     * that buffer and handed to B's capture, and saved as B's weighing proof. Weighing has no
+     * roster to falsify the binding: `service.go` takes the client binding verbatim.
+     */
+    @Test
+    fun `a cancelled recording finalized late is never handed to the animal scanned next`() = runTest(dispatcher) {
+        val proofs = FakeProofCaptureRepository()
+        val proofSource = ChannelBackedProofCaptureSource()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = proofs,
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("animal A's camera opened", 1, proofSource.captureCount)
+
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+        assertEquals("a fresh camera must open for animal B", 2, proofSource.captureCount)
+
+        // A's recording finalizes now -- it belongs to the cancelled request #1.
+        proofSource.deliverRecorderResult(
+            requestOrdinal = 1,
+            video = CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2),
+        )
+        advanceUntilIdle()
+        assertEquals(
+            "animal A's clip must never become animal B's weighing proof",
+            0,
+            proofs.captureCalls.size,
+        )
+
+        proofSource.deliverRecorderResult(
+            requestOrdinal = 2,
+            video = CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4),
+        )
+        advanceUntilIdle()
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+    }
+
+    /**
+     * The weight is the other half of the same window: the dropped scan also left the selected
+     * animal pointing at A, so the next weight the operator typed — standing at B — was recorded
+     * against A's tag.
+     */
+    @Test
+    fun `weight typed after scanning a second animal mid-recording is recorded against that second animal`() = runTest(dispatcher) {
+        val recordGate = CompletableDeferred<AppResult<IndividualWeighingDraft>>()
+        val repository = FakeWeighingRepository(
+            recordIndividualGates = ArrayDeque(listOf(recordGate)),
+        )
+        val proofSource = FakeProofCaptureSource()
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = FakeScanCaptureRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = proofSource,
+            bootstrapRepository = OperatorBootstrapRepository,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val gateA = proofSource.queueGate()
+        vm.onScanInputChange(TEST_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        val gateB = proofSource.queueGate()
+        vm.onScanInputChange(SECOND_TAG)
+        vm.submitTypedScan()
+        advanceUntilIdle()
+
+        gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
+        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
+        advanceUntilIdle()
+
+        vm.onWeightInputChange("14.5")
+        vm.recordIndividual()
+        advanceUntilIdle()
+        recordGate.complete(AppResult.Ok(acceptedDraft(animalId = SECOND_TAG, weightKg = 14.5)))
+        advanceUntilIdle()
+
+        assertEquals(
+            "the weight belongs to the animal the operator is standing at, not the one whose scan came first",
+            SECOND_TAG,
+            repository.lastCapture?.scannedIdentifier,
+        )
+        assertEquals(SECOND_TAG, repository.lastCapture?.scannedIdentifier)
+    }
+
+    @Test
+    fun `park chips survive selecting a park and All parks is reachable again`() = runTest(dispatcher) {
+        // A22: listAssignments is server-filtered by parkId, so once a park is selected
+        // `assignments` collapses to that one park's rows -- deriving the chip list from that same
+        // collapsed list left only one chip and no way back to "All parks" or the other park.
+        fun assignment(parkId: String, parkName: String, shedId: String) = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = parkId,
+            parkName = parkName,
+            workGroupId = shedId,
+            campaignShedId = shedId,
+            expectedLocationId = shedId,
+            expectedLocationLabel = shedId,
+            label = shedId,
+            category = "individual_animal",
+            operatorUserId = "operator-1",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val parkA = assignment("park-a", "Park A", "shed-a")
+        val parkB = assignment("park-b", "Park B", "shed-b")
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(
+                null to listOf(parkA, parkB),
+                "park-a" to listOf(parkA),
+            ),
+        )
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Unfiltered load: both parks are known and both assignments show.
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertEquals(2, vm.state.value.assignments.size)
+
+        vm.selectAssignmentPark("park-a")
+        advanceUntilIdle()
+
+        // Server-filtered: assignments collapse to park A, but the chip list must NOT collapse --
+        // Park B (and the implicit "All parks" the screen always injects) must stay reachable.
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(setOf("park-a", "park-b"), vm.state.value.parkFilters.map { it.parkId }.toSet())
+        assertTrue(vm.state.value.parkFilters.single { it.parkId == "park-a" }.selected)
+        assertFalse(vm.state.value.parkFilters.single { it.parkId == "park-b" }.selected)
+
+        vm.selectAssignmentPark(null)
+        advanceUntilIdle()
+
+        // Reachable again: selecting "All parks" (null) restores both assignments.
+        assertEquals(2, vm.state.value.assignments.size)
+    }
+
+    @Test
+    fun `oversight park chips offer a park with no assignment on the loaded page`() = runTest(dispatcher) {
+        // The chip row used to be built only from the parks the loaded assignment PAGES happened to
+        // carry, so a park whose first row sits on page three had no chip -- and because selecting a
+        // park is the only way to fetch that park's rows, its work was unreachable entirely.
+        val onlyPagedPark = WeighingAssignment(
+            campaignId = "campaign-1",
+            tenantId = "tenant-1",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            workGroupId = "shed-a",
+            campaignShedId = "shed-a",
+            expectedLocationId = "shed-a",
+            expectedLocationLabel = "shed-a",
+            label = "shed-a",
+            category = "individual_animal",
+            operatorUserId = "operator-2",
+            status = "in_progress",
+            periodLabel = "2026-08-01 - 2026-08-07",
+        )
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(onlyPagedPark)),
+            // A Growth Director: monitors and oversees, never plans. The planner catalog is
+            // weighing.plan-gated and can_publish IS that permission, so this viewer cannot read
+            // it -- and used to be left with chips derived from whatever rows had loaded.
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(
+                WeighingParkRef("park-cpt", "CPT - Channapatna"),
+                WeighingParkRef("park-cbe", "CBE - Coimbatore"),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(listOf("shed-a"), vm.state.value.assignments.map { it.campaignShedId })
+        assertEquals(
+            "the backend's own park vocabulary, not the parks that happen to be on the loaded page",
+            setOf("park-cpt", "park-cbe"),
+            vm.state.value.parkFilters.map { it.parkId }.toSet(),
+        )
+        assertEquals(0, repository.plannerCatalogRefreshes)
+    }
+
+    @Test
+    fun `oversight never calls the planner catalog without the planning capability`() = runTest(dispatcher) {
+        // /app/weighing/planner/catalog requires weighing.plan. A Growth Director oversees without
+        // it, so the old unconditional read was a guaranteed 403 for the very viewer this surface
+        // exists for; the paged park fallback is what they keep instead.
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(
+            "the paged fallback still names the parks the loaded rows carry",
+            vm.state.value.parkFilters.any { it.parkId == "park-cpt" },
+        )
+    }
+
+    @Test
+    fun `oversight reads the park vocabulary WITHOUT the planning capability`() = runTest(dispatcher) {
+        // The whole point of GET /app/weighing/parks: the vocabulary read must not be gated on
+        // the permission the viewer who needs it does not hold.
+        val repository = FakeWeighingRepository(
+            assignmentsByPark = mapOf(null to listOf(oversightAssignment())),
+            assignmentCapabilities = WeighingCapabilities(canEnd = true, canReopen = true),
+            parks = listOf(WeighingParkRef("park-cbe", "CBE - Coimbatore")),
+        )
+        val vm = weighingViewModel(repository, surface = "operators")
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(repository.parkVocabularyReads > 0)
+        assertEquals(0, repository.plannerCatalogRefreshes)
+        assertTrue(vm.state.value.parkFilters.any { it.parkId == "park-cbe" })
+    }
+
+    @Test
+    fun `a deep-linked task is resolved by ONE single-task read, not a page walk`() = runTest(dispatcher) {
+        // The list is a keyset page with no id filter. The old bounded walk spent its budget on
+        // appends that early-returned while the cold-start refresh was still in flight.
+        val deepLinked = WeighingTask(
+            campaignId = "campaign-deep",
+            tenantId = "tenant",
+            parkId = "park-cpt",
+            parkName = "CPT - Channapatna",
+            weighDate = "2026-08-03",
+            status = "in_progress",
+            sheds = emptyList(),
+        )
+        val repository = FakeWeighingRepository(
+            taskLookups = mapOf(
+                "campaign-deep" to WeighingTaskLookup.Found(
+                    task = deepLinked,
+                    capabilities = WeighingCapabilities(canEnd = true),
+                ),
+            ),
+        )
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-deep")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-deep"), repository.taskLookupCalls.toList())
+        assertTrue(vm.taskDetailState.value.found)
+        // The list never answered for this task, so the single read's capabilities are what stand.
+        assertTrue(vm.taskDetailState.value.canEnd)
+    }
+
+    @Test
+    fun `a deep-linked task the backend refuses is reported not found, and asked for once`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository()
+        val vm = weighingViewModel(repository, surface = "all")
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-missing")
+        advanceUntilIdle()
+
+        assertEquals(listOf("campaign-missing"), repository.taskLookupCalls.toList())
+        assertFalse(vm.taskDetailState.value.found)
+    }
+
+    @Test
+    fun `each shed bucket on a task detail names the operator it is assigned to`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-cbe")
+        advanceUntilIdle()
+
+        val rows = vm.taskDetailState.value.sheds
+        assertEquals(listOf("Gandhi 1", "Gandhi 2", "Godel 1", "Yashoda 1"), rows.map { it.shedName })
+        assertEquals(
+            "every bucket must carry the name of the person it was assigned to",
+            listOf("Dinakar", "Dinakar", "Pramod", "Pramod"),
+            rows.map { it.operatorLabel },
+        )
+        // A user id is never what the reader sees.
+        assertTrue(rows.none { it.operatorLabel.startsWith("user-") })
+    }
+
+    // "Dinakar 2" cannot say whether the 2 is sheds or animals, and this screen shows both units:
+    // the chip counts shed buckets while every card under it talks about animals captured. The
+    // count therefore reaches the screen as a NUMBER so the screen can name the unit.
+    @Test
+    fun `operator chips carry the shed count as a number the screen can name a unit for`() = runTest(dispatcher) {
+        val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
+        val vm = weighingViewModel(repository)
+        backgroundScope.launch(dispatcher) { vm.taskDetailState.collect {} }
+        vm.selectTask("campaign-cbe")
+        advanceUntilIdle()
+
+        val chips = vm.taskDetailState.value.operatorFilters
+        assertEquals(listOf("Dinakar", "Pramod"), chips.map { it.name })
+        assertEquals(listOf(2, 2), chips.map { it.shedCount })
+        // The bare number must NOT be pre-baked into the name: an unlabelled "Dinakar 2" is exactly
+        // the ambiguity this carries a separate field to avoid.
+        assertTrue(chips.none { it.name.contains(it.shedCount.toString()) })
+    }
+
+    // The maintainer's exact scenario, straight off `weighing_campaign_sheds.operator_user_id` ->
+    // `workforce_members.display_name`: four individual buckets in park CBE, 2 for Dinakar and
+    // 2 for Pramod, none of them started yet.
+    private fun splitTaskCache(): WeighingTaskListCache {
+        fun bucket(shed: String, operatorUserId: String, operatorName: String) = WeighingTaskShed(
+            campaignShedId = "cs-${shed.lowercase().replace(' ', '-')}",
+            locationId = "loc-${shed.lowercase().replace(' ', '-')}",
+            displayName = shed,
+            category = "individual_animal",
+            operatorUserId = operatorUserId,
+            operatorDisplayName = operatorName,
+            status = "published",
+            pendingVerificationCount = 0,
+            reworkCount = 0,
+            readyToClose = false,
+        )
+        return WeighingTaskListCache(
+            items = listOf(
+                WeighingTask(
+                    campaignId = "campaign-cbe",
+                    tenantId = "tenant-1",
+                    parkId = "park-cbe",
+                    parkName = "CBE",
+                    weighDate = "2026-08-03",
+                    status = "published",
+                    sheds = listOf(
+                        bucket("Gandhi 1", "user-dinakar", "Dinakar"),
+                        bucket("Gandhi 2", "user-dinakar", "Dinakar"),
+                        bucket("Godel 1", "user-pramod", "Pramod"),
+                        bucket("Yashoda 1", "user-pramod", "Pramod"),
+                    ),
+                ),
+            ),
+            hasCache = true,
+        )
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
+        // Which weighing SURFACE this ViewModel is standing in for. Planning belongs to the planner
+        // surface, so a test exercising the planner has to say so -- the route declares it in the app.
+        surface: String? = null,
         scanCaptureRepository: FakeScanCaptureRepository = FakeScanCaptureRepository(),
         proofCaptureRepository: FakeProofCaptureRepository = FakeProofCaptureRepository(),
+        proofCaptureSource: ProofCaptureSource = FakeProofCaptureSource(),
+        bootstrapRepository: BootstrapRepository = LeadershipBootstrapRepository,
         weighingCategory: String = "individual_animal",
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
-            bootstrapRepository = LeadershipBootstrapRepository,
+            bootstrapRepository = bootstrapRepository,
             reader = FakeRfidReaderPort(),
             scanCaptureRepository = scanCaptureRepository,
             proofCaptureRepository = proofCaptureRepository,
-            proofCaptureSource = FakeProofCaptureSource(),
+            proofCaptureSource = proofCaptureSource,
             analytics = NoopAnalytics(),
             crashReporter = NoopCrashReporter(),
+            repeatSeedStore = WeighingRepeatSeedStore(),
             savedStateHandle = SavedStateHandle(
                 if (scoped) {
                     mapOf(
@@ -376,7 +1090,7 @@ class WeighingViewModelTest {
                         "expectedLocationLabel" to "Shed 1",
                     )
                 } else {
-                    emptyMap()
+                    surface?.let { mapOf("weighingSurface" to it) } ?: emptyMap()
                 },
             ),
         )
@@ -411,23 +1125,54 @@ class WeighingViewModelTest {
         animalId: String = TEST_TAG,
         weightKg: Double,
         capturedAtMs: Long = 1_000,
+        proofCaptureId: String = "proof-$animalId",
     ) = IndividualWeighingDraft(
         observationId = "observation-$animalId",
-        animalId = animalId,
         scannedIdentifier = animalId,
         weightKg = weightKg,
         capturedAtMs = capturedAtMs,
-        proofCaptureId = "proof-$animalId",
+        proofCaptureId = proofCaptureId,
         proofReady = true,
         readyToSubmit = true,
         syncedToBackend = true,
         idempotencyKey = "server:observation-1",
-        serverProofId = "proof-$animalId",
+        serverProofId = proofCaptureId,
+    )
+
+    private fun proofRow(
+        id: String,
+        fieldKey: String = "weighing_individual_video",
+        proofSubject: ProofSubject = ProofSubject.GOAT,
+        subjectId: String? = TEST_TAG,
+        caption: String? = TEST_TAG,
+        syncStatus: CaptureSyncStatus,
+        serverProofId: String?,
+    ) = ProofCaptureRow(
+        id = id,
+        fieldKey = fieldKey,
+        proofSubject = proofSubject,
+        subjectId = subjectId,
+        localUri = "file://$id.mp4",
+        mimeType = "video/mp4",
+        caption = caption,
+        capturedAtMs = 1_000,
+        capturedStartMs = 1_000,
+        capturedEndMs = 2_000,
+        capturedByPrincipalId = null,
+        syncStatus = syncStatus,
+        serverProofId = serverProofId,
+        lastError = null,
     )
 
     private object LeadershipBootstrapRepository : BootstrapRepository {
         override suspend fun loadNavState(): NavState = NavState.Empty
         override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = null
+    }
+
+    private object OperatorBootstrapRepository : BootstrapRepository {
+        override suspend fun loadNavState(): NavState = NavState.Empty
+        override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
+            BootstrapOperatorProfileDto(operatorId = "operator-1", displayName = "Operator 1", primaryRoleHint = "operator")
     }
 
     private class FakeRfidReaderPort : RfidReaderPort {
@@ -448,7 +1193,37 @@ class WeighingViewModelTest {
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
         private val recordIndividualGate: CompletableDeferred<AppResult<IndividualWeighingDraft>>? = null,
         private val recordIndividualGates: ArrayDeque<CompletableDeferred<AppResult<IndividualWeighingDraft>>> = ArrayDeque(),
+        // A22 regression coverage: the backend filters `listAssignments` server-side by parkId, so
+        // a fake that mimics that (rather than always returning the same full list regardless of
+        // parkId) is needed to reproduce "selecting a park collapses the chip row".
+        // Keyed by parkId; `null` is the unfiltered ("All parks") page.
+        private val assignmentsByPark: Map<String?, List<WeighingAssignment>> = emptyMap(),
+        // The OPERATOR-grain roll-up the backend answers the same request with. Held apart from
+        // `assignmentsByPark` on purpose, exactly as the wire holds it apart from `items`: these
+        // numbers are whole-filter truth and are never derivable from the returned page.
+        private val operatorSummariesByPark: Map<String?, List<WeighingOperatorSummary>> = emptyMap(),
+        // The leadership task list this fake's Room-backed stream answers with, so a test can put a
+        // planner in front of a real task and read the detail state that task produces.
+        private val taskListCache: WeighingTaskListCache = WeighingTaskListCache(),
+        // What the backend says this viewer may do to the assignment rows. Defaults to nothing, so
+        // a test that wants the oversight actions has to say so -- exactly like the real read.
+        private val assignmentCapabilities: WeighingCapabilities = WeighingCapabilities(),
+        // The single-task read behind a deep link, and the park vocabulary behind the chips. Both
+        // default to "the backend has nothing to say", so a test that wants them says so.
+        private val taskLookups: Map<String, WeighingTaskLookup> = emptyMap(),
+        private val parks: List<WeighingParkRef> = emptyList(),
     ) : WeighingRepository {
+
+        /** Every single-task read this fake was asked for, in order. */
+        val taskLookupCalls = mutableListOf<String>()
+
+        /** How many times the park VOCABULARY read was issued. */
+        var parkVocabularyReads = 0
+            private set
+
+        /** How many times the PLANNER catalog read was issued. It is gated on weighing.plan. */
+        var plannerCatalogRefreshes = 0
+            private set
         private val observedScope = MutableStateFlow(scopeState)
         var lastCapture: IndividualWeighingCapture? = null
             private set
@@ -461,41 +1236,150 @@ class WeighingViewModelTest {
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
 
-        override suspend fun listAssignments(cursor: String?): AppResult<WeighingPage<WeighingAssignment>> =
-            AppResult.Ok(WeighingPage(emptyList(), null))
+        override suspend fun listAssignments(
+            cursor: String?,
+            scope: String,
+            parkId: String?,
+        ): AppResult<WeighingPage<WeighingAssignment>> =
+            AppResult.Ok(
+                WeighingPage(
+                    items = assignmentsByPark[parkId] ?: emptyList(),
+                    nextCursor = null,
+                    capabilities = assignmentCapabilities,
+                    operatorSummaries = operatorSummariesByPark[parkId] ?: emptyList(),
+                ),
+            )
 
-        override suspend fun listLeadershipVideos(cursor: String?): AppResult<WeighingPage<WeighingLeadershipShed>> =
-            AppResult.Ok(WeighingPage(emptyList(), null))
 
-        override suspend fun plannerCatalog(periodStartDate: String): AppResult<WeighingPlannerCatalog> =
-            plannerCatalogResult ?: AppResult.Ok(
+        // --- Leadership reads: Room-backed observe/refresh pairs -------------------------
+        //
+        // The weighing leadership surfaces render from Room. These tests exercise the CAPTURE
+        // flow, which has no leadership cache, so the observed streams are empty and the refreshes
+        // are no-ops -- never network calls dressed up as a cache.
+
+        override fun observeTaskList(
+            scope: String,
+            parkId: String?,
+            windowSize: Int,
+        ): Flow<WeighingTaskListCache> = MutableStateFlow(taskListCache)
+
+        override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
+            AppResult.Ok(0)
+
+        override suspend fun getTask(campaignId: String): AppResult<WeighingTaskLookup> {
+            taskLookupCalls += campaignId
+            return AppResult.Ok(taskLookups[campaignId] ?: WeighingTaskLookup.NotFound)
+        }
+
+        override suspend fun listParks(): AppResult<List<WeighingParkRef>> {
+            parkVocabularyReads++
+            return AppResult.Ok(parks)
+        }
+
+        override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> =
+            MutableStateFlow(WeighingTaskBucketCache())
+
+        override suspend fun refreshTaskBuckets(campaignId: String, reset: Boolean): AppResult<Int> =
+            AppResult.Ok(0)
+
+        override fun observeLeadershipShed(
+            campaignId: String,
+            campaignShedId: String,
+            windowSize: Int,
+        ): Flow<WeighingLeadershipShedCache> = MutableStateFlow(WeighingLeadershipShedCache())
+
+        override suspend fun refreshLeadershipShed(
+            campaignId: String,
+            campaignShedId: String,
+            reset: Boolean,
+        ): AppResult<Int> = AppResult.Ok(0)
+
+        override fun observeLeadershipVideos(windowSize: Int): Flow<List<WeighingLeadershipShed>> =
+            MutableStateFlow(emptyList())
+
+        override suspend fun refreshLeadershipVideos(reset: Boolean): AppResult<Int> = AppResult.Ok(0)
+
+        override fun observePlannerCatalog(
+            periodStartDate: String,
+        ): Flow<WeighingPlannerCatalogCache> = MutableStateFlow(
+            WeighingPlannerCatalogCache(catalog = cachedPlannerCatalog, hasCache = true),
+        )
+
+        /**
+         * A catalog refresh reports the seeded outcome, and the cache above holds whatever it
+         * produced — an Err seeds NOTHING, which is what a first read that never landed looks like.
+         */
+        override suspend fun refreshPlannerCatalog(periodStartDate: String): AppResult<Int> {
+            plannerCatalogRefreshes += 1
+            return when (val seeded = plannerCatalogResult) {
+                is AppResult.Err -> AppResult.Err(seeded.message)
+                else -> AppResult.Ok(cachedPlannerCatalog.parks.size)
+            }
+        }
+
+        /** The catalog this fake's cached planner stream answers with. */
+        private val cachedPlannerCatalog: WeighingPlannerCatalog =
+            (plannerCatalogResult as? AppResult.Ok)?.value ?: (
                 WeighingPlannerCatalog(
                     parks = listOf(
                         WeighingPlannerPark(
                             parkId = "park-cpt",
                             name = "CPT - Channapatna",
                             kidCount = 278,
-                            sheds = listOf(
-                                WeighingPlannerShed("shed-1", "Castro 1", 80),
-                                WeighingPlannerShed("shed-2", "Castro 2", 64),
-                                WeighingPlannerShed("shed-3", "Godel 2 - Part 1", 56),
-                                WeighingPlannerShed("shed-4", "Gandhi 1", 78),
-                            ),
+                            // Park grain: the catalog carries a shed COUNT; the rows page per park.
+                            shedCount = 4,
                             existingCampaign = null,
                         ),
                     ),
                     operators = listOf(WeighingPlannerOperator("operator-amit", "Amit Kumar", "AMIT")),
-                ),
+                ).takeIf { plannerCatalogResult == null } ?: WeighingPlannerCatalog(emptyList(), emptyList())
             )
+
+        override fun observePlannerParkBuckets(
+            periodStartDate: String,
+            parkId: String,
+            windowSize: Int,
+        ): Flow<WeighingPlannerParkBucketsCache> = MutableStateFlow(WeighingPlannerParkBucketsCache())
+
+        override suspend fun refreshPlannerParkBuckets(
+            periodStartDate: String,
+            parkId: String,
+            reset: Boolean,
+        ): AppResult<Int> = AppResult.Ok(0)
+
+        /** Records the in-place availability re-reads the wizard asks for. */
+        var availabilityRefreshes: MutableList<Triple<String, String, Int>> = mutableListOf()
+
+        override suspend fun refreshPlannerParkBucketAvailability(
+            periodStartDate: String,
+            parkId: String,
+            pages: Int,
+        ): AppResult<Int> {
+            availabilityRefreshes.add(Triple(periodStartDate, parkId, pages))
+            return AppResult.Ok(0)
+        }
 
         override suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             createdDraft = draft
             return AppResult.Ok(null)
         }
 
+        override suspend fun createPlan(draft: WeighingPlanDraft, publish: Boolean): AppResult<String> {
+            createdDraft = draft
+            return AppResult.Ok("campaign-1")
+        }
+
         override suspend fun updatePlan(campaignId: String, draft: WeighingPlanDraft): AppResult<WeighingAssignment?> {
             updatedDraft = draft
             return AppResult.Ok(null)
+        }
+
+        var publishedCampaignId: String? = null
+            private set
+
+        override suspend fun publishCampaign(campaignId: String): AppResult<Unit> {
+            publishedCampaignId = campaignId
+            return AppResult.Ok(Unit)
         }
 
         override suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int): AppResult<Int> =
@@ -514,7 +1398,7 @@ class WeighingViewModelTest {
                 ?: AppResult.Err("not used")
         }
 
-        override suspend fun attachIndividualProof(scopeKey: String, animalId: String, proofCaptureId: String, serverProofId: String?) {}
+        override suspend fun attachIndividualProof(scopeKey: String, scannedIdentifier: String, proofCaptureId: String, serverProofId: String?) {}
 
         override suspend fun recordShedPartition(capture: ShedPartitionWeighingCapture): AppResult<ShedWeighingDraft> =
             AppResult.Err("not used")
@@ -551,7 +1435,7 @@ class WeighingViewModelTest {
             reason: String,
         ): AppResult<Unit> = AppResult.Ok(Unit)
 
-        override suspend fun discardEditableIndividual(scopeKey: String, animalId: String) {}
+        override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) {}
     }
 
     private companion object {
@@ -560,4 +1444,24 @@ class WeighingViewModelTest {
         const val SCOPE_KEY = "campaign-1:group-1:campaign-shed-1"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"
     }
+
+    // Shared by the two oversight park-vocabulary tests. It was removed with an abandon-only test
+    // it happened to sit beside; the tests that still need it are about the PARK VOCABULARY, not
+    // about any transition, so the fixture outlives the deleted feature.
+    private fun oversightAssignment() = WeighingAssignment(
+        campaignId = "campaign-1",
+        tenantId = "tenant-1",
+        parkId = "park-cpt",
+        parkName = "CPT - Channapatna",
+        workGroupId = "shed-a",
+        campaignShedId = "shed-a",
+        expectedLocationId = "shed-a",
+        expectedLocationLabel = "shed-a",
+        label = "Gandhi 1",
+        category = "individual_animal",
+        operatorUserId = "operator-2",
+        status = "in_progress",
+        periodLabel = "2026-08-01 - 2026-08-07",
+    )
+
 }

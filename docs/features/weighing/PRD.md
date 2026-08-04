@@ -547,6 +547,30 @@ must remain correct if the UI page size changes from 20 to 10, if a selected
 shed rolls forward, or if an extra animal from a different shed is weighed during
 the same session.
 
+## 10.0.1 Authoritative bucket lifecycle (maintainer decision 2026-07-31)
+
+The full canonical lifecycle lives in [TRD.md §1.0](./TRD.md#10-authoritative-lifecycle-maintainer-decision-2026-07-31);
+product-facing summary:
+
+1. CEO/Growth Director creates the weighing task by park/date/shed buckets.
+2. Each shed bucket has exactly one assigned operator.
+3. The operator scans any number of RFIDs in their bucket and captures
+   weight+video (individual) or total weight/count/videos (lump-sum).
+4. Submit means "I am done for now with this bucket" — it does not mean the
+   work is verified or closed.
+5. Submitted observations queue for the verifier, who approves or bounces each
+   one for rework back to the same operator.
+6. Only after every submitted video in the bucket is verified can CEO/Growth
+   Director close the bucket.
+7. CEO/Growth Director can reopen a submitted or closed bucket; the same
+   operator can then add more RFIDs and submit again.
+8. Reopen never allows the same scanned RFID twice in the same bucket/day
+   (case-insensitive); the same RFID may still appear in a different bucket.
+9. There is no expected-animal denominator anywhere in Weighing — no `N/N`, no
+   `/100` progress. Progress is always reported as counts (scanned, accepted,
+   pending, verified), never as a fraction of an expected/roster count, because
+   expected animal counts are unknown for weighing.
+
 ## 10.1 Scale and reliability expectations
 
 V1 must be designed for the current Goat OS 5k-to-50k animal envelope. Product

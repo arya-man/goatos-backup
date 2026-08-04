@@ -90,6 +90,9 @@ data class CalendarDateMarkerDto(
 @Serializable
 data class DriveSummaryDto(
     @SerialName("park_name") val parkName: String = "",
+    @SerialName("drive_name") val driveName: String = "",
+    // Nullable for mixed-version Room cache rows written before logical multi-day totals shipped.
+    @SerialName("drive_total") val driveTotal: Int? = null,
     @SerialName("due_date") val dueDate: String = "",
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("sheds_completed") val shedsCompleted: Int = 0,
@@ -107,6 +110,13 @@ data class DriveSummaryDto(
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,
     @SerialName("deferred_count") val deferredCount: Int = 0,
+    // Backend-owned cross-surface progress. Nullable, NOT defaulted: a cache row / older backend
+    // predating these fields decodes as null so the card can fall back to the legacy client-side
+    // derivation; when present these MUST be rendered verbatim (see DriveCardMetrics).
+    @SerialName("progress_basis") val progressBasis: String? = null,
+    @SerialName("progress_completed") val progressCompleted: Int? = null,
+    @SerialName("progress_total") val progressTotal: Int? = null,
+    @SerialName("progress_pct") val progressPct: Int? = null,
     @SerialName("owner_label") val ownerLabel: String = "",
 )
 

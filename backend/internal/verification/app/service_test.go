@@ -244,6 +244,49 @@ func (r *fakeRepo) CloseVaccinationBatch(_ context.Context, in domain.CloseVacci
 	})
 }
 
+// MarkVerdictApplied is the apply-RECEIPT seam: the producing module reporting that
+// it wrote the verdict's outcome onto its own record. It stamps only the receipt --
+// never status, never verdict -- so the applier stays the single writer of the outcome.
+func (r *fakeRepo) MarkVerdictApplied(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error) {
+	applied := 0
+	now := time.Now().UTC()
+	for _, refID := range sourceRefIDs {
+		for _, item := range r.items {
+			if item.TenantID != tenantID || item.Source.Module != sourceModule || item.Source.RefType != sourceRefType || item.Source.RefID != refID {
+				continue
+			}
+			if item.Status == domain.StatusPending || item.AppliedAt != nil {
+				continue
+			}
+			stamped := now
+			module := appliedByModule
+			item.AppliedAt = &stamped
+			item.AppliedByModule = &module
+			applied++
+		}
+	}
+	return applied, nil
+}
+
+func (r *fakeRepo) WithdrawItemsBySource(_ context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	withdrawn := 0
+	for _, refID := range sourceRefIDs {
+		for id, item := range r.items {
+			if item.TenantID != tenantID || item.Source.Module != sourceModule || item.Source.RefType != sourceRefType || item.Source.RefID != refID {
+				continue
+			}
+			if item.Status != domain.StatusPending {
+				continue
+			}
+			item.Status = "withdrawn"
+			item.RowVersion++
+			r.items[id] = item
+			withdrawn++
+		}
+	}
+	return withdrawn, nil
+}
+
 var _ ports.Repository = (*fakeRepo)(nil)
 
 type fakeMedia struct{}
@@ -255,6 +298,16 @@ func (fakeMedia) ResolveMedia(_ context.Context, _ string, proofIDs []string) ([
 	}
 	return out, nil
 }
+
+// EnsureEvidenceAvailable: the default fake stands for "every proof object is still in storage".
+func (fakeMedia) EnsureEvidenceAvailable(_ context.Context, _ string, proofIDs []string) error {
+	if len(proofIDs) == 0 {
+		return ports.ErrEvidenceMissing
+	}
+	return nil
+}
+
+var _ ports.EvidenceAvailabilityChecker = fakeMedia{}
 
 func newTestService() (*Service, *fakeRepo) {
 	repo := newFakeRepo()
@@ -782,5 +835,46 @@ func TestListQueueLabelsProofsForCategoryWithoutDeclaredLabels(t *testing.T) {
 		if got := result.Items[0].Media[i].Label; got != want {
 			t.Fatalf("media[%d].Label = %q, want %q", i, got, want)
 		}
+	}
+}
+
+type failingMedia struct{}
+
+func (failingMedia) ResolveMedia(_ context.Context, _ string, _ []string) ([]domain.MediaItem, error) {
+	return nil, errors.New("proof resolver unavailable")
+}
+
+// evidence_available (domain: EvidenceLinkResolved) is a LINK-RESOLUTION claim by design. The queue
+// read must NOT stat stored objects (N+1 on a hot operator read); a link that resolves but whose
+// bytes are gone is still reported true here and is caught terminally by the download route
+// (410 proof_object_missing, retryable=false).
+func TestEvidenceLinkResolvedIsLinkResolutionNotByteRetrievability(t *testing.T) {
+	item := domain.Item{ItemID: "item-1", TenantID: testTenant, MediaRefs: []string{"proof-a", "proof-b"}}
+
+	// All refs resolve to signed links -> true. fakeMedia never touches storage bytes, which is
+	// exactly the production behaviour being documented.
+	svc, _ := newTestService()
+	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{item})
+	if len(rows) != 1 || !rows[0].EvidenceLinkResolved {
+		t.Fatalf("EvidenceLinkResolved = %v, want true when every media_ref resolved a link", rows[0].EvidenceLinkResolved)
+	}
+	if len(rows[0].Media) != 2 {
+		t.Fatalf("media len = %d, want 2", len(rows[0].Media))
+	}
+
+	// Resolver failure fails closed -> false, and no partial media list leaks.
+	failing := NewService(newFakeRepo(), failingMedia{})
+	rows = failing.resolveMedia(context.Background(), testTenant, []domain.Item{item})
+	if rows[0].EvidenceLinkResolved {
+		t.Fatal("EvidenceLinkResolved = true when the proof resolver failed, want false")
+	}
+	if len(rows[0].Media) != 0 {
+		t.Fatalf("media len = %d on resolver failure, want 0", len(rows[0].Media))
+	}
+
+	// No media refs at all -> false (nothing to show the verifier).
+	rows = svc.resolveMedia(context.Background(), testTenant, []domain.Item{{ItemID: "item-2", TenantID: testTenant}})
+	if rows[0].EvidenceLinkResolved {
+		t.Fatal("EvidenceLinkResolved = true for an item with no media_refs, want false")
 	}
 }

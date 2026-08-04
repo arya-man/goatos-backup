@@ -7,8 +7,10 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -40,37 +42,45 @@ func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
 	if _, err := service.CreateCampaign(context.Background(), ceo, cmd); err != nil {
 		t.Fatalf("CEO create errored: %v", err)
 	}
-	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); err == nil {
-		t.Fatal("growth director created weighing campaign; want forbidden")
+	// Planning a weighing task is CEO-only (maintainer decision 2026-08-01). The Growth
+	// Director monitors and oversees, but does not raise the task.
+	if _, err := service.CreateCampaign(context.Background(), growthDirector, cmd); !errors.Is(err, ports.ErrForbidden) {
+		t.Fatalf("growth director create err = %v, want forbidden", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), pcDirector, "", 20); err == nil {
+	if _, err := service.ListCampaigns(context.Background(), pcDirector, domain.CampaignListScopeAll, "", "", 20); err == nil {
 		t.Fatal("pc director monitored weighing; want forbidden")
 	}
-	if _, err := service.ListCampaigns(context.Background(), growthDirector, "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), growthDirector, domain.CampaignListScopeAll, "", "", 20); err != nil {
 		t.Fatalf("growth director monitor errored: %v", err)
 	}
-	if _, err := service.ListCampaigns(context.Background(), operator, "", 20); err != nil {
+	if _, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20); err != nil {
 		t.Fatalf("operator execution list errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("operator roster read errored: %v", err)
 	}
-	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", "", 50); err != nil {
+	if _, err := service.ListScopeRoster(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 50); err != nil {
 		t.Fatalf("growth director read execution roster errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err != nil {
+	// GetLeadershipShedVideos additionally park-scopes on the campaign's park; a growth
+	// director needs a tenant-wide grant carrying WeighingMonitor to read across parks,
+	// mirroring how checkParkScope authorizes reopen/close.
+	growthDirectorTenantWideCtx := httpmiddleware.WithAuthGrants(context.Background(), []permissions.ActiveGrant{
+		{ScopeType: "tenant", ScopeID: testTenant, Role: permissions.RoleGrowthDirector},
+	})
+	if _, err := service.GetLeadershipShedVideos(growthDirectorTenantWideCtx, growthDirector, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 0); err != nil {
 		t.Fatalf("growth director leadership videos read errored: %v", err)
 	}
-	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801"); err == nil {
+	if _, err := service.GetLeadershipShedVideos(context.Background(), operator, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "", 0); err == nil {
 		t.Fatal("operator read leadership videos; want forbidden")
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-1", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-1", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-1",
 	}); err != nil {
 		t.Fatalf("operator execute errored: %v", err)
 	}
 	if _, err := service.RecordAnimalObservation(context.Background(), growthDirector, domain.RecordAnimalObservation{
-		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-2", AnimalID: "00000000-0000-4000-8000-000000000601", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
+		CampaignID: "00000000-0000-4000-8000-000000000501", CampaignShedID: "00000000-0000-4000-8000-000000000801", ScannedIdentifier: "rfid-app-2", WeightKg: 12.3, ProofArtifactID: "00000000-0000-4000-8000-000000000701", ActualLocationID: testShed, IdempotencyKey: "scan-2",
 	}); err != nil {
 		t.Fatalf("growth director execute errored: %v", err)
 	}
@@ -99,7 +109,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	service := NewService(repo)
 
 	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
-	page, err := service.ListCampaigns(context.Background(), operator, "", 20)
+	page, err := service.ListCampaigns(context.Background(), operator, domain.CampaignListScopeMine, "", "", 20)
 	if err != nil {
 		t.Fatalf("operator list campaigns: %v", err)
 	}
@@ -111,7 +121,7 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	}
 
 	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
-	page, err = service.ListCampaigns(context.Background(), monitor, "", 20)
+	page, err = service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "", "", 20)
 	if err != nil {
 		t.Fatalf("monitor list campaigns: %v", err)
 	}
@@ -120,6 +130,89 @@ func TestListCampaignsUsesRepositoryScopedPaginationForExecuteOnlyOperator(t *te
 	}
 	if repo.monitorCalls != 1 {
 		t.Fatalf("repo monitor calls=%d, want normal monitor listing", repo.monitorCalls)
+	}
+}
+
+// TestListCampaignsMineIsAssigneeScopedForEveryExecutor is the regression for the defect where
+// the growth director's work list showed all four sheds with live Scan actions.
+//
+// The old service asked `canExecute && !canMonitor` to decide "is this a worker", which is true
+// only for RoleOperator. A growth director holds BOTH, so he fell into the unfiltered branch.
+// Scoping is now per-surface: ScopeMine is assignee-scoped for EVERY executor, director included.
+func TestListCampaignsMineIsAssigneeScopedForEveryExecutor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		role string
+	}{
+		{name: "operator", role: permissions.RoleOperator},
+		{name: "growth director", role: permissions.RoleGrowthDirector},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &campaignListRepo{
+				operatorPage: domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
+				monitorPage:  domain.CampaignPage{Items: []domain.Campaign{{CampaignID: "00000000-0000-4000-8000-000000000501", TenantID: testTenant}}},
+			}
+			service := NewService(repo)
+			actor := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{tc.role}}
+
+			if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScopeMine, "", "", 20); err != nil {
+				t.Fatalf("scope=mine: %v", err)
+			}
+			if repo.operatorCalls != 1 || repo.monitorCalls != 0 {
+				t.Fatalf("scope=mine used operator=%d monitor=%d, want the assignee-scoped read", repo.operatorCalls, repo.monitorCalls)
+			}
+			if repo.operatorUserID != testOp {
+				t.Fatalf("scope=mine scoped to %q, want the caller %q", repo.operatorUserID, testOp)
+			}
+		})
+	}
+}
+
+// TestListCampaignsScopeAuthority pins each surface to its own capability, so no scope is
+// reachable by holding a different surface's permission.
+func TestListCampaignsScopeAuthority(t *testing.T) {
+	ceo := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	growthDirector := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	for _, tc := range []struct {
+		name      string
+		actor     domain.Actor
+		scope     domain.CampaignListScope
+		wantAllow bool
+	}{
+		// The CEO plans: the flat list is his, and he must never reach an executable surface.
+		{name: "ceo may read the flat planner list", actor: ceo, scope: domain.CampaignListScopeAll, wantAllow: true},
+		{name: "ceo may not read an executable work list", actor: ceo, scope: domain.CampaignListScopeMine, wantAllow: false},
+		{name: "ceo may not read the operators surface", actor: ceo, scope: domain.CampaignListScopeOperators, wantAllow: false},
+		// The growth director executes his own sheds AND oversees other people's.
+		{name: "growth director may read his own work", actor: growthDirector, scope: domain.CampaignListScopeMine, wantAllow: true},
+		{name: "growth director may oversee operators", actor: growthDirector, scope: domain.CampaignListScopeOperators, wantAllow: true},
+		// An operator sees his own work and nothing wider.
+		{name: "operator may read his own work", actor: operator, scope: domain.CampaignListScopeMine, wantAllow: true},
+		{name: "operator may not read the flat list", actor: operator, scope: domain.CampaignListScopeAll, wantAllow: false},
+		{name: "operator may not oversee operators", actor: operator, scope: domain.CampaignListScopeOperators, wantAllow: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := NewService(&campaignListRepo{})
+			_, err := service.ListCampaigns(context.Background(), tc.actor, tc.scope, "", "", 20)
+			if tc.wantAllow && err != nil {
+				t.Fatalf("scope %q: %v, want allowed", tc.scope, err)
+			}
+			if !tc.wantAllow && err == nil {
+				t.Fatalf("scope %q was allowed, want forbidden", tc.scope)
+			}
+		})
+	}
+}
+
+// TestListCampaignsRejectsUnknownScope keeps an unrecognised surface from silently falling back
+// to a wider listing than the caller asked for.
+func TestListCampaignsRejectsUnknownScope(t *testing.T) {
+	service := NewService(&campaignListRepo{})
+	actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleCEOInternal}}
+	if _, err := service.ListCampaigns(context.Background(), actor, domain.CampaignListScope("everything"), "", "", 20); err == nil {
+		t.Fatal("unknown scope was accepted; want rejected")
 	}
 }
 
@@ -166,6 +259,116 @@ func TestRecordAnimalObservationEnqueuesVerifierItem(t *testing.T) {
 	}
 	if enqueuer.received.OperatorID != testOp || enqueuer.received.ShedID != testShed {
 		t.Fatalf("operator/shed=%q/%q, want %q/%q", enqueuer.received.OperatorID, enqueuer.received.ShedID, testOp, testShed)
+	}
+}
+
+// TestRecordAnimalObservationFirstCaptureNeverWithdraws proves the "first
+// capture" branch (obs.Superseded=false, the CTE's `inserted` arm) never calls
+// the verification withdrawer -- there is no stale item to retire yet.
+func TestRecordAnimalObservationFirstCaptureNeverWithdraws(t *testing.T) {
+	repo := &animalObservationRepo{acceptedAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)}
+	enqueuer := &captureVerificationEnqueuer{}
+	withdrawer := &captureVerificationWithdrawer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-first-capture",
+	}); err != nil {
+		t.Fatalf("record animal observation: %v", err)
+	}
+
+	if withdrawer.calls != 0 {
+		t.Fatalf("withdraw calls=%d, want 0 on a first capture", withdrawer.calls)
+	}
+	if enqueuer.calls != 1 {
+		t.Fatalf("verification enqueue calls=%d, want 1", enqueuer.calls)
+	}
+}
+
+// TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOne
+// is the B06 regression. Root cause: enqueueVerification fires on EVERY
+// capture, including an edit of a not-yet-submitted/reworked observation
+// (recordUnknownAnimalObservationTx's `updated` CTE branch). The old
+// idempotency key was `weighing:<category>:<observation_id>` -- content-blind
+// -- so CreateItem's `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`
+// silently no-opped on the edit and left the SAME verification_items row bound
+// to the OLD weight/proof, including a stale 'verified' decision if a verifier
+// had already approved it before the operator touched the draft again.
+//
+// FAILING evidence (pre-fix, reproduced by temporarily reverting
+// reviseVerificationRound to a no-op and reusing the old
+// `fmt.Sprintf("weighing:%s:%s", category, obs.ObservationID)` key): this test
+// asserted withdrawer.calls==1 and got withdrawer.calls==0, and the second
+// enqueue's IdempotencyKey was IDENTICAL to the first -- proving the second
+// capture would have silently collided with (and never displaced) the first
+// verification item.
+//
+// PASSING evidence (current code): obs.Superseded=true on the edit triggers
+// reviseVerificationRound, which withdraws the prior item for this
+// observation_id BEFORE the new item is raised, and the two enqueue calls
+// carry DIFFERENT (AcceptedAt-versioned) idempotency keys, so the edit's item
+// is a fresh 'pending' row rather than a no-op against stale evidence.
+func TestRecordAnimalObservationEditWithdrawsStaleVerificationBeforeRaisingNewOne(t *testing.T) {
+	repo := &animalObservationRepo{
+		superseded: false,
+		acceptedAt: time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC),
+	}
+	enqueuer := &captureVerificationEnqueuer{}
+	withdrawer := &captureVerificationWithdrawer{}
+	service := NewService(repo).WithVerificationEnqueuer(enqueuer).WithVerificationWithdrawer(withdrawer)
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	cmd := domain.RecordAnimalObservation{
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "RFID-FREEFLOW-1",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		IdempotencyKey:    "scan-first",
+	}
+	// First capture: a brand-new row (the CTE's `inserted` branch). No prior
+	// evidence exists, so nothing should be withdrawn.
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, cmd); err != nil {
+		t.Fatalf("first capture: %v", err)
+	}
+	if withdrawer.calls != 0 {
+		t.Fatalf("withdraw calls after first capture=%d, want 0", withdrawer.calls)
+	}
+	firstKey := enqueuer.received.IdempotencyKey
+
+	// Operator edits the draft (a verifier may already have APPROVED the first
+	// capture at this point -- that is exactly the scenario the fix must
+	// close). The repo now reports Superseded=true (the CTE's `updated`
+	// branch) with an advanced AcceptedAt (a new evidence round).
+	repo.superseded = true
+	repo.acceptedAt = time.Date(2026, 8, 1, 9, 5, 0, 0, time.UTC)
+	cmd.WeightKg = 13.1
+	cmd.IdempotencyKey = "scan-edit"
+	if _, err := service.RecordAnimalObservation(context.Background(), operator, cmd); err != nil {
+		t.Fatalf("edit capture: %v", err)
+	}
+
+	if withdrawer.calls != 1 {
+		t.Fatalf("withdraw calls after edit=%d, want 1 -- the stale verification item must be retired before the new one is raised", withdrawer.calls)
+	}
+	if withdrawer.refType != domain.VerificationRefTypeAnimal {
+		t.Fatalf("withdraw ref_type=%q, want %q", withdrawer.refType, domain.VerificationRefTypeAnimal)
+	}
+	if len(withdrawer.observationIDs) != 1 || withdrawer.observationIDs[0] != "00000000-0000-4000-8000-000000000901" {
+		t.Fatalf("withdraw observation ids=%v, want the edited observation's id", withdrawer.observationIDs)
+	}
+	if enqueuer.calls != 2 {
+		t.Fatalf("verification enqueue calls=%d, want 2 (one per capture)", enqueuer.calls)
+	}
+	secondKey := enqueuer.received.IdempotencyKey
+	if secondKey == firstKey {
+		t.Fatalf("edit re-enqueue reused the SAME idempotency key %q as the first capture -- it would silently no-op against the just-withdrawn item instead of raising fresh pending work", secondKey)
 	}
 }
 
@@ -345,13 +548,13 @@ func TestRecordAnimalObservationRejectsMalformedActualLocation(t *testing.T) {
 	operator := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleOperator}}
 
 	_, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
-		CampaignID:       "00000000-0000-4000-8000-000000000501",
-		CampaignShedID:   "00000000-0000-4000-8000-000000000801",
-		AnimalID:         animalOne,
-		WeightKg:         12.3,
-		ProofArtifactID:  proofOne,
-		ActualLocationID: "not-a-uuid",
-		IdempotencyKey:   "scan-bad-location",
+		CampaignID:        "00000000-0000-4000-8000-000000000501",
+		CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+		ScannedIdentifier: "rfid-bad-location",
+		WeightKg:          12.3,
+		ProofArtifactID:   proofOne,
+		ActualLocationID:  "not-a-uuid",
+		IdempotencyKey:    "scan-bad-location",
 	})
 	if !errors.Is(err, ports.ErrInvalidArgument) {
 		t.Fatalf("malformed actual_location_id err = %v, want invalid argument", err)
@@ -378,7 +581,6 @@ func TestSubmitIndividualScopeRequiresIdempotencyKey(t *testing.T) {
 
 func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 	service := NewService(&fakeRepo{})
-	ctx := context.Background()
 	for _, tc := range []struct {
 		name string
 		role string
@@ -391,6 +593,21 @@ func TestReopenScopeRequiresMonitorRole(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			actor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{tc.role}}
+
+			// Set up context with appropriate grant
+			// Growth director and CEO need tenant-wide grants for weighing
+			// Other roles don't have weighing permissions anyway
+			ctx := context.Background()
+			if tc.role == permissions.RoleGrowthDirector || tc.role == permissions.RoleCEOInternal {
+				grant := permissions.ActiveGrant{
+					Role:      tc.role,
+					ScopeType: "tenant",
+					ScopeID:   testTenant,
+				}
+				ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{grant})
+				ctx = httpmiddleware.WithTenantID(ctx, testTenant)
+			}
+
 			err := service.ReopenScope(ctx, actor, "00000000-0000-4000-8000-000000000501", "00000000-0000-4000-8000-000000000801", "reopen:"+tc.role, "missed tags")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("ReopenScope() error=%v want %v", err, tc.want)
@@ -424,8 +641,8 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 
 	campaign, err := service.CreateCampaign(ctx, ceo, domain.CreateCampaign{
 		ParkID:            testPark,
-		PeriodStartDate:   "2026-07-27",
-		PeriodEndDate:     "2026-08-02",
+		PeriodStartDate:   "2026-07-29",
+		PeriodEndDate:     "2026-07-29",
 		StartBusinessDate: "2026-07-29",
 		PlannedCapPerDay:  100,
 		OperatorUserID:    testOp,
@@ -439,26 +656,37 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create campaign: %v", err)
 	}
-	if campaign.Progress.IndividualExpectedCount != 2 || campaign.Progress.PerScopeExpectedCount != 1 {
-		t.Fatalf("category-aware progress after create = %+v, want 2 individual + 1 per-scope", campaign.Progress)
+	// Free-flow: the two individual_animal buckets claim NO animal expectation.
+	// Only the lump-sum bucket has a real, bucket-grained one.
+	if campaign.Progress.IndividualExpectedCount != 0 || campaign.Progress.PerScopeExpectedCount != 1 {
+		t.Fatalf("category-aware progress after create = %+v, want 0 individual + 1 per-scope", campaign.Progress)
 	}
 
 	if _, err := service.PublishCampaign(ctx, ceo, campaign.CampaignID, "weighing-seed:publish"); err != nil {
 		t.Fatalf("publish campaign: %v", err)
 	}
+	// Planning a weighing task is CEO-only (maintainer decision 2026-08-01), so the Growth
+	// Director cannot publish one even though he monitors every park's weighing.
 	if _, err := service.PublishCampaign(ctx, director, campaign.CampaignID, "weighing-seed:publish-director"); !errors.Is(err, ports.ErrForbidden) {
 		t.Fatalf("director publish err = %v, want forbidden", err)
 	}
-	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", "", 50)
+	// Free-flow: there is no expected roster to serve. RosterPage.Items/NextCursor
+	// stay on the wire for compatibility with older clients, but nothing populates
+	// them, and no observations have been recorded yet at this point in the
+	// scenario -- so both Items and Observations come back empty.
+	roster, err := service.ListScopeRoster(ctx, operator, campaign.CampaignID, repo.shedByLocation[testShed].CampaignShedID, "", 50)
 	if err != nil {
 		t.Fatalf("operator roster read: %v", err)
 	}
-	if len(roster.Items) != 1 || roster.Items[0].AnimalID != animalOne || roster.Items[0].PrimaryIdentifier != "RFID-ONE" {
-		t.Fatalf("roster = %+v, want animal one with RFID", roster.Items)
+	if len(roster.Items) != 0 {
+		t.Fatalf("roster.Items = %+v, want empty (free-flow has no expected roster)", roster.Items)
+	}
+	if len(roster.Observations) != 0 {
+		t.Fatalf("roster.Observations = %+v, want empty (nothing recorded yet)", roster.Observations)
 	}
 
 	first, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-3", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-3", WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("record first animal: %v", err)
@@ -467,7 +695,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 		t.Fatalf("first animal context = %+v, want expected current shed", first)
 	}
 	replay, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-4", AnimalID: animalOne, WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-4", WeightKg: 10.2, ProofArtifactID: proofOne, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:animal-1",
 	})
 	if err != nil {
 		t.Fatalf("replay animal observation: %v", err)
@@ -477,7 +705,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	wrongShed, err := service.RecordAnimalObservation(ctx, operator, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, ScannedIdentifier: "rfid-app-5", AnimalID: animalTwo, WeightKg: 11.4, ProofArtifactID: proofTwo, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:wrong-shed",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[secondShed].CampaignShedID, ScannedIdentifier: "rfid-app-5", WeightKg: 11.4, ProofArtifactID: proofTwo, ActualLocationID: testShed, IdempotencyKey: "weighing-seed:wrong-shed",
 	})
 	if err != nil {
 		t.Fatalf("record wrong-shed animal: %v", err)
@@ -492,7 +720,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record free-flow RFID animal: %v", err)
 	}
-	if freeFlow.AnimalID != "RFID-NEW-001" || freeFlow.CampaignShedID != repo.shedByLocation[testShed].CampaignShedID {
+	if freeFlow.ScannedIdentifier != "RFID-NEW-001" || freeFlow.CampaignShedID != repo.shedByLocation[testShed].CampaignShedID {
 		t.Fatalf("free-flow context = %+v, want RFID-only observation scoped to selected shed", freeFlow)
 	}
 
@@ -502,7 +730,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record per-shed observation: %v", err)
 	}
-	if shedObs.AnimalID != "" || repo.latestAnimalWeightWrites != 0 {
+	if shedObs.ScannedIdentifier != "" || repo.latestAnimalWeightWrites != 0 {
 		t.Fatalf("per-shed observation touched animal truth: obs=%+v latestWrites=%d", shedObs, repo.latestAnimalWeightWrites)
 	}
 	if _, err := service.RecordShedObservation(ctx, operator, domain.RecordShedObservation{
@@ -512,7 +740,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 	}
 
 	if _, err := service.RecordAnimalObservation(ctx, director, domain.RecordAnimalObservation{
-		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-6", AnimalID: animalOne, WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
+		CampaignID: campaign.CampaignID, CampaignShedID: repo.shedByLocation[testShed].CampaignShedID, ScannedIdentifier: "rfid-app-6", WeightKg: 10.8, ProofArtifactID: proofThree, IdempotencyKey: "weighing-seed:director-execute",
 	}); err != nil {
 		t.Fatalf("director execute err = %v, want allowed", err)
 	}
@@ -520,7 +748,7 @@ func TestWeighingSeedScenarioDrivesEndToEndServiceContract(t *testing.T) {
 
 func validCreate() domain.CreateCampaign {
 	return domain.CreateCampaign{
-		ParkID: testPark, PeriodStartDate: "2026-07-27", PeriodEndDate: "2026-08-02", StartBusinessDate: "2026-07-29", PlannedCapPerDay: 100, OperatorUserID: testOp, IdempotencyKey: "create-1",
+		ParkID: testPark, PeriodStartDate: "2026-07-29", PeriodEndDate: "2026-07-29", StartBusinessDate: "2026-07-29", PlannedCapPerDay: 100, OperatorUserID: testOp, IdempotencyKey: "create-1",
 		Sheds: []domain.CreateCampaignShed{{LocationID: testShed, LocationType: "shed", DisplayName: "Kid Shed", WeighingCategory: domain.CategoryIndividualAnimal}},
 	}
 }
@@ -535,19 +763,83 @@ type campaignListRepo struct {
 	monitorPage    domain.CampaignPage
 	operatorPage   domain.CampaignPage
 	operatorUserID string
+	parkID         string
 	monitorCalls   int
 	operatorCalls  int
 }
 
-func (r *campaignListRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+func (r *campaignListRepo) ListCampaigns(_ context.Context, _, parkID string, _ string, _ int) (domain.CampaignPage, error) {
 	r.monitorCalls++
+	r.parkID = parkID
 	return r.monitorPage, nil
 }
 
-func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operatorUserID string, _ string, _ int) (domain.CampaignPage, error) {
+func (r *campaignListRepo) ListCampaignsForOperator(_ context.Context, _, operatorUserID, parkID string, _ string, _ int) (domain.CampaignPage, error) {
 	r.operatorCalls++
 	r.operatorUserID = operatorUserID
+	r.parkID = parkID
 	return r.operatorPage, nil
+}
+
+// The park chip is an OPTIONAL row filter. It must reach the repository verbatim when
+// it is a real id, and a malformed one must be refused rather than silently ignored --
+// a dropped filter would show the planner another park's tasks under this park's chip.
+func TestListCampaignsPassesParkFilterThroughAndRejectsAMalformedOne(t *testing.T) {
+	repo := &campaignListRepo{}
+	service := NewService(repo)
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+
+	const park = "00000000-0000-4000-8000-000000003001"
+	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, park, "", 20); err != nil {
+		t.Fatalf("list with park filter: %v", err)
+	}
+	if repo.parkID != park {
+		t.Fatalf("repo park filter=%q, want %q", repo.parkID, park)
+	}
+
+	if _, err := service.ListCampaigns(context.Background(), monitor, domain.CampaignListScopeAll, "not-a-uuid", "", 20); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("malformed park filter err=%v, want invalid argument", err)
+	}
+}
+
+// The existing-task decoration is date-scoped, so the park read needs a real business DATE.
+func TestPlannerCatalogRejectsANonBusinessDate(t *testing.T) {
+	service := NewService(&campaignListRepo{})
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+
+	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
+		if _, err := service.PlannerCatalog(context.Background(), monitor, date); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("planner catalog date %q err=%v, want invalid argument", date, err)
+		}
+	}
+	if _, err := service.PlannerCatalog(context.Background(), monitor, "2026-07-04"); err != nil {
+		t.Fatalf("valid planner catalog request: %v", err)
+	}
+}
+
+// The bucket page is park-scoped and date-scoped, so it needs a real park id, a real
+// business DATE, and a real "exclude the task being edited" id when one is sent.
+func TestPlannerParkBucketsRejectsAMalformedParkDateOrExcludeID(t *testing.T) {
+	service := NewService(&campaignListRepo{})
+	monitor := domain.Actor{TenantID: testTenant, UserID: testActor, Roles: []string{permissions.RoleGrowthDirector}}
+	park := "00000000-0000-4000-8000-000000003001"
+
+	for _, parkID := range []string{"", "not-a-uuid"} {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, parkID, "2026-07-04", "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("planner buckets park %q err=%v, want invalid argument", parkID, err)
+		}
+	}
+	for _, date := range []string{"", "next week", "2026-7-4", "2026-07-04T00:00:00Z"} {
+		if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, date, "", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+			t.Fatalf("planner buckets date %q err=%v, want invalid argument", date, err)
+		}
+	}
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "not-a-uuid", "", 0); !errors.Is(err, ports.ErrInvalidArgument) {
+		t.Fatalf("malformed exclude id err=%v, want invalid argument", err)
+	}
+	if _, err := service.PlannerParkBuckets(context.Background(), monitor, park, "2026-07-04", "", "", 0); err != nil {
+		t.Fatalf("valid planner bucket request: %v", err)
+	}
 }
 
 type shedCaptureRepo struct {
@@ -578,17 +870,46 @@ func (e *captureVerificationEnqueuer) EnqueueWeighingVerification(_ context.Cont
 
 type animalObservationRepo struct {
 	fakeRepo
+	// superseded makes RecordAnimalObservation report that the write updated an
+	// existing not-yet-submitted (or reworked) row in place, exactly like
+	// recordUnknownAnimalObservationTx's `updated` CTE branch does on a real edit.
+	superseded bool
+	acceptedAt time.Time
 }
 
 func (r *animalObservationRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	return domain.Observation{
-		ObservationID:      "00000000-0000-4000-8000-000000000901",
-		CampaignID:         cmd.CampaignID,
-		CampaignShedID:     cmd.CampaignShedID,
+		ObservationID:  "00000000-0000-4000-8000-000000000901",
+		CampaignID:     cmd.CampaignID,
+		CampaignShedID: cmd.CampaignShedID,
+		// The real write returns the stored tag (repository.go:1601). The fake used to
+		// drop it, which hid the fact that the enqueue site had the animal's identity in
+		// hand all along and was throwing it away.
+		ScannedIdentifier:  cmd.ScannedIdentifier,
 		WeightKg:           cmd.WeightKg,
 		ProofArtifactID:    cmd.ProofArtifactID,
 		ExpectedLocationID: testShed,
+		Superseded:         r.superseded,
+		AcceptedAt:         r.acceptedAt,
 	}, nil
+}
+
+// captureVerificationWithdrawer records every withdraw call the service makes,
+// so a test can assert whether reviseVerificationRound fired (edit) or stayed
+// silent (first capture).
+type captureVerificationWithdrawer struct {
+	calls          int
+	tenantID       string
+	refType        string
+	observationIDs []string
+}
+
+func (w *captureVerificationWithdrawer) WithdrawWeighingVerification(_ context.Context, tenantID, refType string, observationIDs []string) error {
+	w.calls++
+	w.tenantID = tenantID
+	w.refType = refType
+	w.observationIDs = append([]string(nil), observationIDs...)
+	return nil
 }
 
 type shedObservationRepo struct {
@@ -617,22 +938,45 @@ func (f fakeRepo) UpdateCampaign(context.Context, string, domain.UpdateCampaign)
 func (f fakeRepo) PublishCampaign(context.Context, string, string, string, string) (domain.Campaign, error) {
 	return domain.Campaign{}, nil
 }
-func (f fakeRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+func (f fakeRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return domain.Campaign{}, nil
+}
+func (f fakeRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+func (f fakeRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
-func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, int) (domain.CampaignPage, error) {
+func (f fakeRepo) ListCampaignsForOperator(context.Context, string, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{}, nil
 }
+func (f fakeRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
+	return domain.CampaignShedPage{}, nil
+}
+
 func (f fakeRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
 }
-func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
-	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+
+func (f fakeRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+	return domain.PlannerParkBuckets{}, nil
 }
-func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, string, int) (domain.RosterPage, error) {
-	return domain.RosterPage{Items: []domain.ExpectedAnimal{{AnimalID: animalOne, PrimaryIdentifier: "RFID-ONE"}}}, nil
+
+// ListScopeRoster / ListScopeRosterForOperator return an empty RosterPage,
+// matching production: free-flow has no expected roster, so nothing ever
+// populates Items. The field stays on the wire only for older-client
+// compatibility.
+func (f fakeRepo) ListScopeRoster(context.Context, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
 }
-func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+func (f fakeRepo) ListScopeRosterForOperator(context.Context, string, string, string, string, string, int) (domain.RosterPage, error) {
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
+}
+func (f fakeRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
+	return domain.LeadershipShedPage{}, nil
+}
+
+func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
@@ -646,8 +990,8 @@ func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObser
 func (f fakeRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
 }
-func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
-	return nil
+func (f fakeRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
+	return nil, nil
 }
 func (f fakeRepo) CloseScope(context.Context, domain.CloseCommand) (domain.CloseResult, error) {
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
@@ -656,6 +1000,17 @@ func (f fakeRepo) CloseCampaign(context.Context, domain.CloseCommand) (domain.Cl
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 func (f fakeRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+// CampaignParkID answers the park routing lookup the verification enqueue makes.
+func (f fakeRepo) CampaignParkID(context.Context, string, string) (string, error) {
+	return testPark, nil
+}
+
+// ListAlerts is the inert default; alerts_test.go's recordingAlertsRepo overrides
+// it where the call's arguments are the thing under test.
+func (f fakeRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{Title: domain.AlertFeedTitle, EmptyMessage: domain.AlertFeedEmptyMessage}, nil
+}
 
 type captureCreateRepo struct {
 	fakeRepo
@@ -766,10 +1121,16 @@ func (r *scenarioRepo) UpdateCampaign(_ context.Context, campaignID string, _ do
 	return r.campaign, nil
 }
 
-func (r *scenarioRepo) ListCampaigns(context.Context, string, string, int) (domain.CampaignPage, error) {
+func (r *scenarioRepo) CampaignByID(context.Context, string, string, ports.CampaignAccess) (domain.Campaign, error) {
+	return r.campaign, nil
+}
+func (r *scenarioRepo) WeighingParks(context.Context, string, []string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+func (r *scenarioRepo) ListCampaigns(context.Context, string, string, string, int) (domain.CampaignPage, error) {
 	return domain.CampaignPage{Items: []domain.Campaign{r.campaign}}, nil
 }
-func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, operatorUserID string, _ string, _ int) (domain.CampaignPage, error) {
+func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, operatorUserID string, _ string, _ string, _ int) (domain.CampaignPage, error) {
 	campaign := r.campaign
 	campaign.Sheds = nil
 	for _, shed := range r.campaign.Sheds {
@@ -783,121 +1144,94 @@ func (r *scenarioRepo) ListCampaignsForOperator(_ context.Context, _ string, ope
 	return domain.CampaignPage{Items: []domain.Campaign{campaign}}, nil
 }
 
+func (r *scenarioRepo) ListCampaignSheds(context.Context, string, string, string, int, ports.CampaignAccess) (domain.CampaignShedPage, error) {
+	return domain.CampaignShedPage{}, nil
+}
+
 func (r *scenarioRepo) PlannerCatalog(context.Context, string, string) (domain.PlannerCatalog, error) {
 	return domain.PlannerCatalog{}, nil
 }
 
-func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, _ string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) PlannerParkBuckets(context.Context, string, string, string, string, string, int) (domain.PlannerParkBuckets, error) {
+	return domain.PlannerParkBuckets{}, nil
+}
+
+// ListScopeRoster is the free-flow scan/observation history read. There is no
+// expected roster to serve -- identity is scanned_identifier only -- so this
+// fake, like production, returns an empty RosterPage.Items/NextCursor. Those
+// fields are kept on the wire only for compatibility with older clients; this
+// fake never populates them, matching the real repository.
+func (r *scenarioRepo) ListScopeRoster(_ context.Context, tenantID, campaignID, campaignShedID string, _ string, limit int) (domain.RosterPage, error) {
 	if tenantID != r.campaign.TenantID || campaignID != r.campaign.CampaignID {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
-	out := []domain.ExpectedAnimal{}
-	for _, animal := range r.expectedByAnimal {
-		shed := r.shedByLocation[animal.ExpectedLocationID]
-		if shed.CampaignShedID != campaignShedID {
-			continue
-		}
-		switch animal.AnimalID {
-		case animalOne:
-			animal.DisplayAnimalID = "KID-A-001"
-			animal.PrimaryIdentifier = "RFID-ONE"
-		case animalTwo:
-			animal.DisplayAnimalID = "KID-B-001"
-			animal.PrimaryIdentifier = "RFID-TWO"
-		}
-		animal.CampaignShedID = campaignShedID
-		animal.Seq = int64(len(out) + 1)
-		out = append(out, animal)
-		if limit > 0 && len(out) >= limit {
+	found := false
+	for _, shed := range r.campaign.Sheds {
+		if shed.CampaignShedID == campaignShedID {
+			found = true
 			break
 		}
 	}
-	if len(out) == 0 {
+	if !found {
 		return domain.RosterPage{}, ports.ErrNotFound
 	}
-	return domain.RosterPage{Items: out}, nil
+	return domain.RosterPage{Items: []domain.ExpectedAnimal{}}, nil
 }
-func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, cursor string, observationsCursor string, limit int) (domain.RosterPage, error) {
+func (r *scenarioRepo) ListScopeRosterForOperator(ctx context.Context, tenantID, campaignID, campaignShedID, operatorUserID string, observationsCursor string, limit int) (domain.RosterPage, error) {
 	for _, shed := range r.campaign.Sheds {
 		if shed.CampaignShedID == campaignShedID {
 			if shed.OperatorUserID != operatorUserID {
 				return domain.RosterPage{}, ports.ErrForbidden
 			}
-			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, cursor, observationsCursor, limit)
+			return r.ListScopeRoster(ctx, tenantID, campaignID, campaignShedID, observationsCursor, limit)
 		}
 	}
 	return domain.RosterPage{}, ports.ErrNotFound
 }
 
-func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string) (domain.LeadershipShedVideos, error) {
+func (r *scenarioRepo) ListLeadershipSheds(context.Context, string, []string, string, int, int) (domain.LeadershipShedPage, error) {
+	return domain.LeadershipShedPage{}, nil
+}
+
+func (r *scenarioRepo) GetLeadershipShedVideos(context.Context, string, string, string, string, int, ports.CampaignAccess) (domain.LeadershipShedVideos, error) {
 	return domain.LeadershipShedVideos{}, nil
 }
 
+// RecordAnimalObservation is the free-flow scan write. There is no animal_id on
+// the command (domain.RecordAnimalObservation carries only ScannedIdentifier) and
+// this fake never resolves a scan to r.expectedByAnimal: the real write path
+// never does either (maintainer decision 2026-07-31, weighing free-flow; column
+// dropped entirely by 000078_weighing_observations_drop_animal_id.sql).
 func (r *scenarioRepo) RecordAnimalObservation(_ context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	if obs, ok := r.animalByIdem[cmd.IdempotencyKey]; ok {
 		return obs, nil
 	}
-	expected, ok := r.expectedByAnimal[cmd.AnimalID]
-	if !ok {
-		var shed domain.CampaignShed
-		shedOK := false
-		for _, candidate := range r.shedByLocation {
-			if candidate.CampaignShedID == cmd.CampaignShedID {
-				shed = candidate
-				shedOK = true
-				break
-			}
+	var shed domain.CampaignShed
+	shedOK := false
+	for _, candidate := range r.shedByLocation {
+		if candidate.CampaignShedID == cmd.CampaignShedID {
+			shed = candidate
+			shedOK = true
+			break
 		}
-		if !shedOK || strings.TrimSpace(cmd.ScannedIdentifier) == "" {
-			return domain.Observation{}, ports.ErrNotFound
-		}
-		obs := domain.Observation{
-			ObservationID:      fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
-			CampaignID:         cmd.CampaignID,
-			CampaignShedID:     shed.CampaignShedID,
-			AnimalID:           cmd.ScannedIdentifier,
-			WeightKg:           cmd.WeightKg,
-			ProofArtifactID:    cmd.ProofArtifactID,
-			ExpectedLocationID: shed.LocationID,
-			// Client-supplied, never inferred from the herd.
-			ActualLocationID:    cmd.ActualLocationID,
-			ActualLocationLabel: r.currentLocationName[cmd.ActualLocationID],
-		}
-		r.animalByIdem[cmd.IdempotencyKey] = obs
-		r.animalWrites++
-		return obs, nil
 	}
-	expectedShed := r.shedByLocation[expected.ExpectedLocationID]
-	// The client supplies where the animal actually was; the fake must not infer it
-	// from herd state, because the real write path no longer does (maintainer
-	// decision 2026-07-31, weighing free-flow).
-	actualLocation := cmd.ActualLocationID
-	if actualLocation == "" {
-		actualLocation = r.currentLocation[cmd.AnimalID]
+	if !shedOK || strings.TrimSpace(cmd.ScannedIdentifier) == "" {
+		return domain.Observation{}, ports.ErrNotFound
 	}
 	obs := domain.Observation{
-		ObservationID:       fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
-		CampaignID:          cmd.CampaignID,
-		CampaignShedID:      expectedShed.CampaignShedID,
-		AnimalID:            cmd.AnimalID,
-		WeightKg:            cmd.WeightKg,
-		ProofArtifactID:     cmd.ProofArtifactID,
-		ExpectedLocationID:  expected.ExpectedLocationID,
-		ActualLocationID:    actualLocation,
-		ActualLocationLabel: r.currentLocationName[actualLocation],
+		ObservationID:      fmt.Sprintf("00000000-0000-4000-8000-00000000090%d", len(r.animalByIdem)+1),
+		CampaignID:         cmd.CampaignID,
+		CampaignShedID:     shed.CampaignShedID,
+		ScannedIdentifier:  cmd.ScannedIdentifier,
+		WeightKg:           cmd.WeightKg,
+		ProofArtifactID:    cmd.ProofArtifactID,
+		ExpectedLocationID: shed.LocationID,
+		// Client-supplied, never inferred from the herd.
+		ActualLocationID:    cmd.ActualLocationID,
+		ActualLocationLabel: r.currentLocationName[cmd.ActualLocationID],
 	}
 	r.animalByIdem[cmd.IdempotencyKey] = obs
 	r.animalWrites++
-	expected.Status = "weighed"
-	if actualLocation == expected.ExpectedLocationID {
-		expected.AvailabilityStatus = domain.AvailabilityExpectedShed
-	} else {
-		expected.AvailabilityStatus = domain.AvailabilityMovedOtherShed
-	}
-	expected.CurrentLocationID = actualLocation
-	expected.CurrentLocationLabel = r.currentLocationName[actualLocation]
-	r.expectedByAnimal[cmd.AnimalID] = expected
-	r.campaign.Progress = scenarioProgress(r.campaign.Sheds, r.expectedByAnimal)
 	return obs, nil
 }
 
@@ -938,11 +1272,15 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 }
 
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+func (r *scenarioRepo) CampaignParkID(context.Context, string, string) (string, error) {
+	return testPark, nil
+}
 func (r *scenarioRepo) SubmitIndividualScope(context.Context, string, string, string, string, string, []string) error {
 	return nil
 }
-func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) error {
-	return nil
+func (r *scenarioRepo) ReopenScope(context.Context, string, string, string, string, string, string) ([]string, error) {
+	return nil, nil
 }
 
 func (r *scenarioRepo) CloseScope(_ context.Context, cmd domain.CloseCommand) (domain.CloseResult, error) {
@@ -970,8 +1308,6 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 	progress := domain.Progress{}
 	for _, shed := range sheds {
 		switch shed.WeighingCategory {
-		case domain.CategoryIndividualAnimal:
-			progress.IndividualExpectedCount += shed.ExpectedAnimalCount
 		case domain.CategoryPerShedPartition:
 			progress.PerScopeExpectedCount++
 			if shed.Status == "completed" {
@@ -987,6 +1323,10 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 			progress.WrongShedCount++
 		}
 	}
-	progress.RemainingCount = (progress.IndividualExpectedCount - progress.IndividualCompletedCount) + (progress.PerScopeExpectedCount - progress.PerScopeCompletedCount)
+	progress.RemainingCount = progress.PerScopeExpectedCount - progress.PerScopeCompletedCount
 	return progress
+}
+
+func (r *scenarioRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
 }

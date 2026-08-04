@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -63,12 +64,14 @@ var _ ports.Repository = (*Repository)(nil)
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
   source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs,
   status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
-  verified_at, closed_by::text, closed_at, row_version, created_at, updated_at`
+  verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
+  row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs,
   vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
-  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.row_version, vi.created_at, vi.updated_at,
+  vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
+  vi.row_version, vi.created_at, vi.updated_at,
   operator.display_name::text, verifier.display_name::text,
   shed_loc.name::text, park_loc.name::text`
 
@@ -90,18 +93,18 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
   source_ref_type, source_ref_id, subject_label, subject_note, media_refs, status, operator_id, shed_id, park_id,
-  captured_at, idempotency_key
+  captured_at, idempotency_key, applier_ack_expected
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
   nullif($17, ''),
-  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16
+  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16, $18
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
 		in.TenantID, in.Vertical, in.Module, in.Category, in.Source.Module,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
-		in.CapturedAt.UTC(), in.IdempotencyKey, derefStr(in.SubjectNote),
+		in.CapturedAt.UTC(), in.IdempotencyKey, derefStr(in.SubjectNote), in.ApplierAckExpected,
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -240,6 +243,15 @@ WHERE vi.tenant_id = $1::uuid
   )
   AND (NOT $12::boolean OR vi.source_submission_id IS NOT NULL)
   AND (NOT $13::boolean OR vi.closed_at IS NULL)
+  AND (
+    NOT $18::boolean
+    OR (
+      vi.applier_ack_expected
+      AND vi.applied_at IS NULL
+      AND vi.closed_at IS NULL
+      AND vi.status NOT IN ('pending', 'withdrawn')
+    )
+  )
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $11`,
 		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
@@ -247,6 +259,7 @@ LIMIT $11`,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
 		params.ParkID, params.ShedID,
 		params.CapturedFrom, params.CapturedBefore,
+		params.AwaitingApplicationOnly,
 	)
 	if err != nil {
 		return nil, err
@@ -520,10 +533,25 @@ WHERE vc.tenant_id = $2::uuid
 		if _, err := tx.Exec(ctx, `
 UPDATE obligation_instances oi
 SET status = 'completed',
-    completed_at = COALESCE(oi.completed_at, now()),
+    completed_at = COALESCE(
+      oi.completed_at,
+      (
+        -- projection-review: membership=accepted vaccination_completions attached to this exact obligation and submission; group_key=the outer obligation row; join_cardinality=sop_submission_items is one row per completion item and min(administered_at) collapses any same-obligation accepted retries to one medical instant; pagination=n/a single-row closeout mutation; scope=tenant+obligation+submission, with no park/shed inference
+        SELECT min(vc.administered_at)
+        FROM vaccination_completions vc
+        JOIN sop_submission_items si
+          ON si.tenant_id = vc.tenant_id
+         AND si.item_id = vc.sop_submission_item_id
+        WHERE vc.tenant_id = oi.tenant_id
+          AND vc.obligation_id = oi.obligation_id
+          AND vc.status = 'accepted'
+          AND si.submission_id = $2::uuid
+      ),
+      now()
+    ),
     updated_at = now()
 WHERE oi.tenant_id = $1::uuid
-  AND oi.status <> 'completed'
+  AND oi.status IN ('scheduled', 'due', 'in_progress')
   AND EXISTS (
     SELECT 1
     FROM vaccination_completions vc
@@ -674,36 +702,66 @@ func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, para
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
-WITH expected AS (
+WITH batch_scope AS (
+  SELECT vda.batch_id, vda.park_id, vda.shed_id
+  FROM vaccination_drive_assignments vda
+  WHERE vda.tenant_id = $1::uuid
+  UNION
+  SELECT vc.batch_id, vi.park_id, vi.shed_id
+  FROM vaccination_completions vc
+  JOIN sop_submission_items si
+    ON si.tenant_id = vc.tenant_id
+   AND si.item_id = vc.sop_submission_item_id
+  JOIN verification_items vi
+    ON vi.tenant_id = vc.tenant_id
+   AND vi.source_submission_id = si.submission_id
+   AND (
+     (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+     OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+   )
+  WHERE vc.tenant_id = $1::uuid
+    AND vi.category = $2
+    AND vc.status IN ('recorded', 'accepted')
+),
+expected AS (
   SELECT
-    oi.batch_id,
-    COUNT(*)::int AS total_count,
+    ob.batch_id,
+	completion_counts.completion_count,
+    completion_counts.total_count,
     ob.protocol_version_id::text AS protocol_version_id,
-	    COALESCE(MIN(vda.park_id::text), '') AS park_id,
-	    COALESCE(MIN(park.name), '') AS park_label,
-	    string_agg(DISTINCT NULLIF(vda.physical_shed, ''), ', ' ORDER BY NULLIF(vda.physical_shed, '')) AS shed_labels,
-	    COUNT(DISTINCT NULLIF(vda.physical_shed, ''))::int AS planned_shed_count,
-	    MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
-	    MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
-  FROM obligation_instances oi
-  JOIN obligation_batches ob
-    ON ob.tenant_id = oi.tenant_id
-   AND ob.batch_id = oi.batch_id
+    COALESCE(MIN(vda.park_id::text), '') AS park_id,
+    COALESCE(MIN(park.name), '') AS park_label,
+    string_agg(DISTINCT NULLIF(vda.physical_shed, ''), ', ' ORDER BY NULLIF(vda.physical_shed, '')) AS shed_labels,
+    COUNT(DISTINCT NULLIF(vda.physical_shed, ''))::int AS planned_shed_count,
+    MIN(COALESCE(vda.planned_date, ob.planned_date)) AS start_date,
+    MAX(COALESCE(vda.planned_date, ob.planned_date)) AS end_date
+  FROM obligation_batches ob
+  JOIN (
+    SELECT
+      vc.batch_id,
+      COUNT(*)::int AS completion_count,
+      COUNT(DISTINCT vc.goat_id)::int AS total_count
+    FROM vaccination_completions vc
+    WHERE vc.tenant_id = $1::uuid
+      AND vc.batch_id IS NOT NULL
+      AND vc.status IN ('recorded', 'accepted')
+    GROUP BY vc.batch_id
+  ) completion_counts
+    ON completion_counts.batch_id = ob.batch_id
   LEFT JOIN vaccination_drive_assignments vda
-    ON vda.tenant_id = oi.tenant_id
-   AND vda.batch_id = oi.batch_id
+    ON vda.tenant_id = ob.tenant_id
+   AND vda.batch_id = ob.batch_id
   LEFT JOIN locations park
     ON park.tenant_id = vda.tenant_id
    AND park.location_id = vda.park_id
-  WHERE oi.tenant_id = $1::uuid
-    AND oi.batch_id IS NOT NULL
-    AND ($8 = '' OR vda.park_id = $8::uuid)
-    AND ($9 = '' OR vda.shed_id = $9::uuid)
-  GROUP BY oi.batch_id, ob.protocol_version_id
+  WHERE ob.tenant_id = $1::uuid
+  GROUP BY ob.batch_id, completion_counts.completion_count, completion_counts.total_count, ob.protocol_version_id
 ),
 proofs AS (
   SELECT
     vc.batch_id,
+	vc.completion_id,
+	vc.goat_id,
     vi.item_id,
     vi.status,
     vi.closed_at,
@@ -721,6 +779,7 @@ proofs AS (
      OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
    )
   WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'recorded'
     AND vi.category = $2
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
@@ -728,7 +787,48 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+  UNION ALL
+  SELECT
+    vc.batch_id,
+	vc.completion_id,
+	vc.goat_id,
+    NULL::uuid AS item_id,
+    'approved'::text AS status,
+    now() AS closed_at,
+    NULL::uuid AS park_id,
+    NULL::uuid AS shed_id
+  FROM vaccination_completions vc
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status = 'accepted'
+    AND (
+      NOT $5::boolean
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.park_id = ANY($6::uuid[])
+      )
+    )
+    AND (
+      $8 = ''
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.park_id = $8::uuid
+      )
+    )
+    AND (
+      $9 = ''
+      OR EXISTS (
+        SELECT 1
+        FROM batch_scope bs
+        WHERE bs.batch_id = vc.batch_id
+          AND bs.shed_id = $9::uuid
+      )
+    )
 ),
+-- projection-review: membership=vaccination_completions with non-null batch_id is the executed medical membership, independent of later obligation reassignment; group_key=batch_id; join_cardinality=verification_items may be one-to-many per submission/completion, so readiness counts DISTINCT completion_id while user-facing totals and status buckets count DISTINCT goat_id, and assignment rows are pre-aggregated inside expected; pagination=all completion/proof rows are reduced to one whole-batch rollup before the final LIMIT 20 closure page; scope=park/shed filters use explicit batch_scope rows from assignment or verification facts, never a generic hierarchy COALESCE
 rollup AS (
   SELECT
     e.batch_id::text,
@@ -762,11 +862,15 @@ rollup AS (
     e.park_label,
     COALESCE(e.start_date::text, '') AS start_date,
     COALESCE(e.end_date::text, '') AS end_date,
+	e.completion_count,
     e.total_count,
-    COUNT(p.*)::int AS proof_count,
-    COUNT(*) FILTER (WHERE p.status = 'approved')::int AS approved_count,
-    COUNT(*) FILTER (WHERE p.status = 'rejected')::int AS rejected_count,
-    COUNT(*) FILTER (WHERE p.status = 'pending')::int AS pending_count,
+	COUNT(DISTINCT p.completion_id)::int AS proof_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'approved')::int AS approved_completion_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_completion_count,
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'pending')::int AS pending_completion_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'approved')::int AS approved_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_count,
+	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'pending')::int AS pending_count,
     COUNT(DISTINCT p.item_id)::int AS video_count,
     COUNT(DISTINCT p.item_id) FILTER (WHERE p.status = 'approved')::int AS approved_videos,
     COUNT(DISTINCT p.item_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_videos,
@@ -774,16 +878,16 @@ rollup AS (
     COUNT(DISTINCT p.shed_id)::int AS shed_count
   FROM expected e
   JOIN proofs p ON p.batch_id = e.batch_id
-	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.total_count
+	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.completion_count, e.total_count
 )
 SELECT batch_id, drive_key, drive_label, batch_label, park_id, park_label, start_date, end_date,
        total_count, approved_count, rejected_count, pending_count,
        video_count, approved_videos, rejected_videos, pending_videos, shed_count
 FROM rollup
-WHERE proof_count = total_count
-  AND approved_count = total_count
-  AND rejected_count = 0
-  AND pending_count = 0
+WHERE proof_count = completion_count
+  AND approved_completion_count = completion_count
+  AND rejected_completion_count = 0
+  AND pending_completion_count = 0
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
@@ -839,9 +943,10 @@ func (r *Repository) CloseVaccinationBatch(ctx context.Context, in domain.CloseV
 	var expectedCount int
 	if err := tx.QueryRow(ctx, `
 SELECT COUNT(*)::int
-FROM obligation_instances
+FROM vaccination_completions
 WHERE tenant_id = $1::uuid
-  AND batch_id = $2::uuid`, in.TenantID, in.BatchID).Scan(&expectedCount); err != nil {
+  AND batch_id = $2::uuid
+  AND status IN ('recorded', 'accepted')`, in.TenantID, in.BatchID).Scan(&expectedCount); err != nil {
 		return nil, err
 	}
 	if expectedCount == 0 {
@@ -861,6 +966,7 @@ WHERE vi.tenant_id = $1::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $2::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -891,29 +997,30 @@ FOR UPDATE`, in.TenantID, in.BatchID)
 		if err := tx.QueryRow(ctx, `
 SELECT COUNT(*)::int
 FROM vaccination_completions vc
-JOIN sop_submission_items si
+LEFT JOIN sop_submission_items si
   ON si.tenant_id = vc.tenant_id
  AND si.item_id = vc.sop_submission_item_id
 WHERE vc.tenant_id = $1::uuid
   AND vc.batch_id = $2::uuid
-  AND EXISTS (
-    SELECT 1
-    FROM verification_items vi
-    WHERE vi.tenant_id = vc.tenant_id
-      AND vi.source_submission_id = si.submission_id
-      AND (
-        (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
-        OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
-      )
+  AND vc.status IN ('recorded', 'accepted')
+  AND (
+    vc.status = 'accepted'
+    OR EXISTS (
+      SELECT 1
+      FROM verification_items vi
+      WHERE vi.tenant_id = vc.tenant_id
+        AND vi.source_submission_id = si.submission_id
+        AND (
+          (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+          OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+        )
+    )
   )`, in.TenantID, in.BatchID).Scan(&coveredCount); err != nil {
 			return nil, err
 		}
 		if coveredCount != expectedCount {
 			return nil, ports.ErrConflict
 		}
-	}
-	if len(items) == 0 {
-		return nil, ports.ErrConflict
 	}
 	allClosed := true
 	for _, item := range items {
@@ -957,6 +1064,7 @@ WHERE vi.tenant_id = $2::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $3::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -982,6 +1090,7 @@ WHERE vi.tenant_id = $1::uuid
      AND si.item_id = vc.sop_submission_item_id
     WHERE vc.tenant_id = vi.tenant_id
       AND vc.batch_id = $2::uuid
+      AND vc.status IN ('recorded', 'accepted')
       AND si.submission_id = vi.source_submission_id
       AND (
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
@@ -1068,23 +1177,30 @@ WHERE vc.tenant_id = $2::uuid
 	    ),
 	    updated_at = now()
 	WHERE oi.tenant_id = $1::uuid
-	  AND oi.batch_id = $2::uuid
-  AND oi.status <> 'completed'
-  AND EXISTS (
-    SELECT 1
-    FROM vaccination_completions vc
-    WHERE vc.tenant_id = oi.tenant_id
-      AND vc.obligation_id = oi.obligation_id
-      AND vc.status = 'accepted'
-  )`, tenantID, batchID); err != nil {
+	  AND oi.status IN ('scheduled', 'due', 'in_progress')
+	  AND EXISTS (
+	    SELECT 1
+	    FROM vaccination_completions vc
+	    WHERE vc.tenant_id = oi.tenant_id
+	      AND vc.obligation_id = oi.obligation_id
+	      AND vc.batch_id = $2::uuid
+	      AND vc.status = 'accepted'
+	  )`, tenantID, batchID); err != nil {
 		return err
 	}
 	rows, err := tx.Query(ctx, `
 SELECT obligation_id::text
 FROM obligation_instances
 WHERE tenant_id = $1::uuid
-  AND batch_id = $2::uuid
-  AND status = 'completed'`, tenantID, batchID)
+  AND status = 'completed'
+  AND EXISTS (
+    SELECT 1
+    FROM vaccination_completions vc
+    WHERE vc.tenant_id = obligation_instances.tenant_id
+      AND vc.obligation_id = obligation_instances.obligation_id
+      AND vc.batch_id = $2::uuid
+      AND vc.status = 'accepted'
+  )`, tenantID, batchID)
 	if err != nil {
 		return err
 	}
@@ -1328,6 +1444,16 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 // outbox payload. Carries the SAME who-to-route-to fields as the pending payload (operator_id,
 // shed_id, park_id) plus the decision + reason, so the notifier can apply its own routing (rework ->
 // operator + park head; approved -> digest/no-op) without a callback into this module.
+//
+// It also carries source.evidence_id: the proof the verifier ACTUALLY reviewed, taken from the
+// item's own media_refs, which are frozen at CreateItem time and never rewritten (a re-shoot
+// withdraws this item and raises a new one -- see weighing's reviseVerificationRound). The
+// consuming module has a stale-evidence guard that compares this id against the proof currently
+// attached to its record, but the payload never carried an id, so every production verdict reached
+// that guard with an empty value and took its backward-compatibility skip. The guard was therefore
+// live only in tests: in production a verdict rendered against an older video was applied to
+// whatever video happened to be attached when it landed. Naming the evidence here is what makes the
+// existing guard real; the consumer needs no second, parallel check.
 func verificationVerdictPayload(item domain.Item) map[string]any {
 	payload := map[string]any{
 		"tenant_id":   item.TenantID,
@@ -1346,6 +1472,11 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 			"submission_id": derefStr(item.Source.SubmissionID),
 			"ref_type":      item.Source.RefType,
 			"ref_id":        item.Source.RefID,
+			// The PRIMARY proof only. Producers that attach several artefacts to one item
+			// (a lump-sum shed submission) put the observation's own proof_artifact_id
+			// first -- that is the single id the producing module stores on its record and
+			// can compare against, so a list here would give the consumer nothing to match.
+			"evidence_id": firstMediaRef(item.MediaRefs),
 		},
 	}
 	if item.VerdictReason != nil {
@@ -1513,6 +1644,7 @@ WITH item_batch AS (
     ON si.tenant_id = vc.tenant_id
    AND si.item_id = vc.sop_submission_item_id
   WHERE vc.tenant_id = $1::uuid
+    AND vc.status IN ('recorded', 'accepted')
     AND si.submission_id = $2::uuid
     AND (
       ($4 = 'sop_submission' AND si.submission_id = $3::uuid)
@@ -1521,10 +1653,12 @@ WITH item_batch AS (
   LIMIT 1
 ),
 expected AS (
+  -- projection-review: membership=active recorded/accepted vaccination_completions for the one batch resolved from item_batch; group_key=batch_id; join_cardinality=item_batch is one row and each active completion contributes exactly one count, while rejected/reversed audit attempts are excluded; pagination=n/a readiness check for one verdict; scope=tenant+batch from the verified submission item
   SELECT COUNT(*)::int AS total_count
-  FROM obligation_instances oi
-  JOIN item_batch ib ON ib.batch_id = oi.batch_id
-  WHERE oi.tenant_id = $1::uuid
+  FROM vaccination_completions vc
+  JOIN item_batch ib ON ib.batch_id = vc.batch_id
+  WHERE vc.tenant_id = $1::uuid
+    AND vc.status IN ('recorded', 'accepted')
 ),
 proofs AS (
   SELECT vi.status
@@ -1532,6 +1666,7 @@ proofs AS (
   JOIN vaccination_completions vc
     ON vc.tenant_id = $1::uuid
    AND vc.batch_id = ib.batch_id
+   AND vc.status IN ('recorded', 'accepted')
   JOIN sop_submission_items si
     ON si.tenant_id = vc.tenant_id
    AND si.item_id = vc.sop_submission_item_id
@@ -1660,13 +1795,15 @@ func scanItem(row rowScanner) (domain.Item, error) {
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel, subjectNote                                       *string
 		mediaJSON                                                       []byte
-		verifiedAt, closedAt                                            *time.Time
+		appliedByModule                                                 *string
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
 		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 	); err != nil {
 		return domain.Item{}, err
@@ -1683,6 +1820,8 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.VerifiedAt = verifiedAt
 	item.ClosedBy = closedBy
 	item.ClosedAt = closedAt
+	item.AppliedAt = appliedAt
+	item.AppliedByModule = appliedByModule
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
@@ -1701,14 +1840,16 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
 		subjectLabel, subjectNote                                       *string
 		operatorName, verifiedByName, shedLabel, parkLabel              *string
+		appliedByModule                                                 *string
 		mediaJSON                                                       []byte
-		verifiedAt, closedAt                                            *time.Time
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
 		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
+		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
 		&operatorName, &verifiedByName, &shedLabel, &parkLabel,
 	); err != nil {
@@ -1730,6 +1871,8 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.VerifiedAt = verifiedAt
 	item.ClosedBy = closedBy
 	item.ClosedAt = closedAt
+	item.AppliedAt = appliedAt
+	item.AppliedByModule = appliedByModule
 	item.CapturedAt = item.CapturedAt.UTC()
 	item.CreatedAt = item.CreatedAt.UTC()
 	item.UpdatedAt = item.UpdatedAt.UTC()
@@ -1739,6 +1882,17 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		}
 	}
 	return item, nil
+}
+
+// firstMediaRef is the item's primary proof id, or "" for an item raised with no media at
+// all. Empty stays empty rather than becoming a sentinel: the consumer's guard already has a
+// defined meaning for an absent evidence id, and inventing a placeholder would make a
+// media-less item look like a mismatch against every record.
+func firstMediaRef(refs []string) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	return refs[0]
 }
 
 func nonNilStrings(values []string) []string {
@@ -1776,4 +1930,150 @@ func mapWriteErr(err error) error {
 		}
 	}
 	return err
+}
+
+// WithdrawItemsBySource retires the PENDING items raised for source records the
+// producing module has superseded. It is deliberately status='pending'-only and
+// verdict-free: an approved/rejected item is a decision that already happened and
+// stays exactly as it was, and a withdrawn item records no verdict, no verifier and
+// no verdict_reason because nobody decided anything.
+//
+// Every actionable path in this repository is already gated on status='pending'
+// (the RecordVerdict UPDATE, the queue's status filter, the pending/approved/
+// rejected roll-ups), so 'withdrawn' drops the item out of all of them at once.
+//
+// A withdrawal is NOT silent. Every item retired here already published
+// verification.item.pending when it was raised, and consumers acted on it -- the
+// notification bridge turned it into a push telling a verifier to go review the
+// proof. Retiring the item with a bare UPDATE left those consumers holding work
+// that no longer exists. The withdrawal therefore publishes
+// verification.item.closed, the module's existing "this item is no longer
+// decidable" event, on the SAME transaction as the status change (state change +
+// outbox are one unit). It carries status/decision='withdrawn' so a consumer can
+// tell a retraction from a verdict; a withdrawn item has no verifier and no
+// reason, so verificationVerdictPayload simply omits those fields.
+//
+// A new event TYPE was deliberately not minted: verification.item.closed already
+// carries the identical routing fields, already has a registered consumer, and is
+// already enumerated in the outbox partial unique index that makes these inserts
+// idempotent. Reusing it keeps the retraction inside the existing contract instead
+// of adding a fourth lifecycle event that means the same thing.
+//
+// Replay-safe twice over: the UPDATE only matches status='pending', so a second
+// withdrawal of an already-withdrawn item matches no rows and publishes nothing,
+// and the event's idempotency key is versioned on the post-update row_version, so
+// even a retried transaction collides on that index and no-ops.
+func (r *Repository) WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error) {
+	if len(sourceRefIDs) == 0 {
+		return 0, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `
+UPDATE verification_items
+SET status = 'withdrawn', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = ANY($4::uuid[])
+  AND status = 'pending'
+RETURNING `+itemColumns, tenantID, sourceModule, sourceRefType, sourceRefIDs)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	withdrawn := make([]domain.Item, 0, len(sourceRefIDs))
+	for rows.Next() {
+		item, scanErr := scanItemRow(rows)
+		if scanErr != nil {
+			rows.Close()
+			return 0, scanErr
+		}
+		withdrawn = append(withdrawn, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, mapWriteErr(err)
+	}
+	rows.Close()
+
+	for _, item := range withdrawn {
+		idempotencyKey := fmt.Sprintf("%s:%s:%d", EventItemClosed, item.ItemID, item.RowVersion)
+		if err := insertOutboxEvent(ctx, tx, tenantID, EventItemClosed, item.ItemID, idempotencyKey, verificationVerdictPayload(item)); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return len(withdrawn), nil
+}
+
+// MarkVerdictApplied is the producing module's RECEIPT that it wrote a verdict
+// outcome onto its own record. It is the second half of the ack protocol whose
+// first half is CreateItem's applier_ack_expected.
+//
+// Why this exists (W-18): verdicts are applied asynchronously. RecordVerdict
+// flips status pending -> approved/rejected and enqueues verification.verdict.*;
+// the producing module's applier consumes that on the DURABLE bus (cmd/outbox-relay,
+// cmd/domain-event-consumer) -- the API's in-process bus deliberately does not
+// receive it. So the verifier's queue emptied the instant the verdict was
+// SUBMITTED, while the farm's records only changed when it was APPLIED. With the
+// relay stopped, lagging, or the event dead-lettered, those are not the same
+// event and there was no signal anywhere that said so: the queue was empty and
+// nothing had happened. This stamp is what lets a surface tell the two apart.
+//
+// It writes NOTHING about the outcome itself -- no status, no verdict, no reason.
+// The applier remains the single writer of the verdict's effect on its own
+// module; this is a downstream receipt of that write, never a parallel copy of
+// it. Attempting to derive outcome state from here would be the second writer
+// the design exists to avoid.
+//
+// Called AFTER the applier's own transaction commits, deliberately not inside it:
+// the two live in different databases-of-record conceptually and a crash between
+// them must fail SAFE. It does: the item stays in VerdictStateApplying, which
+// reads as "not confirmed yet" -- visibly wrong rather than invisibly wrong -- and
+// the at-least-once redelivery of the same verdict event re-runs the applier
+// (idempotent on the event id) and re-attempts this stamp.
+//
+// Replay-safe: the UPDATE matches only rows not yet acked, so a redelivery
+// matches nothing, returns 0, and preserves the ORIGINAL applied_at rather than
+// advancing it to a later instant that never corresponded to a real application.
+// It publishes no event -- an ack is the end of a chain, not a new fact for
+// anyone else to consume, and minting an event with no consumer is exactly the
+// silent drop this whole bug was.
+func (r *Repository) MarkVerdictApplied(
+	ctx context.Context,
+	tenantID, sourceModule, sourceRefType string,
+	sourceRefIDs []string,
+	appliedByModule string,
+) (int, error) {
+	if len(sourceRefIDs) == 0 {
+		return 0, nil
+	}
+	if strings.TrimSpace(appliedByModule) == "" {
+		// The CHECK constraint enforces this in the database too; failing here
+		// keeps the error a caller-fixable one rather than a constraint violation.
+		return 0, domain.ErrInvalid
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `
+UPDATE verification_items
+SET applied_at = now(), applied_by_module = $5, updated_at = now()
+WHERE tenant_id = $1::uuid
+  AND source_module = $2
+  AND source_ref_type = $3
+  AND source_ref_id = ANY($4::uuid[])
+  AND status <> 'pending'
+  AND applied_at IS NULL`, tenantID, sourceModule, sourceRefType, sourceRefIDs, appliedByModule)
+	if err != nil {
+		return 0, mapWriteErr(err)
+	}
+	return int(tag.RowsAffected()), nil
 }

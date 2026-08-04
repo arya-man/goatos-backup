@@ -1,7 +1,9 @@
 package sg.mesha.goatos.core.data
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.combine
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -28,6 +30,13 @@ class FeedTransportRepository(
     private val json: Json = Json { ignoreUnknownKeys = true },
     private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
+    /**
+     * Cache-first page Flow. The per-row `dtoJson` decode is CPU work over the whole visible
+     * window and Room emits on its query executor, so the mapping is moved off the collector's
+     * dispatcher with [flowOn] — the collector is the UI, and decoding a window of rows on Main
+     * on every Room emission drops frames. [flowOn] is upstream-only: it does not change where
+     * the ViewModel/UI collects.
+     */
     fun observe(query: FeedTransportQuery, limit: Int): Flow<FeedTransportTaskPageDto> = combine(
         db.feedTransportScopedItemDao().observe(query.scopeKey, limit),
         db.feedTransportScopedRemoteKeyDao().observe(query.scopeKey),
@@ -38,7 +47,7 @@ class FeedTransportRepository(
             filters = key?.filtersJson?.let { json.decodeFromString<FeedTransportFilterOptionsDto>(it) }
                 ?: FeedTransportFilterOptionsDto(),
         )
-    }
+    }.flowOn(Dispatchers.Default)
 
     suspend fun refresh(query: FeedTransportQuery): Result<Unit> = runCatching {
         val page = fetch(query, cursor = null)
