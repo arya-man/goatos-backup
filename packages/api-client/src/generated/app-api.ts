@@ -2068,7 +2068,7 @@ export interface paths {
         };
         /**
          * List the Verifier's keyset-paginated media queue (generic Verification vertical).
-         * @description The standalone Verifier section's queue: media items awaiting or already given a verdict, category/vertical/module filtered, oldest-captured-first. Gated on verification.review only (separation of duty from capture and act). Media is returned as streamed signed download URLs resolved via the existing proof storage port -- never inline bytes.
+         * @description The standalone Verifier section's queue: media items awaiting or already given a verdict, category/vertical/module filtered, oldest-captured-first. Gated on verification.review -- the VISIBILITY permission, held by the Verifier and by CEO/CxO leadership so the same evidence and verdicts can be seen by whoever must act on them. Recording the verdict is a separate, narrower gate (verification.verdict; see the verdict endpoint). Media is returned as streamed signed download URLs resolved via the existing proof storage port -- never inline bytes.
          */
         get: operations["listVerificationQueue"];
         put?: never;
@@ -2092,6 +2092,7 @@ export interface paths {
          * Record the Verifier's approve/reject decision on one verification item.
          * @description Reject REQUIRES a non-empty reason (422 otherwise -- a syntactically valid request that fails the business rule). Optimistic concurrency via row_version. Approving does NOT complete or act on the underlying producer record (e.g. a vaccination obligation) -- the verifier's verdict is advisory input; an authorized Park Head/Director/CEO/CxO closes the complete drive submission only after every goat proof in it has been approved.
          *
+         *     Gated on verification.verdict, held by the Verifier role ALONE (maintainer decision 2026-08-03). CEO/CxO reads the same queue and still closes the work, but cannot record the verdict: the independent second check must not be signable by the people whose work it checks.
          *     APPROVE additionally verifies that every proof object still EXISTS in storage, not merely that a signed link can be issued for it (a link resolves from the DB row alone). A missing object answers 422 evidence_missing (terminal, retryable=false); a failed availability check answers 422 evidence_check_failed (retryable=true). This costs a stat per proof for ONE item at decision time and is deliberately NOT done on the queue read, where it would be an N+1. REJECT is never gated on evidence: when the proof is gone, sending the work back for rework is the only correct action left, so it must always remain available.
          */
         post: operations["recordVerificationVerdict"];
