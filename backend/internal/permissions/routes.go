@@ -300,9 +300,10 @@ var protectedRoutes = []Route{
 	// Feed-direction GENERATION (backend/internal/feeddirection): projected shed counts + the
 	// authored ration grid -> per-session feed quantities.
 	//
-	// The preview reuses ProtocolRead because it IS the feed-direction read surface, which is the
-	// authority ProtocolRead already gates for the sibling /feed-direction/* routes above. Adding a
-	// parallel permission for the same surface would give two answers to one question.
+	// The preview gates on FeedDirectionRead, the feed-direction read surface's own permission.
+	// It used to reuse ProtocolRead -- the VACCINATION protocol read -- which handed every feed
+	// reader the vaccination surface and made the Feed Director inexpressible. See
+	// FeedDirectionRead.
 	//
 	// The packing worklist gets its OWN permission instead. It is a different top-level surface read
 	// by a different audience -- the store team that physically weighs and bags -- and it is the
@@ -324,7 +325,12 @@ var protectedRoutes = []Route{
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
-	{OperationID: "listFeedTransportTasks", Method: "GET", Pattern: "/feed-transport/tasks", Permissions: []string{FeedDirectionComplete}},
+	// Daily feed transport. The LIST is a read and gates on its own read permission; only the
+	// SUBMIT keeps the write twin (maintainer decision 2026-08-05). Both were FeedDirectionComplete,
+	// which meant looking at the transport worklist required the authority to record that transport
+	// happened -- and therefore hid the page from the Feed Director, who deliberately holds no
+	// execute grant. See FeedTransportRead.
+	{OperationID: "listFeedTransportTasks", Method: "GET", Pattern: "/feed-transport/tasks", Permissions: []string{FeedTransportRead}},
 	{OperationID: "submitFeedTransportTask", Method: "POST", Pattern: "/feed-transport/tasks/{task_id}/submit", Permissions: []string{FeedDirectionComplete}},
 
 	// Authored feed configuration (/feed-config/*), the surface behind the Feed Config screen.

@@ -295,6 +295,23 @@ const (
 	// founder/builder visibility invariant). NOT granted to RoleVerifier (checks captured work, does
 	// not dispatch) or RolePCDirector (oversight, not execution).
 	FeedDirectionComplete = "feed_direction.complete"
+	// FeedTransportRead gates the daily feed-TRANSPORT task list (GET /feed-transport/tasks): the
+	// per-shed 15:30 IST task and whatever proof attempt each one currently carries.
+	//
+	// It is split out of FeedDirectionComplete (maintainer decision 2026-08-05: the Feed Director
+	// must see every page of the module they own). Both the list read and the proof submit were
+	// gated on FeedDirectionComplete, which is a WRITE permission -- so the only way to LOOK at the
+	// transport worklist was to hold the authority to record that transport happened. That made the
+	// Feed Director inexpressible on this surface for the same reason ProtocolRead did on the
+	// dispatch sheet: the role deliberately holds no feed_direction.complete, because
+	// Feed_Director.pdf puts field execution on the Park Head ("Executing is not directing"), and
+	// TestDirectorHoldsNoOtherModulesCapabilities pins that.
+	//
+	// Granted to everyone who could already open the list (RoleOperator, RoleParkHead,
+	// RoleCEOInternal -- so no principal loses the page) PLUS RoleFeedDirector. The SUBMIT route
+	// keeps FeedDirectionComplete, so widening the read does not hand anyone the ability to record
+	// a transport proof.
+	FeedTransportRead = "feed_transport.read"
 	// VerificationReview READS the generic Verification vertical's evidence queue
 	// (context/architecture/verification-module-design.md): the media, the operator/shed/park
 	// context, and whatever verdict has been recorded. It is a VISIBILITY permission — leadership
@@ -362,6 +379,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedPackingRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
+		FeedTransportRead:     {},
 		VerificationAct:       {},
 		HealthRead:            {},
 	},
@@ -458,7 +476,11 @@ var rolePermissions = map[string]map[string]struct{}{
 		GoatRead: {}, SOPRead: {}, TaskRead: {}, TaskAssign: {},
 		FeedConfigRead: {}, FeedConfigWrite: {},
 		FeedDirectionRead: {}, FeedDirectionOversee: {}, FeedPackingRead: {},
-		CalendarRead: {}, CalendarAction: {},
+		// The transport worklist READ (maintainer decision 2026-08-05). Paired deliberately with
+		// the absence of FeedDirectionComplete below: the director sees every page of the feed
+		// chain including the daily transport tasks, and still cannot record one as done.
+		FeedTransportRead: {},
+		CalendarRead:      {}, CalendarAction: {},
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
@@ -520,6 +542,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedPackingRead:       {},
 		FeedDirectionRead:     {},
 		FeedDirectionComplete: {},
+		FeedTransportRead:     {},
 		HealthRead:            {}, HealthReport: {}, HealthExecute: {},
 	},
 	RoleCEOInternal: {
@@ -555,6 +578,7 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionRead:     {},
 		FeedDirectionOversee:  {},
 		FeedDirectionComplete: {},
+		FeedTransportRead:     {},
 		VerificationReview:    {},
 		VerificationAct:       {},
 		HealthRead:            {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},

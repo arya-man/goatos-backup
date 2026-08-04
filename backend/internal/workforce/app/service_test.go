@@ -1413,3 +1413,69 @@ func TestWeighingAlertsTabReachesEveryWeighingSeat(t *testing.T) {
 		})
 	}
 }
+
+// The live Feed Director must see every page of the module they own (maintainer decision
+// 2026-08-05). This role was absent from TestFeedModuleRoleMatrix above, which is why the
+// gap survived: the matrix pinned the CEO, the operator, the park head and the DORMANT
+// org-role scaffolding (director_feed/head_feed), but never the flat feed_director that
+// AGENTS.md lists as the live persona.
+func TestFeedDirectorSeesEveryFeedPage(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleFeedDirector)}
+	modules := modulesFor(grants, []string{"feed_direction"}, "")
+
+	var feed *domain.BootstrapModule
+	for i := range modules {
+		if modules[i].Key == "feed_direction" {
+			feed = &modules[i]
+		}
+	}
+	if feed == nil {
+		t.Fatalf("feed_director must see the feed module; modules=%#v", modules)
+	}
+	got := make([]string, 0, len(feed.NavItems))
+	for _, item := range feed.NavItems {
+		got = append(got, item.Key)
+	}
+	want := []string{"feed_direction", "feed_packing", "feed_transport"}
+	if len(got) != len(want) {
+		t.Fatalf("feed_director feed tabs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("feed_director feed tabs = %v, want %v", got, want)
+		}
+	}
+}
+
+// A nav gate that disagrees with the route behind it is a defect in whichever direction it
+// leans: too strict hides a page the principal may open, too loose renders a tab that 403s
+// on arrival. Both shipped here at once -- feed_director held feed_direction.read and was
+// hidden from the dispatch sheet, while director_feed held only the vaccination
+// protocol.read and saw a tab it could not open.
+//
+// Asserting the gate EQUALS the backing route's permission is what keeps the two in step;
+// a role-by-role expectation only pins the roles someone remembered to list.
+func TestFeedNavGatesEqualTheirBackingRoutePermissions(t *testing.T) {
+	backing := map[string]struct {
+		method string
+		path   string
+	}{
+		"feed_direction": {"GET", "/feed-direction/preview"},
+		"feed_packing":   {"GET", "/feed-packing/worklist"},
+		"feed_transport": {"GET", "/feed-transport/tasks"},
+	}
+	for _, item := range moduleNavRegistry["feed_direction"].contributions {
+		route, ok := backing[item.key]
+		if !ok {
+			t.Fatalf("feed nav item %q has no declared backing route in this test; add one", item.key)
+		}
+		matched, found := permissions.Match(route.method, route.path)
+		if !found {
+			t.Fatalf("%s %s is not a registered route", route.method, route.path)
+		}
+		if len(matched.Permissions) != 1 || matched.Permissions[0] != item.requiredPermission {
+			t.Errorf("feed nav item %q gates on %q but its route %s %s requires %v",
+				item.key, item.requiredPermission, route.method, route.path, matched.Permissions)
+		}
+	}
+}

@@ -188,13 +188,21 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},                                                //nav-composition:ignore: registry entry
 		},
 	},
-	// "feed_direction" is the Feed vertical on the phone. Its bar is the two read surfaces an
-	// operator dispatches from: the generated feed sheet (Feed Direction) and the per-shed bag
-	// worklist (Feed Packing). Both are read-only projections of the authored ration grid plus
-	// projected counts; there is no capture/write here, so no outbox. The two tabs gate on
-	// DIFFERENT authorities on purpose (see permissions.go): direction reads follow ProtocolRead,
-	// packing follows FeedPackingRead, so a park head who may draw this morning's bags sees the
-	// packing tab without inheriting the direction sheet.
+	// "feed_direction" is the Feed vertical on the phone. Its bar is the three surfaces an operator
+	// dispatches from: the generated feed sheet (Feed Direction), the per-shed bag worklist (Feed
+	// Packing), and the daily per-shed transport tasks (Feed Transport).
+	//
+	// Each tab gates on a DIFFERENT authority on purpose (see permissions.go): FeedDirectionRead,
+	// FeedPackingRead, FeedTransportRead. All three are READS, and each one is the same permission
+	// its backing route requires -- pinned by TestFeedNavGatesEqualTheirBackingRoutePermissions,
+	// because both ways of drifting apart have already shipped here. Direction gated on ProtocolRead
+	// (the VACCINATION protocol read) while its route had moved to FeedDirectionRead, so the Feed
+	// Director was authorized on the route and hidden from the tab, while the dormant org-role
+	// director_feed saw a tab that 403'd on arrival. Transport gated on FeedDirectionComplete, a
+	// WRITE, so only someone entitled to record transport could look at the list.
+	//
+	// Recording transport still needs FeedDirectionComplete on the submit route: these tabs let the
+	// Feed Director SEE every page of the chain they own without letting them execute it.
 	"feed_direction": {
 		key:               "feed_direction",
 		labelKey:          "module.feed_direction",
@@ -203,9 +211,9 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          4,
 		contributions: []moduleNavContribution{
-			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.ProtocolRead},          //nav-composition:ignore: registry entry
-			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},             //nav-composition:ignore: registry entry
-			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedDirectionComplete}, //nav-composition:ignore: registry entry
+			{key: "feed_direction", labelKey: "nav.feed_direction", href: "/feed/direction", shared_key: "", priority: 1, requiredPermission: permissions.FeedDirectionRead}, //nav-composition:ignore: registry entry
+			{key: "feed_packing", labelKey: "nav.feed_packing", href: "/feed/packing", shared_key: "", priority: 2, requiredPermission: permissions.FeedPackingRead},         //nav-composition:ignore: registry entry
+			{key: "feed_transport", labelKey: "nav.feed_transport", href: "/feed/transport", shared_key: "", priority: 3, requiredPermission: permissions.FeedTransportRead}, //nav-composition:ignore: registry entry
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/feed", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
