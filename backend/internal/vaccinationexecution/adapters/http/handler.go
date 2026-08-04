@@ -179,13 +179,21 @@ type driveDateOverrideRequest struct {
 }
 
 type driveDateOverrideResponse struct {
-	ParkID            string `json:"park_id"`
-	VaccineCode       string `json:"vaccine_code"`
-	OriginalDriveDate string `json:"original_drive_date"`
-	OverrideDate      string `json:"override_date"`
-	Reason            string `json:"reason"`
-	CreatedBy         string `json:"created_by"`
-	CreatedAt         string `json:"created_at"`
+	ParkID                string `json:"park_id"`
+	VaccineCode           string `json:"vaccine_code"`
+	OriginalDriveDate     string `json:"original_drive_date"`
+	OverrideDate          string `json:"override_date"`
+	RequestedOverrideDate string `json:"requested_override_date"`
+	AppliedOverrideDate   string `json:"applied_override_date"`
+	AutoShifted           bool   `json:"auto_shifted"`
+	ShiftReason           string `json:"shift_reason,omitempty"`
+	ConflictVaccineCode   string `json:"conflicting_vaccine_code,omitempty"`
+	ConflictVaccineLabel  string `json:"conflicting_vaccine_label,omitempty"`
+	ConflictDate          string `json:"conflicting_date,omitempty"`
+	ConflictRule          string `json:"conflicting_rule,omitempty"`
+	Reason                string `json:"reason"`
+	CreatedBy             string `json:"created_by"`
+	CreatedAt             string `json:"created_at"`
 }
 
 func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request) {
@@ -257,14 +265,31 @@ func (h *Handler) UpsertDriveDateOverride(w http.ResponseWriter, r *http.Request
 		h.internal(w, r, err)
 		return
 	}
+	requestedDate := out.RequestedOverrideDate
+	if requestedDate.IsZero() {
+		requestedDate = out.OverrideDate
+	}
+	conflictDate := ""
+	if !out.ConflictDate.IsZero() {
+		conflictDate = out.ConflictDate.In(biztime.DefaultLocation()).Format("2006-01-02")
+	}
+	applied := out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02")
 	httpresponse.WriteJSON(w, http.StatusOK, driveDateOverrideResponse{
-		ParkID:            out.ParkID,
-		VaccineCode:       out.VaccineCode,
-		OriginalDriveDate: out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
-		OverrideDate:      out.OverrideDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
-		Reason:            out.Reason,
-		CreatedBy:         out.CreatedBy,
-		CreatedAt:         out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+		ParkID:                out.ParkID,
+		VaccineCode:           out.VaccineCode,
+		OriginalDriveDate:     out.OriginalDriveDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		OverrideDate:          applied,
+		RequestedOverrideDate: requestedDate.In(biztime.DefaultLocation()).Format("2006-01-02"),
+		AppliedOverrideDate:   applied,
+		AutoShifted:           out.AutoShifted,
+		ShiftReason:           out.ShiftReason,
+		ConflictVaccineCode:   out.ConflictVaccineCode,
+		ConflictVaccineLabel:  out.ConflictVaccineLabel,
+		ConflictDate:          conflictDate,
+		ConflictRule:          out.ConflictRule,
+		Reason:                out.Reason,
+		CreatedBy:             out.CreatedBy,
+		CreatedAt:             out.CreatedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
 	})
 }
 
