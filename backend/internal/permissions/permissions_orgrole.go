@@ -308,6 +308,16 @@ func init() {
 					set[HealthDiagnose] = struct{}{}
 				}
 			}
+			// The feed vertical's oversight tiers read the feed dispatch sheet through the feed
+			// vertical's OWN permission. Before this they reached it only as a side effect of the
+			// tier-wide ProtocolRead -- the VACCINATION protocol read -- which rendered the Feed
+			// Direction tab for them while GET /feed-direction/preview (already on
+			// FeedDirectionRead) refused it: a tab that 403s on arrival. Scoped to VerticalFeed so
+			// the one-module-one-director split holds; no other vertical's director gains a feed
+			// read. Manager/AM are excluded because they hold no feed surface today.
+			if vertical == VerticalFeed && (tier == TierHead || tier == TierDirector) {
+				set[FeedDirectionRead] = struct{}{}
+			}
 			// registerRole panics on collision with a pre-existing role -- including the
 			// flat legacy roles declared in permissions.go. It replaces the previous
 			// hand-written collision check here AND closes the hole that check did not
