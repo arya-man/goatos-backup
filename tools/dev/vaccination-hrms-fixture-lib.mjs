@@ -4,6 +4,11 @@
 // vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture
 // seeds no override (sweeper falls back to rule_dsl/default), so its data and hashes are
 // unchanged; the loader/validator needs no new field handling.
+// Coupling review 2026-08-04: seed-roster-real's defaultDepartmentModules now grants
+// health -> aas_health + counts + milk + feed_direction + vaccination, and pairs milk with
+// counts everywhere counts is granted. Those are department -> module GRANT rows derived at
+// seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
+// file hash, row count, vaccination date anchor or schedule-path selection changes here.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
