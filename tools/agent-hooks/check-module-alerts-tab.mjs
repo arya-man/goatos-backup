@@ -65,6 +65,12 @@ const NAVHOST = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/ui/AppN
 const PENDING_ALERTS_FEED = {
   counts:
     "No counts notification feed exists on any branch. The only counts-shaped alerts today are the VERIFIER's shifting_move queue, which belongs to the verification module, not to Counts' own bar.",
+  feed_direction:
+    "No feed notification feed exists on any branch -- there is no /feed/alerts route, and only vaccination and weighing own an alerts feed today. Feed's alert-shaped items are the VERIFIER's feed_packing / feed_distribution / feed_transport queues, which belong to the verification module, not to Feed's own bar. Same shape as counts above.",
+  aas_health:
+    "Health shipped its execution screens in this change with no notification feed behind them: no /health/alerts route and no health alert producer exists on any branch. Giving the bar an Alerts tab now would route operators to an empty screen.",
+  milk:
+    "Milk shipped in this change with no notification feed of its own. Its alert-shaped items are the VERIFIER's milk_feeding queue, which belongs to the verification module, not to Milk's own bar. Same shape as counts above.",
 };
 
 // The verification module composes its bar per reviewed FEATURE at runtime

@@ -110,6 +110,23 @@ object AnalyticsEvents {
     /** A Counts read (summary, breakdown page, or approval queue) failed to refresh. */
     const val COUNTS_READ_FAILURE = "counts_read_failure"
 
+    /** A Health work list or case screen was opened. [Params.KIND] is the age band
+     *  (`adult`/`kid`), which is the split the Health module actually routes on. */
+    const val HEALTH_VIEWED = "health_viewed"
+
+    /** An operator queued a health case. Fires when the write is DURABLE, matching the
+     *  COUNTS_*_SUBMITTED convention: the operator's work being safe is the moment worth
+     *  measuring, not the network call returning. */
+    const val HEALTH_CASE_SUBMITTED = "health_case_submitted"
+
+    /** A Health write could not be queued at all. [Params.KIND] distinguishes the surface
+     *  (`case`/`work_item`); [Params.REASON] carries a coarse, non-PII cause. */
+    const val HEALTH_WRITE_FAILURE = "health_write_failure"
+
+    /** A Health read (work list, case lookup, or goat search) failed to refresh. Cached Room
+     *  data stays visible when present, so this is the only signal that a refresh is failing. */
+    const val HEALTH_READ_FAILURE = "health_read_failure"
+
     /** Operator opened the Room-first weighing work list or a weighing capture scope. */
     const val WEIGHING_VIEWED = "weighing_viewed"
 

@@ -48,6 +48,11 @@ object MeshaColors {
     // White overlay for pills on the bright brand hero (mock rgba(255,255,255,.2)).
     val Overlay = Color(0x33FFFFFF)
 
+    // Camera chrome. Not a palette choice: this is the backdrop BEHIND a live viewfinder and the
+    // scrims drawn over it so white controls stay legible against arbitrary video. It is a token
+    // rather than a bare Color.Black so the value still has exactly one definition.
+    val ViewfinderBackdrop = Color(0xFF000000)
+
     // Gradients (mock --grad 135deg, --grad-soft)
     val BrandGradient: Brush = Brush.linearGradient(listOf(Color(0xFF93DA5E), Color(0xFF5FB531)))
     val BrandGradientSoft: Brush = Brush.linearGradient(listOf(Color(0x2993DA5E), Color(0x0D5FB531)))

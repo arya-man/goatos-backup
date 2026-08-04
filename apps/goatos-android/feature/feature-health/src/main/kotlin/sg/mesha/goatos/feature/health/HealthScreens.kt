@@ -1,3 +1,7 @@
+// telemetry:exempt: pure presentational Compose surfaces — these render state and forward
+// user intent through onEvent, doing no I/O of their own. Health telemetry is emitted where the
+// behaviour lives, in the view models (AnalyticsEvents.HEALTH_CASE_SUBMITTED /
+// HEALTH_WRITE_FAILURE / HEALTH_READ_FAILURE in AddHealthCaseViewModel).
 package sg.mesha.goatos.feature.health
 
 import androidx.compose.foundation.background

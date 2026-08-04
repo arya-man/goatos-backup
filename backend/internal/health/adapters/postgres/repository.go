@@ -222,6 +222,7 @@ FROM health_protocol_steps WHERE health_protocol_version_id=$1::uuid ORDER BY da
 	return p, rows.Err()
 }
 
+// projection-review: membership=health_treatment_sessions, unique on health_session_id, joined 1:1 to its owning health_cases row; group_key=health_session_id -- step_counts groups on exactly that key and is joined back 1:1, so a session with many steps stays ONE page row; join_cardinality=health_cases, goats and both locations lookups are 1:1 on their tenant-scoped primary keys and only label the row; step_counts is pre-aggregated to one row per health_session_id BEFORE it is joined, which is what stops the steps fan-out; pagination=keyset on (due_at, health_session_id) with LIMIT n+1, and the summary is a separate whole-filter aggregate, never a rollup of the returned page; scope=park/shed, applied from the caller's clamped filters on health_cases
 func (r *Repository) ListWorkItems(ctx context.Context, f domain.ListFilter) (domain.WorkItemPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -301,6 +302,7 @@ ORDER BY p.due_at,p.health_session_id`, args...)
 	return page, nil
 }
 
+// projection-review: membership=health_treatment_sessions for the filtered day, unique on health_session_id; group_key=health_session_id collapsed into disjoint status buckets by a single CASE, so a session lands in exactly one bucket and the buckets sum to Total; join_cardinality=health_cases is 1:1 on health_case_id and contributes only filter columns, so no session is counted twice; pagination=none by design -- this is a whole-filter aggregate computed independently of the page so paging can never change the counts; scope=park/shed from the caller's clamped filters, identical to the ones ListWorkItems applies
 func (r *Repository) loadSummary(ctx context.Context, f domain.ListFilter, out *domain.Summary) error {
 	return r.pool.QueryRow(ctx, `
 SELECT count(*) FILTER(WHERE effective_status<>'canceled_death')::int,
@@ -315,6 +317,7 @@ FROM (SELECT CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELS
  AND ($6='' OR hc.shed_id=nullif($6,'')::uuid) AND ($7='' OR hs.session=$7)) q`,
 		f.TenantID, f.Date, f.AgeBand, f.DiseaseKey, f.ParkID, f.ShedID, f.Session).Scan(&out.Total, &out.Due, &out.Scheduled, &out.InProgress, &out.Completed, &out.Rework, &out.Held, &out.CanceledDeath)
 }
+// projection-review: membership=health_treatment_sessions in the requested calendar month, unique on health_session_id; group_key=business_date -- one marker per day, which is the calendar's grain; join_cardinality=health_cases is 1:1 on health_case_id and only supplies age_band, so it cannot multiply a day's count; pagination=none, the month is the bound; scope=tenant+age_band, matching the calendar the markers are drawn on
 func (r *Repository) loadMarkers(ctx context.Context, f domain.ListFilter, out *[]domain.DateMarker) error {
 	date, _ := time.Parse("2006-01-02", f.Date)
 	from := time.Date(date.Year(), date.Month(), 1, 0, 0, 0, 0, time.UTC)
@@ -337,10 +340,7 @@ AND hs.status NOT IN ('completed','canceled_death') GROUP BY hs.business_date OR
 	return rows.Err()
 }
 func (r *Repository) loadFilterOptions(ctx context.Context, f domain.ListFilter, out *domain.FilterOptions) error {
-	// projection-review: disease producer is unique on
-	// (tenant_id,disease_key,age_band) WHERE status='published'; the consumer groups/matches that
-	// exact age-band catalog grain. Park/shed options group health_cases by their canonical FK and
-	// join locations 1:1 on (tenant_id,location_id). No numerator/denominator or ratio is compared.
+	// projection-review: membership=health_protocol_versions for the disease list (unique on (tenant_id,disease_key,age_band) WHERE status='published') and health_cases for the park/shed lists; group_key=(disease_key) for diseases and the canonical park_id / shed_id FK for locations, which is the exact grain each option list is keyed by; join_cardinality=locations joins 1:1 on (tenant_id,location_id) and only supplies a display name, so an option cannot appear twice; pagination=none, these are bounded option lists rendered whole; scope=tenant+age_band -- no ratio, numerator or denominator is compared here, these are distinct option sets
 	rows, err := r.pool.Query(ctx, `
 SELECT 'disease',hp.disease_key,hp.display_name FROM health_protocol_versions hp WHERE hp.tenant_id=$1::uuid AND hp.age_band=$2 AND hp.status='published'
 UNION ALL SELECT 'park',coalesce(hc.park_id::text,''),coalesce(l.name,'') FROM health_cases hc LEFT JOIN locations l ON l.tenant_id=hc.tenant_id AND l.location_id=hc.park_id WHERE hc.tenant_id=$1::uuid AND hc.age_band=$2 AND hc.park_id IS NOT NULL GROUP BY hc.park_id,l.name
