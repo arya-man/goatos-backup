@@ -60,6 +60,7 @@ const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 // ONLY built-module capability today (scope-lock: pc.vaccination is the only
 // built + surfaced module).
 const vaccinationExecuteCapability = "vaccination.execute"
+const weighingExecuteCapability = "weighing.execute"
 
 // modulePrefix maps a workforce_positions.position_code PREFIX to the operational
 // module_code the seat works in, and the execution capability (if any) a backup
@@ -78,6 +79,8 @@ var modulePrefixes = []modulePrefix{
 	{prefix: "backup_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "shed_manager", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
 	{prefix: "park_head", moduleCode: "pc.vaccination", capability: vaccinationExecuteCapability},
+	{prefix: "breeding_growth_director", moduleCode: "weighing", capability: weighingExecuteCapability},
+	{prefix: "weighing_operator", moduleCode: "weighing", capability: weighingExecuteCapability},
 	{prefix: "health_kidding", moduleCode: "health.kidding"},
 	{prefix: "feeding", moduleCode: "feed.direction"},
 	{prefix: "packaging", moduleCode: "packaging"},

@@ -639,3 +639,8 @@ export function updateManifestHashes(directory, manifest) {
 // safe-date metadata is runtime override state, not source data. Approved combo
 // helpers share clinical scheduling config only; fixture bytes, hashes, counts,
 // HRMS rows, SOP contracts, and validation semantics remain unchanged.
+// Coupling review 2026-08-05: the CBE/CPT controlled port changes runtime import
+// alias handling, campaign-filtered sweeps, verifier grant backfill, weighing
+// duties, and active position conflict keys only. The HRMS fixture source remains
+// byte-for-byte unchanged; current open-port policy explicitly excludes Blue
+// Tongue and PPR generation until stock/source scheduling is confirmed.

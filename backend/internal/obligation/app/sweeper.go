@@ -110,6 +110,8 @@ type SweepConfig struct {
 	VaccineItemID     string
 	VaccineCode       string
 	DosesPerGoat      int32
+	AllowedRuleIDs    map[string]struct{}
+	AllowedTargetIDs  map[string]struct{}
 	RuleConfigs       map[string]SweepRuleConfig
 	ParkConsolidation domain.ParkConsolidationSettings
 	DrivePlanner      domain.DrivePlannerSettings
@@ -1048,6 +1050,7 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 				if err != nil {
 					return res, err
 				}
+				rows = filterAllowedUnbatchedDueRows(cfg, rows)
 				snapshotRows = append(snapshotRows, rows...)
 			}
 			if len(snapshotRows) == 0 {
@@ -1143,6 +1146,8 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 			if len(rows) == 0 {
 				break
 			}
+			rawRows := rows
+			rows = filterAllowedUnbatchedDueRows(cfg, rows)
 			rows, err = s.applyUnbatchedDriveDateOverridesForRows(ctx, tenantID, cfg, rows)
 			if err != nil {
 				return res, err
@@ -1170,7 +1175,10 @@ func (s *SweeperService) sweepVersion(ctx context.Context, tenantID, versionID s
 					progressed += n
 				}
 			}
-			if progressed == 0 || int32(len(rows)) < s.page {
+			if int32(len(rawRows)) < s.page {
+				break
+			}
+			if progressed == 0 && len(rows) > 0 {
 				break
 			}
 		}

@@ -133,6 +133,78 @@ func TestSeedGoatUpsertRefreshesGenerationFactsOnRerun(t *testing.T) {
 	}
 }
 
+func TestSeedGoatIdentifiersPreservesExistingPrimaryOnRerun(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	goatID := detUUID("goat", defaultTenantID, "identifier-primary-refresh")
+	mustExec(t, ctx, pool, `INSERT INTO tenants (tenant_id, name, status) VALUES ($1,'seed-identifier-test','active') ON CONFLICT (tenant_id) DO NOTHING`, defaultTenantID)
+	mustExec(t, ctx, pool, `
+		INSERT INTO parties (party_id, party_type, display_name, status)
+		VALUES ($1,'org','Mesha','active')
+		ON CONFLICT (party_id) DO UPDATE SET display_name=EXCLUDED.display_name, status='active', updated_at=now()`, testMeshaParty)
+	mustExec(t, ctx, pool, `
+		INSERT INTO goats (goat_id, tenant_id, custodian_party_id, sex, lifecycle_status)
+		VALUES ($1,$2,$3,'female','alive')
+		ON CONFLICT (goat_id) DO NOTHING`, goatID, defaultTenantID, testMeshaParty)
+	mustExec(t, ctx, pool, `
+		INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+			scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+		VALUES ($1,$2,'animal_identifier_1','OLD-RFID','old-rfid','global','2026-01-01','identifier_normalizer_v1','active',true)`,
+		defaultTenantID, goatID)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin identifier upsert: %v", err)
+	}
+	if err := upsertSeedGoatIdentifiers(ctx, tx, defaultTenantID, []seedGoatUpsertRow{{
+		goatID:            goatID,
+		animalIdentifier1: "NEW-RFID",
+	}}); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("upsert identifiers: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit identifier upsert: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, `
+		SELECT identifier_value, status, is_primary_for_goat
+		FROM goat_identifiers
+		WHERE tenant_id = $1 AND goat_id = $2
+		ORDER BY identifier_type, identifier_value`, defaultTenantID, goatID)
+	if err != nil {
+		t.Fatalf("read identifiers: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]struct {
+		status  string
+		primary bool
+	}{}
+	for rows.Next() {
+		var value, status string
+		var primary bool
+		if err := rows.Scan(&value, &status, &primary); err != nil {
+			t.Fatalf("scan identifier: %v", err)
+		}
+		got[value] = struct {
+			status  string
+			primary bool
+		}{status: status, primary: primary}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("identifier rows: %v", err)
+	}
+	if old := got["OLD-RFID"]; old.status != "active" || !old.primary {
+		t.Fatalf("old primary = %+v, want active primary preserved", old)
+	}
+	if newer := got["NEW-RFID"]; newer.status != "active" || newer.primary {
+		t.Fatalf("new identifier = %+v, want active non-primary secondary alias", newer)
+	}
+}
+
 // testCptPark is the second migration-seeded baseline park (Channapatna), distinct
 // from testCbePark (Coimbatore) declared in seed_ledger_integration_test.go. Used
 // only to prove a real park-to-park change, never a fixture the seed itself creates.

@@ -104,6 +104,11 @@
   },
   "seed_contract_coupling_reviews": [
     {
+      "date": "2026-08-05",
+      "change": "CBE/CPT controlled animal and vaccination port adds deterministic identifier alias handling, campaign-only sweeper filters, verifier seeding from existing grants, weighing duties, and active position conflict targeting.",
+      "vaccination_hrms_source_impact": "none to the committed HRMS source fixture bytes, hashes, counts, or validation semantics. These changes affect runtime seed/import behavior and constrained obligation generation only. Blue Tongue and PPR remain intentionally excluded from the current open stg port; they must be scheduled later from stock-confirmed source data, not generated-and-deleted as part of this port."
+    },
+    {
       "date": "2026-07-29",
       "change": "seed-roster-real adds feed_direction to the preventive_care department module grant",
       "vaccination_hrms_source_impact": "none: this changes only runtime module and navigation authorization for the already-seeded preventive_care department. It does not change HRMS roster rows, vaccination history, protocol rules, source dates, fixture bytes, hashes, or counts."

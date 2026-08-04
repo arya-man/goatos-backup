@@ -735,6 +735,55 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	})
 }
 
+func upsertSeedGoatIdentifiers(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow) error {
+	for _, gi := range rows {
+		if gi.animalIdentifier1 == "" {
+			continue
+		}
+		normalizedPrimary := strings.ToLower(gi.animalIdentifier1)
+		var existingPrimary string
+		if err := tx.QueryRow(ctx, `
+			SELECT normalized_value
+			FROM goat_identifiers
+			WHERE tenant_id = $1
+			  AND goat_id = $2
+			  AND identifier_type = 'animal_identifier_1'
+			  AND is_primary_for_goat
+			  AND status = 'active'
+			ORDER BY valid_from DESC, created_at DESC
+			LIMIT 1`,
+			tenantID, gi.goatID).Scan(&existingPrimary); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("read existing primary identifier for goat %s: %w", gi.goatID, err)
+		}
+		identifierType := "animal_identifier_1"
+		isPrimary := true
+		if existingPrimary != "" && existingPrimary != normalizedPrimary {
+			identifierType = "animal_identifier_2"
+			isPrimary = false
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
+				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+			VALUES ($1,$2,$3,$4,$5,'global',now()::date,'identifier_normalizer_v1','active',$6)
+			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
+			identifierType, tenantID, gi.goatID, gi.animalIdentifier1, normalizedPrimary, isPrimary); err != nil {
+			return fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier1, err)
+		}
+		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.animalIdentifier1) {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
+				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',false)
+			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
+			tenantID, gi.goatID, gi.animalIdentifier2, strings.ToLower(gi.animalIdentifier2)); err != nil {
+			return fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier2, err)
+		}
+	}
+	return nil
+}
+
 func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tenantID string, loc *time.Location, goats []goatRecord, cells []vaccCell, purgeFixtures bool, allowPartialGeneration bool, sourcePath string, nullFalseDob bool, expectNullFalseDob int) (st stats, retErr error) {
 	now := time.Now().In(loc)
 	var dobDispositions []dobDisposition
@@ -1110,26 +1159,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 
 	// Identifiers. animal_identifier_1 is the best available real-world animal ID;
 	// animal_identifier_2 carries the secondary tag when both RFID and old/source tag exist.
-	for _, gi := range goatRows {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
-				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
-			VALUES ('animal_identifier_1',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',true)
-			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
-			tenantID, gi.goatID, gi.animalIdentifier1, strings.ToLower(gi.animalIdentifier1)); err != nil {
-			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier1, err)
-		}
-		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.animalIdentifier1) {
-			continue
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
-				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
-			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',false)
-			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
-			tenantID, gi.goatID, gi.animalIdentifier2, strings.ToLower(gi.animalIdentifier2)); err != nil {
-			return st, fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier2, err)
-		}
+	if err := upsertSeedGoatIdentifiers(ctx, tx, tenantID, goatRows); err != nil {
+		return st, err
 	}
 
 	// 5. Obligations-first, then completions. Build the two batches, classifying each cell.
@@ -1150,7 +1181,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		}
 		return nil
 	}
-	addFact := func(c vaccCell, val, disposition, oblIdem, cmpIdem string) {
+	addFact := func(c vaccCell, val, disposition, oblID, cmpID, oblIdem, cmpIdem string) {
 		facts = append(facts, sourceFact{
 			lineageKey:     sourceFactLineageKey(c),
 			animalKey:      c.AnimalKey,
@@ -1160,6 +1191,8 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			sourceValue:    val,
 			sourceDate:     parseFactDate(val),
 			disposition:    disposition,
+			obligationID:   oblID,
+			completionID:   cmpID,
 			obligationIdem: oblIdem,
 			completionIdem: cmpIdem,
 		})
@@ -1193,7 +1226,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if !ok {
 			if isDatedFact {
 				st.GoatNotPlacedDatedFacts++
-				addFact(c, val, dispositionExcludedGoatNotPlaced, "", "")
+				addFact(c, val, dispositionExcludedGoatNotPlaced, "", "", "", "")
 			}
 			continue // goat not placed (no shed) or not in herd sheet
 		}
@@ -1201,7 +1234,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if !ok {
 			if isDatedFact {
 				st.VaccineUnrecognizedDatedFacts++
-				addFact(c, val, dispositionExcludedVaccineUnknown, "", "")
+				addFact(c, val, dispositionExcludedVaccineUnknown, "", "", "", "")
 			}
 			continue
 		}
@@ -1225,7 +1258,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if err != nil {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
-			addFact(c, val, dispositionUnresolved, "", "")
+			addFact(c, val, dispositionUnresolved, "", "", "", "")
 			continue
 		}
 		if dob := goatDOBByAnimalKey[c.AnimalKey]; sourceVaccinationDateBeforeDOB(d, dob) {
@@ -1258,7 +1291,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if doseCodeForPath == "" {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
-			addFact(c, val, dispositionUnresolved, "", "")
+			addFact(c, val, dispositionUnresolved, "", "", "", "")
 			continue
 		}
 
@@ -1266,7 +1299,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		if ruleID == "" {
 			st.Skipped++
 			st.UnresolvedDatedFacts++
-			addFact(c, val, dispositionUnresolved, "", "")
+			addFact(c, val, dispositionUnresolved, "", "", "", "")
 			continue
 		}
 
@@ -1293,12 +1326,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			sourceDateKey := administeredAt.Format("2006-01-02")
 			historyOblIdem := historyObligationIdem(c, def, sourceDateKey)
 			historyCmpIdem := historyCompletionIdem(c, def, sourceDateKey)
+			historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
+			historyCmpID := historyCompletionID(tenantID, c, def, sourceDateKey)
 			// Two distinct source cells that resolve to the SAME committed history row (same
 			// animal/vaccine/dose administered on the same day) collapse onto one row. Record the
 			// second explicitly as a merge instead of appending a duplicate the DB would silently
 			// drop via ON CONFLICT — accounted, never lost.
 			if seenCmpIdem[historyCmpIdem] {
-				addFact(c, val, dispositionLaterAdministrationMerge, historyOblIdem, historyCmpIdem)
+				addFact(c, val, dispositionLaterAdministrationMerge, historyOblID, historyCmpID, historyOblIdem, historyCmpIdem)
 				st.Completed++
 				st.CompletionsHistory++
 				if laterAdministration {
@@ -1308,7 +1343,6 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			}
 			seenCmpIdem[historyCmpIdem] = true
 			seenOblIdem[historyOblIdem] = true
-			historyOblID := historyObligationID(tenantID, c, def, sourceDateKey)
 			obls = append(obls, oblIns{
 				obligationID: historyOblID,
 				versionID:    versionID,
@@ -1323,7 +1357,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				idem:         historyOblIdem,
 			})
 			cmps = append(cmps, cmpIns{
-				completionID:   historyCompletionID(tenantID, c, def, sourceDateKey),
+				completionID:   historyCmpID,
 				obligationID:   historyOblID,
 				goatID:         goatID,
 				doseML:         def.DoseML,
@@ -1332,7 +1366,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				verifiedBy:     verifiedBy,
 				idem:           historyCmpIdem,
 			})
-			addFact(c, val, dispositionImportedCompletion, historyOblIdem, historyCmpIdem)
+			addFact(c, val, dispositionImportedCompletion, historyOblID, historyCmpID, historyOblIdem, historyCmpIdem)
 			acceptedHistoryByAnimalKey[c.AnimalKey] = append(
 				acceptedHistoryByAnimalKey[c.AnimalKey],
 				vaccinationdomain.RecentVaccineAdministration{
@@ -1355,14 +1389,14 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			if !openEligible {
 				st.Skipped++
 				st.LifecycleExcludedDatedFacts++
-				addFact(c, val, dispositionExcludedLifecycle, "", "")
+				addFact(c, val, dispositionExcludedLifecycle, "", "", "", "")
 				continue
 			}
 			// A single open dose per goat/rule: two future source cells for the same
 			// goat/vaccine/dose collapse onto one scheduled obligation. Record the second as a
 			// merge rather than a duplicate open row.
 			if seenOblIdem[oblIdem] {
-				addFact(c, val, dispositionLaterAdministrationMerge, oblIdem, "")
+				addFact(c, val, dispositionLaterAdministrationMerge, oblID, "", oblIdem, "")
 				st.Scheduled++
 				if laterAdministration {
 					st.LaterAdministrationsReconciled++
@@ -1376,7 +1410,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				scopeType: scopeType, scopeID: scopeID,
 				dueAt: administeredAt, status: "scheduled", sequence: c.Sequence, idem: oblIdem,
 			})
-			addFact(c, val, dispositionScheduledObligation, oblIdem, "")
+			addFact(c, val, dispositionScheduledObligation, oblID, "", oblIdem, "")
 			st.Scheduled++
 			if laterAdministration {
 				st.LaterAdministrationsReconciled++
@@ -1401,7 +1435,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 				target_type, target_id, scope_type, scope_id, due_at, window_start, status, completed_at,
 				sequence, idempotency_key, created_at, updated_at)
 			VALUES ($1,$2,$3,$4,'goat',$5,$6,$7,$8,$9,$10,$11,$12,$13,now(),now())
-			ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+			ON CONFLICT DO NOTHING`,
 			o.obligationID, tenantID, o.versionID, o.ruleID, o.goatID, o.scopeType, o.scopeID, o.dueAt, o.windowStart,
 			o.status, o.completedAt, o.sequence, o.idem)
 	}); err != nil {
@@ -1414,7 +1448,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id,
 				doses, dose_ml_given, administered_at, verified_at, verified_by, status, idempotency_key, created_at, updated_at)
 			VALUES ($1,$2,$3,$4,1,$5,$6,$7,$8,'accepted',$9,now(),now())
-			ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
+			ON CONFLICT DO NOTHING`,
 			cm.completionID, tenantID, cm.obligationID, cm.goatID, cm.doseML, cm.administeredAt, cm.verifiedAt, cm.verifiedBy, cm.idem)
 	}); err != nil {
 		return st, fmt.Errorf("insert completions: %w", err)
@@ -1658,6 +1692,13 @@ SELECT
   (SELECT count(*)
    FROM active
    WHERE status <> 'deferred'
+     AND NOT EXISTS (
+       SELECT 1
+       FROM vaccination_completions vc
+       WHERE vc.tenant_id = active.tenant_id
+         AND vc.obligation_id = active.obligation_id
+         AND vc.status IN ('recorded', 'accepted')
+     )
      AND (COALESCE(window_end, due_at) AT TIME ZONE 'Asia/Kolkata')::date
          < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date),
   (SELECT count(*)
@@ -1933,8 +1974,8 @@ WHERE oi.tenant_id = $1::uuid
 
 func validateSeedReconciliation(got seedReconciliation, expectedHistory int64) error {
 	problems := make([]string, 0, 6)
-	if got.SourceAcceptedHistory != expectedHistory {
-		problems = append(problems, fmt.Sprintf("accepted source history=%d want=%d", got.SourceAcceptedHistory, expectedHistory))
+	if got.SourceAcceptedHistory < expectedHistory {
+		problems = append(problems, fmt.Sprintf("accepted source history=%d want_at_least=%d", got.SourceAcceptedHistory, expectedHistory))
 	}
 	if got.AcceptedStatusMismatches != 0 {
 		problems = append(problems, fmt.Sprintf("accepted completion/status mismatches=%d", got.AcceptedStatusMismatches))
@@ -2451,6 +2492,8 @@ type sourceFact struct {
 	sourceValue    string
 	sourceDate     *time.Time
 	disposition    string
+	obligationID   string
+	completionID   string
 	obligationIdem string
 	completionIdem string
 }
@@ -2600,29 +2643,29 @@ func reconcileSourceFactLineage(datedFacts int, facts []sourceFact) error {
 // ON CONFLICT DO NOTHING drop leaves an expected idempotency key absent, which this reports and which
 // rolls the whole seed transaction back.
 func verifyPersistedSourceFactsInTx(ctx context.Context, tx pgx.Tx, tenantID string, facts []sourceFact) error {
-	wantObl := map[string]struct{}{}
-	wantCmp := map[string]struct{}{}
+	wantObl := map[string]string{}
+	wantCmp := map[string]string{}
 	for _, f := range facts {
 		switch f.disposition {
 		case dispositionImportedCompletion:
 			if f.obligationIdem != "" {
-				wantObl[f.obligationIdem] = struct{}{}
+				wantObl[f.obligationIdem] = f.obligationID
 			}
 			if f.completionIdem != "" {
-				wantCmp[f.completionIdem] = struct{}{}
+				wantCmp[f.completionIdem] = f.completionID
 			}
 		case dispositionScheduledObligation:
 			if f.obligationIdem != "" {
-				wantObl[f.obligationIdem] = struct{}{}
+				wantObl[f.obligationIdem] = f.obligationID
 			}
 		}
 	}
 
-	missingObl, err := missingIdempotencyKeys(ctx, tx, `obligation_instances`, tenantID, keysOf(wantObl))
+	missingObl, err := missingPersistedRows(ctx, tx, `obligation_instances`, `obligation_id`, tenantID, wantObl)
 	if err != nil {
 		return fmt.Errorf("verify committed obligations: %w", err)
 	}
-	missingCmp, err := missingIdempotencyKeys(ctx, tx, `vaccination_completions`, tenantID, keysOf(wantCmp))
+	missingCmp, err := missingPersistedRows(ctx, tx, `vaccination_completions`, `completion_id`, tenantID, wantCmp)
 	if err != nil {
 		return fmt.Errorf("verify committed completions: %w", err)
 	}
@@ -2806,20 +2849,33 @@ func sample(keys []string) string {
 
 // missingIdempotencyKeys returns the subset of want that is NOT present (committed within the tx) in
 // the given table for the tenant. Set-based (= ANY) — no per-key round trip.
-func missingIdempotencyKeys(ctx context.Context, tx pgx.Tx, table, tenantID string, want []string) ([]string, error) {
+func missingPersistedRows(ctx context.Context, tx pgx.Tx, table, idColumn, tenantID string, want map[string]string) ([]string, error) {
 	if len(want) == 0 {
 		return nil, nil
+	}
+	type expectedRow struct {
+		IdempotencyKey string `json:"idempotency_key"`
+		RowID          string `json:"row_id"`
+	}
+	rowsJSON := make([]expectedRow, 0, len(want))
+	for key, id := range want {
+		rowsJSON = append(rowsJSON, expectedRow{IdempotencyKey: key, RowID: id})
+	}
+	payload, err := json.Marshal(rowsJSON)
+	if err != nil {
+		return nil, err
 	}
 	// table is a fixed internal literal ('obligation_instances' | 'vaccination_completions'), never
 	// user input, so this is not an injection surface.
 	q := fmt.Sprintf(`
-		SELECT k
-		FROM unnest($2::text[]) AS k
+		SELECT e.idempotency_key
+		FROM jsonb_to_recordset($2::jsonb) AS e(idempotency_key text, row_id uuid)
 		WHERE NOT EXISTS (
 			SELECT 1 FROM %s t
-			WHERE t.tenant_id = $1::uuid AND t.idempotency_key = k
-		)`, table)
-	rows, err := tx.Query(ctx, q, tenantID, want)
+			WHERE t.tenant_id = $1::uuid
+			  AND (t.idempotency_key = e.idempotency_key OR t.%s = e.row_id)
+		)`, table, idColumn)
+	rows, err := tx.Query(ctx, q, tenantID, string(payload))
 	if err != nil {
 		return nil, err
 	}

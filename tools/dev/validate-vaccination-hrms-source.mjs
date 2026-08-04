@@ -767,3 +767,9 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // dates and clinical-shift metadata are written after scheduling, while approved
 // combo helper sharing leaves source vaccination cells, HRMS rows, hashes, and
 // validation counts unchanged.
+// Coupling review 2026-08-05: CBE/CPT port controls are runtime seed/sweep
+// constraints, not source validation inputs. Primary/secondary RFID aliasing,
+// targeted dose-code sweeps, verifier-grant seeding, weighing duties, and active
+// position upserts do not alter HRMS source rows, hashes, or counts. Current
+// open obligation generation excludes Blue Tongue and PPR by policy until later
+// stock-confirmed scheduling.

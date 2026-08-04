@@ -389,7 +389,7 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
 				position_code, position_tier, is_backup_slot, backup_group_code, status, valid_from, updated_at)
 			VALUES ($1,$2,$3,'shed',$4,$5,'manager',false,$6,'active',now(),now())
-			ON CONFLICT (position_id) DO UPDATE SET
+			ON CONFLICT (tenant_id, scope_type, scope_id, position_code) WHERE status = 'active' DO UPDATE SET
 				workforce_member_id = EXCLUDED.workforce_member_id,
 				scope_type = EXCLUDED.scope_type,
 				scope_id = EXCLUDED.scope_id,
@@ -410,7 +410,7 @@ func applyMapping(ctx context.Context, pool *pgxpool.Pool, tenantID, path string
 			INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
 				position_code, position_tier, is_backup_slot, backup_group_code, status, valid_from, updated_at)
 			VALUES ($1,$2,$3,'shed',$4,$5,'manager',true,$6,'active',now(),now())
-			ON CONFLICT (position_id) DO UPDATE SET
+			ON CONFLICT (tenant_id, scope_type, scope_id, position_code) WHERE status = 'active' DO UPDATE SET
 				workforce_member_id = EXCLUDED.workforce_member_id,
 				scope_type = EXCLUDED.scope_type,
 				scope_id = EXCLUDED.scope_id,

@@ -36,6 +36,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			if err != nil {
 				return res, err
 			}
+			rows = filterAllowedParkConsolidationRows(cfg, rows)
 			rows, err = s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
 			if err != nil {
 				return res, err
@@ -59,7 +60,9 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			if len(rows) == 0 {
 				break
 			}
-			groupRows, err := s.applyParkDriveDateOverrides(ctx, tenantID, cfg, rows)
+			last := rows[len(rows)-1]
+			filteredRows := filterAllowedParkConsolidationRows(cfg, rows)
+			groupRows, err := s.applyParkDriveDateOverrides(ctx, tenantID, cfg, filteredRows)
 			if err != nil {
 				return res, err
 			}
@@ -73,7 +76,7 @@ func (s *SweeperService) consolidateParkDrivesWithVisitCounts(ctx context.Contex
 			if int32(len(rows)) < s.page {
 				break
 			}
-			next := parkConsolidationCursor(rows[len(rows)-1])
+			next := parkConsolidationCursor(last)
 			key := parkConsolidationCursorKey(next)
 			if key == "" {
 				return res, fmt.Errorf("obligation: park consolidation pagination did not produce an advance cursor")
