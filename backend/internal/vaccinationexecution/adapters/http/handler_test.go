@@ -68,6 +68,7 @@ type fakeWriter struct {
 	lastRescheduleIdemKey string
 	lastAuthorizedParks   []string
 	lastOverride          *obligationdomain.VaccineDriveDateOverride
+	overrideResult        *obligationdomain.VaccineDriveDateOverride
 }
 
 func (f *fakeReader) VaccinationOperations(_ context.Context, q domain.OperationsQuery) (domain.OperationsResponse, error) {
@@ -194,7 +195,55 @@ func (w *fakeWriter) RescheduleObligationByID(ctx context.Context, tenantID, obl
 
 func (w *fakeWriter) UpsertVaccinationDriveDateOverride(ctx context.Context, override obligationdomain.VaccineDriveDateOverride) (*obligationdomain.VaccineDriveDateOverride, error) {
 	w.lastOverride = &override
+	if w.overrideResult != nil {
+		return w.overrideResult, nil
+	}
 	return &override, nil
+}
+
+func TestUpsertDriveDateOverrideReturnsClinicalShiftMetadata(t *testing.T) {
+	const testTenantID = "00000000-0000-4000-8000-000000000001"
+	writer := &fakeWriter{overrideResult: &obligationdomain.VaccineDriveDateOverride{
+		TenantID:              testTenantID,
+		ParkID:                "20000000-0000-4000-8000-000000000001",
+		VaccineCode:           "PPR",
+		OriginalDriveDate:     time.Date(2026, 8, 1, 0, 0, 0, 0, biztime.DefaultLocation()),
+		RequestedOverrideDate: time.Date(2026, 8, 6, 0, 0, 0, 0, biztime.DefaultLocation()),
+		OverrideDate:          time.Date(2026, 9, 7, 0, 0, 0, 0, biztime.DefaultLocation()),
+		AutoShifted:           true,
+		ShiftReason:           "clinical_spacing_auto_shift",
+		ConflictVaccineLabel:  "Sheep Pox",
+		ConflictDate:          time.Date(2026, 8, 10, 0, 0, 0, 0, biztime.DefaultLocation()),
+		ConflictRule:          "live_live_min_gap",
+		Reason:                "move",
+		CreatedBy:             "30000000-0000-4000-8000-000000000077",
+		CreatedAt:             time.Date(2026, 8, 1, 9, 0, 0, 0, biztime.DefaultLocation()),
+	}}
+	h := NewHandler(&fakeReader{}, writer).WithClock(func() time.Time {
+		return time.Date(2026, 8, 1, 9, 0, 0, 0, biztime.DefaultLocation())
+	})
+	body := `{"park_id":"20000000-0000-4000-8000-000000000001","vaccine_code":"PPR","original_drive_date":"2026-08-01","override_date":"2026-08-06","reason":"move"}`
+	req := httptest.NewRequest(http.MethodPost, "/vaccination/schedule/drive-date-overrides", strings.NewReader(body))
+	req = req.WithContext(httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), testTenantID), "30000000-0000-4000-8000-000000000077"))
+	rec := httptest.NewRecorder()
+
+	h.UpsertDriveDateOverride(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var bodyOut map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &bodyOut); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if bodyOut["requested_override_date"] != "2026-08-06" || bodyOut["applied_override_date"] != "2026-09-07" {
+		t.Fatalf("requested/applied metadata missing: %#v", bodyOut)
+	}
+	if bodyOut["auto_shifted"] != true || bodyOut["shift_reason"] != "clinical_spacing_auto_shift" {
+		t.Fatalf("shift metadata missing: %#v", bodyOut)
+	}
+	if bodyOut["conflicting_vaccine_label"] != "Sheep Pox" || bodyOut["conflicting_date"] != "2026-08-10" {
+		t.Fatalf("conflict metadata missing: %#v", bodyOut)
+	}
 }
 
 func TestUpsertDriveDateOverrideRequiresActorAndPostpone(t *testing.T) {

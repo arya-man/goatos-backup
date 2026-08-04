@@ -16219,6 +16219,9 @@ CREATE TABLE IF NOT EXISTS public.vaccination_drive_date_overrides (
   vaccine_code text NOT NULL,
   original_drive_date date NOT NULL,
   override_date date NOT NULL,
+  requested_override_date date NOT NULL,
+  shift_reason text NOT NULL DEFAULT '',
+  clinical_shift_metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   reason text NOT NULL,
   created_by uuid NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
@@ -16228,6 +16231,7 @@ CREATE TABLE IF NOT EXISTS public.vaccination_drive_date_overrides (
   CONSTRAINT vaccination_drive_date_overrides_pkey PRIMARY KEY (override_id),
   CONSTRAINT vaccination_drive_date_overrides_vaccine_code_not_blank CHECK (btrim(vaccine_code) <> ''),
   CONSTRAINT vaccination_drive_date_overrides_reason_not_blank CHECK (btrim(reason) <> ''),
+  CONSTRAINT vaccination_drive_date_overrides_metadata_object_check CHECK (jsonb_typeof(clinical_shift_metadata) = 'object'),
   CONSTRAINT vaccination_drive_date_overrides_postpone_check CHECK (override_date > original_drive_date),
   CONSTRAINT vaccination_drive_date_overrides_tenant_park_fk FOREIGN KEY (tenant_id, park_id) REFERENCES public.locations(tenant_id, location_id)
 );

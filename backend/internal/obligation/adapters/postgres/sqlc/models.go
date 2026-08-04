@@ -2586,18 +2586,21 @@ type VaccinationDriveAssignmentMember struct {
 }
 
 type VaccinationDriveDateOverride struct {
-	OverrideID        pgtype.UUID
-	TenantID          pgtype.UUID
-	ParkID            pgtype.UUID
-	VaccineCode       string
-	OriginalDriveDate pgtype.Date
-	OverrideDate      pgtype.Date
-	Reason            string
-	CreatedBy         pgtype.UUID
-	CreatedAt         pgtype.Timestamptz
-	CanceledAt        pgtype.Timestamptz
-	CanceledBy        pgtype.UUID
-	CancelReason      pgtype.Text
+	OverrideID            pgtype.UUID
+	TenantID              pgtype.UUID
+	ParkID                pgtype.UUID
+	VaccineCode           string
+	OriginalDriveDate     pgtype.Date
+	OverrideDate          pgtype.Date
+	RequestedOverrideDate pgtype.Date
+	ShiftReason           string
+	ClinicalShiftMetadata []byte
+	Reason                string
+	CreatedBy             pgtype.UUID
+	CreatedAt             pgtype.Timestamptz
+	CanceledAt            pgtype.Timestamptz
+	CanceledBy            pgtype.UUID
+	CancelReason          pgtype.Text
 }
 
 type VaccinationEligibilityRollup struct {

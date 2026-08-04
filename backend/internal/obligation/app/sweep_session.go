@@ -439,36 +439,7 @@ func (s *SweepSession) sameDayCompatibleWithPlannedVaccines(targetID string, ide
 }
 
 func vaccineComboSessionsForCode(vaccineCode string) []string {
-	seen := make(map[string]struct{})
-	out := make([]string, 0, 2)
-	add := func(session string) {
-		session = strings.TrimSpace(session)
-		if session == "" {
-			return
-		}
-		if _, ok := seen[session]; ok {
-			return
-		}
-		seen[session] = struct{}{}
-		out = append(out, session)
-	}
-	if session := domain.VaccineComboSession(vaccineCode); session != "" {
-		add(session)
-	}
-	switch normalizedVaccineMatrixCode(vaccineCode) {
-	case "et tt", "et+tt":
-		add("combo:ET+TT+PPR")
-	case "ppr":
-		add("combo:ET+TT+PPR")
-		add("combo:PPR+Blue Tongue")
-	case "blue tongue":
-		add("combo:PPR+Blue Tongue")
-	case "goat pox":
-		add(domain.VaccineComboSession("Goat Pox"))
-	case "sheep pox":
-		add("combo:Sheep Pox+Blue Tongue")
-	}
-	return out
+	return domain.ApprovedVaccineComboSessions(vaccineCode)
 }
 
 func comboSessionListsOverlap(left, right []string) bool {

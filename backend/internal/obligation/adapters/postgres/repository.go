@@ -106,9 +106,18 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 		return nil, fmt.Errorf("obligation: override reason is required")
 	}
 	original := businessDateOnly(override.OriginalDriveDate)
-	next := businessDateOnly(override.OverrideDate)
-	if next.Before(original) {
+	requested := businessDateOnly(override.OverrideDate)
+	if requested.Before(original) {
 		return nil, fmt.Errorf("obligation: override date must not be before the original drive date")
+	}
+	next := requested
+	shiftMeta := vaccinationDriveClinicalShift{}
+	if !requested.Equal(original) {
+		var err error
+		next, shiftMeta, err = r.clinicallySafeVaccinationDriveOverrideDate(ctx, override.TenantID, override.ParkID, vaccineCode, original, requested)
+		if err != nil {
+			return nil, err
+		}
 	}
 	createdAt := override.CreatedAt
 	if createdAt.IsZero() {
@@ -125,7 +134,11 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	}
 	nextCapacity := originalCapacity
 	if !next.Equal(original) {
-		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, 13))
+		nextCapacity, err = r.vaccinationOperatorAvailabilityForDateRange(ctx, override.TenantID, override.ParkID, next, next.AddDate(0, 0, vaccinationDriveOverrideSafeHorizonDays))
+		if err != nil {
+			return nil, err
+		}
+		nextCapacity, err = r.clinicallySafeVaccinationDriveAvailability(ctx, override.TenantID, override.ParkID, vaccineCode, original, nextCapacity)
 		if err != nil {
 			return nil, err
 		}
@@ -143,14 +156,15 @@ func (r *Repository) UpsertVaccinationDriveDateOverride(ctx context.Context, ove
 	var out domain.VaccineDriveDateOverride
 	if next.Equal(original) {
 		out = domain.VaccineDriveDateOverride{
-			TenantID:          override.TenantID,
-			ParkID:            override.ParkID,
-			VaccineCode:       vaccineCode,
-			OriginalDriveDate: original,
-			OverrideDate:      original,
-			Reason:            reason,
-			CreatedBy:         override.CreatedBy,
-			CreatedAt:         createdAt,
+			TenantID:              override.TenantID,
+			ParkID:                override.ParkID,
+			VaccineCode:           vaccineCode,
+			OriginalDriveDate:     original,
+			OverrideDate:          original,
+			RequestedOverrideDate: requested,
+			Reason:                reason,
+			CreatedBy:             override.CreatedBy,
+			CreatedAt:             createdAt,
 		}
 		var activeOverrideDate time.Time
 		err = tx.QueryRow(ctx, `
@@ -211,21 +225,28 @@ LIMIT 1`, tenant, park, vaccineCode, original).Scan(&activeOverrideDate)
 
 	err = tx.QueryRow(ctx, `
 INSERT INTO vaccination_drive_date_overrides (
-  tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+  tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date,
+  shift_reason, clinical_shift_metadata, reason, created_by, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11)
 ON CONFLICT (tenant_id, park_id, (lower(btrim(vaccine_code))), original_drive_date)
 WHERE canceled_at IS NULL
 DO UPDATE SET
   override_date = EXCLUDED.override_date,
+  requested_override_date = EXCLUDED.requested_override_date,
+  shift_reason = EXCLUDED.shift_reason,
+  clinical_shift_metadata = EXCLUDED.clinical_shift_metadata,
   reason = EXCLUDED.reason,
   created_by = EXCLUDED.created_by,
   created_at = EXCLUDED.created_at
-RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at`,
-		tenant, park, vaccineCode, original, next, reason, createdBy, createdAt,
-	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+RETURNING tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date,
+  requested_override_date, shift_reason, clinical_shift_metadata, reason, created_by::text, created_at`,
+		tenant, park, vaccineCode, original, next, requested, shiftMeta.reason(), shiftMeta.json(), reason, createdBy, createdAt,
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate,
+		&out.RequestedOverrideDate, &out.ShiftReason, &shiftMeta.raw, &out.Reason, &out.CreatedBy, &out.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("obligation: upsert vaccination drive date override: %w", err)
 	}
+	shiftMeta.applyTo(&out)
 	if !hasActiveOverride || !businessDateOnly(activeOverrideDate).Equal(next) {
 		if err := replanVaccinationDriveAssignmentsForDateMoveTx(ctx, tx, tenant, park, vaccineCode, original, next, nextCapacity); err != nil {
 			return nil, err
@@ -250,23 +271,27 @@ func (r *Repository) ActiveVaccinationDriveDateOverride(ctx context.Context, ten
 		return nil, fmt.Errorf("obligation: park id: %w", err)
 	}
 	var out domain.VaccineDriveDateOverride
+	var meta vaccinationDriveClinicalShift
 	err = r.pool.QueryRow(ctx, `
-SELECT tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date, reason, created_by::text, created_at
+SELECT tenant_id::text, park_id::text, vaccine_code, original_drive_date, override_date,
+       requested_override_date, shift_reason, clinical_shift_metadata, reason, created_by::text, created_at
 FROM vaccination_drive_date_overrides
 WHERE tenant_id = $1
   AND park_id = $2
   AND lower(btrim(vaccine_code)) = lower(btrim($3))
   AND original_drive_date = $4
-  AND canceled_at IS NULL
+	AND canceled_at IS NULL
 LIMIT 1`,
 		tenant, park, strings.TrimSpace(vaccineCode), businessDateOnly(originalDate),
-	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate, &out.Reason, &out.CreatedBy, &out.CreatedAt)
+	).Scan(&out.TenantID, &out.ParkID, &out.VaccineCode, &out.OriginalDriveDate, &out.OverrideDate,
+		&out.RequestedOverrideDate, &out.ShiftReason, &meta.raw, &out.Reason, &out.CreatedBy, &out.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("obligation: active vaccination drive date override: %w", err)
 	}
+	meta.applyTo(&out)
 	return &out, nil
 }
 
