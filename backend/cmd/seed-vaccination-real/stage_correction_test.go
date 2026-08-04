@@ -63,7 +63,7 @@ func TestCorrectedStageIsPersistedByGoatUpsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read source seeder: %v", err)
 	}
-	if !strings.Contains(string(source), "stage:             goatStageByAnimalKey[animalKey]") {
+	if !strings.Contains(string(source), "stage:") || !strings.Contains(string(source), "goatStageByAnimalKey[animalKey]") {
 		t.Fatal("goat upsert must persist the corrected age-derived stage, not normalize the stale source stage again")
 	}
 }

@@ -12,6 +12,10 @@
 // counts everywhere counts is granted. Those are department -> module GRANT rows derived at
 // seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
 // file hash, row count, vaccination date anchor or schedule-path selection changes here.
+// Coupling review 2026-08-05: CBE/CPT seed-port imports may preserve optional
+// rfid2 aliases, and port-specific publication can exclude vaccines such as
+// Blue Tongue/PPR until stock/manual scheduling is confirmed. Source validation
+// keeps the canonical full-fixture bytes and source-history contract unchanged.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +46,8 @@ import {
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
   ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE,
   VACCINATION_MEDICAL_DATE_FIELD,
+  OPTIONAL_SECONDARY_RFID_FIELD,
+  SEED_PUBLICATION_VACCINE_EXCLUSION_ENV,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -59,6 +65,12 @@ if (!ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE) {
 }
 if (VACCINATION_MEDICAL_DATE_FIELD !== "vaccination_completions.administered_at") {
   throw new Error("vaccination repeat timing must use the operator-administered medical date");
+}
+if (OPTIONAL_SECONDARY_RFID_FIELD !== "rfid2") {
+  throw new Error("optional secondary RFID seed field must stay named rfid2");
+}
+if (SEED_PUBLICATION_VACCINE_EXCLUSION_ENV !== "GOATOS_SEED_EXCLUDE_VACCINES") {
+  throw new Error("seed vaccine exclusion env contract changed");
 }
 
 const INPUT_FILES = [

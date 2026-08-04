@@ -110,6 +110,7 @@ var vaccineDrivePriority = map[string]int{
 
 type goatRecord struct {
 	RFID           string
+	RFID2          string
 	OldID          string
 	OldIDSuffix    string
 	Farm           string
@@ -405,6 +406,7 @@ func loadGoats(sourcePath string) ([]goatRecord, error) {
 		}
 		rec := goatRecord{
 			RFID:           cell(row, col["rfid"]),
+			RFID2:          optionalCell(row, col, "rfid2"),
 			OldID:          cell(row, col["old_id"]),
 			OldIDSuffix:    cell(row, col["old_id_suffix"]),
 			Farm:           cell(row, col["farm"]),
@@ -646,10 +648,11 @@ func writeStageCorrectionAudit(sourcePath string, runDate time.Time, seedRunID s
 }
 
 type seedGoatUpsertRow struct {
-	goatID, animalKey, animalIdentifier1, animalIdentifier2, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
-	entryDate, sourceShedName, partitionLabel                                                                                                     string
-	health                                                                                                                                        *string
-	reproductiveStatus                                                                                                                            *string
+	goatID, animalKey, animalIdentifier1, species, breed, breedID, sex, lifecycle, originType, stage, age, shedID, parkID, dob string
+	animalIdentifierAliases                                                                                                    []string
+	entryDate, sourceShedName, partitionLabel                                                                                  string
+	health                                                                                                                     *string
+	reproductiveStatus                                                                                                         *string
 }
 
 // checkNoCrossParkMoves enforces the goats-never-change-park invariant (maintainer
@@ -769,16 +772,19 @@ func upsertSeedGoatIdentifiers(ctx context.Context, tx pgx.Tx, tenantID string, 
 			identifierType, tenantID, gi.goatID, gi.animalIdentifier1, normalizedPrimary, isPrimary); err != nil {
 			return fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier1, err)
 		}
-		if gi.animalIdentifier2 == "" || strings.EqualFold(gi.animalIdentifier2, gi.animalIdentifier1) {
-			continue
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
-				scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
-			VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',false)
-			ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
-			tenantID, gi.goatID, gi.animalIdentifier2, strings.ToLower(gi.animalIdentifier2)); err != nil {
-			return fmt.Errorf("insert identifier %s: %w", gi.animalIdentifier2, err)
+		for _, alias := range gi.animalIdentifierAliases {
+			alias = strings.TrimSpace(alias)
+			if alias == "" || strings.EqualFold(alias, gi.animalIdentifier1) {
+				continue
+			}
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO goat_identifiers (identifier_type, tenant_id, goat_id, identifier_value, normalized_value,
+					scope_key, valid_from, normalizer_version, status, is_primary_for_goat)
+				VALUES ('animal_identifier_2',$1,$2,$3,$4,'global',now()::date,'identifier_normalizer_v1','active',false)
+				ON CONFLICT (tenant_id, normalized_value) DO NOTHING`,
+				tenantID, gi.goatID, alias, strings.ToLower(alias)); err != nil {
+				return fmt.Errorf("insert identifier %s: %w", alias, err)
+			}
 		}
 	}
 	return nil
@@ -1050,7 +1056,7 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 			return st, fmt.Errorf("duplicate source animal identity %q at source rows %d and %d: seed must not merge two goats under one deterministic goat_id", animalKey, firstRow+1, rowIndex+1)
 		}
 		seenAnimalKeys[animalKey] = rowIndex
-		animalIdentifier1, animalIdentifier2 := identifierSlots(g.RFID, g.OldID, g.OldIDSuffix)
+		animalIdentifier1, animalIdentifierAliases := identifierSlots(g.RFID, g.RFID2, g.OldID, g.OldIDSuffix)
 		goatID := detUUID("goat", tenantID, animalKey)
 		parkID := parkByFarm[placement.farm]
 		goatIDByAnimalKey[animalKey] = goatID
@@ -1120,18 +1126,18 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 		breed := normalizeBreed(g.Breed)
 		_, partitionLabel := normalizeSeedShedPartition(seedShed(g))
 		goatRows = append(goatRows, seedGoatUpsertRow{
-			goatID:            goatID,
-			animalKey:         animalKey,
-			animalIdentifier1: animalIdentifier1,
-			animalIdentifier2: animalIdentifier2,
-			species:           species,
-			breed:             breed,
-			breedID:           breedIDs[seedBreedKey(species, breed)],
-			sex:               normalizeSex(g.Gender),
-			lifecycle:         normalizeLifecycle(g.Status),
-			originType:        normalizeOriginType(g.OriginType),
-			stage:             goatStageByAnimalKey[animalKey],
-			age:               g.Age,
+			goatID:                  goatID,
+			animalKey:               animalKey,
+			animalIdentifier1:       animalIdentifier1,
+			animalIdentifierAliases: animalIdentifierAliases,
+			species:                 species,
+			breed:                   breed,
+			breedID:                 breedIDs[seedBreedKey(species, breed)],
+			sex:                     normalizeSex(g.Gender),
+			lifecycle:               normalizeLifecycle(g.Status),
+			originType:              normalizeOriginType(g.OriginType),
+			stage:                   goatStageByAnimalKey[animalKey],
+			age:                     g.Age,
 			// health precedence: shed_tag reflects where the goat is housed RIGHT NOW
 			// (e.g. still in the ICU/quarantine shed), a stronger and more current
 			// clinical signal than a closed/extended historical case-log entry, so it
@@ -2952,16 +2958,31 @@ func sourceAnimalIdentifier(rfid string, oldID string, suffix string) string {
 	return oldTagIdentifier(oldID, suffix)
 }
 
-func identifierSlots(rfid string, oldID string, suffix string) (string, string) {
+func identifierSlots(rfid string, rfid2 string, oldID string, suffix string) (string, []string) {
 	rfid = strings.TrimSpace(rfid)
+	rfid2 = strings.TrimSpace(rfid2)
 	oldTag := oldTagIdentifier(oldID, suffix)
 	if rfid == "" {
-		return oldTag, ""
+		if rfid2 == "" || strings.EqualFold(rfid2, oldTag) {
+			return oldTag, nil
+		}
+		return oldTag, []string{rfid2}
 	}
-	if oldTag == "" || strings.EqualFold(oldTag, rfid) {
-		return rfid, ""
+	aliases := make([]string, 0, 2)
+	seen := map[string]struct{}{strings.ToLower(rfid): {}}
+	for _, alias := range []string{rfid2, oldTag} {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			continue
+		}
+		normalized := strings.ToLower(alias)
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		aliases = append(aliases, alias)
 	}
-	return rfid, oldTag
+	return rfid, aliases
 }
 
 func getenv(key, fallback string) string {
@@ -4016,6 +4037,16 @@ func buildCanonicalVaccinationMatrix() map[string]vaccMatrixSpec {
 
 func buildSeedPublicationVaccinationMatrix() map[string]vaccMatrixSpec {
 	matrix := buildCanonicalVaccinationMatrix()
+	if excluded := excludedSeedPublicationVaccines(); len(excluded) > 0 {
+		filtered := make(map[string]vaccMatrixSpec, len(matrix))
+		for name, spec := range matrix {
+			if excluded[normalizeVaccineNameForExclusion(name)] {
+				continue
+			}
+			filtered[name] = spec
+		}
+		matrix = filtered
+	}
 	if os.Getenv("GOATOS_CPT_EXCLUDE_PPR_2026") != "1" {
 		return matrix
 	}
@@ -4027,6 +4058,32 @@ func buildSeedPublicationVaccinationMatrix() map[string]vaccMatrixSpec {
 		filtered[name] = spec
 	}
 	return filtered
+}
+
+func excludedSeedPublicationVaccines() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv("GOATOS_SEED_EXCLUDE_VACCINES"))
+	if raw == "" {
+		return nil
+	}
+	excluded := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		key := normalizeVaccineNameForExclusion(part)
+		if key != "" {
+			excluded[key] = true
+		}
+	}
+	return excluded
+}
+
+func normalizeVaccineNameForExclusion(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, " ", "_")
+	value = strings.ReplaceAll(value, "-", "_")
+	value = strings.ReplaceAll(value, "+", "_")
+	for strings.Contains(value, "__") {
+		value = strings.ReplaceAll(value, "__", "_")
+	}
+	return strings.Trim(value, "_")
 }
 
 type vaccMatrixSpec struct {
