@@ -9,6 +9,10 @@
 // counts everywhere counts is granted. Those are department -> module GRANT rows derived at
 // seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
 // file hash, row count, vaccination date anchor or schedule-path selection changes here.
+// Coupling review 2026-08-05: CBE/CPT seed-port sources may carry an optional
+// rfid2 column for real double-tag aliases, and the seed publication may exclude
+// named vaccines for stock/defer decisions. These are importer/publication
+// controls, not committed full-fixture source bytes.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -147,6 +151,8 @@ export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
 export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;
 export const VACCINATION_MEDICAL_DATE_FIELD = "vaccination_completions.administered_at";
+export const OPTIONAL_SECONDARY_RFID_FIELD = "rfid2";
+export const SEED_PUBLICATION_VACCINE_EXCLUSION_ENV = "GOATOS_SEED_EXCLUDE_VACCINES";
 
 function normalizeShedName(raw) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");

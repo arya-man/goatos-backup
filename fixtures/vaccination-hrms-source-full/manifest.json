@@ -234,6 +234,11 @@
       "date": "2026-08-04",
       "change": "vaccination_drive_date_overrides stores requested/applied safe-date metadata for runtime drive move commands, and clinical combo helpers share the approved combo membership map.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, counts, HRMS rows, SOP contracts, protocol source rows, or seed generation semantics. The new columns describe an operator/admin runtime override after scheduling; they do not alter source vaccination dates, trusted history, animal eligibility, or roster capacity inputs."
+    },
+    {
+      "date": "2026-08-05",
+      "change": "seed-vaccination-real now accepts an optional source rfid2 column as an additional active animal_identifier_2 alias, and GOATOS_SEED_EXCLUDE_VACCINES can publish a seed-specific vaccination matrix excluding named vaccines while canonical source/history mapping remains unchanged.",
+      "vaccination_hrms_source_impact": "none to committed full fixture bytes, hashes, row counts, or existing schedule anchors: the committed full fixture has no rfid2 values and does not set GOATOS_SEED_EXCLUDE_VACCINES. This is for CBE/CPT port sources where double-tagged animals carry a second RFID and current operations intentionally exclude Blue Tongue/PPR from generated open work until stock/manual scheduling is confirmed."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

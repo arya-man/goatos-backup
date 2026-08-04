@@ -82,6 +82,13 @@ Local code changes used for the rehearsal:
 - `seed-vaccination-real` preserves an existing active primary RFID when a later
   JSON row has a different tag for the same deterministic goat, and stores the
   JSON tag as a secondary alias.
+- `seed-vaccination-real` also imports non-empty `rfid2` values as secondary
+  active aliases. Latest Manohar JSON `(5)` has 247 `rfid2` values; the stg
+  port must not drop those double-tag aliases.
+- `seed-vaccination-real` supports seed-specific vaccine publication exclusions.
+  For this CBE/CPT port, run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr`
+  so Blue Tongue and PPR source history can still be read, but no new open
+  Blue Tongue/PPR obligations or assignments are generated.
 - `obligation-sweeper` now supports explicit campaign-only filters:
   `-dose-codes` and `-target-ids-file`. Default production behavior is
   unchanged when these flags are omitted.

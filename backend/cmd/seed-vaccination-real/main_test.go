@@ -670,6 +670,43 @@ func TestCPTPublicationMatrixCanExcludePPRFor2026SeedPacket(t *testing.T) {
 	}
 }
 
+func TestSeedPublicationMatrixCanExcludeConfiguredVaccines(t *testing.T) {
+	t.Setenv("GOATOS_SEED_EXCLUDE_VACCINES", "blue_tongue,ppr")
+	matrix := buildSeedPublicationVaccinationMatrix()
+	for _, vaccine := range []string{"Blue tongue", "PPR"} {
+		if _, ok := matrix[vaccine]; ok {
+			t.Fatalf("%s present in excluded seed publication matrix", vaccine)
+		}
+	}
+	for _, vaccine := range []string{"ET+TT", "FMD", "HS", "Goat Pox", "Sheep Pox"} {
+		if _, ok := matrix[vaccine]; !ok {
+			t.Fatalf("%s missing from excluded seed publication matrix", vaccine)
+		}
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["Blue tongue"]; !ok {
+		t.Fatalf("canonical matrix must still include Blue tongue for source/history mapping")
+	}
+	if _, ok := buildCanonicalVaccinationMatrix()["PPR"]; !ok {
+		t.Fatalf("canonical matrix must still include PPR for source/history mapping")
+	}
+}
+
+func TestIdentifierSlotsIncludesRFID2AndOldTagAliases(t *testing.T) {
+	primary, aliases := identifierSlots("901007000503826", "901007000504788", "200", "CJB")
+	if primary != "901007000503826" {
+		t.Fatalf("primary = %q, want RFID", primary)
+	}
+	want := []string{"901007000504788", "CJB-200"}
+	if len(aliases) != len(want) {
+		t.Fatalf("aliases = %v, want %v", aliases, want)
+	}
+	for i := range want {
+		if aliases[i] != want[i] {
+			t.Fatalf("aliases = %v, want %v", aliases, want)
+		}
+	}
+}
+
 // TestSeedSchedulePathClassifiesByDoseDateNotCurrentAge is the R50-001 regression guard.
 // A kid-age (15-week) dose administration on an animal that is NOW 30+ weeks old (well past the
 // 16/20-week kid-course cutoff, so no longer a "continuation" case even with a kid-stage tag) must
