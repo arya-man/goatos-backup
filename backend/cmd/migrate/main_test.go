@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -47,6 +48,48 @@ DROP INDEX IF EXISTS t_idx;`), 0o600); err != nil {
 	}
 }
 
+// The applied side of every allowance is compared verbatim against the checksum column this
+// runner recorded, and loadMigrations only ever writes "sha256:"+hex. An entry whose applied
+// value is stored in any other shape can never match, so the allowance is dead and the audited
+// database it exists to rescue fails the drift check instead of converging.
+//
+// This asserts the real map rather than a copied literal on purpose: the sibling table test
+// below duplicates these values by hand, so a malformed entry copied into both places passes
+// there while still being unreachable in production.
+func TestAllowedHistoricalChecksumsUseTheRecordedChecksumFormat(t *testing.T) {
+	recorded := regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	if len(allowedHistoricalChecksums) == 0 {
+		t.Fatal("allowedHistoricalChecksums is empty; the format invariant would be vacuous")
+	}
+	for version, pair := range allowedHistoricalChecksums {
+		if !recorded.MatchString(pair.current) {
+			t.Errorf("%s: current %q is not in the recorded sha256:<hex> format", version, pair.current)
+		}
+		if !recorded.MatchString(pair.applied) {
+			t.Errorf("%s: applied %q is not in the recorded sha256:<hex> format, so this allowance can never match a database", version, pair.applied)
+		}
+	}
+}
+
+// Proves the format above is the one the runner actually records, so the invariant stays tied to
+// the producer instead of to a literal someone can change independently.
+func TestRecordedChecksumFormatMatchesLoadMigrations(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "000001_fmt.sql"), []byte("-- +goose Up\nSELECT 1;\n"), 0o600); err != nil {
+		t.Fatalf("write migration: %v", err)
+	}
+	migrations, err := loadMigrations(dir)
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	if len(migrations) != 1 {
+		t.Fatalf("loaded %d migrations, want 1", len(migrations))
+	}
+	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(migrations[0].Checksum) {
+		t.Fatalf("recorded checksum %q is not sha256:<hex>; the allowlist invariant is anchored to the wrong format", migrations[0].Checksum)
+	}
+}
+
 func TestAllowedHistoricalChecksumOnlyAcceptsKnownBaselineDrift(t *testing.T) {
 	migration := migrationFile{
 		Version:  "000001_goatos_clean_slate_baseline",
@@ -78,8 +121,8 @@ func TestAllowedHistoricalChecksumsAcceptOnlyAuditedGoatosDBPairs(t *testing.T) 
 		{"000042_birth_litter_video_contract", "sha256:064fae166174f4397d8baedfc318a5adf9e94ff01df69db3bae174ae639e7ae6", "sha256:3bfea97c8be106a3b2a2acaa155c39f569b989cdcd497ce7f5dd4e5aadfcbd2e"},
 		{"000044_birth_ors_second_round_gate", "sha256:36ba3dbc1043da7f2aa99d92bd0b558007469f321ecc3e1f47765e29f20d859b", "sha256:e069f6eb6a7bcd1db8c57cb0d50e4b34e5a439cee2a4122723b2319bba35e59a"},
 		{"000045_birth_ors_reopened_card_sync", "sha256:e97e70e0a86531a451f21ae3cc65f9ff774404c2b4b8a9873f8aeba7061d0464", "sha256:dce6a89bff449645c04e0de43ff1bcdb60fe52aba1eb9658b3d7ef4b30658fc5"},
-		{"000046_birth_weight_and_colostrum_repair", "sha256:0f0873a5149c5582ccfd96d830674669cd343fbf1efb29a4168c96b5eb0a8d06", "ef8eb3e8f4ab306b9270831d79aaaa910b646a08ecc70d3988ac5ac073d5e0d7"},
-		{"000047_birth_colostrum_card_counts", "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf", "15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274"},
+		{"000046_birth_weight_and_colostrum_repair", "sha256:0f0873a5149c5582ccfd96d830674669cd343fbf1efb29a4168c96b5eb0a8d06", "sha256:ef8eb3e8f4ab306b9270831d79aaaa910b646a08ecc70d3988ac5ac073d5e0d7"},
+		{"000047_birth_colostrum_card_counts", "sha256:0abe9e413b9793a3b0a133c09e828adac0e8d7ac8f57f974d880a3c62ddbdacf", "sha256:15053660bb0686a60e496ed645bad7db72d1cab7915aa29e7e859cf3fe9e6274"},
 		{"000052_shifting_management_stage_selection", "sha256:a0b12a06829e63aed9204b5755f522d86c265be46d32778c4efdd22c13070662", "sha256:65e4e4b2dc1cde852eadd602f06a6baa8b306a54f0538cbbf14ee327bea8be64"},
 	}
 
