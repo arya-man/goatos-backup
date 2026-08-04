@@ -7,6 +7,11 @@
 // Coupling review 2026-07-30: migration 000057 adds growth_director as a
 // Weighing-only role hint/catalog row. It is not a vaccination source field and
 // must not create vaccination capacity during HRMS fixture validation.
+// Coupling review 2026-08-04: seed-roster-real's defaultDepartmentModules now grants
+// health -> aas_health + counts + milk + feed_direction + vaccination, and pairs milk with
+// counts everywhere counts is granted. Those are department -> module GRANT rows derived at
+// seed time from department codes, not source-spreadsheet fields, so no header, raw byte,
+// file hash, row count, vaccination date anchor or schedule-path selection changes here.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

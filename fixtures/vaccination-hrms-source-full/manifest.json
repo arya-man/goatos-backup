@@ -218,6 +218,12 @@
       "date": "2026-08-02",
       "change": "Adult blank-history generation joins the normal adult drive automatically; accepted same-vaccine history supersedes the stable blank-history campaign row; operator submission administered_at remains the medical repeat anchor regardless of later verifier/director closure.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, counts, or HRMS rows. This tightens derived obligation generation and replay semantics: manual_campaign may remain protocol metadata but is not an approval gate, and verified_at/closed_at are workflow timestamps only."
+    },
+    {
+      "date": "2026-08-04",
+      "change": "seed-roster-real's defaultDepartmentModules changed: health now grants aas_health + counts + milk + feed_direction + vaccination (maintainer decision 2026-07-30), and milk accompanies counts wherever counts is granted (maintainer decision 2026-07-31) because Milk Preparation and Milk Feeding moved into their own drawer module while keeping their /counts/... routes and CountsWrite authority.",
+      "why_it_was_needed": "A department holding counts but not milk loses the two daily milk pages from its bottom bar even though the routes and permissions still exist, so the seeded roster would render an incomplete app for Health and Preventive Care seats.",
+      "vaccination_hrms_source_impact": "none. These are department -> module GRANT rows derived at seed time from department codes; they are not source-spreadsheet fields. No raw fixture byte, file hash, row count, header, vaccination date anchor, species/DOB derivation or schedule-path selection changes, so the source audit and the fixture's validation surface are unchanged. Departments absent from the tenant are still skipped by the INSERT ... SELECT rather than erroring."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",
