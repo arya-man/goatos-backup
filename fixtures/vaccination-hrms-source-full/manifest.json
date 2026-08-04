@@ -218,6 +218,11 @@
       "date": "2026-08-02",
       "change": "Adult blank-history generation joins the normal adult drive automatically; accepted same-vaccine history supersedes the stable blank-history campaign row; operator submission administered_at remains the medical repeat anchor regardless of later verifier/director closure.",
       "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, counts, or HRMS rows. This tightens derived obligation generation and replay semantics: manual_campaign may remain protocol metadata but is not an approval gate, and verified_at/closed_at are workflow timestamps only."
+    },
+    {
+      "date": "2026-08-04",
+      "change": "vaccination_drive_date_overrides stores requested/applied safe-date metadata for runtime drive move commands, and clinical combo helpers share the approved combo membership map.",
+      "vaccination_hrms_source_impact": "none to raw fixture bytes, hashes, counts, HRMS rows, SOP contracts, protocol source rows, or seed generation semantics. The new columns describe an operator/admin runtime override after scheduling; they do not alter source vaccination dates, trusted history, animal eligibility, or roster capacity inputs."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

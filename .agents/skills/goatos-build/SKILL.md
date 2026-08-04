@@ -696,3 +696,5 @@ If a finding assumes any of those exist, it is invalid — close it and cite ban
 findings are about PLUMBING: writes landing, evidence being reviewable, failures being
 visible, screens showing honest numbers. Full statement:
 `docs/features/weighing/TRD.md` → "What weighing IS".
+
+<!-- Coupling review 2026-08-04: vaccination drive safe-date override metadata is runtime scheduling state, not source seed data. Requested/applied override dates and conflict metadata do not change raw vaccination/HRMS source files, SOP contracts, seed closeout, fixture hashes, or approved source-date validation. Approved combo helper sharing is code reuse for clinical scheduling only. -->

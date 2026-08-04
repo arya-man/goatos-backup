@@ -45,6 +45,61 @@ func CompatiblePlannedBatchSessions(ruleID, vaccineCode string) []string {
 	return sessions
 }
 
+// ApprovedVaccineComboSessions returns every approved same-day combo membership for a vaccine.
+// Some vaccines participate in more than one approved pair (PPR can pair with ET+TT or Blue
+// Tongue), so callers must not compare only VaccineComboSession's primary session.
+func ApprovedVaccineComboSessions(vaccineCode string) []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 2)
+	add := func(session string) {
+		session = strings.TrimSpace(session)
+		if session == "" {
+			return
+		}
+		if _, ok := seen[session]; ok {
+			return
+		}
+		seen[session] = struct{}{}
+		out = append(out, session)
+	}
+	if session := VaccineComboSession(vaccineCode); session != "" {
+		add(session)
+	}
+	switch normalizeVaccineComboCode(vaccineCode) {
+	case "et tt", "et+tt":
+		add("combo:ET+TT+PPR")
+	case "ppr":
+		add("combo:ET+TT+PPR")
+		add("combo:PPR+Blue Tongue")
+	case "blue tongue":
+		add("combo:PPR+Blue Tongue")
+		add("combo:Sheep Pox+Blue Tongue")
+	case "sheep pox":
+		add("combo:Sheep Pox+Blue Tongue")
+	}
+	return out
+}
+
+// VaccinesShareApprovedCombo reports whether two vaccine codes are configured as an approved
+// same-day pair.
+func VaccinesShareApprovedCombo(a, b string) bool {
+	left := ApprovedVaccineComboSessions(a)
+	right := ApprovedVaccineComboSessions(b)
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(left))
+	for _, session := range left {
+		seen[session] = struct{}{}
+	}
+	for _, session := range right {
+		if _, ok := seen[session]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 var vaccineComboSessions = map[string]string{
 	"et+tt":       "combo:ET+TT+PPR",
 	"et tt":       "combo:ET+TT+PPR",
@@ -53,4 +108,10 @@ var vaccineComboSessions = map[string]string{
 	"sheep pox":   "combo:Sheep Pox+Blue Tongue",
 	"fmd":         "combo:FMD+HS",
 	"hs":          "combo:FMD+HS",
+}
+
+func normalizeVaccineComboCode(code string) string {
+	code = strings.ToLower(strings.TrimSpace(code))
+	code = strings.NewReplacer("_", " ", "-", " ").Replace(code)
+	return strings.Join(strings.Fields(code), " ")
 }

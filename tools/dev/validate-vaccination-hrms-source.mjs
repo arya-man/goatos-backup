@@ -757,3 +757,8 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // 2026-08-01 verify-duty seeding: position_module_duties gains verify rows per notification module.
 // This is derived seed state, not source data -- no HRMS-source column, row count or hash changes.
 // Source validation is unaffected; notification reachability is asserted by seed-position-duties.
+// Coupling review 2026-08-04: runtime vaccination drive safe-date override
+// metadata does not change the source validation contract. Requested/applied
+// dates and clinical-shift metadata are written after scheduling, while approved
+// combo helper sharing leaves source vaccination cells, HRMS rows, hashes, and
+// validation counts unchanged.

@@ -319,7 +319,11 @@ async function postponeDriveDateAction(formData: FormData) {
   redirect(scheduleMoveRedirect(returnTo, {
     schedule_move_result: "recorded",
     schedule_move_vaccine: vaccineCode,
-    schedule_move_date: overrideDate,
+    schedule_move_requested_date: result.data.requested_override_date || overrideDate,
+    schedule_move_date: result.data.applied_override_date || result.data.override_date || overrideDate,
+    schedule_move_shifted: result.data.auto_shifted ? "1" : "0",
+    schedule_move_conflict_vaccine: result.data.conflicting_vaccine_label || result.data.conflicting_vaccine_code || "",
+    schedule_move_conflict_date: result.data.conflicting_date || "",
   }));
 }
 
@@ -420,6 +424,10 @@ export async function VaccinationFullSchedule({
   const scheduleMoveStatus = one(searchParams ?? {}, "schedule_move_result");
   const scheduleMoveVaccine = one(searchParams ?? {}, "schedule_move_vaccine");
   const scheduleMoveDate = one(searchParams ?? {}, "schedule_move_date");
+  const scheduleMoveRequestedDate = one(searchParams ?? {}, "schedule_move_requested_date");
+  const scheduleMoveShifted = one(searchParams ?? {}, "schedule_move_shifted") === "1";
+  const scheduleMoveConflictVaccine = one(searchParams ?? {}, "schedule_move_conflict_vaccine");
+  const scheduleMoveConflictDate = one(searchParams ?? {}, "schedule_move_conflict_date");
   const scheduleDrawerRows = drawerRows(operatorDayRows, pageContract, scope);
   const scheduleMoveRows = moveDrawerRows(operatorDayRows, closeHref);
 
@@ -487,7 +495,9 @@ export async function VaccinationFullSchedule({
           <b>{copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_title" : scheduleMoveStatus === "missing" ? "schedule.move.missing_title" : "schedule.move.error_title")}</b>
           <span>
             {scheduleMoveStatus === "recorded" && scheduleMoveVaccine && scheduleMoveDate
-              ? `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
+              ? scheduleMoveShifted && scheduleMoveRequestedDate
+                ? `Requested ${fmtDate(scheduleMoveRequestedDate)}; scheduled ${fmtDate(scheduleMoveDate)} due to vaccine spacing.${scheduleMoveConflictVaccine && scheduleMoveConflictDate ? ` Too close to ${scheduleMoveConflictVaccine} on ${fmtDate(scheduleMoveConflictDate)}.` : ""}`
+                : `${scheduleMoveVaccine} moved to ${fmtDate(scheduleMoveDate)}. ${copy(pageContract, "schedule.move.recorded_body")}`
               : copy(pageContract, scheduleMoveStatus === "recorded" ? "schedule.move.recorded_body" : scheduleMoveStatus === "missing" ? "schedule.move.missing_body" : "schedule.move.error_body")}
           </span>
         </div>

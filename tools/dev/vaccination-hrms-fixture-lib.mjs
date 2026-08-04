@@ -630,3 +630,7 @@ export function updateManifestHashes(directory, manifest) {
 // module from notificationbridge.PendingNotificationDutyModules. Duty rows are generated from
 // position codes at seed time and are not an HRMS-source field, so no fixture bytes, hashes or
 // counts change here.
+// Coupling review 2026-08-04: vaccination_drive_date_overrides requested/applied
+// safe-date metadata is runtime override state, not source data. Approved combo
+// helpers share clinical scheduling config only; fixture bytes, hashes, counts,
+// HRMS rows, SOP contracts, and validation semantics remain unchanged.
