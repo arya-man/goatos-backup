@@ -317,6 +317,7 @@ FROM (SELECT CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELS
  AND ($6='' OR hc.shed_id=nullif($6,'')::uuid) AND ($7='' OR hs.session=$7)) q`,
 		f.TenantID, f.Date, f.AgeBand, f.DiseaseKey, f.ParkID, f.ShedID, f.Session).Scan(&out.Total, &out.Due, &out.Scheduled, &out.InProgress, &out.Completed, &out.Rework, &out.Held, &out.CanceledDeath)
 }
+
 // projection-review: membership=health_treatment_sessions in the requested calendar month, unique on health_session_id; group_key=business_date -- one marker per day, which is the calendar's grain; join_cardinality=health_cases is 1:1 on health_case_id and only supplies age_band, so it cannot multiply a day's count; pagination=none, the month is the bound; scope=tenant+age_band, matching the calendar the markers are drawn on
 func (r *Repository) loadMarkers(ctx context.Context, f domain.ListFilter, out *[]domain.DateMarker) error {
 	date, _ := time.Parse("2006-01-02", f.Date)
