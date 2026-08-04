@@ -9,7 +9,11 @@ test("milk preparation renders the backend-owned worklist and whole-scope summar
   assert.match(source, /summary\.total_required_ml/);
   assert.match(source, /summary\.citric_acid_grams/);
 	assert.match(source, /row\.verification_status/);
-	assert.match(source, /summary\.pending_verification_park_count/);
+	// FARM count, not park: 000096_milk_actions_farm_grain.sql moved milk to farm grain and the
+	// generated client exposes *_farm_count. This assertion previously named the park field, so it
+	// matched a page that could not type-check against the real contract -- a source-regex test
+	// pins spelling, never the contract, so it agreed with the bug instead of catching it.
+	assert.match(source, /summary\.pending_verification_farm_count/);
   assert.doesNotMatch(source, /rows\.reduce/);
   assert.doesNotMatch(source, /getCountsBreakdown\(/);
 });
