@@ -178,10 +178,10 @@ export async function MilkPreparationPage({
         {summary ? (
           <div className="note" style={{ marginBottom: 16, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <b>{copy(pageContract, "section.verification.label")}</b>
-            <span className="tag t-mut">{copy(pageContract, "label.not_submitted")}: {summary.not_submitted_park_count}</span>
-            <span className="tag t-warn">{copy(pageContract, "label.pending_verification")}: {summary.pending_verification_park_count}</span>
-            <span className="tag t-ok">{copy(pageContract, "label.verified")}: {summary.completed_park_count}</span>
-            <span className="tag t-dng">{copy(pageContract, "label.rework")}: {summary.rework_park_count}</span>
+            <span className="tag t-mut">{copy(pageContract, "label.not_submitted")}: {summary.not_submitted_farm_count}</span>
+            <span className="tag t-warn">{copy(pageContract, "label.pending_verification")}: {summary.pending_verification_farm_count}</span>
+            <span className="tag t-ok">{copy(pageContract, "label.verified")}: {summary.completed_farm_count}</span>
+            <span className="tag t-dng">{copy(pageContract, "label.rework")}: {summary.rework_farm_count}</span>
           </div>
         ) : null}
 
