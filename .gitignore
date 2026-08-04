@@ -138,3 +138,25 @@ backend/seed-shed-profiles
 .env.ceo-ai.local
 backend/bin/
 .codex-proof/
+
+# Maintainer-local working data, committed to main by mistake on 2026-08-04 (c4efe25b9) and
+# untracked again. These are generated/one-off artifacts, not project sources: raw goat JSON
+# dumps, the ad-hoc runbook scripts that build them, exported patch files, and timestamped
+# seed-correction output. Listed by NAME rather than as docs/runbooks/*.py on purpose -- a broad
+# glob would silently hide a runbook script that IS meant to be committed.
+docs/runbooks/CBE-goats.json
+docs/runbooks/CBE-CPT-goats.json
+docs/runbooks/add-c2-y10-icu.py
+docs/runbooks/add-cpt-kids.py
+docs/runbooks/apply-cpt-shed-roster.py
+docs/runbooks/apply-cpt-slack-shiftings.py
+docs/runbooks/apply-health-and-breed.py
+docs/runbooks/build-cbe-cpt-goats.py
+docs/runbooks/build-cbe-goats.py
+docs/runbooks/fill-assumed-ids.py
+docs/runbooks/fill-castro.py
+docs/runbooks/normalize-goats-json.py
+feed-lifecycle-patches/
+fixtures/cpt-shed-partitions/
+# Timestamped seed-correction output only -- the rest of this fixture dir is tracked source.
+fixtures/vaccination-hrms-source-full/seed-stage-correction-*.json
