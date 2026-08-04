@@ -1,0 +1,462 @@
+From f1c1dcadbf3d4252d25bf92cb000d2cc43b774b1 Mon Sep 17 00:00:00 2001
+From: kt-manohar <manohark@mesha.sg>
+Date: Mon, 20 Jul 2026 07:42:56 +0530
+Subject: [PATCH 2/2] =?UTF-8?q?feat(feed):=20render=20the=20issue=20?=
+ =?UTF-8?q?=E2=86=92=20amend=20=E2=86=92=20lock=20lifecycle=20on=20the=20s?=
+ =?UTF-8?q?heets?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The direction/packing pages now show which state the served day is in, and a
+not-yet-issued day explains itself instead of rendering a blank table — the exact
+confusion the maintainer flagged (defaulting to tomorrow, which is pending, showed
+an empty grid with no reason).
+
+Shared FeedLifecycleBanner (mock .alert anatomy + .tag chips, lucide, var(--*)):
+- issued  — "Issued <at>"
+- amended — "Amended <at> · N correction(s)"
+- locked  — "Locked <at> — transport has left; changes roll to the next feed day"
+- pending — "Not issued yet <day>" + per-workflow expected issue times; this
+            REPLACES the empty table (banner is the content), guarded so a filter
+            that merely excludes rows still shows the normal "no rows match" state
+- not_issued — "No sheet was issued for <day>" (the issue time passed, honest gap)
+- draft   — "DRAFT — live preview, not an issued sheet"
+
+Mixed per-workflow states are legible (normal issued 07:00 while experiment still
+pending till 14:00); aggregate state is the least-advanced, but the hide-table
+decision keys off row count so a partially-issued day still renders its rows.
+
+All labels are backend copy (service.go pageSpecificCopy, both feed cases);
+dates are client-formatted in Asia/Kolkata after the copy labels. Rendering only —
+no lifecycle semantics changed.
+
+Gap noted, not invented: the row contract exposes no per-row `amended` flag, so
+individual corrected rows aren't badged yet; sheet-level amendment_count is shown.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ apps/admin-web/app/mesha-theme.css              |   1 +
+ apps/admin-web/features/feed/feed-direction.tsx |  23 +++-
+ apps/admin-web/features/feed/feed-lifecycle.tsx | 161 ++++++++++++++++++++++++
+ apps/admin-web/features/feed/feed-packing.tsx   |  21 +++-
+ apps/admin-web/lib/api/server.ts                |   2 +
+ backend/internal/adminui/app/service.go         |  50 ++++++++
+ 6 files changed, 252 insertions(+), 6 deletions(-)
+ create mode 100644 apps/admin-web/features/feed/feed-lifecycle.tsx
+
+diff --git a/apps/admin-web/app/mesha-theme.css b/apps/admin-web/app/mesha-theme.css
+index 1020e151..9378e7eb 100644
+--- a/apps/admin-web/app/mesha-theme.css
++++ b/apps/admin-web/app/mesha-theme.css
+@@ -481,6 +481,7 @@
+   .alert.ok{background:var(--okx);border-color:color-mix(in srgb,var(--ok) 32%,transparent);border-left-color:var(--ok)}
+   .alert.ok .ic{color:var(--ok)} .alert.ok b{color:var(--brand-d)}
+   .alert.warn{background:var(--warnx);border-color:color-mix(in srgb,var(--amber) 32%,transparent);border-left-color:var(--amber)} .alert.warn .ic{color:var(--amber)} .alert.warn b{color:var(--amber)}
++  .alert.info{background:var(--infox);border-color:color-mix(in srgb,var(--info) 32%,transparent);border-left-color:var(--info)} .alert.info .ic{color:var(--info)} .alert.info b{color:var(--info)}
+   .screen table{width:100%;border-collapse:collapse}
+   .table-fixed{table-layout:fixed}
+   .table-fixed th,.table-fixed td{min-width:0}
+diff --git a/apps/admin-web/features/feed/feed-direction.tsx b/apps/admin-web/features/feed/feed-direction.tsx
+index 1593950e..dad5a50d 100644
+--- a/apps/admin-web/features/feed/feed-direction.tsx
++++ b/apps/admin-web/features/feed/feed-direction.tsx
+@@ -12,6 +12,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
+ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+ import type { RouteSearchParams } from "@/lib/search-params";
+ import { FeedFilters, type FeedFilterField } from "./feed-filters";
++import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
+ import { FeedPager } from "./feed-pager";
+ import { FeedFaroView } from "./feed-faro-view";
+ import {
+@@ -106,7 +107,12 @@ export async function FeedDirectionPage({
+     previewResult && previewResult.ok ? previewResult.data : null;
+   const rows = preview?.items ?? [];
+   const summary = preview?.summary;
++  const lifecycle = preview?.lifecycle;
+   const hasFilter = Boolean(shedId || sessionRaw);
++  // A served day whose empty table is EXPLAINED by the lifecycle (nothing was issued) shows the
++  // banner AS the content instead of an empty grid. A filter that merely excludes rows from a sheet
++  // that DOES exist keeps the normal "no rows match these filters" state, so the filter guard stands.
++  const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) && !hasFilter : false;
+ 
+   const cols = tableLabels(pageContract, "direction-rows");
+ 
+@@ -195,10 +201,17 @@ export async function FeedDirectionPage({
+           pageContract={pageContract}
+         />
+ 
++        {/* The issue -> amend -> lock status of the served park-day. For a not-yet-issued day this
++            banner IS the content: the summary/table below are suppressed so the operator sees the
++            explanation, not a blank grid that reads as "nothing to feed". */}
++        {lifecycle ? (
++          <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
++        ) : null}
++
+         {/* Always rendered. The API summary is WHOLE-SCOPE (`summary.scope === "filtered"`) and
+             invariant to limit/offset, so these figures are the day's real totals on every page —
+             they no longer need the first-page-only guard that used to hide a page subtotal. */}
+-        {summary ? (
++        {summary && !lifecycleEmpty ? (
+           <div className="grid g2" aria-label={copy(pageContract, "section.summary.aria")}>
+             <div className="kpi">
+               <span className="acc" style={{ background: "var(--brand)" }} />
+@@ -233,13 +246,13 @@ export async function FeedDirectionPage({
+         {/* The coverage claim the backend copy makes. It is rendered next to the figures rather than
+             buried in a tooltip because the whole point of the whole-scope rewrite is that an
+             operator can trust these numbers as the day's totals on any page. */}
+-        {summary ? (
++        {summary && !lifecycleEmpty ? (
+           <div className="note" style={{ marginBottom: 16 }}>
+             {copy(pageContract, "section.summary.note")}
+           </div>
+         ) : null}
+ 
+-        {summary && summary.total_kg_by_feed_item.length > 0 ? (
++        {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
+           <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+             {summary.total_kg_by_feed_item.map((total) => (
+               <span
+@@ -253,6 +266,8 @@ export async function FeedDirectionPage({
+           </div>
+         ) : null}
+ 
++        {!lifecycleEmpty ? (
++        <>
+         <div
+           className="bd feed-scroll"
+           style={{ padding: 0, overflowX: "auto" }}
+@@ -424,6 +439,8 @@ export async function FeedDirectionPage({
+           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fd_offset", String(next))}
+           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fd_limit", String(next))}
+         />
++        </>
++        ) : null}
+       </section>
+ 
+       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.direction.note")}</div>
+diff --git a/apps/admin-web/features/feed/feed-lifecycle.tsx b/apps/admin-web/features/feed/feed-lifecycle.tsx
+new file mode 100644
+index 00000000..5a1c95d2
+--- /dev/null
++++ b/apps/admin-web/features/feed/feed-lifecycle.tsx
+@@ -0,0 +1,161 @@
++import type { ComponentType, SVGProps } from "react";
++import { AlertTriangle, CheckCircle2, Clock, FlaskConical, Lock, PencilLine } from "lucide-react";
++
++import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
++import type { FeedDirectionLifecycle, FeedDirectionWorkflowLifecycle } from "@/lib/api/server";
++import { fmtDate, fmtDateTime } from "@/lib/format";
++
++// The issue -> amend -> lock lifecycle banner shared by Feed Direction and Feed Packing.
++//
++// The served park-day is either a FROZEN sheet (issued/amended/locked, with rows) or a state where
++// nothing was issued (pending/not_issued, no rows). The default feed day is TOMORROW, which is
++// normally `pending` until its scheduled issue time, so WITHOUT this banner the page shows a blank
++// table that reads as "nothing to feed" — the opposite of the truth. This banner replaces that blank
++// with an explanation, and above a real sheet it states the frozen/amended/locked status.
++//
++// Aggregate `lifecycle.state` is the LEAST-ADVANCED workflow state, so a park-day can be `pending`
++// while its `normal` workflow is already issued (its rows ARE returned). That is why the caller keys
++// the "hide the table" decision off `rows.length`, not off the aggregate state — and why the
++// per-workflow breakdown is surfaced whenever the workflows disagree.
++
++type LifecycleState = FeedDirectionLifecycle["state"];
++type WorkflowState = FeedDirectionWorkflowLifecycle["state"];
++
++type IconType = ComponentType<SVGProps<SVGSVGElement>>;
++
++const STATE_ICON: Record<LifecycleState, IconType> = {
++  issued: CheckCircle2,
++  amended: PencilLine,
++  locked: Lock,
++  pending: Clock,
++  not_issued: AlertTriangle,
++  draft: FlaskConical,
++};
++
++// `.alert` tone. ok = a clean issued sheet; warn = amended (corrections folded in) or the not_issued
++// gap; info = the neutral locked / pending / draft states (nothing wrong, just not a frozen-and-ready
++// sheet). Danger is reserved for the API-failure band the page renders separately.
++function alertClass(state: LifecycleState): string {
++  if (state === "issued") return "alert ok";
++  if (state === "amended" || state === "not_issued") return "alert warn";
++  return "alert info";
++}
++
++function workflowChipTone(state: WorkflowState): string {
++  switch (state) {
++    case "issued":
++      return "tag t-ok";
++    case "amended":
++      return "tag t-warn";
++    case "locked":
++      return "tag t-info";
++    case "not_issued":
++      return "tag t-dng";
++    default:
++      return "tag t-mut";
++  }
++}
++
++// The single date that anchors a workflow chip: when it was frozen (issued/amended/locked) or, for a
++// state where nothing is frozen, when it is DUE to be issued.
++function workflowInstant(wf: FeedDirectionWorkflowLifecycle): string | undefined {
++  switch (wf.state) {
++    case "issued":
++      return wf.issued_at;
++    case "amended":
++      return wf.amended_at;
++    case "locked":
++      return wf.locked_at;
++    default:
++      return wf.expected_issue_at;
++  }
++}
++
++// The instant shown next to the aggregate title for a frozen sheet.
++function headlineInstant(lifecycle: FeedDirectionLifecycle): string | undefined {
++  switch (lifecycle.state) {
++    case "issued":
++      return lifecycle.issued_at;
++    case "amended":
++      return lifecycle.amended_at;
++    case "locked":
++      return lifecycle.locked_at;
++    default:
++      return undefined;
++  }
++}
++
++export function FeedLifecycleBanner({
++  lifecycle,
++  feedDay,
++  pageContract,
++}: {
++  lifecycle: FeedDirectionLifecycle;
++  feedDay: string;
++  pageContract: AdminUiPageContract;
++}) {
++  const state = lifecycle.state;
++  const Icon = STATE_ICON[state];
++  const instant = headlineInstant(lifecycle);
++  const nothingIssued = state === "pending" || state === "not_issued";
++
++  // Per-workflow breakdown is legible only when the workflows disagree (e.g. normal issued at 07:00
++  // while experiment is still pending until 14:00), or when nothing is issued yet and the expected
++  // issue times per workflow are the point. A uniform park-day says all it needs to in the headline.
++  const statesDiffer = new Set(lifecycle.workflows.map((wf) => wf.state)).size > 1;
++  const showBreakdown = lifecycle.workflows.length > 1 && (statesDiffer || nothingIssued);
++
++  return (
++    <div
++      className={alertClass(state)}
++      role="status"
++      aria-label={copy(pageContract, "lifecycle.aria")}
++      style={{ marginBottom: 16, alignItems: "flex-start" }}
++    >
++      <Icon className="ic" aria-hidden="true" />
++      <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
++        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: 8 }}>
++          <b>{copy(pageContract, `lifecycle.${state}.title`)}</b>
++          {/* A frozen sheet is anchored by WHEN it was frozen; a not-yet-issued day by WHICH day it
++              is. Both are client-formatted from a backend instant/date, never a literal. */}
++          {instant ? (
++            <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDateTime(instant)}</span>
++          ) : nothingIssued ? (
++            <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtDate(feedDay)}</span>
++          ) : null}
++          {state === "amended" ? (
++            <span className="tag t-warn">
++              {lifecycle.amendment_count} {copy(pageContract, "lifecycle.corrections_noun")}
++            </span>
++          ) : null}
++        </div>
++
++        <div className="small muted">{copy(pageContract, `lifecycle.${state}.body`)}</div>
++
++        {showBreakdown ? (
++          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
++            {lifecycle.workflows.map((wf) => {
++              const at = workflowInstant(wf);
++              return (
++                <span key={wf.workflow} className={workflowChipTone(wf.state)}>
++                  {copy(pageContract, `lifecycle.workflow.${wf.workflow}`)}{" · "}
++                  {copy(pageContract, `lifecycle.state.${wf.state}`)}
++                  {at ? <>{" · "}{fmtDateTime(at)}</> : null}
++                </span>
++              );
++            })}
++          </div>
++        ) : null}
++      </div>
++    </div>
++  );
++}
++
++/**
++ * A served park-day whose empty table is EXPLAINED by the lifecycle (nothing was issued), as opposed
++ * to a filter excluding rows from a sheet that does exist. Only the former replaces the table with
++ * the banner; the latter keeps the normal "no rows match these filters" empty state.
++ */
++export function isLifecycleEmpty(lifecycle: FeedDirectionLifecycle, rowCount: number): boolean {
++  return rowCount === 0 && (lifecycle.state === "pending" || lifecycle.state === "not_issued");
++}
+diff --git a/apps/admin-web/features/feed/feed-packing.tsx b/apps/admin-web/features/feed/feed-packing.tsx
+index 55353cb5..407c1a52 100644
+--- a/apps/admin-web/features/feed/feed-packing.tsx
++++ b/apps/admin-web/features/feed/feed-packing.tsx
+@@ -11,6 +11,7 @@ import { getCensusLocations } from "@/lib/api/herd-locations";
+ import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
+ import type { RouteSearchParams } from "@/lib/search-params";
+ import { FeedFilters, type FeedFilterField } from "./feed-filters";
++import { FeedLifecycleBanner, isLifecycleEmpty } from "./feed-lifecycle";
+ import { FeedPager } from "./feed-pager";
+ import { FeedFaroView } from "./feed-faro-view";
+ import { FeedQuantityCell, FeedWorkflowTag, isBlockedItem } from "./feed-quantity";
+@@ -88,6 +89,10 @@ export async function FeedPackingPage({
+     worklistResult && worklistResult.ok ? worklistResult.data : null;
+   const rows = worklist?.items ?? [];
+   const summary = worklist?.summary;
++  const lifecycle = worklist?.lifecycle;
++  // The worklist takes no shed/session filter, so an empty result is never a filter exclusion — an
++  // empty page here is always the lifecycle's own "nothing was issued" state.
++  const lifecycleEmpty = lifecycle ? isLifecycleEmpty(lifecycle, rows.length) : false;
+ 
+   const cols = tableLabels(pageContract, "packing-worklist");
+ 
+@@ -159,7 +164,13 @@ export async function FeedPackingPage({
+           pageContract={pageContract}
+         />
+ 
+-        {summary ? (
++        {/* Issue -> amend -> lock status of the served park-day. For a not-yet-issued day the banner
++            IS the content — the KPIs/worklist below are suppressed rather than showing an empty bar. */}
++        {lifecycle ? (
++          <FeedLifecycleBanner lifecycle={lifecycle} feedDay={scope.targetDate} pageContract={pageContract} />
++        ) : null}
++
++        {summary && !lifecycleEmpty ? (
+           <div className="grid g2" aria-label={copy(pageContract, "section.summary.aria")}>
+             <div className="kpi">
+               <span className="acc" style={{ background: "var(--brand)" }} />
+@@ -192,7 +203,7 @@ export async function FeedPackingPage({
+           </div>
+         ) : null}
+ 
+-        {summary ? (
++        {summary && !lifecycleEmpty ? (
+           <div className="note" style={{ marginBottom: 16 }}>
+             {copy(pageContract, "section.summary.note")}
+           </div>
+@@ -200,7 +211,7 @@ export async function FeedPackingPage({
+ 
+         {/* The store draw for the WHOLE filtered worklist. Each item carries its own blocked-cell
+             count, so a column is never read as complete when part of it could not be resolved. */}
+-        {summary && summary.total_kg_by_feed_item.length > 0 ? (
++        {summary && !lifecycleEmpty && summary.total_kg_by_feed_item.length > 0 ? (
+           <div className="bd" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+             {summary.total_kg_by_feed_item.map((total) => (
+               <span
+@@ -214,6 +225,8 @@ export async function FeedPackingPage({
+           </div>
+         ) : null}
+ 
++        {!lifecycleEmpty ? (
++        <>
+         <div
+           className="bd feed-scroll"
+           style={{ padding: 0, overflowX: "auto" }}
+@@ -344,6 +357,8 @@ export async function FeedPackingPage({
+           hrefForOffset={(next) => feedHref(PAGE_PATH, sp, "fp_offset", String(next))}
+           hrefForLimit={(next) => feedHref(PAGE_PATH, sp, "fp_limit", String(next))}
+         />
++        </>
++        ) : null}
+       </section>
+ 
+       <div className="note">{copy(pageContract, "section.packing.note")}</div>
+diff --git a/apps/admin-web/lib/api/server.ts b/apps/admin-web/lib/api/server.ts
+index b6804fa7..c7e7d608 100644
+--- a/apps/admin-web/lib/api/server.ts
++++ b/apps/admin-web/lib/api/server.ts
+@@ -467,6 +467,8 @@ export type FeedDirectionPreviewPage = AppApiComponents["schemas"]["FeedDirectio
+ export type FeedDirectionRow = AppApiComponents["schemas"]["FeedDirectionRow"];
+ export type FeedDirectionItemQuantity = AppApiComponents["schemas"]["FeedDirectionItemQuantity"];
+ export type FeedDirectionPreviewSummary = AppApiComponents["schemas"]["FeedDirectionPreviewSummary"];
++export type FeedDirectionLifecycle = AppApiComponents["schemas"]["FeedDirectionLifecycle"];
++export type FeedDirectionWorkflowLifecycle = AppApiComponents["schemas"]["FeedDirectionWorkflowLifecycle"];
+ export type FeedPackingWorklistPage = AppApiComponents["schemas"]["FeedPackingWorklistPage"];
+ export type FeedPackingRow = AppApiComponents["schemas"]["FeedPackingRow"];
+ export type FeedConfigRationRatePage = AppApiComponents["schemas"]["FeedConfigRationRatePage"];
+diff --git a/backend/internal/adminui/app/service.go b/backend/internal/adminui/app/service.go
+index 69898ad3..9cbeac97 100644
+--- a/backend/internal/adminui/app/service.go
++++ b/backend/internal/adminui/app/service.go
+@@ -1725,6 +1725,32 @@ func pageSpecificCopy(id string) map[string]string {
+ 			"state.generation_blocked":           "Feed direction could not be generated for this day: the underlying counts projection is carrying unresolved blockers. Resolve them, then regenerate — a partial feed sheet is not published.",
+ 			"state.generation_pending":           "The counts projection for this day is still being built. Feed rows appear once it settles.",
+ 			"state.projected_counts_unavailable": "Projected counts unavailable",
++			// Issue -> amend -> lock lifecycle banner. The default feed day is TOMORROW, which is
++			// `pending` until its scheduled issue time, so this banner is what stands in for the
++			// blank table on a not-yet-issued day. Aggregate state is the LEAST-ADVANCED workflow,
++			// so a mixed park-day (normal issued, experiment still pending) shows the per-workflow
++			// breakdown chips built from `lifecycle.state.*` and `lifecycle.workflow.*`.
++			"lifecycle.aria":                "Feed sheet status",
++			"lifecycle.issued.title":        "Issued",
++			"lifecycle.issued.body":         "This sheet is frozen and being packed.",
++			"lifecycle.amended.title":       "Amended",
++			"lifecycle.amended.body":        "Emergency shiftings have been folded into the frozen sheet.",
++			"lifecycle.corrections_noun":    "correction(s)",
++			"lifecycle.locked.title":        "Locked",
++			"lifecycle.locked.body":         "Transport has left; changes now roll to the next feed day.",
++			"lifecycle.pending.title":       "Not issued yet",
++			"lifecycle.pending.body":        "Nothing is frozen for this feed day yet — the sheet is issued at its scheduled time, shown per workflow below.",
++			"lifecycle.not_issued.title":    "No sheet issued",
++			"lifecycle.not_issued.body":     "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to feed.",
++			"lifecycle.draft.title":         "Draft",
++			"lifecycle.draft.body":          "Live preview computed from the current herd and config — not an issued sheet.",
++			"lifecycle.workflow.normal":     "Normal",
++			"lifecycle.workflow.experiment": "Experiment",
++			"lifecycle.state.issued":        "issued",
++			"lifecycle.state.amended":       "amended",
++			"lifecycle.state.locked":        "locked",
++			"lifecycle.state.pending":       "pending",
++			"lifecycle.state.not_issued":    "not issued",
+ 		}
+ 	case "feed-packing":
+ 		return map[string]string{
+@@ -1788,6 +1814,30 @@ func pageSpecificCopy(id string) map[string]string {
+ 			"state.packing_unavailable":      "Packing worklist unavailable",
+ 			"state.generation_blocked":       "No packing worklist for this day: the underlying feed direction could not be generated because the counts projection is carrying unresolved blockers. Resolve them and regenerate — a partial pack list is not published.",
+ 			"state.generation_pending":       "The feed direction for this day is still being generated. Packing lines appear once it is ready.",
++			// Twin of the feed-direction lifecycle banner copy — the same shared FeedLifecycleBanner
++			// renders on both pages, so the keys and wording match. A not-yet-issued day shows this
++			// instead of an empty worklist bar.
++			"lifecycle.aria":                "Feed sheet status",
++			"lifecycle.issued.title":        "Issued",
++			"lifecycle.issued.body":         "This sheet is frozen and being packed.",
++			"lifecycle.amended.title":       "Amended",
++			"lifecycle.amended.body":        "Emergency shiftings have been folded into the frozen sheet.",
++			"lifecycle.corrections_noun":    "correction(s)",
++			"lifecycle.locked.title":        "Locked",
++			"lifecycle.locked.body":         "Transport has left; changes now roll to the next feed day.",
++			"lifecycle.pending.title":       "Not issued yet",
++			"lifecycle.pending.body":        "Nothing is frozen for this feed day yet — the sheet is issued at its scheduled time, shown per workflow below.",
++			"lifecycle.not_issued.title":    "No sheet issued",
++			"lifecycle.not_issued.body":     "The issue time passed with nothing issued for this feed day. This is a real gap — raise it rather than reading it as nothing to pack.",
++			"lifecycle.draft.title":         "Draft",
++			"lifecycle.draft.body":          "Live preview computed from the current herd and config — not an issued sheet.",
++			"lifecycle.workflow.normal":     "Normal",
++			"lifecycle.workflow.experiment": "Experiment",
++			"lifecycle.state.issued":        "issued",
++			"lifecycle.state.amended":       "amended",
++			"lifecycle.state.locked":        "locked",
++			"lifecycle.state.pending":       "pending",
++			"lifecycle.state.not_issued":    "not issued",
+ 		}
+ 	case "feed-config":
+ 		return map[string]string{
+-- 
+2.15.0
+

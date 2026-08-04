@@ -127,14 +127,21 @@ type DriveOperatorCapacity struct {
 }
 
 type VaccineDriveDateOverride struct {
-	TenantID          string
-	ParkID            string
-	VaccineCode       string
-	OriginalDriveDate time.Time
-	OverrideDate      time.Time
-	Reason            string
-	CreatedBy         string
-	CreatedAt         time.Time
+	TenantID              string
+	ParkID                string
+	VaccineCode           string
+	OriginalDriveDate     time.Time
+	OverrideDate          time.Time
+	RequestedOverrideDate time.Time
+	AutoShifted           bool
+	ShiftReason           string
+	ConflictVaccineCode   string
+	ConflictVaccineLabel  string
+	ConflictDate          time.Time
+	ConflictRule          string
+	Reason                string
+	CreatedBy             string
+	CreatedAt             time.Time
 }
 
 // UnbatchedDue is an unbatched scheduled/due obligation (SM-4 sweep input).

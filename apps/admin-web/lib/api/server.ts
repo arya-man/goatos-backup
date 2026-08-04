@@ -1118,18 +1118,36 @@ export async function getVaccinationDriveAssignments(
   );
 }
 
+export type VaccinationDriveDateOverrideResponse = {
+  park_id: string;
+  vaccine_code: string;
+  original_drive_date: string;
+  override_date: string;
+  requested_override_date?: string;
+  applied_override_date?: string;
+  auto_shifted?: boolean;
+  shift_reason?: string;
+  conflicting_vaccine_code?: string;
+  conflicting_vaccine_label?: string;
+  conflicting_date?: string;
+  conflicting_rule?: string;
+  reason: string;
+  created_by: string;
+  created_at: string;
+};
+
 export async function postponeVaccinationDriveDate(body: {
   park_id: string;
   vaccine_code: string;
   original_drive_date: string;
   override_date: string;
   reason: string;
-}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<Record<string, unknown>>> {
+}, idempotencyKey = `vaccination-drive-date-override-${randomUUID()}`): Promise<ApiResult<VaccinationDriveDateOverrideResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
-    client.request<Record<string, unknown>>("/vaccination/schedule/drive-date-overrides", {
+    client.request<VaccinationDriveDateOverrideResponse>("/vaccination/schedule/drive-date-overrides", {
       method: "POST",
       cache: "no-store",
       headers: { "Idempotency-Key": idempotencyKey },

@@ -696,4 +696,6 @@ If a finding assumes any of those exist, it is invalid — close it and cite ban
 findings are about PLUMBING: writes landing, evidence being reviewable, failures being
 visible, screens showing honest numbers. Full statement:
 `docs/features/weighing/TRD.md` → "What weighing IS".
+
+<!-- Coupling review 2026-08-04: vaccination drive safe-date override metadata is runtime scheduling state, not source seed data. Requested/applied override dates and conflict metadata do not change raw vaccination/HRMS source files, SOP contracts, seed closeout, fixture hashes, or approved source-date validation. Approved combo helper sharing is code reuse for clinical scheduling only. -->
 <!-- Coupling review 2026-08-04: seed-roster-real adds aas_health + milk + feed_direction + vaccination to the health department module grant and milk to preventive_care, extending the same department-grant mechanism recorded on 2026-07-29 for feed_direction. Runtime module/navigation authorization only; no HRMS roster row, vaccination history, source date, fixture byte, hash or count changes. -->
