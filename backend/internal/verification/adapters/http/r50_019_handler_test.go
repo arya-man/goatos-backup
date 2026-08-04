@@ -1,10 +1,118 @@
 package http
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	verificationapp "github.com/vgoats/goatos/backend/internal/verification/app"
+	"github.com/vgoats/goatos/backend/internal/verification/domain"
+	"github.com/vgoats/goatos/backend/internal/verification/ports"
 )
+
+type moduleDutyQueueRepo struct {
+	ports.Repository
+	listCalls int
+}
+
+type moduleDutyReader struct {
+	modules []string
+	err     error
+}
+
+func (r moduleDutyReader) ListVerifyModuleKeys(context.Context, string, string) ([]string, error) {
+	return r.modules, r.err
+}
+
+func (r *moduleDutyQueueRepo) ListQueue(context.Context, ports.ListQueueParams) ([]domain.Item, error) {
+	r.listCalls++
+	return []domain.Item{}, nil
+}
+
+func (*moduleDutyQueueRepo) ListQueueFilterOptions(context.Context, ports.ListQueueParams) (domain.QueueFilterOptions, error) {
+	return domain.QueueFilterOptions{}, nil
+}
+
+func TestVerifierCannotReadCategoryWithoutModuleDuty(t *testing.T) {
+	const (
+		tenantID = "10000000-0000-4000-8000-000000000001"
+		actorID  = "20000000-0000-4000-8000-000000000002"
+	)
+	repo := &moduleDutyQueueRepo{}
+	service := verificationapp.NewService(repo, nil)
+	if err := service.RegisterCategory(domain.CategoryDefinition{
+		Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination", PageKey: "vaccination", PageLabel: "Vaccination",
+	}); err != nil {
+		t.Fatalf("register category: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/verify/alerts?category=vaccination_proof&limit=20", nil)
+	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+	ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{
+		Role: permissions.RoleVerifier, ScopeType: "tenant", ScopeID: tenantID,
+	}})
+	rec := httptest.NewRecorder()
+	NewHandler(service).ListAlerts(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if repo.listCalls != 0 {
+		t.Fatalf("queue reads=%d, want 0 before module-duty authorization", repo.listCalls)
+	}
+}
+
+func TestVerificationCategoryModuleDutyAllowsAssignedVerifierAndCEO(t *testing.T) {
+	const (
+		tenantID = "10000000-0000-4000-8000-000000000001"
+		actorID  = "20000000-0000-4000-8000-000000000002"
+	)
+	newRequest := func(role string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/verify/alerts?category=vaccination_proof&limit=20", nil)
+		ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), tenantID), actorID)
+		ctx = httpmiddleware.WithAuthGrants(ctx, []permissions.ActiveGrant{{Role: role, ScopeType: "tenant", ScopeID: tenantID}})
+		return req.WithContext(ctx)
+	}
+	newService := func(repo *moduleDutyQueueRepo) *verificationapp.Service {
+		service := verificationapp.NewService(repo, nil)
+		if err := service.RegisterCategory(domain.CategoryDefinition{
+			Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			NavigationModule: "vaccination", NavigationModuleLabel: "Vaccination", PageKey: "vaccination", PageLabel: "Vaccination",
+		}); err != nil {
+			t.Fatalf("register category: %v", err)
+		}
+		return service
+	}
+
+	t.Run("assigned verifier may read category", func(t *testing.T) {
+		repo := &moduleDutyQueueRepo{}
+		handler := NewHandler(newService(repo)).WithModuleDutyReader(moduleDutyReader{modules: []string{"vaccination"}})
+		rec := httptest.NewRecorder()
+		handler.ListAlerts(rec, newRequest(permissions.RoleVerifier))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if repo.listCalls != 1 {
+			t.Fatalf("queue reads=%d, want 1", repo.listCalls)
+		}
+	})
+
+	t.Run("CEO retains all-module visibility without verifier duty", func(t *testing.T) {
+		repo := &moduleDutyQueueRepo{}
+		handler := NewHandler(newService(repo))
+		rec := httptest.NewRecorder()
+		handler.ListAlerts(rec, newRequest(permissions.RoleCEOInternal))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		if repo.listCalls != 1 {
+			t.Fatalf("queue reads=%d, want 1", repo.listCalls)
+		}
+	})
+}
 
 // R50-019: Mixed-grant handler test — hasTenantWidePermission must not
 // escape scope. It checks if the actor has the requested permission at the

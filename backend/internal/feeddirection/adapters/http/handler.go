@@ -19,6 +19,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/domain"
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
@@ -424,6 +425,15 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedDirectionRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
+			"code": parkScope.Code, "message": parkScope.Message,
+		}, nil)
+		return
+	}
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
@@ -457,7 +467,7 @@ func (h *Handler) GetPreview(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.service.Preview(r.Context(), domain.PreviewQuery{
 		TenantID:   tenantID,
-		ParkID:     strings.TrimSpace(query.Get("park_id")),
+		ParkID:     parkScope.ParkID,
 		TargetDate: targetDate,
 		ShedID:     strings.TrimSpace(query.Get("shed_id")),
 		SessionNo:  sessionNo,

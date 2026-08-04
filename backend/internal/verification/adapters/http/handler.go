@@ -2,6 +2,7 @@
 package http
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,8 +20,16 @@ import (
 )
 
 type Handler struct {
-	service *app.Service
-	log     *slog.Logger
+	service    *app.Service
+	dutyReader VerificationModuleDutyReader
+	log        *slog.Logger
+}
+
+// VerificationModuleDutyReader resolves the active verify duties held by one authenticated actor.
+// It deliberately returns module keys rather than devices: authorization must not disappear merely
+// because a legitimate verifier has not registered an FCM token.
+type VerificationModuleDutyReader interface {
+	ListVerifyModuleKeys(ctx context.Context, tenantID, actorID string) ([]string, error)
 }
 
 // statusAll is the queue's "no status filter" query value — see the QueueStatusOption kdoc.
@@ -32,6 +41,11 @@ func NewHandler(service *app.Service, log ...*slog.Logger) *Handler {
 		l = log[0]
 	}
 	return &Handler{service: service, log: l}
+}
+
+func (h *Handler) WithModuleDutyReader(reader VerificationModuleDutyReader) *Handler {
+	h.dutyReader = reader
+	return h
 }
 
 func Register(mux *nethttp.ServeMux, h *Handler) {
@@ -179,6 +193,10 @@ func (h *Handler) listQueue(
 	actionQueue bool,
 ) {
 	q := r.URL.Query()
+	category := strings.TrimSpace(q.Get("category"))
+	if permission == permissions.VerificationReview && !h.authorizeReviewCategory(w, r, category) {
+		return
+	}
 	limit, ok := parsePositiveLimit(q.Get("limit"))
 	if !ok {
 		h.respondError(w, r, app.BadRequest("invalid_limit", "limit must be a positive integer"))
@@ -217,7 +235,7 @@ func (h *Handler) listQueue(
 	}
 	params := ports.ListQueueParams{
 		TenantID:             tenantID(r),
-		Category:             q.Get("category"),
+		Category:             category,
 		Vertical:             q.Get("vertical"),
 		Module:               q.Get("module"),
 		Status:               status,
@@ -289,6 +307,9 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		h.respondError(w, r, app.NotFound("item_not_found", "verification item not found"))
 		return
 	}
+	if !h.authorizeReviewCategory(w, r, item.Category) {
+		return
+	}
 	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
 		TenantID:       tenantID(r),
 		ItemID:         r.PathValue("item_id"),
@@ -306,6 +327,53 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		Item:    toQueueItemResponse(domain.QueueRow{Item: item}),
 		TraceID: traceID(r),
 	})
+}
+
+func (h *Handler) authorizeReviewCategory(w nethttp.ResponseWriter, r *nethttp.Request, category string) bool {
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) == 0 || hasTenantWideRole(grants, tenantID(r), permissions.RoleCEOInternal) {
+		return true
+	}
+	if category == "" {
+		h.respondError(w, r, app.BadRequest("missing_category", "category is required for a verifier queue"))
+		return false
+	}
+	module := ""
+	for _, def := range h.service.Categories() {
+		if def.Category == category {
+			module = def.NavigationModule
+			break
+		}
+	}
+	if module == "" {
+		h.respondError(w, r, app.BadRequest("unknown_category", "category is not registered"))
+		return false
+	}
+	if h.dutyReader == nil {
+		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
+		return false
+	}
+	modules, err := h.dutyReader.ListVerifyModuleKeys(r.Context(), tenantID(r), actorID(r))
+	if err != nil {
+		h.respondError(w, r, err)
+		return false
+	}
+	for _, allowed := range modules {
+		if allowed == module {
+			return true
+		}
+	}
+	h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
+	return false
+}
+
+func hasTenantWideRole(grants []permissions.ActiveGrant, tenantID, role string) bool {
+	for _, grant := range grants {
+		if grant.Role == role && grant.ScopeType == "tenant" && grant.ScopeID == tenantID {
+			return true
+		}
+	}
+	return false
 }
 
 type closeItemRequest struct {
