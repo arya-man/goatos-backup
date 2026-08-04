@@ -172,8 +172,9 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 				break
 			}
 			last := rows[len(rows)-1]
+			filteredRows := filterAllowedUnbatchedDueRows(plan.Config, rows)
 			uniqueRows := rows[:0]
-			for _, row := range rows {
+			for _, row := range filteredRows {
 				if _, duplicate := seenCandidates[row.ObligationID]; duplicate {
 					continue
 				}
@@ -181,11 +182,11 @@ func (s *SweeperService) PreflightVisitShotCapTiesWithSnapshotAsOf(ctx context.C
 				snapshot.byVersion[plan.VersionID] = append(snapshot.byVersion[plan.VersionID], row.ObligationID)
 				uniqueRows = append(uniqueRows, row)
 			}
-			if plan.Config.ParkConsolidation.Enabled {
+			if len(uniqueRows) > 0 && plan.Config.ParkConsolidation.Enabled {
 				for _, row := range uniqueRows {
 					parkCandidateIDs = append(parkCandidateIDs, row.ObligationID)
 				}
-			} else {
+			} else if len(uniqueRows) > 0 {
 				order, groups := groupUnbatchedDue(uniqueRows, planner.SpeciesGroupingPolicy)
 				order = orderDueGroupsByVaccinePriority(order, groups, plan.Config)
 				for _, k := range order {
@@ -587,6 +588,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 			if err != nil {
 				return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
 			}
+			page = filterAllowedUnbatchedDueRows(cfg, page)
 			addRows(page)
 		}
 	} else {
@@ -594,6 +596,7 @@ func (s *SweeperService) preflightRemainingShedObligations(ctx context.Context, 
 		if err != nil {
 			return fmt.Errorf("obligation: preflight list shed fallback for version %s: %w", plan.VersionID, err)
 		}
+		page = filterAllowedUnbatchedDueRows(cfg, page)
 		addRows(page)
 	}
 	order, groups := groupUnbatchedDue(rows, planner.SpeciesGroupingPolicy)

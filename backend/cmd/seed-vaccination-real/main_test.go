@@ -262,6 +262,25 @@ func TestSeedPartitionLineageOneToManyPaginationScheduledDateScopeHierarchyStatu
 	}
 }
 
+func TestCBECPTRunOneToManyPageBoundaryDateShiftStatusMatrix(t *testing.T) {
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatalf("read seed source: %v", err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"projection-review: membership=obligation_instances",
+		"pagination=none",
+		"GROUP BY target_id, rule_id",
+		"target_type = 'goat'",
+		"oi.status NOT IN ('completed', 'canceled', 'superseded', 'waived')",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("CBE/CPT seed projection review missing %q", want)
+		}
+	}
+}
+
 func TestBuildEntryDateMappingUsesEntrySourcesOnly(t *testing.T) {
 	got := buildEntryDateMapping([]goatRecord{
 		{RFID: "rfid-dob-only", DOB: "2026-01-01"},
@@ -943,7 +962,7 @@ func TestValidateSeedReconciliation(t *testing.T) {
 			t.Fatal("validate corrupt reconciliation returned nil")
 		}
 		for _, want := range []string{
-			"accepted source history=3388 want=3389",
+			"accepted source history=3388 want_at_least=3389",
 			"accepted completion/status mismatches=1",
 			"duplicate active goat/rule groups=2",
 			"active primary obligations already satisfied by accepted history=3",

@@ -1599,7 +1599,8 @@ func seedContractPeopleAndEmailGrants(
 	assignments []rosterAssignment,
 ) (int, int, error) {
 	if contract == nil {
-		return 0, 0, nil
+		grants, err := seedVerifierSeatsFromExistingGrants(ctx, tx, tenantID, centerLocationID)
+		return 0, grants, err
 	}
 	park := strings.TrimSpace(contract.SourceScope.ParkCode)
 
@@ -1757,6 +1758,113 @@ DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now
 		}
 	}
 	return directorsSeeded, grantsSeeded, nil
+}
+
+func seedVerifierSeatsFromExistingGrants(ctx context.Context, tx pgx.Tx, tenantID string, centerLocationID map[string]string) (int, error) {
+	rows, err := tx.Query(ctx, `
+SELECT normalized_email
+FROM auth_pending_email_grants
+WHERE tenant_id = $1::uuid
+  AND role = 'verifier'
+  AND scope_type = 'tenant'
+  AND status = 'active'
+  AND (valid_to IS NULL OR valid_to > now())
+ORDER BY normalized_email`, tenantID)
+	if err != nil {
+		return 0, fmt.Errorf("load existing verifier grants: %w", err)
+	}
+	defer rows.Close()
+
+	type verifierGrant struct {
+		code        string
+		displayName string
+		email       string
+	}
+	var verifiers []verifierGrant
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return 0, fmt.Errorf("scan verifier grant: %w", err)
+		}
+		local := strings.Split(email, "@")[0]
+		code := "verifier_" + verifierCodeSlug(local)
+		if code == "verifier_" {
+			code = "verifier_seed"
+		}
+		verifiers = append(verifiers, verifierGrant{
+			code:        code,
+			displayName: email,
+			email:       email,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("read verifier grants: %w", err)
+	}
+	if len(verifiers) == 0 {
+		return 0, nil
+	}
+
+	inserted := 0
+	parks := make([]string, 0, len(centerLocationID))
+	for park := range centerLocationID {
+		parks = append(parks, park)
+	}
+	sort.Strings(parks)
+	for _, verifier := range verifiers {
+		memberID := detUUID("workforce_member", "existing_verifier_grant", tenantID, verifier.email)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status,
+				primary_role_hint, updated_at)
+			VALUES ($1,$2,$3,$4,'active','verifier',now())
+			ON CONFLICT (workforce_member_id) DO UPDATE SET
+				display_code = EXCLUDED.display_code,
+				display_name = EXCLUDED.display_name,
+				status = EXCLUDED.status,
+				primary_role_hint = EXCLUDED.primary_role_hint,
+				updated_at = now()`,
+			memberID, tenantID, strings.ToUpper(strings.ReplaceAll(verifier.code, "_", "-")), verifier.displayName); err != nil {
+			return inserted, fmt.Errorf("insert existing verifier member %s: %w", verifier.code, err)
+		}
+		for _, parkCode := range parks {
+			locationID := centerLocationID[parkCode]
+			if locationID == "" {
+				continue
+			}
+			posID := detUUID("workforce_position", tenantID, parkCode, verifierPositionCode)
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
+					position_code, position_tier, is_backup_slot, status, valid_from, updated_at)
+				VALUES ($1,$2,$3,'center',$4,$5,'manager',false,'active',now(),now())
+				ON CONFLICT (position_id) DO UPDATE SET
+					workforce_member_id = EXCLUDED.workforce_member_id,
+					scope_type = EXCLUDED.scope_type,
+					scope_id = EXCLUDED.scope_id,
+					position_code = EXCLUDED.position_code,
+					position_tier = EXCLUDED.position_tier,
+					status = EXCLUDED.status,
+					valid_to = NULL,
+					updated_at = now()`,
+				posID, tenantID, memberID, locationID, verifierPositionCode); err != nil {
+				return inserted, fmt.Errorf("insert existing verifier seat %s@%s: %w", verifier.code, parkCode, err)
+			}
+			inserted++
+		}
+	}
+	return inserted, nil
+}
+
+func verifierCodeSlug(raw string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(raw)) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
 }
 
 // seedOperatorAssignmentConfig upserts vaccination_operator_shift_config for every operator in the
