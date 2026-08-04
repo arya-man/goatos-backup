@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CBE/CPT Vaccination Projection — 2026-08-04</title>
+<style>
+  :root{
+    --bg:#0d1512; --panel:#121d19; --panel2:#16241f; --line:#1f342c;
+    --text:#e6f0ea; --muted:#93a89e; --dim:#6f8579;
+    --green:#3fb984; --green-soft:rgba(63,185,132,.14);
+    --amber:#e0a33c; --amber-soft:rgba(224,163,60,.14);
+    --red:#e2635c; --red-soft:rgba(226,99,92,.14);
+    --blue:#5aa9e6; --blue-soft:rgba(90,169,230,.14);
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --bg:#f6f8f6; --panel:#ffffff; --panel2:#f0f4f1; --line:#dde5df;
+      --text:#12201a; --muted:#5c6f65; --dim:#7d8f85;
+      --green:#1f8b5f; --green-soft:rgba(31,139,95,.10);
+      --amber:#9a6a10; --amber-soft:rgba(154,106,16,.12);
+      --red:#b83a34; --red-soft:rgba(184,58,52,.10);
+      --blue:#2a6fa8; --blue-soft:rgba(42,111,168,.10);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1500px;margin:0 auto;padding:28px 20px 72px}
+  header.top{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:24px}
+  h1{font-size:22px;margin:0 0 6px;letter-spacing:-.2px}
+  .sub{color:var(--muted);font-size:13px}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:18px 0 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .n{font-size:22px;font-weight:600;letter-spacing:-.4px}
+  .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+  .kpi.ok .n{color:var(--green)} .kpi.warn .n{color:var(--amber)} .kpi.bad .n{color:var(--red)}
+  section{margin:34px 0 0}
+  h2{font-size:15px;margin:0 0 4px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+  h2 .dot{width:8px;height:8px;border-radius:50%}
+  h2 .count{font-size:11px;color:var(--muted);font-weight:400;letter-spacing:.4px}
+  .note{color:var(--muted);font-size:12.5px;margin:0 0 12px}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;min-width:1080px;font-size:12.8px}
+  thead th{position:sticky;top:0;background:var(--panel2);color:var(--muted);
+    font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;
+    text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:var(--panel2)}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .grp{font-weight:600}
+  .grp small{display:block;font-weight:400;color:var(--dim);font-size:11px;margin-top:2px}
+  code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--panel2);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  .tag{display:inline-block;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;
+    padding:2px 7px;border-radius:999px;border:1px solid transparent;white-space:nowrap}
+  .t-green{background:var(--green-soft);color:var(--green);border-color:var(--green)}
+  .t-amber{background:var(--amber-soft);color:var(--amber);border-color:var(--amber)}
+  .t-red{background:var(--red-soft);color:var(--red);border-color:var(--red)}
+  .t-blue{background:var(--blue-soft);color:var(--blue);border-color:var(--blue)}
+  .t-mute{background:var(--panel2);color:var(--muted);border-color:var(--line)}
+  .hi{color:var(--green);font-weight:600}
+  table.drive-plan tbody td:first-child{
+    background:linear-gradient(90deg,var(--blue-soft),transparent 88%);
+    color:var(--blue);
+    font-weight:700;
+  }
+  table.drive-plan tbody td:nth-child(9){
+    background:var(--green-soft);
+    color:var(--green);
+    font-weight:700;
+  }
+  table.drive-plan tbody td:nth-child(10){
+    background:var(--green-soft);
+  }
+  .row-amber td{background:var(--amber-soft)}
+  .row-red td{background:var(--red-soft)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card h3{margin:0 0 8px;font-size:13px}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:12.5px}
+  .kv dt{color:var(--muted)} .kv dd{margin:0}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);
+    color:var(--dim);font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <h1>CBE / CPT Vaccination Projection</h1>
+  <div class="sub">Business date 2026-08-04 · source: Manohar seed JSON <code>CBE-CPT-goats (2).json</code> + Aryaman files/messages/screenshots + Vaccination V2 history · dashboard count reference from <code>goatos-sheets</code></div>
+  <div class="kpis">
+    <div class="kpi"><div class="n">1670</div><div class="l">Animals in JSON</div></div>
+    <div class="kpi"><div class="n">935</div><div class="l">CBE</div></div>
+    <div class="kpi"><div class="n">735</div><div class="l">CPT</div></div>
+    <div class="kpi ok"><div class="n">14</div><div class="l">Confirmed drive rows</div></div>
+    <div class="kpi ok"><div class="n">382</div><div class="l">Resolved / no drive</div></div>
+    <div class="kpi warn"><div class="n">40</div><div class="l">Data-quality follow-up</div></div>
+  </div>
+</header>
+
+<!-- 1 -->
+<section>
+  <h2><span class="dot" style="background:var(--green)"></span>1 · Confirmed Drive Plan <span class="count">14 rows — trusted enough to schedule or record as completed history</span></h2>
+  <p class="note">Rows needing only data cleanup are separated in section 3.</p>
+  <div class="scroll">
+  <table class="drive-plan">
+    <thead><tr>
+      <th>Vaccine</th><th class="num">Total eligible</th><th>Past same-vaccine dates</th>
+      <th>Projection anchor</th><th class="num">History-backed</th><th class="num">No-history</th>
+      <th>How they are grouped</th><th>Frequency</th><th>Projected drive dates</th><th class="num">Final drive total</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td class="grp">CBE adult goats — ET+TT booster</td>
+        <td class="num">414 total<br><small>134 pending</small></td>
+        <td>Dose 1: 30 Jun / 1 Jul 2026; non-Sumathi adults done 1–2 Aug per Aryaman</td>
+        <td>Dose 1 + 3 weeks</td>
+        <td class="num">280</td><td class="num">134</td>
+        <td>Sumathi 1 Parts 1–8; Sumathi 2 Parts 1–6</td>
+        <td>Booster 3 weeks after first dose</td>
+        <td>5–6 Aug 2026, with 5 Aug as anchor</td>
+        <td class="num hi">134</td>
+      </tr>
+      <tr>
+        <td class="grp">CBE adult sheep — Blue Tongue</td>
+        <td class="num">71 sheep</td>
+        <td>None in JSON</td>
+        <td>Updated Aryaman 5 Aug anchor</td>
+        <td class="num">0</td><td class="num">71</td>
+        <td>Adult sheep drive</td>
+        <td>Adult Blue Tongue dose 1 now; code-backed future repeat is yearly from accepted completion</td>
+        <td>5–6 Aug 2026</td>
+        <td class="num hi">71</td>
+      </tr>
+      <tr>
+        <td class="grp">CBE adult sheep — Blue Tongue booster</td>
+        <td class="num">71 sheep</td>
+        <td>Blue Tongue dose 1 projected 5–6 Aug 2026</td>
+        <td>Aryaman +3-week booster instruction from 5 Aug anchor</td>
+        <td class="num">0</td><td class="num">71</td>
+        <td>Same 71 adult sheep</td>
+        <td><strong>Aryaman schedule input:</strong> +3 weeks after first Blue Tongue; current code matrix does not auto-generate adult BT W2 unless configured</td>
+        <td>26 Aug 2026</td>
+        <td class="num hi">71</td>
+      </tr>
+      <tr>
+        <td class="grp">CBE normal tagged kids — ET+TT booster</td>
+        <td class="num">242 kids</td>
+        <td>First ET+TT around 1–2 Jul / JSON dose1: 3 Jul 2026</td>
+        <td>Dose 1 + 3 weeks</td>
+        <td class="num">242</td><td class="num">0</td>
+        <td>Normal CBE kids excluding Castro/Y10 fattening mock rows and excluding the 3 Yashoda 6 K2 cleanup kids listed below</td>
+        <td>Booster 3 weeks after first dose</td>
+        <td><strong>Done 1–2 Aug 2026</strong>, per Aryaman; except the 3 cleanup RFIDs</td>
+        <td class="num hi">242</td>
+      </tr>
+      <tr>
+        <td class="grp">CBE Yashoda 6 K2 cleanup — ET+TT booster <small><code>901007000504784</code>, <code>901007000504725</code>, <code>901007000504736</code></small></td>
+        <td class="num">3 kids</td>
+        <td>First ET+TT around 1–2 Jul with other CBE kids; blank in JSON/V2 for these 3</td>
+        <td>Missed the 1–2 Aug CBE kids ET+TT booster round</td>
+        <td class="num">0</td><td class="num">3</td>
+        <td>Yashoda 6 K2 cleanup group</td>
+        <td>Cleanup ET+TT booster this week</td>
+        <td><strong>5–6 Aug 2026</strong></td>
+        <td class="num hi">3</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult goats — ET+TT booster history <small>administered</small></td>
+        <td class="num">95 goats</td>
+        <td>Booster drive: 24 Jul = 114 adult total first-day slice; 25 Jul = 163; 26 Jul = 47 across all CPT adults</td>
+        <td>CPT adult source/stg drive execution</td>
+        <td class="num">95</td><td class="num">0</td>
+        <td>Included in 324-adult CPT ET+TT booster drive</td>
+        <td>Booster 3 weeks after first dose; proof/video verification remains separate</td>
+        <td>Administered 24–26 Jul 2026</td>
+        <td class="num hi">95</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult sheep — ET+TT booster history <small>administered</small></td>
+        <td class="num">229 sheep</td>
+        <td>Booster drive: 24 Jul = 114 adult total first-day slice; 25 Jul = 163; 26 Jul = 47 across all CPT adults</td>
+        <td>CPT adult source/stg drive execution</td>
+        <td class="num">229</td><td class="num">0</td>
+        <td>Included in 324-adult CPT ET+TT booster drive</td>
+        <td>Booster 3 weeks after first dose; proof/video verification remains separate</td>
+        <td>Administered 24–26 Jul 2026</td>
+        <td class="num hi">229</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult goats — Goat Pox</td>
+        <td class="num">95 goats</td>
+        <td>None</td>
+        <td>ET+TT booster administered 24–26 Jul 2026</td>
+        <td class="num">0</td><td class="num">95</td>
+        <td>CPT adult goat-only drive</td>
+        <td>Yearly from actual Goat Pox date afterward</td>
+        <td>From 10 Aug 2026 onward</td>
+        <td class="num hi">95</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult sheep — Sheep Pox</td>
+        <td class="num">229 sheep</td>
+        <td>None</td>
+        <td>ET+TT booster administered 24–26 Jul 2026</td>
+        <td class="num">0</td><td class="num">229</td>
+        <td>CPT adult sheep drive; can pair with Blue Tongue</td>
+        <td>Yearly from actual Sheep Pox date afterward</td>
+        <td>From 10 Aug 2026 onward</td>
+        <td class="num hi">229</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult sheep — Blue Tongue</td>
+        <td class="num">229 sheep</td>
+        <td>None</td>
+        <td>ET+TT booster administered 24–26 Jul 2026; 14-day safety gap supports 10 Aug onward</td>
+        <td class="num">0</td><td class="num">229</td>
+        <td>Same 229 sheep; can give with Sheep Pox</td>
+        <td>Code-backed future repeat is yearly from accepted Blue Tongue completion</td>
+        <td>From 10 Aug 2026 onward</td>
+        <td class="num hi">229</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT adult sheep — Blue Tongue booster</td>
+        <td class="num">229 sheep</td>
+        <td>Blue Tongue dose 1 not yet done</td>
+        <td>Aryaman +3-week booster instruction if dose 1 is done on 10 Aug</td>
+        <td class="num">0</td><td class="num">229</td>
+        <td>Same adult sheep cohort</td>
+        <td><strong>Aryaman schedule input:</strong> +3 weeks after first Blue Tongue; current code matrix does not auto-generate adult BT W2 unless configured</td>
+        <td>If dose 1 on 10 Aug, booster 31 Aug 2026</td>
+        <td class="num hi">229</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT kids with history — PPR</td>
+        <td class="num">233 kids</td>
+        <td>ET+TT dose 1: 1 Jul; booster: 24 Jul</td>
+        <td>ET+TT booster complete</td>
+        <td class="num">233</td><td class="num">0</td>
+        <td>CPT kids from vaccination roster/history</td>
+        <td>PPR after ET+TT course</td>
+        <td>Next pending drive</td>
+        <td class="num hi">233</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT July 25 birth — ET+TT dose 1 <small><code>901007000504378</code></small></td>
+        <td class="num">1 kid</td>
+        <td>None</td>
+        <td>Birth date: 25 Jul 2026</td>
+        <td class="num">0</td><td class="num">1</td>
+        <td>Single newborn: <code>901007000504378</code>, Yashoda 3</td>
+        <td>First ET+TT at 3 weeks from birth</td>
+        <td><strong>15 Aug 2026</strong></td>
+        <td class="num hi">1</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT July 25 birth — ET+TT booster <small><code>901007000504378</code></small></td>
+        <td class="num">1 kid</td>
+        <td>ET+TT dose 1 due 15 Aug 2026</td>
+        <td>Dose 1 + 3 weeks</td>
+        <td class="num">0</td><td class="num">1</td>
+        <td>Same newborn <code>901007000504378</code></td>
+        <td>Booster 3 weeks after first dose</td>
+        <td><strong>5 Sep 2026</strong>, if dose 1 given 15 Aug</td>
+        <td class="num hi">1</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 2 -->
+<section>
+  <h2><span class="dot" style="background:var(--blue)"></span>2 · Resolved / No Drive Needed <span class="count">382 animals — already vaccinated, do not schedule again</span></h2>
+  <div class="scroll">
+  <table style="min-width:760px">
+    <thead><tr><th>Group</th><th class="num">Count</th><th>Vaccine status</th><th>Reason</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="grp">CBE purchased fattening: C1/C2/C3 plus Yashoda 10 parity rows</td>
+        <td class="num">205</td>
+        <td><span class="tag t-green">ET+TT done</span> <span class="tag t-green">Booster done</span> <span class="tag t-green">PPR done</span></td>
+        <td>Aryaman confirmed purchased fattening animals at both CBE and CPT have all three done</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT purchased fattening: C1/C2/G2P1/G2P2</td>
+        <td class="num">140</td>
+        <td><span class="tag t-green">ET+TT done</span> <span class="tag t-green">Booster done</span> <span class="tag t-green">PPR done</span></td>
+        <td>Aryaman confirmed only C1/C2/G2P1/G2P2 are purchased fattening in CPT; no drive now</td>
+      </tr>
+      <tr>
+        <td class="grp">CPT G2P3 tagged animals</td>
+        <td class="num">39 PDF scans<br><small>37 JSON mock rows</small></td>
+        <td><span class="tag t-green">Vaccines given 20 Jul</span> <span class="tag t-mute">Mapping/count cleanup</span></td>
+        <td><code>CPT_VaccinationDrive_ShedRoaster (1).pdf</code> says Godel 2 Part 3 total scanned 39, on record 38, new 1. No drive now; reconcile JSON's 37 mock rows against the 39 PDF scans.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- 3 -->
+<section>
+  <h2><span class="dot" style="background:var(--amber)"></span>3 · Data Quality Follow-up <span class="count">40 animals — vaccine decision captured, audit cleanup still needed</span></h2>
+  <p class="note">These are no longer blanket hold rows after Aryaman's latest clarification. They still need source cleanup for audit-grade history.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr>
+      <th>Problem group</th><th class="num">Count</th><th>Current source conflict</th>
+      <th>What is known</th><th>What is missing</th><th>Drive decision</th>
+    </tr></thead>
+    <tbody>
+      <tr class="row-amber">
+        <td class="grp">CBE Yashoda 6 K2 RFIDs<small><code>901007000504784</code><br><code>901007000504725</code><br><code>901007000504736</code></small></td>
+        <td class="num">3</td>
+        <td>Present in Manohar JSON but missing from Aryaman CBE CSV, V2 Combined, Unified Workflow DB Action search, and Goats DB event search</td>
+        <td>These 3 missed the CBE kids ET+TT booster round that happened 1–2 Aug</td>
+        <td>Exact past ET+TT dose date is still missing in JSON, but latest user/Aryaman clarification says schedule ET+TT booster now</td>
+        <td><span class="tag t-amber">Schedule cleanup</span> ET+TT booster on <strong>5–6 Aug 2026</strong></td>
+      </tr>
+      <tr class="row-amber">
+        <td class="grp">CPT G2P3 rows needing separate parse<small>JSON has <code>GODEL2P3-001..037</code><br>PDF examples: <code>901007000504036</code>, <code>901007000504117</code></small></td>
+        <td class="num">37 JSON<br>39 PDF</td>
+        <td>Manohar JSON uses mock/temp IDs, but <code>CPT_VaccinationDrive_ShedRoaster (1).pdf</code> has a real-RFID Godel 2 Part 3 vaccination log on 20 Jul 2026</td>
+        <td>Aryaman/PDF vaccine status is resolved as done: PDF total scanned 39, on record 38, new 1</td>
+        <td>Need parse/import of the 39 PDF rows, map/replace JSON mock IDs, and reconcile why JSON has 37 while PDF scanned 39. Carry 20 Jul 2026 vaccine evidence.</td>
+        <td><span class="tag t-green">No drive now</span> Parse G2P3 separately and clean up mapping/history</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- supporting -->
+<section>
+  <h2><span class="dot" style="background:var(--muted)"></span>Supporting detail</h2>
+  <div class="cards">
+
+    <div class="card">
+      <h3>Special must-not-miss animal</h3>
+      <dl class="kv">
+        <dt>RFID</dt><dd><code>901007000504378</code></dd>
+        <dt>Farm / shed</dt><dd>CPT · Yashoda 3 (shed tag K1)</dd>
+        <dt>Species / breed</dt><dd>Goat · Sojat · Male</dd>
+        <dt>Date of birth</dt><dd>2026-07-25, 11:58 am · 4.1 kg</dd>
+        <dt>Mother RFID</dt><dd><code>901007000504141</code></dd>
+        <dt>ET+TT dose 1 due</dt><dd class="hi">2026-08-15</dd>
+        <dt>ET+TT booster due</dt><dd class="hi">2026-09-05 <span style="color:var(--muted)">(if dose 1 on 15 Aug)</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3>CPT adult ET+TT booster execution history</h3>
+      <table style="min-width:0;width:100%">
+        <thead><tr><th>Date</th><th class="num">Animals</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>2026-07-24</td><td class="num">114</td><td><span class="tag t-mute">stg/source fixture accepted-history</span></td></tr>
+          <tr><td>2026-07-25</td><td class="num">163</td><td><span class="tag t-mute">operational drive split</span></td></tr>
+          <tr><td>2026-07-26</td><td class="num">47</td><td><span class="tag t-mute">operational drive split</span></td></tr>
+          <tr><td><strong>Total</strong></td><td class="num"><strong>324</strong></td><td><span class="tag t-amber">video verification pending</span></td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:10px 0 0">Do not claim the 114 / 163 / 47 split is live-DB verified until <code>goatos-stg</code> Cloud SQL is queried directly.</p>
+    </div>
+
+    <div class="card">
+      <h3>Vaccination rules applied</h3>
+      <dl class="kv">
+        <dt>ET+TT booster</dt><dd>3 weeks after first ET+TT dose</dd>
+        <dt>Sheep Pox + Blue Tongue</dt><dd>Can be given same day</dd>
+        <dt>Pox / BT after ET</dt><dd>2 weeks from last ET date</dd>
+        <dt>Blue Tongue booster</dt><dd>3 weeks from first BT dose</dd>
+        <dt>Newborn ET+TT</dt><dd>First dose at 3 weeks from birth</dd>
+        <dt>Missing DOB</dt><dd>K2 kids = 8 weeks old; F2 kids = 16 weeks old</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3>Code-backed projection boundary</h3>
+      <dl class="kv">
+        <dt>ET+TT kid dose 1</dt><dd>Approved matrix: 4 weeks / 28 days from DOB or trusted assumed age</dd>
+        <dt>ET+TT kid booster</dt><dd>Approved matrix and code: 7 weeks / 49 days from DOB, minimum 21 days after first dose</dd>
+        <dt>ET+TT adult booster</dt><dd>Code-backed: adult W2 is after previous completion, offset 21 days, min gap 21 days</dd>
+        <dt>ET+TT repeat</dt><dd>Code-backed: 182 days after accepted course completion</dd>
+        <dt>Pox / BT after ET</dt><dd>Code safety gap is 14 days unless an approved same-day pair is selected; this supports CPT 10 Aug onward after 24-26 Jul ET+TT</dd>
+        <dt>Same session</dt><dd>Code-backed max two vaccines per animal per session</dd>
+        <dt>Adult BT +3 weeks</dt><dd><span class="tag t-amber">Aryaman input</span> from WhatsApp. Current committed matrix has Blue Tongue kid 16w/20w and adult yearly repeat, so adult BT W2 needs protocol config/override to be automatic.</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3>Count reconciliation</h3>
+      <table style="min-width:0;width:100%">
+        <thead><tr><th>Source</th><th class="num">Total</th><th class="num">CBE</th><th class="num">CPT</th></tr></thead>
+        <tbody>
+          <tr><td>Dashboard</td><td class="num">1673</td><td class="num">942</td><td class="num">731</td></tr>
+          <tr><td>Aryaman covered evidence</td><td class="num">1484</td><td class="num">935</td><td class="num">549</td></tr>
+          <tr><td>Manohar JSON (2)</td><td class="num">1670</td><td class="num">935</td><td class="num">735</td></tr>
+          <tr><td><strong>JSON vs dashboard</strong></td><td class="num" style="color:var(--red)">−3</td><td class="num" style="color:var(--red)">−7</td><td class="num" style="color:var(--amber)">+4</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Missing-DOB kid booster anchors</h3>
+      <dl class="kv">
+        <dt>CBE Y6 K2 · 3</dt><dd>K2, 8 weeks assumed; these missed the CBE kids ET+TT booster done 1–2 Aug — <span class="tag t-amber">ET+TT booster 2026-08-05/06</span></dd>
+        <dt>CPT fattening · 140</dt><dd>F2, 16 weeks assumed — <span class="tag t-green">no drive needed</span>, ET+TT/booster/PPR confirmed done</dd>
+        <dt>CPT G2P3</dt><dd>PDF log on 20 Jul 2026: 39 scanned, 38 on record, 1 new. JSON has 37 mock rows, so reconcile counts and map to real RFIDs like <code>901007000504036</code> and <code>901007000504117</code>. <span class="tag t-green">No drive now</span></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h3>Verification boundary</h3>
+      <dl class="kv">
+        <dt>Manohar JSON (2)</dt><dd><span class="tag t-green">Parsed &amp; counted locally</span></dd>
+        <dt>Aryaman evidence</dt><dd><span class="tag t-green">Captured into counts / anchors / rules</span></dd>
+        <dt>CPT adult stg fixture</dt><dd><span class="tag t-green">Captured for the 324-adult drive</span></dd>
+        <dt>Live goatos-stg Cloud SQL</dt><dd><span class="tag t-red">Not queried</span> — gcloud token reauth blocked non-interactive secret access</dd>
+      </dl>
+      <p class="note" style="margin:10px 0 0">This is source/projection evidence, not a completed live-stg database audit.</p>
+    </div>
+
+  </div>
+</section>
+
+<footer>
+  Source of truth: <code>goatos/docs/preventive-care-vaccination/CBE-CPT-VACCINATION-PROJECTION-2026-08-04.md</code> ·
+  Counts, dates, animal IDs, source conflicts and drive decisions preserved verbatim from the markdown ·
+  Latest Aryaman clarification is reflected: G2P3 is no-drive/data-cleanup with 39 PDF scans on 20 Jul 2026, and the 3 CBE Yashoda 6 K2 kids need ET+TT cleanup booster on 5–6 Aug. The CPT July 25 newborn is separate from the G2P3 PDF log. ET+TT dates are code-backed; adult Blue Tongue +3-week boosters are Aryaman-entered schedule inputs unless protocol config adds adult BT W2.
+</footer>
+
+</div>
+</body>
+</html>
