@@ -124,7 +124,9 @@ fun AddHealthCaseScreen(
                     state.lookupMessage?.let { Text(it, color = MeshaColors.Warn) }
                 }
             }
-            items(state.matches, key = { it.goatId }) { goat ->
+            // Deduplicated by goatId in AddHealthCaseViewModel.lookup() before reaching state.matches,
+            // so this list holds at most one row per goat and goatId is a unique per-row key here.
+            items(state.matches, key = { it.goatId }) { goat -> // compose-guard:ignore: goat lookup results deduped by goatId upstream; one row per goat
                 val selected = goat.goatId == state.selectedGoat?.goatId
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { onEvent(AddHealthCaseEvent.SelectGoat(goat.goatId)) },

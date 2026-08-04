@@ -209,7 +209,13 @@ class AddHealthCaseViewModel @Inject constructor(
                     val eligible = rows.filter { healthGoatMatchesAgeBand(it, ageBand) }
                     _state.value = _state.value.copy(
                         lookingUp = false,
-                        matches = eligible.map(GoatSearchItemDto::toHealthGoatUi),
+                        // One row per goat. The search's display joins fan out when a goat holds
+                        // more than one active identifier of the same type -- goat_identifiers is
+                        // unique on (tenant_id, normalized_value), NOT on
+                        // (tenant_id, goat_id, identifier_type) -- so the same goat can arrive
+                        // twice. Two rows for one animal is wrong on screen and duplicates the
+                        // lazy-list key, which crashes Compose with "Key was already used".
+                        matches = eligible.map(GoatSearchItemDto::toHealthGoatUi).distinctBy { it.goatId },
                         lookupMessage = when {
                             rows.isEmpty() -> "No live goat matched that RFID or tag."
                             eligible.isEmpty() && ageBand == "adult" -> "That goat belongs in Kids Health."

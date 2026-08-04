@@ -76,7 +76,12 @@ func (r *Repository) ListMilkFeedingTasks(ctx context.Context, in domain.MilkFee
 	if offset < 0 || offset > 5000 {
 		offset = 0
 	}
-	rows, err := r.pool.Query(ctx, `
+	// Hard-bounded result set, not a growable offset. The predicate pins ONE feeding_date and
+	// farm-grain rows (shed_id IS NULL), and milk_feeding_tasks_farm_session_uidx is UNIQUE on
+	// (tenant_id, park_id, feeding_date, session_no) with session_no CHECK-constrained to 1..4, so
+	// the whole filtered set is at most parks*4 rows (8 today). The offset can never walk a deep
+	// tail; it is clamped to 5000 above purely as an input guard.
+	rows, err := r.pool.Query(ctx, `-- scale-guard:ignore: bounded to parks*4 rows (one feeding_date, farm grain, session_no 1..4); offset cannot reach a deep tail
 WITH watchlists AS MATERIALIZED (
   SELECT w.tenant_id, w.park_id,
          jsonb_agg(jsonb_build_object('goat_id', w.goat_id::text, 'consecutive_yes', w.consecutive_yes,
