@@ -475,6 +475,20 @@ metric, `ceo_ai.*` view, or MCP Toolbox tool; the leadership assistant read
 surface remains the existing vaccination execution/process-integrity coverage.
 Explicit documented exclusion — no coverage-matrix mapping required.
 
+## Explicit exclusion: vaccination drive safe-date override internals (2026-08-04)
+
+`table:vaccination_drive_date_overrides` now stores requested/applied move
+metadata (`requested_override_date`, `shift_reason`,
+`clinical_shift_metadata`) for the existing vaccination drive move command.
+`func:ApprovedVaccineComboSessions` and `func:VaccinesShareApprovedCombo` are
+internal clinical scheduling helpers used to decide same-day combo exceptions
+for the write path. These surfaces add NO new leadership KPI, read API route,
+Cube metric, `ceo_ai.*` view, or MCP Toolbox tool. Leadership assistant
+coverage remains the existing vaccination schedule, drive-assignment, Action
+Center, Protocol Adherence, and Control Tower read surfaces, which already read
+the effective active override state. Explicit documented exclusion — no
+coverage-matrix mapping required.
+
 ## Explicit exclusion: proof artifact retention lifecycle plumbing (2026-07-25)
 
 `func:NewProofRetentionSweeperStage`, `func:Name`, and `func:Run` add hourly
@@ -769,4 +783,3 @@ which is already excluded above for the same reason. Leadership continues to see
 weighing progress through `GET /weighing/campaigns` and the Control Tower
 process-state summary; a refused edit writes nothing, so those numbers are
 unchanged by definition.
-
