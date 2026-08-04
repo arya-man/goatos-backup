@@ -657,7 +657,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService))
 	tasksWorkflowHandler := taskshttp.NewHandler(tasksWorkflowService, log)
-	verificationHandler := verificationhttp.NewHandler(verificationService, log)
+	verificationHandler := verificationhttp.NewHandler(verificationService, log).
+		WithModuleDutyReader(workforceRepo)
 	// The verifier-only admin-web workspace composes its sidebar from the registry above, so this
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.

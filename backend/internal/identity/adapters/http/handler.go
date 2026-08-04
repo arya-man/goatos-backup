@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/identity/app"
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
 )
@@ -81,6 +82,19 @@ func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID(r), strings.TrimSpace(q.Get("park_id")), permissions.GoatRead,
+	)
+	if !parkScope.Allowed {
+		writeHandlerError(w, r, h.log, parkScope.Status, domain.ErrorEnvelope{
+			Code:        parkScope.Code,
+			Message:     parkScope.Message,
+			FieldErrors: []domain.FieldError{},
+			TraceID:     traceID(r),
+			Retryable:   false,
+		}, nil)
+		return
+	}
 	params := ports.SearchGoatsParams{
 		TenantID:       tenantID(r),
 		Limit:          limit,
@@ -92,7 +106,7 @@ func (h *Handler) SearchGoats(w http.ResponseWriter, r *http.Request) {
 		Breed:          optionalQuery(q.Get("breed")),
 		Sex:            optionalQuery(q.Get("sex")),
 		FarmID:         optionalQuery(q.Get("farm_id")),
-		ParkID:         optionalQuery(q.Get("park_id")),
+		ParkID:         optionalQuery(parkScope.ParkID),
 		LocationID:     optionalQuery(q.Get("location_id")),
 		Status:         optionalQuery(q.Get("status")),
 	}

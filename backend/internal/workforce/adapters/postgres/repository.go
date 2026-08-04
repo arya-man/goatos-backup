@@ -412,6 +412,48 @@ ORDER BY module_key`, tenantID, userID)
 	return out, nil
 }
 
+// ListVerifyModuleKeys returns only modules for which the actor currently holds an active verify
+// duty through their active workforce position. Department grants are deliberately excluded: they
+// control feature visibility, not authority to inspect or decide another module's proof queue.
+func (r *Repository) ListVerifyModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT DISTINCT pmd.module_code
+FROM workforce_members wm
+JOIN workforce_positions wp
+  ON wp.tenant_id = wm.tenant_id
+ AND wp.workforce_member_id = wm.workforce_member_id
+ AND wp.status = 'active'
+ AND wp.valid_from <= now()
+ AND (wp.valid_to IS NULL OR wp.valid_to > now())
+JOIN position_module_duties pmd
+  ON pmd.tenant_id = wp.tenant_id
+ AND pmd.position_code = wp.position_code
+ AND pmd.duty_type = 'verify'
+ AND pmd.status = 'active'
+ AND pmd.effective_from <= now()
+ AND (pmd.effective_to IS NULL OR pmd.effective_to > now())
+WHERE wm.tenant_id = $1::uuid
+  AND wm.user_id = $2::uuid
+  AND wm.status = 'active'
+ORDER BY pmd.module_code
+LIMIT 100`, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	modules := make([]string, 0, 8)
+	for rows.Next() {
+		var module string
+		if err := rows.Scan(&module); err != nil {
+			return nil, err
+		}
+		modules = append(modules, module)
+	}
+	return modules, rows.Err()
+}
+
 func (r *Repository) ListDevices(ctx context.Context, tenantID, operatorID string) ([]domain.DeviceSummary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

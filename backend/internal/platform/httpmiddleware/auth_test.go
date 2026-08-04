@@ -649,6 +649,35 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 		}
 	}
 
+	feedPreviewReq := httptest.NewRequest(http.MethodGet, "/feed-direction/preview?target_date=2026-08-04", nil)
+	feedPreviewReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	feedPreviewRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(feedPreviewRec, feedPreviewReq)
+	if feedPreviewRec.Code != http.StatusNoContent {
+		t.Fatalf("scoped operator feed preview status=%d body=%s", feedPreviewRec.Code, feedPreviewRec.Body.String())
+	}
+	feedGenerationReq := httptest.NewRequest(http.MethodGet, "/feed-direction/generation-preview?target_date=2026-08-04", nil)
+	feedGenerationReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	feedGenerationRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(feedGenerationRec, feedGenerationReq)
+	if feedGenerationRec.Code != http.StatusForbidden {
+		t.Fatalf("scoped operator generation preview status=%d, want 403", feedGenerationRec.Code)
+	}
+	goatSearchReq := httptest.NewRequest(http.MethodGet, "/goats/search?limit=20&q=TAG-1", nil)
+	goatSearchReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	goatSearchRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(goatSearchRec, goatSearchReq)
+	if goatSearchRec.Code != http.StatusNoContent {
+		t.Fatalf("scoped operator goat search status=%d body=%s", goatSearchRec.Code, goatSearchRec.Body.String())
+	}
+	goatPassportReq := httptest.NewRequest(http.MethodGet, "/goats/33000000-0000-4000-8000-000000000001", nil)
+	goatPassportReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	goatPassportRec := httptest.NewRecorder()
+	operatorHandler.ServeHTTP(goatPassportRec, goatPassportReq)
+	if goatPassportRec.Code != http.StatusForbidden {
+		t.Fatalf("scoped operator goat passport status=%d, want 403", goatPassportRec.Code)
+	}
+
 	calendarReadReq := httptest.NewRequest(http.MethodGet, "/calendar/vaccination/events", nil)
 	calendarReadReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
 	calendarReadRec := httptest.NewRecorder()

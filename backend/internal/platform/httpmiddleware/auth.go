@@ -385,6 +385,12 @@ func routeRoles(route permissions.Route, grants []permissions.ActiveGrant, tenan
 
 func routeAllowsScopedGrants(route permissions.Route) bool {
 	return strings.HasPrefix(route.Pattern, "/calendar/") ||
+		// Android reads the generated feed sheet from this legacy non-/app route. Admit a
+		// park-scoped feed reader here; GetPreview capability-clamps park_id before reading.
+		route.Pattern == "/feed-direction/preview" ||
+		// Android shifting resolves a scanned tag through this legacy non-/app route. Admit
+		// only the search route; SearchGoats capability-clamps park_id before reading.
+		route.Pattern == "/goats/search" ||
 		// The Android surface is scope-aware by construction: bootstrap carries the
 		// actor's grants, lists are actor/park filtered, and writes validate task
 		// assignment or handler scope. Requiring a tenant-wide grant here made a
