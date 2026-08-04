@@ -167,6 +167,7 @@ export function ScheduleMoveDrawer({
               invalidFutureDateText={copy(pageContract, "schedule.move.invalid_future_date")}
               required
             />
+            <small className="muted">Requested start date. The system may move this to the nearest safe date if vaccine spacing rules require.</small>
           </label>
           <div className="schedule-move-vaccines">
             {displayedRow.vaccineNames.map((name) => <Tag key={name} tone="teal">{name}</Tag>)}
