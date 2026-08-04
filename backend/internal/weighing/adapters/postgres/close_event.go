@@ -43,6 +43,8 @@ type weighingCampaignClosedPayload struct {
 	ClosedAt         time.Time      `json:"closed_at"`
 }
 
+// A per-bucket close has exactly ONE event type, eventTypeScopeClosed. The type
+// threaded back through.
 func (r *Repository) enqueueScopeClosed(ctx context.Context, tx pgx.Tx, cmd domain.CloseCommand, result domain.CloseResult) error {
 	payload := weighingShedClosedPayload{
 		TenantID:         cmd.TenantID,

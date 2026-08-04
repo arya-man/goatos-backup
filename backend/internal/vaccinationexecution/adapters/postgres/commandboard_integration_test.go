@@ -167,11 +167,19 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 	if resp.KPIs.Targets != 1 {
 		t.Fatalf("KPI targets = %d, want 1 distinct animal", resp.KPIs.Targets)
 	}
+
+	t.Run("CohortAdministeredRangeOneToManyMultipleDimensions", func(t *testing.T) {
+		for _, cell := range resp.CohortMatrix {
+			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
+				t.Fatalf("unaccepted %s cell has administered range %v..%v", cell.VaccineLabel, cell.MinAdministeredDate, cell.MaxAdministeredDate)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate tests that
 // administered_at on different business day than due_at is correctly placed in weekly buckets.
-func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate(t *testing.T) {
+func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDateCohortAdministeredRange(t *testing.T) {
 	t.Log("DateShift ScheduledDate ExecutionDate: administered_at on different business day than due_at; weekly buckets follow administered_at")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -221,6 +229,25 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDate(t *testing.T
 	if !foundWeekly {
 		t.Fatalf("weekly given row not found for ET+TT accepted")
 	}
+
+	// The CEO cohort matrix must carry the operator's actual vaccination date at the
+	// exact cohort × dose grain instead of forcing leadership to cross-reference another table.
+	foundCohortDate := false
+	for _, cell := range resp.CohortMatrix {
+		if cell.VaccineLabel != "ET+TT · Dose 1" || cell.VerifiedCount == 0 {
+			continue
+		}
+		foundCohortDate = true
+		if cell.MinAdministeredDate == nil || !cell.MinAdministeredDate.Equal(adminDateLater) {
+			t.Fatalf("cohort min administered date = %v, want %v", cell.MinAdministeredDate, adminDateLater)
+		}
+		if cell.MaxAdministeredDate == nil || !cell.MaxAdministeredDate.Equal(adminDateLater) {
+			t.Fatalf("cohort max administered date = %v, want %v", cell.MaxAdministeredDate, adminDateLater)
+		}
+	}
+	if !foundCohortDate {
+		t.Fatal("verified ET+TT cohort date not found")
+	}
 }
 
 // TestVaccinationCommandBoardParkScopeTenantIsolation tests that two parks with
@@ -269,6 +296,26 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 	if respAll.KPIs.Targets < 2 {
 		t.Fatalf("KPI targets without filter = %d, want >= 2", respAll.KPIs.Targets)
 	}
+
+	t.Run("CohortAdministeredRangeParkScope", func(t *testing.T) {
+		respPark, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
+			TenantID:     cmdBoardTestTenant,
+			AsOf:         asOf,
+			DriveBatchID: stringPtr(cmdBoardBatch1),
+			ParkID:       stringPtr(cmdBoardPark1),
+		})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(park 1) error = %v", err)
+		}
+		if respPark.KPIs.Targets != 1 {
+			t.Fatalf("park 1 targets = %d, want 1", respPark.KPIs.Targets)
+		}
+		for _, cell := range respPark.CohortMatrix {
+			if cell.Cohort.ParkID != cmdBoardPark1 {
+				t.Fatalf("park-scoped cohort leaked park %s", cell.Cohort.ParkID)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets tests that every
@@ -333,27 +380,29 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 	}
 
 	t.Run("KPIAnimalGrainOneToManyMultipleDimensionsPaginationPageBoundaryDateShiftScheduledDateExecutionDateParkScopeStatusMatrixEveryStatusStatusBuckets", func(t *testing.T) {
-		// KPI targets and status cards count distinct animals. A goat can still appear in more
-		// than one status if different vaccines for the same drive are at different states.
+		// KPI targets and the four status tiles are all distinct-animal counts, so the tiles
+		// must partition targets. This assertion used to allow a sum of 4 against 3 targets:
+		// goat 1 holds BOTH the verified ET obligation and the scheduled-ahead PPR obligation
+		// and was counted in two tiles, which is exactly the double-count the animal-grain
+		// priority chain in the KPI query now removes.
 		expectedTargets := 3
 		if resp.KPIs.Targets != expectedTargets {
 			t.Fatalf("KPI targets = %d, want %d", resp.KPIs.Targets, expectedTargets)
 		}
 
-		// Status buckets are distinct-animal counts within each state; they do not have to sum
-		// to animal targets when one animal has multiple vaccine obligations.
 		sumVerified := resp.KPIs.DosesVerified
 		sumAwaiting := resp.KPIs.AwaitingVerification
 		sumOverdue := resp.KPIs.OverdueNotGiven
 		sumScheduled := resp.KPIs.ScheduledAhead
 		sumAll := sumVerified + sumAwaiting + sumOverdue + sumScheduled
 
-		if sumAll != 4 {
-			t.Fatalf("status bucket sum = %d (verified=%d, awaiting=%d, overdue=%d, scheduled=%d), want %d",
-				sumAll, sumVerified, sumAwaiting, sumOverdue, sumScheduled, 4)
+		if sumAll != expectedTargets {
+			t.Fatalf("status bucket sum = %d (verified=%d, awaiting=%d, overdue=%d, scheduled=%d), want %d = targets",
+				sumAll, sumVerified, sumAwaiting, sumOverdue, sumScheduled, expectedTargets)
 		}
 
-		// Verify individual buckets have expected counts
+		// Verify individual buckets have expected counts. goat 1 lands in verified alone:
+		// verified outranks scheduled in the documented precedence chain.
 		if sumVerified != 1 {
 			t.Fatalf("verified count = %d, want 1", sumVerified)
 		}
@@ -363,8 +412,23 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 		if sumOverdue != 1 {
 			t.Fatalf("overdue count = %d, want 1", sumOverdue)
 		}
-		if sumScheduled != 1 {
-			t.Fatalf("scheduled count = %d, want 1", sumScheduled)
+		if sumScheduled != 0 {
+			t.Fatalf("scheduled count = %d, want 0; goat 1's scheduled PPR dose must not double-count against its verified ET dose", sumScheduled)
+		}
+	})
+
+	t.Run("CohortAdministeredRangeStatusMatrixEveryStatusStatusBuckets", func(t *testing.T) {
+		acceptedAt := asOf.Add(-2 * 24 * time.Hour)
+		for _, cell := range resp.CohortMatrix {
+			if cell.VerifiedCount == 0 {
+				continue
+			}
+			if cell.MinAdministeredDate == nil || !cell.MinAdministeredDate.Equal(acceptedAt) {
+				t.Fatalf("verified cohort min administered date = %v, want %v", cell.MinAdministeredDate, acceptedAt)
+			}
+			if cell.MaxAdministeredDate == nil || !cell.MaxAdministeredDate.Equal(acceptedAt) {
+				t.Fatalf("verified cohort max administered date = %v, want %v", cell.MaxAdministeredDate, acceptedAt)
+			}
 		}
 	})
 }
@@ -443,6 +507,20 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 	if verifiedCount+awaitingCount == 0 {
 		t.Logf("Note: shed dose matrix states not populated; check fixture expectations")
 	}
+
+	t.Run("CohortAdministeredRangePaginationPageBoundaryMultiPage", func(t *testing.T) {
+		if len(resp.DriveOptions) != 1 {
+			t.Fatalf("drive options = %d, want one batch-level row", len(resp.DriveOptions))
+		}
+		if resp.DriveOptions[0].TargetCount != 1 || resp.DriveOptions[0].DoseCount != 3 {
+			t.Fatalf("drive option counts = %d animals/%d doses, want 1/3", resp.DriveOptions[0].TargetCount, resp.DriveOptions[0].DoseCount)
+		}
+		for _, cell := range resp.CohortMatrix {
+			if cell.MinAdministeredDate != nil || cell.MaxAdministeredDate != nil {
+				t.Fatalf("recorded-only cohort has accepted administered range %v..%v", cell.MinAdministeredDate, cell.MaxAdministeredDate)
+			}
+		}
+	})
 }
 
 // TestVaccinationCommandBoardStatusBucketsMultiCompletion tests that an obligation with
@@ -858,7 +936,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 // many side, so a batch holding several obligations across several vaccines and several sheds must
 // still yield exactly ONE option. It also pins park scope, bounded output, the status passthrough,
 // and newest-window-first ordering.
-func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDate(t *testing.T) {
+func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDateAndDisplayMetadata(t *testing.T) {
 	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations across vaccines and sheds collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -887,8 +965,8 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		{obBatchPark2, cmdBoardShed2, "planned", "2026-07-22", "2026-07-29"},
 	} {
 		execProjectionSQL(t, ctx, pool, "obligation batch "+b.id,
-			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, window_start, window_end)
-			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::timestamptz, $6::timestamptz)`,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, window_start, window_end)
+			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::date, $5::timestamptz, $6::timestamptz)`,
 			b.id, cmdBoardTestTenant, b.scopeID, b.status, b.windowStart, b.windowEnd)
 	}
 
@@ -938,6 +1016,17 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 	}
 	if seen[obBatchPark2] != 0 {
 		t.Fatalf("ParkScope: park-2 batch leaked into park-1 scope (%d occurrences)", seen[obBatchPark2])
+	}
+	for _, option := range resp.DriveOptions {
+		if option.DriveBatchID != obBatchEarly {
+			continue
+		}
+		if option.TargetCount != 2 || option.DoseCount != 4 {
+			t.Fatalf("early option counts=%+v, want 2 distinct animals and 4 dose obligations", option)
+		}
+		if option.PlannedDate == nil || option.DriveName == "" || len(option.ShedNames) != 1 {
+			t.Fatalf("early option execution metadata=%+v, want planned date, drive name, and one whole shed", option)
+		}
 	}
 
 	// Pagination: bounded by construction, never an unbounded batch list.
@@ -1078,4 +1167,233 @@ func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucke
 	if park1PPR.Cohort.AnimalCount != 1 {
 		t.Fatalf("OneToMany: Park A PPR animal count = %d, want 1 (only goat1 carries PPR)", park1PPR.Cohort.AnimalCount)
 	}
+}
+
+// TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets reproduces the live
+// CEO board defect: two in-progress drive batches planned on the SAME business date, one park
+// fully submitted-but-unverified, the other with ZERO completions and its obligations sitting in
+// the sweeper's 'due' state.
+//
+// The KPI buckets are contractually disjoint AND must account for every target
+// (docs/architecture/operational-read-model-contract.md: "Grain and Buckets (disjoint unless
+// noted)" + Bucket Invariant "should usually be disjoint and sum to total_obligations"). Before
+// the fix the open-obligation predicate was `oi.status = 'scheduled'` only, so the 20 animals whose
+// obligations the sweeper had already flipped scheduled -> 'due' fell out of BOTH
+// overdue_not_given and scheduled_ahead, and out of the shed dose matrix entirely: half the herd
+// invisible to leadership.
+//
+// StatusMatrix EveryStatus StatusBuckets / DateShift ScheduledDate ExecutionDate / OneToMany.
+func TestVaccinationCommandBoardDueStatusEveryStatusBucketsExhaustiveOverTargets(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("LoadLocation(Asia/Kolkata) error = %v", err)
+	}
+
+	const (
+		tenantID          = "00000000-0000-4000-8000-0000000000d1"
+		parkSubmitted     = "70000000-0000-4000-8000-0000010000d1"
+		parkUntouched     = "70000000-0000-4000-8000-0000010000d2"
+		shedSubmitted     = "70000000-0000-4000-8000-0000020000d1"
+		shedUntouched     = "70000000-0000-4000-8000-0000020000d2"
+		protocolID        = "70000000-0000-4000-8000-0000060000d0"
+		protocolVersionID = "70000000-0000-4000-8000-0000060000d1"
+		ruleID            = "70000000-0000-4000-8000-0000070000d1"
+		batchSubmitted    = "70000000-0000-4000-8000-0000040000d1"
+		batchUntouched    = "70000000-0000-4000-8000-0000040000d2"
+		custodianPartyID  = "70000000-0000-4000-8000-0000090000d1"
+		herdPerPark       = 20
+	)
+
+	// Fixed business dates, IST. Both batches planned 2026-08-02 with a window running to
+	// 2026-08-05; the board is read on business day 2026-08-03. No now()±N anywhere.
+	plannedDate := time.Date(2026, 8, 2, 0, 0, 0, 0, ist)
+	asOf := time.Date(2026, 8, 3, 11, 0, 0, 0, ist)
+	administeredAt := time.Date(2026, 8, 2, 15, 0, 0, 0, ist)
+	windowEnd := time.Date(2026, 8, 5, 23, 59, 59, 0, ist)
+
+	execProjectionSQL(t, ctx, pool, "tenant",
+		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org D', 'active')`, tenantID)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1, 'org', 'Custodian D', 'active')`,
+		custodianPartyID)
+	execProjectionSQL(t, ctx, pool, "park submitted",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park Submitted', 'park', NULL, 'active')`, parkSubmitted, tenantID)
+	execProjectionSQL(t, ctx, pool, "park untouched",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Park Untouched', 'park', NULL, 'active')`, parkUntouched, tenantID)
+	execProjectionSQL(t, ctx, pool, "shed submitted",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed Submitted', 'shed', $3, 'active')`, shedSubmitted, tenantID, parkSubmitted)
+	execProjectionSQL(t, ctx, pool, "shed untouched",
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
+		 VALUES ($1, $2, 'Shed Untouched', 'shed', $3, 'active')`, shedUntouched, tenantID, parkUntouched)
+
+	execProjectionSQL(t, ctx, pool, "protocol definition",
+		`INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status)
+		 VALUES ($1, $2, 'vaccination_d', 'Vaccination D', 'vaccination', 'active')`, protocolID, tenantID)
+	execProjectionSQL(t, ctx, pool, "protocol version",
+		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl)
+		 VALUES ($1, $2, $3, 'tenant', 1, 'draft', '2026-01-01', '{}')`, protocolVersionID, tenantID, protocolID)
+	execProjectionSQL(t, ctx, pool, "rule",
+		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, trigger_type)
+		 VALUES ($1, $2, $3, 'ppr_adult', 'birth_age')`, ruleID, tenantID, protocolVersionID)
+	execProjectionSQL(t, ctx, pool, "publish protocol version",
+		`UPDATE protocol_versions SET status = 'published', published_at = now() WHERE protocol_version_id = $1`,
+		protocolVersionID)
+
+	// Both drive batches in_progress on the same planned date.
+	for _, b := range []struct{ id, name, park string }{
+		{batchSubmitted, "submitted", parkSubmitted},
+		{batchUntouched, "untouched", parkUntouched},
+	} {
+		execProjectionSQL(t, ctx, pool, "drive batch "+b.name,
+			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id,
+			   planned_date, window_start, window_end, status)
+			 VALUES ($1, $2, $3, 'park', $4, $5::date, $5::timestamptz, $6::timestamptz, 'in_progress')`,
+			b.id, tenantID, protocolVersionID, b.park, plannedDate, windowEnd)
+	}
+
+	// Seed both herds. Every obligation carries the sweeper's post-due state 'due' — this is the
+	// state the live board was reading as nothing at all.
+	seedHerd := func(parkLabel, shedID, batchID string, offset int, withCompletion bool) {
+		for i := 0; i < herdPerPark; i++ {
+			goatID := fmt.Sprintf("70000000-0000-4000-8000-0000300%05d", offset+i)
+			oblID := fmt.Sprintf("70000000-0000-4000-8000-0000800%05d", offset+i)
+			execProjectionSQL(t, ctx, pool, "goat "+parkLabel,
+				`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+				 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2024-01-01')`,
+				goatID, tenantID, shedID, custodianPartyID)
+			execProjectionSQL(t, ctx, pool, "obligation "+parkLabel,
+				`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type,
+				   scope_type, scope_id, rule_id, status, due_at, batch_id, idempotency_key)
+				 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, 'due', $7::timestamptz, $8, $9)`,
+				oblID, tenantID, protocolVersionID, goatID, shedID, ruleID, plannedDate, batchID,
+				fmt.Sprintf("obl-%s-%d", parkLabel, i))
+			if withCompletion {
+				execProjectionSQL(t, ctx, pool, "completion "+parkLabel,
+					`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at, idempotency_key)
+					 VALUES ($1, $2, $3, $4, 'recorded', $5::timestamptz, NULL, $6)`,
+					fmt.Sprintf("70000000-0000-4000-8000-0000900%05d", offset+i), tenantID, oblID, goatID, administeredAt,
+					fmt.Sprintf("comp-%s-%d", parkLabel, i))
+			}
+		}
+	}
+	seedHerd("submitted", shedSubmitted, batchSubmitted, 1, true)
+	seedHerd("untouched", shedUntouched, batchUntouched, 101, false)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	k := resp.KPIs
+	t.Logf("KPIs: targets=%d verified=%d awaiting=%d overdue=%d scheduledAhead=%d",
+		k.Targets, k.DosesVerified, k.AwaitingVerification, k.OverdueNotGiven, k.ScheduledAhead)
+
+	if k.Targets != 2*herdPerPark {
+		t.Fatalf("KPI targets = %d, want %d", k.Targets, 2*herdPerPark)
+	}
+	if k.AwaitingVerification != herdPerPark {
+		t.Fatalf("KPI awaiting_verification = %d, want %d (the submitted-but-unverified park)",
+			k.AwaitingVerification, herdPerPark)
+	}
+	// The untouched park's obligations were due on 2026-08-02, read on 2026-08-03: an earlier IST
+	// business day with zero completions is exactly overdue_not_given, regardless of the drive
+	// window still being open. 'due' is an open status, not a terminal one.
+	if k.OverdueNotGiven != herdPerPark {
+		t.Fatalf("KPI overdue_not_given = %d, want %d (the zero-completion park, due 2026-08-02, read 2026-08-03)",
+			k.OverdueNotGiven, herdPerPark)
+	}
+	if k.ScheduledAhead != 0 {
+		t.Fatalf("KPI scheduled_ahead = %d, want 0 (nothing is due on a later business day)", k.ScheduledAhead)
+	}
+
+	// StatusBuckets: disjoint AND exhaustive over targets.
+	sum := k.DosesVerified + k.AwaitingVerification + k.OverdueNotGiven + k.ScheduledAhead
+	if sum != k.Targets {
+		t.Fatalf("KPI buckets account for %d of %d targets — %d animals are invisible to leadership "+
+			"(verified=%d awaiting=%d overdue=%d scheduledAhead=%d)",
+			sum, k.Targets, k.Targets-sum, k.DosesVerified, k.AwaitingVerification,
+			k.OverdueNotGiven, k.ScheduledAhead)
+	}
+
+	t.Run("ShedDoseMatrixCrossSurfaceParityWithKPIs", func(t *testing.T) {
+		// Cross-surface count parity: the same business fact must show the same number on the
+		// shed dose matrix as in the KPI row. A 'due' obligation must not fall into the dropped
+		// 'other' state.
+		byState := map[string]int{}
+		for _, cell := range resp.ShedDoseMatrix {
+			byState[cell.State] += cell.AnimalCount
+		}
+		t.Logf("shed dose matrix by state: %v", byState)
+		if byState["awaiting"] != k.AwaitingVerification {
+			t.Fatalf("shed dose 'awaiting' = %d but KPI awaiting_verification = %d", byState["awaiting"], k.AwaitingVerification)
+		}
+		if byState["overdue"] != k.OverdueNotGiven {
+			t.Fatalf("shed dose 'overdue' = %d but KPI overdue_not_given = %d", byState["overdue"], k.OverdueNotGiven)
+		}
+		total := byState["verified"] + byState["awaiting"] + byState["overdue"] + byState["scheduled"]
+		if total != k.Targets {
+			t.Fatalf("shed dose matrix accounts for %d animals, KPI targets = %d", total, k.Targets)
+		}
+	})
+
+	t.Run("PaginationPageBoundaryMultiPageBucketsAreWholeFilterNotPageLocal", func(t *testing.T) {
+		// Pagination PageBoundary MultiPage: the KPI buckets are whole-filter aggregates over the
+		// 40-obligation set, never page-local. Re-reading the board must return the identical
+		// bucket row and a stably ordered, bounded shed dose matrix.
+		again, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+		if err != nil {
+			t.Fatalf("VaccinationCommandBoard(repeat) error = %v", err)
+		}
+		if again.KPIs != k {
+			t.Fatalf("KPI buckets changed across identical reads: %+v vs %+v", again.KPIs, k)
+		}
+		if len(again.ShedDoseMatrix) != len(resp.ShedDoseMatrix) {
+			t.Fatalf("shed dose row count changed across identical reads: %d vs %d",
+				len(again.ShedDoseMatrix), len(resp.ShedDoseMatrix))
+		}
+		for i := range again.ShedDoseMatrix {
+			a, b := again.ShedDoseMatrix[i], resp.ShedDoseMatrix[i]
+			if a.ShedName != b.ShedName || a.DoseRule != b.DoseRule || a.State != b.State || a.AnimalCount != b.AnimalCount {
+				t.Fatalf("shed dose ordering/counts unstable at row %d: %+v vs %+v", i, a, b)
+			}
+		}
+	})
+
+	t.Run("CohortMatrixSeparatesUntouchedHerdFromSubmittedHerd", func(t *testing.T) {
+		// OneToMany + CrossSurfaceParity: the buckets are obligation grain and both parks have one
+		// obligation per animal, so the matrix must place the UNTOUCHED herd in pending and the
+		// SUBMITTED herd in submitted, and each must reconcile with its KPI. Previously both herds
+		// landed in a single "pending" number, so a fully vaccinated park was indistinguishable from
+		// one nobody had touched.
+		pending, submitted, verified := 0, 0, 0
+		for _, cell := range resp.CohortMatrix {
+			pending += cell.PendingCount
+			submitted += cell.SubmittedCount
+			verified += cell.VerifiedCount
+		}
+		if pending != herdPerPark {
+			t.Fatalf("cohort matrix pending_count total = %d, want %d (only the untouched park still owes field work)",
+				pending, herdPerPark)
+		}
+		if submitted != herdPerPark || submitted != k.AwaitingVerification {
+			t.Fatalf("cohort matrix submitted_count total = %d, want %d and must equal KPI awaiting_verification = %d",
+				submitted, herdPerPark, k.AwaitingVerification)
+		}
+		if verified != k.DosesVerified {
+			t.Fatalf("cohort matrix verified_count total = %d but KPI doses_verified = %d", verified, k.DosesVerified)
+		}
+		if pending != k.OverdueNotGiven+k.ScheduledAhead {
+			t.Fatalf("cohort matrix pending_count total = %d but KPI overdue_not_given + scheduled_ahead = %d",
+				pending, k.OverdueNotGiven+k.ScheduledAhead)
+		}
+	})
 }

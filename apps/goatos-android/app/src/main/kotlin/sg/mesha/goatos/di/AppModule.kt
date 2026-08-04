@@ -6,6 +6,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import sg.mesha.goatos.core.permissions.areNotificationsEnabled
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,9 @@ import sg.mesha.goatos.core.data.DefaultAdherenceRepository
 import sg.mesha.goatos.core.data.DefaultBootstrapRepository
 import sg.mesha.goatos.core.data.DefaultCalendarRepository
 import sg.mesha.goatos.core.data.DefaultControlTowerRepository
+import sg.mesha.goatos.core.data.DefaultWeighingAlertsRepository
+import sg.mesha.goatos.core.data.WeighingAlertsRepository
+import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
 import sg.mesha.goatos.core.data.DefaultExecutionRepository
 import sg.mesha.goatos.core.data.DefaultTasksRepository
 import sg.mesha.goatos.core.data.DefaultVaccinationInsightsRepository
@@ -91,6 +95,9 @@ import sg.mesha.goatos.core.data.cache.ShedCompletionSummaryCacheDao
 import sg.mesha.goatos.core.data.cache.TaskDetailCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.FailureReportingOutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
 import sg.mesha.goatos.core.data.sync.AndroidConnectivityGate
 import sg.mesha.goatos.core.data.sync.AndroidConnectivitySource
 import sg.mesha.goatos.core.data.sync.ConnectivityGate
@@ -165,6 +172,10 @@ object AppModule {
 
     @Provides
     fun provideControlTowerCacheDao(db: GoatDatabase): ControlTowerCacheDao = db.controlTowerCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideWeighingAlertsCacheDao(db: GoatDatabase): WeighingAlertsCacheDao = db.weighingAlertsCacheDao()
 
     @Provides
     fun provideExecutionRowsCacheDao(db: GoatDatabase): ExecutionRowsCacheDao = db.executionRowsCacheDao()
@@ -290,11 +301,14 @@ object AppModule {
             tenantIdProvider = { BuildConfig.TENANT_ID },
             localeProvider = { sessionStore.cachedLanguage() },
             // traceparent stamping + method/route/status/duration reporting (docs/TELEMETRY.md).
-            // `enabled` mirrors TELEMETRY_ENABLED so a flavor without a confirmed Firebase
-            // project still gets traceparent propagation for backend correlation — only the
-            // Firebase Perf reporting half is gated (networkTelemetryReporter is already a Noop
-            // there; see TelemetryModule).
-            telemetryInterceptor = TelemetryInterceptor(enabled = BuildConfig.TELEMETRY_ENABLED, reporter = networkTelemetryReporter),
+            // Always ENABLED. The comment here previously described exactly this intent — "a
+            // flavor without a confirmed Firebase project still gets traceparent propagation
+            // for backend correlation, only the Firebase Perf reporting half is gated" — while
+            // the code passed TELEMETRY_ENABLED and so switched the WHOLE interceptor off,
+            // taking traceparent correlation and every API-failure report with it. Gating now
+            // lives where the comment always said it did: on the reporter's Firebase Perf
+            // delegate, inside TelemetryModule.
+            telemetryInterceptor = TelemetryInterceptor(enabled = true, reporter = networkTelemetryReporter),
         )
 
     @Provides
@@ -303,6 +317,7 @@ object AppModule {
         api: AppApi,
         cache: BootstrapCache,
         deviceStore: DeviceStore,
+        @ApplicationContext context: Context,
     ): BootstrapRepository =
         DefaultBootstrapRepository(
             api = api,
@@ -310,6 +325,10 @@ object AppModule {
             deviceStore = deviceStore,
             appVersion = BuildConfig.VERSION_NAME,
             osVersion = Build.VERSION.RELEASE.orEmpty(),
+            // Read at report time, not captured once: someone can switch notifications off in
+            // system settings long after this repository was constructed, and the heartbeat that
+            // follows must carry the CURRENT answer.
+            notificationsEnabled = { areNotificationsEnabled(context) },
         )
 
     @Provides
@@ -423,6 +442,11 @@ object AppModule {
 
     @Provides
     @Singleton
+    fun provideWeighingAlertsRepository(api: AppApi, dao: WeighingAlertsCacheDao): WeighingAlertsRepository =
+        DefaultWeighingAlertsRepository(api, dao)
+
+    @Provides
+    @Singleton
     fun provideTasksRepository(
         api: AppApi,
         dao: TaskDetailCacheDao,
@@ -472,6 +496,7 @@ object AppModule {
         rosterDao = database.weighingRosterDao(),
         observationDao = database.weighingObservationDao(),
         shedObservationDao = database.weighingShedObservationDao(),
+        database = database,
         syncRepository = syncRepository,
         appScope = appScope,
     )
@@ -553,12 +578,21 @@ object AppModule {
     @Singleton
     fun provideAppScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Single binding for the active flavor's API base URL — see [ApiBaseUrl]. */
     @Provides
     @Singleton
-    fun provideConnectivityGate(@ApplicationContext context: Context): ConnectivityGate =
+    @ApiBaseUrl
+    fun provideApiBaseUrl(): String = BuildConfig.API_BASE_URL
+
+    @Provides
+    @Singleton
+    fun provideConnectivityGate(
+        @ApplicationContext context: Context,
+        @ApiBaseUrl apiBaseUrl: String,
+    ): ConnectivityGate =
         LocalBackendConnectivityGate(
             delegate = AndroidConnectivityGate(context),
-            apiBaseUrl = BuildConfig.API_BASE_URL,
+            apiBaseUrl = apiBaseUrl,
         )
 
     @Provides
@@ -589,6 +623,7 @@ object AppModule {
         outboxWiper: OutboxWiper,
         syncJobsCanceller: SyncJobsCanceller,
         pushLogoutCleanup: PushLogoutCleanup,
+        feedCompletionLocalStore: FeedCompletionLocalStore,
     ): LogoutCoordinator = LogoutCoordinator(
         api = api,
         deviceStore = deviceStore,
@@ -597,6 +632,7 @@ object AppModule {
         outboxWiper = outboxWiper,
         syncJobsCanceller = syncJobsCanceller,
         clearPushAndAnalyticsIdentity = pushLogoutCleanup::clear,
+        feedCompletionLocalStore = feedCompletionLocalStore,
     )
 
     @Provides
@@ -607,6 +643,7 @@ object AppModule {
         connectivityGate: ConnectivityGate,
         retryScheduler: SyncRetryScheduler,
         database: GoatDatabase,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncEngine = SyncEngine(
         store = store,
         api = api,
@@ -615,6 +652,24 @@ object AppModule {
         scannedGoatDao = database.scannedGoatDao(),
         weighingObservationDao = database.weighingObservationDao(),
         weighingShedObservationDao = database.weighingShedObservationDao(),
+        telemetry = outboxTelemetry,
+    )
+
+    /**
+     * Queue-lifecycle visibility (W-23). Bound unconditionally — unlike the network reporter
+     * there is no vendor-gated variant to choose between: the logcat half must work on EVERY
+     * flavor (that is the half whose absence made a stuck upload undiagnosable on-device), and
+     * the Crashlytics/Analytics halves already degrade to no-ops when their seams are the
+     * Noop implementations.
+     */
+    @Provides
+    @Singleton
+    fun provideOutboxTelemetryReporter(
+        crashReporter: CrashReporter,
+        analytics: AnalyticsPort,
+    ): OutboxTelemetryReporter = FailureReportingOutboxTelemetryReporter(
+        crashReporter = crashReporter,
+        analytics = analytics,
     )
 
     // Drive/Photos-style background upload foreground service (MOB-002 §3,
@@ -639,12 +694,14 @@ object AppModule {
         connectivityGate: ConnectivityGate,
         appScope: CoroutineScope,
         foregroundSyncController: ForegroundSyncController,
+        outboxTelemetry: OutboxTelemetryReporter,
     ): SyncRepository = DefaultSyncRepository(
         store = store,
         engine = engine,
         connectivityGate = connectivityGate,
         appScope = appScope,
         foregroundSyncController = foregroundSyncController,
+        telemetry = outboxTelemetry,
     )
 
     // Reads back the concrete DefaultSyncRepository (same @Singleton instance returned

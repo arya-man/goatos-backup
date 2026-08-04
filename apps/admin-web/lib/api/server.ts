@@ -94,13 +94,6 @@ export type UpdateVaccinationOperatorAssignmentConfigRequest = AppApiComponents[
 export type UpdateVaccinationCapacityConfigRequest = AppApiComponents["schemas"]["UpdateVaccinationCapacityConfigRequest"];
 export type VaccinationDriveAssignmentRow = AppApiComponents["schemas"]["VaccinationDriveAssignmentRow"];
 export type VaccinationDriveAssignmentResponse = AppApiComponents["schemas"]["VaccinationDriveAssignmentResponse"];
-export type WeighingCampaign = AppApiComponents["schemas"]["WeighingCampaign"];
-export type WeighingCampaignShed = AppApiComponents["schemas"]["WeighingCampaignShed"];
-export type WeighingCampaignListResponse = AppApiComponents["schemas"]["WeighingCampaignListResponse"];
-export type WeighingPlannerCatalogResponse = AppApiComponents["schemas"]["WeighingPlannerCatalogResponse"];
-export type WeighingPlannerPark = AppApiComponents["schemas"]["WeighingPlannerPark"];
-export type CreateWeighingCampaignRequest = AppApiComponents["schemas"]["CreateWeighingCampaignRequest"];
-export type WeighingCampaignResponse = AppApiComponents["schemas"]["WeighingCampaignResponse"];
 
 // CEO vaccination command board read model.
 export type VaccinationCommandBoardResponse = AppApiComponents["schemas"]["VaccinationCommandBoardResponse"];
@@ -1122,93 +1115,6 @@ export async function getVaccinationDriveAssignments(
         query: compactQuery({ park_id: params.parkId, year: params.year, month: params.month, limit: params.limit }),
       }),
     ),
-  );
-}
-
-export async function getWeighingCampaigns(
-  params: { cursor?: string; limit?: number } = {},
-): Promise<ApiResult<WeighingCampaignListResponse>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    withApiTimeout(2500, (signal) =>
-      client.request<WeighingCampaignListResponse>("/weighing/campaigns", {
-        cache: "no-store",
-        signal,
-        query: compactQuery({ cursor: params.cursor, limit: params.limit }),
-      }),
-    ),
-  );
-}
-
-export async function getWeighingPlannerCatalog(
-  periodStartDate: string,
-): Promise<ApiResult<WeighingPlannerCatalogResponse>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    withApiTimeout(2500, (signal) =>
-      client.request<WeighingPlannerCatalogResponse>("/app/weighing/planner/catalog", {
-        cache: "no-store",
-        signal,
-        query: compactQuery({ period_start_date: periodStartDate }),
-      }),
-    ),
-  );
-}
-
-export async function createWeighingCampaign(
-  body: CreateWeighingCampaignRequest,
-  idempotencyKey = `weighing-campaign-create-${randomUUID()}`,
-): Promise<ApiResult<WeighingCampaignResponse>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  return request(() =>
-    client.request<WeighingCampaignResponse>("/weighing/campaigns", {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body,
-    }),
-  );
-}
-
-export async function updateWeighingCampaign(
-  campaignId: string,
-  body: CreateWeighingCampaignRequest,
-  idempotencyKey = `weighing-campaign-update-${campaignId}-${randomUUID()}`,
-): Promise<ApiResult<WeighingCampaignResponse>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/weighing/campaigns/${campaignId}` as keyof AppApiPaths & string;
-  return request(() =>
-    client.request<WeighingCampaignResponse>(path, {
-      method: "PUT",
-      cache: "no-store",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body,
-    }),
-  );
-}
-
-export async function publishWeighingCampaign(
-  campaignId: string,
-  idempotencyKey = `weighing-campaign-publish-${campaignId}-${randomUUID()}`,
-): Promise<ApiResult<WeighingCampaignResponse>> {
-  const config = await getServerConfig(true);
-  if (!config.ok) return config;
-  const client = createAppApiClient(apiClientOptions(config.data));
-  const path = `/weighing/campaigns/${campaignId}/publish` as keyof AppApiPaths & string;
-  return request(() =>
-    client.request<WeighingCampaignResponse>(path, {
-      method: "POST",
-      cache: "no-store",
-      headers: { "Idempotency-Key": idempotencyKey },
-    }),
   );
 }
 

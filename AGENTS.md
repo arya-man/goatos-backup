@@ -33,11 +33,64 @@ Docker DB container: goatos-phone-qa
 Runbook: docs/runbooks/phone-qa-throwaway-rbac.md
 ```
 
-The phone still reaches the laptop API through `adb reverse tcp:8080 tcp:8080`.
-Only the backend process behind `127.0.0.1:8080` changes database target. The
-fixture intentionally maps five physical vaccination RFIDs into ten goat
+**HARD RULE — phone/mobile QA must NEVER use or repoint the default ports.**
+`127.0.0.1:3300` (admin-web), `127.0.0.1:8080` (API), and `127.0.0.1:5433`
+(database) carry the maintainer's LOCAL REPLICA OF STG DATA. Phone QA is mock
+scan data (the throwaway 20-animal seed). Never start, stop, kill, restart, or
+repoint anything on `3300`, `8080`, or `5433` for mobile testing, and never free
+a default port by killing whatever holds it — parallel agent sessions (Claude
+and Codex) share this laptop, and the process you kill is another session's
+stack.
+
+Run the phone-QA API on a NON-DEFAULT port and remap the tunnel instead. The
+device always calls its own `localhost:8080`, so only the host side moves — no
+APK rebuild and no token re-mint are required:
+
+```bash
+# phone-QA API on 8081 -> throwaway DB 127.0.0.1:15544
+# set GOATOS_HTTP_ADDR=127.0.0.1:8081 for that backend process
+adb -s <serial> reverse tcp:8080 tcp:8081
+```
+
+This supersedes any earlier wording suggesting the backend behind `8080` may
+swap its database target. Taking `8080` for phone QA caused a real incident
+(2026-08-03): the maintainer's `5433`-backed API was killed to free the port,
+`8080` was pointed at the throwaway `15544` database, and admin-web then showed
+the 20-animal mock set in place of the 324 CPT adults — while the phone's
+`adb reverse` still aimed at `8080`, one port flip away from writing mobile scan
+data into the stg replica.
+
+The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
+
+## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
+
+Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
+The 2026-08-03 deadlock that cost 90 minutes was agents **killing each other's
+workers** and each restarting — not contention over a shared resource.
+
+Rules:
+
+1. **Build when you need to.** Do not serialize, do not ask permission, do not wait
+   for someone else's build to finish. Use `--max-workers=1` so a parallel build does
+   not eat the machine.
+2. **NEVER kill another process's Gradle workers or daemons.** `pkill -f
+   GradleWorkerMain` is banned unless you started that build yourself and it is dead.
+   Reap only YOUR OWN orphans, after your own killed build.
+3. **NEVER wait-loop on a resource.** A wait loop that outlives its condition is worse
+   than a failure: on 2026-08-03 two agents sat waiting on ORPHANED workers from a
+   build that had already died, so the wait could never end. If something you need is
+   busy, do the work that does not need it and report the blockage.
+4. **Surface a genuine block to the maintainer immediately** — name the resource and
+   the holder so they can decide. Never absorb it into a status line as "still
+   running". A long-running agent card may also be STALE: verify against the process
+   table or the branch, not the card.
+5. **Exit 137 from Gradle is an OOM SIGKILL** from memory pressure, not a test failure.
+   Re-run once with `--max-workers=1`; if it recurs, report it rather than looping.
+
+Generalizes to any shared thing (Docker, a port, a device, the local stack): parallel
+use is fine, killing someone else's is not, and waiting forever is never the answer.
 
 ## Fast Lane for Tiny Fixes
 
@@ -148,6 +201,65 @@ Do not ask whether to use GitHub Actions, PR merge, or force-push `stg` unless
 the user explicitly asks to change deployment architecture. The machine-readable
 form of this contract lives at `context/deploy-contract.json`.
 
+## Mandatory Android STG APK Source Traceability
+
+Every Android STG APK uploaded to Firebase App Distribution must be traceable to
+the exact source revision that produced it.
+
+- Use only `:app:appDistributionUploadStgRelease` for Firebase App Distribution
+  Android STG uploads. Do not upload ad-hoc APK files manually from the Firebase
+  console, `firebase appdistribution:distribute`, or any other path unless the
+  maintainer explicitly asks for a one-off rescue build and the release notes
+  still record the source label.
+- The distributed APK must include/bake the source commit and tag metadata
+  (`SOURCE_COMMIT`, `SOURCE_TAG`, `SOURCE_BRANCH`, `SOURCE_LABEL`, and the
+  matching string resources) and the Firebase release notes must carry the same
+  source label.
+- Never upload from a dirty worktree. The only exception is an explicit
+  throwaway/debug build using `-PallowDirtyFirebaseDistribution=true`; label it
+  as throwaway in the release notes and do not use it to answer whether a
+  production-like phone APK contains a feature.
+- When answering "does the latest Firebase APK have feature X?", first verify
+  and record the installed/Firebase release source label, then compare that
+  commit/tag against the commit that introduced the feature. If the source label
+  cannot be verified, say that clearly instead of inferring from local `HEAD`,
+  `origin/main`, or memory.
+
+## WEIGHING IS SCAN-AND-SUBMIT. Nothing else. (Claude AND Codex, every session)
+
+Maintainer statement, 2026-08-03. Sessions keep re-deriving weighing rules that do
+not exist, and the maintainer keeps re-explaining them. This is the WHOLE feature:
+
+```
+CEO assigns sheds to an operator or a director (the Growth Director executes too)
+individual  → scan RFID, enter weight, record video — per animal
+lump-sum    → total weight, animal count, video(s) — per shed
+submit
+```
+
+**The ONLY business rule: an animal cannot be scanned twice in the same bucket before
+submit.**
+
+There is **NO** shed↔RFID validation (a scanned tag is stored verbatim and is never
+checked against a shed), **NO** roster / expected animal count / denominator /
+progress percentage, **NO** herd, goat, clinical or lifecycle lookup, **NO** vaccine,
+protocol or obligation rules, and **NO** "shed is empty" concept — free-flow means the
+system cannot know what is in a shed and must not try to.
+
+**Do not invent problems that cannot exist in this model.** Two were raised and killed
+on 2026-08-03: an "empty shed outcome" (impossible — nothing knows a shed is empty),
+and the per-animal verifier queue called a grain bug (one video per animal means one
+review per animal; the grain follows the EVIDENCE — ban B-5).
+
+Legitimate weighing work is **plumbing, never rules**: do writes reach the server, is
+evidence reviewable, are failures visible, do screens show honest numbers.
+
+Machine-enforced by `make weighing-free-flow-guard` (in `make guardrails` and
+`make ci-local`), which blocks a herd/goat/vaccination join on the write path, a
+roster gate, a clinical-state read, and an expected-animal denominator in weighing UI.
+Canonical prose: `docs/features/weighing/TRD.md` → "What weighing IS"; bans and their
+history: `context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`.
+
 ## Business and medical rule changes (maintainer lock)
 
 When the maintainer states a **new working rule, condition, timing, or workflow**
@@ -187,11 +299,125 @@ completion is a broken database, not a warning. Do not report future drives from
 `vaccination_drive_assignments` alone; first audit missing required obligations
 against `protocol_rules` and accepted history, especially adult ET+TT dose 2.
 
+Confirmed module ownership and weighing planning authority (maintainer decision
+2026-08-01): each operational module has ONE accountable director, and a module's
+verification notification must reach that director in that module's own wording -- never
+another module's recipients or copy. Vaccination -> `pc_director`. Weighing ->
+`growth_director`. Feed -> `feed_director`. Counts -> `health_director`, which is a DISTINCT
+role from `pc_director` (preventive care) and must not be merged with it. The verifier is
+TENANT-level: one verifier reviews proof videos across all parks and sheds. Feed ownership is
+documented (`wiki/Handbooks/Feed_Director.pdf`, Role Purpose + M1 daily video double
+verification). Counts ownership is a maintainer decision rather than a documented one: no
+counting department or counting handbook exists in any source (the live `Counting DB` records
+only a "Staff (Counted)" person with no role, no verifier and no approver, and
+`Health_Director.pdf` never mentions count, census, headcount or shifting). The routing SHAPE
+is well supported either way -- both handbooks carry the same "Meet verifier every day" /
+Video Verification Team duty the other directors have.
+
+COUNTS IS AN OFF FEATURE and stays that way. `health_director` is created and recorded as
+the counts owner so the module has a declared owner when it is switched on; the role exists
+ahead of the feature deliberately.
+
+Note precisely HOW counts is off, because it is easy to switch on by accident: the module is
+registered `moduleStatusAvailable` in `workforce/app/bootstrap_copy.go` and is held back only
+by `counts.read` / `counts.write`, which today only `ceo_internal` holds. Granting those to
+`health_director` would light up the Counts nav for him and thereby ENABLE the feature. So
+`health_director` gets counts OWNERSHIP (it is the leadership recipient for a counts/shifting
+proof, replacing the silent vaccination default) but NOT `counts.read`/`counts.write` until
+the feature is deliberately turned on. Ownership and access are separate decisions here.
+
+Separately: PLANNING a weighing task is CEO-only. `growth_director` monitors weighing across
+both parks, oversees the operators and may execute, but does not raise the task; the two
+planner reads that feed the create wizard (`/app/weighing/planner/catalog` and
+`.../parks/{park_id}/buckets`) are planning surfaces and carry `weighing.plan` despite being
+GETs.
+
+Enforcement note: a module that enqueues a verification item MUST have an entry in
+`pendingModuleProfiles` (`backend/internal/notificationbridge/verification_notify_consumer.go`)
+and at least one `verify` duty holder in `position_module_duties`. There is deliberately no
+fallback profile -- an unclaimed module notifies nobody loudly rather than the wrong people
+quietly, which is how weighing proofs reached the vaccination verifier and PC Director in
+vaccination wording. Both conditions are asserted by tests; neither is a comment.
+
 Confirmed movement rule (maintainer decision 2026-07-19): goats never move
 between parks — shed moves exist only within one park; leaving a park is a
 terminal transferred/sold exit, never a move. Initial placement is exempt. See
 `context/source-findings/goats-and-parks-source-findings.md` → Movement
 Semantics.
+
+Weighing vocabulary (maintainer decision 2026-08-03): the weighing workflow has
+exactly two verbs — CLOSE a task, or REOPEN it if it is already closed. There is
+no third verb, and no force, override or skip variant of close.
+
+THE CLOSE GATE IS UNCONDITIONAL. A bucket cannot close while verification is
+pending, and there is no caller-supplied way past that. If a bucket will not
+close, the answer is to RESOLVE the verification — get the verdict — never to add
+a path around the gate. Machine-enforced by
+`tools/agent-hooks/check-weighing-close-gate-guard.mjs`; see
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` → D-5.
+
+Confirmed "You" / profile nav placement rule (maintainer decision 2026-08-03,
+stated THREE times and implemented wrong twice before this — read it exactly):
+
+> **"You" belongs in the NAVIGATION DRAWER for any principal with 2 or more
+> features/modules — CEO, leadership, and a verifier who verifies more than one
+> feature. It must NOT be sent as a bottom-bar tab in every feature's bar.**
+
+- **2+ modules** → "You" appears ONCE, in the drawer. Never in the per-module
+  bottom bar. Repeating it in vaccination's bar, then weighing's bar, then every
+  future verifiable feature's bar is the exact defect being banned.
+- **Exactly 1 module** → that principal has no meaningful drawer, so "You" stays
+  reachable in their bottom bar.
+- "You" must ALWAYS be reachable. Deleting it outright is a regression (that was
+  the first wrong implementation).
+- This is the same shape as the existing nav-chrome rule: drawer/sidebar when
+  there are 2+ modules, bottom bar when there is one. See
+  `docs/decisions/role-module-nav-composition.md`.
+
+Two traps recorded so the next author does not repeat them:
+1. `shared_key: "you"` does NOT enforce this. `shared_key` has exactly one
+   reader, `composeNavigationFromModules`; `verificationModuleForFeature` builds
+   its nav items by hand and never calls it, and `visibleNavigationFor` returns
+   those items directly. Setting it there was mutation-tested — flipping it back
+   to `""` passed the entire suite and changed no served payload. Any mechanism
+   used for this rule MUST be mutation-tested: break it deliberately and confirm
+   a test goes red.
+2. The verifier alerts tab is titled just **"Alerts"** in every locale. The alerts
+   stay feature-scoped through `?category=` on the href
+   (`vaccination_proof`, `weighing_proof`, `shifting_move`); only the LABEL
+   stopped naming the module the verifier is already inside. The per-feature
+   label keys (`nav.alerts.vaccination` etc.) and their resolver are deleted —
+   do not reintroduce them. The Alerts SCREEN title is likewise just "Alerts";
+   it was previously hardcoded to "Vaccination alerts" in
+   `AlertsViewModel.kt`, which is also a violation of the backend-owns-labels
+   rule.
+
+Confirmed vaccination progress rule (maintainer decision 2026-08-03): drive
+progress is **FIELD WORK DONE = completed + submitted**, never completed-only.
+The operator vaccinated the animal, so it counts: a drive whose animals are all
+vaccinated and whose proofs are submitted reads **100%** and **"4 of 4 sheds
+done"**, and the outstanding video review is carried by the
+`verification_pending` status and its chip — never by holding the ring below
+100%. The backend owns the single number (`progress_basis`,
+`progress_completed`, `progress_total`, `progress_pct`, and `sheds_completed`);
+admin-web and Android render it verbatim and must not derive their own.
+Pinned by `TestDriveSummaryEmitsBackendOwnedProgressContract` and
+`TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred`.
+
+**Why this is a lock, not a preference:** an earlier session found admin-web and
+Android showing different completion numbers for the same drive and resolved the
+parity defect by adopting the stricter surface — making the numerator
+completed-only. That silently redefined "done" as "verified" and showed an
+operator who had finished every animal in every shed a 0% ring with "0 of 4
+sheds done". The choice was then written into two tests and a code comment, so it
+read to every later author as intentional. Do NOT revert to completed-only.
+
+**General rule this establishes:** a cross-surface disagreement about a business
+number is a MAINTAINER QUESTION, not an implementation detail. Both surfaces may
+be wrong, and picking the stricter one is still a product decision. When two
+surfaces disagree about what a count means, stop and surface the conflict per the
+maintainer-lock rule above; fix parity by making the backend own one number, not
+by choosing a client's semantics.
 
 Confirmed shifting stage-selection and Vaccination handoff rule (maintainer decision
 2026-08-03, SUPERSEDING the 2026-07-29 three-mode operator chooser, which in turn
@@ -856,6 +1082,15 @@ Do:
   partition strings as separate physical shed buildings. Drive planning and UI
   must show physical shed -> partition -> operator assignment, with capacity
   counted as unique animals per assigned operator/day.
+- Adult animals with no accepted history for a vaccine automatically join that
+  vaccine's normal adult drive. Do not require or render a separate manual
+  campaign; `repeat` versus `initial/catch-up` is per-animal dose status inside
+  the same logical drive. Overlapping repeat safe windows must coalesce on their
+  latest shared ready date, and that date applies to both history-backed and
+  blank-history obligations. A physical shed at or below the full per-operator cap
+  is indivisible and must carry to the next operator-day when residual capacity
+  is insufficient. Verification/director closure timestamps never replace the
+  operator submission's `administered_at` medical anchor.
 - Vaccination drive batching is park-level, animal-first, and safe-window-bound.
   Shed count is never a merge constraint; it is display/proof detail. A 1-2
   animal drive is valid only after proving no compatible same-park animal group
@@ -993,6 +1228,18 @@ Do:
   `Blue Tongue`, and `Goat Pox`.
   `make ui-vaccine-labels-guard` is part of the standard guardrail/local-CI
   path and must fail any direct UI leak.
+- **Maintainer decision, 2026-08-02:** every user-facing notification (push,
+  in-app, banner, or leadership escalation — vaccination, weighing, feed, and
+  counts alike) must be MEANINGFUL, never abstract. It must carry park name,
+  shed/partition label, vaccine/work-item name in human form, animal/shed
+  counts, and a farm-readable due date in IST; a leadership escalation must
+  name which sheds are outstanding, not just report a count. Prevents the
+  count-only-abstract-notification defect (e.g. "Vaccination(s) due soon · 3"
+  telling nobody which park/shed/vaccine/date). Enforced by
+  `make notification-specificity-guard`
+  (`tools/agent-hooks/check-notification-specificity.mjs`), which composes
+  with — and does not duplicate — `ui-vaccine-labels-guard`. See
+  `docs/decisions/2026-08-02-meaningful-notification-copy.md`.
 - Vaccination proof grain is SOP/backend-owned. Do not hardcode "per goat",
   "shed level", "camera only", or "gallery allowed" in admin-web or Android.
   Backend SOP/form DSL/proof policy decides the proof mode, subject scope,
@@ -1327,6 +1574,11 @@ Do:
   disguised as modal sheets. Machine-blocked by
   `make android-navigation-stack-guard`; canonical decision:
   `docs/decisions/android-navigation-stack.md`.
+  Placement is a separate invariant: a FEATURE ENTRY POINT (alerts, inbox,
+  videos, profile, a module switch) belongs in the bottom bar or the module
+  drawer and NEVER in the top-right app bar, which carries only actions on the
+  current screen. Machine-blocked by `make nav-entry-point-placement-guard`;
+  canonical decision: `docs/decisions/nav-entry-point-placement.md`.
   The retention twin is memory, not fetch size: an in-heap cache/accumulator that
   grows with no cap/TTL/eviction, or a DAO reading a whole table into memory
   (`observeAll` `SELECT *`), OOMs the phone at scale (fixed in `7058fff2` +

@@ -173,6 +173,35 @@ two omissions, and that every module's landing href is among its permitted items
   `permissions.routePermissions`. A page hidden in nav but reachable by URL is not
   access control.
 
+## Where "You" lives (maintainer ruling 2026-08-03)
+
+> "You option should be on navigation bar for CEO and verifier and whoever got >=2
+> features, instead of sending that in bottom bar for every feature."
+
+"You" is the person, not a feature, so it must appear exactly **once** — not once per
+module the principal happens to hold. It rides the SAME `>=2 available modules` threshold
+this ADR already uses to decide whether the drawer exists at all:
+
+| composed modules | `nav_chrome` | where "You" is served |
+|---|---|---|
+| **>= 2** (CEO, leadership, a verifier verifying vaccination AND weighing) | `expanded` | the **drawer**, once. Stripped from `visible_navigation` **and from every module's `nav_items`**, so switching modules cannot resurrect a second one. Android's `ModuleDrawer` footer (`GoatOsShell.kt`) already renders the account row beside Sign out, so no new bootstrap field was needed. |
+| **exactly 1** (single-feature operator or single-feature verifier) | `minimal` | the **bottom bar**. There is no drawer, so the bar is their only route to `/you`. |
+
+Decided in ONE place: `applyProfileEntryPlacement` (`workforce/app/service.go`), called
+from `Bootstrap` and keyed off `navChrome`, never off a role. **There is no verifier
+exception** — the carve-out that used to sit there is what shipped You in the drawer
+footer *and* in every verify feature's bottom bar.
+
+"You" must ALWAYS be reachable: a principal with neither a bar entry nor a drawer is a
+regression. That is asserted as an invariant over every principal shape in
+`TestProfileEntryPlacementFollowsModuleCount`; `TestProfileEntryPlacementIsLoadBearing`
+exercises the rule directly so a regression cannot hide behind the enumerated shapes.
+
+Known gap (not a blocker, and not what was asked for): the drawer's account row renders
+the client's own `nav_you` string rather than a payload label, so unlike bar labels it is
+not backend-owned. Closing that means a dedicated `profile_item` field on `/app/bootstrap`
+carried through OpenAPI, the TS client, the Android DTO and the renderer.
+
 ## Guard
 `make nav-composition-guard` (`tools/agent-hooks/check-nav-composition.mjs`) fails
 on a NEW hardcoded per-role/per-module nav template. The previously-baselined

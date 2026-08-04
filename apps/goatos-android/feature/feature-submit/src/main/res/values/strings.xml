@@ -48,4 +48,10 @@
     <string name="submit_sync_load_failed">Couldn\'t load your task. Tap retry.</string>
     <string name="submit_sync_queue_failed">Couldn\'t queue the submission — tap retry.</string>
     <string name="submit_sync_retry_failed">Couldn\'t retry — tap retry again.</string>
+
+    <!-- Snackbar messages for submit outcomes -->
+    <string name="submit_snackbar_queued">Submission queued — will sync when online</string>
+    <string name="submit_snackbar_succeeded">Submission synced · record on file</string>
+    <string name="submit_snackbar_conflict">Server rejected the submission</string>
+    <string name="submit_snackbar_dead_letter">Submission failed — will retry when online</string>
 </resources>

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -263,6 +264,18 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 				}
 				return fmt.Errorf("migration %s was already applied with checksum %s, current %s", migration.Version, appliedChecksum, migration.Checksum)
 			}
+			// Guard against BUG-M11(b): `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+			// matches by name only. If a prior run of this migration aborted
+			// mid-build (killed process, deploy timeout, etc.), it can leave an
+			// INVALID index under that name; a later run that reaches this
+			// checksum-matched branch would otherwise skip re-checking it forever,
+			// silently recording the migration as applied with zero protection
+			// from the index it was supposed to add. Re-validate (and, if the
+			// migration's SQL is idempotent-safe to rerun, repair) every time we
+			// see this migration again, not just the first time it is applied.
+			if err := ensureConcurrentIndexesValid(ctx, conn, migration, log); err != nil {
+				return err
+			}
 			continue
 		}
 		if dryRun {
@@ -273,6 +286,9 @@ CREATE TABLE IF NOT EXISTS public.goatos_schema_migrations (
 		if migration.NoTx {
 			if err := execMigrationSQL(ctx, conn, migration.SQL); err != nil {
 				return fmt.Errorf("apply migration %s: %w", migration.Version, err)
+			}
+			if err := ensureConcurrentIndexesValid(ctx, conn, migration, log); err != nil {
+				return err
 			}
 			if err := recordMigration(ctx, conn, migration); err != nil {
 				return err
@@ -370,6 +386,229 @@ func appliedMigrationChecksum(ctx context.Context, conn *pgxpool.Conn, version s
 		return "", fmt.Errorf("check migration %s: %w", version, err)
 	}
 	return checksum, nil
+}
+
+// concurrentIndexNameRe extracts the target index name from
+// `CREATE [UNIQUE] INDEX CONCURRENTLY [IF NOT EXISTS] <name> ON ...`. It
+// intentionally does not attempt to parse `DROP INDEX CONCURRENTLY`: a
+// missing-after-drop index is a normal, already-visible failure (the DROP or
+// a subsequent statement errors), not the silent-skip failure mode this guard
+// exists for.
+var concurrentIndexNameRe = regexp.MustCompile(`(?is)CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?("?[a-zA-Z_][\w]*"?)`)
+
+// blank replaces a byte of blanked-out text with a space, preserving newlines
+// so line-oriented reading of the result still lines up with the source.
+func blank(c byte) byte {
+	if c == '\n' {
+		return c
+	}
+	return ' '
+}
+
+// stripSQLNoise removes `-- line` and `/* block */` comments so the
+// index-name regex cannot match PROSE. The 000001 baseline contains the line
+//
+//	-- Lock-safe on hot table outbox_messages: CREATE UNIQUE INDEX CONCURRENTLY with the NEW predicate
+//
+// which matched as an index literally named "with". No such index exists, so
+// ensureConcurrentIndexesValid's repair path fired and re-ran the whole
+// baseline, which then died on `CREATE SCHEMA analytics` already existing --
+// i.e. `migrate up` could not bring up ANY fresh database. Six migrations in
+// this repo carry such prose.
+//
+// It blanks three kinds of non-DDL text, leaving only executable statement
+// text for the regex to match:
+//
+//   - `--` line and `/* */` block comments (removed entirely);
+//   - the interior of single-quoted string literals (blanked, delimiters kept)
+//     -- prose in a literal must not be read as an index name either;
+//   - the interior of dollar-quoted `$tag$ ... $tag$` bodies (blanked) --
+//     CREATE INDEX CONCURRENTLY cannot run inside a function or DO block, so
+//     nothing there is ever a real target.
+//
+// Double-quoted identifiers are copied through byte-for-byte, because THEY are
+// the index names. Statement text is never altered, so this cannot mangle a
+// real name.
+//
+// Dollar-tag tracking (the same lexical state splitSQLStatements keeps) is
+// load-bearing: these migrations use `$$` bodies heavily and such a body may
+// contain an apostrophe that is NOT a string delimiter (`$$ ... can't ... $$`).
+// Without it that apostrophe would open a phantom string literal and suppress
+// comment stripping for the rest of the file, reintroducing this bug.
+func stripSQLNoise(sql string) string {
+	var b strings.Builder
+	b.Grow(len(sql))
+	var dollarTag string
+	inLine, inBlock, inSingle, inDouble := false, false, false, false
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		next := byte(0)
+		if i+1 < len(sql) {
+			next = sql[i+1]
+		}
+		switch {
+		case inLine:
+			if c == '\n' {
+				inLine = false
+				b.WriteByte(c)
+			}
+		case inBlock:
+			if c == '*' && next == '/' {
+				inBlock = false
+				i++
+			}
+		case dollarTag != "":
+			if strings.HasPrefix(sql[i:], dollarTag) {
+				b.WriteString(dollarTag)
+				i += len(dollarTag) - 1
+				dollarTag = ""
+				break
+			}
+			b.WriteByte(blank(c))
+		case inSingle:
+			if c == '\'' {
+				inSingle = false
+				b.WriteByte(c)
+				break
+			}
+			b.WriteByte(blank(c))
+		case inDouble:
+			b.WriteByte(c)
+			if c == '"' {
+				inDouble = false
+			}
+		case c == '-' && next == '-':
+			inLine = true
+			i++
+		case c == '/' && next == '*':
+			inBlock = true
+			i++
+		case c == '\'':
+			inSingle = true
+			b.WriteByte(c)
+		case c == '"':
+			inDouble = true
+			b.WriteByte(c)
+		case c == '$':
+			if tag, ok := readDollarTag(sql[i:]); ok {
+				b.WriteString(tag)
+				i += len(tag) - 1
+				dollarTag = tag
+				continue
+			}
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// extractConcurrentIndexNames returns the bare (unquoted) names of every index
+// a migration's Up SQL builds with CREATE INDEX CONCURRENTLY / CREATE UNIQUE
+// INDEX CONCURRENTLY. Comments are stripped first so prose cannot be mistaken
+// for an index name -- see stripSQLNoise.
+func extractConcurrentIndexNames(sql string) []string {
+	matches := concurrentIndexNameRe.FindAllStringSubmatch(stripSQLNoise(sql), -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(matches))
+	seen := make(map[string]bool, len(matches))
+	for _, m := range matches {
+		name := strings.Trim(m[1], `"`)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// ensureConcurrentIndexesValid is the general guard for BUG-M11(b): any
+// migration that builds an index with CREATE [UNIQUE] INDEX CONCURRENTLY is
+// checked for pg_index.indisvalid after it runs (or, for a migration this
+// runner has already recorded as applied, every time migrate sees it again).
+// `CREATE INDEX CONCURRENTLY IF NOT EXISTS` only matches by name -- if an
+// earlier build aborted partway through and left an INVALID index under that
+// name, a retry silently no-ops the CREATE and this migration would otherwise
+// be recorded as applied with zero enforcement from the index it exists to
+// add. On finding an invalid index this guard drops it and re-runs the
+// migration's own SQL once to rebuild it (the migrations in this repo that
+// build a CONCURRENTLY index are written to be idempotent/re-runnable), then
+// fails loudly if it is still invalid.
+func ensureConcurrentIndexesValid(ctx context.Context, conn *pgxpool.Conn, migration migrationFile, log *slog.Logger) error {
+	names := extractConcurrentIndexNames(migration.SQL)
+	if len(names) == 0 {
+		return nil
+	}
+	rebuiltOnce := false
+	for _, name := range names {
+		valid, exists, err := concurrentIndexValidity(ctx, conn, name)
+		if err != nil {
+			return fmt.Errorf("check index validity for %s (migration %s): %w", name, migration.Version, err)
+		}
+		if exists && valid {
+			continue
+		}
+		log.Warn("concurrent_index_invalid_repairing",
+			slog.String("version", migration.Version),
+			slog.String("filename", migration.Filename),
+			slog.String("index", name),
+			slog.Bool("index_existed", exists))
+		if exists {
+			if _, err := conn.Exec(ctx, fmt.Sprintf("DROP INDEX CONCURRENTLY IF EXISTS %s", pgQuoteIdent(name))); err != nil {
+				return fmt.Errorf("drop invalid index %s before rebuild (migration %s): %w", name, migration.Version, err)
+			}
+		}
+		if !rebuiltOnce {
+			if err := execMigrationSQL(ctx, conn, migration.SQL); err != nil {
+				return fmt.Errorf("rebuild concurrent index %s (migration %s): %w", name, migration.Version, err)
+			}
+			rebuiltOnce = true
+		}
+		validAfter, existsAfter, err := concurrentIndexValidity(ctx, conn, name)
+		if err != nil {
+			return fmt.Errorf("re-check index validity for %s (migration %s): %w", name, migration.Version, err)
+		}
+		if !existsAfter || !validAfter {
+			return fmt.Errorf("concurrent index %s (migration %s) is still invalid after a rebuild attempt -- manual intervention required", name, migration.Version)
+		}
+		log.Info("concurrent_index_repaired", slog.String("version", migration.Version), slog.String("index", name))
+	}
+	return nil
+}
+
+// pgIdentRe restricts index names this guard will interpolate into a DDL
+// statement to the identifier shape Postgres migrations in this repo
+// actually use (the same shape concurrentIndexNameRe already matched them
+// with), so this is not treating attacker-controlled input as SQL -- these
+// names only ever come from migration files this repo's own developers wrote.
+var pgIdentRe = regexp.MustCompile(`^[a-zA-Z_][\w]*$`)
+
+func pgQuoteIdent(name string) string {
+	if !pgIdentRe.MatchString(name) {
+		// Defensive fallback; concurrentIndexNameRe cannot actually produce
+		// a name that fails this, but never interpolate an unvalidated string.
+		return pgx.Identifier{name}.Sanitize()
+	}
+	return "public." + name
+}
+
+func concurrentIndexValidity(ctx context.Context, conn *pgxpool.Conn, name string) (valid bool, exists bool, err error) {
+	err = conn.QueryRow(ctx, `
+SELECT i.indisvalid
+FROM pg_class c
+JOIN pg_index i ON i.indexrelid = c.oid
+WHERE c.relname = $1`, name).Scan(&valid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return valid, true, nil
 }
 
 type migrationExecutor interface {

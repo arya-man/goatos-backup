@@ -35,14 +35,57 @@ func TestBootstrapDeniesMissingGrant(t *testing.T) {
 	assertAppCode(t, err, "operator_grant_missing")
 }
 
-func TestBootstrapDeniesRevokedDevice(t *testing.T) {
-	svc := NewService(&fakeRepo{
+// TestBootstrapDeniesAdministrativelyRevokedDevice: a device revoked via the admin/security path
+// (workforce RevokeDevice, which stamps metadata["revocation_reason"]) must stay locked out and
+// must NEVER be silently reactivated by Bootstrap -- see isAdministrativelyRevoked.
+func TestBootstrapDeniesAdministrativelyRevokedDevice(t *testing.T) {
+	revoked := device("revoked")
+	revoked.Metadata = map[string]any{"revocation_reason": "lost phone"}
+	repo := &fakeRepo{
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grant()},
-		device:  device("revoked"),
-	})
+		device:  revoked,
+	}
+	svc := NewService(repo)
 	_, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
 	assertAppCode(t, err, "device_revoked")
+	if len(repo.registerDeviceCalls) != 0 {
+		t.Fatalf("RegisterDevice called %d times, want 0 (administrative revocation must never self-heal)", len(repo.registerDeviceCalls))
+	}
+}
+
+// TestBootstrapSelfHealsPushSuppressedDevice is the P0 regression test: a device left non-active
+// by a push-delivery side effect (SuppressInvalidRecipient, metadata["fcm_invalidated_reason"], NO
+// revocation_reason) must self-heal on Bootstrap via the same RegisterDevice upsert path a fresh
+// install uses, WITHOUT requiring the app to clear data / reinstall.
+func TestBootstrapSelfHealsPushSuppressedDevice(t *testing.T) {
+	suppressed := device("revoked")
+	suppressed.Metadata = map[string]any{"fcm_invalidated_reason": "FCM: UNREGISTERED"}
+	reactivated := device("active")
+	repo := &fakeRepo{
+		profile:              profile("active"),
+		grants:               []domain.GrantSummary{grant()},
+		device:               suppressed,
+		registerDeviceResult: reactivated,
+	}
+	svc := NewService(repo)
+	got, err := svc.Bootstrap(context.Background(), testTenant, testActor, testDevice, "", "trace-1")
+	if err != nil {
+		t.Fatalf("Bootstrap() error=%v, want self-heal to succeed", err)
+	}
+	if got.DeviceState.Status != "active" {
+		t.Fatalf("device state=%#v, want active after self-heal", got.DeviceState)
+	}
+	if len(repo.registerDeviceCalls) != 1 {
+		t.Fatalf("RegisterDevice called %d times, want 1 (self-heal must reactivate via the register path)", len(repo.registerDeviceCalls))
+	}
+	call := repo.registerDeviceCalls[0]
+	if call.TenantID != testTenant || call.ActorID != testActor {
+		t.Fatalf("RegisterDevice scoped to tenant=%q actor=%q, want tenant=%q actor=%q (must reactivate only the authenticated owner's device)", call.TenantID, call.ActorID, testTenant, testActor)
+	}
+	if call.Body.AppInstallID != suppressed.AppInstallID {
+		t.Fatalf("RegisterDevice app_install_id=%q, want %q (must re-key onto the same device row)", call.Body.AppInstallID, suppressed.AppInstallID)
+	}
 }
 
 func TestBootstrapAllowsFreshUnregisteredDevice(t *testing.T) {
@@ -98,14 +141,25 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 		modules                []string
 		wantVaccinationExecute bool
 		wantWeighingExecute    bool
+		wantWeighingOversee    bool
+		wantVideoControls      bool
 	}{
-		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true},
-		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false},
-		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true},
-		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false},
-		{name: "growth director executes weighing only", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true},
-		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false},
-		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false},
+		{name: "operator executes vaccination and weighing when both modules are granted", role: permissions.RoleOperator, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "operator executes only vaccination when only vaccination module is granted", role: permissions.RoleOperator, modules: []string{"vaccination"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "operator executes only weighing when only weighing module is granted", role: permissions.RoleOperator, modules: []string{"weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "pc director executes vaccination only", role: permissions.RolePCDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: true, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		// The Operators surface is the growth director's alone. The CEO plans (weighing.plan) and
+		// lands on the flat all-tasks list, so a second someone-else's-work tab is redundant there.
+		{name: "growth director executes and oversees weighing", role: permissions.RoleGrowthDirector, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		// Leadership modules come from the leadership TIER (leadershipModuleKeys), not from
+		// department_module_grants, so a growth director keeps weighing even when the granted
+		// module list says otherwise. The flag still tracks the permission.
+		{name: "growth director keeps weighing from leadership tier regardless of granted modules", role: permissions.RoleGrowthDirector, modules: []string{"vaccination"}, wantVaccinationExecute: false, wantWeighingExecute: true, wantWeighingOversee: true, wantVideoControls: true},
+		// The CEO plans and oversees weighing but holds neither TaskExecute nor WeighingExecute:
+		// a planner must never reach a scan surface.
+		{name: "ceo plans weighing but neither executes nor oversees operators", role: permissions.RoleCEOInternal, modules: []string{"vaccination", "weighing"}, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
+		{name: "verifier is display and review only", role: permissions.RoleVerifier, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: false},
+		{name: "park head sees operational nav without field execution", role: permissions.RoleParkHead, wantVaccinationExecute: false, wantWeighingExecute: false, wantWeighingOversee: false, wantVideoControls: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,6 +178,12 @@ func TestBootstrapPermissionDerivedExecutionFlags(t *testing.T) {
 			if got.FeatureFlags["weighing_execute"] != tc.wantWeighingExecute {
 				t.Fatalf("weighing_execute=%v want %v", got.FeatureFlags["weighing_execute"], tc.wantWeighingExecute)
 			}
+			if got.FeatureFlags["weighing_oversee_operators"] != tc.wantWeighingOversee {
+				t.Fatalf("weighing_oversee_operators=%v want %v", got.FeatureFlags["weighing_oversee_operators"], tc.wantWeighingOversee)
+			}
+			if got.FeatureFlags["verification_video_controls"] != tc.wantVideoControls {
+				t.Fatalf("verification_video_controls=%v want %v", got.FeatureFlags["verification_video_controls"], tc.wantVideoControls)
+			}
 		})
 	}
 }
@@ -140,8 +200,13 @@ func TestBootstrapPopulatesOperatorNavAndChrome(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-		// Backend-composed profile tab: the client no longer appends one.
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
+		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
+		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -170,7 +235,10 @@ func TestBootstrapLocalizesBackendOwnedLabels(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "ड्राइव", Href: "/vaccination"},
-		{Key: "alerts", Label: "अलर्ट", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). The Hindi label went generic with it.
+		{Key: "alerts", Label: "अलर्ट", Href: "/vaccination/alerts"},
 		{Key: "you", Label: "आप", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -204,9 +272,14 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-		// Backend-composed profile tab: the client no longer appends one.
-		{Key: "you", Label: "You", Href: "/you"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
+		// No "you" here: preventive-care leadership holds vaccination + weighing + health, so
+		// navChrome is expanded and applyProfileEntryPlacement moves the account entry into the
+		// drawer footer -- exactly once, instead of once per module bar.
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, wantNav)
@@ -221,7 +294,14 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 }
 
-func TestBootstrapVerifierGetsFiveModuleEvidenceNav(t *testing.T) {
+// TestBootstrapVerifierGetsStandaloneVerificationNav is the end-to-end regression guard
+// for the "Alerts silently missing" defect found live on 2026-08-02: a verifier with no
+// module-specific grant (no position_module_duties row, no department feature grant --
+// exactly a bare RoleVerifier grant, as ListGrantedModuleKeys returns for a principal
+// whose only department grant is the generic "verification" key) must still get a
+// feature-scoped [Verify, Alerts] bar per built feature, never a bare [Verify] with
+// no Alerts tab.
+func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	svc := NewService(&fakeRepo{
 		profile: profile("active"),
 		grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
@@ -230,9 +310,22 @@ func TestBootstrapVerifierGetsFiveModuleEvidenceNav(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bootstrap() error=%v", err)
 	}
+	// No named duties -> scoped to every built feature; the active/default bar is the
+	// first feature (vaccination, drawer priority 1).
+	//
+	// MAINTAINER RULING 2026-08-03: this verifier holds THREE features, so he has a
+	// drawer, and "You" lives in that drawer -- not in this bar, and not repeated in each
+	// feature's bar. The served bar is therefore [Verify, Alerts] exactly. You was not
+	// deleted, it was MOVED (applyProfileEntryPlacement); that the >=2-module principal
+	// still has exactly one route to /you is asserted in
+	// TestProfileEntryPlacementFollowsModuleCount. A verifier with ONE feature has no
+	// drawer and keeps You on the bar -- see
+	// TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts, which still expects it.
+	//
+	// The alerts tab label never names the feature; the href's category still scopes it.
 	want := []domain.BootstrapNavigationItem{
-		{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
-		{Key: "you", Label: "You", Href: "/you"},
+		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
+		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -242,17 +335,92 @@ func TestBootstrapVerifierGetsFiveModuleEvidenceNav(t *testing.T) {
 			t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
 		}
 	}
+	// >=2 built features -> expanded drawer (Vaccination / Weighing / Counts / You / Sign
+	// out), same shape as the CEO app per the binding maintainer ruling.
 	if got.NavChrome != domain.NavChromeExpanded {
 		t.Fatalf("NavChrome=%q want %q", got.NavChrome, domain.NavChromeExpanded)
 	}
-	wantModuleKeys := []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health"}
-	if len(got.Modules) != len(wantModuleKeys) {
-		t.Fatalf("Modules=%#v want keys %#v", got.Modules, wantModuleKeys)
-	}
-	for i, key := range wantModuleKeys {
-		if got.Modules[i].Key != key {
-			t.Fatalf("Modules[%d].Key=%q want %q", i, got.Modules[i].Key, key)
+	foundAlerts := false
+	for _, m := range got.Modules {
+		for _, item := range m.NavItems {
+			if item.Key == "alerts" {
+				foundAlerts = true
+			}
 		}
+	}
+	if !foundAlerts {
+		t.Fatalf("no module in the drawer carries an Alerts item; modules=%#v", got.Modules)
+	}
+}
+
+// TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts covers the common real-world
+// shape: a verifier with exactly one verify duty gets a minimal-chrome bar scoped to
+// THAT feature, with a correctly-categorized Alerts item -- never the generic merged
+// "verification" module the pre-fix code fell back to for len(grantedModules) <= 1.
+//
+// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
+// carries shared_key "you" so it dedupes across modules like the leadership entries --
+// the objection was the per-feature REPETITION, not its presence. The alerts tab label
+// never names the feature; the href's category still scopes it.
+//
+// The scoping this test is named for did NOT move to the label -- it lives in the href
+// category, and that is what is asserted per feature below: three single-duty verifiers
+// get the IDENTICAL tab label "Alerts" but three DIFFERENT categories. Note counts maps
+// to "shifting_move", not "counts_proof" (see verificationCategoryForFeature); a wrong
+// category renders a permanently-empty 200 tab, so these values must never be relaxed.
+func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
+	const wantAlertsLabel = "Alerts"
+
+	cases := []struct {
+		feature      string
+		wantModule   string
+		wantCategory string
+	}{
+		{feature: "weighing", wantModule: "verify_weighing", wantCategory: "weighing_proof"},
+		{feature: "vaccination", wantModule: "verify_vaccination", wantCategory: "vaccination_proof"},
+		{feature: "counts", wantModule: "verify_counts", wantCategory: "shifting_move"},
+	}
+
+	seenCategories := make(map[string]string, len(cases))
+	for _, tc := range cases {
+		t.Run(tc.feature, func(t *testing.T) {
+			svc := NewService(&fakeRepo{
+				profile:        profile("active"),
+				grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+				grantedModules: []string{tc.feature},
+			})
+			got, err := svc.Bootstrap(context.Background(), testTenant, testActor, "", "", "trace-1")
+			if err != nil {
+				t.Fatalf("Bootstrap() error=%v", err)
+			}
+			want := []domain.BootstrapNavigationItem{
+				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature + "&category=" + tc.wantCategory},
+				{Key: "alerts", Label: wantAlertsLabel, Href: "/verify/alerts?category=" + tc.wantCategory},
+				{Key: "you", Label: "You", Href: "/you"},
+			}
+			if len(got.VisibleNavigation) != len(want) {
+				t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
+			}
+			for i := range want {
+				if got.VisibleNavigation[i] != want[i] {
+					t.Fatalf("VisibleNavigation[%d]=%#v want %#v", i, got.VisibleNavigation[i], want[i])
+				}
+			}
+			if got.NavChrome != domain.NavChromeMinimal {
+				t.Fatalf("NavChrome=%q want %q (single feature -> no drawer)", got.NavChrome, domain.NavChromeMinimal)
+			}
+			if len(got.Modules) != 1 || got.Modules[0].Key != tc.wantModule {
+				t.Fatalf("Modules=%#v want single %s module", got.Modules, tc.wantModule)
+			}
+			if prev, dup := seenCategories[tc.wantCategory]; dup {
+				t.Fatalf("features %q and %q share alerts category %q -- the generic label must not have collapsed the feature scoping", prev, tc.feature, tc.wantCategory)
+			}
+			seenCategories[tc.wantCategory] = tc.feature
+		})
+	}
+
+	if len(seenCategories) != len(cases) {
+		t.Fatalf("expected one distinct alerts category per feature; got %v", seenCategories)
 	}
 }
 
@@ -270,8 +438,13 @@ func TestBootstrapOperatorGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
-		// Backend-composed profile tab: the client no longer appends one.
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
+		// One module -> minimal chrome, no drawer, so the bottom bar is the only route to /you
+		// and applyProfileEntryPlacement leaves the backend-composed entry on it.
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	if len(got.VisibleNavigation) != len(wantNav) {
@@ -334,7 +507,11 @@ func TestVisibleNavigationFor(t *testing.T) {
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 		{Key: "videos", Label: "Videos", Href: "/verify/action"},
-		{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+		// "You" lives in the drawer, and the alerts tab label never names the feature
+		// (the href's category still scopes it). This is a leadership/registry bar, so
+		// it legitimately KEEPS its "you" entry -- only the label went generic.
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		{Key: "you", Label: "You", Href: "/you"},
 	}
 	tests := []struct {
@@ -355,16 +532,49 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
 		{
-			name:    "verifier",
+			// No duties named -> scoped to every built feature; the default/active bar
+			// is the first (vaccination), with a correctly-categorized Alerts item.
+			//
+			// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+			// "You" carries shared_key "you" so it dedupes across modules like the
+			// leadership entries -- the objection was the per-feature REPETITION, not
+			// its presence. The alerts tab label never names the feature; the href's
+			// category still scopes it.
+			name:    "verifier with no duties",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
-				{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
+				{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
+				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+				{Key: "you", Label: "You", Href: "/you"},
+			},
+		},
+		{
+			// Same generic "Alerts" label as the vaccination case above, but a
+			// different href category (counts maps to shifting_move, NOT counts_proof)
+			// -- the label went generic, the SCOPING did not.
+			//
+			// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+			// "You" carries shared_key "you" so it dedupes across modules like the
+			// leadership entries -- the objection was the per-feature REPETITION, not
+			// its presence. The alerts tab label never names the feature; the href's
+			// category still scopes it.
+			name:    "single-feature verifier",
+			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			modules: []string{"counts"},
+			want: []domain.BootstrapNavigationItem{
+				{Key: "verify", Label: "Verify", Href: "/verify?module=counts&category=shifting_move"},
+				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=shifting_move"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -378,7 +588,12 @@ func TestVisibleNavigationFor(t *testing.T) {
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 				{Key: "videos", Label: "Videos", Href: "/verify/action"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -390,7 +605,12 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"counts", "vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "vaccination", Label: "Drives", Href: "/vaccination"},
-				{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+				// "You" carries shared_key "you" so it dedupes across modules like the
+				// leadership entries -- the objection was the per-feature REPETITION, not its
+				// presence. The alerts tab label never names the feature; the href's category
+				// still scopes it. This registry bar always carried its own "you" entry.
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
@@ -518,9 +738,18 @@ func TestNavChromeFor(t *testing.T) {
 			want:           domain.NavChromeExpanded,
 		},
 		{
-			name:   "verifier with five evidence modules expands",
+			// No verify duties/module grant at all -> scoped to every built feature
+			// (verifierFeatureKeys fallback), so >=2 modules -> expanded drawer, same as
+			// a multi-feature verifier.
+			name:   "verifier with no duties expands to every built feature",
 			grants: []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
 			want:   domain.NavChromeExpanded,
+		},
+		{
+			name:           "single-feature verifier minimal",
+			grants:         []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)},
+			grantedModules: []string{"vaccination"},
+			want:           domain.NavChromeMinimal,
 		},
 	}
 	for _, tc := range tests {
@@ -558,7 +787,7 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if nav[0].Key != "vaccination" || nav[0].Href != "/vaccination" {
 			t.Fatalf("first nav item=%#v want shed-first vaccination root at /vaccination", nav[0])
 		}
-		if nav[1].Key != "alerts" || nav[1].Href != "/alerts" {
+		if nav[1].Key != "alerts" || nav[1].Href != "/vaccination/alerts" {
 			t.Fatalf("second nav item=%#v want alerts inside the Vaccination module bar", nav[1])
 		}
 		if nav[2].Key != "you" || nav[2].Href != "/you" {
@@ -585,9 +814,20 @@ func TestBootstrapNavComposition(t *testing.T) {
 		if weighing == nil {
 			t.Fatalf("operator must receive separate weighing module; modules=%#v", modules)
 		}
+		// An operator executes and nothing else: one work list, no planner list, no
+		// oversight -- plus weighing's OWN alerts feed.
 		want := []domain.BootstrapNavigationItem{
-			{Key: "weighing", Label: "Weighing", Href: "/weighing"},
-			{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+			{Key: "weighing", Label: "My work", Href: "/weighing"},
+			// /weighing/alerts, NOT the vaccination process-integrity feed at /alerts. The
+			// old cross-module item was removed because a weighing operator holds no
+			// vaccination permission and it 403'd on open. This one is gated on weighing
+			// capabilities and has real rows behind it (the weighing lifecycle
+			// notifications already routed to this operator). The label is just "Alerts":
+			// the tab never names the feature, the href carries the scoping.
+			//
+			// It also ends the degenerate single-tab bar this operator used to get -- a
+			// switcher with nothing to switch to.
+			{Key: "weighing_alerts", Label: "Alerts", Href: "/weighing/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(weighing.NavItems) != len(want) {
@@ -597,6 +837,62 @@ func TestBootstrapNavComposition(t *testing.T) {
 			if weighing.NavItems[i] != want[i] {
 				t.Fatalf("weighing nav[%d]=%#v want %#v", i, weighing.NavItems[i], want[i])
 			}
+		}
+	})
+
+	// The three weighing surfaces are separate destinations, so the bar each principal gets is
+	// decided by the capabilities they hold -- never by a per-role nav template.
+	t.Run("weighing surfaces are composed per capability", func(t *testing.T) {
+		weighingModule := func(grants []domain.GrantSummary) domain.BootstrapModule {
+			t.Helper()
+			for _, m := range modulesFor(grants, []string{"vaccination", "weighing"}, "") {
+				if m.Key == "weighing" {
+					return m
+				}
+			}
+			t.Fatalf("no weighing module for grants=%#v", grants)
+			return domain.BootstrapModule{}
+		}
+		hrefs := func(m domain.BootstrapModule) []string {
+			out := make([]string, 0, len(m.NavItems))
+			for _, item := range m.NavItems {
+				out = append(out, item.Href)
+			}
+			return out
+		}
+		contains := func(list []string, want string) bool {
+			for _, got := range list {
+				if got == want {
+					return true
+				}
+			}
+			return false
+		}
+
+		// The CEO plans. He must not get an executable work list, and because "My work" is gated
+		// away his landing falls through to the flat all-tasks list rather than an empty page.
+		ceo := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)})
+		if ceo.Href != "/weighing/tasks" {
+			t.Fatalf("ceo weighing landing=%q want the flat all-tasks list", ceo.Href)
+		}
+		if got := hrefs(ceo); contains(got, "/weighing") || contains(got, "/weighing/operators") {
+			t.Fatalf("ceo weighing nav=%v must not offer a work list or the operators surface", got)
+		}
+		if !contains(hrefs(ceo), "/weighing/tasks") {
+			t.Fatalf("ceo weighing nav=%v want the planner list", hrefs(ceo))
+		}
+
+		// The growth director executes his own sheds and oversees other people's, but does not plan.
+		director := weighingModule([]domain.GrantSummary{grantWithRole(permissions.RoleGrowthDirector)})
+		if director.Href != "/weighing" {
+			t.Fatalf("growth director weighing landing=%q want his own work list", director.Href)
+		}
+		got := hrefs(director)
+		if !contains(got, "/weighing") || !contains(got, "/weighing/operators") {
+			t.Fatalf("growth director weighing nav=%v want both his work list and the operators surface", got)
+		}
+		if contains(got, "/weighing/tasks") {
+			t.Fatalf("growth director weighing nav=%v must not offer the planner list", got)
 		}
 	})
 
@@ -736,6 +1032,14 @@ type fakeRepo struct {
 	grantedModules []string
 	device         domain.DeviceSummary
 	deviceErr      error
+
+	// registerDeviceResult/registerDeviceErr let tests control what the reactivation self-heal
+	// path (reactivateRecoverableDevice -> repo.RegisterDevice) observes. registerDeviceCalls
+	// records every invocation so tests can assert the self-heal path was (or was not) taken, and
+	// with which tenant/actor -- reactivation must always be scoped to the authenticated caller.
+	registerDeviceResult domain.DeviceSummary
+	registerDeviceErr    error
+	registerDeviceCalls  []ports.RegisterDeviceCommand
 }
 
 func (f *fakeRepo) GetMemberForActor(context.Context, string, string) (domain.OperatorProfile, error) {
@@ -806,7 +1110,14 @@ func (f *fakeRepo) MapSourceCandidate(context.Context, ports.MapSourceCandidateC
 func (f *fakeRepo) RejectSourceCandidate(context.Context, ports.RejectSourceCandidateCommand) (domain.SourceCandidate, error) {
 	return domain.SourceCandidate{}, ports.ErrNotFound
 }
-func (f *fakeRepo) RegisterDevice(context.Context, ports.RegisterDeviceCommand) (domain.DeviceSummary, error) {
+func (f *fakeRepo) RegisterDevice(_ context.Context, cmd ports.RegisterDeviceCommand) (domain.DeviceSummary, error) {
+	f.registerDeviceCalls = append(f.registerDeviceCalls, cmd)
+	if f.registerDeviceErr != nil {
+		return domain.DeviceSummary{}, f.registerDeviceErr
+	}
+	if f.registerDeviceResult.DeviceID != "" || f.registerDeviceResult.Status != "" {
+		return f.registerDeviceResult, nil
+	}
 	return f.device, nil
 }
 func (f *fakeRepo) HeartbeatDevice(context.Context, ports.HeartbeatDeviceCommand) (domain.DeviceSummary, error) {
@@ -849,7 +1160,10 @@ func TestCountsModuleRoleMatrix(t *testing.T) {
 		{permissions.RoleParkHead, nil},
 		{permissions.RoleCEOInternal, []string{"birth", "death", "shifting"}},
 		{permissions.RolePCDirector, nil},
-		{permissions.RoleVerifier, []string{"videos", "you"}},
+		// A standalone verifier does NOT get registry modules at all: modulesFor composes
+		// per-feature verification modules ("verify_counts", "verify_feed_direction", ...),
+		// each with its own [Verify, Alerts, You] bar. Nothing keyed "counts"/"feed_direction".
+		{permissions.RoleVerifier, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.role, func(t *testing.T) {
@@ -905,7 +1219,10 @@ func TestFeedModuleRoleMatrix(t *testing.T) {
 		{permissions.RoleKey(permissions.TierHead, permissions.VerticalFeed), []string{"feed_direction"}},
 		{permissions.RoleKey(permissions.TierManager, permissions.VerticalFeed), nil},
 		{permissions.RoleOperator, []string{"feed_direction", "feed_packing", "feed_transport"}},
-		{permissions.RoleVerifier, []string{"videos", "you"}},
+		// A standalone verifier does NOT get registry modules at all: modulesFor composes
+		// per-feature verification modules ("verify_counts", "verify_feed_direction", ...),
+		// each with its own [Verify, Alerts, You] bar. Nothing keyed "counts"/"feed_direction".
+		{permissions.RoleVerifier, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.role, func(t *testing.T) {
@@ -1033,5 +1350,66 @@ func TestVisibleNavigationIsEarnedByAModuleGrant(t *testing.T) {
 	nav := visibleNavigationFor(grants, []string{"counts"}, "en")
 	if len(nav) == 0 {
 		t.Fatal("nav for an operator whose department holds the Counts module is empty -- a granted module must render its bar")
+	}
+}
+
+// TestWeighingAlertsTabReachesEveryWeighingSeat answers the maintainer's 2026-08-03
+// observation directly: "there is no alerts surface anywhere -- not for CEO, not
+// director, not operator."
+//
+// The weighing alerts item carries NO requiredPermission on purpose. Everyone with a
+// weighing job has a stake in the module's lifecycle feed, and the three seats hold
+// three DIFFERENT capability sets -- the operator holds execute, the CEO holds
+// plan+monitor but not execute, and the Growth Director intentionally holds both
+// execute and monitor. Gating the tab on any single weighing capability would drop it
+// from at least one of them; the endpoint behind it is the OR gate that does the real
+// authorization, and the rows a caller sees are already scoped to them by the routing
+// that produced them.
+func TestWeighingAlertsTabReachesEveryWeighingSeat(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		role string
+	}{
+		{"operator", permissions.RoleOperator},
+		{"growth director", permissions.RoleGrowthDirector},
+		{"CEO", permissions.RoleCEOInternal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			grants := []domain.GrantSummary{grantWithRole(tc.role)}
+			modules := modulesFor(grants, []string{"weighing"}, "")
+
+			var weighing *domain.BootstrapModule
+			for i := range modules {
+				if modules[i].Key == "weighing" {
+					weighing = &modules[i]
+				}
+			}
+			if weighing == nil {
+				t.Fatalf("%s received no weighing module at all; modules=%#v", tc.name, modules)
+			}
+
+			var alerts *domain.BootstrapNavigationItem
+			for i := range weighing.NavItems {
+				if weighing.NavItems[i].Key == "weighing_alerts" {
+					alerts = &weighing.NavItems[i]
+				}
+			}
+			if alerts == nil {
+				t.Fatalf("%s has NO weighing alerts tab; nav=%#v", tc.name, weighing.NavItems)
+			}
+			// The tab never names the feature -- the href carries the scoping.
+			if alerts.Label != "Alerts" {
+				t.Fatalf("%s alerts label = %q, want exactly \"Alerts\"", tc.name, alerts.Label)
+			}
+			// It must be WEIGHING's feed, never the vaccination process-integrity feed.
+			if alerts.Href != "/weighing/alerts" {
+				t.Fatalf("%s alerts href = %q, want /weighing/alerts (never /alerts, the vaccination feed)", tc.name, alerts.Href)
+			}
+			// A module bar must have something to switch between; a single tab is a
+			// switcher with nothing to switch to.
+			if len(weighing.NavItems) < 2 {
+				t.Fatalf("%s weighing bar has %d tab(s): %#v", tc.name, len(weighing.NavItems), weighing.NavItems)
+			}
+		})
 	}
 }

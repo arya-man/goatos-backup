@@ -79,6 +79,43 @@ func TestParkConsolidationOverrideWindowKeepsPPRBlueTongueComboTogether(t *testi
 	}
 }
 
+func TestParkConsolidationOverrideWindowKeepsSheepPoxBlueTongueComboTogether(t *testing.T) {
+	due := businessDate(time.Date(2027, 7, 24, 12, 0, 0, 0, time.UTC))
+	windowEnd := due.AddDate(0, 0, 1)
+	cfg := SweepConfig{RuleVaccineIDs: map[string]RuleVaccineIdentity{
+		"rule-sp": {VaccineCode: "SHEEP_POX", VaccinePriority: 3},
+		"rule-bt": {VaccineCode: "BLUE_TONGUE", VaccinePriority: 4},
+	}}
+	sp := domain.ParkConsolidationCandidate{ParkID: "park-cpt", RuleID: "rule-sp", ObligationID: "obl-sp", TargetID: "sheep-1", DueAt: due, WindowStart: &due, WindowEnd: &windowEnd}
+	bt := sp
+	bt.RuleID = "rule-bt"
+	bt.ObligationID = "obl-bt"
+	want := "park-cpt|combo:Sheep Pox+Blue Tongue"
+	if got := parkConsolidationGroupKey(cfg, sp); got != want {
+		t.Fatalf("Sheep Pox group key = %q, want %q", got, want)
+	}
+	if got := parkConsolidationGroupKey(cfg, bt); got != want {
+		t.Fatalf("Blue Tongue group key = %q, want %q", got, want)
+	}
+}
+
+func TestParkConsolidationBlueTongueRetainsPPRComboWhenPPRIsPublished(t *testing.T) {
+	due := businessDate(time.Date(2027, 7, 24, 12, 0, 0, 0, time.UTC))
+	windowEnd := due.AddDate(0, 0, 1)
+	cfg := SweepConfig{RuleVaccineIDs: map[string]RuleVaccineIdentity{
+		"rule-ppr": {VaccineCode: "PPR", VaccinePriority: 2},
+		"rule-sp":  {VaccineCode: "SHEEP_POX", VaccinePriority: 3},
+		"rule-bt":  {VaccineCode: "BLUE_TONGUE", VaccinePriority: 4},
+	}}
+	bt := domain.ParkConsolidationCandidate{
+		ParkID: "park-cpt", RuleID: "rule-bt", ObligationID: "obl-bt", TargetID: "sheep-1",
+		DueAt: due, WindowStart: &due, WindowEnd: &windowEnd,
+	}
+	if got, want := parkConsolidationGroupKey(cfg, bt), "park-cpt|combo:PPR+Blue Tongue"; got != want {
+		t.Fatalf("Blue Tongue group key = %q, want %q when PPR remains published", got, want)
+	}
+}
+
 func TestPickBestParkDriveDateRespectsLatestWindow(t *testing.T) {
 	now := time.Date(2026, 7, 10, 0, 0, 0, 0, time.UTC)
 	rows := []domain.ParkConsolidationCandidate{
@@ -798,23 +835,31 @@ func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T)
 	add := func(shed string, n int) {
 		for i := 1; i <= n; i++ {
 			id := fmt.Sprintf("%s-%03d", strings.NewReplacer(" ", "-", "-", "").Replace(strings.ToLower(shed)), i)
+			ruleID := "rule-history-repeat"
+			holdCount := int32(1)
+			if i%2 == 0 {
+				ruleID = "rule-blank-history-catchup"
+				holdCount = 0
+			}
 			rows = append(rows, domain.ParkConsolidationCandidate{
-				ObligationID: "obl-" + id,
-				TargetID:     "goat-" + id,
-				RuleID:       "rule-ettt",
-				ParkID:       "cpt",
-				ShedName:     shed,
-				DueAt:        planned,
-				WindowEnd:    &movableEnd,
+				ObligationID:      "obl-" + id,
+				TargetID:          "goat-" + id,
+				RuleID:            ruleID,
+				ParkID:            "cpt",
+				ShedName:          shed,
+				DueAt:             planned,
+				WindowEnd:         &movableEnd,
+				BatchingHoldCount: holdCount,
 			})
 		}
 	}
-	// Deliberately list Gandhi first to prove cap admission is not raw scan-order bin packing.
-	add("Gandhi 1", 115)
+	// CPT's canonical route and exact staging-clone shed totals. Alternating rule IDs prove that
+	// history-repeat and blank-history catch-up rows cannot split one physical shed.
+	add("Gandhi 1", 114)
 	add("Godel 1 - Part 1", 120)
 	add("Godel 2 - Part 4", 32)
 	add("Mandela 2 - Part 8", 47)
-	add("Old Yashoda 1", 10)
+	add("Old Yashoda 1", 11)
 	selected := make([]string, 0, len(rows))
 	for _, row := range rows {
 		selected = append(selected, row.ObligationID)
@@ -824,15 +869,15 @@ func TestLimitParkSelectionPacksWholePhysicalShedsBeforeFillingCap(t *testing.T)
 
 	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	gotRows := filterRows(rows, out)
-	if got := uniqueParkTargetCount(gotRows); got != 199 {
-		t.Fatalf("admitted animals = %d, want 199", got)
+	if got := uniqueParkTargetCount(gotRows); got != 193 {
+		t.Fatalf("admitted animals = %d, want 193", got)
 	}
 	gotByShed := map[string]int{}
 	for _, row := range gotRows {
 		physical, _ := normalizeAssignmentShed(row.ShedName)
 		gotByShed[physical]++
 	}
-	want := map[string]int{"Godel 1": 120, "Godel 2": 32, "Mandela 2": 47}
+	want := map[string]int{"Gandhi": 114, "Godel 2": 32, "Mandela 2": 47}
 	if !reflect.DeepEqual(gotByShed, want) {
 		t.Fatalf("admitted shed rollup = %#v, want %#v", gotByShed, want)
 	}
@@ -856,14 +901,12 @@ func TestLimitParkSelectionFallsBackToWholePartitionsWhenShedExceedsRemainingCap
 			})
 		}
 	}
-	// Route prefix leaves 111 slots. Gandhi as a physical shed is 115, so only whole partitions
-	// Gandhi 1 and Gandhi 2 should be admitted; Gandhi 3 carries to the next operator-day.
-	add("Godel 2 - Part 4", 32)
-	add("Mandela 2 - Part 8", 47)
-	add("Old Yashoda 1", 10)
-	add("Gandhi 1", 42)
-	add("Gandhi 2", 31)
-	add("Gandhi 3", 42)
+	// Gandhi leaves 170 slots. Godel 1 is itself larger than the configured 200-animal cap,
+	// so whole-partition fallback is allowed: Parts 1 and 2 fit, while Part 3 carries.
+	add("Gandhi 1", 30)
+	add("Godel 1 - Part 1", 100)
+	add("Godel 1 - Part 2", 70)
+	add("Godel 1 - Part 3", 50)
 	selected := make([]string, 0, len(rows))
 	for _, row := range rows {
 		selected = append(selected, row.ObligationID)
@@ -873,19 +916,17 @@ func TestLimitParkSelectionFallsBackToWholePartitionsWhenShedExceedsRemainingCap
 
 	out := limitParkSelectionByDriveAnimals(planned, rows, selected, planned, planner, planner.MaxGoatsPerDrive, NewSweepSession())
 	gotRows := filterRows(rows, out)
-	if got := uniqueParkTargetCount(gotRows); got != 162 {
-		t.Fatalf("admitted animals = %d, want 162", got)
+	if got := uniqueParkTargetCount(gotRows); got != 200 {
+		t.Fatalf("admitted animals = %d, want 200", got)
 	}
 	gotByShed := map[string]int{}
 	for _, row := range gotRows {
 		gotByShed[row.ShedName]++
 	}
 	want := map[string]int{
-		"Godel 2 - Part 4":   32,
-		"Mandela 2 - Part 8": 47,
-		"Old Yashoda 1":      10,
-		"Gandhi 1":           42,
-		"Gandhi 2":           31,
+		"Gandhi 1":         30,
+		"Godel 1 - Part 1": 100,
+		"Godel 1 - Part 2": 70,
 	}
 	if !reflect.DeepEqual(gotByShed, want) {
 		t.Fatalf("admitted shed partitions = %#v, want %#v", gotByShed, want)

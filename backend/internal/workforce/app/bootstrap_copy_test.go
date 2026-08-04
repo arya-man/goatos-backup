@@ -63,11 +63,16 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				if m.Href != "/vaccination" {
 					t.Fatalf("vaccination row lands on %q, want /vaccination", m.Href)
 				}
+				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// "You" lives in the drawer, and the alerts tab label never names the
+				// feature (the href's category still scopes it).
+				// Leadership/registry modules are NOT the verifier bar: they legitimately
+				// keep their own "you" entry. Only the generic "Alerts" label is shared.
 				wantItems := []domain.BootstrapNavigationItem{
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
 					{Key: "videos", Label: "Videos", Href: "/verify/action"},
-					{Key: "alerts", Label: "Alerts", Href: "/alerts"},
+					{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}
 				if len(m.NavItems) != len(wantItems) {
@@ -161,33 +166,42 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		}
 	})
 
-	t.Run("verifier sees five backend composed evidence modules", func(t *testing.T) {
+	t.Run("verifier with a named feature duty sees that feature's module, never generic verification", func(t *testing.T) {
 		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
 		modules := modulesFor(grants, []string{"vaccination"}, en)
 		keys := moduleKeySet(modules)
-		wantModules := []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health"}
-		if len(modules) != len(wantModules) {
-			t.Fatalf("verifier modules = %+v want %v", modules, wantModules)
-		}
-		for i, key := range wantModules {
-			if modules[i].Key != key || keys[key] != moduleStatusAvailable {
-				t.Fatalf("verifier module[%d] = %+v want available %q", i, modules[i], key)
-			}
-		}
 		if _, ok := keys["verification"]; ok {
-			t.Fatalf("verifier must NOT see the retired synthetic Verification module; got %v", keys)
+			t.Fatalf("verifier with a named feature duty must NOT get the generic merged verification module; got %v", keys)
 		}
-		vaccination := modules[0]
+		if _, ok := keys["leadership"]; ok {
+			t.Fatalf("verifier must NOT see leadership; got %v", keys)
+		}
+		if len(modules) != 1 {
+			t.Fatalf("single-feature verifier should see 1 module; got %d: %v", len(modules), keys)
+		}
+		verify := modules[0]
+		if verify.Key != "verify_vaccination" {
+			t.Fatalf("verifier module key = %q, want verify_vaccination", verify.Key)
+		}
+		// Per-module bar keeps its own Alerts tab (binding ruling: "Alerts are NOT one
+		// merged tab"), with the alerts category matching what the vaccination
+		// verification-bridge actually writes (vaccination_proof).
+		//
+		// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+		// "You" carries shared_key "you" so it dedupes across modules like the leadership
+		// entries -- the objection was the per-feature REPETITION, not its presence. The
+		// alerts tab label never names the feature; the href's category still scopes it.
 		wantItems := []domain.BootstrapNavigationItem{
-			{Key: "videos", Label: "Videos", Href: "/verify/vaccination"},
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
-		if len(vaccination.NavItems) != len(wantItems) {
-			t.Fatalf("vaccination verifier nav items = %+v want %+v", vaccination.NavItems, wantItems)
+		if len(verify.NavItems) != len(wantItems) {
+			t.Fatalf("verifier nav items = %+v want %+v", verify.NavItems, wantItems)
 		}
 		for i := range wantItems {
-			if vaccination.NavItems[i] != wantItems[i] {
-				t.Fatalf("vaccination verifier nav item[%d]=%+v want %+v", i, vaccination.NavItems[i], wantItems[i])
+			if verify.NavItems[i] != wantItems[i] {
+				t.Fatalf("verifier nav item[%d]=%+v want %+v", i, verify.NavItems[i], wantItems[i])
 			}
 		}
 	})
@@ -243,5 +257,453 @@ func TestBootstrapCopyCatalogCoversSupportedLocales(t *testing.T) {
 				t.Fatalf("missing bootstrap copy key %q for locale %q", key, tag)
 			}
 		}
+	}
+}
+
+// TestAlertsNavLabelIsGenericInEveryLocale locks the alerts tab label.
+//
+// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts]; "You"
+// lives in the drawer, and the alerts tab label never names the feature (the href's
+// category still scopes it).
+//
+// This test previously asserted the OPPOSITE (per-feature labels "Vaccination
+// alerts" / "Weighing alerts" / ... from the now-deleted alertsLabelKeyForFeature
+// resolver and the now-deleted "nav.alerts.<feature>" keys). It is repointed, not
+// deleted, because the coverage that still matters is that the single generic
+// "nav.alerts" key resolves in ALL FOUR locales -- a missing translation would ship
+// an English tab title to a Kannada operator. Feature scoping is asserted where it
+// actually lives now: the href category, see TestBootstrapAlertsPerModule.
+func TestAlertsNavLabelIsGenericInEveryLocale(t *testing.T) {
+	wantByLocale := map[string]string{
+		"en": "Alerts",
+		"hi": "अलर्ट",
+		"kn": "ಎಚ್ಚರಿಕೆಗಳು",
+		"te": "అలర్ట్లు",
+	}
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+	for locale, want := range wantByLocale {
+		modules := modulesFor(grants, nil, locale)
+		seen := 0
+		for _, m := range modules {
+			for _, item := range m.NavItems {
+				// Match the alerts item by KEY, not by a hardcoded href: the feeds are
+				// feature-scoped ("/vaccination/alerts", "/weighing/alerts"), and the
+				// label under test is the shared "Alerts" string in each locale.
+				if item.Key != "alerts" && item.Key != "weighing_alerts" {
+					continue
+				}
+				seen++
+				if item.Label != want {
+					t.Fatalf("locale %s module %s: alerts label = %q, want %q", locale, m.Key, item.Label, want)
+				}
+			}
+		}
+		if seen == 0 {
+			t.Fatalf("locale %s: no alerts nav item found to check", locale)
+		}
+	}
+}
+
+// TestNewDirectorRolesGetTheirOwnModuleOffer pins the /app/bootstrap hole these two roles were
+// shipped with: both are leadership principals, so visibleNavigationFor takes the leadership
+// branch, and with no entry in leadershipModuleKeys that branch resolved zero keys and returned
+// an EMPTY nav plus an EMPTY drawer -- a role that can log in and reach nothing.
+//
+// It also pins the OFF-feature boundary the offer must not cross: health_director is offered the
+// Counts module but holds NO counts.read, so no Counts nav item may appear for him. Granting
+// counts.read is what would switch the feature on (AGENTS.md).
+func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
+	const en = localization.DefaultTag
+
+	t.Run("feed director is offered feed, never another director's module", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleFeedDirector)}
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			t.Fatal("feed_director resolves ZERO leadership module keys; bootstrap returns an empty nav")
+		}
+		if keys[0] != "feed_direction" {
+			t.Fatalf("feed_director module keys = %v, want feed_direction first", keys)
+		}
+		for _, key := range keys {
+			switch key {
+			case "vaccination", "weighing", "counts":
+				t.Fatalf("feed_director offered %q, which belongs to another director", key)
+			}
+		}
+		// Feed is still a declared roadmap module, so the drawer row is the disabled "Soon" row
+		// (TestFeedModuleRoleMatrix pins that Feed contributes no bottom-bar items yet).
+		modules := modulesFor(grants, nil, en)
+		// Feed is BUILT in this tree (moduleNavRegistry marks feed_direction available), so the
+		// Feed Director gets a real bottom bar, not the "Soon" roadmap row main's registry had.
+		if status := moduleKeySet(modules)["feed_direction"]; status != moduleStatusAvailable {
+			t.Fatalf("feed_director feed row status = %q, want %q", status, moduleStatusAvailable)
+		}
+	})
+
+	t.Run("health director is offered counts but counts stays OFF without counts.read", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleHealthDirector)}
+		keys := leadershipModuleKeys(grants)
+		if len(keys) == 0 {
+			t.Fatal("health_director resolves ZERO leadership module keys; bootstrap returns an empty nav")
+		}
+		if keys[0] != "counts" {
+			t.Fatalf("health_director module keys = %v, want counts first", keys)
+		}
+		for _, key := range keys {
+			switch key {
+			case "vaccination", "weighing", "feed_direction":
+				t.Fatalf("health_director offered %q, which belongs to another director", key)
+			}
+		}
+		if permissions.RoleHasPermission(permissions.RoleHealthDirector, permissions.CountsRead) {
+			t.Fatal("health_director holds counts.read; that switches the OFF Counts feature on")
+		}
+		// Offer without access: every Counts nav item is permission-gated, so none renders and
+		// the Counts drawer row does not appear at all.
+		for _, item := range visibleNavigationFor(grants, nil, en) {
+			if item.Key == "counts" || item.Href == "/counts" {
+				t.Fatalf("Counts nav item %q rendered for health_director without counts.read", item.Key)
+			}
+		}
+		if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; ok {
+			t.Fatal("Counts drawer row rendered for health_director without counts.read")
+		}
+	})
+}
+
+// TestMultiModuleVerifierDrawer locks the verifier nav composition for ≥2 verify duties.
+// A verifier with VerificationReview permission and verify duty on multiple features
+// gets a drawer with one entry per feature, following the CEO/leadership pattern.
+func TestMultiModuleVerifierDrawer(t *testing.T) {
+	const en = localization.DefaultTag
+
+	t.Run("multi-module verifier (vaccination+weighing) gets expanded drawer with feature-scoped modules", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{"pc.vaccination", "weighing"}
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		// Should have two modules: one for each feature the verifier has a verify duty on
+		if len(modules) != 2 {
+			t.Fatalf("multi-module verifier should see 2 modules; got %d: %v", len(modules), keys)
+		}
+
+		// Check vaccination module
+		vaccModule := modules[0]
+		if vaccModule.Key != "verify_vaccination" {
+			t.Fatalf("first module key = %q, want verify_vaccination", vaccModule.Key)
+		}
+		if vaccModule.Label != "Vaccination" {
+			t.Fatalf("vaccination module label = %q, want Vaccination", vaccModule.Label)
+		}
+		if vaccModule.Status != moduleStatusAvailable {
+			t.Fatalf("vaccination module status = %q, want available", vaccModule.Status)
+		}
+		// The module href carries the feature so the drawer's tap scopes the verify queue to
+		// THAT feature; plain "/verify" made every drawer entry land on vaccination.
+		if vaccModule.Href != "/verify?module=vaccination&category=vaccination_proof" {
+			t.Fatalf("vaccination module landing href = %q, want /verify", vaccModule.Href)
+		}
+
+		// Check vaccination nav items: verify + alerts + you.
+		//
+		// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+		// "You" carries shared_key "you" so it dedupes across modules like the leadership
+		// entries -- the objection was the per-feature REPETITION, not its presence. The
+		// alerts tab label never names the feature; the href's category still scopes it.
+		wantVaccItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(vaccModule.NavItems) != len(wantVaccItems) {
+			t.Fatalf("vaccination nav items = %+v, want %+v", vaccModule.NavItems, wantVaccItems)
+		}
+		for i := range wantVaccItems {
+			if vaccModule.NavItems[i] != wantVaccItems[i] {
+				t.Fatalf("vaccination bar item[%d] = %+v, want %+v", i, vaccModule.NavItems[i], wantVaccItems[i])
+			}
+		}
+
+		// Check weighing module. Same bar shape, SAME generic "Alerts" label, but a
+		// DIFFERENT href category -- that category is the load-bearing part of the
+		// scoping: a mismatch renders a permanently-empty 200 tab.
+		weighModule := modules[1]
+		if weighModule.Key != "verify_weighing" {
+			t.Fatalf("second module key = %q, want verify_weighing", weighModule.Key)
+		}
+		if weighModule.Label != "Weighing" {
+			t.Fatalf("weighing module label = %q, want Weighing", weighModule.Label)
+		}
+		wantWeighItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing&category=weighing_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=weighing_proof"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(weighModule.NavItems) != len(wantWeighItems) {
+			t.Fatalf("weighing nav items = %+v, want %+v", weighModule.NavItems, wantWeighItems)
+		}
+		for i := range wantWeighItems {
+			if weighModule.NavItems[i] != wantWeighItems[i] {
+				t.Fatalf("weighing bar item[%d] = %+v, want %+v", i, weighModule.NavItems[i], wantWeighItems[i])
+			}
+		}
+
+		// The two features must NOT collapse onto one alerts feed: identical label,
+		// different category.
+		if vaccModule.NavItems[1].Label != weighModule.NavItems[1].Label {
+			t.Fatalf("alerts label must be identical across features; got %q vs %q", vaccModule.NavItems[1].Label, weighModule.NavItems[1].Label)
+		}
+		if vaccModule.NavItems[1].Href == weighModule.NavItems[1].Href {
+			t.Fatalf("alerts href must stay feature-scoped; both features got %q", vaccModule.NavItems[1].Href)
+		}
+
+		// THE NO-REPETITION PROPERTY, at the COMPOSITION layer.
+		//
+		// Read the layering before reading the numbers below. modulesFor and
+		// visibleNavigationFor compose a module's OWN bar and still carry the "you"
+		// contribution; the placement rule runs AFTER them, in Bootstrap
+		// (applyProfileEntryPlacement), and is what decides whether the served payload
+		// keeps that entry or hands it to the drawer. So "exactly one You" here is the
+		// pre-placement composition invariant -- no module may contribute You twice, and
+		// the served bar is one module's bar rather than a merged one -- NOT a claim that
+		// this verifier's phone shows You in the bottom bar. He holds two features, so it
+		// is moved to the drawer; that is asserted on the SERVED payload immediately
+		// after this block, and across every principal shape in
+		// TestProfileEntryPlacementFollowsModuleCount.
+		//
+		// Note also, precisely: verificationModuleForFeature builds its NavItems by hand
+		// and never calls composeNavigationFromModules, the ONLY reader of shared_key, so
+		// `shared_key: "you"` on that contribution is inert here -- it is not what keeps
+		// You single. The composition stays single because the bar is MODULE-SCOPED, and
+		// the served payload stays single because of the placement rule.
+		nav := visibleNavigationFor(grants, grantedModules, en)
+		youCount := 0
+		seenKeys := make(map[string]bool, len(nav))
+		for _, item := range nav {
+			if item.Key == "you" {
+				youCount++
+			}
+			if seenKeys[item.Key] {
+				t.Fatalf("multi-module verifier served bar repeats key %q; got %+v", item.Key, nav)
+			}
+			seenKeys[item.Key] = true
+		}
+		if youCount != 1 {
+			t.Fatalf("multi-module verifier served bar carries %d You items, want exactly 1 (a second feature must add a drawer row, never a second You); got %+v", youCount, nav)
+		}
+		for _, m := range modules {
+			perModule := 0
+			for _, item := range m.NavItems {
+				if item.Key == "you" {
+					perModule++
+				}
+			}
+			if perModule != 1 {
+				t.Fatalf("module %q carries %d You items, want exactly 1; got %+v", m.Key, perModule, m.NavItems)
+			}
+		}
+
+		// ...and now the SERVED payload, which is what the phone actually renders. Two
+		// features means a drawer, and the drawer owns You: it must be gone from the
+		// served bar and from BOTH module bars, so no drawer selection can bring it back.
+		// Without this, the composition assertions above read as an endorsement of a You
+		// tab per verify feature -- the exact thing the maintainer rejected three times.
+		served := bootstrapFor(t, grants, grantedModules)
+		if served.NavChrome != domain.NavChromeExpanded {
+			t.Fatalf("two-feature verifier NavChrome=%q want %q (he must have a drawer to hold You)", served.NavChrome, domain.NavChromeExpanded)
+		}
+		if n := countProfileEntries(served.VisibleNavigation); n != 0 {
+			t.Fatalf("two-feature verifier served bar still carries %d You item(s); it belongs in the drawer: %+v", n, served.VisibleNavigation)
+		}
+		for _, m := range served.Modules {
+			if n := countProfileEntries(m.NavItems); n != 0 {
+				t.Fatalf("two-feature verifier module %q still carries %d You item(s); switching to it would show You twice: %+v", m.Key, n, m.NavItems)
+			}
+		}
+	})
+
+	t.Run("single-module verifier gets minimal chrome with a feature-scoped module, never generic verification", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{"pc.vaccination"}
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		// The generic merged "verification" module never appears for a verifier -- per
+		// the binding ruling, Alerts is never a merged/un-scoped tab, so a single-feature
+		// verifier gets the SAME feature-scoped [Verify, Alerts] module a
+		// multi-feature verifier gets for each of their features (chrome collapses to
+		// minimal below the 2-module threshold, but the module itself is still
+		// feature-scoped).
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("single-module verifier must NOT see generic verification module; got %v", keys)
+		}
+		if len(modules) != 1 {
+			t.Fatalf("single-module verifier should have 1 module; got %d: %v", len(modules), keys)
+		}
+		if modules[0].Key != "verify_vaccination" {
+			t.Fatalf("single-module verifier module key = %q, want verify_vaccination", modules[0].Key)
+		}
+		// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
+		// "You" carries shared_key "you" so it dedupes across modules like the leadership
+		// entries -- the objection was the per-feature REPETITION, not its presence. The
+		// alerts tab label never names the feature; the href's category still scopes it.
+		wantItems := []domain.BootstrapNavigationItem{
+			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "you", Label: "You", Href: "/you"},
+		}
+		if len(modules[0].NavItems) != len(wantItems) {
+			t.Fatalf("nav items = %+v want %+v", modules[0].NavItems, wantItems)
+		}
+		for i := range wantItems {
+			if modules[0].NavItems[i] != wantItems[i] {
+				t.Fatalf("nav item[%d]=%+v want %+v", i, modules[0].NavItems[i], wantItems[i])
+			}
+		}
+	})
+
+	// TestBootstrapAlertsPerModule / grantedModules == ["verification"] below cover the
+	// department-level-grant case (no feature named at all) that this suite previously
+	// missed -- the exact shape of the real defect (a verifier with only a
+	// department_module_grants.module_key = "verification" row) reproduced against the
+	// live QA DB on 2026-08-02: grant_count=1, ListGrantedModuleKeys returns
+	// ["verification"], and the bar rendered [Verify, You] with no Alerts at all.
+	t.Run("verifier with no duties is scoped to every built feature, never generic verification", func(t *testing.T) {
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+		grantedModules := []string{} // No verify duties
+		modules := modulesFor(grants, grantedModules, en)
+		keys := moduleKeySet(modules)
+
+		if _, ok := keys["verification"]; ok {
+			t.Fatalf("verifier with no duties must NOT see generic verification; got %v", keys)
+		}
+		wantKeys := map[string]bool{"verify_vaccination": true, "verify_weighing": true, "verify_counts": true}
+		if len(keys) != len(wantKeys) {
+			t.Fatalf("verifier with no duties should see one module per built feature; got %v", keys)
+		}
+		for k := range wantKeys {
+			if _, ok := keys[k]; !ok {
+				t.Fatalf("verifier with no duties missing module %q; got %v", k, keys)
+			}
+		}
+	})
+}
+
+// TestBootstrapAlertsPerModule reproduces the department-level "verification" grant
+// case found live on 2026-08-02 (Jyothi, user 90000000-0000-4000-8000-000000000104):
+// department_module_grants.module_key = "verification" with no position_module_duties
+// rows, so ListGrantedModuleKeys returns ["verification"] -- a literal module key that
+// names no feature. Before this fix, candidateModuleKeys treated any grantedModules with
+// len <= 1 as "single/no duties" and fell back to the generic, un-scoped "verification"
+// registry module, so the served bar was [Verify, You] with no Alerts item at all,
+// contradicting the binding ruling ("Per-module bottom bar = [Verify, Alerts] ...
+// Alerts are NOT one merged tab").
+func TestBootstrapAlertsPerModule(t *testing.T) {
+	const en = localization.DefaultTag
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+	grantedModules := []string{"verification"}
+
+	modules := modulesFor(grants, grantedModules, en)
+	if len(modules) == 0 {
+		t.Fatalf("verifier with only a department-level verification grant must still get per-module bars; got none")
+	}
+
+	wantCategories := map[string]string{
+		"verify_vaccination": "vaccination_proof",
+		"verify_weighing":    "weighing_proof",
+		"verify_counts":      "shifting_move", // NOT "counts_proof" -- see verificationCategoryForFeature.
+	}
+	// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You]. "You"
+	// carries shared_key "you" so it dedupes across modules like the leadership entries
+	// -- the objection was the per-feature REPETITION, not its presence. The alerts tab
+	// label never names the feature; the href's category still scopes it. This test is
+	// where that scoping is proven: all three features must produce the IDENTICAL label
+	// "Alerts" but three DIFFERENT href categories. A category mismatch renders a
+	// permanently-empty 200 tab, so the category assertion below must never be relaxed
+	// just because the label stopped varying.
+	const wantAlertsLabel = "Alerts"
+	seenHrefs := make(map[string]string, len(modules))
+	seen := make(map[string]bool, len(modules))
+	for _, m := range modules {
+		seen[m.Key] = true
+		wantCategory, known := wantCategories[m.Key]
+		if !known {
+			t.Fatalf("unexpected verifier module %q; got modules %v", m.Key, moduleKeySet(modules))
+		}
+		var verify, alerts, you *domain.BootstrapNavigationItem
+		youCount := 0
+		for i := range m.NavItems {
+			switch m.NavItems[i].Key {
+			case "verify":
+				verify = &m.NavItems[i]
+			case "alerts":
+				alerts = &m.NavItems[i]
+			case "you":
+				you = &m.NavItems[i]
+				youCount++
+			}
+		}
+		if verify == nil {
+			t.Fatalf("module %q missing Verify item; got %+v", m.Key, m.NavItems)
+		}
+		if alerts == nil {
+			t.Fatalf("module %q missing Alerts item -- per-module bottom bar must be [Verify, Alerts, You], never [Verify] alone; got %+v", m.Key, m.NavItems)
+		}
+		if you == nil {
+			t.Fatalf("module %q missing You item -- the verifier must be able to reach their profile; got %+v", m.Key, m.NavItems)
+		}
+		if youCount != 1 {
+			t.Fatalf("module %q carries %d You items, want exactly 1 (shared_key %q dedupes it); got %+v", m.Key, youCount, "you", m.NavItems)
+		}
+		if you.Label != "You" || you.Href != "/you" {
+			t.Fatalf("module %q You item = %+v, want {Key:you Label:You Href:/you}", m.Key, *you)
+		}
+		if len(m.NavItems) != 3 {
+			t.Fatalf("module %q bar = %+v, want exactly [Verify, Alerts, You]", m.Key, m.NavItems)
+		}
+		if m.NavItems[2].Key != "you" {
+			t.Fatalf("module %q bar must end with You (priority 100); got %+v", m.Key, m.NavItems)
+		}
+		if alerts.Label != wantAlertsLabel {
+			t.Fatalf("module %q alerts label = %q, want the generic %q (the tab must not name the feature the verifier is already inside)", m.Key, alerts.Label, wantAlertsLabel)
+		}
+		wantHref := "/verify/alerts?category=" + wantCategory
+		if alerts.Href != wantHref {
+			t.Fatalf("module %q alerts href = %q, want %q (category must match what the feature's verification-bridge writes to verification_items.category, not just the module name)", m.Key, alerts.Href, wantHref)
+		}
+		if other, dup := seenHrefs[alerts.Href]; dup {
+			t.Fatalf("modules %q and %q share alerts href %q -- the generic label must not have collapsed the feature scoping", other, m.Key, alerts.Href)
+		}
+		seenHrefs[alerts.Href] = m.Key
+	}
+	if len(seenHrefs) != len(wantCategories) {
+		t.Fatalf("expected one distinct alerts category per feature; got %v", seenHrefs)
+	}
+	for key := range wantCategories {
+		if !seen[key] {
+			t.Fatalf("expected verifier module %q missing; got %v", key, moduleKeySet(modules))
+		}
+	}
+
+	// visible_navigation (the served bottom bar before any drawer switch) must match the
+	// first module's bar exactly, not the generic registry "verification" entry.
+	nav := visibleNavigationFor(grants, grantedModules, en)
+	if len(nav) != len(modules[0].NavItems) {
+		t.Fatalf("visible_navigation = %+v, want modules[0].NavItems = %+v", nav, modules[0].NavItems)
+	}
+	for i := range nav {
+		if nav[i] != modules[0].NavItems[i] {
+			t.Fatalf("visible_navigation[%d] = %+v, want %+v", i, nav[i], modules[0].NavItems[i])
+		}
+	}
+	foundAlerts := false
+	for _, item := range nav {
+		if item.Key == "alerts" {
+			foundAlerts = true
+		}
+	}
+	if !foundAlerts {
+		t.Fatalf("visible_navigation must include Alerts for a verifier; got %+v", nav)
 	}
 }

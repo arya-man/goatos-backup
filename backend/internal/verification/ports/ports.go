@@ -50,6 +50,12 @@ type ListQueueParams struct {
 	SubmissionScopedOnly bool
 	// OpenOnly hides rows already closed by leadership.
 	OpenOnly bool
+	// AwaitingApplicationOnly narrows the page to items a verifier already decided but whose
+	// producing module has NOT yet confirmed it applied the outcome (domain.VerdictStateApplying).
+	// It exists so the verifier's own surface can show "you decided this, it has not landed yet"
+	// instead of letting the item vanish out of the pending queue with no trace. Only producers
+	// that opted into the ack protocol (applier_ack_expected) can ever appear here.
+	AwaitingApplicationOnly bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -77,10 +83,40 @@ type Repository interface {
 	ListReadyVaccinationBatchClosures(ctx context.Context, params ListQueueParams) ([]domain.VaccinationBatchClosure, error)
 	// CloseVaccinationBatch closes a whole vaccination batch/drive, which may span multiple days.
 	CloseVaccinationBatch(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error)
+	// WithdrawItemsBySource retires the still-pending items raised for source records the producing
+	// module has superseded (e.g. a weighing bucket reopened for rework: the submission those items
+	// point at is no longer the bucket's work). Withdrawal is NOT a verdict — it decides nothing, it
+	// only stops an item being decidable, so a verifier can never approve superseded work and have
+	// the UI report that non-decision as success. Already-decided items are left untouched.
+	WithdrawItemsBySource(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string) (int, error)
+	// MarkVerdictApplied is the producing module's receipt that its applier wrote the verdict's
+	// outcome onto its OWN record. It writes no outcome state and publishes no event -- it only
+	// stamps applied_at/applied_by_module so a decided item stops reading as "still being applied".
+	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
+	// so the verdict's submission and its application are different moments).
+	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage
 // port (proof.Service.DownloadURL) — verification never proxies or duplicates media bytes.
 type MediaResolver interface {
 	ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error)
+}
+
+// ErrEvidenceMissing means the item's proof rows resolve but at least one stored object is gone.
+// It is terminal: retrying the same approve can never succeed.
+var ErrEvidenceMissing = errors.New("verification: proof evidence object is missing")
+
+// EvidenceAvailabilityChecker proves the item's proof BYTES still exist, not merely that a link
+// could be signed for them.
+//
+// This is the verdict-time gate ONLY, for one item. It is deliberately NOT part of MediaResolver
+// and is deliberately not called from ListQueue: statting every proof of every row on a 20-row page
+// is the N+1 the queue read correctly refuses (see Service.resolveMedia). One irreversible approve
+// paying one stat per proof is a completely different cost shape from a hot list read paying
+// page_size x proofs_per_row.
+type EvidenceAvailabilityChecker interface {
+	// EnsureEvidenceAvailable returns ErrEvidenceMissing when any object is gone, or another error
+	// when the check itself could not be completed (unknown, not proof of absence).
+	EnsureEvidenceAvailable(ctx context.Context, tenantID string, proofIDs []string) error
 }

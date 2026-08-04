@@ -35,6 +35,13 @@ export GOATOS_ENV=local
 tools/local/phone-qa-throwaway-seed.sh
 ```
 
+The seed is self-contained: it runs `cmd/seed-vaccination-per-goat-qa` itself,
+so there is no separate base seed to run first. It ends by asserting that every
+alive goat has exactly one active primary `animal_identifier_1` and that all six
+QA identities below hold a `user_scope_grants` row with `status = 'active'` --
+a pending-only grant produces runtime 403s on the phone. A non-zero exit means
+the fixture is not usable; recreate the container rather than patching around it.
+
 Then start the API on `127.0.0.1:8080` with the same `DATABASE_URL`, install the
 app, and bake a dev token:
 
@@ -62,31 +69,44 @@ Operators never receive tenant scope in this fixture. They get a park-scoped
 
 ## Seeded Work
 
-Vaccination is strict and uses ten goat identities across two parks. This
-fixture exists because the maintainer only has five physical RFID tags but needs
-to exercise two sheds per park on a real phone.
+Vaccination is strict and uses forty goat identities across eight sheds in two
+parks. This fixture exists because the maintainer only has five physical RFID
+tags but needs to exercise several sheds per park on a real phone.
 
 Important identity rule:
 
 - `goat_identifiers` is unique by `(tenant_id, normalized_value)`.
 - The same raw physical RFID must never be assigned to two goats in one tenant.
-- The fixture therefore keeps CBE goats on raw RFID values and gives CPT goats
-  transformed identifier values prefixed with `CPT-`.
-- The Android dev/local build may transform a CPT vaccination scan from
-  `901007000504418` to `CPT-901007000504418` before Room roster lookup,
-  scan-attempt recording, scan-capture recording, and outbox sync.
+- The fixture therefore gives each shed its own PREFIXED copy of the five
+  physical tags. Godel 1 keeps them raw; every other shed prefixes them. Five
+  physical tags x eight sheds = forty distinct identities.
+- The Android dev/local build applies the matching shed prefix to a vaccination
+  scan (for example `901007000504418` -> `M2-901007000504418` in Mandela 2)
+  before Room roster lookup, scan-attempt recording, scan-capture recording, and
+  outbox sync.
 - STG/prod builds must not transform RFID input.
 
 Do not add fake duplicate RFIDs to `goat_identifiers` to make a physical test
 easier. That would invalidate the exact production identity invariant this
-fixture is protecting.
+fixture is protecting. In particular, do not re-point the raw physical tags onto
+a second park's goats: every alive goat needs exactly one active primary
+`animal_identifier_1`, and moving the raw tags leaves the original park's goats
+with no vaccination identity at all. The seed asserts both invariants before it
+reports success.
 
-| Park | Shed | Partition | Operator | Vaccination identifiers |
+| Park | Shed | Partition | Weighing assignee | Vaccination tag prefix |
 | --- | --- | --- | --- | --- |
-| CBE | Godel 1 | `whole` | Pramod | `901007000504418`, `901007000504332` |
-| CBE | Yashoda 1 | `Parts 1-3` | Pramod | `901007000504407`, `901007000504419`, `901007000504392` |
-| CPT | Mandela 2 | `whole` | Amit | `CPT-901007000504418`, `CPT-901007000504332` |
-| CPT | Castro 1 | `Parts 1-3` | Amit | `CPT-901007000504407`, `CPT-901007000504419`, `CPT-901007000504392` |
+| CBE | Godel 1 | `whole` | Pramod | none (raw) |
+| CBE | Yashoda 1 | `Parts 1-3` | Pramod | `Y1-` |
+| CBE | Gandhi 1 | `whole` | Dinakar | `G1-` |
+| CBE | Gandhi 2 | `whole` | Dinakar | `G2-` |
+| CPT | Mandela 2 | `whole` | Amit | `M2-` |
+| CPT | Castro 1 | `Parts 1-3` | Amit | `C1-` |
+| CPT | Castro 2 | `whole` | Dinakar | `C2-` |
+| CPT | Castro 3 | `whole` | Dinakar | `C3-` (lump-sum) |
+
+The five physical tags are `901007000504418`, `901007000504332`,
+`901007000504407`, `901007000504419` and `901007000504392`.
 
 This intentionally covers both shed shapes:
 
@@ -96,18 +116,16 @@ This intentionally covers both shed shapes:
   `vaccination_drive_assignments.partition_label`
 
 Location names must stay clean: `Godel 1`, `Yashoda 1`, `Mandela 2`,
-`Castro 1`. Do not concatenate park + shed + partition into
+`Castro 1`, and so on. Do not concatenate park + shed + partition into
 `locations.name`. Park chips/filters should come from the parent park, and
 partition text should come from the assignment/partition fields.
 
 Weighing is free-flow:
 
-| Park | Shed | Partition display | Operator | Rule |
-| --- | --- | --- | --- |
-| CBE | Godel 1 | `whole` | Pramod | No expected RFID list, no animal count limit. |
-| CBE | Yashoda 1 | `Parts 1-3` | Pramod | No expected RFID list, no animal count limit. |
-| CPT | Mandela 2 | `whole` | Amit | No expected RFID list, no animal count limit. |
-| CPT | Castro 1 | `Parts 1-3` | Amit | No expected RFID list, no animal count limit. |
+All eight sheds above are weighing sheds. None has an expected RFID list or an
+animal count limit; `expected_animal_count` is 0 everywhere. Dinakar owns sheds
+in BOTH parks, so every other shed on his Operators list belongs to somebody
+else.
 
 The weighing fixture deliberately sets `expected_animal_count = 0` and inserts no
 `weighing_expected_animals` rows. Scanned strings go to weighing observation

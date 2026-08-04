@@ -442,8 +442,8 @@ func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done in
 	if completionEvidence > done {
 		done = completionEvidence
 	}
-	if p.ScannedCount > done {
-		done = p.ScannedCount
+	if p.ProofSubmittedCount > done {
+		done = p.ProofSubmittedCount
 	}
 	if done > target {
 		done = target

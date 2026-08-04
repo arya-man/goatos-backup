@@ -303,11 +303,11 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
 			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason", "details"}, "vi_row", []int{20, 50, 100})}),
-		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Shed-wise Preventive Care (PC) vaccination: one row per shed with animal-level due/done, planned sessions, capacity, and merged status.", "module-surface",
+		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
 				// planned Sessions, capacity, merged Status). 10 columns; default 25 rows.
-				tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100}),
+				vaccinationShedTable(),
 				table("full-vaccine-schedule", "Operator drive schedule", "/vaccination/drive-assignments", []string{"date", "operator", "park", "sheds", "partitions", "animals", "capacity"}, "schedule_row"),
 				table("supplier-warmup", "Supplier warmup — Holding Farm", "/procurement/source-entry/loads", []string{"load", "holding_farm_supplier", "purpose", "animals", "warmup", "tagging", "vaccination_hf", "health_selection", "status"}, "warmup_load"),
 			}),
@@ -452,6 +452,19 @@ func page(id, href, pattern, title, subtitle, kind string, tables []domain.Table
 func tableP(id, title, source string, cols []string, rowParam string, pageSizes []int) domain.TableContract {
 	t := table(id, title, source, cols, rowParam)
 	t.PageSizeOptions = pageSizes
+	return t
+}
+
+func vaccinationShedTable() domain.TableContract {
+	t := tableP("shed-summary", "Vaccination by shed", "/vaccination/sheds", []string{"park", "shed", "animals", "due", "done", "sessions", "next_due", "manager", "backup", "status"}, "shed", []int{25, 50, 100})
+	for i := range t.Columns {
+		switch t.Columns[i].Key {
+		case "due":
+			t.Columns[i].Label = "Needs action"
+		case "done":
+			t.Columns[i].Label = "Up to date"
+		}
+	}
 	return t
 }
 
@@ -1076,6 +1089,8 @@ func pageSpecificCopy(id string) map[string]string {
 			"calendar.drive.all_day":               "All day",
 			"calendar.drive.sheds":                 "Sheds",
 			"calendar.drive.vaccines":              "Vaccines",
+			"calendar.drive.name":                  "Drive name",
+			"calendar.drive.total":                 "Drive total",
 			"calendar.drive.animals":               "Animals",
 			"calendar.drive.doses":                 "Doses",
 			"calendar.drive.packets":               "Drive packets",
@@ -1212,7 +1227,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.shed_events.filter_reason":            "Use visible-row search, quick facets, severity chips, and work-state chips on this board.",
 			"filter.shed_events.rows_suffix":              "park, shed, owner, proof, verify",
 			"section.sheds.title":                         "Vaccination by shed",
-			"section.sheds.note":                          "One row per shed · animal-level due / done · planned sessions · capacity",
+			"section.sheds.note":                          "Current adult vaccination status by shed",
 			"section.sheds.empty_none_title":              "No sheds with vaccination work yet",
 			"section.sheds.empty_none_body":               "Rows appear per shed once a published vaccination protocol generates obligations against the shed's animals.",
 			"section.sheds.empty_filtered_title":          "No sheds match these filters",
@@ -1283,15 +1298,32 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.cohort_matrix.column.animals":       "Animals",
 			"command_board.cohort_matrix.column.vaccine":       "Vaccine",
 			"command_board.cohort_matrix.column.pending":       "Pending",
-			"command_board.cohort_matrix.meta":                 "Per farm · per dose: pending / verified · red when pending",
+			"command_board.cohort_matrix.meta":                 "Per farm · per dose: pending / submitted / verified, with the actual operator vaccination date or date range · red when the operator still owes work",
 			"command_board.cohort_matrix.empty":                "No cohort obligations in this scope",
 			"command_board.cohort_matrix.no_farm":              "Farm not set",
 			"command_board.cohort_matrix.pending_word":         "pending",
+			"command_board.cohort_matrix.submitted_word":       "submitted",
 			"command_board.cohort_matrix.verified_word":        "verified",
+			"command_board.cohort_matrix.date_unavailable":     "Date unavailable",
 			"command_board.filter.vaccine":                     "Vaccine",
 			"command_board.filter.all_vaccines":                "All vaccines",
 			"command_board.filter.drive":                       "Drive",
+			"command_board.filter.all_drives":                  "All drives",
+			"command_board.filter.operator_day":                "Operator day (optional)",
+			"command_board.filter.all_common_drives":           "All common drives",
+			"command_board.filter.completed_history":           "Completed history",
 			"command_board.filter.no_drives":                   "No drives planned in this park scope yet",
+			"command_board.future_drives.title":                "Scheduled Ahead — Future Vaccination Drives",
+			"command_board.future_drives.count_suffix":         "drives",
+			"command_board.future_drives.lines_suffix":         "treatment lines",
+			"command_board.future_drives.column.campaign":      "Common drive",
+			"command_board.future_drives.column.drive":         "Vaccination",
+			"command_board.future_drives.column.dates":         "Operator dates",
+			"command_board.future_drives.column.sheds":         "Whole sheds",
+			"command_board.future_drives.column.animals":       "Animals",
+			"command_board.future_drives.column.doses":         "Vaccinations",
+			"command_board.future_drives.campaign_animals":     "animals",
+			"command_board.future_drives.campaign_doses":       "vaccinations",
 			"command_board.shed_matrix.title":                  "Vaccine × Shed Status",
 			"command_board.shed_matrix.meta":                   "Count of animals · per dose · waiting days on amber",
 			"command_board.shed_matrix.waiting_suffix":         "d waiting",
@@ -1304,7 +1336,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.shed_matrix.state.awaiting":         "Awaiting verification",
 			"command_board.shed_matrix.state.overdue":          "Overdue",
 			"command_board.shed_matrix.state.scheduled":        "Scheduled",
-			"command_board.shed_matrix.legend.verified":        "Verified",
+			"command_board.shed_matrix.legend.verified":        "Verified (actual date shown)",
 			"command_board.shed_matrix.legend.awaiting":        "Given · awaiting verification",
 			"command_board.shed_matrix.legend.overdue":         "Overdue (not given)",
 			"command_board.shed_matrix.legend.scheduled":       "Scheduled (date shown)",
@@ -1391,7 +1423,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.next_year":                                 "Next year",
 			"tooltip.sessions.label":                           "About planned sessions",
 			"tooltip.sessions.body":                            "Mesha splits a shed's vaccination work across multiple days when the daily limit is reached. Sessions is the number of planned visit days (usually 1). One animal getting two vaccines (e.g. FMD + HS) counts as two vaccinations, not one.",
-			"note.sheds_counts":                                "Animal-level counts, scoped by the top bar and filters. Due = animals with open vaccination work; Done = Animals − Due.",
+			"note.sheds_counts":                                "Current status by shed. Up to date means no vaccination is currently due; actual and future vaccination dates are shown above.",
 			"drawer.record_verify.title":                       "Vaccination work context",
 			"drawer.record_verify.aria":                        "Vaccination work context",
 			"drawer.record_verify.close_label":                 "Close record / verify drawer",

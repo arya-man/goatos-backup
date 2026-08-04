@@ -153,13 +153,12 @@ func (s *SweeperService) parkMergeStep(ctx context.Context, tenantID, versionID 
 		_ = visitRelease(ctx)
 		return remaining, 0, plannedDate, false, true, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, plannedDate, planner, session, targetIDs)
 	if err != nil {
 		session.releaseClaims(shotClaims)
 		_ = visitRelease(ctx)
 		return remaining, 0, plannedDate, false, true, err
 	}
-	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
 	if driveOperatorCapacityExhausted(planner, capPlanner) {
 		// F1: operators were found but every one has 0 remaining capacity. Do NOT fall through to
 		// lockAndRefreshDriveCapacity or limitParkSelectionByDriveAnimals, which treat
@@ -325,7 +324,7 @@ func claimParkDriveAnimals(session *SweepSession, rows []domain.ParkConsolidatio
 			continue
 		}
 		seenTargets[targetKey] = struct{}{}
-		session.claimDriveCapacity(row.ParkID, plannedDate, row.ObligationID, 1)
+		session.claimDriveCapacity(row.ParkID, plannedDate, targetKey, 1)
 	}
 }
 
@@ -426,6 +425,14 @@ func parkConsolidationCursor(row domain.ParkConsolidationCandidate) *domain.Park
 
 func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidationCandidate) string {
 	identity := cfg.getRuleVaccineIdentity(row.RuleID)
+	// Blue Tongue participates in two approved bundles. When this published matrix
+	// intentionally excludes PPR but carries Sheep Pox, put the two sheep lanes in
+	// the same park group. Protocols that still carry PPR retain the established,
+	// higher-priority PPR+Blue Tongue session selected by batchSession.
+	if normalizedVaccineMatrixCode(identity.VaccineCode) == "blue tongue" &&
+		sweepConfigHasVaccine(cfg, "sheep pox") && !sweepConfigHasVaccine(cfg, "ppr") {
+		return "combo:Sheep Pox+Blue Tongue"
+	}
 	if parkCandidateUsesDriveDateOverrideWindow(row) {
 		if session := batchSession(row.RuleID, identity.VaccineCode); strings.HasPrefix(strings.TrimSpace(session), "combo:") {
 			return session
@@ -444,6 +451,16 @@ func parkConsolidationDriveGroupKey(cfg SweepConfig, row domain.ParkConsolidatio
 		return "rule:" + ruleID
 	}
 	return "vaccine:unknown"
+}
+
+func sweepConfigHasVaccine(cfg SweepConfig, vaccineCode string) bool {
+	want := normalizedVaccineMatrixCode(vaccineCode)
+	for _, identity := range cfg.RuleVaccineIDs {
+		if normalizedVaccineMatrixCode(identity.VaccineCode) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func parkConsolidationGroupKey(cfg SweepConfig, row domain.ParkConsolidationCandidate) string {
@@ -705,7 +722,7 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 		if err != nil {
 			return nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
+		capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, &day, planner, session, targetIDs)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return nil, err
@@ -731,7 +748,6 @@ func (s *SweeperService) selectBestParkDriveDateWithCapacity(ctx context.Context
 		capped := selected
 		scored := selected
 		if capPlanner.MaxGoatsPerDrive > 0 {
-			selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
 			capped = limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, day, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 			// Rank by the WITHIN-CAP admissible set only: last-safe overflow admissions keep a date
 			// eligible (threshold below) but must not make an over-cap date outrank a date that fits
@@ -901,62 +917,6 @@ func limitParkSelectionByDriveAnimals(now time.Time, rows []domain.ParkConsolida
 	return out
 }
 
-func expandWholeParkRoutePartitions(rows []domain.ParkConsolidationCandidate, selected []string, configuredAnimalCap int32) []string {
-	if configuredAnimalCap <= 0 || len(selected) == 0 {
-		return selected
-	}
-	selectedSet := make(map[string]struct{}, len(selected))
-	for _, id := range selected {
-		selectedSet[id] = struct{}{}
-	}
-	type groupCounts struct {
-		all map[string]struct{}
-	}
-	groups := make(map[string]*groupCounts)
-	rowGroup := make(map[string]string, len(rows))
-	for _, row := range rows {
-		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
-		key := strings.TrimSpace(row.ParkID) + "\x00" +
-			strings.TrimSpace(row.ShedID) + "\x00" +
-			physicalShed + "\x00" +
-			partition + "\x00" +
-			strings.TrimSpace(row.RuleID)
-		rowGroup[row.ObligationID] = key
-		group := groups[key]
-		if group == nil {
-			group = &groupCounts{all: map[string]struct{}{}}
-			groups[key] = group
-		}
-		if targetKey := parkCandidateTargetKey(row); targetKey != "" {
-			group.all[targetKey] = struct{}{}
-		}
-	}
-	outSet := make(map[string]struct{}, len(selected))
-	for _, id := range selected {
-		key, ok := rowGroup[id]
-		if !ok {
-			continue
-		}
-		group := groups[key]
-		if group == nil || int32(len(group.all)) > configuredAnimalCap {
-			outSet[id] = struct{}{}
-			continue
-		}
-		for _, row := range rows {
-			if rowGroup[row.ObligationID] == key {
-				outSet[row.ObligationID] = struct{}{}
-			}
-		}
-	}
-	out := make([]string, 0, len(outSet))
-	for _, row := range rows {
-		if _, ok := outSet[row.ObligationID]; ok {
-			out = append(out, row.ObligationID)
-		}
-	}
-	return out
-}
-
 func configuredParkAnimalCap(planner, capPlanner domain.DrivePlannerSettings) int32 {
 	if planner.MaxGoatsPerDrive > 0 {
 		return planner.MaxGoatsPerDrive
@@ -975,6 +935,13 @@ func admitParkRouteChunks(now time.Time, rows []domain.ParkConsolidationCandidat
 		if used+int32(needed) <= maxAnimals {
 			admitParkRows(group.rows, admitted, admittedTargets)
 			used += int32(needed)
+			continue
+		}
+		// The physical shed is the normal packing unit even when its animals came from
+		// different rule rows (for example adult catch-up plus history-backed repeat).
+		// A shed that fits the configured full operator cap carries intact to the next
+		// operator-day; residual capacity must not peel off one of its partitions.
+		if int32(group.targetCount) <= configuredAnimalCap {
 			continue
 		}
 		for _, partition := range group.partitions {
@@ -1046,6 +1013,34 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 		return ordered[i].ObligationID < ordered[j].ObligationID
 	})
 
+	// Movability is a physical-shed property for packing. If one rule row in a shed is already
+	// last-safe/hold-bound, reserve the whole compatible shed in the immovable pass; otherwise the
+	// two admission passes can recreate the exact catch-up-versus-repeat shed split forbidden by
+	// the operator planner.
+	shedMovable := make(map[string]bool)
+	for _, row := range ordered {
+		if _, ok := selectedSet[row.ObligationID]; !ok {
+			continue
+		}
+		if _, ok := admitted[row.ObligationID]; ok {
+			continue
+		}
+		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
+			continue
+		}
+		physicalShed, _ := normalizeAssignmentShed(row.ShedName)
+		if physicalShed == "" {
+			physicalShed = "park"
+		}
+		key := strings.TrimSpace(row.ParkID) + "\x00" + physicalShed
+		if _, exists := shedMovable[key]; !exists {
+			shedMovable[key] = true
+		}
+		if !parkObligationCanMoveAfter(now, plannedDate, row, planner) {
+			shedMovable[key] = false
+		}
+	}
+
 	groupByShed := make(map[string]*parkRouteGroup)
 	order := make([]string, 0)
 	for _, row := range ordered {
@@ -1058,15 +1053,15 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 		if !parkObligationFeasibleOnPlannerDate(now, plannedDate, row, planner) {
 			continue
 		}
-		if parkObligationCanMoveAfter(now, plannedDate, row, planner) != movable {
-			continue
-		}
 		physicalShed, partition := normalizeAssignmentShed(row.ShedName)
 		if physicalShed == "" {
 			physicalShed = "park"
 		}
-		ruleID := strings.TrimSpace(row.RuleID)
-		key := physicalShed + "\x00" + ruleID
+		movabilityKey := strings.TrimSpace(row.ParkID) + "\x00" + physicalShed
+		if shedMovable[movabilityKey] != movable {
+			continue
+		}
+		key := physicalShed
 		group := groupByShed[key]
 		if group == nil {
 			group = &parkRouteGroup{physicalShed: physicalShed, routeRank: vaccinationRouteShedRank(physicalShed)}
@@ -1074,7 +1069,7 @@ func parkRouteGroupsByMovability(now time.Time, rows []domain.ParkConsolidationC
 			order = append(order, key)
 		}
 		group.rows = append(group.rows, row)
-		partitionKey := partition + "\x00" + ruleID
+		partitionKey := partition
 		if len(group.partitions) == 0 || group.partitions[len(group.partitions)-1].partition != partitionKey {
 			group.partitions = append(group.partitions, parkPartitionGroup{partition: partitionKey})
 		}
@@ -1133,15 +1128,15 @@ func distinctParkTargetCount(rows []domain.ParkConsolidationCandidate) int {
 
 func vaccinationRouteShedRank(physicalShed string) int {
 	switch strings.ToLower(strings.TrimSpace(physicalShed)) {
-	case "godel 1":
-		return 10
-	case "godel 2":
-		return 20
-	case "mandela 2":
-		return 30
-	case "old yashoda":
-		return 40
 	case "gandhi":
+		return 10
+	case "godel 1":
+		return 20
+	case "godel 2":
+		return 30
+	case "mandela 2":
+		return 40
+	case "old yashoda":
 		return 50
 	default:
 		return 1000

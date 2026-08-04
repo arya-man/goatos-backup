@@ -154,6 +154,10 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         val fieldKey: String,
         val subject: ProofSubject,
         val subjectId: String?,
+        // Free-flow weighing does NOT resolve an RFID tag to an animal id, so its proof rows carry
+        // subjectId = null and identify the animal by CAPTION (the scanned tag). Attribution tests
+        // for that module need the caption, not just the subject id.
+        val caption: String?,
         val localUri: String,
         val capturedStartMs: Long,
         val capturedEndMs: Long,
@@ -187,7 +191,7 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
         capturedByPrincipalId: String?,
         proofPolicy: ProofPolicy,
     ): AppResult<ProofCaptureRow> {
-        captureCalls += CaptureCall(fieldKey, subject, subjectId, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
+        captureCalls += CaptureCall(fieldKey, subject, subjectId, caption, localUri, capturedStartMs, capturedEndMs, capturedByPrincipalId)
         // R50-027 / shed-level vaccination proof: mirror production repository cap selection.
         // Per-goat proof uses per-subject cap; shed-level proof uses the SOP's shed total cap
         // because the whole shed is the proof subject.
@@ -286,8 +290,11 @@ class FakeProofCaptureRepository(private val maxProofs: Int = 5) : ProofCaptureR
  *  the approver-only/leadership role-blocked path. */
 class FakeCaptureBootstrapRepository(
     private val profile: BootstrapOperatorProfileDto? = BootstrapOperatorProfileDto(operatorId = "operator-1", primaryRoleHint = "operator"),
+    // Execution capability is backend-compiled into the bootstrap feature flags, NOT inferred from
+    // the role hint above. Defaults to authorized so existing capture tests keep their behavior.
+    private val featureFlags: Map<String, Boolean> = mapOf("vaccination_execute" to true),
 ) : BootstrapRepository {
-    override suspend fun loadNavState(): NavState = NavState.Empty
+    override suspend fun loadNavState(): NavState = NavState.Empty.copy(featureFlags = featureFlags)
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? = profile
 }
 

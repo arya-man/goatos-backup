@@ -53,6 +53,7 @@
     <!-- v4 park-level drive progress card -->
     <string name="calendar_drive_title">ಲಸಿಕೆ ಡ್ರೈವ್ · %1$s</string>
     <string name="calendar_drive_sheds_done">%2$d ರಲ್ಲಿ %1$d ಶೆಡ್ ಪೂರ್ಣ</string>
+    <string name="calendar_drive_total_animals">ಈ ಡ್ರೈವ್‌ನಲ್ಲಿ %1$d ಪ್ರಾಣಿಗಳು</string>
     <string name="calendar_drive_vaccines_fmt">%1$d ಲಸಿಕೆಗಳು</string>
     <string name="calendar_drive_open">ಡ್ರೈವ್ ತೆರೆಯಿರಿ</string>
     <!-- Status chips (redesigned card) -->

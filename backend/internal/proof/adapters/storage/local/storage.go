@@ -7,7 +7,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net/url"
 	"os"
@@ -150,12 +152,44 @@ func (s *Storage) FinalizeUpload(_ context.Context, proof domain.Artifact, in do
 	}, nil
 }
 
+// Open streams the stored object. A missing or unreadable file is mapped to ports.ErrObjectMissing
+// so the HTTP boundary can answer with a terminal, non-retryable status instead of a generic 500.
+// (Under storage_provider=local the object key resolves relative to the API process working
+// directory, so relocating the process also relocates the media root — the exact 2026-08-02 cause.)
 func (s *Storage) Open(_ context.Context, proof domain.Artifact) (ports.ReadSeekCloser, error) {
 	path, err := s.localPath(proof.ObjectKey)
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(path)
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return nil, fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+		}
+		return nil, err
+	}
+	return file, nil
+}
+
+// StatObject reports whether the stored object is still present and readable, without opening a
+// stream. Same missing/unreadable mapping as Open, so a caller that must not act on absent evidence
+// gets the terminal ports.ErrObjectMissing class here too.
+func (s *Storage) StatObject(_ context.Context, proof domain.Artifact) error {
+	path, err := s.localPath(proof.ObjectKey)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+			return fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+		}
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%w: %s", ports.ErrObjectMissing, proof.ObjectKey)
+	}
+	return nil
 }
 
 func (s *Storage) Verify(method, path, tenantID, expires, signature string, now time.Time) bool {

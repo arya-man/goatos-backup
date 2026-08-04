@@ -45,6 +45,20 @@ import (
 // - Branch 3: overdue-by-due_at (index: idx_obligation_instances_calendar_overdue on (tenant_id, status, due_at))
 // This ensures the planner uses index scans for each branch and stays sub-second at 500k obligations.
 //
+// calendarTodayInRequestedWindow is true only when the CURRENT Asia/Kolkata business day falls inside
+// the requested [$2, $3) window. It gates the P1 drive-rollover lookback below.
+//
+// The rollover re-dates an open past drive onto TODAY. That rolled date is meaningful ONLY to a query
+// whose window actually contains today: a window for tomorrow (or any later day) must not be handed a
+// card dated today. Without this guard the widened 45-day lower bound admitted the batch into EVERY
+// future window and the rollover then stamped it as today's date, so tapping the 2nd, the 3rd and
+// the 4th on the phone all showed the same cards. Anchored to the business-day start
+// (biztime.BusinessDayStart's SQL twin, the same expression rolled_due_at uses), never now()±N hours.
+const calendarTodayInRequestedWindow = `(
+          (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata' >= $2::timestamptz
+      AND (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata' <  $3::timestamptz
+        )`
+
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
 const calendarCanonicalEventsCTE = `obligation_events AS (
   WITH obligation_events_rows AS (
@@ -411,9 +425,9 @@ batch_events AS (
         AND (grouped.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date THEN 'warning'
       ELSE 'info'
     END AS severity,
-    grouped.due_at,
-    grouped.window_start,
-    grouped.window_end,
+    rollover.rolled_due_at AS due_at,
+    rollover.rolled_due_at AS window_start,
+    grouped.window_end + (rollover.rolled_due_at - grouped.due_at) AS window_end,
     'Asia/Kolkata'::text AS timezone,
     'india_only'::text AS timezone_source,
     grouped.park_id,
@@ -485,12 +499,12 @@ batch_events AS (
         ELSE COALESCE(ob.window_end, ob.window_start + interval '8 hours')
       END AS window_end,
       COALESCE(
-        NULLIF(min(goat_park.location_id::text), '')::uuid,
+        goat_park.location_id,
         CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
         CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END
       ) AS park_id,
       COALESCE(
-        min(goat_park.location_code) FILTER (WHERE goat_park.location_code IS NOT NULL),
+        goat_park.location_code,
         CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
         CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
       ) AS park_code,
@@ -598,11 +612,21 @@ batch_events AS (
       WHERE vda.tenant_id = ob.tenant_id
         AND vda.batch_id = ob.batch_id
         AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+        -- P1 drive rollover: widen inclusion to a 45-day lookback ONLY for 'in_progress' batches
+        -- (gated identically to the display-date rollover a few hundred lines below) -- these are
+        -- the "keeps showing on the CURRENT date until CLOSED" drives. A merely 'planned' batch is
+        -- NOT widened here: it already surfaces via the pre-existing catch-up/overdue path on its
+        -- own date, and widening it too would return it (still labeled with its ORIGINAL due_at,
+        -- since it never gets the display rollover) into unrelated future query windows --
+        -- "returned but not surfaced on D+1", the exact defect this fix targets. The lookback is
+        -- ADDITIONALLY gated on calendarTodayInRequestedWindow: the roll only produces a card dated
+        -- TODAY, so a window that does not contain today has no business being handed one. Without
+        -- that gate every future window inherited the rolled card (tomorrow showed today's drives).
+        AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
       GROUP BY vda.planned_date
     ) assignment_scope ON true
     WHERE ob.tenant_id = $1::uuid
-      AND ob.scope_type IN ('shed', 'park')
+      AND ob.scope_type IN ('tenant', 'shed', 'park')
       AND (
         assignment_scope.planned_date IS NOT NULL
         OR (
@@ -610,7 +634,7 @@ batch_events AS (
           AND
           ob.planned_date IS NOT NULL
           AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+          AND (ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
         )
         OR (
           NOT COALESCE(assignment_presence.has_any_assignment, false)
@@ -646,8 +670,48 @@ batch_events AS (
       pv.protocol_version_id,
       ob.sop_task_id,
       ob.reserved_quantity,
-      ob.planned_quantity
+      ob.planned_quantity,
+      COALESCE(
+        goat_park.location_id,
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_id END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id END
+      ),
+      COALESCE(
+        goat_park.location_code,
+        CASE WHEN scope_loc.location_type = 'park' THEN scope_loc.location_code END,
+        CASE WHEN scope_loc.location_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code END
+      )
   ) grouped
+  -- P1 drive rollover: maintainer contract is "a vaccination drive keeps showing on the CURRENT
+  -- date until it is CLOSED" (status reaches 'completed'/'canceled'). The scheduled planned_date
+  -- never moves in the data; only the CARD's display date (due_at/window_start/window_end, the
+  -- columns the API and frontend group calendar days by) rolls forward daily to the current
+  -- Asia/Kolkata business date while the drive is still open. severity/status above intentionally
+  -- keep reading grouped.due_at (the ORIGINAL scheduled date) so a rolled-forward-but-still-open
+  -- drive still reads 'warning' for being late, instead of laundering itself back to 'info' by
+  -- rolling onto today.
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE
+        -- Only roll drives where WORK HAS ACTUALLY STARTED: batch status = 'in_progress' means
+        -- the operator has begun/submitted the drive but the verifier/director has not yet
+        -- closed it. This is a SINGLE stored column, checked identically here and in
+        -- obligation_drive_membership below, so batch_events (one row per batch) and the
+        -- obligation-grain membership CTE can never disagree about which date a batch's
+        -- obligations belong under -- avoiding a split-brain where some of a batch's obligations
+        -- roll forward and others are left orphaned on the original date. A merely 'planned'
+        -- drive that nobody has touched (or one still 'planned' despite an individual obligation
+        -- reading 'missed') stays on its own scheduled date -- it already surfaces as
+        -- 'overdue'/'missed' via the pre-existing catch-up path, and MANY fixtures across this
+        -- package seed a bare untouched/never-'in_progress' batch on a fixed historical date and
+        -- assert it is found there; rolling those forward too would silently vanish them from
+        -- their seeded date on every test run after that date passes.
+        WHEN grouped.batch_status = 'in_progress'
+         AND (grouped.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        THEN (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata'
+        ELSE grouped.due_at
+      END AS rolled_due_at
+  ) rollover
   CROSS JOIN LATERAL (
     SELECT
       CASE
@@ -761,7 +825,7 @@ obligation_drive_membership AS (
       AND oi2.status NOT IN ('superseded', 'canceled', 'waived')
       AND ob2.status NOT IN ('superseded', 'canceled')
       AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+      AND (vda.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END
     UNION
     -- Assignment-era compatibility for completed or otherwise still-unbound batch obligations. Some
     -- historical split batches have assignment rows for the day-level cards but no member rows for
@@ -808,7 +872,7 @@ obligation_drive_membership AS (
         (
           ob2.planned_date IS NOT NULL
           AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') < $3::timestamptz
-          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz
+          AND (ob2.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata') + interval '1 day' > $2::timestamptz - CASE WHEN ob2.status = 'in_progress' AND ` + calendarTodayInRequestedWindow + ` THEN interval '45 days' ELSE interval '0 days' END -- scale-guard:ignore: 5k-50k-envelope; concatenating calendarTodayInRequestedWindow splits calendarCanonicalEventsCTE into several Go literals, so god-cte/non-sargable-like re-anchor from the const's annotated declaration to this fragment's first line. Same query, same accepted debt; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md
         )
         OR (
           ob2.planned_date IS NULL
@@ -821,11 +885,36 @@ obligation_drive_membership AS (
     oi.obligation_id,
     oi.status,
     oi.rule_id,
+    oi.batch_id,
+    oi.protocol_version_id,
+    COALESCE(
+      (ob.window_start AT TIME ZONE 'Asia/Kolkata')::date,
+      (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS logical_window_start,
+    COALESCE(
+      (ob.window_end AT TIME ZONE 'Asia/Kolkata')::date,
+      (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date
+    ) AS logical_window_end,
+    COALESCE(
+      NULLIF(pr.eligibility_json->'vaccine'->>'display_name', ''),
+      NULLIF(pr.eligibility_json->'vaccine'->>'name', ''),
+      NULLIF(pr.eligibility_json->'vaccine'->>'code', ''),
+      NULLIF(pr.dose_code, ''),
+      pd.name
+    ) AS logical_vaccine_label,
+    (lower(pr.dose_code) LIKE '%adult%' OR lower(pr.dose_code) LIKE '%revac%') AS adult_drive,
     pd.name AS protocol_name,
     loc.park_id,
     loc.park_code,
     loc.shed_id,
     (member.membership_at AT TIME ZONE 'Asia/Kolkata')::date AS due_date,
+    -- The ORIGINAL scheduled business date, BEFORE the "keeps showing on the current date until
+    -- CLOSED" rollover below rewrites membership_at to today. Grouping and display must use the
+    -- rolled due_date, but LATENESS must not: comparing a rolled date against today is always
+    -- false, which laundered a drive with zero completions from 'overdue' back to 'in_progress'.
+    -- genuine_overdue/genuine_missed read THIS column, so a rolled-forward drive still reports
+    -- that it is late.
+    (member_raw.membership_at_raw AT TIME ZONE 'Asia/Kolkata')::date AS original_due_date,
     CASE WHEN oi.target_type = 'goat' THEN oi.target_id END AS animal_id,
     EXISTS (
       SELECT 1
@@ -841,6 +930,8 @@ obligation_drive_membership AS (
     ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
   JOIN protocol_definitions pd
     ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+  JOIN protocol_rules pr
+    ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id AND ob.batch_id = oi.batch_id
   LEFT JOIN goats g
@@ -850,12 +941,33 @@ obligation_drive_membership AS (
    AND g.merged_into_goat_id IS NULL
   CROSS JOIN LATERAL (
     SELECT
-      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
-      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
       CASE
         WHEN oi.membership_at_override IS NOT NULL THEN oi.membership_at_override
         WHEN oi.batch_id IS NOT NULL THEN COALESCE((ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata'), ob.window_start, ob.window_end)
         ELSE oi.due_at
+      END AS membership_at_raw
+  ) member_raw
+  -- P1 drive rollover: keep this due_date in lockstep with batch_events.due_at (the SAME "keeps
+  -- showing on the CURRENT date until CLOSED" rollover) so obligation_drive_effective_state and
+  -- obl_summary, which join on (park_id, due_date) below, land on the SAME rolled-forward date
+  -- park_drive_groups now groups the drive event under -- otherwise the headline/status/count
+  -- join would miss and silently fall back to the COALESCE(..., false) zero-obligation defaults.
+  -- Only batch-backed rows (oi.batch_id IS NOT NULL) roll; standalone (non-batch) obligations keep
+  -- their own due_at/override semantics unchanged.
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_type ELSE oi.scope_type END AS scope_type,
+      CASE WHEN oi.batch_id IS NOT NULL THEN ob.scope_id ELSE oi.scope_id END AS scope_id,
+      CASE
+        -- Same 'in_progress'-only gate as batch_events.rolled_due_at above, keyed off the SAME
+        -- ob.status column (not a per-obligation signal) so this CTE's due_date can never diverge
+        -- from the rolled date park_drive_groups groups the event under -- every obligation in
+        -- an 'in_progress' batch rolls together, so none is left orphaned on the original date.
+        WHEN oi.batch_id IS NOT NULL
+         AND ob.status = 'in_progress'
+         AND (member_raw.membership_at_raw AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+        THEN (now() AT TIME ZONE 'Asia/Kolkata')::date::timestamp AT TIME ZONE 'Asia/Kolkata'
+        ELSE member_raw.membership_at_raw
       END AS membership_at
   ) member
   LEFT JOIN locations scope_loc
@@ -906,6 +1018,84 @@ obligation_drive_membership AS (
     AND pv.status = 'published'
     AND oi.status NOT IN ('superseded', 'canceled', 'waived')
 ),
+-- A logical vaccination drive may span multiple operator-days. Calendar rows stay at the
+-- executable park/day grain, while this bounded seed-and-expand rollup gives each row the same
+-- backend-owned drive name and DISTINCT-animal total. The key is the persisted batch window,
+-- protocol and vaccine identity; verifier/director workflow timestamps never participate.
+obligation_logical_drive_keys AS (
+  SELECT DISTINCT
+    m.park_id,
+    m.park_code,
+    m.due_date AS execution_date,
+    m.protocol_version_id,
+    m.logical_window_start,
+    m.logical_window_end,
+    m.logical_vaccine_label,
+    m.adult_drive
+  FROM obligation_drive_membership m
+  WHERE m.batch_id IS NOT NULL
+    AND m.park_id IS NOT NULL
+    AND m.logical_vaccine_label IS NOT NULL
+),
+obligation_logical_drive_full_membership AS (
+  SELECT
+    k.park_id,
+    k.park_code,
+    k.execution_date,
+    k.logical_window_start,
+    k.logical_vaccine_label,
+    k.adult_drive,
+    CASE WHEN all_oi.target_type = 'goat' THEN all_oi.target_id END AS animal_id
+  FROM obligation_logical_drive_keys k
+  JOIN obligation_batches all_ob
+    ON all_ob.tenant_id = $1::uuid
+   AND all_ob.protocol_version_id = k.protocol_version_id
+   AND COALESCE(
+         (all_ob.window_start AT TIME ZONE 'Asia/Kolkata')::date,
+         all_ob.planned_date
+       ) = k.logical_window_start
+   AND COALESCE(
+         (all_ob.window_end AT TIME ZONE 'Asia/Kolkata')::date,
+         all_ob.planned_date
+       ) = k.logical_window_end
+   AND all_ob.status NOT IN ('superseded', 'canceled')
+  JOIN obligation_instances all_oi
+    ON all_oi.tenant_id = all_ob.tenant_id
+   AND all_oi.batch_id = all_ob.batch_id
+   AND all_oi.status NOT IN ('superseded', 'canceled', 'waived')
+  JOIN protocol_rules all_pr
+    ON all_pr.tenant_id = all_oi.tenant_id
+   AND all_pr.rule_id = all_oi.rule_id
+  LEFT JOIN goats all_goat
+    ON all_goat.tenant_id = all_oi.tenant_id
+   AND all_oi.target_type = 'goat'
+   AND all_goat.goat_id = all_oi.target_id
+   AND all_goat.merged_into_goat_id IS NULL
+  LEFT JOIN locations all_shed
+    ON all_shed.tenant_id = all_goat.tenant_id
+   AND all_shed.location_id = all_goat.shed_id
+   AND all_shed.location_type = 'shed'
+  WHERE COALESCE(
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'display_name', ''),
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'name', ''),
+          NULLIF(all_pr.eligibility_json->'vaccine'->>'code', ''),
+          NULLIF(all_pr.dose_code, '')
+        ) = k.logical_vaccine_label
+    AND COALESCE(all_goat.park_id, all_shed.parent_location_id) = k.park_id
+),
+-- projection-review: membership=obligation_logical_drive_full_membership starts from the bounded executable-day keys, then expands through persisted batch membership to every animal in the same protocol+park+batch-window+vaccine cohort, including operator days outside the requested Calendar page/window; group_key=(park_id, protocol_version_id, logical_window_start, logical_window_end, logical_vaccine_label) identifies one persisted multi-day drive cohort, while execution_date keeps the emitted row at park/day grain; join_cardinality=protocol_rules is one row per rule and drive_total collapses batch members with COUNT(DISTINCT animal_id), with no protocol_rule_dimensions fan-out; pagination=the complete matching cohort is aggregated before the bounded Calendar event page is emitted, so Limit or a single-day request cannot change drive_total; scope=park is resolved explicitly from goat.park_id or its physical-shed parent and matched to the executable key
+obligation_logical_drive_rollup AS (
+  SELECT
+    m.park_id,
+    m.execution_date,
+    COALESCE(NULLIF(max(m.park_code), ''), 'Park') ||
+      CASE WHEN bool_and(m.adult_drive) THEN ' Adult ' ELSE ' ' END ||
+      string_agg(DISTINCT m.logical_vaccine_label, ' + ' ORDER BY m.logical_vaccine_label) ||
+      ' – ' || to_char(min(m.logical_window_start), 'Mon YYYY') AS drive_name,
+    count(DISTINCT m.animal_id)::int AS drive_total
+  FROM obligation_logical_drive_full_membership m
+  GROUP BY m.park_id, m.execution_date
+),
 obligation_drive_vaccine_labels AS (
   SELECT
     m.park_id,
@@ -923,7 +1113,15 @@ obligation_drive_shed_complete AS (
     FROM obligation_drive_membership
     WHERE shed_id IS NOT NULL
     GROUP BY park_id, due_date, shed_id
-    HAVING count(DISTINCT obligation_id) = count(DISTINCT obligation_id) FILTER (WHERE status = 'completed')
+    -- A shed is DONE when the operator has finished every animal in it -- completed OR submitted
+    -- for verification. Requiring status='completed' alone meant a shed whose every animal was
+    -- vaccinated and whose proof was submitted still read "0 of 4 sheds done" until a verifier
+    -- cleared it, which is the same "done means verified" redefinition corrected in
+    -- progress_completed below. The outstanding review is carried by the verification-pending
+    -- status, not by under-reporting the operator's field work.
+    HAVING count(DISTINCT obligation_id) = count(DISTINCT obligation_id) FILTER (
+      WHERE status = 'completed' OR submitted_for_verification
+    )
   ) done_sheds
   GROUP BY park_id, due_date
 ),
@@ -933,9 +1131,24 @@ obligation_drive_animal_coverage AS (
          count(*) FILTER (WHERE fully_completed)::int AS completed_animals,
          count(*) FILTER (WHERE submitted_for_verification)::int AS submitted_animals
   FROM (
+    -- BOTH flags are ALL-DOSE (bool_and), never any-dose. A goat due two vaccines on
+    -- the same drive day is ONE animal that is done only when EVERY one of its drive
+    -- obligations is done -- that is the whole point of the distinct-ANIMAL progress
+    -- basis below. bool_or(submitted_for_verification) broke exactly that: a goat with
+    -- PPR submitted and ET still open counted as a finished animal, so a one-goat drive
+    -- reported 1/1, 100% while medicine was still owed. The animal-grain numerator is
+    -- completed_animals + submitted_animals, so an any-dose flag there is a silent
+    -- over-count of field work, not a display nicety.
+    --
+    -- The two flags stay DISJOINT (the numerator adds them): fully_completed is the
+    -- strict all-'completed' case, and submitted_for_verification is the all-dose
+    -- finished case that is NOT fully completed, i.e. at least one dose is sitting in
+    -- verification. An animal with any dose neither completed nor submitted falls into
+    -- neither bucket and correctly holds the ring below 100%.
     SELECT park_id, due_date, animal_id,
            bool_and(status = 'completed') AS fully_completed,
-           bool_or(submitted_for_verification) AS submitted_for_verification
+           bool_and(status = 'completed' OR submitted_for_verification)
+             AND NOT bool_and(status = 'completed') AS submitted_for_verification
     FROM obligation_drive_membership
     WHERE animal_id IS NOT NULL
     GROUP BY park_id, due_date, animal_id
@@ -970,17 +1183,46 @@ obligation_drive_shed_animals AS (
   ) per_shed
   GROUP BY per_shed.park_id, per_shed.due_date
 ),
--- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>deferred>overdue>due) so total_count=completed+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id); group_key=(park_id, due_date) from that same membership row; join_cardinality=count(DISTINCT obligation_id) FILTER per mutually-exclusive bucket (completed>submitted>overdue>due>deferred) so total_count=completed+submitted+due+overdue+deferred with no double-counting, PLUS new animal_grain aggregation (count DISTINCT target_id where target_type='goat') rolled up per animal's bool_and(status='completed') per (park_id, due_date), with a separate animal_coverage subquery (separate animal subquery 1:1 LEFT JOIN on (park_id, due_date) produces animal_total_count and animal_completed_count, no fan-out); pagination=computed inline per ListEvents request as a bounded, keyset-paginated canonical read (5k-50k envelope, no projector, no materialized temp table); scope=(park_id, due_date) identical to membership's scope matrix, no re-derivation (unchanged by animal coverage); date/status: all existing dimension semantics preserved (animal counts are independent new grain, do not affect obligation buckets or date-window/status-bucket logic)
+-- projection-review: membership=obligation_drive_membership (one row per obligation_id, the obligation grain); group_key=(park_id, due_date); join_cardinality=count(DISTINCT obligation_id) FILTER per bucket over that single membership row-set, no join fan-out (sc/ac/vl/sa are each exactly 1 row per (park_id, due_date) and are attached 1:1 AFTER grouping). Grain proof for the FIVE-bucket disjointness fix: the bucket key is the pair (status, submitted_for_verification), both columns of the SAME membership row, so bucketing is a pure per-row partition -- no cross-row/cross-grain dependency. Partition is now total and disjoint: completed = status='completed'; submitted = status<>'completed' AND submitted; deferred = status='deferred' AND NOT submitted; overdue = status IN ('overdue','missed') AND NOT submitted AND NOT deferred; due = the remaining open statuses AND NOT submitted. Every status in total_count's list appears in exactly one branch for each value of submitted_for_verification, hence total_count = completed+submitted+due+overdue+deferred exactly (previously an overdue-or-deferred row that was ALSO submitted was counted twice, in submitted_count and again in overdue_count/deferred_count). progress_* is derived at the SAME group grain from already-grouped scalars (animal grain when total_animals>0, else obligation grain) and adds no rows, no joins, and no new scan. pagination=unchanged (computed inline per ListEvents request, bounded keyset canonical read, 5k-50k envelope, no projector, no materialized table); scope=(park_id, due_date), unchanged, no re-derivation; date/status window semantics unchanged -- only the mutually-exclusive bucket predicates and the new derived progress scalars changed, no index or scan shape impact.
+-- projection-review evidence (AGENTS.md "Grain Predicates and Executable Gates", clauses a/b/c):
+--   (a) PRODUCER unique column list: obligation_drive_membership is unique on (obligation_id) -- the
+--       obligation_membership_rows UNION dedups a row matched by several branches, so one obligation
+--       appears exactly once. CONSUMER match/group column list: GROUP BY (m.park_id, m.due_date).
+--       total_count/completed_count/submitted_count/due_count/overdue_count/deferred_count and the
+--       progress_* scalars all range over that one grouped row-set; no bucket introduces an extra
+--       WHERE dimension that the others lack, and every bucket now carries the SAME explicit status
+--       whitelist (no bucket falls back to the membership CTE's hand-maintained deny-list).
+--   (b) Row multiplicity of every joined side: sc (shed_complete), ac (animal_coverage), vl
+--       (vaccine_labels) and sa (sheds) are each pre-aggregated to EXACTLY ONE row per
+--       (park_id, due_date) and LEFT JOINed 1:1 AFTER the GROUP BY, so no join fans out the
+--       obligation grain. ac itself pre-aggregates goats to one row per animal
+--       (bool_and(status='completed')) before counting, so an animal due several vaccines the same
+--       day contributes 1, not N.
+--   (c) Ratio key sets, shown identical: progress_pct's numerator and denominator range over the
+--       SAME key set in both branches -- animals branch = DISTINCT target_id (target_type='goat')
+--       within (park_id, due_date) for BOTH completed_animals and total_animals; doses branch =
+--       DISTINCT obligation_id within (park_id, due_date) for BOTH completed_count and total_count.
+--       The branch predicate (total_animals > 0) is evaluated once and selects the key set for
+--       numerator, denominator and basis label together, so the percentage can never mix an animal
+--       numerator with a dose denominator. progress_completed is the COMPLETED count in both
+--       branches -- never a submitted/pending count -- so progress <= 100 by construction.
 obligation_drive_summary AS (
   -- Bucket precedence is mutually exclusive and total_count-complete. Invariant:
-  --   total_count = completed_count + due_count + overdue_count + deferred_count
+  --   total_count = completed_count + submitted_count + due_count + overdue_count + deferred_count
   -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
   -- product feature yet (owner decision 2026-07-14); an obligation on a stock-blocked batch is
   -- bucketed purely by its own status. Revisit when the stock module ships.
-  -- Precedence (each obligation counted in EXACTLY ONE bucket):
-  --   completed = status='completed'
-  --   deferred  = NOT completed AND status='deferred' (a clinical/anchor hold stays deferred)
-  --   overdue   = NOT completed AND NOT deferred AND status IN ('overdue','missed')
+  -- Precedence (each obligation counted in EXACTLY ONE of the FIVE buckets). submitted_for_verification
+  -- is a SECOND dimension on top of status (work recorded on mobile, not yet verified), so it must be
+  -- subtracted from EVERY non-completed status bucket -- not just due_count. Before this fix a shed that
+  -- was submitted-but-late landed in BOTH submitted_count and overdue_count (and submitted-while-deferred
+  -- in both submitted_count and deferred_count), so the "5 disjoint buckets" invariant documented on
+  -- DriveSummary in contracts/openapi/app-api.yaml was false and total_count < sum(buckets):
+  --   completed = status='completed'                       (verification already done)
+  --   submitted = NOT completed AND submitted_for_verification (any open status, awaiting verification)
+  --   deferred  = NOT submitted AND status='deferred'      (a clinical/anchor hold stays deferred)
+  --   overdue   = NOT submitted AND NOT deferred AND status IN ('overdue','missed')
   --   due       = everything else open, not already bucketed
   -- SCALE: aggregate membership to the (park_id, due_date) GROUP grain FIRST, then attach the three
   -- 1:1 per-group sub-metrics (shed_complete / animal_coverage / vaccine_labels). Previously the
@@ -1006,6 +1248,8 @@ obligation_drive_summary AS (
     COALESCE(ac.submitted_animals, 0)::int AS submitted_animals,
     COALESCE(vl.vaccine_labels, ARRAY[]::text[]) AS vaccine_labels,
     COALESCE(sa.sheds, '[]'::jsonb) AS sheds,
+    COALESCE(ld.drive_name, '') AS drive_name,
+    COALESCE(ld.drive_total, ac.total_animals, 0)::int AS drive_total,
     g.park_code
   FROM (
     SELECT
@@ -1016,22 +1260,50 @@ obligation_drive_summary AS (
         'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
         'deferred'))::int AS total_count,
       count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'completed')::int AS completed_count,
+      -- Carries the SAME explicit status whitelist as total_count above. It must not lean on the
+      -- membership CTE's NOT IN ('superseded','canceled','waived') pre-filter (canonical_read.go
+      -- obligation_membership_rows): that list is hand-maintained in a different CTE, so a newly
+      -- added terminal status would be excluded from total_count (explicit allow-list) while still
+      -- falling into submitted_count (implicit deny-list), silently breaking
+      -- total_count = completed + submitted + due + overdue + deferred. Every bucket now ranges over
+      -- one identical status key set.
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
           AND m.submitted_for_verification
+          AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+            'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed',
+            'deferred')
       )::int AS submitted_count,
+      -- due vs overdue is READ-TIME on the ORIGINAL scheduled business date, matching the
+      -- headline's genuine_overdue. obligation_instances never carries a literal 'overdue'
+      -- status (the baseline CHECK does not permit it), so keying this bucket off
+      -- status IN ('overdue','missed') made overdue_count structurally ~0 while the card
+      -- headline said "overdue" -- one card, two answers. original_due_date (not due_date) is
+      -- used because the rollover rewrites due_date to today, and a rolled date is never
+      -- < today.
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
           AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
           AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+          AND m.original_due_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date
       )::int AS due_count,
       count(DISTINCT m.obligation_id) FILTER (
         WHERE m.status <> 'completed'
+          AND NOT m.submitted_for_verification
           AND m.status <> 'deferred'
-          AND m.status IN ('overdue', 'missed')
+          AND (
+            m.status = 'missed'
+            OR (
+              m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+              AND m.original_due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+            )
+          )
       )::int AS overdue_count,
-      count(DISTINCT m.obligation_id) FILTER (WHERE m.status = 'deferred')::int AS deferred_count,
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.status = 'deferred'
+          AND NOT m.submitted_for_verification
+      )::int AS deferred_count,
       count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
@@ -1046,6 +1318,65 @@ obligation_drive_summary AS (
     ON vl.park_id IS NOT DISTINCT FROM g.park_id AND vl.due_date = g.due_date
   LEFT JOIN obligation_drive_shed_animals sa
     ON sa.park_id IS NOT DISTINCT FROM g.park_id AND sa.due_date = g.due_date
+  LEFT JOIN obligation_logical_drive_rollup ld
+    ON ld.park_id IS NOT DISTINCT FROM g.park_id AND ld.execution_date = g.due_date
+),
+-- projection-review: membership=obligation_drive_membership (exactly one row per obligation_id, the obligation grain -- the SAME membership CTE the five-bucket obl_summary groups over, so headline and counts can never diverge on membership); group_key=(park_id, due_date) taken from that same membership row, never re-derived from a joined table; join_cardinality=NO JOIN -- this CTE reads the single membership row-set and collapses it with bool_or over three predicates, so it cannot fan out; each flag is a pure per-row predicate on columns of the SAME row (status, submitted_for_verification, due_date), making the grouping a total partition of the row-set; the result is attached to park_drive_events 1:1 on (park_id, due_date), the identical key, so it adds no rows; pagination=computed inline per ListEvents request inside the bounded keyset canonical read (5k-50k envelope, no projector, no materialized table); the flags are whole-filter aggregates over the group, NOT page-local, so Limit changes rows only and never the headline; scope=(park_id, due_date), identical to membership's scope matrix, shed remains a display dimension only and never narrows drive membership; date=due_date is already IST-normalized at membership build time ((membership_at AT TIME ZONE 'Asia/Kolkata')::date), so genuine_overdue compares IST date to IST date with no second conversion; status=genuine_missed/genuine_overdue are submission-aware (status AND submitted_for_verification together, never status alone), and genuine_overdue is READ-TIME over the open-status allow-list -- it never references a literal 'overdue' obligation status, which the baseline CHECK does not permit.
+obligation_drive_effective_state AS (
+  -- Always-on effective status flags computed at obligation grain, independent of optional
+  -- drive_summary. These account for submission status to ensure headline/severity don't render
+  -- FALSE CRITICAL when all work is submitted. Unlike obl_summary (conditional on
+  -- include_drive_summary=true), these are ALWAYS available for headline logic.
+  -- grain proof: membership=obligation_drive_membership (one obligation per row);
+  -- group_key=(park_id, due_date) from that same membership row; bucket dimensions are
+  -- submission-aware (submitted_for_verification AND status together, not status alone).
+  -- Read-time semantics: genuine_overdue = open obligations (status NOT IN completed/deferred/missed)
+  -- with IST business due_date in the past, AND NOT submitted (matching grouped.has_overdue logic
+  -- which uses '(due_at AT TIME ZONE 'Asia/Kolkata')::date < (now())::date' on same membership).
+  SELECT
+    m.park_id,
+    m.due_date,
+    bool_or(m.submitted_for_verification) AS has_submitted,
+    bool_or(m.status = 'missed' AND NOT m.submitted_for_verification) AS genuine_missed,
+    bool_or(
+      m.status NOT IN ('completed', 'deferred', 'missed')
+      AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending', 'verification_pending', 'rejected', 'rework_due')
+      -- original_due_date, NOT due_date: due_date may have been rolled forward to today by the
+      -- "keeps showing until CLOSED" rollover, and a rolled date is never < today, so using it
+      -- here reported an untouched past-due drive as merely in_progress.
+      AND m.original_due_date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+      AND NOT m.submitted_for_verification
+    ) AS genuine_overdue,
+    -- Bucket COUNTS at obligation grain, carrying the SAME disjoint predicates obl_summary
+    -- already proves total = completed + submitted + due + overdue + deferred. They live here,
+    -- not in obl_summary, because the calendar CARD renders them unconditionally while
+    -- obl_summary is gated on goatos.include_drive_summary='true'. Before this, the card's
+    -- scheduled_count/review_count were derived from the BATCH status in park_drive_groups —
+    -- a different grain and a different source of truth from the headline status, which reads
+    -- eff_state.has_submitted. That split is what made a fully-submitted drive render
+    -- status='verification_pending' with review_count=0 and scheduled_count=20: batch status
+    -- 'in_progress' is not in the review list (-> has_review false -> review_count 0) yet IS in
+    -- the scheduled list (-> the same 20 submitted animals counted as still scheduled). Both
+    -- numbers now come from the same membership rows the headline does, so card counts and card
+    -- status can no longer disagree, and submitted work is in exactly one bucket.
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status <> 'completed'
+        AND m.submitted_for_verification
+        AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+          'verification_pending', 'rejected', 'rework_due', 'overdue', 'missed', 'deferred')
+    )::int AS submitted_count,
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status <> 'completed'
+        AND NOT m.submitted_for_verification
+        AND m.status <> 'deferred'
+        AND m.status IN ('scheduled', 'due', 'in_progress', 'proof_pending',
+          'verification_pending', 'rejected', 'rework_due')
+    )::int AS due_count,
+    count(DISTINCT m.obligation_id) FILTER (
+      WHERE m.status = 'deferred' AND NOT m.submitted_for_verification
+    )::int AS deferred_count
+  FROM obligation_drive_membership m
+  GROUP BY m.park_id, m.due_date
 ),
 park_drive_events AS (
   -- CR-002/CR-003 (calendar-canonical-5k50k review): the event_id is the STABLE park+business-date
@@ -1084,9 +1415,31 @@ park_drive_events AS (
       cardinality(vaccine_meta.labels)::text ||
       CASE WHEN cardinality(vaccine_meta.labels) = 1 THEN ' vaccine' ELSE ' vaccines' END AS subtitle,
     CASE
-      WHEN grouped.has_missed THEN 'missed'
-      WHEN grouped.has_review OR COALESCE(obl_summary.submitted_count, 0) > 0 THEN 'verification_pending'
-      WHEN grouped.has_overdue THEN 'overdue'
+      -- projection-review: membership=obligation_drive_membership via obligation_drive_effective_state, one row per obligation collapsed to one row per (park_id, due_date); group_key=(park_id, due_date), the SAME key grouped.* already carries, joined with IS NOT DISTINCT FROM on park_id so a NULL-park tenant drive still matches instead of dropping out; join_cardinality=strictly 1:1, because eff_state is UNIQUE on (park_id, due_date) by construction (it is GROUP BY on exactly those two columns), so this LEFT JOIN adds no rows and cannot fan out the drive -- the COALESCE(..., false) wrappers cover ONLY the zero-obligation drive, where every flag is correctly false; pagination=headline and severity come from whole-filter group aggregates, never from the emitted page, so Limit changes which events appear but never what an event says about itself (asserted by the MultiPage/PageBoundary case); scope=(park_id, due_date) only, shed stays a display dimension and never narrows the headline, date=eff_state.due_date is IST-normalized at membership build time and compared against grouped.due_day::date so both sides are IST dates with no second conversion, status=precedence is a total ordering placing the three submission-aware flags first (genuine_missed, then genuine_overdue, then has_submitted/has_review) ahead of the legacy in_progress/completed/scheduled/deferred branches, so a mixed drive still reads missed/critical and past-due open work can never fall through to the false-green scheduled.
+      -- grain proof: headline depends on OBLIGATION-grain effective state flags, ALWAYS computed
+      -- from obligation_drive_membership (which accounts for submission status), independent of
+      -- the optional drive_summary. This ensures consistent headline regardless of whether
+      -- include_drive_summary is requested. eff_state columns (genuine_missed, genuine_overdue,
+      -- has_submitted) are grouped at (park_id, due_date), same scope as headline decision.
+      -- Headline precedence (each drive status assigned exactly once):
+      --   genuine_missed (status='missed' AND NOT submitted) → missed/critical (don't hide real misses)
+      --   genuine_overdue (past-due open, NOT submitted) → overdue/critical (don't hide real overdue work)
+      --   has_submitted OR has_review → verification_pending/warning (work is recorded)
+      --   in_progress / completed / scheduled / deferred as before
+      -- C13 fix: genuine_overdue MUST outrank has_submitted/has_review in the headline, exactly
+      -- like genuine_missed already outranks both. genuine_overdue is defined as
+      -- (open status AND past-due AND NOT submitted), so it is already mutually exclusive with
+      -- "every obligation in this group is submitted" -- a fully-submitted drive always has
+      -- genuine_overdue = false regardless of this branch's position, so this reorder cannot
+      -- regress the f4cdd29b8 fix (fully-submitted drives still read verification_pending). What
+      -- it does fix: a MIXED drive (>=1 submitted, >=1 genuinely overdue+unsubmitted) previously
+      -- matched has_submitted first and reported 'verification_pending', hiding the real overdue
+      -- work; severity (below) independently derives from genuine_overdue and disagreed
+      -- ('critical'), so headline and severity could contradict each other on the exact same row.
+      -- See TestCanonicalRead_MixedDriveOverdueOutranksSubmitted.
+      WHEN COALESCE(eff_state.genuine_missed, false) THEN 'missed'
+      WHEN COALESCE(eff_state.genuine_overdue, false) THEN 'overdue'
+      WHEN grouped.has_review OR COALESCE(eff_state.has_submitted, false) THEN 'verification_pending'
       WHEN grouped.has_in_progress THEN 'in_progress'
       WHEN grouped.all_completed THEN 'completed'
       WHEN COALESCE(grouped.scheduled_count, 0) > 0 THEN 'scheduled'
@@ -1094,7 +1447,9 @@ park_drive_events AS (
       ELSE 'scheduled'
     END AS status,
     CASE
-      WHEN grouped.has_missed OR grouped.has_overdue THEN 'critical'
+      -- severity precedence: critical only for genuine (unsubmitted) missed/overdue;
+      -- warning if submitted/review pending or due within 24h; info otherwise.
+      WHEN COALESCE(eff_state.genuine_missed, false) OR COALESCE(eff_state.genuine_overdue, false) THEN 'critical'
       WHEN grouped.first_due_at <= now() + interval '24 hours' THEN 'warning'
       ELSE 'info'
     END AS severity,
@@ -1146,7 +1501,7 @@ park_drive_events AS (
       'summary', jsonb_build_object(
         'owner', 'PC',
         'target_count', grouped.target_count,
-        'summary_primary', COALESCE(grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
+        'summary_primary', COALESCE(eff_state.due_count, grouped.scheduled_count, 0)::text || CASE WHEN COALESCE(eff_state.due_count, grouped.scheduled_count, 0) = 1 THEN ' scheduled dose' ELSE ' scheduled doses' END,
         'summary_secondary', cardinality(shed_meta.labels)::text ||
           CASE WHEN cardinality(shed_meta.labels) = 1 THEN ' shed · ' ELSE ' sheds · ' END ||
           cardinality(vaccine_meta.labels)::text ||
@@ -1161,10 +1516,14 @@ park_drive_events AS (
         'vaccine_count', cardinality(vaccine_meta.labels),
         'drive_count', grouped.drive_count,
         'catch_up_count', COALESCE(grouped.catch_up_count, 0),
-        'scheduled_count', COALESCE(grouped.scheduled_count, 0),
+        'scheduled_count', COALESCE(eff_state.due_count, grouped.scheduled_count, 0),
         'queue_count', grouped.queue_count,
-        'deferred_count', COALESCE(grouped.deferred_count, 0),
-        'review_count', CASE WHEN grouped.has_review THEN 1 ELSE 0 END,
+        'deferred_count', COALESCE(eff_state.deferred_count, grouped.deferred_count, 0),
+        -- review_count is an OBLIGATION COUNT, not a boolean flag. It previously rendered
+        -- CASE WHEN has_review THEN 1 ELSE 0 END -- grain-incompatible with its siblings
+        -- target_count/scheduled_count/deferred_count, which are work counts, and sourced from
+        -- the batch status rather than the submission truth the card's own status uses.
+        'review_count', COALESCE(eff_state.submitted_count, CASE WHEN grouped.has_review THEN grouped.target_count ELSE 0 END, 0),
         'shed_labels', to_jsonb(shed_meta.labels),
         'vaccine_labels', to_jsonb(vaccine_meta.labels)
       ),
@@ -1181,6 +1540,8 @@ park_drive_events AS (
       'links', jsonb_build_object('vaccination', '/vaccination'),
       'drive_summary', CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND obl_summary.total_count > 0 THEN jsonb_build_object(
         'park_name', COALESCE(obl_summary.park_code, grouped.park_code, 'Vaccination drive'),
+        'drive_name', obl_summary.drive_name,
+        'drive_total', obl_summary.drive_total,
         'due_date', grouped.due_day,
         'shed_count', obl_summary.shed_count,
         'sheds_completed', obl_summary.sheds_completed,
@@ -1189,17 +1550,57 @@ park_drive_events AS (
         'total_count', obl_summary.total_count,
         'completed_count', obl_summary.completed_count,
         'submitted_count', obl_summary.submitted_count,
-        'remaining_count', obl_summary.total_count - obl_summary.completed_count,
+        -- remaining_count = WORK STILL OWED BY THE OPERATOR, summed from the three open buckets so
+        -- it is the SAME arithmetic the card already ships beside it. It was
+        -- total_count - completed_count, a numerator that excludes submitted work, while
+        -- progress_completed below is FIELD WORK DONE = completed + submitted. On a fully submitted
+        -- drive the one object then carried two contradictory answers to "how much is left"
+        -- (progress_pct 100 next to remaining_count 20), and a client picking remaining_count for an
+        -- "N left" label disagreed with the ring beside it -- the cross-surface failure mode that
+        -- produced the 200-vs-400 incident. Under the OLD "progress = verified only" rule the two
+        -- agreed; after the 2026-08-03 progress-semantics decision they cannot, so remaining_count
+        -- follows the progress numerator. The outstanding verifier review is carried by
+        -- submitted_count and the verification_pending status, never by inflating "remaining".
+        -- Identical to total_count - completed_count - submitted_count, because the five buckets are
+        -- a disjoint, total partition (invariant asserted directly above in obligation_drive_summary).
+        'remaining_count', obl_summary.due_count + obl_summary.overdue_count + obl_summary.deferred_count,
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
         'total_animals', obl_summary.total_animals,
         'completed_animals', obl_summary.completed_animals,
         'submitted_animals', obl_summary.submitted_animals,
+        -- SINGLE cross-surface progress definition. Android and admin-web previously each derived
+        -- their own ring numerator from different fields (Android took max(submitted, completed),
+        -- web took completed only), so the SAME drive showed two different numbers and two different
+        -- ring percentages. The backend now owns the numerator AND its basis; both clients render
+        -- these verbatim. Basis is the distinct-ANIMAL grain whenever the drive has animals (a goat
+        -- due several vaccines the same day is ONE animal, complete only when ALL its drive
+        -- obligations are), else the obligation/dose grain. Numerator is FIELD WORK DONE =
+        -- completed + submitted (maintainer contract): the operator vaccinated the animal, so the
+        -- drive reads 100% and the outstanding video review is carried by the
+        -- verification-pending status/chip, NOT by holding the ring at 0%. An earlier change made
+        -- this COMPLETED-only to settle a web-vs-mobile parity disagreement; that silently
+        -- redefined "done" as "verified" and showed an operator who had vaccinated every animal a
+        -- 0% ring. Parity is preserved here instead -- backend owns the single number and both
+        -- clients render it verbatim.
+        -- The two buckets are disjoint by the precedence above (submitted_for_verification wins
+        -- over completed), so completed + submitted <= total and progress can never exceed 100.
+        'progress_basis', CASE WHEN obl_summary.total_animals > 0 THEN 'animals' ELSE 'doses' END,
+        'progress_completed', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.completed_animals + obl_summary.submitted_animals ELSE obl_summary.completed_count + obl_summary.submitted_count END,
+        'progress_total', CASE WHEN obl_summary.total_animals > 0 THEN obl_summary.total_animals ELSE obl_summary.total_count END,
+        'progress_pct', CASE
+          WHEN obl_summary.total_animals > 0 THEN round((obl_summary.completed_animals + obl_summary.submitted_animals) * 100.0 / obl_summary.total_animals)::int
+          WHEN obl_summary.total_count > 0 THEN round((obl_summary.completed_count + obl_summary.submitted_count) * 100.0 / obl_summary.total_count)::int
+          ELSE 0
+        END,
         'owner_label', COALESCE(NULLIF(grouped.operator_names, ''), 'PC')
       ) ELSE NULL END
     ) AS detail
   FROM park_drive_groups grouped
+  LEFT JOIN obligation_drive_effective_state eff_state
+    ON eff_state.park_id IS NOT DISTINCT FROM grouped.park_id
+    AND eff_state.due_date = grouped.due_day::date
   LEFT JOIN obligation_drive_summary obl_summary
     ON obl_summary.park_id IS NOT DISTINCT FROM grouped.park_id
     AND obl_summary.due_date = grouped.due_day::date
@@ -1582,7 +1983,7 @@ canonical_selected AS (
       (due_at >= $2::timestamptz AND due_at < $3::timestamptz)
       OR (
         event_type = 'vaccination_drive'
-        AND status IN ('missed', 'in_progress', 'deferred', 'overdue')
+        AND status IN ('missed', 'in_progress', 'verification_pending', 'proof_pending', 'rejected', 'rework_due', 'deferred', 'overdue')
         AND due_at >= $2::timestamptz - interval '45 days'
         AND due_at < $3::timestamptz
       )

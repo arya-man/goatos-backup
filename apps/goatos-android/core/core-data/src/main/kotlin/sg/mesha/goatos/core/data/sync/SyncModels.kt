@@ -38,6 +38,18 @@ data class SyncQueueItem(
      *  (business rejection, not exhausted retries) and is reported separately so the UI can
      *  tell the two apart (e.g. render CONFLICT vs DEAD_LETTER banners). */
     val isDeadLetter: Boolean get() = status == SyncItemStatus.FAILED && !conflict && attemptCount >= maxAttempts
+
+    /** True when the sync engine will still attempt this write: QUEUED, IN_FLIGHT, or a
+     *  non-conflict FAILED row that is still inside its retry budget. Mirrors
+     *  [sg.mesha.goatos.core.database.outbox.OutboxDao.observeActive] / `eligibleForDrain`
+     *  EXACTLY, and exists so callers stop using "a row exists under this key" as a proxy for
+     *  "this write is still going to be sent". They are not the same: a dead-lettered
+     *  ([conflict]) or attempt-exhausted ([isDeadLetter]) row is present but will never be
+     *  re-claimed by a drain, so treating its presence as "queued" strands the write. */
+    val isActive: Boolean
+        get() = status == SyncItemStatus.QUEUED ||
+            status == SyncItemStatus.IN_FLIGHT ||
+            (status == SyncItemStatus.FAILED && !conflict && attemptCount < maxAttempts)
 }
 
 /**

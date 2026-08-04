@@ -7,6 +7,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CompletableDeferred
 
 /** One captured proof video, as the capture port sees it — a local, already-durable file the
  *  caller hands to Room (docs/mobile/proof-capture-sync-and-e2e.md §2/§3: "Room first").
@@ -128,13 +129,24 @@ class FakeProofCaptureSource(
 ) : ProofCaptureSource {
     var captureCount: Int = 0
         private set
+    private val gates: ArrayDeque<CompletableDeferred<CapturedVideo?>> = ArrayDeque()
 
     fun queue(video: CapturedVideo?) {
         results.add(video)
     }
 
+    /** Queues a suspending gate: the NEXT [captureVideo] call suspends (camera stays "open") until
+     *  the test completes the returned [CompletableDeferred]. Lets a test hold one goat's capture
+     *  in flight while driving a second scan/request concurrently. */
+    fun queueGate(): CompletableDeferred<CapturedVideo?> {
+        val gate = CompletableDeferred<CapturedVideo?>()
+        gates.addLast(gate)
+        return gate
+    }
+
     override suspend fun captureVideo(captureContext: ProofCaptureContext?): CapturedVideo? {
         captureCount++
+        if (gates.isNotEmpty()) return gates.removeFirst().await()
         return if (results.isNotEmpty()) results.removeAt(0) else null
     }
 

@@ -54,18 +54,126 @@ class WeighingRouteIdentityTest {
         assertFalse(navHost.contains(") { launchSingleTop = true }\n                    }\n                },"))
     }
 
+    // The guarantee is unchanged: an operator who may execute weighing must land on the
+    // execution screen, never the leadership read-only one. What changed is WHERE that
+    // answer comes from.
+    //
+    // This used to assert the shell contained `(isOperatorProfile && hasWeighingModule)`,
+    // where isOperatorProfile was `profile.roleLabel.substringBefore("·") == "operator"`
+    // — an authorization decision parsed out of a DISPLAY label. AGENTS.md bans inferring
+    // roles from name strings, and it is genuinely fragile: retitling or translating the
+    // label silently grants or revokes execution.
+    //
+    // The backend already computes this from real grant + module truth
+    // (workforce/app/bootstrap_copy.go canExecuteWeighing = WeighingExecute permission AND
+    // the weighing module granted) and ships it as the `weighing_execute` bootstrap flag.
     @Test
-    fun `operator with weighing module never falls into leadership read only screen`() {
+    fun `operator weighing execution is decided by the backend flag, never by a role label`() {
         val shell = Path.of("src/main/kotlin/sg/mesha/goatos/ui/GoatOsShell.kt").readText()
 
-        assertTrue(shell.contains("isOperatorProfile"))
-        assertTrue(shell.contains("hasWeighingModule"))
-        assertTrue(shell.contains("(isOperatorProfile && hasWeighingModule)"))
+        assertTrue(
+            "weighing execution must be gated on the backend-owned weighing_execute flag",
+            shell.contains("featureFlags[\"weighing_execute\"]"),
+        )
+        assertFalse(
+            "weighing execution must not be inferred from the display role label",
+            shell.contains("isOperatorProfile"),
+        )
+        assertFalse(
+            "weighing execution must not fall back to a locally inferred module check",
+            shell.contains("(isOperatorProfile && hasWeighingModule)"),
+        )
     }
+
+    // The assignment is the reason a weighing task exists, and the task detail screen is where the
+    // planner reads it back. Carrying the operator name all the way onto `WeighingTaskShedUiRow`
+    // and then not drawing it left four identically-shaped cards whose only difference -- who is
+    // doing them -- was recoverable solely by tapping a filter chip and watching the list shrink.
+    @Test
+    fun `each task detail shed card renders the operator it is assigned to`() {
+        val card = taskDetailScreen().substringAfter("private fun TaskShedCard(")
+            .substringBefore("private fun TaskBanner(")
+
+        assertTrue(
+            "the shed card must render the operator name the row already carries",
+            card.contains("R.string.weighing_task_shed_operator_fmt, row.operatorLabel"),
+        )
+        // Farm-language chrome, not a raw id and not an invented name.
+        assertFalse("a user id must never be rendered on the card", card.contains("operatorUserId"))
+    }
+
+    // The chip counts SHED BUCKETS; the card body underneath it ("Nothing captured yet") is about
+    // animals. A bare "Dinakar 2" put two different units on one screen with neither of them
+    // labelled, so the count reaches the screen as a number and the screen names the unit.
+    @Test
+    fun `task detail operator chips name the unit they count`() {
+        val screen = taskDetailScreen()
+
+        // Asserts the PROPERTY (name and a counted noun, composed at render time), not one
+        // spelling of it. The chip was built two ways on two branches; the surviving form
+        // composes `row.name` with `shedNoun(row.shedCount)` directly rather than via a format
+        // resource. Both satisfy the rule this test exists for: the number never appears without
+        // its unit.
+        assertTrue(
+            "the chip must render the operator name and the shed noun as separate parts",
+            screen.contains("shedNoun(row.shedCount)") || screen.contains("shedNoun(filter.shedCount)"),
+        )
+        assertTrue(
+            "the chip must name the operator alongside that counted noun",
+            screen.contains("row.name") || screen.contains("R.string.weighing_task_operator_chip_fmt"),
+        )
+        assertFalse(
+            "the count must not be concatenated into the operator label without its unit",
+            screen.contains("\${filter.operatorLabel} \${filter.shedCount}") ||
+                screen.contains("\${row.name} \${row.shedCount}"),
+        )
+
+        val viewModel = Path.of("src/main/kotlin/sg/mesha/goatos/viewmodel/WeighingViewModel.kt").readText()
+        assertTrue(
+            "the ViewModel must hand the count over as a number, leaving the noun to the screen",
+            viewModel.contains("shedCount = rows.size"),
+        )
+        assertFalse(
+            "the ViewModel must not pre-bake an unlabelled count into the chip label",
+            viewModel.contains("\${labelFor(operatorUserId, rows)} \${rows.size}"),
+        )
+    }
+
+    // Publish / end are the actions this task is FOR and stay above the work. What remains below
+    // it is the one secondary action that actually does something -- "Repeat this task on another
+    // date" -- which asked the reader to consider repeating a task before they had seen a single
+    // shed in it.
+    @Test
+    fun `task detail secondary actions sit below the shed list, not above it`() {
+        val screen = taskDetailScreen()
+        val shedList = screen.indexOf("key = { index -> \"shed-\${state.sheds[index].campaignShedId}\" }")
+
+        assertTrue("the shed list must still be rendered", shedList > 0)
+        assertTrue("Repeat must come after the shed list", screen.indexOf("key = \"task-repeat\"") > shedList)
+        // "Edit sheds & assignment" and "Reopen task" are GONE, not merely moved below the list
+        // (maintainer decision 2026-08-03). Neither had a screen behind it, so onClick was always
+        // null and the pair rendered as two permanently dead cards of prose that pushed the one
+        // real action off the fold. A control that can never be pressed is decoration, not a
+        // disabled control. Reopening still lives on each shed's own card, which is where its
+        // grain is. Reinstate either one only WITH the screen that performs it.
+        assertFalse("Edit must not return without a screen behind it", screen.contains("key = \"task-edit\""))
+        assertFalse("Reopen must not return without a screen behind it", screen.contains("key = \"task-reopen\""))
+        // The filter chips still belong ABOVE the list they filter.
+        assertTrue("operator chips must stay above the shed list", screen.indexOf("key = \"operator-filters\"") < shedList)
+    }
+
+    // Weighing lives in its own feature module, so these guards read across a module boundary.
+    // A NoSuchFileException means the screen moved -- update the path rather than deleting the
+    // guard, or the assignment silently disappears off the card again.
+    private fun taskDetailScreen(): String =
+        Path.of("../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingTaskDetailScreen.kt").readText()
 
     @Test
     fun `operator weighing work list does not render stale week strip`() {
-        val screen = Path.of("src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt").readText()
+        // Weighing now lives in its own feature module, so this guard reads across module
+        // boundaries. A NoSuchFileException here means the screen moved again -- update the path
+        // rather than deleting the guard, or the stale-week-strip regression silently returns.
+        val screen = Path.of("../feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeighingScreen.kt").readText()
         val operatorListBlock = screen.substringAfter("if (!state.plannerMode && !state.hasScope && state.assignments.isNotEmpty())")
             .substringBefore("if (state.assignmentsLoadingMore)")
 

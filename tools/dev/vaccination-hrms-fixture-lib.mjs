@@ -140,6 +140,8 @@ export const SHED_PARTITION_NAME_PATTERN_CONTRACT =
   "raw shed labels like Gandhi 1 and Godel 1 - Part 3 are source partition labels; canonical DB locations store the physical shed (Gandhi, Godel 1) and drive/read models carry the partition label separately";
 export const ADULT_ETTT_DOSE2_POST_SEED_CONTRACT =
   "accepted et_tt_adult_w1 requires same-goat et_tt_adult_w2 obligation or completion before seed handoff";
+export const ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE = true;
+export const VACCINATION_MEDICAL_DATE_FIELD = "vaccination_completions.administered_at";
 
 function normalizeShedName(raw) {
   const name = String(raw ?? "").trim().replace(/\s+/g, " ");
@@ -328,6 +330,8 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
   expect(manifest.contracts?.closed_health_case_is_resolved_not_recovering === CLOSED_HEALTH_CASE_IS_RESOLVED_NOT_RECOVERING, "manifest must state Closed health cases are resolved/healthy, never recovering", problems);
   expect(manifest.contracts?.full_access_grant_role === "ceo_internal", "manifest must bind CEO/CXO full-access grants to ceo_internal", problems);
   expect(manifest.contracts?.full_access_workforce_hint === "cxo", "manifest must bind CEO/CXO workforce hint to cxo", problems);
+  expect(manifest.contracts?.adult_blank_history_joins_normal_drive === ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE, "manifest must auto-enrol adult blank-history animals into the normal generated drive", problems);
+  expect(manifest.contracts?.vaccination_medical_date_field === VACCINATION_MEDICAL_DATE_FIELD, "manifest must bind repeat timing to operator-administered vaccination_completions.administered_at", problems);
 
   if (checkHashes) {
     for (const file of REQUIRED_DATA_FILES) {
@@ -598,9 +602,14 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-24/25: CPT adult campaign grouping and
 // seed_catchup_overrides affect only operator-drive rehearsal bundles that ship
 // cpt-operator-roster.json. Adult entry_date is never a vaccination due-date
-// anchor; adult blank-history rows are campaign/catch-up cohort work by physical
-// shed/partition. The committed full fixture has no such contract file, so raw
+// anchor; adult blank-history rows are ordinary generated drive work by physical
+// shed/partition and require no manual approval. The committed full fixture has no such contract file, so raw
 // fixture bytes and manifest hashes remain unchanged.
+// Coupling review 2026-08-02: blank-history adults are automatically generated into the
+// next compatible normal adult drive; `manual_campaign` remains rule metadata, not a manual
+// approval gate. Accepted operator submission records `vaccination_completions.administered_at`
+// as the medical anchor; later verifier/director timestamps never replace it. Raw fixture
+// vaccination/HRMS bytes and hashes remain unchanged.
 
 // Coupling review 2026-07-25: adult non-repeating physical-partition campaign
 // obligations are generation-idempotent at campaign grain. Replaying with a
@@ -617,3 +626,7 @@ export function updateManifestHashes(directory, manifest) {
 // Coupling review 2026-07-25: migration 000002 only restores that runtime
 // selected_operator_ids column on already-migrated DBs. It backfills from the
 // default operator and does not introduce a source fixture field.
+// 2026-08-01 verify-duty seeding: seed-position-duties now derives a verify duty per notification
+// module from notificationbridge.PendingNotificationDutyModules. Duty rows are generated from
+// position codes at seed time and are not an HRMS-source field, so no fixture bytes, hashes or
+// counts change here.

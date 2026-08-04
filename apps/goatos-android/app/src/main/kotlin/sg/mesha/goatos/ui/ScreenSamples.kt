@@ -36,11 +36,7 @@ import sg.mesha.goatos.feature.timetable.TimetableRow
 import sg.mesha.goatos.feature.timetable.TimetableUiState
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
-import sg.mesha.goatos.feature.weighing.WeighingDayTabUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerOperatorUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerParkUiRow
-import sg.mesha.goatos.feature.weighing.WeighingPlannerShedUiRow
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 
@@ -156,37 +152,14 @@ fun sampleScanState(): ScanUiState = ScanUiState(
     ),
 )
 
+/**
+ * The weighing PLANNER surface as this screen still owns it: the "Plan" header and no operator
+ * work list. The week strip, park card, shed/category picker and operator vocabulary moved to the
+ * planner surface (WeighingTasksScreen + the create wizard), so this sample no longer carries
+ * fixture data for them.
+ */
 fun sampleWeighingPlanState(): WeighingUiState = WeighingUiState(
     plannerMode = true,
-    plannerWeekLabel = "Week 31",
-    plannerPeriodLabel = "Week 31 · 27 Jul-2 Aug",
-    plannerDayTabs = listOf(
-        WeighingDayTabUiRow("MON", "27", selected = false),
-        WeighingDayTabUiRow("TUE", "28", selected = false),
-        WeighingDayTabUiRow("WED", "29", selected = true),
-        WeighingDayTabUiRow("THU", "30", selected = false),
-        WeighingDayTabUiRow("FRI", "31", selected = false),
-        WeighingDayTabUiRow("SAT", "1", selected = false),
-        WeighingDayTabUiRow("SUN", "2", selected = false),
-    ),
-    plannerParks = listOf(
-        WeighingPlannerParkUiRow(
-            parkId = "park-cpt",
-            name = "CPT · Channapatna",
-            kidCount = 516,
-            existingCampaignId = "campaign-week-31",
-            existingCampaignStatus = "In progress",
-            existingCampaignShedCount = 6,
-            sheds = listOf(
-                WeighingPlannerShedUiRow("shed-castro-1", "Castro 1", 80, "per_shed_partition", selected = true),
-                WeighingPlannerShedUiRow("shed-castro-2", "Castro 2", 64, "per_shed_partition", selected = true),
-                WeighingPlannerShedUiRow("shed-godel-2-part-1", "Godel 2 · Part 1", 92, "per_shed_partition", selected = false),
-                WeighingPlannerShedUiRow("shed-gandhi-1", "Gandhi 1", 78, "individual_animal", selected = true),
-                WeighingPlannerShedUiRow("shed-gandhi-2", "Gandhi 2", 64, "per_shed_partition", selected = false),
-            ),
-        ),
-    ),
-    plannerOperators = listOf(WeighingPlannerOperatorUiRow("operator-amit", "Amit Kumar", "AMIT")),
 )
 
 fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
@@ -208,41 +181,25 @@ fun sampleWeighingOperatorState(): WeighingUiState = WeighingUiState(
             id = "row-1",
             animalId = "goat-078",
             displayAnimalId = "RFID 004821",
-            expectedLocationLabel = "Gandhi 1",
-            actualLocationLabel = "Gandhi 1",
             status = "Accepted",
-            availabilityStatus = null,
-            wrongShed = false,
         ),
         WeighingRosterUiRow(
             id = "row-2",
             animalId = "goat-079",
             displayAnimalId = "RFID 004839",
-            expectedLocationLabel = "Gandhi 1",
-            actualLocationLabel = "Castro 2",
-            status = "Wrong shed",
-            availabilityStatus = "Available",
-            wrongShed = true,
+            status = "Scanned",
         ),
         WeighingRosterUiRow(
             id = "row-3",
             animalId = "goat-080",
             displayAnimalId = "RFID 004847",
-            expectedLocationLabel = "Gandhi 1",
-            actualLocationLabel = null,
             status = "Pending",
-            availabilityStatus = "Unavailable",
-            wrongShed = false,
         ),
         WeighingRosterUiRow(
             id = "row-4",
             animalId = "goat-081",
             displayAnimalId = "RFID 005001",
-            expectedLocationLabel = "Gandhi 1",
-            actualLocationLabel = "Gandhi 1",
             status = "Pending",
-            availabilityStatus = null,
-            wrongShed = false,
         ),
     ),
 )

@@ -287,10 +287,29 @@ func TestWeighingVerdictApprovedIncludesOperatorWhenActionIsNeeded(t *testing.T)
 
 // REWORK: DOWNWARD to the operator who must re-shoot, UPWARD to the owning
 // director. The CEO is deliberately not paged for an execution redo.
+//
+// The routing is unchanged by the per-shed batching (maintainer decision 2026-08-03); what
+// changed is WHICH event carries it. An individual bounce is now one of possibly several the
+// verifier sends while working through the same shed, so the push is emitted once per shed
+// from weighing.observation.rework_digest instead of once per animal from the verdict.
 func TestWeighingVerdictReworkGoesDownwardToOperatorAndUpwardToDirector(t *testing.T) {
 	_, queue, consumer := newLifecycleFixture()
 
-	if err := consumer.HandleEvent(context.Background(), lifecycleEvent(t, notificationbridge.EventWeighingObservationRework, "evt-rework", verdictPayload("rework", true, "video too dark"))); err != nil {
+	digest := map[string]any{
+		"tenant_id":        lifecycleTenant,
+		"campaign_id":      lifecycleCampaign,
+		"campaign_shed_id": lifecycleBucketA,
+		"park_id":          lifecyclePark,
+		"shed_id":          lifecyclePark,
+		"shed_label":       "Gandhi 1",
+		"operator_id":      lifecycleOpA,
+		"items": []map[string]any{
+			{"observation_id": "obs-1", "scanned_identifier": "901007000504401", "weight_kg": 12.0},
+		},
+		"total_count": 1,
+		"reason":      "video too dark",
+	}
+	if err := consumer.HandleEvent(context.Background(), lifecycleEvent(t, notificationbridge.EventWeighingObservationReworkDigest, "evt-rework", digest)); err != nil {
 		t.Fatalf("HandleEvent errored: %v", err)
 	}
 	if len(queue.queued) != 1 {

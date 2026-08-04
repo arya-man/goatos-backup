@@ -3,7 +3,9 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,11 +119,79 @@ func TestCreateUploadResponseAdvertisesResumableProtocol(t *testing.T) {
 	}
 }
 
+// A stored object that has gone missing/unreadable is a KNOWN terminal failure class, not an
+// unexpected server fault: the client must be told to stop retrying and render "evidence
+// unavailable" instead of hammering the route (the 2026-08-02 incident produced ~5 retries per
+// proof because the route answered 500 internal_error).
+func TestSignedDownloadMissingObjectIsTerminalGone(t *testing.T) {
+	svc := &fakeHTTPProofService{verify: true, openErr: fmt.Errorf("open /media/x: %w", fs.ErrNotExist)}
+	mux := http.NewServeMux()
+	RegisterSigned(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download/signed?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d body=%s, want 410", rec.Code, rec.Body.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode error envelope: %v", err)
+	}
+	if got["code"] != "proof_object_missing" {
+		t.Fatalf("code=%v, want proof_object_missing", got["code"])
+	}
+	if got["retryable"] != false {
+		t.Fatalf("retryable=%v, want false for a missing stored object", got["retryable"])
+	}
+	msg, _ := got["message"].(string)
+	if !strings.Contains(msg, "no longer") && !strings.Contains(msg, "not retrievable") {
+		t.Fatalf("message=%q, want an actionable evidence-unavailable message", msg)
+	}
+}
+
+// The unsigned sibling route shares respondErr, so it must classify identically; an unreadable
+// (permission-denied) object is the same terminal class as a missing one.
+func TestUnsignedDownloadMissingObjectIsTerminalGone(t *testing.T) {
+	svc := &fakeHTTPProofService{verify: true, openErr: fmt.Errorf("open /media/x: %w", fs.ErrPermission)}
+	mux := http.NewServeMux()
+	Register(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	req = req.WithContext(httpmiddleware.WithTenantID(req.Context(), httpTestTenant))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusGone {
+		t.Fatalf("status=%d body=%s, want 410", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSignedDownloadPresentObjectStillStreams200(t *testing.T) {
+	svc := &fakeHTTPProofService{
+		verify: true,
+		proof:  domain.Artifact{ProofID: httpTestProof, TenantID: httpTestTenant, MimeType: "video/mp4"},
+		reader: newReadSeekCloser("proof-video-bytes"),
+	}
+	mux := http.NewServeMux()
+	RegisterSigned(mux, NewHandler(svc))
+
+	req := httptest.NewRequest(http.MethodGet, "/app/proofs/"+httpTestProof+"/download/signed?tenant_id="+httpTestTenant+"&expires=9999999999&sig=ok", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "proof-video-bytes" {
+		t.Fatalf("status=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 type fakeHTTPProofService struct {
 	verify      bool
 	proof       domain.Artifact
 	target      domain.UploadTarget
 	reader      ports.ReadSeekCloser
+	openErr     error
 	openTenant  string
 	storeTenant string
 }
@@ -149,12 +219,15 @@ func (s *fakeHTTPProofService) DownloadURL(context.Context, string, string) (str
 	return "", nil
 }
 
-func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string) error {
+func (s *fakeHTTPProofService) DeleteUpload(context.Context, string, string, string) error {
 	return nil
 }
 
 func (s *fakeHTTPProofService) OpenLocalDownload(_ context.Context, tenantID, _ string) (domain.Artifact, ports.ReadSeekCloser, error) {
 	s.openTenant = tenantID
+	if s.openErr != nil {
+		return domain.Artifact{}, nil, s.openErr
+	}
 	return s.proof, s.reader, nil
 }
 

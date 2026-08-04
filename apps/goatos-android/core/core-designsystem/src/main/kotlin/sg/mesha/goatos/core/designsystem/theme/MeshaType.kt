@@ -44,6 +44,14 @@ object MeshaType {
     /** `.pill`. */
     val pill = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.W700)
 
+    /**
+     * A pill that carries weight of its own: a selected filter, a status, a category.
+     * Heavier and a shade larger than [pill] so it reads as the answer rather than the
+     * option. Distinct from [cta] — a call to action is lighter (W700) and belongs on an
+     * affordance you tap through, not on a label describing state.
+     */
+    val pillStrong = TextStyle(fontSize = 12.sp, fontWeight = FontWeight.W800)
+
     /** `.btn`. */
     val button = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.W800)
 

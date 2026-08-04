@@ -54,10 +54,11 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 import androidx.media3.ui.PlayerView
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -113,9 +114,15 @@ data class VerifyDetailUiState(
     val verdictReason: String? = null,
     /** False once a verdict has already been recorded (server or a just-submitted local
      *  optimistic state) — the buttons disable rather than allow a second conflicting verdict. */
-    // Fail closed while the requested item is absent/loading. The ViewModel enables decisions
-    // only after a real pending row with resolvable evidence arrives from Room.
-    val isDecisionEnabled: Boolean = false,
+    // Approve and Reject are enabled SEPARATELY and deliberately.
+    //
+    // Approve is the only irreversible action in this app (there is no un-approve), so it needs
+    // evidence she can actually see. Reject/rework is the safe direction: when the video will not
+    // load, sending the work back so the team records it again is the ONLY correct move left, so
+    // gating Reject on the same signal would strand her with an item she can neither approve nor
+    // return. Both fail closed while the item is absent/loading or already decided.
+    val isApproveEnabled: Boolean = false,
+    val isRejectEnabled: Boolean = false,
     val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
     val isSubmitting: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
@@ -127,6 +134,10 @@ data class VerifyDetailUiState(
 )
 
 enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
+
+/** Approve is irreversible, so the screen asks once before sending it. Reject already has its own
+ *  mandatory-reason dialog, so this keeps the two decisions symmetric. */
+private const val APPROVE_NEEDS_CONFIRMATION = true
 
 enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR, FULLSCREEN_OPENED }
 
@@ -156,8 +167,10 @@ fun VerifyDetailScreen(
     state: VerifyDetailUiState,
     onEvent: (VerifyDetailEvent) -> Unit = {},
     modifier: Modifier = Modifier,
+    videoControlsEnabled: Boolean = false,
 ) {
     var showRejectDialog by remember { mutableStateOf(false) }
+    var showApproveDialog by remember { mutableStateOf(false) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
@@ -193,8 +206,7 @@ fun VerifyDetailScreen(
                                 Text(
                                     text = taskTitle,
                                     color = MeshaColors.Ink,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.W700,
+                                    style = MeshaType.cardTitle,
                                     modifier = Modifier.padding(bottom = if (recordedAnswer == null) 8.dp else 3.dp),
                                 )
                             }
@@ -202,13 +214,14 @@ fun VerifyDetailScreen(
                                 Text(
                                     text = stringResource(R.string.verify_detail_recorded_answer, answer),
                                     color = MeshaColors.Muted,
-                                    fontSize = 14.sp,
+                                    style = MeshaType.body,
                                     modifier = Modifier.padding(bottom = 8.dp),
                                 )
                             }
                             VerifyVideoPlayer(
                                 media = media,
                                 onPlayback = { onEvent(it) },
+                                controlsEnabled = videoControlsEnabled,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         }
@@ -226,10 +239,13 @@ fun VerifyDetailScreen(
                 item {
                     if (!state.isCloseMode) {
                         DecisionRow(
-                            enabled = state.isDecisionEnabled && !state.isSubmitting,
+                            approveEnabled = state.isApproveEnabled && !state.isSubmitting,
+                            rejectEnabled = state.isRejectEnabled && !state.isSubmitting,
                             unavailableReason = state.decisionUnavailableReason,
                             isSubmitting = state.isSubmitting,
-                            onApprove = { onEvent(VerifyDetailEvent.Approve) },
+                            onApprove = {
+                                if (APPROVE_NEEDS_CONFIRMATION) showApproveDialog = true else onEvent(VerifyDetailEvent.Approve)
+                            },
                             onReject = { showRejectDialog = true },
                         )
                     }
@@ -239,8 +255,7 @@ fun VerifyDetailScreen(
                         Text(
                             text = message,
                             color = MeshaColors.Danger,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.W600,
+                            style = MeshaType.cta,
                             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
                         )
                     }
@@ -258,6 +273,16 @@ fun VerifyDetailScreen(
             onDismiss = { showRejectDialog = false },
         )
     }
+
+    if (showApproveDialog) {
+        ApproveConfirmDialog(
+            onConfirm = {
+                showApproveDialog = false
+                onEvent(VerifyDetailEvent.Approve)
+            },
+            onDismiss = { showApproveDialog = false },
+        )
+    }
 }
 
 @Composable
@@ -270,15 +295,13 @@ private fun DetailHeader(state: VerifyDetailUiState, onClose: () -> Unit) {
             Text(
                 text = state.categoryLabel,
                 color = MeshaColors.Ink,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.headerTitle,
             )
             state.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
                 Text(
                     text = subject,
                     color = MeshaColors.Muted,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.W600,
+                    style = MeshaType.listTitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
@@ -319,14 +342,18 @@ private fun VerifyVideoPlayer(
     media: VerifyMediaItem,
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     modifier: Modifier = Modifier,
+    controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
+    // Telemetry-instrumented player (W-22): media3 must fetch over the app's OkHttp client, or a
+    // 403 on an expired signed URL is invisible everywhere except the server log.
+    val playerFactory = LocalProofPlayerFactory.current
     val view = LocalView.current
     var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
-        ExoPlayer.Builder(context).build().apply {
+        playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             prepare()
             playWhenReady = false
@@ -378,10 +405,18 @@ private fun VerifyVideoPlayer(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     this.player = player
-                    useController = false
+                    useController = controlsEnabled
                     keepScreenOn = true
                 }
             },
+            // The factory runs ONCE. controlsEnabled comes from the bootstrap flag, which resolves
+            // asynchronously, so a player composed before the flag lands would keep whatever value
+            // it was built with for the rest of the session -- leaving leadership without the seek
+            // controls they are entitled to. Re-apply it on every recomposition.
+            //
+            // The verifier stays without a controller by design: they must WATCH the proof, not
+            // scrub it. Everyone else who may see the video may seek within it.
+            update = { view -> view.useController = controlsEnabled },
             modifier = Modifier.fillMaxSize(),
         )
         PlayPauseButton(
@@ -395,9 +430,14 @@ private fun VerifyVideoPlayer(
             },
             modifier = Modifier.align(Alignment.Center),
         )
-        VideoFullscreenButton(
-            onClick = {
-                currentOnPlayback(
+        // Maintainer decision 2026-08-02: a verifier gets PLAY/PAUSE ONLY. They must watch the
+        // proof as recorded — no scrubbing (useController stays false for them) and no fullscreen
+        // re-frame. Everyone else who may see the video keeps both. `controlsEnabled` is the same
+        // bootstrap-driven flag that governs the seek controller, so the two can never disagree.
+        if (controlsEnabled) {
+            VideoFullscreenButton(
+                onClick = {
+                    currentOnPlayback(
                     VerifyDetailEvent.VideoPlayback(
                         proofSubject = media.proofSubject,
                         mimeType = media.mimeType,
@@ -406,17 +446,19 @@ private fun VerifyVideoPlayer(
                         positionMs = player.currentPosition.coerceAtLeast(0L),
                     ),
                 )
-                player.playWhenReady = false
-                isFullscreen = true
-            },
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-        )
+                    player.playWhenReady = false
+                    isFullscreen = true
+                },
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            )
+        }
     }
 
     if (isFullscreen) {
         FullscreenVideoDialog(
             media = media,
             onPlayback = onPlayback,
+            controlsEnabled = controlsEnabled,
             onDismiss = { isFullscreen = false },
         )
     }
@@ -435,14 +477,15 @@ private fun RejectionReasonCard(reason: String) {
         Text(
             text = stringResource(R.string.verify_detail_rejection_reason_title),
             color = MeshaColors.Danger,
+            // design-system:ignore: 12sp/W800 has no close token — `cardSubtitle` is 12sp but W500,
+            // and the only W800 styles (`button` 15sp, `dayNumber` 15sp) are 3sp larger.
             fontSize = 12.sp,
             fontWeight = FontWeight.W800,
         )
         Text(
             text = reason,
             color = MeshaColors.Ink,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.listTitle,
             modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -490,12 +533,14 @@ private fun FullscreenVideoDialog(
     media: VerifyMediaItem,
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     onDismiss: () -> Unit,
+    controlsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
+    val playerFactory = LocalProofPlayerFactory.current
     var isPlaying by remember { mutableStateOf(true) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     val player = remember(media.signedUrl) {
-        ExoPlayer.Builder(context).build().apply {
+        playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             prepare()
             playWhenReady = true
@@ -545,10 +590,12 @@ private fun FullscreenVideoDialog(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = false
+                        useController = controlsEnabled
                         keepScreenOn = true
                     }
                 },
+                // Same reason as the inline player: the factory runs once, the bootstrap flag lands later.
+                update = { view -> view.useController = controlsEnabled },
                 modifier = Modifier.fillMaxSize(),
             )
             PlayPauseButton(
@@ -707,9 +754,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
         Text(
             text = stringResource(R.string.verify_detail_context_title),
             color = MeshaColors.Faint,
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.W700,
-            letterSpacing = 0.6.sp,
+            style = MeshaType.overline,
             modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
         )
         rows.forEachIndexed { index, row ->
@@ -717,15 +762,17 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp),
             ) {
+                // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
+                // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
                 Text(text = contextKindLabel(row.kind), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 val displayValue = remember(row.value, row.kind, locale) {
                     if (row.kind == VerifyContextKind.CAPTURED_AT) {
-                        formatCapturedAt(row.value, locale, ZoneId.systemDefault())
+                        formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
                     } else {
                         row.value
                     }
                 }
-                Text(text = displayValue, color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W700)
+                Text(text = displayValue, color = MeshaColors.Ink, style = MeshaType.listTitle)
             }
             if (index != rows.lastIndex) {
                 HorizontalDivider(thickness = 1.dp, color = MeshaColors.Surf2)
@@ -753,7 +800,8 @@ private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {
 
 @Composable
 private fun DecisionRow(
-    enabled: Boolean,
+    approveEnabled: Boolean,
+    rejectEnabled: Boolean,
     unavailableReason: VerifyDecisionUnavailableReason,
     isSubmitting: Boolean,
     onApprove: () -> Unit,
@@ -770,13 +818,13 @@ private fun DecisionRow(
             Text(
                 text = stringResource(R.string.verify_detail_submitting),
                 color = MeshaColors.Muted,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.listTitle,
             )
         }
         return
     }
-    if (!enabled && !isSubmitting) {
+    // Nothing at all is decidable (already decided, or the item is still loading): explain, no buttons.
+    if (!approveEnabled && !rejectEnabled) {
         val message = when (unavailableReason) {
             VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE -> stringResource(R.string.verify_detail_media_unavailable)
             VerifyDecisionUnavailableReason.ALREADY_DECIDED -> stringResource(R.string.verify_detail_already_decided)
@@ -786,11 +834,20 @@ private fun DecisionRow(
         Text(
             text = message,
             color = MeshaColors.Muted,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.W600,
+            style = MeshaType.cta,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
         )
         return
+    }
+    // The video will not load: say so and leave the rework route open, rather than leaving her on a
+    // dead screen with an Approve she must not be able to press.
+    if (!approveEnabled && unavailableReason == VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE) {
+        Text(
+            text = stringResource(R.string.verify_detail_media_unavailable_send_back),
+            color = MeshaColors.Muted,
+            style = MeshaType.cta,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        )
     }
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 14.dp),
@@ -801,7 +858,7 @@ private fun DecisionRow(
             icon = MeshaIcons.Close,
             bg = MeshaColors.DangerX,
             fg = MeshaColors.Danger,
-            enabled = enabled,
+            enabled = rejectEnabled,
             loading = isSubmitting,
             onClick = onReject,
             modifier = Modifier.weight(1f),
@@ -811,7 +868,7 @@ private fun DecisionRow(
             icon = MeshaIcons.Check,
             bg = MeshaColors.OkX,
             fg = MeshaColors.Ok,
-            enabled = enabled,
+            enabled = approveEnabled,
             loading = isSubmitting,
             onClick = onApprove,
             modifier = Modifier.weight(1f),
@@ -844,7 +901,7 @@ private fun DecisionButton(
         } else {
             Icon(imageVector = icon, contentDescription = null, tint = fg, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
-            Text(text = label, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+            Text(text = label, color = fg, style = MeshaType.listTitle)
         }
     }
 }
@@ -861,12 +918,16 @@ private fun RejectReasonDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        // design-system:ignore: weight-only override on the Material dialog title style — applying a
+        // MeshaType style here would also replace the AlertDialog's own title size/line-height.
         title = { Text(stringResource(R.string.verify_reject_dialog_title), fontWeight = FontWeight.W700) },
         text = {
             Column {
                 Text(
                     text = stringResource(R.string.verify_reject_dialog_subtitle),
                     color = MeshaColors.Muted,
+                    // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
+                    // but is W700, which would visibly bold this dialog subtitle.
                     fontSize = 12.5.sp,
                     modifier = Modifier.padding(bottom = 10.dp),
                 )
@@ -889,6 +950,8 @@ private fun RejectReasonDialog(
                     Text(
                         text = stringResource(R.string.verify_reject_dialog_error_required),
                         color = MeshaColors.Danger,
+                        // design-system:ignore: 11.5sp/W400 has no close token — `caption` matches the
+                        // size but is W600 and `eyebrow` is W700 with 1.6sp tracking.
                         fontSize = 11.5.sp,
                         modifier = Modifier.padding(top = 4.dp),
                     )
@@ -904,12 +967,54 @@ private fun RejectReasonDialog(
                     onConfirm(trimmed)
                 }
             }) {
+                // design-system:ignore: weight-only override on the Material TextButton label style —
+                // a MeshaType style would also replace the button's own size/line-height.
                 Text(stringResource(R.string.verify_reject_dialog_confirm), color = MeshaColors.Danger, fontWeight = FontWeight.W700)
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.verify_reject_dialog_cancel), color = MeshaColors.Muted)
+            }
+        },
+    )
+}
+
+/**
+ * Approve is the one decision nobody can take back — there is no un-approve anywhere in the app or
+ * the backend. Reject already costs a dialog plus a typed reason, so an unguarded single tap made
+ * the irreversible action the CHEAPEST one on the screen. This restores one deliberate tap; it adds
+ * no typing and no reading, so a long queue costs one extra tap per item, not a new workflow.
+ */
+@Composable
+private fun ApproveConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        // design-system:ignore: weight-only override on the Material dialog title style — applying a
+        // MeshaType style here would also replace the AlertDialog's own title size/line-height.
+        title = { Text(stringResource(R.string.verify_approve_dialog_title), fontWeight = FontWeight.W700) },
+        text = {
+            Text(
+                text = stringResource(R.string.verify_approve_dialog_subtitle),
+                color = MeshaColors.Muted,
+                // design-system:ignore: 12.5sp/W400 has no close token — `cta` matches the size
+                // but is W700, which would visibly bold this dialog subtitle.
+                fontSize = 12.5.sp,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                // design-system:ignore: weight-only override on the Material TextButton label style —
+                // a MeshaType style would also replace the button's own size/line-height.
+                Text(stringResource(R.string.verify_approve_dialog_confirm), color = MeshaColors.Ok, fontWeight = FontWeight.W700)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.verify_approve_dialog_cancel), color = MeshaColors.Muted)
             }
         },
     )

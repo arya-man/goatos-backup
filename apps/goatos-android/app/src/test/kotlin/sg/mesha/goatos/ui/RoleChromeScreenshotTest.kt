@@ -60,26 +60,34 @@ class RoleChromeScreenshotTest {
     // Operator / preventive-care field lens: Drives/Alerts/You.
     private fun vaccinationFieldNavItems() = listOf(
         NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
         // Backend emits the You tab (module contribution, priority 100) — the bar is 3 tabs.
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 
     // CEO/CXO strategic lens inside the Vaccination module. The old standalone
     // Leadership module is gone; Overview is the /vaccination tab inside Vaccination.
+    /**
+     * The bottom bar as the backend actually composes it for an EXPANDED-chrome principal.
+     *
+     * No "you" item: the backend strips it whenever a drawer exists, because the drawer footer
+     * already carries the account row above Sign out (workforce/app/service.go, NavChromeExpanded
+     * branch). Keeping it in this fixture made the golden show You in BOTH places at once -- a
+     * state that cannot ship, quietly baked into the screenshot everyone reviews against.
+     * A principal with no drawer keeps You on the bar; see [vaccinationCloserNavItems].
+     */
     private fun vaccinationCeoNavItems() = listOf(
         NavItem(key = "overview", label = "Overview", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
-        NavItem(key = "you", label = "You", href = Routes.YOU),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
     )
 
     private fun vaccinationCloserNavItems() = listOf(
         NavItem(key = "vaccination", label = "Drives", href = Routes.VACCINATION),
         NavItem(key = "calendar", label = "Calendar", href = Routes.CALENDAR),
         NavItem(key = "videos", label = "Videos", href = Routes.VERIFY_ACTION),
-        NavItem(key = "alerts", label = "Alerts", href = Routes.ALERTS),
+        NavItem(key = "alerts", label = "Alerts", href = Routes.VACCINATION_ALERTS),
         NavItem(key = "you", label = "You", href = Routes.YOU),
     )
 

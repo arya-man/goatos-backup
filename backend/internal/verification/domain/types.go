@@ -13,12 +13,49 @@ const (
 	StatusPending  = "pending"
 	StatusApproved = "approved"
 	StatusRejected = "rejected"
+	// StatusWithdrawn is the verdict-FREE terminal status a producing module puts
+	// on its own still-pending items when the source record they point at is
+	// superseded (see Repository.WithdrawItemsBySource). It is not a decision: no
+	// verifier, no verdict, no reason. It has always existed in the database;
+	// naming it here lets the retraction event and its consumers branch on the
+	// same constant the write path uses.
+	StatusWithdrawn = "withdrawn"
 )
 
 // Decision values accepted by RecordVerdict.
 const (
 	DecisionApproved = "approved"
 	DecisionRejected = "rejected"
+)
+
+// VerdictState is what the item is DOING right now, as opposed to Status, which
+// is only what the verifier decided.
+//
+// The two are not the same thing and conflating them is what made W-18 dangerous.
+// A verdict is applied asynchronously: RecordVerdict writes the decision and an
+// outbox row, and the producing module's own record does not change until the
+// durable event is consumed. Status flips the instant the verifier taps; the
+// world does not. Between those two moments the item is neither awaiting review
+// nor settled, and a surface that only knows Status has no way to say so -- it
+// drops the item out of the pending queue and shows the verifier an empty list,
+// which reads as "done" when nothing has happened yet.
+//
+// VerdictState is derived (see Item.VerdictState), never stored: it is a reading
+// of applier_ack_expected + applied_at + status, so there is exactly one source
+// of truth and no state machine to keep in sync.
+const (
+	// VerdictStateAwaitingReview: no verifier has decided this yet.
+	VerdictStateAwaitingReview = "awaiting_review"
+	// VerdictStateApplying: the verifier decided, and the producing module has
+	// NOT yet confirmed it wrote that outcome onto its own record. This is a
+	// normal, usually brief state -- but it is also exactly what a stopped
+	// relay, a lagging consumer, or a dead-lettered event looks like, which is
+	// why it has to be visible rather than inferred from an empty queue.
+	VerdictStateApplying = "applying"
+	// VerdictStateSettled: the decision has been applied by the producing
+	// module, or the producing module does not participate in the ack protocol
+	// (applier_ack_expected=false) so there is nothing to wait on here.
+	VerdictStateSettled = "settled"
 )
 
 var (
@@ -81,9 +118,38 @@ type Item struct {
 	VerifiedAt     *time.Time
 	ClosedBy       *string
 	ClosedAt       *time.Time
-	RowVersion     int
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// ApplierAckExpected is the producing module's declaration that it runs an
+	// applier which acks back. Producers that have not wired an ack leave it
+	// false and their items never enter VerdictStateApplying -- better silent
+	// than falsely alarming on every decided item they own.
+	ApplierAckExpected bool
+	// AppliedAt / AppliedByModule are the producing module's receipt: it wrote
+	// the verdict outcome onto its OWN record. Stamped by MarkVerdictApplied
+	// from the applier, after that applier's transaction committed.
+	AppliedAt       *time.Time
+	AppliedByModule *string
+	RowVersion      int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+// VerdictState reads the item's real position between "a verifier decided" and
+// "the farm's records changed". See the VerdictState* constants for why Status
+// alone cannot answer that.
+func (i Item) VerdictState() string {
+	if i.Status == StatusPending {
+		return VerdictStateAwaitingReview
+	}
+	// A withdrawn item carries no verdict at all -- the producing module retracted
+	// the source record, so there is no outcome for an applier to apply and
+	// nothing to wait on. Without this it would sit in "applying" forever.
+	if i.Status == StatusWithdrawn {
+		return VerdictStateSettled
+	}
+	if i.ApplierAckExpected && i.AppliedAt == nil {
+		return VerdictStateApplying
+	}
+	return VerdictStateSettled
 }
 
 // CreateItem is the input a producer supplies to enqueue one verification item.
@@ -101,6 +167,10 @@ type CreateItem struct {
 	ParkID         *string
 	CapturedAt     time.Time
 	IdempotencyKey string
+	// ApplierAckExpected: set true only if this producer actually runs an applier
+	// that calls MarkVerdictApplied. Setting it true without wiring the ack would
+	// park every decided item of yours in VerdictStateApplying permanently.
+	ApplierAckExpected bool
 }
 
 // CreateItemResult reports whether CreateItem minted a new row (false = idempotent replay no-op,
@@ -232,7 +302,12 @@ type MediaItem struct {
 
 // QueueRow is one queue listing row: the item plus its resolved media.
 type QueueRow struct {
-	Item              Item
-	Media             []MediaItem
-	EvidenceAvailable bool
+	Item  Item
+	Media []MediaItem
+	// EvidenceLinkResolved reports that EVERY media_ref on the item resolved to a signed download
+	// link at read time. It is a LINK-RESOLUTION claim, NOT a byte-retrievability guarantee: the
+	// queue read deliberately does not stat the stored objects (see resolveMedia). Terminal
+	// unavailability is discovered on the download path, which answers 410 proof_object_missing
+	// with retryable=false. Serialized as `evidence_available` for wire compatibility.
+	EvidenceLinkResolved bool
 }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
@@ -27,6 +28,7 @@ import sg.mesha.goatos.feature.verify.VerificationQueueRow
 import sg.mesha.goatos.feature.verify.VerifyDriveClosure
 import sg.mesha.goatos.feature.verify.VerifyCategoryOption
 import sg.mesha.goatos.feature.verify.VerifyLocationFilterOption
+import sg.mesha.goatos.feature.verify.VerifyModuleTab
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueUiState
 import sg.mesha.goatos.feature.verify.VerifyScopeType
@@ -81,8 +83,30 @@ class VerifyQueueViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
+
+    /**
+     * The queue's CATEGORY -- the backend's own vocabulary and the only thing the reads accept.
+     *
+     * Three cases, deliberately distinct:
+     *  - an explicit `?category=` (the verifier Alerts href the backend composes) is passed
+     *    through VERBATIM, so a category this client has never heard of still reads its own rows;
+     *  - an explicit `?module=` is mapped, and an UNRECOGNIZED module resolves to null. The old
+     *    `else -> VACCINATION` fallback meant a Counts or Feed verifier opened their own tab and
+     *    was shown VACCINATION proofs -- a worse failure than showing nothing;
+     *  - no scoping arg at all (the action queue route) keeps the historical vaccination default,
+     *    which is a route that never asked for a module rather than one that asked wrongly.
+     */
     private val _selectedCategory = MutableStateFlow(
-        savedStateHandle.get<String>("category")?.trim()?.takeIf { it.isNotEmpty() },
+        run {
+            val category = savedStateHandle.get<String>(CATEGORY_ARG)?.trim()?.lowercase()
+                ?.takeIf { it.isNotBlank() }
+            val moduleKey = savedStateHandle.get<String>(MODULE_ARG)?.trim()?.takeIf { it.isNotBlank() }
+            when {
+                category != null -> category
+                moduleKey != null -> categoryForModuleKey(moduleKey)
+                else -> VACCINATION_CATEGORY
+            }
+        },
     )
     private val _selectedStatus = MutableStateFlow(VerificationStatus.PENDING)
     private val _selectedBusinessDate = MutableStateFlow(LocalDate.now(ZoneId.of("Asia/Kolkata")).toString())
@@ -128,7 +152,12 @@ class VerifyQueueViewModel @Inject constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private val observedResource: StateFlow<Resource<VerificationQueueResponseDto>> =
         selectedScope.flatMapLatest { scope ->
-            if (isActionQueue) {
+            if (scope.category == null) {
+                // The route named a module or category nothing here can serve. Serving NOTHING is
+                // deliberate: the old fallback showed a Counts or Feed verifier VACCINATION proofs,
+                // which is a worse failure than an empty queue. `isUnsupportedModule` says so.
+                flowOf(Resource(data = null))
+            } else if (isActionQueue) {
                 repo.observeActionQueue(category = scope.category, parkId = scope.parkId, shedId = scope.shedId, limit = VERIFY_QUEUE_PAGE_SIZE)
             } else {
                 repo.observeQueue(
@@ -178,6 +207,12 @@ class VerifyQueueViewModel @Inject constructor(
             rows = items.map { it.toRow() },
             moduleKey = filterOptions?.moduleKey.orEmpty(),
             moduleLabel = filterOptions?.moduleLabel.orEmpty(),
+            // Null for a category this client has no dedicated chrome for (counts, feed). The
+            // rows still render generically; only the module-specific grouping stands down.
+            selectedModule = moduleForCategory(scope.category),
+            // The route named a module or category nothing here can serve. Say so instead of
+            // rendering another module's queue or a bare "all caught up".
+            isUnsupportedModule = scope.category == null,
             isActionQueue = isActionQueue,
             categoryOptions = filterOptions?.pages.orEmpty().map { page ->
                 VerifyCategoryOption(value = page.category, label = page.label)
@@ -262,6 +297,12 @@ class VerifyQueueViewModel @Inject constructor(
                 _missedOnly.value = false
                 refresh()
             }
+            is VerifyQueueEvent.SelectModule -> {
+                _selectedCategory.value = categoryForModule(event.module)
+                _selectedParkId.value = null
+                _selectedShedId.value = null
+                refresh()
+            }
             VerifyQueueEvent.ToggleMissed -> {
                 _missedOnly.value = !_missedOnly.value
                 if (_missedOnly.value) _selectedStatus.value = VerificationStatus.PENDING
@@ -279,8 +320,8 @@ class VerifyQueueViewModel @Inject constructor(
         _isRefreshing.value = true
         try {
             val scope = currentScope()
-            val category = scope.category
-            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category ?: "all")
+            val category = scope.category ?: return@launch
+            AnalyticsFunnels.trackVerifyQueueOpened(analytics, category)
             val result = if (isActionQueue) {
                 repo.refreshActionQueue(
                     category = category,
@@ -307,7 +348,7 @@ class VerifyQueueViewModel @Inject constructor(
 
     private fun loadMore() = viewModelScope.launch {
         val scope = currentScope()
-        val category = scope.category
+        val category = scope.category ?: return@launch
         val cursor = observedResource.value.data?.nextCursor ?: return@launch
         _isLoadingMore.value = true
         val result = repo.appendQueue(
@@ -400,12 +441,49 @@ class VerifyQueueViewModel @Inject constructor(
         }
     }
 
+    /** `value = null` ("All") always leads, followed by every distinct category the backend has
+     *  returned. `label = null` on the "All" entry tells the Screen to substitute its own
+     *  localized chrome string; every other label is the raw backend category key, humanized
+     *  client-side only as a display fallback until the backend ships a proper display label
+     *  per registry entry (verification-module-design.md §2.3). */
+    private fun categoryOptions(items: List<VerificationQueueItem>, selected: String?): List<VerifyCategoryOption> {
+        val seen = items.map { it.category }.filter { it.isNotBlank() }.distinct().sorted()
+        if (seen.isEmpty() && selected == null) return emptyList()
+        val options = mutableListOf(VerifyCategoryOption(value = null, label = null))
+        seen.forEach { options += VerifyCategoryOption(value = it, label = humanizeCategory(it)) }
+        if (selected != null && seen.none { it == selected }) {
+            options += VerifyCategoryOption(value = selected, label = humanizeCategory(selected))
+        }
+        return options
+    }
+
+    private fun VerifyQueueViewModel.formatCapturedAtIST(raw: String): String {
+        if (raw.isBlank()) return ""
+        return runCatching {
+            val instant = java.time.Instant.parse(raw)
+            val locale = java.util.Locale.getDefault()
+            java.time.format.DateTimeFormatter
+                .ofLocalizedDateTime(
+                    java.time.format.FormatStyle.MEDIUM,
+                    java.time.format.FormatStyle.SHORT
+                )
+                .withLocale(locale)
+                .withZone(java.time.ZoneId.of("Asia/Kolkata"))
+                .format(instant)
+        }.getOrDefault(raw)
+    }
+
     private fun VerificationQueueItem.toRow(): VerificationQueueRow {
         // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
         // category-humanized name is the last-resort fallback so a non-vaccination row never
         // mislabels as "Vaccination proof".
-        val title = listOfNotNull(subjectLabel, shedLabel).joinToString(" · ").ifBlank { humanizeCategory(category) }
-        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt)
+        // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
+        // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
+        val title = listOfNotNull(
+            subjectLabel,
+            shedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
+        ).joinToString(" · ").ifBlank { humanizeCategory(category) }
+        val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
             .joinToString(" · ")
         val mediaCount = media.size
         val firstMedia = media.firstOrNull()
@@ -451,8 +529,32 @@ class VerifyQueueViewModel @Inject constructor(
     }
 }
 
+private const val MODULE_ARG = "module"
+private const val CATEGORY_ARG = "category"
 private const val VACCINATION_CATEGORY = "vaccination_proof"
 private const val WEIGHING_CATEGORY = "weighing_proof"
+private fun categoryForModule(module: VerifyModuleTab): String = when (module) {
+    VerifyModuleTab.VACCINATION -> VACCINATION_CATEGORY
+    VerifyModuleTab.WEIGHING -> WEIGHING_CATEGORY
+}
+
+/**
+ * Maps the nav's MODULE key onto the verification CATEGORY. The two vocabularies differ, and an
+ * unknown key returns null rather than a guess -- see [_selectedCategory].
+ */
+private fun categoryForModuleKey(moduleKey: String?): String? =
+    when (moduleKey?.trim()?.lowercase()) {
+        "vaccination" -> VACCINATION_CATEGORY
+        "weighing" -> WEIGHING_CATEGORY
+        else -> null
+    }
+
+/** Which module chrome (if any) this client renders for a category. Null = generic rows only. */
+private fun moduleForCategory(category: String?): VerifyModuleTab? = when (category) {
+    VACCINATION_CATEGORY -> VerifyModuleTab.VACCINATION
+    WEIGHING_CATEGORY -> VerifyModuleTab.WEIGHING
+    else -> null
+}
 
 private fun locationOptions(
     allLabel: String,

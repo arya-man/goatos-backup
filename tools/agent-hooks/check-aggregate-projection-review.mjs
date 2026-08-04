@@ -87,7 +87,16 @@ export function inspectFixture(sourceHunks, changedTests) {
   if (candidates.length === 0) return [];
   const failures = [];
   for (const [index, candidate] of candidates.entries()) {
-    if (!MARKER.test(candidate.visible)) failures.push(`aggregate hunk ${index + 1}: missing complete projection-review marker`);
+    // A real marker is prose and wraps across several comment lines; the MARKER fields are
+    // `[^;\n]+`, so a wrapped `membership=...` never matched and the guard demanded a marker that
+    // was already there. Normalise the comment block to one line first: strip `//` / `--` / `*`
+    // prefixes and collapse the wrapping, then match. This changes only what the guard can SEE,
+    // never what it requires — all five fields are still mandatory, and a genuinely absent or
+    // partial marker still fails (asserted in the self-test).
+    const unwrapped = candidate.visible
+      .replace(/^[ \t]*(?:\/\/|--|\*)[ \t]?/gm, "")
+      .replace(/\n[ \t]*/g, " ");
+    if (!MARKER.test(unwrapped)) failures.push(`aggregate hunk ${index + 1}: missing complete projection-review marker`);
   }
   const requirements = new Set(["cardinality", "pagination"]);
   const joined = candidates.map((h) => h.visible).join("\n");

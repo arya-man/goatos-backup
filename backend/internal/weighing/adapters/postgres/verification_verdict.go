@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,12 @@ import (
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
+
+// ErrStaleEvidence is the canonical ports error, re-exported so the existing
+// adapter-level callers and tests keep one name for it. The definition moved to
+// ports because the event consumer in weighing/app must classify it too, and app
+// must not import an adapter.
+var ErrStaleEvidence = ports.ErrStaleEvidence
 
 // Weighing side of the generic verification verdict.
 //
@@ -45,12 +52,24 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 	}
 	defer tx.Rollback(ctx)
 
+	// EvidenceProofID belongs in the fingerprint because it is an INPUT to the
+	// decision, not decoration: it is the only thing checkVerdictEvidenceCurrent
+	// below adjudicates on. Left out, two verdicts that share an event id but name
+	// DIFFERENT evidence looked like an exact replay, so the second one short-
+	// circuited on the first one's stored snapshot and returned "applied" for a
+	// proof this code never compared against the observation -- the stale-evidence
+	// guard was bypassed entirely because the replay path returns before it. In the
+	// fingerprint, that pair is what it actually is: the same key with a different
+	// request, which is ErrIdempotencyConflict and is refused rather than answered
+	// from cache. A genuine at-least-once redelivery carries the same evidence id
+	// and still fingerprints identically, so exact replay stays free.
 	fingerprint := idempotencyFingerprint(map[string]any{
-		"observation_id": verdict.ObservationID,
-		"ref_type":       verdict.RefType,
-		"status":         verdict.Status,
-		"verified_by":    verdict.VerifiedBy,
-		"reason":         verdict.Reason,
+		"observation_id":    verdict.ObservationID,
+		"ref_type":          verdict.RefType,
+		"status":            verdict.Status,
+		"verified_by":       verdict.VerifiedBy,
+		"reason":            verdict.Reason,
+		"evidence_proof_id": verdict.EvidenceProofID,
 	})
 	if result, ok, err := r.verdictByIdempotency(ctx, tx, verdict, fingerprint); err != nil || ok {
 		if err != nil {
@@ -61,6 +80,9 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 
 	scope, err := r.lockObservationScope(ctx, tx, verdict)
 	if err != nil {
+		return domain.VerificationVerdictResult{}, err
+	}
+	if err := checkVerdictEvidenceCurrent(verdict, scope); err != nil {
 		return domain.VerificationVerdictResult{}, err
 	}
 
@@ -91,6 +113,26 @@ func (r *Repository) ApplyVerificationVerdict(ctx context.Context, verdict domai
 		// Asia/Kolkata, never UTC (AGENTS.md). Recorded into the idempotency
 		// snapshot below, so a redelivery replays this instant verbatim.
 		DecidedAt: decidedAt.In(biztime.DefaultLocation()),
+	}
+
+	// THE CLOSURE LOOP. An approval is not just a stamp on one video: when it is
+	// the LAST outstanding one, the bucket — and then the whole task — is
+	// finished, and until now nothing said so. Settling it HERE, in the verdict's
+	// own transaction, is what makes the completion atomic with the fact that
+	// caused it: there is no window in which the last item reads 'verified' while
+	// the shed still reads unfinished, and no second writer of verification
+	// outcomes is introduced (this is still the one durable-bus consumer).
+	//
+	// Only an approval can finish work. A 'rework' verdict is the opposite — it
+	// hands the bucket BACK to the operator (see markObservationRework) — so it
+	// never reaches this call.
+	if verdict.Status == domain.VerificationStatusVerified {
+		shedClosed, campaignClosed, err := r.settleVerifiedClosure(ctx, tx, verdict, scope)
+		if err != nil {
+			return domain.VerificationVerdictResult{}, err
+		}
+		result.ShedClosed = shedClosed
+		result.CampaignClosed = campaignClosed
 	}
 	if err := r.auditVerdict(ctx, tx, verdict, scope, result); err != nil {
 		return domain.VerificationVerdictResult{}, err
@@ -141,7 +183,30 @@ type observationScope struct {
 	ShedLabel      string
 	ParkID         string
 	OperatorID     string
-	AnimalID       string
+	// ProofArtifactID is the proof/video id CURRENTLY attached to the
+	// observation, read under the same row lock as the rest of the scope
+	// (FOR UPDATE OF observation), so it cannot change out from under the
+	// comparison in checkVerdictEvidenceCurrent below.
+	ProofArtifactID string
+	// ScannedIdentifier and WeightKg name the capture under verdict, so a rework push can
+	// tell the operator WHICH animal to re-shoot instead of only which shed. Weighing is
+	// free-flow: the scanned tag is the whole identity and is never resolved to a goat. A
+	// lump-sum shed observation has no per-animal identity, so ScannedIdentifier stays
+	// empty there by construction and only the shed's total weight travels.
+	ScannedIdentifier string
+	WeightKg          float64
+	// Withdrawn is true when the observation row has been superseded --
+	// leadership reopened the bucket (ReopenScope stamps withdrawn_at) or a
+	// prior rework verdict retired the attempt. Read under the SAME
+	// FOR UPDATE OF observation lock as ProofArtifactID: a reopen that has
+	// not committed yet cannot be seen half-done, and once it has committed
+	// this read blocks behind it rather than racing it.
+	//
+	// Always false on the per-animal grain: weighing_observations has no
+	// withdrawn_at column (a superseded individual capture is expressed by a
+	// re-capture that moves proof_artifact_id, which the evidence-id
+	// comparison already catches).
+	Withdrawn bool
 }
 
 func (r *Repository) lockObservationScope(ctx context.Context, tx pgx.Tx, verdict domain.VerificationVerdict) (observationScope, error) {
@@ -156,7 +221,10 @@ SELECT observation.campaign_id::text,
   COALESCE(cs.display_name, ''),
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  COALESCE(observation.animal_id::text, '')
+  COALESCE(observation.proof_artifact_id::text, ''),
+  COALESCE(observation.scanned_identifier, ''),
+  observation.weight_kg,
+  false
 FROM weighing_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -175,7 +243,10 @@ SELECT observation.campaign_id::text,
   cs.display_name,
   wc.park_id::text,
   COALESCE(cs.operator_user_id::text, wc.operator_user_id::text),
-  ''
+  COALESCE(observation.proof_artifact_id::text, ''),
+  '',
+  observation.weight_kg,
+  (observation.withdrawn_at IS NOT NULL)
 FROM weighing_shed_observations observation
 JOIN weighing_campaigns wc
   ON wc.tenant_id=observation.tenant_id
@@ -196,7 +267,10 @@ FOR UPDATE OF observation`
 		&scope.ShedLabel,
 		&scope.ParkID,
 		&scope.OperatorID,
-		&scope.AnimalID,
+		&scope.ProofArtifactID,
+		&scope.ScannedIdentifier,
+		&scope.WeightKg,
+		&scope.Withdrawn,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return observationScope{}, ports.ErrNotFound
@@ -204,6 +278,45 @@ FOR UPDATE OF observation`
 		return observationScope{}, err
 	}
 	return scope, nil
+}
+
+// checkVerdictEvidenceCurrent guards against approving/reworking evidence
+// that is no longer the evidence attached to the observation. A verdict
+// minted before EvidenceProofID existed (durable-bus in-flight events at
+// deploy time) carries an empty EvidenceProofID; that is NOT treated as a
+// mismatch -- crashing or rejecting a legitimate in-flight verdict over a
+// field it predates would be worse than the gap it closes. It is logged so
+// the skip stays visible without breaking delivery.
+//
+// The evidence-ID comparison alone did NOT cover a leadership reopen. ReopenScope
+// withdraws the submission and asks verification to retire the item in a SECOND
+// step that runs after the reopen commits (weighing/app/service.go), and it
+// leaves proof_artifact_id untouched -- the withdrawn row keeps naming the very
+// video the verifier is looking at. So a verifier who lands in that gap presented
+// the CURRENT evidence id, passed the comparison, and approved a submission the
+// bucket no longer counts. Supersession is therefore checked here as well, on the
+// same locked read: "is this still the live round" is the same question as "is
+// this still the evidence", and answering only half of it left the other half
+// open. Same ErrStaleEvidence class, because the remedy is identical -- the
+// verdict is not retried against this row, it is dropped as decided against a
+// round that no longer exists, and the reopen's own withdrawal removes the queue
+// item a moment later.
+func checkVerdictEvidenceCurrent(verdict domain.VerificationVerdict, scope observationScope) error {
+	if scope.Withdrawn {
+		return ErrStaleEvidence
+	}
+	if verdict.EvidenceProofID == "" {
+		slog.Default().Warn("weighing: verification verdict has no evidence id, skipping stale-evidence check",
+			"observation_id", verdict.ObservationID,
+			"ref_type", verdict.RefType,
+			"event_id", verdict.EventID,
+		)
+		return nil
+	}
+	if scope.ProofArtifactID == "" || verdict.EvidenceProofID != scope.ProofArtifactID {
+		return ErrStaleEvidence
+	}
+	return nil
 }
 
 // markObservationVerified RETURNS the persisted verified_at rather than letting
@@ -236,13 +349,29 @@ func (r *Repository) markObservationRework(
 	scope observationScope,
 ) (time.Time, error) {
 	table, idColumn := verdictTable(verdict.RefType)
+	// Re-arm the per-shed rework digest for an INDIVIDUAL bounce.
+	//
+	// rework_notified_at is the "this bounce has already been told to the operator" stamp the
+	// weighing-rework-digest sweeper writes. Clearing it in the SAME statement that sets
+	// verification_status='rework' is what makes a re-submission that is bounced a SECOND time
+	// re-enter the digest: the row is un-notified again by construction, so no reconciliation
+	// step anywhere has to notice that this is a new round. A redelivery of the same verdict
+	// event never reaches here at all -- ApplyVerificationVerdict short-circuits on the
+	// verification event id -- so this cannot resurrect an already-delivered bounce.
+	//
+	// Shed grain has no such column on purpose: a lump-sum capture is one proof for the whole
+	// shed, so its rework push is already one-per-shed and stays on the immediate path.
+	reworkDigestReset := ""
+	if verdict.RefType != domain.VerificationRefTypeShed {
+		reworkDigestReset = ",\n  rework_notified_at=NULL"
+	}
 	var decidedAt time.Time
 	if err := tx.QueryRow(ctx, `
 UPDATE `+table+`
 SET verification_status='rework',
   verified_by=$3::uuid,
   verified_at=now(),
-  rework_reason=NULLIF($4, '')
+  rework_reason=NULLIF($4, '')`+reworkDigestReset+`
 WHERE tenant_id=$1::uuid
   AND `+idColumn+`=$2::uuid
 RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdict.VerifiedBy), verdict.Reason).Scan(&decidedAt); err != nil {
@@ -250,6 +379,38 @@ RETURNING verified_at`, verdict.TenantID, verdict.ObservationID, nullUUID(verdic
 			return time.Time{}, ports.ErrNotFound
 		}
 		return time.Time{}, err
+	}
+
+	// Free the slot the rejected proof is holding, exactly as ReopenScope does.
+	//
+	// A rework verdict is the COMMON way a lump-sum shed proof comes back for a re-shoot -- far
+	// more common than a leadership reopen. Without this the rejected row keeps
+	// weighing_shed_observations_one_open_scope_uidx and its idempotency record, so the
+	// operator's resubmit trips 23505 and is mapped to a permanent 409: the operator is told to
+	// redo the work and then structurally prevented from filing it. Withdrawing preserves the
+	// rejected attempt as history (AGENTS.md requires rejected proof attempts stay immutable)
+	// while letting the next attempt take the open slot.
+	//
+	// Shed grain only: weighing_observations is per-animal and carries no open-scope index, so
+	// there is no slot to free there.
+	if verdict.RefType == domain.VerificationRefTypeShed {
+		if _, err := tx.Exec(ctx, `
+UPDATE weighing_shed_observations
+SET withdrawn_at=now()
+WHERE tenant_id=$1::uuid
+  AND shed_observation_id=$2::uuid
+  AND withdrawn_at IS NULL`, verdict.TenantID, verdict.ObservationID); err != nil {
+			return time.Time{}, err
+		}
+		// Same transaction: a surviving idempotency record would make the operator's replay
+		// return the withdrawn observation and report success over work that was never filed.
+		if _, err := tx.Exec(ctx, `
+DELETE FROM weighing_idempotency_records
+WHERE tenant_id=$1::uuid
+  AND event_type='weighing.shed_observation_accepted'
+  AND resource_id=$2::uuid`, verdict.TenantID, verdict.ObservationID); err != nil {
+			return time.Time{}, err
+		}
 	}
 
 	// Make the owning bucket operator-actionable again. This mirrors ReopenScope:
@@ -263,6 +424,23 @@ SET status='in_progress', completed_at=NULL, updated_at=now()
 WHERE tenant_id=$1::uuid
   AND campaign_shed_id=$2::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignShedID); err != nil {
+			// Since migration 000089 a COMPLETED bucket no longer holds its
+			// (park, weigh date, shed) slot, so that slot may already belong to a newer
+			// task by the time a verifier sends this one back for rework. Pulling this
+			// bucket back to 'in_progress' would then be the one thing still forbidden --
+			// two people owing the same shed on the same date -- and the unique index
+			// refuses it. Surface the named scheduling conflict instead of letting a raw
+			// pgx error escape the verdict path as an opaque 500.
+			weighDate, displayName := r.shedLabelForConflict(ctx, verdict.TenantID, scope.CampaignShedID)
+			return time.Time{}, mapShedUniqueViolation(err, weighDate, displayName)
+		}
+		// B09: the bucket just left its terminal status, so the kernel work item the
+		// sweeper terminalized for it must be reactivated in the SAME transaction --
+		// reconcileTerminalWorkItems only drives work items TOWARD terminal, nothing
+		// moves one back on its own, so without this call the work item stays
+		// terminal forever and Calendar/Control Tower keep reporting the bucket as
+		// finished even though the operator has real rework to do again.
+		if _, err := r.ReactivateWorkItemsForBucket(ctx, tx, verdict.TenantID, scope.CampaignShedID); err != nil {
 			return time.Time{}, err
 		}
 	}
@@ -274,21 +452,12 @@ WHERE tenant_id=$1::uuid
   AND status='completed'`, verdict.TenantID, scope.CampaignID); err != nil {
 		return time.Time{}, err
 	}
-	// Free-flow: a rejected individual scan only returns to the roster when the
-	// observation actually carries an animal_id. A scanned-identifier-only
-	// observation has no roster row by design and is never validated against
-	// herd/vaccination tables.
-	if verdict.RefType == domain.VerificationRefTypeAnimal && scope.AnimalID != "" {
-		if _, err := tx.Exec(ctx, `
-UPDATE weighing_expected_animals
-SET status='pending', updated_at=now()
-WHERE tenant_id=$1::uuid
-  AND campaign_id=$2::uuid
-  AND animal_id=$3::uuid
-  AND status='weighed'`, verdict.TenantID, scope.CampaignID, scope.AnimalID); err != nil {
-			return time.Time{}, err
-		}
-	}
+	// Free-flow: an individual scan observation never carries an animal_id (the
+	// column does not exist -- 000078_weighing_observations_drop_animal_id.sql)
+	// and so never has a weighing_expected_animals roster row to return to
+	// 'pending' on rework. The roster is a planner/catalog label, populated and
+	// read independently of the scan write path; it is never validated against
+	// herd/vaccination tables and a rejected scan has nothing there to restore.
 	return decidedAt, nil
 }
 
@@ -345,6 +514,8 @@ type weighingObservationVerdictPayload struct {
 	ParkID             string    `json:"park_id"`
 	ShedID             string    `json:"shed_id"`
 	ShedLabel          string    `json:"shed_label"`
+	ScannedIdentifier  string    `json:"scanned_identifier,omitempty"`
+	WeightKg           float64   `json:"weight_kg"`
 	OperatorID         string    `json:"operator_id"`
 	VerifiedBy         string    `json:"verified_by,omitempty"`
 	Reason             string    `json:"reason,omitempty"`
@@ -373,6 +544,8 @@ func (r *Repository) enqueueVerdictApplied(
 		ParkID:             scope.ParkID,
 		ShedID:             scope.ShedID,
 		ShedLabel:          scope.ShedLabel,
+		ScannedIdentifier:  scope.ScannedIdentifier,
+		WeightKg:           scope.WeightKg,
 		OperatorID:         scope.OperatorID,
 		VerifiedBy:         verdict.VerifiedBy,
 		Reason:             verdict.Reason,

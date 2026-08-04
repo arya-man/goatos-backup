@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -371,5 +373,249 @@ WHERE animal_id::text = $15::text`,
 	}
 	if utcResult != 1 {
 		t.Fatalf("complete target query returned %d matching goats, want 1", utcResult)
+	}
+}
+
+// TestCalendarDriveSummaryBucketsSubtractSubmitted is the non-Postgres companion to
+// TestCalendarDriveSummaryFiveBucketsAreDisjointWhenSubmittedIsLateOrDeferred: it reads the
+// PRODUCTION query text (calendarCanonicalListSQL, the exact string ListEvents executes) and proves
+// every non-completed bucket subtracts submitted_for_verification. Without this, an obligation that
+// is submitted AND overdue (or submitted AND deferred) is counted in two chips at once and the
+// documented invariant total_count = completed + submitted + due + overdue + deferred is false.
+func TestCalendarDriveSummaryBucketsSubtractSubmitted(t *testing.T) {
+	cteStart := strings.Index(calendarCanonicalListSQL, "obligation_drive_summary AS (")
+	if cteStart < 0 {
+		t.Fatal("obligation_drive_summary CTE not found in calendarCanonicalListSQL")
+	}
+	cte := calendarCanonicalListSQL[cteStart:]
+	for _, bucket := range []string{"due_count", "overdue_count", "deferred_count"} {
+		marker := "AS " + bucket + ","
+		end := strings.Index(cte, marker)
+		if end < 0 {
+			t.Fatalf("bucket %s not found in calendarCanonicalListSQL", bucket)
+		}
+		start := strings.LastIndex(cte[:end], "count(DISTINCT m.obligation_id) FILTER (")
+		if start < 0 {
+			t.Fatalf("no FILTER expression precedes %s", bucket)
+		}
+		expr := cte[start:end]
+		if !strings.Contains(expr, "NOT m.submitted_for_verification") {
+			t.Fatalf("%s does not exclude submitted obligations, so it double-counts them with submitted_count; expression:\n%s", bucket, expr)
+		}
+	}
+}
+
+// TestDriveSummaryEmitsBackendOwnedProgressContract pins the cross-surface progress contract in the
+// PRODUCTION query text: the backend, not each client, owns the drive progress numerator, its
+// denominator, the grain they are counted on, and the rounded percentage. Admin-web and the Android
+// card render these verbatim; while they were absent each client derived its own numerator from
+// different fields and the SAME drive showed two different completion numbers and ring percentages.
+// MAINTAINER CONTRACT (2026-08-03): the numerator is FIELD WORK DONE = completed + submitted. The
+// operator vaccinated the animal, so it counts toward progress; the outstanding video review is
+// carried by the verification-pending status and chip, never by holding the ring below 100%. This
+// test previously demanded the opposite (completed-only), which redefined "done" as "verified" and
+// showed an operator who had vaccinated every animal a 0% ring. It now guards the reverse direction
+// so the decision cannot be silently re-litigated in code.
+func TestDriveSummaryEmitsBackendOwnedProgressContract(t *testing.T) {
+	for _, field := range []string{"progress_basis", "progress_completed", "progress_total", "progress_pct"} {
+		if !strings.Contains(calendarCanonicalListSQL, "'"+field+"'") {
+			t.Fatalf("drive_summary does not emit %s, so each client is left to derive its own progress", field)
+		}
+	}
+	start := strings.Index(calendarCanonicalListSQL, "'progress_completed',")
+	end := strings.Index(calendarCanonicalListSQL, "'progress_total',")
+	if start < 0 || end <= start {
+		t.Fatal("progress_completed / progress_total not emitted in order")
+	}
+	numerator := calendarCanonicalListSQL[start:end]
+	if !strings.Contains(numerator, "submitted_animals") || !strings.Contains(numerator, "submitted_count") {
+		t.Fatalf("progress numerator drops submitted field work, so an operator who vaccinated every animal reads 0%%:\n%s", numerator)
+	}
+	if !strings.Contains(numerator, "completed_animals") || !strings.Contains(numerator, "completed_count") {
+		t.Fatalf("progress numerator does not resolve to the completed animal/dose counts:\n%s", numerator)
+	}
+}
+
+func TestDriveSummaryEmitsSharedLogicalDriveNameAndTotal(t *testing.T) {
+	for _, fragment := range []string{
+		"obligation_logical_drive_full_membership AS (",
+		"obligation_logical_drive_rollup AS (",
+		") = k.logical_window_start",
+		") = k.logical_window_end",
+		"count(DISTINCT m.animal_id)",
+		"'drive_name', obl_summary.drive_name",
+		"'drive_total', obl_summary.drive_total",
+	} {
+		if !strings.Contains(calendarCanonicalListSQL, fragment) {
+			t.Fatalf("logical multi-day drive contract lost production SQL fragment %q", fragment)
+		}
+	}
+}
+
+// TestDriveSummarySubmittedBucketCarriesExplicitStatusWhitelist pins that submitted_count ranges
+// over the SAME explicit status key set as total_count. Leaning on the membership CTE's
+// hand-maintained NOT IN ('superseded','canceled','waived') pre-filter instead would mean a newly
+// added terminal status is excluded from total_count (explicit allow-list) but still lands in
+// submitted_count (implicit deny-list), silently breaking
+// total_count = completed + submitted + due + overdue + deferred.
+func TestDriveSummarySubmittedBucketCarriesExplicitStatusWhitelist(t *testing.T) {
+	cteStart := strings.Index(calendarCanonicalListSQL, "obligation_drive_summary AS (")
+	if cteStart < 0 {
+		t.Fatal("obligation_drive_summary CTE not found in calendarCanonicalListSQL")
+	}
+	cte := calendarCanonicalListSQL[cteStart:]
+
+	filterFor := func(bucket string) string {
+		t.Helper()
+		end := strings.Index(cte, "AS "+bucket+",")
+		if end < 0 {
+			t.Fatalf("bucket %s not found in calendarCanonicalListSQL", bucket)
+		}
+		start := strings.LastIndex(cte[:end], "count(DISTINCT m.obligation_id) FILTER (")
+		if start < 0 {
+			t.Fatalf("no FILTER expression precedes %s", bucket)
+		}
+		return cte[start:end]
+	}
+	statusSet := func(expr string) map[string]bool {
+		open := strings.Index(expr, "m.status IN (")
+		if open < 0 {
+			return nil
+		}
+		rest := expr[open+len("m.status IN ("):]
+		close := strings.Index(rest, ")")
+		if close < 0 {
+			return nil
+		}
+		out := map[string]bool{}
+		for _, raw := range strings.Split(rest[:close], ",") {
+			if s := strings.Trim(strings.TrimSpace(raw), "'"); s != "" {
+				out[s] = true
+			}
+		}
+		return out
+	}
+
+	total := statusSet(filterFor("total_count"))
+	if len(total) == 0 {
+		t.Fatal("total_count has no explicit status whitelist to compare against")
+	}
+	delete(total, "completed") // submitted_count excludes completed by its own predicate
+	submitted := statusSet(filterFor("submitted_count"))
+	if len(submitted) == 0 {
+		t.Fatalf("submitted_count has no explicit status whitelist; it leans on the membership CTE's hand-maintained deny-list, so a new terminal status breaks bucket disjointness:\n%s", filterFor("submitted_count"))
+	}
+	for status := range total {
+		if !submitted[status] {
+			t.Fatalf("submitted_count omits status %q that total_count counts", status)
+		}
+	}
+	for status := range submitted {
+		if !total[status] && status != "completed" {
+			t.Fatalf("submitted_count counts status %q that total_count does not", status)
+		}
+	}
+}
+
+// TestDriveBucketIntegrationTestSeedsOnlyPersistableStatuses is the non-Docker guard for the
+// Postgres-only bucket test. That test can only run under Docker (pgtest.SkipIfNoDocker), so a
+// status literal that the schema rejects would not surface as a red test on a laptop or in a
+// Docker-less CI lane -- it would abort during seed, before any assertion, and read as "skipped".
+// 'overdue' in particular is a READ-TIME label derived in the per-obligation event projection, never
+// a persisted obligation_instances.status: the drive-summary overdue bucket is reached by 'missed'.
+func TestDriveBucketIntegrationTestSeedsOnlyPersistableStatuses(t *testing.T) {
+	baseline, err := os.ReadFile("../../../../migrations/postgres/000001_goatos_clean_slate_baseline.sql")
+	if err != nil {
+		t.Fatalf("read baseline migration: %v", err)
+	}
+	idx := strings.Index(string(baseline), "obligation_instances_status_check CHECK")
+	if idx < 0 {
+		t.Fatal("obligation_instances_status_check not found in baseline migration")
+	}
+	line := string(baseline)[idx:]
+	if end := strings.Index(line, "\n"); end > 0 {
+		line = line[:end]
+	}
+	allowed := map[string]bool{}
+	for _, part := range strings.Split(line, "'") {
+		if part != "" && !strings.ContainsAny(part, "()[],: ") {
+			allowed[part] = true
+		}
+	}
+	if !allowed["missed"] || allowed["overdue"] {
+		t.Fatalf("parsed status CHECK looks wrong: %v", allowed)
+	}
+
+	src, err := os.ReadFile("repository_integration_test.go")
+	if err != nil {
+		t.Fatalf("read repository_integration_test.go: %v", err)
+	}
+	for _, m := range regexp.MustCompile(`setDriveObligationStatus\([^)]*"([a-z_]+)"\)`).FindAllStringSubmatch(string(src), -1) {
+		if !allowed[m[1]] {
+			t.Fatalf("integration test seeds obligation_instances.status=%q, which obligation_instances_status_check rejects -- the Docker-only test would die during seed, before any assertion", m[1])
+		}
+	}
+}
+
+// TestCalendarDriveBucketsStayDisjointAcrossAScheduledDateShiftStatusBucketsParkScope is the
+// adversarial DATE case for the five drive-summary buckets.
+//
+// The buckets partition one membership row by (status, submitted_for_verification). That holds
+// only while every bucket ranges over the SAME date-derived membership set: if one filter reached
+// past the membership CTE and re-derived its own date, a shed whose planned_date moved would be
+// counted in one bucket on the old date and another on the new one -- and the two surfaces
+// rendering these chips would disagree without either query looking wrong on its own.
+//
+// A shifted date must move a row BETWEEN buckets, never into two at once and never out of all
+// five. Asserted on SQL shape because the behavioural fixture is Docker-gated and does not run in
+// the default suite; this at least fails loudly the moment a bucket grows its own date source.
+// driveSummaryBucketFilter returns the FILTER expression that produces `bucket` in the
+// obligation_drive_summary CTE. Shared by the bucket tests so a change to the CTE's shape breaks
+// them together rather than leaving one silently inspecting a stale slice of SQL.
+func driveSummaryBucketFilter(t *testing.T, bucket string) string {
+	t.Helper()
+	cteStart := strings.Index(calendarCanonicalListSQL, "obligation_drive_summary")
+	if cteStart < 0 {
+		t.Fatal("obligation_drive_summary CTE not found in calendarCanonicalListSQL")
+	}
+	cte := calendarCanonicalListSQL[cteStart:]
+	end := strings.Index(cte, "AS "+bucket+",")
+	if end < 0 {
+		t.Fatalf("bucket %s not found in calendarCanonicalListSQL", bucket)
+	}
+	start := strings.LastIndex(cte[:end], "count(DISTINCT m.obligation_id) FILTER (")
+	if start < 0 {
+		t.Fatalf("no FILTER expression precedes %s", bucket)
+	}
+	return cte[start:end]
+}
+
+func TestCalendarDriveBucketsStayDisjointAcrossAScheduledDateShiftStatusBucketsParkScope(t *testing.T) {
+	buckets := []string{"total_count", "submitted_count", "overdue_count", "due_count", "deferred_count"}
+
+	for _, bucket := range buckets {
+		expr := driveSummaryBucketFilter(t, bucket)
+		if expr == "" {
+			t.Fatalf("%s has no FILTER expression to inspect", bucket)
+		}
+		// Every bucket must read the membership alias `m`, which is where the effective date was
+		// resolved once. A bucket that names a raw obligation/batch date column is deriving its
+		// own, so a date shift can land it in a different bucket set than its siblings.
+		for _, ownDate := range []string{"oi.due_at", "ob.planned_date", "ob.window_start", "ob.window_end"} {
+			if strings.Contains(expr, ownDate) {
+				t.Fatalf("%s re-derives its own date from %s instead of using the membership row; a shifted planned_date would bucket it inconsistently with its siblings:\n%s",
+					bucket, ownDate, expr)
+			}
+		}
+	}
+
+	// submitted_for_verification is the second axis of the partition. overdue and deferred must
+	// exclude it, or a shed submitted LATE is counted twice -- once as submitted, once as overdue --
+	// and the chips sum to more than the drive has sheds.
+	for _, bucket := range []string{"overdue_count", "deferred_count"} {
+		expr := driveSummaryBucketFilter(t, bucket)
+		if !strings.Contains(expr, "submitted_for_verification") {
+			t.Fatalf("%s does not exclude submitted_for_verification, so a late submission is counted in two buckets:\n%s", bucket, expr)
+		}
 	}
 }

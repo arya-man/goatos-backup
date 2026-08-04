@@ -128,8 +128,31 @@ Adult entry_date is never a vaccination due-date anchor. Kids and young animals
 keep strict DOB/birth-age scheduling. Adults with accepted same-vaccine history
 use the last accepted vaccination date for booster/revac timing. Adults with no
 accepted same-vaccine history join the normal adult campaign/catch-up cohort for
-that vaccine, packed by whole physical shed/partition; they must not be split
-into post_arrival singleton drives because their source entry dates differ.
+that vaccine automatically; no separate manual-campaign trigger or approval is
+required. Repeat and initial/catch-up remain per-animal dose instructions inside
+one logical vaccine drive. If history-backed repeat dates differ but their safe
+windows overlap, schedule every repeat-history and blank-history member on the
+latest readiness date inside that shared window. Do not create an earlier partial
+drive. If accepted cohort history arrives after a stable blank-history row was
+already generated, atomically move that same open row onto the shared date; do
+not retain the split date or create a duplicate obligation. Pack by whole physical shed: a shed at or below the
+full per-operator cap carries intact to the next operator-day when residual
+capacity is insufficient, and partition splitting is allowed only when the
+physical shed itself exceeds that full cap. Enforce the same boundary in park
+pre-batching and operator planning, grouping initial/catch-up and repeat rule
+rows for the same vaccine under one physical shed. Adults must not be split into
+post_arrival singleton drives because their source entry dates differ.
+Every operator-day row in a multi-day campaign carries the same logical
+`drive_name` and the distinct-animal `drive_total` across all of its days; the
+individual day count remains the executable workload for that date.
+
+The operator submission timestamp is the medical `administered_at`. A verifier or
+director may approve/close the work later, but `verified_at` and `closed_at` are
+workflow timestamps and never replace the date used for the next dose.
+Both generic submission closure and vaccination-batch closure preserve that
+medical timestamp. Closure membership includes only active `recorded` and
+`accepted` completion attempts; retained `rejected` or `reversed` attempts are
+audit history and cannot block a successful retry.
 
 ### Overflow Rule For 3+ Due Vaccines
 

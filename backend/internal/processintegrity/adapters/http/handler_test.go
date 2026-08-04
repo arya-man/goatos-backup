@@ -30,10 +30,15 @@ type fakeReader struct {
 	workflowQuery domain.Query
 	workflowID    string
 	err           error
+	seen          domain.Query
 }
+
+// lastQuery is the query the most recent read received, whichever read route it was.
+func (f *fakeReader) lastQuery() domain.Query { return f.seen }
 
 func (f *fakeReader) ActionCenter(_ context.Context, q domain.Query) (domain.ActionCenterResponse, error) {
 	f.actionQuery = q
+	f.seen = q
 	if f.err != nil {
 		return domain.ActionCenterResponse{}, f.err
 	}
@@ -42,6 +47,7 @@ func (f *fakeReader) ActionCenter(_ context.Context, q domain.Query) (domain.Act
 
 func (f *fakeReader) ActionCenterCounts(_ context.Context, q domain.Query) (domain.ActionCenterCountsResponse, error) {
 	f.countsQuery = q
+	f.seen = q
 	return domain.ActionCenterCountsResponse{
 		Source:            domain.SourceAPI,
 		CountsByWorkState: []domain.CountByWorkState{{WorkState: domain.WorkStateDue, Count: 7}},
@@ -50,15 +56,18 @@ func (f *fakeReader) ActionCenterCounts(_ context.Context, q domain.Query) (doma
 }
 
 func (f *fakeReader) ProtocolAdherence(_ context.Context, q domain.Query) (domain.ProtocolAdherenceResponse, error) {
+	f.seen = q
 	return domain.ProtocolAdherenceResponse{Source: domain.SourceAPI}, nil
 }
 
 func (f *fakeReader) ControlTower(_ context.Context, q domain.Query) (domain.ControlTowerResponse, error) {
+	f.seen = q
 	return domain.ControlTowerResponse{Source: domain.SourceAPI}, nil
 }
 
 func (f *fakeReader) WorkflowDrilldown(_ context.Context, q domain.Query, rowID string) (domain.WorkflowDrilldownResponse, bool, error) {
 	f.workflowQuery = q
+	f.seen = q
 	f.workflowID = rowID
 	return domain.WorkflowDrilldownResponse{}, false, nil
 }

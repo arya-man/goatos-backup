@@ -65,6 +65,25 @@ hot_tables = {
     "vaccination_shed_shard_state",
 }
 
+# Tables enforced ONLY by the unbounded-UPDATE/DELETE lock_timeout guard
+# below (NEW-P1 rollout risk), not by the constraint/index checks above.
+# weighing_observations/weighing_shed_observations are animal- and
+# shed-grain tables the live capture/submit/verify write paths contend on
+# continuously; verification_items is the shared cross-module verdict queue.
+# These are intentionally NOT added to the general `hot_tables` set: doing so
+# would retroactively re-flag years of already-merged, already-applied
+# constraint/index DDL on these tables (000007-000073) that this task did not
+# review and has no mandate to touch.
+dml_lock_timeout_only_hot_tables = {
+    "weighing_observations",
+    "weighing_shed_observations",
+    "verification_items",
+}
+
+
+def is_hot_table_for_dml(table: str) -> bool:
+    return is_hot_table(table) or table in dml_lock_timeout_only_hot_tables
+
 hot_table_prefixes = (
     "audit_log_",
     "goat_identity_events_",
@@ -89,7 +108,25 @@ enforcement_floor = 2
 # squash to clean baseline (2026-07-19), no pre-squash migrations remain in the
 # codebase, so this set is empty. New unsafe patterns added to deployed
 # migrations after this floor must be reviewed and added here before shipping.
-reviewed_applied_debt = set()
+reviewed_applied_debt = {
+    # NEW-P1 rollout-risk guard (unbounded UPDATE/DELETE on a hot table
+    # without SET lock_timeout): these migrations are already merged to main
+    # and may already be applied in dev/stg. Rewriting their SQL to add a
+    # lock_timeout would change their checksum and break every environment
+    # that already ran them (see cmd/migrate/main.go's checksum-drift check,
+    # and the forward-repair rationale documented in 000074-000077). They are
+    # accepted as reviewed historical debt; the guard enforces the pattern on
+    # every migration written from here on, including the forward repairs
+    # for these same files (000074, 000075, 000076, 000077).
+    "000035_death_upload_before_approval.sql: unbounded DELETE on hot table outbox_messages is missing a bounded 'SET lock_timeout' before the statement in goose Down",
+    "000061_weighing_observations_submitted_at.sql: unbounded UPDATE on hot table weighing_observations is missing a bounded 'SET lock_timeout' before the statement",
+    "000067_weighing_shed_observation_withdrawal.sql: unbounded UPDATE on hot table verification_items is missing a bounded 'SET lock_timeout' before the statement in goose Down",
+    "000067_weighing_shed_observation_withdrawal.sql: unbounded DELETE on hot table weighing_shed_observations is missing a bounded 'SET lock_timeout' before the statement in goose Down",
+    "000070_weighing_backfill_submitted_at_from_audit.sql: unbounded UPDATE on hot table weighing_observations is missing a bounded 'SET lock_timeout' before the statement",
+    "000071_weighing_backfill_verification_status_from_items.sql: unbounded UPDATE on hot table weighing_observations is missing a bounded 'SET lock_timeout' before the statement",
+    "000071_weighing_backfill_verification_status_from_items.sql: unbounded UPDATE on hot table weighing_shed_observations is missing a bounded 'SET lock_timeout' before the statement",
+    "000073_weighing_observations_one_open_tag_uidx.sql: unbounded UPDATE on hot table weighing_observations is missing a bounded 'SET lock_timeout' before the statement",
+}
 
 create_table_re = re.compile(r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
 create_index_re = re.compile(
@@ -411,6 +448,56 @@ def classify_lock_timeout_risk(
             )
 
 
+dml_update_re = re.compile(r"^\s*UPDATE\s+(?:ONLY\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
+dml_delete_re = re.compile(r"^\s*DELETE\s+FROM\s+(?:ONLY\s+)?(?P<table>[a-zA-Z_][\w.]*)", re.I)
+lock_timeout_stmt_re = re.compile(r"SET\s+(?:LOCAL\s+)?lock_timeout\s*=", re.I)
+
+
+def classify_unbounded_dml_lock_timeout_risk(
+    *,
+    path_name: str,
+    version: int,
+    section: str,
+    section_text: str,
+    created_in_migration: set[str],
+) -> None:
+    """
+    Any plain UPDATE/DELETE against a hot table (weighing_observations,
+    weighing_shed_observations, verification_items, audit_log, etc.)
+    contends for row locks with the live write paths those tables serve.
+    This guard requires a bounded 'SET lock_timeout' somewhere before the
+    statement in the same section, so a migration can fail fast on
+    contention instead of blocking (or being blocked by) production traffic
+    indefinitely. It applies regardless of NO TRANSACTION, since an ordinary
+    transactional migration holds whatever row locks it takes for the life
+    of its own transaction too.
+    """
+    if version < enforcement_floor:
+        return
+    statements = split_statements(strip_sql_comments(section_text))
+    for i, stmt in enumerate(statements):
+        match = dml_update_re.search(stmt) or dml_delete_re.search(stmt)
+        if not match:
+            continue
+        table = bare_name(match.group("table"))
+        if table in created_in_migration or not is_hot_table_for_dml(table):
+            continue
+        has_timeout = bool(lock_timeout_stmt_re.search(stmt))
+        if not has_timeout:
+            for j in range(0, i):
+                if lock_timeout_stmt_re.search(statements[j]):
+                    has_timeout = True
+                    break
+        if not has_timeout:
+            verb = "UPDATE" if dml_update_re.search(stmt) else "DELETE"
+            suffix = "" if section == "goose Up" else f" in {section}"
+            classify_hot_lock_risk(
+                version,
+                f"{path_name}: unbounded {verb} on hot table {table} is missing a bounded "
+                f"'SET lock_timeout' before the statement{suffix}",
+            )
+
+
 violations: list[str] = []
 warnings: list[str] = []
 index_owner: dict[str, str] = {}
@@ -451,6 +538,21 @@ for path in sorted(migration_dir.glob("*.sql")):
         bare_name(match.group("table"))
         for match in create_table_re.finditer(up_sql)
     }
+    # Check for unbounded UPDATE/DELETE on hot tables missing lock_timeout (NEW-P1 rollout risk)
+    classify_unbounded_dml_lock_timeout_risk(
+        path_name=path.name,
+        version=version,
+        section="goose Up",
+        section_text=up_raw,
+        created_in_migration=created_in_migration,
+    )
+    classify_unbounded_dml_lock_timeout_risk(
+        path_name=path.name,
+        version=version,
+        section="goose Down",
+        section_text=down_raw,
+        created_in_migration=created_in_migration,
+    )
     # Pre-process: collect constraints added with NOT VALID (safe for VALIDATE and DROP+re-add pattern)
     safe_constraints_up: set[str] = set()
     for statement in up_statements:

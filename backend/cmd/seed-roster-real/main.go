@@ -64,6 +64,10 @@ import (
 	platformpg "github.com/vgoats/goatos/backend/internal/platform/postgres"
 )
 
+// verifierPositionCode must match backend/cmd/seed-position-duties.VerifierPositionCode:
+// this seeder creates the seat, that one attaches the per-module 'verify' duties to it.
+const verifierPositionCode = "video_verifier"
+
 const defaultTenantID = "00000000-0000-4000-8000-000000000001"
 
 // ---- position vocabulary (docs/hr/roster-rbac-design.md SS2, SS4.2, SS4.3) ----
@@ -1578,7 +1582,11 @@ SET location_code = EXCLUDED.location_code,
 //     shape backend/cmd/seed-dev-email-grants writes, so a CPT-only reseed no longer depends on
 //     GOATOS_DEV_DASHBOARD_ADMIN_EMAILS being set by hand.
 //   - `verifiers[]` -> tenant-scoped auth_pending_email_grants rows for proof
-//     reviewers. Verifiers do not get workforce_positions or vaccination capacity.
+//     reviewers, PLUS a workforce_members row and one `video_verifier`
+//     workforce_positions seat per park in scope. The seat is required for
+//     notification routing (position_module_duties 'verify' rows join
+//     workforce_positions), NOT for execution: verifiers still get no
+//     vaccination_daily_animal_cap and no vaccination capacity.
 //
 // No-ops for sources without the contract. Returns (directorsSeeded, leadershipGrantsSeeded).
 func seedContractPeopleAndEmailGrants(
@@ -1686,6 +1694,67 @@ DO UPDATE SET email = EXCLUDED.email, source = EXCLUDED.source, updated_at = now
 			return 0, 0, fmt.Errorf("upsert verifier grant: %w", err)
 		}
 		grantsSeeded++
+
+		// The verifier ALSO needs a workforce seat, and this is not cosmetic HR data.
+		// verification.item.pending routes to whoever holds a 'verify' duty in
+		// position_module_duties, and that table joins workforce_positions -- so a verifier
+		// with an email grant but no seat is a verifier no push can ever reach. That was the
+		// live state: zero verify duty rows, every verifier notification resolving to zero
+		// devices, for vaccination and weighing alike.
+		//
+		// The verifier stays TENANT-level in meaning (one person reviews every park's proof),
+		// but ResolveModuleDutyRecipients looks up verify duty holders at CENTER scope using
+		// the item's park id, so the SAME member holds the seat at every park in scope. It
+		// carries no vaccination_daily_animal_cap and its position_code matches no vaccination
+		// prefix in seed-position-duties, so it adds no execution capacity -- the contract
+		// invariant validated above (can_execute_vaccination / adds_vaccination_capacity false)
+		// is preserved.
+		verifierMemberID := detUUID("workforce_member", "operator_roster_verifier", tenantID, verifier.Code)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO workforce_members (workforce_member_id, tenant_id, display_code, display_name, status,
+				primary_role_hint, updated_at)
+			VALUES ($1,$2,$3,$4,'active','verifier',now())
+			ON CONFLICT (workforce_member_id) DO UPDATE SET
+				display_code = EXCLUDED.display_code,
+				display_name = EXCLUDED.display_name,
+				status = EXCLUDED.status,
+				primary_role_hint = EXCLUDED.primary_role_hint,
+				updated_at = now()`,
+			verifierMemberID, tenantID, strings.ToUpper(strings.ReplaceAll(verifier.Code, "_", "-")), verifier.DisplayName); err != nil {
+			return 0, 0, fmt.Errorf("insert verifier member %s: %w", verifier.Code, err)
+		}
+
+		parks := verifier.ParkScope
+		if len(parks) == 0 {
+			// No declared scope means tenant-wide, which for seat purposes is every seeded park.
+			for park := range centerLocationID {
+				parks = append(parks, park)
+			}
+		}
+		sort.Strings(parks)
+		for _, parkCode := range parks {
+			locationID, ok := centerLocationID[strings.TrimSpace(parkCode)]
+			if !ok || locationID == "" {
+				return 0, 0, fmt.Errorf("verifier %s is scoped to park %q which has no resolved location id", verifier.Code, parkCode)
+			}
+			posID := detUUID("workforce_position", tenantID, parkCode, verifierPositionCode)
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO workforce_positions (position_id, tenant_id, workforce_member_id, scope_type, scope_id,
+					position_code, position_tier, is_backup_slot, status, valid_from, updated_at)
+				VALUES ($1,$2,$3,'center',$4,$5,'manager',false,'active',now(),now())
+				ON CONFLICT (position_id) DO UPDATE SET
+					workforce_member_id = EXCLUDED.workforce_member_id,
+					scope_type = EXCLUDED.scope_type,
+					scope_id = EXCLUDED.scope_id,
+					position_code = EXCLUDED.position_code,
+					position_tier = EXCLUDED.position_tier,
+					status = EXCLUDED.status,
+					valid_to = NULL,
+					updated_at = now()`,
+				posID, tenantID, verifierMemberID, locationID, verifierPositionCode); err != nil {
+				return 0, 0, fmt.Errorf("insert verifier seat %s@%s: %w", verifier.Code, parkCode, err)
+			}
+		}
 	}
 	return directorsSeeded, grantsSeeded, nil
 }

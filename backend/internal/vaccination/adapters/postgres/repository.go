@@ -2069,6 +2069,9 @@ FROM vaccination_completions vc
 JOIN sop_submission_items si
   ON si.tenant_id = vc.tenant_id
  AND si.item_id = vc.sop_submission_item_id
+JOIN sop_submissions ss
+  ON ss.tenant_id = si.tenant_id
+ AND ss.submission_id = si.submission_id
 JOIN goats g
   ON g.tenant_id = vc.tenant_id
  AND g.goat_id = vc.goat_id
@@ -2081,14 +2084,12 @@ LEFT JOIN goat_shed_partitions gsp
  AND gsp.goat_id = g.goat_id
  AND gsp.shed_id = g.shed_id
 LEFT JOIN LATERAL (
-  SELECT array_agg(pa.proof_id::text ORDER BY pa.created_at, pa.proof_id) AS proof_ids
-  FROM proof_artifacts pa
-  WHERE pa.tenant_id = vc.tenant_id
-    AND pa.scope_type = 'task'
-    AND pa.scope_id = si.task_id
-    AND pa.subject_type = 'goat'
-    AND pa.subject_id = vc.goat_id
-    AND pa.upload_state = 'completed'
+  SELECT array_agg(ref.value ->> 'proof_id' ORDER BY ref.ordinality) AS proof_ids
+  FROM jsonb_array_elements(COALESCE(ss.proof_refs, '[]'::jsonb)) WITH ORDINALITY AS ref(value, ordinality)
+  WHERE ref.value ->> 'upload_state' = 'completed'
+    AND ref.value ->> 'proof_type' = 'video'
+    AND ref.value ->> 'subject_type' = 'goat'
+    AND ref.value ->> 'subject_id' = vc.goat_id::text
 ) proofs ON true
 WHERE vc.tenant_id = $1
   AND si.submission_id = $2

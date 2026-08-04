@@ -1,6 +1,7 @@
 package sg.mesha.goatos.core.data
 
 import androidx.room.withTransaction
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -20,11 +21,13 @@ import sg.mesha.goatos.core.data.cache.StatusCount
 import sg.mesha.goatos.core.data.cache.cacheKey
 import sg.mesha.goatos.core.data.cache.enforceCacheBounds
 import sg.mesha.goatos.core.data.cache.readCachedJson
+import sg.mesha.goatos.core.data.capture.ROSTER_SCAN_FIELD_KEY
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.dto.ScanRosterResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionResponseDto
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
-import java.util.Locale
+
+private val SERVER_DONE_ROSTER_STATUSES = setOf("done", "completed")
 
 /**
  * Vaccination execution screen area: the execution row list, the per-shed
@@ -293,7 +296,8 @@ class DefaultExecutionRepository(
         taskId: String?,
         cursor: String?,
         limit: Int?,
-    ): ScanRosterResponseDto = api.getScanRoster(shedId, taskId, cursor, limit)
+    ): ScanRosterResponseDto =
+        api.getScanRoster(shedId, taskId, cursor, limit)
 
     override fun observeScanRosterRows(
         shedId: String,
@@ -336,8 +340,17 @@ class DefaultExecutionRepository(
             val seenCursors = mutableSetOf<String>() // mobile-guard:ignore: function-local, GC'd on return; bounded by one shed's page count, not a persistent field
             var seq = 0L
             var cursor: String? = null
+            var fetchTaskId = taskId
+            var authoritativeForTask = !taskId.isNullOrBlank()
             while (true) {
-                val page = scanRoster(shedId, taskId, cursor = cursor, limit = limit)
+                val page = try {
+                    scanRoster(shedId, fetchTaskId, cursor = cursor, limit = limit)
+                } catch (error: Throwable) {
+                    if (cursor != null || taskId.isNullOrBlank() || !error.isHttpNotFound()) throw error
+                    fetchTaskId = null
+                    authoritativeForTask = false
+                    scanRoster(shedId, taskId = null, cursor = null, limit = limit)
+                }
                 page.rows.forEach { staged += it.toRowEntity(rowScope, shedId, taskId, seq++, clock()) }
                 val next = page.nextCursor ?: break
                 if (!seenCursors.add(next)) {
@@ -349,9 +362,22 @@ class DefaultExecutionRepository(
             // failure throws before we touch the DB, so the previously-persisted roster is left intact
             // (offline-safe atomic replace) and the write lock is held only for the local upsert.
             val rows = staged.distinctBy { it.id }
+            val serverDoneObligationIds = rows
+                .asSequence()
+                .filter { it.isServerDone() }
+                .mapNotNull { it.obligationId.takeIf(String::isNotBlank) }
+                .distinct()
+                .toList()
             database.withTransaction {
                 scanRosterRowDao.deleteForScope(rowScope)
                 scanRosterRowDao.upsertAll(rows)
+                taskId?.takeIf { authoritativeForTask && it.isNotBlank() }?.let { id ->
+                    database.scannedGoatDao().pruneSyncedFieldToServerDone(
+                        taskId = id,
+                        fieldKey = ROSTER_SCAN_FIELD_KEY,
+                        serverDoneObligationIds = serverDoneObligationIds,
+                    )
+                }
             }
         }
     }
@@ -422,6 +448,10 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     updatedAt = now,
 )
 
+private fun ScanRosterRowEntity.isServerDone(): Boolean =
+    scannedAtMs != null ||
+        status.lowercase(Locale.US) in SERVER_DONE_ROSTER_STATUSES
+
 private fun humanizeVaccineLabel(raw: String): String {
     val trimmed = raw.trim()
     if (trimmed.isBlank()) return trimmed
@@ -452,6 +482,10 @@ private fun humanizeVaccineLabel(raw: String): String {
     }
 }
 
+private fun Throwable.isHttpNotFound(): Boolean =
+    javaClass.name == "retrofit2.HttpException" &&
+        runCatching { javaClass.getMethod("code").invoke(this) as? Int }.getOrNull() == 404
+
 private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")
 
@@ -468,7 +502,12 @@ internal fun mergeExecutionRowsPage(
     page: VaccinationExecutionResponseDto,
 ): VaccinationExecutionResponseDto = page.copy(
     totalCount = maxOf(current.totalCount, page.totalCount),
-    filterOptions = current.filterOptions ?: page.filterOptions,
+    // The FRESH page wins. This used to prefer the cached options, which meant a filter vocabulary
+    // could never be replaced once cached: a principal who could see both parks left their park
+    // chips behind for the next principal, so a CBE-scoped operator was offered a CPT chip and
+    // could pull up another park's sheds. Cached options are only a fallback for a continuation
+    // page, which legitimately omits them.
+    filterOptions = page.filterOptions ?: current.filterOptions,
     rows = (current.rows + page.rows).distinctBy { row -> // mobile-guard:ignore: cursor-gated single-page append into a TTL+row/byte-capped blob (enforceCacheBounds)
         listOf(
             row.parkId,

@@ -177,8 +177,12 @@ reproductive/lactation state + procurement/warm-up state + shed/cohort
 animal_stage**. Exceptions the engine must honor: ICU / quarantine (defer,
 don't fire), pregnant / lactating (different rule or skip), and sick /
 under_treatment / recovering (defer). Phase 0 does **not** expose per-animal individual
-override generation; Preventive Care approved catch-up uses the manual campaign
-path so it still creates canonical obligations/batches. Encode the predicate in
+override generation. Adult blank-history catch-up is automatically generated into
+the normal whole-shed adult drive and still creates canonical obligations/batches;
+it does not wait for a separate manual-campaign approval. When history repeat
+windows overlap, the generator assigns the latest shared-ready date to both the
+repeat rows and blank-history catch-up rows so one logical roster is not split by
+dose status. Encode the predicate in
 `protocol_rules.eligibility_json`; tracked exceptions become `deferred`
 obligations with a reason — never silently inherit only the shed value.
 
@@ -457,9 +461,9 @@ without durable notes/follow-up, and review confidence not being first-class.
   uses that preserved past date as the last accepted completion. Missing or
   untrusted history first creates one safe catch-up/review action for older
   animals whose historical windows are already past, not every old dose as
-  same-day work; after Preventive Care (PC) approval it becomes catch-up shed
-  drives via [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md),
-  never fabricated completions.
+  same-day work; eligible adults automatically join the next normal whole-shed
+  catch-up drive via [migration-and-cutover.md](../protocol-engine/migration-and-cutover.md),
+  never fabricated completions or a separate manual drive.
 - `PPR`, `FMD`, `HS`, Goat Pox, and ET+TT schedule-bearing behavior now comes
   from the active scoped vaccination matrix version. `BQ` remains a tracked
   SOP/vocabulary label until evidence-derived timing/dose/booster policy is

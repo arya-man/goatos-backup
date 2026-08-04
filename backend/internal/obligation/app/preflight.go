@@ -263,7 +263,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 		if err != nil {
 			return plannedDate, nil, nil, err
 		}
-		capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
+		capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, plannedDate, planner, session, targetIDs)
 		if err != nil {
 			_ = visitRelease(ctx)
 			return plannedDate, nil, nil, err
@@ -310,7 +310,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 			if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, &day, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 				return plannedDate, nil, nil, err
 			}
-			capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, &day, planner, session)
+			capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, &day, planner, session, targetIDs)
 			if err != nil {
 				return plannedDate, nil, nil, err
 			}
@@ -354,7 +354,7 @@ func (s *SweeperService) preflightBestUnbatchedDriveDateWithVisitCap(ctx context
 	if err := s.seedVisitShotCounts(ctx, tenantID, targetIDs, bestDate, planner.MaxShotsPerAnimalPerDrive, session); err != nil {
 		return bestDate, nil, nil, err
 	}
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, bestDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, bestDate, planner, session, targetIDs)
 	if err != nil {
 		return bestDate, nil, nil, err
 	}
@@ -514,7 +514,7 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		return remaining, nil, plannedDate, false, true, err
 	}
 	parkID := firstParkID(remaining)
-	capPlanner, err := s.operatorCapacityPlanner(ctx, tenantID, parkID, plannedDate, planner, session)
+	capPlanner, err := s.operatorCapacityPlannerForTargets(ctx, tenantID, parkID, plannedDate, planner, session, targetIDs)
 	if err != nil {
 		_ = visitRelease(ctx)
 		return remaining, nil, plannedDate, false, true, err
@@ -537,7 +537,6 @@ func (s *SweeperService) preflightParkMergeStep(ctx context.Context, tenantID st
 		_ = release(ctx)
 		return remaining, nil, plannedDate, false, true, err
 	}
-	selected = expandWholeParkRoutePartitions(orderedRemaining, selected, configuredParkAnimalCap(planner, capPlanner))
 	capped := limitParkSelectionByDriveAnimals(now, orderedRemaining, selected, *plannedDate, capPlanner, configuredParkAnimalCap(planner, capPlanner), session)
 	if len(capped) < len(selected) {
 		animalCapReached = true

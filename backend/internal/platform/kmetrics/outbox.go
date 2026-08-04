@@ -12,6 +12,12 @@ var (
 	outboxDeadLetters     = newCounter("kernel.outbox.dead_letters", "{message}", "Outbox messages moved to dead-letter after exhausting publish attempts.")
 	outboxReclaimed       = newCounter("kernel.outbox.reclaimed", "{message}", "Outbox messages reclaimed from a stale publishing lease.")
 	outboxRetryScheduled  = newCounter("kernel.outbox.retry_scheduled", "{message}", "Outbox messages scheduled for a retried publish attempt.")
+	// outboxFailed counts the OTHER terminal state. dead_letter had a counter;
+	// 'failed' -- which is where an invalid envelope and a permanent publish
+	// failure both land, is never retried, and is never dead-lettered -- had
+	// none. That is the exact class that produced 12 permanently undeliverable
+	// weighing events with nothing counting them.
+	outboxFailed = newCounter("kernel.outbox.failed", "{message}", "Outbox messages marked permanently failed (invalid envelope or non-retryable publish failure). Never retried, never dead-lettered.")
 )
 
 // OutboxPublishOutcome labels the outbox.publish.duration histogram so a
@@ -44,6 +50,13 @@ func RecordOutboxPublish(ctx context.Context, outcome OutboxPublishOutcome, even
 // signal to "how much work was waiting" the relay's polling model exposes;
 // a true queue depth requires a COUNT(*) query which the design intentionally
 // avoids on the hot path).
+// RecordOutboxFailed counts messages that reached the terminal 'failed' state.
+func RecordOutboxFailed(ctx context.Context, count int) {
+	if count > 0 {
+		addCounter(ctx, outboxFailed, int64(count))
+	}
+}
+
 func RecordOutboxBatch(ctx context.Context, reclaimed, retryScheduled, deadLetters, claimed int) {
 	if reclaimed > 0 {
 		addCounter(ctx, outboxReclaimed, int64(reclaimed))

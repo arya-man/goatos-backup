@@ -30,9 +30,18 @@ vaccination operator seat or animal capacity.
 rules still come from the backend vaccination rule engine. Adult vaccination
 generation must not use `entry_date` / `post_arrival` as a due-date anchor:
 accepted same-vaccine history drives adult booster/repeat timing, and adult
-blank-history animals enter the reviewed manual campaign/catch-up cohort packed
-by whole physical shed/partition. Kid/young DOB and age-window timing remains
-strict.
+blank-history animals automatically join the normal adult drive for that vaccine;
+they do not require a separate manual-campaign trigger or approval. Repeat versus
+initial/catch-up is an animal-level dose instruction inside one logical drive, not
+a reason to split the roster into separate drives. When repeat-history readiness
+dates differ but their safe windows overlap, use the latest readiness date inside
+the shared window for both repeat-history and blank-history obligations; do not
+create an earlier partial drive. If repeat history arrives after a stable
+blank-history obligation was already generated, reschedule that same open row
+onto the shared cohort date; never leave the old split date or mint a duplicate.
+Pack work by whole physical
+shed; partition is only a fallback when the physical shed itself exceeds the full
+per-operator cap. Kid/young DOB and age-window timing remains strict.
 Run it with `make seed-vaccination-cpt-operator-drive` — that target materializes
 the packet's documented `raw/` layout into the normalized bundle both seed
 commands require and then runs the documented chain against it, so the documented
@@ -178,6 +187,20 @@ Permanent scale and guard-authoring rules:
   operator/shed/partition assignments set-wise; if the safe buffer would be
   breached, mark the drive over-cap required and finish instead of silently
   pushing animals beyond the latest-safe date.
+- A physical shed at or below one operator's full configured cap is indivisible,
+  even when it does not fit the current day's residual slots. Carry the complete
+  shed to the next operator-day; do not peel off partitions to fill a remainder.
+  Enforce this in park pre-batching as well as operator planning and group
+  compatible blank-history catch-up and history-backed repeat rule rows by the
+  same physical shed before applying the cap. For CPT, preserve the canonical
+  route `Gandhi`, `Godel 1`, `Godel 2`, `Mandela 2`, `Old Yashoda`, yielding
+  `193 + 131 = 324` with one 200-animal operator for the full adult cohort.
+- Operator submission time is the medical `administered_at` anchor. Delayed
+  verifier/director approval may set `verified_at`/`closed_at`, but must never
+  replace the administration date used for booster and repeat scheduling.
+- Batch readiness and closure count only active `recorded`/`accepted`
+  vaccination completions. Retained `rejected`/`reversed` attempts are audit
+  history and must not block a later successful retry.
 - STG operator grants are park-scoped, never tenant-scoped. Leadership/director
   visibility may get tenant scope, but field execution accounts (`operator`,
   weighing operators) must declare a park and materialize `user_scope_grants`
@@ -656,3 +679,20 @@ one product; this skill is the navigation layer.
 <!-- Coupling review 2026-07-25: Editable vaccination caps (migration 000045 + PUT /vaccination/capacity-config): the operator daily animal cap and a new nullable per-animal shot-cap override are edited on the People/vaccination-operators screen and written to vaccination_capacity_config, cascading vaccination.capacity.changed per active park to re-plan future drives. Seed leaves the override NULL (planner falls back to rule_dsl/default), so no seed fixture, roster, or SOP contract changes. The apply-leave path additionally enforces a min-1-operator-per-day coverage guard (min_operator_coverage 409). -->
 <!-- Coupling review 2026-07-25: selected_operator_ids on vaccination_operator_assignment_config is an admin-selected parallel roster preference. Seed leaves it empty; saving config may reassign current/future open planned drive rows, but source fixture bytes, HRMS roster import, SOP definitions, and completed proofs remain unchanged. -->
 <!-- Coupling review 2026-07-25: migration 000002 restores selected_operator_ids on already-migrated DBs after the collapsed baseline gained the column. It is a runtime schema repair only; backfill from default_operator_id keeps previous scheduling behavior and does not alter fixture/source contracts. -->
+<!-- Coupling review 2026-08-01: a module that enqueues a verification item must declare BOTH ends -- an entry in notificationbridge.pendingModuleProfiles (its own recipients, wording and tap route; there is deliberately no fallback profile) AND at least one active verify-duty holder in position_module_duties. Missing either means the pending-proof push reaches nobody while every test stays green, which is exactly how the path looked wired for months while notification_requests stayed empty. Both are asserted by tests, not comments. -->
+
+## WEIGHING IS SCAN-AND-SUBMIT (do not re-derive rules)
+
+Assign sheds → individual: scan RFID + weight + video per animal; lump-sum: total
+weight + count + video(s) per shed → submit. **The only business rule is: no double
+scan of the same animal in a bucket before submit.**
+
+NO shed↔RFID validation · NO roster/expected count/denominator/percentage · NO herd
+or goat or clinical lookup · NO vaccine/protocol/obligation rules · NO "shed is empty"
+concept (free-flow cannot know what is in a shed).
+
+If a finding assumes any of those exist, it is invalid — close it and cite ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`. Real weighing
+findings are about PLUMBING: writes landing, evidence being reviewable, failures being
+visible, screens showing honest numbers. Full statement:
+`docs/features/weighing/TRD.md` → "What weighing IS".

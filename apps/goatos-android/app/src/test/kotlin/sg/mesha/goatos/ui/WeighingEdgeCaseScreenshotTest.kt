@@ -26,12 +26,14 @@ class WeighingEdgeCaseScreenshotTest {
         WeighingScreen(state = individualState())
     }
 
+    // Weighing is free-flow and has no herd "wrong shed" concept -- the only rule surfaced here is
+    // the duplicate-identifier check within this task's shed bucket.
     @Test
-    fun weighingIndividualWrongShed() = shot("weighing_case_02_individual_wrong_shed") {
+    fun weighingIndividualDuplicateScan() = shot("weighing_case_02_individual_duplicate_scan") {
         WeighingScreen(
             state = individualState().copy(
-                message = "Wrong shed · expected Kid Shed A, now in Kid Shed B",
-                visibleRows = weighingRows(wrongShed = true),
+                message = "Already scanned in this shed",
+                visibleRows = weighingRows(duplicate = true),
             ),
         )
     }
@@ -75,7 +77,7 @@ class WeighingEdgeCaseScreenshotTest {
         WeighingScreen(
             state = individualState().copy(
                 title = "Kid Shed A / Part 1 / Very Long Shed Display Name",
-                selectedAnimalLabel = "901007000504407 · secondary 901007000504407B · expected Kid Shed A / actual Kid Shed B",
+                selectedAnimalLabel = "901007000504407 · secondary 901007000504407B",
                 individualDrafts = listOf(
                     WeighingDraftUiRow(
                         id = "draft-long",
@@ -115,28 +117,20 @@ private fun individualState(): WeighingUiState = sampleWeighingOperatorState().c
         WeighingDraftUiRow("draft-1", "goat-407", "901007000504407 · 18.4 kg · proof uploading", proofReady = false, readyToSubmit = false),
         WeighingDraftUiRow("draft-2", "goat-418", "901007000504418 · 19.1 kg · proof ready", proofReady = true, readyToSubmit = true),
     ),
-    visibleRows = weighingRows(wrongShed = false),
+    visibleRows = weighingRows(duplicate = false),
 )
 
-private fun weighingRows(wrongShed: Boolean): List<WeighingRosterUiRow> = listOf(
+private fun weighingRows(duplicate: Boolean): List<WeighingRosterUiRow> = listOf(
     WeighingRosterUiRow(
         id = "row-1",
         animalId = "goat-407",
         displayAnimalId = "901007000504407",
-        expectedLocationLabel = "Kid Shed A",
-        actualLocationLabel = if (wrongShed) "Kid Shed B" else "Kid Shed A",
-        status = if (wrongShed) "Wrong shed" else "Accepted",
-        availabilityStatus = null,
-        wrongShed = wrongShed,
+        status = if (duplicate) "Duplicate scan" else "Accepted",
     ),
     WeighingRosterUiRow(
         id = "row-2",
         animalId = "goat-418",
         displayAnimalId = "901007000504418",
-        expectedLocationLabel = "Kid Shed A",
-        actualLocationLabel = null,
         status = "Pending",
-        availabilityStatus = null,
-        wrongShed = false,
     ),
 )

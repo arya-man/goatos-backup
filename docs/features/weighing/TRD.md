@@ -1,5 +1,37 @@
 # Weighing — Technical Requirements / Design (TRD)
 
+## What weighing IS — read this before proposing anything
+
+Maintainer statement, 2026-08-03. Every session that skipped this has re-derived
+rules that do not exist and burned the maintainer's time re-explaining. It is the
+whole feature:
+
+```
+CEO assigns sheds to an operator or a director (the Growth Director executes too)
+individual  → scan RFID, enter weight, record video — per animal
+lump-sum    → total weight, animal count, video(s) — per shed
+submit
+```
+
+**The ONLY business rule: an animal cannot be scanned twice in the same bucket
+before submit.**
+
+There is **no** shed↔RFID validation (a scanned tag is stored verbatim and never
+checked against a shed), **no** roster or expected count or progress percentage,
+**no** herd/goat/clinical lookup, **no** vaccine or protocol or obligation rules,
+and **no** "shed is empty" concept — free-flow means the system cannot know what is
+in a shed and must not try.
+
+**Do not invent problems that cannot exist in this model.** Two that were raised and
+killed: an "empty shed outcome" (impossible — nothing knows the shed is empty), and
+the per-animal verifier queue as a grain bug (one video per animal means one review
+per animal; the grain follows the evidence — see ban B-5 in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md`).
+
+Legitimate weighing work is about **plumbing, never rules**: do writes reach the
+server, is evidence reviewable, are failures visible, do screens show honest numbers.
+
+
 **Status:** Draft v1 · **Date:** 2026-07-27
 **Companion:** [PRD.md](./PRD.md)
 **Foundation:** shared operational kernel, proof/media engine, Android offline
@@ -36,6 +68,58 @@ per-shed/partition weighing. Individual work captures RFID, weight, and
 mandatory per-animal proof video. Per-shed/partition work captures the selected
 scope's weighing result and required shed/partition proof video, without
 creating individual animal weight observations.
+
+**Weighing is MOBILE ONLY (maintainer decision 2026-08-03).** The admin-web
+weighing frontend (`apps/admin-web/app/(admin)/weighing/**`,
+`apps/admin-web/features/weighing/**`, and its `lib/api/server.ts` fetchers) was
+deleted; it was already unreachable behind a hard redirect. The Android app is
+the only weighing client. All backend weighing APIs, read models, and the
+`ceo_ai` weighing views stay and are unaffected. Do not rebuild an admin-web
+weighing surface without a new maintainer decision.
+
+## 1.0 Authoritative lifecycle (maintainer decision 2026-07-31)
+
+This is the canonical Weighing task lifecycle. Every section below must be read
+consistent with it; where an older paragraph in this TRD conflicts, this
+section governs.
+
+1. CEO/Growth Director creates a weighing task by park/date/shed buckets.
+2. Each shed bucket (`weighing_campaign_sheds` row) has exactly ONE assigned
+   operator (`operator_user_id uuid not null`, migration
+   `000056_weighing_shed_operator_assignments.sql`; enforced by
+   `tools/agent-hooks/check-weighing-one-operator-per-bucket-guard.mjs`).
+3. The operator opens their assigned bucket and scans any number of RFIDs.
+4. Per RFID: weight + video (`individual_animal`). Or total weight/count/videos
+   (`per_shed_partition`, field-facing "lump-sum").
+5. Operator hits Submit = "I am done for now with this bucket." This flips
+   `weighing_campaign_sheds.status` to `completed`, meaning submitted and
+   awaiting verification — not that every observation is verified.
+6. Submitted observations go to the verifier (generic verification module).
+7. Verifier reviews the videos and approves or bounces each observation for
+   rework; a bounce puts only that observation back in front of the same
+   assigned operator and does not by itself close or reopen the bucket.
+8. Only after ALL submitted observations/videos for the bucket are verified can
+   CEO/Growth Director close it (`status` → `closed`, with
+   `closed_at`/`closed_by`/`close_reason`).
+9. CEO/Growth Director can reopen a `closed` or `completed` (submitted,
+   pre-close) bucket back to `in_progress`.
+10. After reopen, the same assigned operator can add MORE RFIDs and submit
+    again.
+11. Reopen must NOT allow a duplicate `scanned_identifier` within the same
+    `campaign_shed_id`/day (case-insensitive comparison). The same RFID may
+    appear in a DIFFERENT bucket if business allows, but never duplicated in
+    the same bucket/day.
+12. There is NO expected-animal denominator and NO `"N/N"` or `"/100"`-style
+    progress. Expected animals are unknown for weighing; progress is reported
+    only as counts of scanned/accepted/pending/verified observations, never as
+    a fraction of an expected roster.
+
+Backend mapping (already true in code, migration
+`000058_weighing_close_and_verification_state.sql`):
+`weighing_campaign_sheds.status` is `pending` / `in_progress` / `completed` /
+`closed` / `canceled`, where `completed` means "operator submitted, awaiting
+verification"; close moves it to `closed`; reopen moves it back to
+`in_progress`.
 
 ## 1.1 Last-30-commit Vaccination hardening lens
 
@@ -191,7 +275,7 @@ before implementation.
 | `display_month date` | Reserved for future adult/monthly scope; null in v1. |
 | `animal_group_filter text not null` | `kids_k_f` only in v1. |
 | `start_business_date date not null` | Day leadership created/scheduled work, e.g. 2026-07-29. |
-| `status text not null` | `draft`, `planned`, `published`, `in_progress`, `delayed`, `completed`, `canceled`. |
+| `status text not null` | `draft`, `published`, `in_progress`, `delayed`, `completed`, `closed`, `canceled` (per migration `000058_weighing_close_and_verification_state.sql`; `planned` was never a persisted value). |
 | `planned_cap_per_day int not null` | Default 100 for v1; authored/configured later. |
 | `operator_user_id uuid` | Backwards-compatible default operator for old clients and campaign-level display. Shed rows carry the execution owner. |
 | `published_at timestamptz` | Set when operator-visible work is created. |
@@ -208,10 +292,11 @@ before implementation.
 | `location_id uuid not null` | Physical shed or partition/cohort scope. |
 | `location_type text not null` | `shed`, `cohort`, or implementation-supported partition grain. |
 | `display_name text not null` | Snapshot label for audit/display. |
-| `expected_animal_count int not null` | Snapshot count at planning time. |
+| `expected_animal_count int not null` | **Always 0 — no expectation.** Weighing is free-flow: there is no expected roster and therefore no denominator. The write path used to store a literal `1`, which every progress figure then read as "this shed expects one animal". Nothing derives business truth from this column; do not start. |
 | `weighing_category text not null` | `individual_animal` or `per_shed_partition`. Selected by leadership per shed/partition; `per_shed_partition` may display as "lumpsum" in field-facing copy. |
-| `status text not null` | `pending`, `in_progress`, `completed`, `canceled`. |
-| `completed_at timestamptz` | Closed when expected membership is complete or leadership override closes it. |
+| `status text not null` | `pending`, `in_progress`, `completed`, `closed`, `canceled` (per migration `000058_weighing_close_and_verification_state.sql`). `completed` means the assigned operator submitted and the bucket is awaiting verification, NOT that every submitted observation is verified. `closed` is a distinct terminal state set only by CEO/Growth Director once every submitted observation in the bucket is verified; a bucket may be reopened from `completed` or `closed` back to `in_progress` by CEO/Growth Director, after which the same assigned operator may add more scanned RFIDs and submit again. |
+| `completed_at timestamptz` | Set when the assigned operator submits (awaiting verification), independent of `closed_at`. |
+| `closed_at`, `closed_by`, `close_reason`, `closed_not_accepted_count` | Set only on explicit CEO/Growth Director close, after all submitted observations in the bucket are verified. |
 
 ### `weighing_work_groups`
 
@@ -327,11 +412,13 @@ rows that make old progress/proof counts impossible to reconstruct.
 >
 > **Vaccination remains strict and must not be loosened by anything here.**
 >
-> The expected-animal roster is a LABEL, not a gate: it is LEFT JOINed for
-> wrong-shed classification only. An off-roster scan still records (as
-> `extra_scan`), and `weighing_expected_animals.status` /
-> `availability_status` never decide whether a weight is accepted. Writing
-> progress back to the roster is still fine. The one surviving precondition is
+> **SUPERSEDED — there is no roster at all.** `weighing_expected_animals` was
+> DROPPED (migration `000079`) and `weighing_observations.mismatch_status` with
+> it (migration `000081`). Nothing is classified as `expected_shed`,
+> `wrong_shed` or `extra_scan`, because those verdicts need an expected set that
+> no longer exists; the write path stores no verdict. The paragraph below is
+> kept only to record why the roster could never have been a gate. The one
+> surviving precondition is
 > bucket category (`weighing_category='individual_animal'`), which is a
 > weighing-owned check about the bucket, not about the animal.
 >

@@ -40,4 +40,14 @@
     <string name="perm_status_granted">ಅನುಮತಿಸಲಾಗಿದೆ</string>
     <string name="perm_status_needed">ಅಗತ್ಯವಿದೆ</string>
     <string name="perm_status_open_settings">ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ</string>
+
+    <string name="mandatory_permissions_title">ಕೆಲಸ ಮಾಡಲು ಅನುಮತಿಗಳನ್ನು ಅನುಮತಿಸಿ</string>
+    <string name="mandatory_permissions_body">ಕೆಲಸ ಮಾಡುವ ಮೊದಲು ಈ ಫೋನ್‌ಗೆ ಈ ಅನುಮತಿಗಳು ಅಗತ್ಯವಿದೆ. ಇದೇ ಇಲ್ಲದೆ ಆ್ಯಪ್ ಕೆಲಸ ಮಾಡುವುದಿಲ್ಲ.</string>
+    <string name="mandatory_permissions_why">ಕ್ಯಾಮೆರಾ ಪ್ರತಿಯೊಂದು ಜನಕೆರೆಗೆ ಪುರಾವೆ ವೀಡಿಯೊ ರೆಕಾರ್ಡ್ ಮಾಡುತ್ತದೆ. ಅಧಿಸೂಚನೆಗಳು ಕೆಲಸ ಕೆ ಸಮಯ ತಿಳಿಸುತ್ತವೆ. ಹತ್ತಿರದ ಸಾಧನಗಳು ನಿಮ್ಮ RFID ರೀಡರ್ ಸಂಪರ್ಕಿಸುತ್ತವೆ.</string>
+    <string name="mandatory_permissions_grant">ಅನುಮತಿಗಳನ್ನು ಅನುಮತಿಸಿ</string>
+    <string name="mandatory_permissions_settings">ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ತೆರೆಯಿರಿ</string>
+    <string name="mandatory_permissions_settings_help">ನಿಮ್ಮ ಫೋನ್ ಮತ್ತೆ ಕೇಳುವುದಿಲ್ಲ. ಕೆಳಗಿನಿಂದ ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಆ್ಯಪ್ ತೆರೆಯಿರಿ. Mesha ಹುಡುಕಿ, ಅನುಮತಿಗಳಿಗೆ ಟ್ಯಾಪ್ ಮಾಡಿ, ಮತ್ತು ಅಗತ್ಯವಿರುವ ಅನುಮತಿಗಳನ್ನು ಸಕ್ರಿಯಗೊಳಿಸಿ. ಪೂರ್ಣವಾದಾಗ ಈ ಆ್ಯಪ್‌ನಿಗೆ ಹಿಂದಿರುಗಿ.</string>
+    <string name="mandatory_permissions_retry_help">ನಿಮ್ಮ ಫೋನ್ ಇನ್ನೂ ಕೇಳಬಹುದು. ಮೇಲಿನ ಬಟನ್ ಒತ್ತಿ ಮತ್ತು ಅನುಮತಿಸಿ ಆಯ್ಕೆಮಾಡಿ — ಎಲ್ಲಾ ಅನುಮತಿಗಳು ಆನ್ ಆಗುವವರೆಗೆ ಕೆಲಸ ಪ್ರಾರಂಭಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ.</string>
+    <string name="perm_label_location">ಲೊಕೇಶನ್</string>
+    <string name="perm_rationale_location">ಕೆಲಸ ಯಾವ ಪಾರ್ಕ್ ಮತ್ತು ಶೆಡ್‌ನಲ್ಲಿ ನಡೆಯಿತು ಎಂದು ತೋರಿಸುತ್ತದೆ.</string>
 </resources>

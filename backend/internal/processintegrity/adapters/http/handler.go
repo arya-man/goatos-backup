@@ -193,11 +193,26 @@ func (h *Handler) query(w http.ResponseWriter, r *http.Request, defaultRowLimit 
 		// Re-anchor the default horizon to as_of; an explicit due_before below still wins.
 		q.DueBefore = q.AsOf.Add(defaultHorizonDays * 24 * time.Hour)
 	}
-	if parkID := values.Get("park_id"); parkID != "" {
-		if !uuidutil.IsUUIDString(parkID) {
-			h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
-			return domain.Query{}, false
-		}
+	// projection-review: park scope is BACKEND-owned for every process-integrity read (Action
+	// Center, its counts, Control Tower, Protocol Adherence, Workflow drilldown all funnel
+	// through this one query builder). It used to take park_id verbatim off the query string, so
+	// a park-bound park head who omitted it read the whole tenant -- and because this feed backs
+	// mobile Alerts, their alert COUNT included the other park. The query string may now only
+	// NARROW within the actor's grant: an omitted park resolves to their authorized park, and an
+	// explicit foreign park is 403. Tenant-wide (or grant-less internal) callers are unchanged.
+	requestedPark := values.Get("park_id")
+	if requestedPark != "" && !uuidutil.IsUUIDString(requestedPark) {
+		h.badRequest(w, r, "invalid_park_id", "park_id must be a UUID")
+		return domain.Query{}, false
+	}
+	decision := httpmiddleware.ResolveAuthorizedParkScope(r.Context(), q.TenantID, requestedPark)
+	if !decision.Allowed {
+		httpresponse.WriteError(w, r, h.log, decision.Status,
+			errorEnvelope{Code: decision.Code, Message: decision.Message, TraceID: traceID(r)}, nil)
+		return domain.Query{}, false
+	}
+	if decision.ParkID != "" {
+		parkID := decision.ParkID
 		q.ParkID = &parkID
 	}
 	if shedID := values.Get("shed_id"); shedID != "" {

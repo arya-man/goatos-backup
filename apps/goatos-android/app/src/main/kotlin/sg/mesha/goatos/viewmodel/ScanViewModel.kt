@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
@@ -168,6 +170,23 @@ class ScanViewModel @Inject constructor(
     private val _operatorAllowed = MutableStateFlow<Boolean?>(null)
     private var currentPrincipalId: String? = null
     private var proofCaptureInFlight = false
+    // Identity of the ONE physical camera session currently open, and the job that owns it. The
+    // camera is a single physical device — only one goat's capture can be open at a time. A scan
+    // of a DIFFERENT goat while a capture is still recording cancels that job (see
+    // [requestGoatProof]) and starts a new one bound to the new goat. Cancellation is only safe
+    // before [proofCaptureVideoCaptured] flips true — see that flag's doc.
+    private var proofCaptureGoatId: String? = null
+    // The RFID tag of [proofCaptureGoatId]'s row, kept only for farm-language copy ("TAG-100 still
+    // needs its video.") when that goat's capture is cancelled in favor of a newly scanned goat.
+    private var strandedGoatTag: String? = null
+    private var proofCaptureJob: Job? = null
+    // Flips true the instant `proofCaptureSource.captureVideo(...)` RETURNS a non-null
+    // [sg.mesha.goatos.capture.CapturedVideo] for the in-flight goat — i.e. once a real, complete
+    // recording exists and hand-off to Room/the outbox has begun. From that point the capture must
+    // NEVER be cancelled by a later scan (that would discard a completed field recording, the
+    // exact prior incident this repo must not repeat); a later scan is refused with the busy
+    // notice instead, same as before this fix.
+    private var proofCaptureVideoCaptured = false
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -365,7 +384,15 @@ class ScanViewModel @Inject constructor(
         viewModelScope.launch {
             val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
             currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
-            _operatorAllowed.value = profile?.primaryRoleHint == OPERATOR_ROLE
+            // Backend-owned, never inferred from a role label. `vaccination_execute` is compiled by
+            // the backend from the caller's grants (see canExecuteVaccination), and it is the same
+            // flag the shell already uses to decide whether a shed can be opened into this screen.
+            // The old `primaryRoleHint == "operator"` literal locked out every non-operator who is
+            // nonetheless authorized to execute: a director scanned, the animal flipped DONE, and
+            // the proof camera never opened, stranding the animal on "Scan again to record proof".
+            _operatorAllowed.value = runCatching {
+                bootstrapRepository.loadNavState().featureFlags[VACCINATION_EXECUTE_FLAG] == true
+            }.getOrDefault(false)
         }
         // HOT device stream (RFID reader) — NOT converted; always collected for keyboard-wedge capture
         viewModelScope.launch {
@@ -807,22 +834,28 @@ class ScanViewModel @Inject constructor(
     ): RosterRow {
         val locallyDone = obligationId.isNotBlank() && obligationId in localDone
         val goatProofs = goatProofsBySubject[goatId].orEmpty()
-        val uploadingProofs = goatProofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ||
-            optimisticProofUploadingAtMs != null
-        val failedProofs = goatProofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
         val latestSyncedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() }
             .maxByOrNull { it.capturedAtMs }
+        val hasSyncedProof = latestSyncedProof != null || serverProofReady
+        // A completed proof is terminal for this goat: a stale optimistic "uploading" marker (its
+        // clearing coroutine was cancelled by navigation/recreation) and older retry rows must never
+        // outrank a clip that already reached the backend, or the row shows "Proof uploading" forever
+        // while rendering as done.
         val latestUploadingProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT }
             .maxByOrNull { it.capturedAtMs }
+            ?.takeUnless { hasSyncedProof }
+        val effectiveOptimisticUploadingAtMs = optimisticProofUploadingAtMs?.takeUnless { hasSyncedProof }
+        val uploadingProofs = latestUploadingProof != null || effectiveOptimisticUploadingAtMs != null
+        val failedProofs = !hasSyncedProof && goatProofs.any { it.syncStatus == CaptureSyncStatus.FAILED }
         val latestFailedProof = goatProofs
             .filter { it.syncStatus == CaptureSyncStatus.FAILED }
             .maxByOrNull { it.capturedAtMs }
-        val hasSyncedProof = latestSyncedProof != null || serverProofReady
+            ?.takeUnless { hasSyncedProof }
         val proofStatusLabel = proofStatusLabel(
             latestSyncedAtMs = latestSyncedProof?.capturedAtMs ?: if (serverProofReady) scannedAtMs else null,
-            latestUploadingAtMs = latestUploadingProof?.capturedAtMs ?: optimisticProofUploadingAtMs,
+            latestUploadingAtMs = latestUploadingProof?.capturedAtMs ?: effectiveOptimisticUploadingAtMs,
             latestFailedAtMs = latestFailedProof?.capturedAtMs,
         )
         val capturedAtMs = scannedAtByObligation[obligationId] ?: scannedAtMs
@@ -839,7 +872,7 @@ class ScanViewModel @Inject constructor(
             obligationId = obligationId,
             proofRequired = requireGoatProof,
             proofClipCount = if (hasSyncedProof || latestUploadingProof != null) 1 else 0,
-            proofUploadStatus = if (serverProofReady) ProofUploadStatus.SYNCED else proofStatus(goatProofs, optimisticProofUploadingAtMs),
+            proofUploadStatus = if (serverProofReady) ProofUploadStatus.SYNCED else proofStatus(goatProofs, effectiveOptimisticUploadingAtMs),
             evidenceCount = if (hasSyncedProof || goatProofs.isNotEmpty()) 1 else 0,
             evidenceSyncedCount = if (hasSyncedProof) 1 else 0,
             evidenceUploading = uploadingProofs,
@@ -933,15 +966,16 @@ class ScanViewModel @Inject constructor(
         }
     }
 
+    // One completed goat proof satisfies the SOP, so SYNCED is terminal and is checked FIRST. Older
+    // retry/upload rows and a stale optimistic marker for the same goat must not keep the scan row
+    // orange (or labelled "uploading") after the valid proof has reached the backend.
     private fun proofStatus(proofs: List<ProofCaptureRow>, optimisticProofUploadingAtMs: Long? = null): ProofUploadStatus = when {
+        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
+            ProofUploadStatus.SYNCED
         optimisticProofUploadingAtMs != null ||
             proofs.any { it.syncStatus == CaptureSyncStatus.PENDING || it.syncStatus == CaptureSyncStatus.IN_FLIGHT } ->
             ProofUploadStatus.UPLOADING
         proofs.any { it.syncStatus == CaptureSyncStatus.FAILED } -> ProofUploadStatus.FAILED
-        // One completed goat proof satisfies the SOP. Older retry/upload rows for the same goat must
-        // not keep the scan row orange after the valid proof has reached the backend.
-        proofs.any { it.syncStatus == CaptureSyncStatus.SYNCED && !it.serverProofId.isNullOrBlank() } ->
-            ProofUploadStatus.SYNCED
         else -> ProofUploadStatus.MISSING
     }
 
@@ -950,9 +984,11 @@ class ScanViewModel @Inject constructor(
         latestUploadingAtMs: Long?,
         latestFailedAtMs: Long?,
     ): String? = when {
+        // A synced clip is terminal and outranks any older pending/failed sibling, so a done row can
+        // never read "Proof uploading" after its proof reached the backend.
+        latestSyncedAtMs != null -> "Proof synced ${timeOnlyLabel(latestSyncedAtMs)}"
         latestUploadingAtMs != null -> "Proof uploading ${timeOnlyLabel(latestUploadingAtMs)}"
         latestFailedAtMs != null -> "Upload failed ${timeOnlyLabel(latestFailedAtMs)}"
-        latestSyncedAtMs != null -> "Proof synced ${timeOnlyLabel(latestSyncedAtMs)}"
         else -> null
     }
 
@@ -966,7 +1002,7 @@ class ScanViewModel @Inject constructor(
     private fun requestGoatProof(goatId: String) {
         val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value
-        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank() || proofCaptureInFlight) return
+        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || goatId.isBlank()) return
         // Resolve the goat from the visible window OR the proof-action-needed list — an animal needing
         // a proof re-capture may be below the scroll window (the gate surfaces the full-roster set).
         val current = state.value
@@ -975,12 +1011,55 @@ class ScanViewModel @Inject constructor(
         requestGoatProof(row)
     }
 
+    /** Opens the goat proof camera for [row]. Only one capture may be RECORDING at a time — the
+     *  camera is a single physical device the operator is actively pointing at ONE animal.
+     *
+     *  A scan of a DIFFERENT goat while the current goat's video is still recording (i.e.
+     *  `captureVideo()` has not yet returned — no [sg.mesha.goatos.capture.CapturedVideo] exists,
+     *  nothing has been written to Room or the outbox) CLOSES the wrong-goat window instead of
+     *  merely warning about it: the still-open camera for the old goat is cancelled and a fresh
+     *  camera opens bound to the newly scanned goat's tags. This is safe specifically because
+     *  nothing has been captured yet — cancelling discards an unfinished camera session, never a
+     *  completed field recording (see [proofCaptureVideoCaptured]). The old goat is left needing
+     *  its proof and the operator is told so via the visible notice banner (repo rule:
+     *  disabled-with-reason, never silent).
+     *
+     *  A re-scan of the SAME goat that is already recording (e.g. a duplicate hardware read of the
+     *  animal currently in front of the camera) is refused with the busy notice, same as before —
+     *  restarting a capture already in progress for the same animal has no benefit and would just
+     *  reopen the same camera on itself. */
     private fun requestGoatProof(row: RosterRow) {
         val selectedTaskId = taskId ?: return
         val policy = proofPolicy.value
-        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank() || proofCaptureInFlight) return
+        if (!policy.isPerGoatVideo || _operatorAllowed.value != true || row.goatId.isBlank()) return
+
+        val strandedGoatId = proofCaptureGoatId
+        if (proofCaptureInFlight && strandedGoatId != null) {
+            if (strandedGoatId == row.goatId || proofCaptureVideoCaptured) {
+                // Same goat re-scanned mid-recording, OR the in-flight capture already has a
+                // completed video mid-upload — in either case there is nothing safe to cancel.
+                _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
+                return
+            }
+            // A different goat was just scanned while the previous goat's camera is still open and
+            // recording — nothing has been captured for it yet, so cancel that unfinished session.
+            val strandedTag = strandedGoatTag ?: strandedGoatId
+            proofCaptureJob?.cancel()
+            proofCaptureJob = null
+            proofCaptureGoatId = null
+            proofCaptureVideoCaptured = false
+            proofCaptureInFlight = false
+            _duplicateNotice.value = "$strandedTag still needs its video."
+        }
+
         proofCaptureInFlight = true
-        viewModelScope.launch {
+        proofCaptureGoatId = row.goatId
+        strandedGoatTag = row.primaryTag
+        proofCaptureVideoCaptured = false
+        // LAZY so `proofCaptureJob` is installed BEFORE the body can run: the `finally` below
+        // compares job identity, and a body that completed before the assignment would compare
+        // against the previous job and skip its own cleanup.
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 val captured = proofCaptureSource.captureVideo(
                     ProofCaptureContext(
@@ -990,6 +1069,10 @@ class ScanViewModel @Inject constructor(
                         workLabel = row.vaccineLabel,
                     ),
                 ) ?: return@launch
+                // Past this point a real, complete recording exists — it must never be discarded,
+                // so from here on this job's own state ownership is no longer cancellable by a
+                // later scan (see the busy-refusal branch above).
+                proofCaptureVideoCaptured = true
                 val syncingStartedAtMs = System.currentTimeMillis()
                 _proofSyncingStartedAt.update { it + (row.goatId to syncingStartedAtMs) }
                 proofCaptureRepository.capture(
@@ -1010,11 +1093,37 @@ class ScanViewModel @Inject constructor(
                     proofPolicy = policy,
                 )
                 delay(MIN_VISIBLE_PROOF_SYNCING_MS)
-                _proofSyncingStartedAt.update { it - row.goatId }
             } finally {
-                proofCaptureInFlight = false
+                // Only the job that still OWNS the in-flight state may clean it up. Guard on JOB
+                // identity, not subject identity: an A -> B -> A rescan makes a subject-id guard
+                // pass again for the DEAD first job (`proofCaptureGoatId` is goat A once more),
+                // so that stale job would tear down the live second capture of the same goat —
+                // orphaning it, letting a later scan open a second concurrent camera, and leaving
+                // the row stuck showing "uploading". Job identity is unique per capture and so
+                // cannot be aliased by rescanning the same animal.
+                if (proofCaptureJob === coroutineContext.job) {
+                    // Clear in `finally`: cancellation (navigating away, ViewModel recreation)
+                    // between the capture and the delay would otherwise strand this goat's
+                    // optimistic "uploading" marker forever, so a fully synced row keeps rendering
+                    // as proof-pending.
+                    _proofSyncingStartedAt.update { it - row.goatId }
+                    proofCaptureInFlight = false
+                    proofCaptureGoatId = null
+                    proofCaptureJob = null
+                    proofCaptureVideoCaptured = false
+                    // The busy condition (this goat's recording) has now resolved — clear the busy
+                    // notice so it doesn't linger telling the operator to finish a video that
+                    // already finished. Guarded: only clear if it's still literally the busy
+                    // message, so an unrelated notice raised in the meantime (e.g. "Already
+                    // scanned · X") is never clobbered.
+                    if (_duplicateNotice.value == PROOF_CAPTURE_BUSY_MESSAGE) {
+                        _duplicateNotice.value = null
+                    }
+                }
             }
         }
+        proofCaptureJob = job
+        job.start()
     }
 
     private fun retryGoatProof(goatId: String) {
@@ -1059,8 +1168,12 @@ private const val SCAN_PAGE_SIZE = 20
 private const val MAX_SCAN_FEED_ENTRIES = 100
 private const val READER_REFRESH_MS = 1_000L
 private const val MIN_VISIBLE_PROOF_SYNCING_MS = 1_500L
-private const val OPERATOR_ROLE = "operator"
+/** Backend-compiled execution grant for vaccination; see workforce bootstrap feature flags. */
+private const val VACCINATION_EXECUTE_FLAG = "vaccination_execute"
 private const val GOAT_PROOF_FIELD_KEY = "vaccination_goat_proof"
+/** Operator-facing copy for [ScanViewModel.requestGoatProof]'s busy guard — plain farm language,
+ *  never internal terms like "in-flight" or "capture session". */
+private const val PROOF_CAPTURE_BUSY_MESSAGE = "Finish the current animal's video first."
 
 private fun scanHeaderTitle(routeTitle: String?, detail: TaskDetail?): String {
     val shedName = routeTitle

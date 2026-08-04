@@ -22,7 +22,7 @@ import sg.mesha.goatos.ui.sampleAlertsState
 import javax.inject.Inject
 
 /**
- * Alerts / notifications state holder — the offline-first REFERENCE for every other screen-read
+ * Vaccination-alerts state holder — the offline-first REFERENCE for every other screen-read
  * ViewModel (docs/decisions/android-offline-first.md). Room is the UI's single source of
  * truth: [state] is fed by [ControlTowerRepository.observeSummary], a cache-first [kotlinx.coroutines.flow.Flow]
  * that emits instantly from Room (cached data survives process restarts and screen
@@ -35,11 +35,26 @@ import javax.inject.Inject
  * that cache and only flips [AlertsUiState.isOffline] — never a blank/loading wall.
  * Rows are marked read locally so the list feels live: [AlertsEvent.MarkAllRead] clears
  * every unread flag, [AlertsEvent.OpenAlert] clears the tapped row.
+ *
+ * SCOPE, STATED HONESTLY: the only upstream this screen has is
+ * [ControlTowerRepository.observeSummary], i.e. the vaccination control-tower summary. It can
+ * therefore only ever show VACCINATION alerts. There is no notification-history read in the app,
+ * so a weighing/feed/counts push exists only as a system-tray entry and is unrecoverable once
+ * swiped away, and [ControlTowerRepository.observeSummary] carries no module dimension at all —
+ * "weighing alerts live in weighing" is not expressible here yet. Until a module-scoped
+ * notification history exists, every visible label on this surface names the vaccination scope
+ * rather than promising all-module alerts.
  */
 @HiltViewModel
 class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
 ) : ViewModel() {
+
+    // NO copy here. The screen is titled just "Alerts" and the reader reached it from
+    // vaccination's own bar, so the feature name adds nothing; more importantly, a literal
+    // here is English-only, while the screen resolves the localized default. Blank = "use the
+    // screen's own label".
+    private val screenTitle = ""
 
     // Upstream Room flow. Kept as a cold Flow and folded into [state] below; the single
     // WhileSubscribed(5_000) on [state] makes the whole chain lifecycle-aware, so this flow is
@@ -60,7 +75,11 @@ class AlertsViewModel @Inject constructor(
     ) { resource, isRefreshing, isOffline, readSet ->
         val dto = resource.data
         val base = dto?.toAlertsUiState()
-            ?: if (resource.hasData || isOffline) alertsPlaceholder("No alerts") else alertsPlaceholder("Loading…")
+            ?: if (resource.hasData || isOffline) {
+                vaccinationAlertsPlaceholder("")
+            } else {
+                vaccinationAlertsPlaceholder("Loading…")
+            }
         base.copy(
             rows = base.rows.map { it.copy(unread = it.id !in readSet) },
             isRefreshing = isRefreshing,
@@ -70,7 +89,7 @@ class AlertsViewModel @Inject constructor(
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
-        alertsPlaceholder("Loading alerts…")
+        vaccinationAlertsPlaceholder("Loading vaccination alerts…")
     )
 
     init {
@@ -103,9 +122,13 @@ class AlertsViewModel @Inject constructor(
         }
     }
 
+    /** Honest placeholder: same shape as [alertsPlaceholder], titled for the vaccination scope. */
+    private fun vaccinationAlertsPlaceholder(message: String): AlertsUiState =
+        alertsPlaceholder(message).copy(title = screenTitle)
+
     private fun ControlTowerResponseDto.toAlertsUiState(): AlertsUiState? {
-        if (alerts.isEmpty()) return alertsPlaceholder("No alerts")
-        val base = sampleAlertsState()
+        if (alerts.isEmpty()) return vaccinationAlertsPlaceholder("")
+        val base = sampleAlertsState().copy(title = screenTitle)
         val rows = alerts.map { alert ->
             AlertRow(
                 id = alert.rowId,

@@ -364,8 +364,11 @@ ORDER BY wmc.status, wc.capability_code, wmc.created_at DESC`), tenantID, operat
 func (r *Repository) ListGrantedModuleKeys(ctx context.Context, tenantID, userID string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	// Department module grants (operators): union of all modules the user's department is granted
+	// UNION
+	// Verifier module grants: modules where this user has a verify duty in position_module_duties
 	rows, err := r.pool.Query(ctx, `
-SELECT dmg.module_key
+SELECT DISTINCT dmg.module_key
 FROM public.workforce_members wm
 JOIN public.department_module_grants dmg
   ON dmg.tenant_id = wm.tenant_id
@@ -375,7 +378,22 @@ WHERE wm.tenant_id = $1::uuid
   AND wm.status = 'active'
   AND wm.department_id IS NOT NULL
   AND dmg.status = 'active'
-ORDER BY dmg.module_key`, tenantID, userID)
+UNION
+SELECT DISTINCT pmd.module_code
+FROM public.position_module_duties pmd
+JOIN public.workforce_positions wp
+  ON wp.tenant_id = pmd.tenant_id
+ AND wp.position_code = pmd.position_code
+ AND wp.status = 'active'
+JOIN public.workforce_members wm
+  ON wm.tenant_id = wp.tenant_id
+ AND wm.workforce_member_id = wp.workforce_member_id
+WHERE pmd.tenant_id = $1::uuid
+  AND wm.user_id = $2::uuid
+  AND wm.status = 'active'
+  AND pmd.duty_type = 'verify'
+  AND pmd.status = 'active'
+ORDER BY module_key`, tenantID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -667,15 +685,20 @@ func (r *Repository) RegisterDevice(ctx context.Context, cmd ports.RegisterDevic
 	err = tx.QueryRow(ctx, `
 INSERT INTO workforce_member_devices (
   tenant_id, workforce_member_id, platform, app_install_id, device_public_key_hash,
-  push_token_hash, fcm_token, app_version, os_version, status, last_seen_at, registered_by, metadata
+  push_token_hash, fcm_token, app_version, os_version, status, last_seen_at, registered_by, metadata,
+  notifications_enabled
 ) VALUES (
-  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), nullif($6, ''), $7, $8, 'active', now(), $9::uuid, $10::jsonb
+  $1::uuid, $2::uuid, 'android', $3, nullif($4, ''), nullif($5, ''), nullif($6, ''), $7, $8, 'active', now(), $9::uuid, $10::jsonb,
+  $11::bool
 )
 ON CONFLICT (tenant_id, app_install_id)
 DO UPDATE SET workforce_member_id = EXCLUDED.workforce_member_id,
               device_public_key_hash = EXCLUDED.device_public_key_hash,
               push_token_hash = EXCLUDED.push_token_hash,
               fcm_token = EXCLUDED.fcm_token,
+              -- A re-register that does not report the switch (older build) must not erase a
+              -- known mute; only a real report overwrites it.
+              notifications_enabled = COALESCE(EXCLUDED.notifications_enabled, workforce_member_devices.notifications_enabled),
               app_version = EXCLUDED.app_version,
               os_version = EXCLUDED.os_version,
               status = 'active',
@@ -693,6 +716,7 @@ RETURNING device_id::text`,
 		cmd.Body.OSVersion,
 		cmd.ActorID,
 		metadata,
+		cmd.Body.NotificationsEnabled,
 	).Scan(&deviceID)
 	if err != nil {
 		return domain.DeviceSummary{}, mapWriteErr(err)
@@ -728,6 +752,10 @@ SET app_version = CASE WHEN $4 <> '' THEN $4 ELSE app_version END,
     os_version = CASE WHEN $5 <> '' THEN $5 ELSE os_version END,
     push_token_hash = CASE WHEN $6 <> '' THEN $6 ELSE push_token_hash END,
     fcm_token = CASE WHEN $9 <> '' THEN $9 ELSE fcm_token END,
+    -- Every heartbeat re-reports the OS notification switch, so switching notifications off (or
+    -- back on) in system settings is picked up on the next bootstrap. An older build that omits
+    -- the field leaves the last known value alone.
+    notifications_enabled = COALESCE($10::bool, notifications_enabled),
     metadata = CASE WHEN $7::bool THEN $8::jsonb ELSE metadata END,
     last_seen_at = now(),
     row_version = row_version + 1
@@ -743,6 +771,7 @@ WHERE tenant_id = $1::uuid
 		cmd.Body.Metadata != nil,
 		metadata,
 		ptrValue(cmd.Body.FcmToken),
+		cmd.Body.NotificationsEnabled,
 	)
 	if err != nil {
 		return domain.DeviceSummary{}, err
@@ -1008,6 +1037,7 @@ SELECT
   d.device_public_key_hash,
   d.push_token_hash,
   d.fcm_token,
+  d.notifications_enabled,
   d.app_version,
   d.os_version,
   d.status,
@@ -1026,15 +1056,20 @@ func scanDevices(rows pgx.Rows) ([]domain.DeviceSummary, error) {
 	for rows.Next() {
 		var item domain.DeviceSummary
 		var publicKey, pushToken, fcmToken pgtype.Text
+		var notificationsEnabled pgtype.Bool
 		var lastSeen, registeredAt time.Time
 		var revokedAt pgtype.Timestamptz
 		var metadata []byte
-		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &fcmToken, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
+		if err := rows.Scan(&item.DeviceID, &item.OperatorID, &item.Platform, &item.AppInstallID, &publicKey, &pushToken, &fcmToken, &notificationsEnabled, &item.AppVersion, &item.OSVersion, &item.Status, &lastSeen, &registeredAt, &revokedAt, &metadata, &item.RowVersion); err != nil {
 			return nil, err
 		}
 		item.DevicePublicKeyHash = textPtr(publicKey)
 		item.PushTokenHash = textPtr(pushToken)
 		item.FCMToken = textPtr(fcmToken)
+		if notificationsEnabled.Valid {
+			enabled := notificationsEnabled.Bool
+			item.NotificationsEnabled = &enabled
+		}
 		item.LastSeenAt = lastSeen.UTC().Format(time.RFC3339)
 		item.RegisteredAt = registeredAt.UTC().Format(time.RFC3339)
 		item.RevokedAt = timePtr(revokedAt)

@@ -61,23 +61,44 @@ const (
 
 // DriveSummary holds park-level drive progress data for vaccination drive events.
 type DriveSummary struct {
-	ParkName         string             `json:"park_name"`
-	DueDate          string             `json:"due_date"`
-	ShedCount        int                `json:"shed_count"`
-	ShedsCompleted   int                `json:"sheds_completed"`
-	Sheds            []DriveShedSummary `json:"sheds,omitempty"`
-	VaccineLabels    []string           `json:"vaccine_labels"`
-	TotalCount       int                `json:"total_count"`
-	CompletedCount   int                `json:"completed_count"`
-	SubmittedCount   int                `json:"submitted_count"`
-	RemainingCount   int                `json:"remaining_count"`
-	DueCount         int                `json:"due_count"`
-	OverdueCount     int                `json:"overdue_count"`
-	DeferredCount    int                `json:"deferred_count"`
-	TotalAnimals     int                `json:"total_animals"`
-	CompletedAnimals int                `json:"completed_animals"`
-	SubmittedAnimals int                `json:"submitted_animals"`
-	OwnerLabel       string             `json:"owner_label"`
+	ParkName       string             `json:"park_name"`
+	DriveName      string             `json:"drive_name"`
+	DriveTotal     int                `json:"drive_total"`
+	DueDate        string             `json:"due_date"`
+	ShedCount      int                `json:"shed_count"`
+	ShedsCompleted int                `json:"sheds_completed"`
+	Sheds          []DriveShedSummary `json:"sheds,omitempty"`
+	VaccineLabels  []string           `json:"vaccine_labels"`
+	TotalCount     int                `json:"total_count"`
+	CompletedCount int                `json:"completed_count"`
+	SubmittedCount int                `json:"submitted_count"`
+	// RemainingCount is WORK STILL OWED BY THE OPERATOR = DueCount + OverdueCount + DeferredCount,
+	// identical to TotalCount - CompletedCount - SubmittedCount over the five disjoint buckets. It
+	// deliberately EXCLUDES submitted-but-unverified work, exactly like the ProgressCompleted
+	// numerator below, so one payload can never carry two contradictory answers to "how much is
+	// left": a fully submitted drive reports progress_pct 100 AND remaining_count 0. The
+	// outstanding verifier review is carried by SubmittedCount and the verification_pending status.
+	// (It was TotalCount - CompletedCount, which read "20 remaining" beside a 100% ring.)
+	RemainingCount   int `json:"remaining_count"`
+	DueCount         int `json:"due_count"`
+	OverdueCount     int `json:"overdue_count"`
+	DeferredCount    int `json:"deferred_count"`
+	TotalAnimals     int `json:"total_animals"`
+	CompletedAnimals int `json:"completed_animals"`
+	SubmittedAnimals int `json:"submitted_animals"`
+	// Backend-owned, single cross-surface progress definition. Both Android and admin-web MUST
+	// render these verbatim instead of deriving their own numerator (the cross-surface parity
+	// defect: the same drive showed different completion numbers and ring percentages because
+	// each client picked its own fields). ProgressBasis is "animals" or "doses" and names the
+	// grain the numerator/denominator are counted on; ProgressCompleted is FIELD WORK DONE =
+	// completed + submitted (maintainer decision 2026-08-03): an operator who vaccinated every
+	// animal and submitted proof sees 100%, and the outstanding video review is carried by the
+	// verification_pending status/chip and SubmittedCount, never by holding the ring below 100%.
+	ProgressBasis     string `json:"progress_basis"`
+	ProgressCompleted int    `json:"progress_completed"`
+	ProgressTotal     int    `json:"progress_total"`
+	ProgressPct       int    `json:"progress_pct"`
+	OwnerLabel        string `json:"owner_label"`
 }
 
 type DriveShedSummary struct {

@@ -50,11 +50,23 @@ type WeighingVerdictStore interface {
 // source.module + source.ref_type (counts/shifting_event, feed/feed_distribution_completion,
 // feed/feed_packing_completion), so cross-fire is impossible. This is the ONE place these three are
 // registered; bootstrap/api.go, cmd/outbox-relay, and cmd/domain-event-consumer all call it.
-func RegisterVerificationAppliers(bus eventbus.Bus, feed FeedCompletionStore, shifting ShiftingVerificationRepo, milkPreparation countsports.MilkPreparationCompletionStore, weighing WeighingVerdictStore, log *slog.Logger) {
+func RegisterVerificationAppliers(
+	bus eventbus.Bus,
+	feed FeedCompletionStore,
+	shifting ShiftingVerificationRepo,
+	milkPreparation countsports.MilkPreparationCompletionStore,
+	weighing WeighingVerdictStore,
+	weighingAck weighingapp.VerificationApplyAcker,
+	log *slog.Logger,
+) {
 	countsapp.NewShiftingVerificationHandler(shifting, nil).Register(bus)
 	countsapp.NewMilkPreparationVerificationHandler(milkPreparation).Register(bus)
 	feeddirectionapp.NewFeedDistributionVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedPackingVerificationHandler(feed, log).Register(bus)
 	feeddirectionapp.NewFeedTransportVerificationHandler(feed, log).Register(bus)
-	weighingapp.NewVerificationVerdictHandler(weighing, log).Register(bus)
+	// weighingAck is the receipt weighing sends verification once a verdict has landed on the
+	// observation, so a decided item stops reading as still-being-applied. It may be nil (a bus
+	// built without a verification repo still applies verdicts exactly as before -- the ack is
+	// visibility, never a correctness gate).
+	weighingapp.NewVerificationVerdictHandler(weighing, log).WithApplyAcker(weighingAck).Register(bus)
 }

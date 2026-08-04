@@ -11,7 +11,19 @@ import (
 
 var (
 	ErrChannelNotConfigured = errors.New("notification channel is not configured")
-	ErrInvalidRecipient     = errors.New("notification recipient is invalid")
+	// ErrInvalidRecipient means the PROVIDER told us this device token is dead
+	// (notregistered/unregistered). Suppressing the recipient's other queued pushes is correct:
+	// the device really is gone.
+	ErrInvalidRecipient = errors.New("notification recipient is invalid")
+	// ErrRecipientUnusable means the identifier was never a device token in the first place --
+	// a role name, an empty string, a malformed ref. It says nothing about any device.
+	//
+	// It must NOT share ErrInvalidRecipient's suppression: recipient_ref is a role name on the
+	// calendar reminder path, so one badly-addressed reminder would mark every queued push for
+	// that role 'suppressed' tenant-wide, and 'suppressed' is not re-eligible for delivery. That
+	// turns a recoverable addressing bug into permanent, silent, tenant-wide notification loss --
+	// worse than the burnt retries it replaced.
+	ErrRecipientUnusable = errors.New("notification recipient is not a device token")
 )
 
 type ClaimParams struct {

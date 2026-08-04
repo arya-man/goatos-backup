@@ -35,6 +35,8 @@ import {
   OPERATOR_ROSTER_VERIFIER_ROLE,
   ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END,
   ACCEPTED_ONE_TIME_HISTORY_SUPERSEDES_ACTIVE_SEED_OBLIGATIONS,
+  ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE,
+  VACCINATION_MEDICAL_DATE_FIELD,
   sourceAnimalKey,
 } from "./vaccination-hrms-fixture-lib.mjs";
 
@@ -46,6 +48,12 @@ if (!OPERATOR_ROSTER_CLEAN_DB_BOOTSTRAPS_PRESENT_CENTERS_ONLY) {
 }
 if (!ADULT_CAMPAIGN_HISTORY_CUTOFF_IS_AS_OF_BUSINESS_DAY_END) {
   throw new Error("adult campaign seed contract must include same-business-day accepted history during generation");
+}
+if (!ADULT_BLANK_HISTORY_JOINS_NORMAL_DRIVE) {
+  throw new Error("adult blank-history seed contract must automatically join the normal generated drive");
+}
+if (VACCINATION_MEDICAL_DATE_FIELD !== "vaccination_completions.administered_at") {
+  throw new Error("vaccination repeat timing must use the operator-administered medical date");
 }
 
 const INPUT_FILES = [
@@ -724,7 +732,7 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // canonical PPR history validation.
 // Coupling review 2026-07-24/25: Adult entry_date is never a vaccination
 // due-date anchor. Adult blank-history work must be generated as
-// campaign/catch-up cohort work packed by physical shed/partition, not as
+// ordinary generated drive work packed by physical shed/partition, not as
 // post_arrival singleton work; source validation still preserves kid/young
 // age-window checks and does not route singleton adult rows into make-up/defer
 // logic without an explicit source reason.
@@ -739,5 +747,13 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // Coupling review 2026-07-25: migration 000002 is the additive live-DB repair
 // for the same runtime column. No validator input, hash, or row-count rule
 // changes because seed still leaves selected_operator_ids at its DB default.
+// Coupling review 2026-08-02: blank-history adult generation is automatic normal-drive
+// membership, not a manual approval lane, and operator administered_at remains the medical
+// date even when verification closes later. This changes derived generation semantics only;
+// source vaccination cells, HRMS rows, hashes, and validation counts stay unchanged.
 
 // 2026-07-23 operator-config auto-cascade: migration 000036 adds obligation_operator_config_replan_watermarks, an operational idempotency-watermark table (no seed data / no HRMS-source rows; consumer-only). No fixture bytes change.
+
+// 2026-08-01 verify-duty seeding: position_module_duties gains verify rows per notification module.
+// This is derived seed state, not source data -- no HRMS-source column, row count or hash changes.
+// Source validation is unaffected; notification reachability is asserted by seed-position-duties.

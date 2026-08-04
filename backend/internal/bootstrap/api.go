@@ -456,10 +456,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	).
 		WithIssueStore(feedDirectionRepo).
 		WithScheduleReader(feedDirectionRepo).
-		WithCompletionStore(feedDirectionRepo).
+		// The old instant completion store (feed_direction_session_completions) is deliberately NOT wired:
+		// with no CompletionStore, CompleteSession fails closed with ports.ErrCompletionUnavailable, so the
+		// pre-gate path cannot write 'completed' at operator submit and walk around the verification gate.
+		// Its route is unregistered too (feeddirection/adapters/http.Register).
 		// Feed DISTRIBUTION verification gate (maintainer decision, 2026-07-26): a SEPARATE store on a NEW
 		// table (feed_distribution_completions). The enqueue seam is wired below, once verificationService
-		// exists. The old instant WithCompletionStore path above is left inert.
+		// exists.
 		WithDistributionStore(feedDirectionRepo).
 		// Feed PACKING verification gate (maintainer decision, 2026-07-26, SUPERSEDING the "packing stays
 		// instant" rule): a SEPARATE store on a NEW table (feed_packing_completions). The packing overlay
@@ -529,7 +532,11 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 			return nil, err
 		}
 	}
-	weighingService.WithVerificationEnqueuer(weighingverificationbridge.New(verificationService))
+	weighingVerificationBridge := weighingverificationbridge.New(verificationService)
+	weighingService.WithVerificationEnqueuer(weighingVerificationBridge)
+	// Same bridge, retire direction: a reopened lump-sum bucket withdraws its
+	// submission, so the item raised for it must stop being decidable.
+	weighingService.WithVerificationWithdrawer(weighingVerificationBridge)
 	// Shifting-move verification (maintainer decision, 2026-07-26): a shed move is applied only after
 	// a verifier approves the operator's mandatory video, so shifting is a verification producer just
 	// like vaccination. Register its category and wire the enqueue seam into the execution service now
@@ -747,7 +754,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// publishes verdicts only to the outbox, so these appliers actually fire in the durable-bus
 	// consumers above. Registering here keeps parity through the same helper. Each handler filters
 	// strictly on source.module + source.ref_type, so no cross-fire.
-	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, log)
+	eventwiring.RegisterVerificationAppliers(bus, feedDirectionRepo, countsApprovalRepo, countsRepo, weighingRepo, weighingVerificationBridge, log)
 	// Birth/death workflow consumers: same single-registration pattern (internal/eventwiring), also
 	// called by cmd/outbox-relay, cmd/domain-event-consumer, domainconsumer/wiring, and kernelstages.
 	eventwiring.RegisterWorkflowConsumers(bus, tasksWorkflowService, log)
@@ -756,12 +763,17 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// consumers of vaccination.verification.awaiting_review and vaccination.verify.rejected/accepted
 	// events published by sopbridge. They resolve each completion to its obligation context, then
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).Register(bus)
+	vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, log)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithVaccineLabels(vaccineLabels).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
-	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).Register(bus)
+	// Push copy needs a human park name, not a bare UUID (confirmed maintainer defect: pushes are
+	// too abstract to act on). locationNames is a tiny, dependency-free lookup owned entirely by
+	// notificationbridge (see location_names.go) -- no other module's port changes.
+	locationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
 			WithVerificationProducer(verificationService)).

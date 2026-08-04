@@ -684,6 +684,101 @@ WHERE tenant_id = $1::uuid AND notification_request_id = $2::uuid`,
 	}
 }
 
+// TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice is the
+// regression test for the P0 device-lockout bug: SuppressInvalidRecipient must clear ONLY the dead
+// fcm_token. It must NEVER touch status/revoked_at/revoked_by -- those columns gate the device's
+// ability to authenticate and bootstrap, and flipping them here (the old behavior) meant a single
+// bad push (or a payload bug masquerading as a dead-recipient signal) could brick every addressed
+// phone's login with no self-heal path.
+func TestNotificationRepositorySuppressInvalidRecipientClearsTokenWithoutRevokingDevice(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 5*time.Second)
+	now := time.Date(2026, 7, 25, 15, 30, 0, 0, time.UTC)
+	token := "fQJhrzTJTyCkz4T5dZAyLZ:APA91bHmCYIQTBYjnnoEWX2EXd88YMQlSKtoU"
+	reason := "FCM: UNREGISTERED"
+
+	// Seed a device with an active token
+	var deviceID, tenantID, memberID string
+	tenantID = testTenantID
+	memberID = "11111111-1111-4000-8000-111111111111"
+	if err := pool.QueryRow(ctx, `
+INSERT INTO workforce_members (tenant_id, workforce_member_id, display_code, display_name, status)
+VALUES ($1::uuid, $2::uuid, 'FCM-PRUNE-1', 'FCM Prune Fixture', 'active')
+RETURNING workforce_member_id::text`, tenantID, memberID).Scan(&memberID); err != nil {
+		t.Fatalf("seed workforce member: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO workforce_member_devices (
+  tenant_id, workforce_member_id, platform, app_install_id, fcm_token, app_version, os_version, status
+) VALUES (
+  $1::uuid, $2::uuid, 'android', 'app-install-1', $3, '1.0.0', '14', 'active'
+)
+RETURNING device_id::text`, tenantID, memberID, token).Scan(&deviceID); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+
+	// Suppress the invalid FCM token
+	suppressed, err := repo.SuppressInvalidRecipient(ctx, tenantID, token, reason, now)
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient: %v", err)
+	}
+	if suppressed != 0 {
+		t.Fatalf("suppressed notification requests=%d want 0", suppressed)
+	}
+
+	// Verify the token is cleared but the device stays active and able to authenticate.
+	var deviceStatus, invalidatedReason string
+	var deviceToken *string
+	var revokedAt *time.Time
+	var revokedBy *string
+	if err := pool.QueryRow(ctx, `
+SELECT status, fcm_token, revoked_at, revoked_by, COALESCE(metadata->>'fcm_invalidated_reason', '')
+FROM workforce_member_devices
+WHERE device_id = $1::uuid`, deviceID).Scan(&deviceStatus, &deviceToken, &revokedAt, &revokedBy, &invalidatedReason); err != nil {
+		t.Fatalf("query device: %v", err)
+	}
+
+	if deviceStatus != "active" {
+		t.Errorf("device status=%q want active (a push delivery failure must never revoke login)", deviceStatus)
+	}
+	if deviceToken != nil {
+		t.Errorf("fcm_token=%v want NULL", *deviceToken)
+	}
+	if revokedAt != nil {
+		t.Errorf("revoked_at=%v want NULL (this is not an admin revocation)", *revokedAt)
+	}
+	if revokedBy != nil {
+		t.Errorf("revoked_by=%v want NULL", *revokedBy)
+	}
+	if invalidatedReason != reason {
+		t.Errorf("metadata.fcm_invalidated_reason=%q want %q", invalidatedReason, reason)
+	}
+
+	// Verify idempotency: second call should be a no-op (token already cleared, nothing matches).
+	suppressed2, err := repo.SuppressInvalidRecipient(ctx, tenantID, token, reason, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("SuppressInvalidRecipient (second call): %v", err)
+	}
+	if suppressed2 != 0 {
+		t.Errorf("second suppress affected=%d want 0 (idempotent)", suppressed2)
+	}
+
+	// Verify device row is untouched by the idempotent replay.
+	var statusAfterSecond string
+	if err := pool.QueryRow(ctx, `
+SELECT status
+FROM workforce_member_devices
+WHERE device_id = $1::uuid`, deviceID).Scan(&statusAfterSecond); err != nil {
+		t.Fatalf("query device after second suppress: %v", err)
+	}
+	if statusAfterSecond != "active" {
+		t.Errorf("status after second suppress=%q want active (unchanged)", statusAfterSecond)
+	}
+}
+
 // seedCalendarEvent is a deliberate no-op now: calendar_event_projections and the
 // calendar_event_identities identity table its trigger fed (and the notification_requests/
 // calendar_snoozes FKs that validated against calendar_event_identities) are all retired by the

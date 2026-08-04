@@ -1291,7 +1291,13 @@ type escalationTarget struct {
 	SourceTargetID   string
 	ExecutorRole     string
 	VerifierLabel    string
-	DueAt            time.Time
+	// EventType is the canonical event kind ('vaccination_dose_due', 'vaccination_drive', ...).
+	// It is the only module signal the escalation target carries, and it is what decides WHICH
+	// director an L3 escalation reaches. Every canonical event today is vaccination-owned, so
+	// this changes no live routing; it stops the next module's escalations from silently landing
+	// on the PC Director the way its verification pushes did.
+	EventType string
+	DueAt     time.Time
 }
 
 // calendarEscalationTargetSQL resolves the escalation target for one calendar event by ID, straight
@@ -1305,7 +1311,7 @@ type escalationTarget struct {
 const calendarEscalationTargetSQL = "WITH " + calendarCanonicalEventsCTE + `
 SELECT event_id, title, status, source_target_type, COALESCE(source_target_id::text, ''),
        primary_notification_channel, source_target_type, COALESCE(source_target_id::text, ''),
-       COALESCE(executor_role, ''), COALESCE(verifier_label, ''), due_at
+       COALESCE(executor_role, ''), COALESCE(verifier_label, ''), COALESCE(event_type, ''), due_at
 FROM source_events
 WHERE event_id = $4
   AND system = false
@@ -1336,6 +1342,7 @@ func (r *Repository) queueEscalation(ctx context.Context, tenantID, eventID stri
 		&target.SourceTargetID,
 		&target.ExecutorRole,
 		&target.VerifierLabel,
+		&target.EventType,
 		&target.DueAt,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -1390,6 +1397,19 @@ WHERE NOT EXISTS (
 	} else if channel == "local-stub" && level >= 2 {
 		channel = "slack"
 	}
+	// Derive module from event type for target routing per docs/decisions/2026-08-02-meaningful-notification-copy.md:
+	// vaccination events -> /vaccination, weighing -> /weighing, feed -> /feed, counts -> /counts.
+	module := escalationModule(target.EventType)
+	escalationTarget := "/vaccination" // default fallback
+	switch {
+	case strings.EqualFold(module, "weighing"):
+		escalationTarget = "/weighing"
+	case strings.EqualFold(module, "feed"):
+		escalationTarget = "/feed"
+	case strings.EqualFold(module, "counts"):
+		escalationTarget = "/counts"
+	}
+
 	contextJSON, err := marshalJSON("escalation context", map[string]any{
 		"calendar_event_id":        target.EventID,
 		"source_target_type":       target.SourceTargetType,
@@ -1399,10 +1419,20 @@ WHERE NOT EXISTS (
 		"obligation_escalation_id": escalationID,
 		"due_at":                   target.DueAt.UTC().Format(time.RFC3339Nano),
 		"sweeper":                  "calendar-escalation-sweeper",
+		// DEFECT 2 fix: add target field so client routing is non-empty
+		"target": escalationTarget,
 	})
 	if err != nil {
 		return false, err
 	}
+
+	// Build user-facing escalation copy per DEFECT 3 fix: no "Escalation L{n}" engineer language,
+	// no internal role slug in body ("Escalated to pc_director"). Instead, say the work is overdue
+	// and chain to the authoritative escalation state/module, which the director sees in the
+	// dedicated escalation screen (not a push body).
+	escalationTitle := escalationUserTitle(target.Title, level)
+	escalationBody := escalationUserBody(target.Title)
+
 	var requestID string
 	err = tx.QueryRow(ctx, `
 INSERT INTO notification_requests (
@@ -1415,8 +1445,8 @@ INSERT INTO notification_requests (
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING notification_request_id::text`,
 		tenantID, target.EventID, target.TargetType, target.TargetID, channel, role,
-		fmt.Sprintf("Escalation L%d: %s", level, target.Title),
-		fmt.Sprintf("%s is overdue. Escalated to %s.", target.Title, role),
+		escalationTitle,
+		escalationBody,
 		key, fingerprint, contextJSON, "calendar-escalation-sweeper:"+target.EventID).Scan(&requestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -1440,8 +1470,11 @@ RETURNING notification_request_id::text`,
 		AfterState:   resp,
 		TraceID:      "calendar-escalation-sweeper:" + target.EventID,
 		Metadata: map[string]any{
-			"domain":            "calendar",
-			"module":            "vaccination",
+			"domain": "calendar",
+			// The audited module follows the event, not a hardcoded vaccination assumption; an
+			// escalation audited as vaccination for a non-vaccination event is unreadable
+			// evidence.
+			"module":            escalationModuleLabel(target.EventType),
 			"category":          "escalation",
 			"calendar_event_id": target.EventID,
 			"idempotency_key":   key,
@@ -1465,12 +1498,75 @@ RETURNING notification_request_id::text`,
 	return true, nil
 }
 
+// escalationUserTitle generates farm-readable escalation notification title, fixing DEFECT 3.
+// Instead of engineer language like "Escalation L3: Vaccination drive", names the work
+// (e.g., "Vaccination drive is overdue").
+func escalationUserTitle(targetTitle string, level int) string {
+	return strings.TrimSpace(targetTitle) + " is overdue"
+}
+
+// escalationUserBody generates farm-readable escalation notification body, fixing DEFECT 3.
+// Omits internal wording like "Escalation L{n}" and "Escalated to pc_director".
+// The escalation routing and role/level are preserved in context for system/audit/UI;
+// the push body speaks only in farm terms about the work being past due.
+func escalationUserBody(targetTitle string) string {
+	title := strings.TrimSpace(targetTitle)
+	if title == "" {
+		return "This work is overdue. Please address it immediately."
+	}
+	return title + " is overdue. Please address it immediately."
+}
+
+// escalationModule derives the owning module from the canonical event type. Event types are
+// '<module>_<detail>' by construction in canonical_read.go ('vaccination_dose_due',
+// 'vaccination_drive', ...), so the leading segment IS the module key.
+func escalationModule(eventType string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(eventType))
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.Index(trimmed, "_"); idx > 0 {
+		return trimmed[:idx]
+	}
+	return trimmed
+}
+
+// escalationModuleLabel is escalationModule with the audit-record fallback: an event type the
+// producer failed to set is still audited as vaccination, which is what every canonical event is
+// today, so existing audit consumers keep reading the same value.
+func escalationModuleLabel(eventType string) string {
+	if module := escalationModule(eventType); module != "" {
+		return module
+	}
+	return "vaccination"
+}
+
+// escalationDirectorRole is the L3 seat for a module. One module, one accountable director
+// (maintainer decision 2026-08-01) -- the same map the verification pushes route on. An event
+// whose module has no declared director escalates STRAIGHT TO the CEO rather than to the PC
+// Director: an unowned escalation reaching the wrong director quietly is the defect being
+// closed, and over-escalating is the safe direction for a level that already means "overdue".
+func escalationDirectorRole(eventType string) string {
+	switch escalationModule(eventType) {
+	case "vaccination":
+		return permissions.RolePCDirector
+	case "weighing":
+		return permissions.RoleGrowthDirector
+	case "feed":
+		return permissions.RoleFeedDirector
+	case "counts", "shifting":
+		return permissions.RoleHealthDirector
+	default:
+		return permissions.RoleCEOInternal
+	}
+}
+
 func escalationRole(level int, target escalationTarget) string {
 	switch {
 	case level >= 4:
 		return permissions.RoleCEOInternal
 	case level == 3:
-		return permissions.RolePCDirector
+		return escalationDirectorRole(target.EventType)
 	case level == 2:
 		return permissions.RoleParkHead
 	case target.Status == "verification_pending":
@@ -1514,7 +1610,12 @@ func escalationRoleRank(role string) (int, bool) {
 		return 10, true
 	case permissions.RoleParkHead:
 		return 20, true
-	case permissions.RolePCDirector:
+	// All four director seats rank equally: they are peers, each accountable for one module
+	// (maintainer decision 2026-08-01). Omitting them made their granted CalendarAction inert --
+	// actorCanActionEscalation refuses an unranked role outright, so a feed/health/growth
+	// director could hold the permission and still be unable to action a single escalation.
+	case permissions.RolePCDirector, permissions.RoleGrowthDirector,
+		permissions.RoleFeedDirector, permissions.RoleHealthDirector:
 		return 30, true
 	case permissions.RoleCEOInternal:
 		return 40, true

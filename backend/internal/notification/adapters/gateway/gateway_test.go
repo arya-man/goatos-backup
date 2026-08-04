@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/notification/domain"
 	"github.com/vgoats/goatos/backend/internal/notification/ports"
@@ -91,7 +92,7 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		FCMEndpoint:    server.URL + "/v1/projects/goatos-dev/messages:send",
 		FCMBearerToken: "fcm-token",
 	}, nil)
-	result, err := gateway.SendWithResult(context.Background(), request("push_fcm", "device-token-1"))
+	result, err := gateway.SendWithResult(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
 	if err != nil {
 		t.Fatalf("Send FCM: %v", err)
 	}
@@ -102,7 +103,7 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 		t.Fatalf("Authorization = %q", gotAuth)
 	}
 	message, _ := got["message"].(map[string]any)
-	if message["token"] != "device-token-1" {
+	if message["token"] != "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP" {
 		t.Fatalf("message target = %#v", message)
 	}
 	notification, _ := message["notification"].(map[string]any)
@@ -111,7 +112,59 @@ func TestSendFCMPostsHTTPV1PayloadToToken(t *testing.T) {
 	}
 }
 
-func TestSendFCMUsesDefaultTopic(t *testing.T) {
+func TestSendFCMWithoutRecipientFailsInsteadOfBroadcasting(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", ""))
+	// ErrRecipientUnusable, not ErrInvalidRecipient: no device was named, so nothing is known
+	// about any device. ErrInvalidRecipient additionally suppresses that recipient's other
+	// queued pushes, which would be wrong here -- and catastrophic on the calendar path, where
+	// recipient_ref carries a ROLE NAME and suppression would kill every queued push for that
+	// role tenant-wide, permanently.
+	if !errors.Is(err, ports.ErrRecipientUnusable) {
+		t.Fatalf("error=%v, want ErrRecipientUnusable", err)
+	}
+	if errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatal("a recipient-less request must not suppress the recipient's other pushes")
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls=%d, want 0 (a recipient-less reminder must never broadcast)", calls)
+	}
+}
+
+func TestSendFCMRejectsRoleNameRecipientWithoutSending(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	for _, roleName := range []string{"park_head", "pc_director", "vaccination_operator_amit"} {
+		err := gateway.Send(context.Background(), request("push_fcm", roleName))
+		if !errors.Is(err, ports.ErrRecipientUnusable) {
+			t.Fatalf("recipient %q error=%v, want ErrRecipientUnusable", roleName, err)
+		}
+		// Must NOT be ErrInvalidRecipient: that sentinel suppresses every other queued push for
+		// this recipient_ref. Since the ref IS the role name, one badly-addressed reminder would
+		// terminally silence that whole role across the tenant.
+		if errors.Is(err, ports.ErrInvalidRecipient) {
+			t.Fatalf("recipient %q must not trigger recipient suppression", roleName)
+		}
+	}
+	if calls != 0 {
+		t.Fatalf("provider calls=%d, want 0 (a role name must never be posted as a device token)", calls)
+	}
+}
+
+func TestSendFCMExplicitTopicRecipientStillWorks(t *testing.T) {
 	var got map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
@@ -121,13 +174,8 @@ func TestSendFCMUsesDefaultTopic(t *testing.T) {
 	}))
 	defer server.Close()
 
-	gateway := New(Config{
-		FCMEndpoint:     server.URL,
-		FCMBearerToken:  "fcm-token",
-		FCMDefaultTopic: "pc-dev",
-	}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", ""))
-	if err != nil {
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	if err := gateway.Send(context.Background(), request("push_fcm", "topic:pc-dev")); err != nil {
 		t.Fatalf("Send FCM: %v", err)
 	}
 	message, _ := got["message"].(map[string]any)
@@ -136,11 +184,142 @@ func TestSendFCMUsesDefaultTopic(t *testing.T) {
 	}
 }
 
-func TestSendFCMRequiresRecipientOrDefaultTopic(t *testing.T) {
-	gateway := New(Config{FCMEndpoint: "https://fcm.example/messages:send", FCMBearerToken: "token"}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", ""))
-	if err == nil || !strings.Contains(err.Error(), "push_fcm recipient") {
-		t.Fatalf("expected recipient error, got %v", err)
+// TestSendFCMWithMessageKeyGoesDataOnly asserts the key+client-translation contract (issue #27):
+// a push whose context carries message_key must NOT include a `notification` block (so the OS
+// never auto-displays the untranslated English fallback in background/killed states), must carry
+// message_key + its structured params in `data` for the client to render locally, must force
+// Android high priority so onMessageReceived is reachable while backgrounded/killed, and must
+// preserve the `target` tap-routing field byte-for-byte.
+func TestSendFCMWithMessageKeyGoesDataOnly(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Context = []byte(`{"message_key":"vaccination.reminder.overdue","park_name":"Gandhi Park","obligation_count":"3","target":"/vaccination"}`)
+	if err := gateway.Send(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	if _, hasNotification := message["notification"]; hasNotification {
+		t.Fatalf("message-key push must be data-only, got notification block: %#v", message["notification"])
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["message_key"] != "vaccination.reminder.overdue" {
+		t.Fatalf("data.message_key = %#v, want vaccination.reminder.overdue", data["message_key"])
+	}
+	if data["park_name"] != "Gandhi Park" || data["obligation_count"] != "3" {
+		t.Fatalf("structured params missing from data: %#v", data)
+	}
+	if data["target"] != "/vaccination" {
+		t.Fatalf("target field not preserved: %#v", data["target"])
+	}
+	android, _ := message["android"].(map[string]any)
+	if android["priority"] != "high" {
+		t.Fatalf("android.priority = %#v, want high", android["priority"])
+	}
+}
+
+// TestSendFCMWithoutMessageKeyKeepsServerRenderedNotification is the hybrid safety net: a caller
+// that has not migrated to message_key (no message_key in context) still gets the legacy
+// server-rendered notification block from Title/Body, so it is never silently dropped.
+func TestSendFCMWithoutMessageKeyKeepsServerRenderedNotification(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	if err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+	message, _ := got["message"].(map[string]any)
+	notification, _ := message["notification"].(map[string]any)
+	if notification["title"] != "Vaccination overdue" || notification["body"] != "Shed A vaccination is overdue." {
+		t.Fatalf("legacy notification block missing/altered: %#v", notification)
+	}
+	android, _ := message["android"].(map[string]any)
+	if android["priority"] != "high" {
+		t.Fatalf("android.priority = %#v, want high even for legacy sends", android["priority"])
+	}
+}
+
+// TestSendFCMWithRecipientLocaleAddsLocalizedGenericNotification covers the forward-compatible
+// hybrid branch: once a producer supplies `recipient_locale` (not populated by anything today --
+// see the DDL/locale-persistence note in the localization-decision comment), the gateway must ALSO
+// send a locale-correct, category-generic `notification` block alongside the client-render data
+// payload, so a killed app that can't run onMessageReceived still shows something in the
+// recipient's language instead of nothing.
+func TestSendFCMWithRecipientLocaleAddsLocalizedGenericNotification(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "token"}, nil)
+	req := request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")
+	req.Context = []byte(`{"message_key":"vaccination.reminder.overdue","recipient_locale":"hi","category":"vaccination","target":"/vaccination"}`)
+	if err := gateway.Send(context.Background(), req); err != nil {
+		t.Fatalf("Send FCM: %v", err)
+	}
+
+	message, _ := got["message"].(map[string]any)
+	notification, _ := message["notification"].(map[string]any)
+	if notification == nil {
+		t.Fatalf("expected a locale-aware notification block when recipient_locale is known, got none: %#v", message)
+	}
+	if notification["title"] != "टीकाकरण" {
+		t.Fatalf("notification.title = %#v, want the Hindi vaccination title", notification["title"])
+	}
+	data, _ := message["data"].(map[string]any)
+	if data["message_key"] != "vaccination.reminder.overdue" {
+		t.Fatalf("data.message_key missing/altered: %#v", data)
+	}
+	if data["target"] != "/vaccination" {
+		t.Fatalf("target field not preserved: %#v", data["target"])
+	}
+}
+
+func TestSendFCMSlowProviderTimesOutAsRetryableFailure(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer func() {
+		close(release)
+		server.Close()
+	}()
+
+	gateway := New(Config{
+		FCMEndpoint:    server.URL,
+		FCMBearerToken: "token",
+		HTTPTimeout:    50 * time.Millisecond,
+	}, nil)
+	err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "did not respond within") {
+		t.Fatalf("error=%v, want a provider timeout", err)
+	}
+	if errors.Is(err, ports.ErrChannelNotConfigured) || errors.Is(err, ports.ErrInvalidRecipient) {
+		t.Fatalf("timeout must stay retryable, got %v", err)
 	}
 }
 
@@ -160,7 +339,7 @@ func TestSendFCMClassifiesNotRegisteredAsInvalidRecipient(t *testing.T) {
 	defer server.Close()
 
 	gateway := New(Config{FCMEndpoint: server.URL, FCMBearerToken: "fcm-token"}, nil)
-	err := gateway.Send(context.Background(), request("push_fcm", "dead-device-token"))
+	err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP"))
 	if !errors.Is(err, ports.ErrInvalidRecipient) {
 		t.Fatalf("error=%v, want ErrInvalidRecipient", err)
 	}
@@ -244,7 +423,7 @@ func TestSendFCMUsesCachedTokenSource(t *testing.T) {
 	gateway := New(Config{FCMEndpoint: server.URL}, nil)
 	gateway.fcmTokenSource = source
 	for i := 0; i < 2; i++ {
-		if err := gateway.Send(context.Background(), request("push_fcm", "device-token-1")); err != nil {
+		if err := gateway.Send(context.Background(), request("push_fcm", "cJ3q7Xl2Rk6:APA91bH_test_device_registration_token_0123456789abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOP")); err != nil {
 			t.Fatalf("Send FCM %d: %v", i, err)
 		}
 	}
@@ -277,5 +456,87 @@ func request(channel, recipientRef string) domain.Request {
 		Body:                  "Shed A vaccination is overdue.",
 		TraceID:               "trace-test",
 		Context:               []byte(`{"escalation_level":2}`),
+	}
+}
+
+func TestFCMUnregisteredTokenDetection(t *testing.T) {
+	tests := []struct {
+		name        string
+		errMsg      string
+		wantInvalid bool
+	}{
+		{
+			name:        "404 with UNREGISTERED",
+			errMsg:      "notification webhook status 404: {\"error\":{\"code\":404,\"message\":\"Requested entity was not found.\",\"status\":\"NOT_FOUND\",\"details\":[{\"errorCode\":\"UNREGISTERED\"}]}}",
+			wantInvalid: true,
+		},
+		{
+			name:        "404 with unregistered lowercase",
+			errMsg:      "notification webhook status 404: the token is unregistered",
+			wantInvalid: true,
+		},
+		{
+			name:        "404 with notregistered keyword",
+			errMsg:      "notification webhook status 404: errorcode=notregistered",
+			wantInvalid: true,
+		},
+		{
+			// P0 regression: a bare/generic INVALID_ARGUMENT must NOT be treated as a dead
+			// recipient. This is exactly the shape FCM returns for a malformed PAYLOAD (wrong
+			// field, bad data block) -- identical for every recipient in the fleet -- not just for
+			// a dead token. Suppressing on this signal previously mass-revoked every addressed
+			// device on a single bad push (device-lockout P0). See isInvalidFCMRecipientResponse.
+			name:        "400 with bare INVALID_ARGUMENT is ambiguous, must not suppress",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"Invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: false,
+		},
+		{
+			name:        "400 with bare invalid argument text is ambiguous, must not suppress",
+			errMsg:      "notification webhook status 400: the request has an invalid argument",
+			wantInvalid: false,
+		},
+		{
+			name:        "400 with invalid-registration-token names the token specifically",
+			errMsg:      "notification webhook status 400: invalid-registration-token",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 with explicit not-a-valid-token message",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"The registration token is not a valid FCM registration token\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: true,
+		},
+		{
+			name:        "400 malformed payload error must not suppress even though status is INVALID_ARGUMENT",
+			errMsg:      "notification webhook status 400: {\"error\":{\"code\":400,\"message\":\"Invalid JSON payload received. Unknown name \\\"badfield\\\" at 'message': Cannot find field.\",\"status\":\"INVALID_ARGUMENT\"}}",
+			wantInvalid: false,
+		},
+		{
+			name:        "503 server error (transient, not invalid)",
+			errMsg:      "notification webhook status 503: service unavailable",
+			wantInvalid: false,
+		},
+		{
+			name:        "404 without UNREGISTERED keyword",
+			errMsg:      "notification webhook status 404: not found",
+			wantInvalid: false,
+		},
+		{
+			name:        "nil error",
+			errMsg:      "",
+			wantInvalid: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.errMsg != "" {
+				err = errors.New(tt.errMsg)
+			}
+			got := isInvalidFCMRecipientResponse(err)
+			if got != tt.wantInvalid {
+				t.Errorf("isInvalidFCMRecipientResponse() = %v, want %v\nError: %v", got, tt.wantInvalid, err)
+			}
+		})
 	}
 }

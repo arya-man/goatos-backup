@@ -6,8 +6,13 @@ type Route struct {
 	OperationID string
 	Method      string
 	Pattern     string
+	// Permissions is ANDed: the caller must hold EVERY listed permission.
 	Permissions []string
-	AdminOnly   bool
+	// AnyPermissions is ORed: the caller must hold AT LEAST ONE listed permission.
+	// Use it for an either/or surface (e.g. a read a planner OR a monitor may open)
+	// where naming both in Permissions would deny anyone holding only one.
+	AnyPermissions []string
+	AdminOnly      bool
 }
 
 var protectedRoutes = []Route{
@@ -129,10 +134,22 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppTasks", Method: "GET", Pattern: "/app/tasks", Permissions: []string{TaskRead}},
 	{OperationID: "getAppTask", Method: "GET", Pattern: "/app/tasks/{task_id}", Permissions: []string{TaskRead}},
 	{OperationID: "getAppSOPVersion", Method: "GET", Pattern: "/app/sop-versions/{sop_version_id}", Permissions: []string{TaskRead}},
-	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", Permissions: []string{TaskExecute}},
-	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", Permissions: []string{TaskExecute}},
-	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", Permissions: []string{TaskExecute}},
-	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", Permissions: []string{TaskExecute}},
+	// EITHER/OR, not task.execute alone. Capturing proof is not a separate act from doing the
+	// work: every write that MANDATES a video is unsubmittable until the proof handshake
+	// completes. Gating these four on task.execute alone silently broke every executor that
+	// holds a MODULE execute grant instead of the operator's general one -- a Growth Director
+	// holds weighing.execute and is authorized for appRecordWeighingShedObservation, but
+	// POST /app/proofs/uploads answered 403 permission_denied on every attempt, so no proof
+	// ever reached SYNCED and lump-sum Submit stayed permanently disabled (phone-QA 2026-08-03).
+	//
+	// Widening growth_director to task.execute would have been the wrong lever: task.execute is
+	// the operator's GENERAL task-execution grant and carries vaccination task execution with
+	// it, which this role must not have. So the ROUTE becomes either/or and the role keeps
+	// exactly the one module it owns.
+	{OperationID: "createProofUpload", Method: "POST", Pattern: "/app/proofs/uploads", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "uploadProofLocal", Method: "PUT", Pattern: "/app/proofs/{proof_id}/upload", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "completeProofUpload", Method: "POST", Pattern: "/app/proofs/{proof_id}/complete", AnyPermissions: []string{TaskExecute, WeighingExecute}},
+	{OperationID: "deleteUnattachedProofUpload", Method: "DELETE", Pattern: "/app/proofs/{proof_id}", AnyPermissions: []string{TaskExecute, WeighingExecute}},
 	{OperationID: "downloadProof", Method: "GET", Pattern: "/app/proofs/{proof_id}/download", Permissions: []string{TaskRead}},
 	{OperationID: "recordAppScanCapture", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-captures", Permissions: []string{TaskExecute}},
 	{OperationID: "recordAppScanAttempt", Method: "POST", Pattern: "/app/tasks/{task_id}/scan-attempts", Permissions: []string{TaskExecute}},
@@ -191,10 +208,37 @@ var protectedRoutes = []Route{
 	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},
 	{OperationID: "publishWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns/{campaign_id}/publish", Permissions: []string{WeighingPlan}},
-	{OperationID: "appWeighingPlannerCatalog", Method: "GET", Pattern: "/app/weighing/planner/catalog", Permissions: []string{WeighingPlan, WeighingMonitor}},
+	// EITHER/OR, not both. These two are READS, and weighing/app/service.go's
+	// canPlanOrMonitor deliberately admits WeighingPlan OR WeighingMonitor (it calls
+	// RolesAuthorize twice for exactly that reason). Route.Permissions is ANDed, so
+	// naming both there contradicted the service and would 403 a monitor-only actor at
+	// the middleware before the service's own either/or gate ever ran. AnyPermissions is
+	// the OR form; the fine-grained WRITE checks stay in the service.
+	// These two feed the CREATE WIZARD's park picker and its per-park shed page, so they are
+	// planning surfaces despite being reads: WeighingPlan only. A monitor sees the same parks
+	// and sheds through the task list and the Operators surface, which carry their own gates.
+	{OperationID: "appWeighingPlannerCatalog", Method: "GET", Pattern: "/app/weighing/planner/catalog", Permissions: []string{WeighingPlan}},
+	// Per-park bucket page of the same planner read; same gate as the park picker it drills from.
+	{OperationID: "appWeighingPlannerParkBuckets", Method: "GET", Pattern: "/app/weighing/planner/parks/{park_id}/buckets", Permissions: []string{WeighingPlan}},
 	{OperationID: "appListWeighingCampaigns", Method: "GET", Pattern: "/app/weighing/campaigns", Permissions: []string{AppBootstrap}},
+	// Single-task read behind a notification deep link. AppBootstrap for the same reason the
+	// bucket page below is: the SERVICE applies the assignee/planner split AND resolves the
+	// task's own park before answering, so a tighter route permission here would lock an
+	// assignee out of the task they were sent to work on.
+	{OperationID: "appGetWeighingCampaign", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}", Permissions: []string{AppBootstrap}},
+	// Park chips for the weighing oversight surfaces. AnyPermissions (ORed), not Permissions
+	// (ANDed): the planner catalog is the only other park list and it is WeighingPlan, which is
+	// CEO-only, so a Growth Director -- who holds monitor and oversee_operators and never plan --
+	// had no park vocabulary they could legitimately read. Naming all three in Permissions would
+	// 403 every one of them at the middleware, since no role holds the whole set.
+	{OperationID: "appListWeighingParks", Method: "GET", Pattern: "/app/weighing/parks", AnyPermissions: []string{WeighingMonitor, WeighingPlan, WeighingOverseeOperators}},
+	// Task-detail bucket page. Gated on AppBootstrap like the task list it drills
+	// from — the SERVICE narrows an execute-only caller to their own buckets, so a
+	// tighter route permission here would lock assignees out of their own task.
+	{OperationID: "appListWeighingCampaignSheds", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds", Permissions: []string{AppBootstrap}},
 	{OperationID: "appGetWeighingScopeRoster", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", Permissions: []string{WeighingExecute}},
 	{OperationID: "appGetWeighingLeadershipShedVideos", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", Permissions: []string{WeighingMonitor}},
+	{OperationID: "appListWeighingLeadershipSheds", Method: "GET", Pattern: "/app/weighing/leadership/sheds", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appSubmitWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},
@@ -206,6 +250,17 @@ var protectedRoutes = []Route{
 	{OperationID: "appCloseWeighingCampaign", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/close", Permissions: []string{WeighingMonitor}},
 	// PHASE 2 Calendar / Control Tower weighing process state (read-only).
 	{OperationID: "getWeighingProcessState", Method: "GET", Pattern: "/weighing/process-state", Permissions: []string{WeighingMonitor}},
+	// The weighing module's OWN lifecycle alerts feed. AnyPermissions, never
+	// Permissions: everyone with a weighing job needs it but nobody holds all
+	// three capabilities -- an operator holds execute, the CEO holds plan+monitor
+	// but not execute, and the Growth Director intentionally holds BOTH execute
+	// and monitor. ANDing them would deny every real seat.
+	//
+	// Gated on WEIGHING capabilities ONLY. It must never require
+	// ObligationRead/VaccinationRead: /alerts is the vaccination process-integrity
+	// feed, and pointing the weighing bar at it is exactly what made the previous
+	// weighing alerts tab 403 for weighing operators and got it deleted.
+	{OperationID: "appListWeighingAlerts", Method: "GET", Pattern: "/app/weighing/alerts", AnyPermissions: []string{WeighingExecute, WeighingMonitor, WeighingPlan}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator
@@ -231,10 +286,10 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
-	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{ProtocolRead}},
-	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{ProtocolRead}},
-	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{ProtocolWrite}},
-	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{ProtocolWrite}},
+	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{FeedDirectionRead}},
+	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{FeedDirectionOversee}},
+	{OperationID: "dismissFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/dismiss", Permissions: []string{FeedDirectionOversee}},
 	// Feed-direction GENERATION (backend/internal/feeddirection): projected shed counts + the
 	// authored ration grid -> per-session feed quantities.
 	//
@@ -251,15 +306,14 @@ var protectedRoutes = []Route{
 	// Both are GET-only. This module has no write path: it generates what SHOULD be fed, while
 	// recording what WAS fed belongs to backend/internal/feed. No route here needs an
 	// Idempotency-Key because no route here has a side effect to replay.
-	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{ProtocolRead}},
+	{OperationID: "getFeedDirectionPreview", Method: "GET", Pattern: "/feed-direction/preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "getFeedPackingWorklist", Method: "GET", Pattern: "/feed-packing/worklist", Permissions: []string{FeedPackingRead}},
-	// The completion WRITE path: an operator records that one shed-session's feed direction was
-	// carried out (optional video proof). Idempotency-Key required; gated on the operator write twin
-	// FeedDirectionComplete, not on the feed reads.
-	{OperationID: "completeFeedDirectionSession", Method: "POST", Pattern: "/feed-direction/complete", Permissions: []string{FeedDirectionComplete}},
+	// The pre-gate instant completion (POST /feed-direction/complete) is intentionally absent: its
+	// route is unregistered and its store unwired, because completing at operator submit bypasses the
+	// verifier gate. Do not re-add it here.
 	// The verifier-gated feed DISTRIBUTION and PACKING completions (maintainer decision, 2026-07-26).
-	// Both are operator WRITE paths on the same feed-direction surface as /feed-direction/complete, so
-	// both reuse FeedDirectionComplete. They MUST be registered here: the auth middleware 403s
+	// Both are operator WRITE paths on the feed-direction surface and reuse the operator write twin
+	// FeedDirectionComplete. They MUST be registered here: the auth middleware 403s
 	// (route_not_registered) any route not in this table, so an unregistered write path is unreachable.
 	{OperationID: "completeFeedDistributionSession", Method: "POST", Pattern: "/feed-direction/distribution/complete", Permissions: []string{FeedDirectionComplete}},
 	{OperationID: "completeFeedPackingSession", Method: "POST", Pattern: "/feed-direction/packing/complete", Permissions: []string{FeedDirectionComplete}},
@@ -323,6 +377,10 @@ var protectedRoutes = []Route{
 	//   verification.act     — CLOSE the work / act on the source task (leadership, not the Verifier)
 	{OperationID: "listVerificationQueue", Method: "GET", Pattern: "/verification/queue", Permissions: []string{VerificationReview}},
 	{OperationID: "listVerificationActionQueue", Method: "GET", Pattern: "/verification/action-queue", Permissions: []string{VerificationAct}},
+	{OperationID: "listVerificationAlerts", Method: "GET", Pattern: "/verify/alerts", Permissions: []string{VerificationReview}},
+	// Approve/reject belongs to the Verifier role ALONE (maintainer decision 2026-08-03).
+	// Leadership keeps verification.review (see the queue, media and recorded verdicts) and
+	// verification.act, but may not sign the second check itself.
 	{OperationID: "recordVerificationVerdict", Method: "POST", Pattern: "/verification/items/{item_id}/verdict", Permissions: []string{VerificationVerdict}},
 	{OperationID: "closeVerificationItem", Method: "POST", Pattern: "/verification/items/{item_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVerificationSubmission", Method: "POST", Pattern: "/verification/submissions/{submission_id}/close", Permissions: []string{VerificationAct}},
@@ -421,6 +479,34 @@ var protectedRoutes = []Route{
 	{OperationID: "listAdminWebCountsApprovals", Method: "GET", Pattern: "/admin-web/counts/approvals", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "approveAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/approve", Permissions: []string{CountsApproveAccess}},
 	{OperationID: "rejectAdminWebCountsApproval", Method: "POST", Pattern: "/admin-web/counts/approvals/{request_id}/reject", Permissions: []string{CountsApproveAccess}},
+}
+
+// AuthorizeRoute is THE route-level authorization predicate. The HTTP auth
+// middleware (internal/platform/httpmiddleware.AuthMiddleware.Wrap) calls this
+// and nothing else, so a test that calls AuthorizeRoute exercises the exact
+// production gate rather than a re-spelled copy of it.
+//
+// Permissions is ANDed (the caller must hold every listed permission).
+// AnyPermissions is ORed (the caller must hold at least one) and is the form for
+// an either/or surface such as the weighing planner reads, which the service
+// layer already treats as "plan OR monitor". A route may set either list; when
+// both are set both conditions must hold.
+func AuthorizeRoute(route Route, roles []string) bool {
+	if len(route.Permissions) == 0 && len(route.AnyPermissions) == 0 {
+		return false
+	}
+	if route.AdminOnly {
+		// Unchanged legacy semantics: AdminOnly short-circuits to the product-admin
+		// role check and ignores the permission lists entirely.
+		return RolesAuthorize(roles, route.Permissions, true)
+	}
+	if len(route.Permissions) > 0 && !RolesAuthorize(roles, route.Permissions, false) {
+		return false
+	}
+	if len(route.AnyPermissions) > 0 && !RolesAuthorizeAny(roles, route.AnyPermissions) {
+		return false
+	}
+	return true
 }
 
 func ProtectedRoutes() []Route {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"
@@ -90,7 +91,13 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
 			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			// Vaccination's OWN alerts feed. The href names the feature that owns it, the same
+			// way weighing's does: alerts are feature-scoped by rule, and a generically-named
+			// "/alerts" is what once got copied into weighing's bar, where it 403'd for a
+			// weighing operator (docs/decisions/module-alerts-tab.md). The legacy "/alerts"
+			// route stays hosted on the phone for alerts already delivered; it is no longer
+			// what any bar points at.
+			{key: "alerts", labelKey: "nav.alerts", href: "/vaccination/alerts", shared_key: "alerts", priority: 20}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 		reviewContributions: []moduleNavContribution{
@@ -109,9 +116,37 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 		status:            moduleStatusAvailable,
 		priority:          2,
 		contributions: []moduleNavContribution{
-			{key: "weighing", labelKey: "nav.weighing", href: "/weighing", shared_key: "", priority: 1, requiredAnyPermission: []string{permissions.WeighingPlan, permissions.WeighingMonitor, permissions.WeighingExecute}}, //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 2, requiredPermission: permissions.WeighingMonitor},                                                                  //nav-composition:ignore: registry entry
-			{key: "alerts", labelKey: "nav.alerts", href: "/alerts", shared_key: "alerts", priority: 20},
+			// Three SEPARATE weighing destinations, each gated on its own capability so no screen
+			// has to branch on who is looking:
+			//
+			//   /weighing           my own assigned sheds, the only list with a scan action.
+			//   /weighing/tasks     the planner's flat all-tasks list across parks.
+			//   /weighing/operators read-only oversight of other people's work.
+			//
+			// Tab order is priority, and PLAN WINS OVER EXECUTE: the CEO holds plan but not
+			// execute, so "My work" is gated away for him, landingHref falls through to the first
+			// permitted item, and he lands on the flat list instead of an empty my-work page.
+			{key: "tasks", labelKey: "nav.tasks", href: "/weighing/tasks", shared_key: "", priority: 1, requiredPermission: permissions.WeighingPlan},                         //nav-composition:ignore: registry entry
+			{key: "weighing", labelKey: "nav.my_work", href: "/weighing", shared_key: "", priority: 2, requiredPermission: permissions.WeighingExecute},                       //nav-composition:ignore: registry entry
+			{key: "operators", labelKey: "nav.operators", href: "/weighing/operators", shared_key: "", priority: 3, requiredPermission: permissions.WeighingOverseeOperators}, //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/weighing/videos", shared_key: "", priority: 4, requiredPermission: permissions.WeighingMonitor},                   //nav-composition:ignore: registry entry
+			// Weighing's OWN alerts feed. This is NOT /alerts -- that is the vaccination
+			// process-integrity feed, whose upstream needs ObligationRead+VaccinationRead and
+			// whose label reads "Vaccination alerts" in all four languages. Carried in the
+			// weighing bar it gave a weighing operator a permanently-empty cross-module tab
+			// that 403s, so it was removed until weighing had a module-scoped feed of its own.
+			// It now does: /app/weighing/alerts reads the weighing lifecycle notifications
+			// already routed to the caller (assigned/submitted/reopened/rework/closed), gated
+			// on weighing capabilities only.
+			//
+			// The LABEL is just "Alerts" (maintainer ruling 2026-08-03): the tab never names
+			// the feature, the href carries the scoping. No shared_key -- this destination is
+			// weighing's alone and must never dedupe against the vaccination "alerts" item.
+			//
+			// It also fixes the degenerate single-tab bar: an operator holding only
+			// WeighingExecute previously got [My work] alone, a switcher with nothing to
+			// switch to.
+			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 5}, //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 		reviewContributions: []moduleNavContribution{
@@ -238,15 +273,19 @@ var soonModuleKeys = []string{"breeding"}
 // Otherwise, they see the union of their granted modules' nav contributions,
 // deduped by shared_key and ordered by priority.
 func visibleNavigationFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapNavigationItem {
-	// A standalone verifier sees the review lens of each module that declares one.
-	// Leadership principals may also hold review permission, but they still land in
-	// their leadership module rather than the verifier-only evidence workspace.
-	if usesVerificationReviewLens(grants) {
-		keys := reviewableModuleKeys()
-		if len(keys) == 0 {
+	// A standalone verifier shows the active module's bottom bar -- the first feature from
+	// verifierFeatureKeys, same resolution modulesFor uses for the drawer, so
+	// visible_navigation always equals modules[0].NavItems. Built via
+	// verificationModuleForFeature (not the static registry) so the bar carries the
+	// feature-scoped [Verify, Alerts, You] items, never the registry's bare
+	// "verification" entry. Leadership principals may also hold review permission, but
+	// they still land in their leadership module rather than the verifier-only app.
+	if isStandaloneVerifierPrincipal(grants) {
+		features := verifierFeatureKeys(grantedModules)
+		if len(features) == 0 {
 			return []domain.BootstrapNavigationItem{}
 		}
-		return composeNavigationFromModules([]string{keys[0]}, grants, localeTag)
+		return verificationModuleForFeature(features[0], grants, localeTag).NavItems
 	}
 
 	// Leadership principals default to their curated module set. There is no synthetic
@@ -327,9 +366,23 @@ func permittedContributions(def moduleDefinition, grants []domain.GrantSummary) 
 // of a department, so gating them on department_module_grants would hide every module
 // from them. Their access is decided by permission alone. Everyone else is limited to
 // the modules their department is granted.
+//
+// For a verifier:
+//   - Multi-module verifier (≥2 verify duties): grantedModules contains the features they verify.
+//     The returned keys are the module keys as they appear in grantedModules (e.g. "vaccination",
+//     "weighing", etc.), and modulesFor will compose per-feature verification modules for each.
+//   - Single-module verifier (0-1 verify duties): return ["verification"] for the generic module.
 func candidateModuleKeys(grants []domain.GrantSummary, grantedModules []string) []string {
-	if usesVerificationReviewLens(grants) {
-		return reviewableModuleKeys()
+	if isStandaloneVerifierPrincipal(grants) {
+		// Every standalone verifier is scoped to the feature(s) their verify duties name,
+		// or -- for a coarse department-level "verification" grant / no duties at all --
+		// every built feature. See verifierFeatureKeys.
+		features := verifierFeatureKeys(grantedModules)
+		normalized := make([]string, 0, len(features))
+		for _, key := range features {
+			normalized = append(normalized, normalizeModuleFeatureKey(key))
+		}
+		return normalized
 	}
 	if !isLeadershipPrincipal(grants) {
 		return grantedModules
@@ -403,6 +456,23 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if hasRole(grants, permissions.RoleGrowthDirector) {
 		keys = appendMissing(keys, "weighing")
 	}
+	// Feed Director -> Feed, Health Director -> Counts (maintainer decision 2026-08-01, one
+	// module per director). Both roles are in leadershipGrantRoles, so WITHOUT these entries the
+	// leadership branch above resolved len(keys)==0 and /app/bootstrap returned an EMPTY nav and
+	// an EMPTY drawer for them -- a role that can log in and see nothing.
+	//
+	// The keys are the OFFER; permission filtering still decides what renders. Counts is an OFF
+	// feature (AGENTS.md) and health_director deliberately holds no counts.read/counts.write, so
+	// every Counts nav item is gated away from him and the Counts module contributes nothing
+	// until the feature is switched on. Feed is a declared roadmap module (moduleStatusSoon), so
+	// feed_director sees its "Soon" drawer row and no bottom bar until the Feed surface is built.
+	// Both are asserted in bootstrap_copy_test.go so the offer cannot silently become access.
+	if hasRole(grants, permissions.RoleFeedDirector) {
+		keys = appendMissing(keys, "feed_direction")
+	}
+	if hasRole(grants, permissions.RoleHealthDirector) {
+		keys = appendMissing(keys, "counts")
+	}
 	return keys
 }
 
@@ -452,6 +522,18 @@ func canExecuteVaccination(grants []domain.GrantSummary, grantedModules []string
 
 func canExecuteWeighing(grants []domain.GrantSummary, grantedModules []string) bool {
 	return hasPermission(grants, permissions.WeighingExecute) && canUseModule(grants, grantedModules, "weighing")
+}
+
+// canOverseeWeighingOperators gates the read-only Operators surface -- weighing shed tasks
+// assigned to SOMEONE ELSE. It mirrors canExecuteWeighing so the client never has to infer the
+// surface from a role name; the write path still requires the caller to be the shed's assignee,
+// so this flag widens what is visible and never what is recordable.
+func canOverseeWeighingOperators(grants []domain.GrantSummary, grantedModules []string) bool {
+	return hasPermission(grants, permissions.WeighingOverseeOperators) && canUseModule(grants, grantedModules, "weighing")
+}
+
+func canUseVerificationVideoControls(grants []domain.GrantSummary) bool {
+	return isLeadershipPrincipal(grants)
 }
 
 func canUseModule(grants []domain.GrantSummary, grantedModules []string, module string) bool {
@@ -504,13 +586,199 @@ func activeModuleKey(grants []domain.GrantSummary, grantedModules []string) stri
 	return best
 }
 
+// normalizeModuleFeatureKey maps a raw feature/module key to its base module id.
+// Keys may come as "vaccination", "pc.vaccination", "weighing", "feed.direction", etc.
+// ("pc." prefix stripped, dots converted to underscores, e.g. "feed.direction" →
+// "feed_direction"). Shared by verificationModuleForFeature and the verifier feature
+// resolution in candidateModuleKeys/modulesFor/visibleNavigationFor so all three agree
+// on the same module identity for a given raw key.
+func normalizeModuleFeatureKey(key string) string {
+	if strings.HasPrefix(key, "pc.") {
+		key = strings.TrimPrefix(key, "pc.")
+	}
+	key = strings.ReplaceAll(key, ".", "_")
+	return key
+}
+
+// builtVerifiableFeatures lists the shipped feature modules a verifier's [Verify, Alerts]
+// bar can be scoped to, in drawer priority order. Only "available" (built) modules are
+// eligible -- verifiers review evidence for shipped features, not roadmap ones.
+var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts"}
+
+// verifierFeatureKeys resolves a verifier's grantedModules (from ListGrantedModuleKeys)
+// into the feature keys their per-module [Verify, Alerts] bar is built for.
+// grantedModules mixes two sources:
+//   - feature-specific verify duties from position_module_duties, e.g. "vaccination" or
+//     "pc.vaccination" -- these carry real feature identity.
+//   - a coarse department-level "verification" grant (department_module_grants.module_key
+//     = "verification") with no feature attached.
+//
+// The literal "verification" key carries no feature identity, so it is dropped here. If
+// nothing feature-specific remains -- a department-level grant only, or no duties
+// recorded at all -- the verifier is scoped to every built feature, the same "review
+// everything shipped" default a CEO gets. This is the only way to honor the binding
+// [Verify, Alerts]-per-module ruling (drawer + per-feature bar, never a merged/un-scoped
+// Alerts tab) for a verifier whose grant does not itself name a feature.
+func verifierFeatureKeys(grantedModules []string) []string {
+	out := make([]string, 0, len(grantedModules))
+	seen := make(map[string]bool, len(grantedModules))
+	for _, key := range grantedModules {
+		if key == "verification" {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		return append([]string(nil), builtVerifiableFeatures...)
+	}
+	return out
+}
+
+// verificationModuleForFeature builds a per-feature verification module for a verifier
+// who has verify duty on that feature. It uses the feature's label and contributes:
+//   - Verify: the verify/video queue for that feature
+//   - Alerts: the process-integrity alerts feed for that feature, scoped via
+//     verificationCategoryForFeature so the category the nav emits matches the category
+//     the /verify/alerts endpoint actually filters on
+//   - You: the account tab (shared across all modules)
+func verificationModuleForFeature(featureKey string, grants []domain.GrantSummary, localeTag string) domain.BootstrapModule {
+	normalized := normalizeModuleFeatureKey(featureKey)
+
+	labelKeys := map[string]string{
+		"vaccination":    "module.vaccination",
+		"weighing":       "module.weighing",
+		"counts":         "module.counts",
+		"feed_direction": "module.feed_direction",
+	}
+	labelKey, ok := labelKeys[normalized]
+	if !ok {
+		labelKey = "module." + normalized
+	}
+
+	// Compose nav items: verify + alerts. Alerts hits the real /verify/alerts
+	// endpoint (internal/verification/adapters/http/handler.go ListAlerts), scoped with
+	// the category verificationCategoryForFeature maps THIS feature to -- that mapping
+	// must match the category value the feature's own verification-bridge writes onto
+	// verification_items.category, or the tab renders 200-with-empty-list forever.
+	//
+	// Maintainer decision 2026-08-03, two parts:
+	//   1. The tab is titled just "Alerts". The alerts ARE feature-scoped -- the href still
+	//      carries the category -- but the LABEL must not name the feature. The verifier is
+	//      already standing in that module, so "Vaccination alerts" / "Weighing alerts" only
+	//      repeats it back at them.
+	//   2. "You" is CONTRIBUTED here but its final home is decided downstream, by
+	//      applyProfileEntryPlacement in service.go, on the same >=2-modules threshold that
+	//      decides the drawer exists:
+	//        - verifier with ONE feature  -> minimal chrome, no drawer, You stays on this bar
+	//          (it is his only route to /you).
+	//        - verifier with TWO OR MORE  -> expanded chrome, and You is stripped from this
+	//          bar and from every other feature's bar; the drawer footer carries it once.
+	//      There is no verifier exception to that rule -- the carve-out that used to exist is
+	//      what put You in the drawer footer AND in every verify feature's bottom bar.
+	//      Note that shared_key is inert on this path: this function builds NavItems by hand
+	//      and never calls composeNavigationFromModules, the only reader of shared_key. It is
+	//      the placement rule, not the dedupe, that keeps You single.
+	// Both hrefs carry the feature's verification CATEGORY, and the alerts one names the client
+	// destination rather than the API path. Two separate defects lived here:
+	//
+	//  1. module= alone did not survive the trip. The client resolves a queue by category, and its
+	//     module->category map knows only weighing; every other value (counts, feed_direction, and
+	//     any feature added later) fell through to vaccination, so a Counts verifier's Verify tab
+	//     opened VACCINATION proofs -- other people's work, in the wrong module. The category is
+	//     the identity that actually scopes the queue, so it is sent explicitly instead of being
+	//     re-derived from a key the client has to keep a private table for. module= stays for the
+	//     drawer's own active-entry comparison.
+	//  2. Alerts pointed at "/verify/alerts", which was the backend API path
+	//     (internal/verification/adapters/http/handler.go ListAlerts) and NOT a destination the
+	//     app hosted -- a dead tab whose tap resolved to nothing. That half is closed on the
+	//     client, which now registers "/verify/alerts?category=" as a real destination reading
+	//     the same pending queue; the href stays as-is precisely because it is that contract, and
+	//     it must keep carrying the category or the feed stops being feature-scoped.
+	category := verificationCategoryForFeature(normalized)
+	items := []moduleNavContribution{
+		{key: "verify", labelKey: "nav.verify", href: verifyQueueHref(normalized), shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
+		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + category, shared_key: "", priority: 20, requiredPermission: ""},
+		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
+	}
+
+	// Filter to permitted items
+	permittedItems := make([]moduleNavContribution, 0, len(items))
+	for _, item := range items {
+		if grantsHavePermission(grants, item.requiredPermission) {
+			permittedItems = append(permittedItems, item)
+		}
+	}
+
+	// Build nav items in order
+	navItems := make([]domain.BootstrapNavigationItem, 0, len(permittedItems))
+	for _, item := range permittedItems {
+		navItems = append(navItems, domain.BootstrapNavigationItem{
+			Key:   item.key,
+			Label: localizedBootstrapLabel(localeTag, item.labelKey),
+			Href:  item.href,
+		})
+	}
+
+	// Use a distinct key for the verifier's per-feature module (e.g., "verify_vaccination"
+	// instead of "vaccination") to avoid colliding with operator/leadership modules.
+	// The drawer shows the feature name as the label, but the key uniquely identifies
+	// this as a verification module.
+	verifyModuleKey := "verify_" + normalized
+
+	return domain.BootstrapModule{
+		Key:      verifyModuleKey,
+		Label:    localizedBootstrapLabel(localeTag, labelKey),
+		Href:     verifyQueueHref(normalized),
+		Status:   moduleStatusAvailable,
+		NavItems: navItems,
+	}
+}
+
 // modulesFor builds the drawer: every module the principal can render (with its own
 // permission-filtered, module-scoped bar), followed by the declared "soon" modules as
 // disabled rows. A module the registry does not know, or whose every page is gated away
 // from this principal, contributes nothing.
+//
+// For a multi-module verifier (≥2 verify duties), per-feature verification modules are
+// composed synthetically (verificationModuleForFeature) rather than looked up in the registry.
+// For a single-module verifier, the generic "verification" module from the registry is used.
 func modulesFor(grants []domain.GrantSummary, grantedModules []string, localeTag string) []domain.BootstrapModule {
+	// Standalone verifier: ALWAYS compose per-feature verification modules (one drawer
+	// entry per feature, each with its own [Verify, Alerts, You] bar) rather than looking
+	// up registry modules. This applies uniformly regardless of how many verify duties the
+	// principal holds -- one, several, or a coarse department-level "verification" grant
+	// with none named -- because the binding nav ruling bans a merged/un-scoped Alerts
+	// tab (docs: maintainer ruling "Alerts are NOT one merged tab"; see
+	// verifierFeatureKeys for how the feature set is resolved). Verifiers only verify
+	// built features, not "soon" roadmap modules.
+	if isStandaloneVerifierPrincipal(grants) {
+		features := verifierFeatureKeys(grantedModules)
+		out := make([]domain.BootstrapModule, 0, len(features))
+		for _, featureKey := range features {
+			normalized := normalizeModuleFeatureKey(featureKey)
+			// Check if the module exists in the registry. Verifiers can verify both
+			// available and "soon" modules if they have explicit duties on them (unchanged
+			// from the pre-existing multi-module verifier behavior this generalizes).
+			_, ok := moduleNavRegistry[normalized]
+			if !ok {
+				continue
+			}
+			module := verificationModuleForFeature(featureKey, grants, localeTag)
+			// Only include the module if it has at least one permitted nav item.
+			if len(module.NavItems) > 0 {
+				out = append(out, module)
+			}
+		}
+		return out
+	}
+
 	keys := candidateModuleKeys(grants, grantedModules)
 
+	// Standard path: look up modules in the registry (for operators and leadership).
 	available := make([]moduleDefinition, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
 	for _, key := range keys {
@@ -680,6 +948,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.you":              "You",
 		"nav.health_adults":    "Adults",
 		"nav.health_kids":      "Kids",
+		"nav.verify":           "Verify",
+		"nav.counts":           "Counts",
+		"nav.my_work":          "My work",
+		"nav.tasks":            "Tasks",
+		"nav.operators":        "Operators",
 
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
@@ -712,6 +985,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.you":              "आप",
 		"nav.health_adults":    "वयस्क",
 		"nav.health_kids":      "बच्चे",
+		"nav.verify":           "सत्यापित करें",
+		"nav.counts":           "गिनती",
+		"nav.my_work":          "मेरा काम",
+		"nav.tasks":            "कार्य",
+		"nav.operators":        "ऑपरेटर",
 
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
@@ -744,6 +1022,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.you":              "ನೀವು",
 		"nav.health_adults":    "ವಯಸ್ಕರು",
 		"nav.health_kids":      "ಮಕ್ಕಳು",
+		"nav.verify":           "ಪರಿಶೀಲಿಸಿ",
+		"nav.counts":           "ಎಣಿಕೆ",
+		"nav.my_work":          "ನನ್ನ ಕೆಲಸ",
+		"nav.tasks":            "ಕಾರ್ಯಗಳು",
+		"nav.operators":        "ಆಪರೇಟರ್‌ಗಳು",
 
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
@@ -776,6 +1059,11 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.you":              "మీరు",
 		"nav.health_adults":    "పెద్దవి",
 		"nav.health_kids":      "పిల్లలు",
+		"nav.verify":           "ధృవీకరించండి",
+		"nav.counts":           "లెక్కలు",
+		"nav.my_work":          "నా పని",
+		"nav.tasks":            "పనులు",
+		"nav.operators":        "ఆపరేటర్లు",
 
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",
@@ -788,4 +1076,49 @@ var bootstrapLabels = map[string]map[string]string{
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",
 	},
+}
+
+// The per-feature alerts LABEL keys ("nav.alerts.vaccination", ".weighing", ".counts",
+// ".feed_direction") and their alertsLabelKeyForFeature resolver were removed by the
+// maintainer decision of 2026-08-03: every verifier alerts tab is titled just "Alerts".
+// The alerts themselves remain feature-scoped through verificationCategoryForFeature on
+// the href -- only the label stopped naming the module the verifier is already inside.
+
+// verifyQueueHref is the ONE place a feature key becomes a verify-queue link, so the drawer entry
+// and the bar's Verify tab can never disagree about which module's proofs open.
+//
+// It carries the category as well as the module because the module key alone is not a queue scope:
+// the client filters by category, and anything it does not recognise as a module lands on
+// vaccination. Naming the category makes the scope explicit instead of guessable.
+func verifyQueueHref(normalizedFeatureKey string) string {
+	return "/verify?module=" + normalizedFeatureKey + "&category=" + verificationCategoryForFeature(normalizedFeatureKey)
+}
+
+// verificationCategoryForFeature maps a MODULE key (the vocabulary nav and
+// position_module_duties speak: "vaccination", "weighing", "feed_direction",
+// "counts") to the VERIFICATION CATEGORY the /verify/alerts endpoint filters on
+// ("vaccination_proof", "weighing_proof", ...). The two vocabularies are not the
+// same, and getting this wrong is silent: the endpoint answers 200 with an empty
+// list rather than an error, so the Alerts tab would look permanently empty
+// instead of broken. An unmapped module falls back to "<module>_proof", which is
+// the convention every current category follows.
+func verificationCategoryForFeature(normalizedFeatureKey string) string {
+	switch normalizedFeatureKey {
+	case "vaccination":
+		return "vaccination_proof"
+	case "weighing":
+		return "weighing_proof"
+	case "counts":
+		// NOT "counts_proof" -- counts has no such category. The only counts write path
+		// that goes through verification is shifting execution
+		// (internal/countsbridge/shifting_verification_enqueue.go), which enqueues with
+		// counts/domain.VerificationCategoryShifting = "shifting_move". Emitting
+		// "counts_proof" here matched nothing in verification_items.category and made
+		// the counts Alerts tab silently, permanently empty (HTTP 200, zero rows).
+		return "shifting_move"
+	case "feed_direction":
+		return "feed_distribution"
+	default:
+		return normalizedFeatureKey + "_proof"
+	}
 }

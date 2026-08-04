@@ -1,56 +1,87 @@
 package sg.mesha.goatos.push
 
 import sg.mesha.goatos.ui.Routes
-import sg.mesha.goatos.ui.calendarTargetRoute
+import sg.mesha.goatos.ui.pushTargetRoute
 
 /** `type`/`screen` values that mean "open the read-only/verify record" for the push's shed. */
-private val RECORD_TYPES = setOf("record", "verification", "verification_closed", "verify", "rework")
+private val RECORD_TYPES = setOf("record", "verification_closed", "rework")
 
 /**
- * Maps an FCM data payload ([PushExtras]) to an app route.
+ * Maps an FCM data payload ([PushExtras]) to an app route, or null when the payload names no
+ * destination this build can open.
  *
- * Reuses [calendarTargetRoute] — the SAME backend-href -> route mapping Calendar taps already
- * use — for any payload carrying an explicit `target`/`href`, so a push opens exactly where a
- * Calendar tap on the same backend item would. Falling back to `screen`/`type` + `shed_id`/
- * `obligation_id` covers a push that has no pre-computed href (e.g. a raw reminder/verify
- * signal the backend fired directly, not routed through a Calendar item):
- *  - `screen`/`type` "record"/"verification"/"verify"/"rework" -> the read-only/verify record
- *    for [PushExtras.SHED_ID] (falls back to the Vaccination landing with no shed id).
- *  - `screen`/`type` "reschedule" -> the reschedule form for [PushExtras.OBLIGATION_ID].
- *  - reminder/shed payloads -> Vaccination. Push taps never open Scan; scanning starts only after
- *    the operator picks a shed from Vaccination.
- *  - `screen` "calendar" -> Calendar.
- *  - anything else / no recognizable field -> the Vaccination landing (never a crash or blank
- *    screen for an unrecognized push shape — see [sg.mesha.goatos.MainActivity]'s "robust
- *    static graph" note on [Routes]).
+ * Resolution runs MOST SPECIFIC FIRST, and that ordering is the contract:
+ *  1. the explicit `target`/`href` the backend computed for THIS recipient — the verifier's
+ *     `/verification/items/{id}` video review, or a module landing such as `/weighing`;
+ *  2. the named `screen`/`type`, for a signal the backend fired without a pre-computed link;
+ *  3. nothing — the caller lands the person on their OWN home screen.
+ *
+ * An earlier version tested `screen` first and then fell back to Vaccination for anything it did
+ * not recognise. Both halves were wrong: the screen short-circuit ran before the target was ever
+ * read, so a verifier's tap could not reach the video it was sent for, and the blind fallback
+ * dropped a weighing-only or feed-only person onto Vaccination.
+ *
+ * The recipient's ROLE is deliberately not consulted. Who someone is comes from their own sign-in,
+ * never from a field on a message a sender could fill in wrong.
  */
-fun resolvePushRoute(payload: Map<String, String>): String {
+fun resolvePushRoute(payload: Map<String, String>): String? {
     val shedId = payload[PushExtras.SHED_ID]?.takeIf { it.isNotBlank() }
     val itemId = payload[PushExtras.ITEM_ID]?.takeIf { it.isNotBlank() }
     val category = payload[PushExtras.CATEGORY]?.takeIf { it.isNotBlank() }
-    val role = payload[PushExtras.ROLE]?.lowercase()?.takeIf { it.isNotBlank() }
     val screen = payload[PushExtras.SCREEN]?.lowercase()?.takeIf { it.isNotBlank() }
     val type = payload[PushExtras.TYPE]?.lowercase()?.takeIf { it.isNotBlank() }
 
-    if (screen == "scan" || screen == "shed" || screen == "vaccination" || screen == "vaccination_overview" || type == "reminder" || type == "vaccination_reminder") {
-        return Routes.VACCINATION
-    }
-
     val target = payload[PushExtras.TARGET]?.takeIf { it.isNotBlank() }
         ?: payload[PushExtras.HREF]?.takeIf { it.isNotBlank() }
-    if (target != null) return calendarTargetRoute(target)
+    pushTargetRoute(target)?.let { return it }
 
     return when {
-        screen == "verification" || type == "verification_pending" ->
-            when {
-                role == "verifier" -> if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
-                else -> Routes.VACCINATION
-            }
-        screen == "leadership_close" || type == "verification_approved" -> Routes.VACCINATION
-        screen in RECORD_TYPES || type in RECORD_TYPES ->
-            if (shedId != null) Routes.recordRoute(shedId) else Routes.VACCINATION
-        screen == "reschedule" || type == "reschedule" -> Routes.VACCINATION
+        // A NAMED module screen is read before the proof-review shapes below, because the same
+        // waiting-proof event is sent twice with the same `type`: once to the verifier, who is
+        // given the item to review, and once to that module's director, who is given the module.
+        // Reading the type first sent the Feed Director into the verifier's queue.
+        // Each module names its own screen; there is no shared default, so a module with no named
+        // screen lands the person on their own home screen instead of on another module's.
+        screen == "scan" || screen == "shed" || screen == "vaccination" ||
+            screen == "vaccination_overview" || screen == "reschedule" ||
+            type == "reminder" || type == "vaccination_reminder" || type == "reschedule" ->
+            Routes.VACCINATION
+        // The weighing consumers are not consistent about which screen they name: the submission
+        // consumer says "weighing_overview" while the lifecycle consumer says "weighing" for
+        // published, rework, closed and shed-reopened. Accept both, and match those four types
+        // directly, because a weighing push that matches nothing here falls through to the
+        // principal's landing route -- which for anyone who also holds vaccination is the
+        // Vaccination screen, i.e. the exact defect this resolver exists to prevent.
+        screen == "weighing_overview" || screen == "weighing" ||
+            type == "weighing_campaign_published" || type == "weighing_rework" ||
+            type == "weighing_campaign_closed" || type == "weighing_shed_reopened" ->
+            Routes.WEIGHING
+        screen == "feed_overview" -> Routes.FEED_DIRECTION
+        // This tree has no /counts census root: Counts is reached through its module-scoped
+        // sub-routes, and /counts/birth is the landing href the backend registry serves.
+        screen == "counts_overview" -> Routes.COUNTS_BIRTH
         screen == "calendar" || type == "calendar" -> Routes.CALENDAR
-        else -> Routes.VACCINATION
+        // Waiting proof video. Ahead of the record shapes below because a verifier's job is the
+        // review itself, not the shed's record.
+        screen == "verification" || screen == "verify" || type == "verification_pending" ->
+            if (itemId != null) Routes.verifyDetailRoute(itemId, category) else Routes.VERIFY
+        // RECORD_TYPES is module-blind: Routes.recordRoute is the VACCINATION record. A generic
+        // rework notice carries screen="record" for every module, so without the category gate a
+        // weighing rework opens the vaccination record for that shed.
+        (screen in RECORD_TYPES || type in RECORD_TYPES) && isVaccinationCategory(category) ->
+            shedId?.let { Routes.recordRoute(it) }
+        else -> null
     }
 }
+
+/**
+ * Whether a push's category belongs to vaccination.
+ *
+ * The record route is vaccination's, so a module-blind match on screen="record" sends a weighing
+ * or feed rework into the vaccination record for that shed. Backend categories are
+ * vaccination-prefixed ("vaccination", "vaccination_proof"), so a prefix test covers today's
+ * values and any sibling added later. A push with no category is NOT assumed to be vaccination:
+ * the safe miss is the person's own home screen, never another module's record.
+ */
+private fun isVaccinationCategory(category: String?): Boolean =
+    category?.startsWith("vaccination") == true

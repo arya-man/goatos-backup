@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	StatusDraft      = "draft"
@@ -16,6 +19,28 @@ const (
 	VerificationStatusPending  = "pending"
 	VerificationStatusVerified = "verified"
 	VerificationStatusRework   = "rework"
+
+	// HOW a bucket or a campaign ended. Recorded on weighing_campaign_sheds /
+	// weighing_campaigns.closure_kind (migration 000085) beside status='closed',
+	// because 'closed' alone cannot tell a normal completion from a leader
+	// ending work early — and before this existed there was no normal
+	// completion path at all.
+	//
+	// ClosureKindVerified is the NORMAL path and the only one no human performs:
+	// the last SUBMITTED item in the bucket got a 'verified' verdict, and the
+	// verdict applier closed the bucket in its own transaction. It carries no
+	// reason because nothing was cut short.
+	//
+	// ClosureKindEarly and ClosureKindAbandoned are the EXCEPTION paths and both
+	// still require the leader's reason. They are unchanged by the normal path's
+	// arrival; the whole point of the column is that the record keeps them
+	// distinguishable.
+	//
+	// EMPTY means either "still live" or "closed before closure_kind existed".
+	// It is never a synonym for 'early'.
+	ClosureKindVerified  = "verified"
+	ClosureKindEarly     = "early"
+	ClosureKindAbandoned = "abandoned"
 
 	CategoryIndividualAnimal     = "individual_animal"
 	CategoryPerShedPartition     = "per_shed_partition"
@@ -41,46 +66,233 @@ type Actor struct {
 }
 
 type Campaign struct {
-	CampaignID        string         `json:"campaign_id"`
-	TenantID          string         `json:"tenant_id"`
-	ParkID            string         `json:"park_id"`
-	ParkName          string         `json:"park_name"`
-	PeriodStartDate   string         `json:"period_start_date"`
-	PeriodEndDate     string         `json:"period_end_date"`
-	StartBusinessDate string         `json:"start_business_date"`
-	Status            string         `json:"status"`
-	PlannedCapPerDay  int            `json:"planned_cap_per_day"`
-	OperatorUserID    string         `json:"operator_user_id"`
-	CreatedBy         string         `json:"created_by"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	RowVersion        int            `json:"row_version"`
-	Sheds             []CampaignShed `json:"sheds,omitempty"`
-	Progress          Progress       `json:"progress"`
+	CampaignID        string    `json:"campaign_id"`
+	TenantID          string    `json:"tenant_id"`
+	ParkID            string    `json:"park_id"`
+	ParkName          string    `json:"park_name"`
+	PeriodStartDate   string    `json:"period_start_date"`
+	PeriodEndDate     string    `json:"period_end_date"`
+	StartBusinessDate string    `json:"start_business_date"`
+	Status            string    `json:"status"`
+	PlannedCapPerDay  int       `json:"planned_cap_per_day"`
+	OperatorUserID    string    `json:"operator_user_id"`
+	CreatedBy         string    `json:"created_by"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	RowVersion        int       `json:"row_version"`
+	// CloseReason is the backend-owned sentence recorded when the task was ended.
+	// Empty on a task that is still live. Clients RENDER it; they never author it.
+	CloseReason string `json:"close_reason,omitempty"`
+	// ClosureKind is HOW this task ended: 'verified' (every submitted item was
+	// approved and the task closed itself), 'early' or 'abandoned' (a leader
+	// ended it, and CloseReason says why). Empty on a live task, and also on a
+	// task closed before the column existed — never read empty as 'early'.
+	ClosureKind string         `json:"closure_kind,omitempty"`
+	Sheds       []CampaignShed `json:"sheds,omitempty"`
+	Progress    Progress       `json:"progress"`
 }
 
 type CampaignPage struct {
-	Items      []Campaign `json:"items"`
-	NextCursor string     `json:"next_cursor,omitempty"`
+	Items      []Campaign     `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	Counts     CampaignCounts `json:"counts"`
+	// OperatorSummaries is the OPERATOR-grain roll-up behind the oversight surface:
+	// one row per person who holds weighing work in the requested scope, with the
+	// backend's own tallies of what that person's buckets hold. It is whole-filter,
+	// never page-derived — see Repository.operatorSummaries.
+	OperatorSummaries []OperatorSummary `json:"operator_summaries"`
 }
 
+// MaxOperatorSummaries bounds the operator roll-up.
+//
+// It is served WHOLE rather than paged, for the same reason PlannerCatalog serves
+// parks whole: a summary that pages cannot answer "who did what today" — the person
+// you are looking for is on page two. A park's weighing roster is a handful of
+// people, so the read is bounded by this hard cap instead of by a cursor.
+const MaxOperatorSummaries = 50
+
+// OperatorSummary is what ONE person's weighing work adds up to, as the backend
+// counts it.
+//
+// GRAIN: one row per operator_user_id over that person's non-canceled
+// weighing_campaign_sheds rows in scope. Every field is a PLAIN COUNT and none of
+// them is ever a numerator: weighing is free-flow (migration 000079 dropped the
+// expected-animal roster), so no share, percentage, or "x of y" can honestly be
+// rendered from any of these.
+//
+// The four bucket-state counts are DISJOINT and EXHAUSTIVE over the person's
+// buckets — NotStarted + Capturing + Submitted + Accepted == ShedCount — so a
+// renderer can lay them side by side without a bucket being counted twice or
+// vanishing. That disjointness is the fix for the oversight card that showed a
+// "Completed" badge and a "Scheduled" line at the same time: there is now ONE
+// place a bucket's state is decided, and it is here.
+type OperatorSummary struct {
+	// OperatorUserID is empty for the "nobody is assigned yet" row, which is real
+	// work leadership must see rather than a row to hide.
+	OperatorUserID string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name. Blank WITH a non-blank
+	// OperatorUserID is a roster gap, not "unassigned"; a client renders the gap,
+	// never the user id.
+	OperatorDisplayName string `json:"operator_display_name"`
+	// ShedCount is how many shed buckets this person holds in scope.
+	ShedCount int `json:"shed_count"`
+	// NotStartedCount holds nothing captured yet.
+	NotStartedCount int `json:"not_started_count"`
+	// CapturingCount is weighing under way but not submitted.
+	CapturingCount int `json:"capturing_count"`
+	// SubmittedCount is submitted and waiting for a verifier.
+	SubmittedCount int `json:"submitted_count"`
+	// AcceptedCount is verified and closed.
+	AcceptedCount int `json:"accepted_count"`
+	// ReworkCount is buckets a verifier bounced back. It OVERLAPS the four state
+	// counts on purpose (a bounced bucket is still in one of them) and is reported
+	// as its own flag-count, never added to them.
+	ReworkCount int `json:"rework_count"`
+	// AnimalsWeighedCount is how many ANIMALS this person has RECORDED a weight
+	// for, submitted or not: one per individual observation, and the recorded head
+	// count of a standing lump-sum weighing. A plain total of work done, never
+	// divided by anything.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount this person has
+	// SUBMITTED for verification. It is reported ALONGSIDE the weighed count, never
+	// instead of it: "3 weighed · 0 submitted" is the mid-shift state where work
+	// gets silently lost, and a single number cannot say it. Same predicate as the
+	// per-bucket animals_submitted_count, so the two surfaces cannot disagree.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
+}
+
+// CampaignCounts is the WHOLE-FILTER task tally behind the two task-list tabs.
+//
+// GRAIN: one weighing_campaigns row = one task = one park on one weigh date.
+// The counts range over the ENTIRE scope the caller is allowed to see (mine /
+// all / operators), NOT over the returned page and NOT narrowed by the park
+// chip — so the tab numbers stay still while the user filters or pages.
+//
+// The split is server-owned so two clients can never disagree about what
+// "completed" means: Completed = status IN (completed, closed); Active =
+// every other live status (draft, published, in_progress, delayed). A canceled
+// task is in neither: it is retracted work, not work in either tab.
+type CampaignCounts struct {
+	Active    int `json:"active"`
+	Completed int `json:"completed"`
+}
+
+// CampaignCapabilities names which task-level writes the caller may actually attempt on ONE
+// named task. It is a struct rather than a bare map because it is now computed against the
+// task's OWN park and the shape of that answer is part of the contract.
+//
+// The capabilities used to be a role-only answer (RolesAuthorize with no park), while every
+// corresponding write runs a park-scope check and refuses an unauthorized park with
+// ErrNotFound. A monitor scoped to park A therefore received can_end/can_reopen = true on a
+// park-B task and rendered a live Close button whose tap answered "not found" -- the
+// same live-button-that-fails defect the capability map exists to prevent, only at park grain
+// instead of permission grain.
+type CampaignCapabilities struct {
+	CanPublish bool `json:"can_publish"`
+	CanEnd     bool `json:"can_end"`
+	CanReopen  bool `json:"can_reopen"`
+}
+
+// CampaignListScope names WHICH weighing surface a campaign listing is for. The three mobile
+// weighing screens are separate destinations with separate authority, so the surface is stated
+// by the caller rather than guessed from the actor's roles.
+type CampaignListScope string
+
+const (
+	// CampaignListScopeMine is the assignee's own executable work list.
+	CampaignListScopeMine CampaignListScope = "mine"
+	// CampaignListScopeAll is the planner's flat all-tasks list across parks.
+	CampaignListScopeAll CampaignListScope = "all"
+	// CampaignListScopeOperators is read-only oversight of other people's weighing work.
+	CampaignListScopeOperators CampaignListScope = "operators"
+)
+
+// ParseCampaignListScope maps the wire value to a scope, using fallback for an absent value.
+// The fallback is supplied by the ROUTE (the admin listing defaults to the flat list, the app
+// listing defaults to the caller's own work) so that an already-installed app that sends no
+// scope keeps the behaviour it had, without the service inferring anything from a role.
+func ParseCampaignListScope(raw string, fallback CampaignListScope) (CampaignListScope, bool) {
+	switch CampaignListScope(strings.TrimSpace(raw)) {
+	case "":
+		return fallback, true
+	case CampaignListScopeMine:
+		return CampaignListScopeMine, true
+	case CampaignListScopeAll:
+		return CampaignListScopeAll, true
+	case CampaignListScopeOperators:
+		return CampaignListScopeOperators, true
+	default:
+		return "", false
+	}
+}
+
+// PlannerCatalog is the PARK-GRAIN planner vocabulary for ONE weigh date: every
+// park the planner may pick, plus the operator picker. It carries NO shed rows.
+//
+// Parks and sheds are two different grains and used to share one flattened
+// keyset page. Because a real park holds 76+ sheds and the page was ~20 rows,
+// page one was entirely ONE park and the wizard's "Select park" step offered a
+// single park — the other parks were unreachable without paging through dozens
+// of shed rows. The park step needs ALL parks (there are a handful); the bucket
+// step is what pages, per park, through PlannerParkBuckets.
 type PlannerCatalog struct {
 	Parks     []PlannerPark     `json:"parks"`
 	Operators []PlannerOperator `json:"operators"`
 }
 
 type PlannerPark struct {
-	ParkID           string           `json:"park_id"`
-	Name             string           `json:"name"`
-	KidCount         int              `json:"kid_count"`
-	Sheds            []PlannerShed    `json:"sheds"`
+	ParkID   string `json:"park_id"`
+	Name     string `json:"name"`
+	KidCount int    `json:"kid_count"`
+	// ShedCount is a PARK-GRAIN count of the park's active sheds, computed by a
+	// scalar aggregate over that park's own children. It is deliberately NOT a
+	// count of shed rows returned on any page: the catalog returns no shed rows
+	// at all, and a bucket page carries only ~20 of them.
+	ShedCount int `json:"shed_count"`
+	// ExistingCampaign summarizes the park's MOST RECENT task on the requested
+	// week. A park-week may legitimately hold SEVERAL tasks: the capture category
+	// is a per-BUCKET property, so one campaign cannot express "weigh these sheds
+	// lump-sum now, plan the leftover sheds separately", and leadership plans the
+	// remainder as a second task. This field is therefore a summary for display,
+	// never proof that the park holds exactly one task, and never a reason to
+	// block a create.
 	ExistingCampaign *CampaignSummary `json:"existing_campaign,omitempty"`
+	// ExistingCampaignCount is how many non-canceled tasks the park holds on the
+	// requested week, so a caller can say "2 tasks already scheduled" instead of
+	// mistaking the single ExistingCampaign summary for the whole truth.
+	// 0 means the park-week is free.
+	ExistingCampaignCount int `json:"existing_campaign_count,omitempty"`
+}
+
+// PlannerParkBuckets is ONE keyset page of the sheds of ONE park, with the same
+// date-scoped availability the planner renders. This is the many-side grain: it
+// pages, the park list does not.
+type PlannerParkBuckets struct {
+	ParkID string        `json:"park_id"`
+	Sheds  []PlannerShed `json:"sheds"`
+	// NextCursor is the keyset over (shed display_order, shed name, shed
+	// location_id) WITHIN this park. Empty means the last page.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
 type PlannerShed struct {
 	LocationID string `json:"location_id"`
 	Name       string `json:"name"`
 	KidCount   int    `json:"kid_count"`
+	// Scheduled and the Scheduled* fields describe whether this shed is ALREADY
+	// claimed by an open weighing task on the REQUESTED weigh date, and by whom.
+	// They are the availability the planner renders (available vs already
+	// scheduled) and the reason text on a blocked bucket. They are date-scoped:
+	// a shed taken on another date is not taken here.
+	//
+	// Absent (Scheduled=false, the rest empty) means the shed is free on that
+	// date. Never treat these as a roster or a count of animals.
+	Scheduled                    bool   `json:"scheduled,omitempty"`
+	ScheduledCampaignID          string `json:"scheduled_campaign_id,omitempty"`
+	ScheduledStatus              string `json:"scheduled_status,omitempty"`
+	ScheduledOperatorUserID      string `json:"scheduled_operator_user_id,omitempty"`
+	ScheduledOperatorDisplayName string `json:"scheduled_operator_display_name,omitempty"`
+	ScheduledWeighingCategory    string `json:"scheduled_weighing_category,omitempty"`
 }
 
 type CampaignSummary struct {
@@ -97,6 +309,13 @@ type PlannerOperator struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
 	DisplayCode string `json:"display_code"`
+	// ParkIDs are the parks this person may be assigned weighing work in. EMPTY means every park
+	// (a tenant-scoped principal). Operators and park-scoped directors carry exactly their park.
+	//
+	// The planner used to receive a flat roster with no scope at all, so the wizard offered -- and
+	// DEFAULTED to -- someone from another park, and the write accepted it. The picker filters on
+	// this; the write re-checks it, because a client is not a permission boundary.
+	ParkIDs []string `json:"park_ids,omitempty"`
 }
 
 type CampaignShed struct {
@@ -108,8 +327,101 @@ type CampaignShed struct {
 	ExpectedAnimalCount int    `json:"expected_animal_count"`
 	WeighingCategory    string `json:"weighing_category"`
 	OperatorUserID      string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name of the bucket's assignee
+	// (active workforce member only). It travels WITH the bucket so a client never
+	// has to join the bucket against a separately paged operator vocabulary — doing
+	// that left buckets past the first catalog page rendering without a name.
+	// Empty WITH a non-empty OperatorUserID is a roster gap, not "not assigned".
+	OperatorDisplayName string `json:"operator_display_name"`
 	Status              string `json:"status"`
+	// PendingVerificationCount is the exact count of this bucket's SUBMITTED
+	// observations (weighing_observations with submitted_at set, plus any
+	// weighing_shed_observations row) whose verification_status is not yet
+	// 'verified'. There is NO expected-animal denominator here — only a count of
+	// evidence that actually exists and still needs a verifier look.
+	PendingVerificationCount int `json:"pending_verification_count"`
+	// ReworkCount is the subset of PendingVerificationCount that a verifier
+	// actively BOUNCED back ('rework'), i.e. work sitting with the operator
+	// again. It is a strict subset, never added to the pending count: an
+	// observation is either awaiting a first look or bounced, never both.
+	ReworkCount int `json:"rework_count"`
+	// VerifiedCount is the counterpart ReworkCount had no partner for: the
+	// submitted observations in this bucket a verifier ACCEPTED.
+	//
+	// Rejection was visible (ReworkCount) and waiting was visible
+	// (PendingVerificationCount), but approval was not on any weighing read at
+	// all, so the CEO board and the operator's phone could show that work had
+	// been bounced and never that it had been passed. Together the three
+	// partition the bucket's submitted evidence:
+	// VerifiedCount + PendingVerificationCount = submitted, and ReworkCount is
+	// the bounced subset of the pending side.
+	//
+	// A plain count, never a numerator: weighing is free-flow and there is no
+	// expected-animal roster to divide by.
+	VerifiedCount int `json:"verified_count"`
+	// ClosureKind is HOW this bucket ended, and is the only field that separates
+	// the normal completion from a leader ending work early. 'verified' means
+	// every submitted item was approved and the bucket closed itself on the last
+	// verdict — no human, no reason. 'early'/'abandoned' mean a leader ended it
+	// and CloseReason carries their justification. Empty means the bucket is
+	// still live, or was closed before closure_kind existed.
+	ClosureKind string `json:"closure_kind,omitempty"`
+	// ReadyToClose is true only when the bucket is submitted (status='completed'),
+	// has at least one submitted observation, and NONE of its observations have a
+	// verification_status other than 'verified'. A bucket with an outstanding
+	// 'rework' observation counts as NOT ready — a bounced video is unfinished
+	// work the operator still owes, so surfacing "ready" on it would bury the
+	// rework request from leadership's view.
+	//
+	// SINCE THE NORMAL COMPLETION PATH EXISTS, this is no longer the thing a
+	// leader has to act on. The last 'verified' verdict closes the bucket itself
+	// (ClosureKind 'verified'), so a bucket that satisfies this predicate is one
+	// the asynchronous verdict applier has not settled YET — the durable bus is
+	// at-least-once and eventual, so the window is real but short. It is kept as
+	// a contract-stable signal (the operator app renders a close affordance from
+	// it) and as the honest description of that in-flight window; it is NOT a
+	// second door to closure and nothing closes because of it.
+	ReadyToClose bool `json:"ready_to_close"`
+	// AnimalsWeighedCount is how many ANIMALS this bucket has a recorded weight
+	// for, submitted or not — one per individual observation, and the recorded head
+	// count of the standing (non-withdrawn) shed proof for a lump-sum bucket.
+	//
+	// It replaces CapturedCount, which counted the lump-sum proof ROW and so read
+	// as 1 for a 40-animal shed proof while the per-operator roll-up said 40 for
+	// the same work.
+	//
+	// It is a plain count and is NEVER a numerator. Weighing is free-flow: there is
+	// no expected-animal roster, ExpectedAnimalCount is a fixed bucket-grain 1, and
+	// dividing weighings by it would render a share of a total that does not exist.
+	// Clients report this number as-is ("3 weighed") or not at all.
+	AnimalsWeighedCount int `json:"animals_weighed_count"`
+	// AnimalsSubmittedCount is the subset of AnimalsWeighedCount that has been
+	// SUBMITTED for verification. Rendered alongside the weighed count as
+	// "3 weighed · 0 submitted"; when it is zero and work exists, clients show a
+	// "Not submitted" chip — the word the operator's own Submit button uses.
+	AnimalsSubmittedCount int `json:"animals_submitted_count"`
 }
+
+// CampaignShedPage is the task-detail (L1) bucket list as a keyset page.
+//
+// GRAIN: one weighing_campaign_sheds row = one bucket = one shed on this task.
+// It exists because the task LIST embeds every bucket of every campaign on the
+// page: a park holds 76+ sheds, so a 20-task page carried 1,500+ bucket rows for
+// cards that show a handful. The detail screen reads this instead, ~20 at a time.
+type CampaignShedPage struct {
+	CampaignID string         `json:"campaign_id"`
+	Items      []CampaignShed `json:"items"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+	// TotalCount is the WHOLE-TASK bucket count, not the page's length, so the
+	// detail header can say how big the task is without draining the pages.
+	TotalCount int `json:"total_count"`
+}
+
+// CampaignShedPageSize / MaxCampaignShedPageSize bound the task-detail bucket page.
+const (
+	CampaignShedPageSize    = 20
+	MaxCampaignShedPageSize = 100
+)
 
 type ExpectedAnimal struct {
 	CampaignID             string `json:"campaign_id"`
@@ -138,16 +450,130 @@ type RosterPage struct {
 	NextObservationsCursor string `json:"next_observations_cursor,omitempty"`
 }
 
+// MaxShedProofArtifacts is how many group videos ONE lump-sum shed submission may
+// carry. It is the proof policy, so it is also the denominator leadership reads
+// ("3 of 5"); clients must render it rather than hardcode a number of their own.
+const MaxShedProofArtifacts = 5
+
 // LeadershipShedVideos is the read-only, shed-grain weighing proof contract.
 // Exactly one observation collection is populated according to WeighingCategory.
 type LeadershipShedVideos struct {
-	CampaignID       string        `json:"campaign_id"`
-	CampaignShedID   string        `json:"campaign_shed_id"`
-	ShedName         string        `json:"shed_name"`
-	WeighingCategory string        `json:"weighing_category"`
-	Status           string        `json:"status"`
-	Individual       []Observation `json:"individual"`
-	LumpSum          *Observation  `json:"lump_sum,omitempty"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	ShedName       string `json:"shed_name"`
+	// ParkName and WeighDate are the shed's OWN context, carried on the shed-grain
+	// read so a cold deep link into this surface renders a real eyebrow. They used
+	// to travel as client route args, which meant a link opened without the parent
+	// list showed a blank header. WeighDate is the Asia/Kolkata business DATE
+	// (YYYY-MM-DD) of the task this bucket belongs to — never a timestamp.
+	ParkName  string `json:"park_name"`
+	WeighDate string `json:"weigh_date"`
+	// OperatorUserID is who owns this bucket. Empty means nobody is assigned yet,
+	// which is the ONLY thing that entitles a client to say "not assigned".
+	OperatorUserID string `json:"operator_user_id"`
+	// OperatorDisplayName is the backend-resolved name of that assignee, resolved
+	// the same way the planner catalog resolves it (active workforce member only).
+	// Empty WITH a non-empty OperatorUserID means the assignee has no active
+	// workforce row — that is a roster gap, not "not assigned", and a client must
+	// not render it as unassigned.
+	OperatorDisplayName string `json:"operator_display_name"`
+	WeighingCategory    string `json:"weighing_category"`
+	Status              string `json:"status"`
+	// EstimatedAnimalCount is the shed's herd estimate captured when the bucket was
+	// planned. It is a coverage hint, NEVER a denominator for completeness: weighing
+	// is free-flow and has no expected roster.
+	EstimatedAnimalCount int `json:"estimated_animal_count"`
+	// MaxShedVideos is the lump-sum group-video allowance, so "N of MaxShedVideos"
+	// reads off the same policy the write path enforces.
+	MaxShedVideos int           `json:"max_shed_videos"`
+	Individual    []Observation `json:"individual"`
+	LumpSum       *Observation  `json:"lump_sum,omitempty"`
+	// NextIndividualCursor pages Individual on a keyset of
+	// (accepted_at, observation_id) scoped to this bucket. Empty means the last
+	// page. LumpSum is a single latest-row read and is never paged: a per-shed
+	// bucket has exactly one lump-sum submission.
+	NextIndividualCursor string `json:"next_individual_cursor,omitempty"`
+	// PeriodLabel is the backend-owned sentence for the weigh period this bucket
+	// belongs to. It travels with the bucket so a client reading a bucket page does
+	// not have to build the label by concatenating dates it happened to have.
+	PeriodLabel string `json:"period_label,omitempty"`
+}
+
+// LeadershipShedPage is ONE keyset page of shed buckets across tasks, each with
+// its own first page of captured evidence.
+//
+// GRAIN: one weighing_campaign_sheds row = one bucket = one shed on one task.
+// There is no denominator here: the page carries the buckets it returned, and
+// each bucket carries its own evidence cursor.
+type LeadershipShedPage struct {
+	Items      []LeadershipShedVideos `json:"items"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+}
+
+// LeadershipShedPageSize / MaxLeadershipShedPageSize bound the leadership gallery
+// bucket page — the same ~20-row page every mobile list uses.
+const (
+	LeadershipShedPageSize    = 20
+	MaxLeadershipShedPageSize = 100
+)
+
+// LeadershipShedVideosPageSize / MaxLeadershipShedVideosPageSize bound the
+// leadership shed evidence read. The default is the ~20-row page every mobile
+// list uses; the cap stops a client asking for the whole bucket in one request,
+// which is what this read used to do (it selected EVERY observation row for the
+// shed and let the screen page the display).
+const (
+	LeadershipShedVideosPageSize    = 20
+	MaxLeadershipShedVideosPageSize = 100
+)
+
+// The planner's two grains are bounded separately.
+//
+// MaxPlannerParks caps the PARK picker. Parks are few (a handful in the real
+// data), and the park step must show them ALL, so this is a sanity ceiling
+// rather than a page size — there is no park cursor.
+//
+// PlannerBucketPageSize / MaxPlannerBucketPageSize bound the per-park SHED page.
+// A real park holds 76+ sheds, so that list is a keyset page like any other.
+//
+// PlannerOperatorLimit caps the operator picker. The field-operator roster is
+// small, but "small today" is not a bound.
+const (
+	MaxPlannerParks          = 100
+	PlannerBucketPageSize    = 20
+	MaxPlannerBucketPageSize = 100
+	PlannerOperatorLimit     = 100
+)
+
+// WeighingAssignableRoles is WHO may be assigned a weighing shed bucket.
+//
+// Assignability follows the weighing.execute capability, not the word "operator": the growth
+// director weighs his own sheds alongside the field operators. Picking the picker's membership by
+// primary_role_hint='operator' hid him from it, so a director bucket could not be created through
+// the wizard and a bucket he already held rendered as a nameless "Operator".
+var WeighingAssignableRoles = []string{"operator", "growth_director"}
+
+// CloseReasonCode values are what a CLIENT may send instead of authoring the
+// sentence that is recorded forever. The backend owns the recorded copy.
+const (
+	CloseReasonCodeAllAccepted = "all_buckets_accepted"
+	CloseReasonCodeOpenBuckets = "open_buckets_closed"
+	closeReasonAllAcceptedText = "Every shed bucket was accepted."
+	closeReasonOpenBucketsText = "Closed while shed buckets were still not accepted."
+)
+
+// ResolveCloseReason maps a known client-sent reason CODE to the backend-owned
+// sentence. Anything else is passed through unchanged, so an operator/admin who
+// types a real reason still has their own words recorded.
+func ResolveCloseReason(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case CloseReasonCodeAllAccepted:
+		return closeReasonAllAcceptedText
+	case CloseReasonCodeOpenBuckets:
+		return closeReasonOpenBucketsText
+	default:
+		return reason
+	}
 }
 
 type ProofMedia struct {
@@ -157,10 +583,15 @@ type ProofMedia struct {
 }
 
 type Observation struct {
-	ObservationID       string       `json:"observation_id"`
-	CampaignID          string       `json:"campaign_id"`
-	CampaignShedID      string       `json:"campaign_shed_id,omitempty"`
-	AnimalID            string       `json:"animal_id,omitempty"`
+	ObservationID  string `json:"observation_id"`
+	CampaignID     string `json:"campaign_id"`
+	CampaignShedID string `json:"campaign_shed_id,omitempty"`
+	// ScannedIdentifier is the raw tag/RFID the scanner read. Weighing is
+	// free-flow: this is the ONLY identity an observation carries. There is
+	// deliberately no animal_id here (removed by
+	// 000078_weighing_observations_drop_animal_id.sql) -- weighing never
+	// resolves a scan to herd identity.
+	ScannedIdentifier   string       `json:"scanned_identifier,omitempty"`
 	WeightKg            float64      `json:"weight_kg"`
 	AverageWeightKg     float64      `json:"average_weight_kg,omitempty"`
 	AnimalCount         int          `json:"animal_count,omitempty"`
@@ -171,6 +602,14 @@ type Observation struct {
 	ActualLocationID    string       `json:"actual_location_id,omitempty"`
 	ActualLocationLabel string       `json:"actual_location_label,omitempty"`
 	AcceptedAt          time.Time    `json:"accepted_at"`
+	// Superseded is true when this capture UPDATED an existing, not-yet-submitted
+	// (or verifier-reworked) evidence row in place, rather than inserting a fresh
+	// one. It is the signal the service layer uses to advance the observation's
+	// verification round: the previous verification item (which may already carry
+	// a stale 'verified' decision against the OLD weight/proof) must be withdrawn
+	// before a new one is raised for the edited evidence. See
+	// app.Service.enqueueVerification and the B06 root-cause note there.
+	Superseded bool `json:"-"`
 }
 
 type Progress struct {
@@ -230,6 +669,18 @@ type VerificationVerdict struct {
 	VerifiedBy    string
 	Reason        string
 	EventID       string
+	// EvidenceProofID is the proof/video id the verifier reviewed BEFORE
+	// deciding. Without it a verdict carries no reference to WHICH evidence
+	// was approved: approving a stale queue item approves whatever proof
+	// happens to be attached to the observation NOW, not the video the
+	// reviewer actually watched (e.g. after a rework re-shoot swapped the
+	// proof out from under an in-flight review). Empty is a deliberately
+	// backward-compatible value for verdicts minted before this field
+	// existed (in-flight events on the durable bus at deploy time); the
+	// postgres adapter treats empty as "stale-check-skipped", not a crash
+	// or a rejection, and logs it so the gap is visible without breaking
+	// delivery.
+	EvidenceProofID string
 }
 
 // VerificationVerdictResult reports what the verdict changed so the consumer stays
@@ -248,6 +699,14 @@ type VerificationVerdictResult struct {
 	// minting a new one. Business meaning is India business time per AGENTS.md,
 	// so it is carried in Asia/Kolkata.
 	DecidedAt time.Time `json:"decided_at"`
+	// ShedClosed / CampaignClosed report the NORMAL completion this verdict
+	// triggered: true when this approval was the LAST outstanding one and the
+	// bucket (and then the whole task) reached closure_kind='verified' inside
+	// this same transaction. Both are part of the result and therefore of the
+	// idempotency snapshot, so an at-least-once redelivery replays "yes, that
+	// verdict closed it" instead of re-closing or reporting a second closure.
+	ShedClosed     bool `json:"shed_closed"`
+	CampaignClosed bool `json:"campaign_closed"`
 }
 
 type CreateCampaign struct {
@@ -273,11 +732,14 @@ type CreateCampaignShed struct {
 	OperatorUserID   string `json:"operator_user_id,omitempty"`
 }
 
+// RecordAnimalObservation is the free-flow scan write command. It carries no
+// animal_id: weighing never resolves a scanned identifier to herd identity, so
+// there is no field here for a caller to (mis)supply one. ScannedIdentifier is
+// the required identity.
 type RecordAnimalObservation struct {
 	TenantID          string
 	CampaignID        string
 	CampaignShedID    string
-	AnimalID          string
 	ScannedIdentifier string
 	WeightKg          float64
 	ProofArtifactID   string
@@ -297,4 +759,20 @@ type RecordShedObservation struct {
 	ProofArtifactIDs []string
 	IdempotencyKey   string
 	RecordedBy       string
+}
+
+// WeighingPark is the park VOCABULARY a weighing oversight surface renders as chips.
+//
+// It is deliberately a separate, cheap grain from PlannerPark: the planner's park carries a
+// weigh date's shed counts and that date's existing task, and its read is gated on
+// WeighingPlan, which is CEO-only. An oversight actor (a Growth Director holds
+// WeighingMonitor / WeighingOverseeOperators, never WeighingPlan) 403s on that read, so
+// their park chips silently degraded to whichever parks happened to appear on the rows the
+// current page had loaded -- a filter vocabulary derived from the data being filtered, which
+// loses a park the moment its tasks fall off the page.
+//
+// Identity only. Anything date-scoped or count-bearing belongs on the planner catalog.
+type WeighingPark struct {
+	ParkID string `json:"park_id"`
+	Name   string `json:"name"`
 }

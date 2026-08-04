@@ -10,6 +10,10 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import sg.mesha.goatos.core.common.DefaultDispatchers
 import sg.mesha.goatos.core.common.DispatcherProvider
+import sg.mesha.goatos.core.common.OutboxTelemetryEvent
+import sg.mesha.goatos.core.common.OutboxTelemetryReporter
+import sg.mesha.goatos.core.common.OutboxTerminalReason
+import sg.mesha.goatos.core.common.OutboxWritePhase
 import sg.mesha.goatos.core.database.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.outbox.OutboxEntity
@@ -31,6 +35,7 @@ import sg.mesha.goatos.core.network.dto.ProofUploadResponseDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionAnswerRequestDto
 import sg.mesha.goatos.core.network.dto.WorkflowActionCompleteRequestDto
 import sg.mesha.goatos.core.network.isTerminalAppApiError
+import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.data.weighing.WeighingObservationDao
 import sg.mesha.goatos.core.data.weighing.WeighingShedObservationDao
 import java.util.concurrent.ConcurrentHashMap
@@ -90,6 +95,17 @@ class SyncEngine(
     private val scannedGoatDao: ScannedGoatDao? = null,
     private val weighingObservationDao: WeighingObservationDao? = null,
     private val weighingShedObservationDao: WeighingShedObservationDao? = null,
+    /**
+     * Lifecycle visibility for the queue itself. Defaults to
+     * [OutboxTelemetryReporter.Noop] so every existing test/fake construction keeps compiling;
+     * production wiring binds the reporting decorator in `:core:core-analytics`.
+     *
+     * Emitted HERE — the single place every queued write is claimed, attempted, backed off and
+     * terminalized — rather than at the ~30 `dispatch*` bodies or the ~30 `enqueue*` overloads,
+     * for the same reason the HTTP failure reporter lives in the interceptor: a per-call-site
+     * emit can be forgotten by the next feature someone writes; a seam cannot.
+     */
+    private val telemetry: OutboxTelemetryReporter = OutboxTelemetryReporter.Noop,
 ) {
     // The WorkManager-equivalent of "enqueue as unique work": never run two overlapping
     // drain passes. A trigger that arrives mid-drain simply waits its turn, then re-reads
@@ -192,6 +208,15 @@ class SyncEngine(
         // concurrent pass already claimed it) markInFlight is a no-op and we skip it — never
         // dispatch a row we didn't actually transition.
         if (!store.markInFlight(item.id, clock())) return true
+        report(
+            OutboxTelemetryEvent(
+                phase = OutboxWritePhase.ATTEMPT_STARTED,
+                opType = item.opType,
+                itemId = item.id,
+                attempt = item.attemptCount + 1,
+                maxAttempts = item.maxAttempts,
+            ),
+        )
         return try {
             val resultJson = dispatch(item)
             if (store.markSucceeded(item.id, resultJson, clock())) {
@@ -206,6 +231,13 @@ class SyncEngine(
         }
     }
 
+    /** The operator-facing reason a queued write did not go through — server copy where the
+     *  server gave one, otherwise a plain sentence. Never a status line or exception name. */
+    private fun Throwable.outboxLastError(): String =
+        serverErrorText()?.display
+            ?: (this as? NonRetryableSyncException)?.message?.trim()?.takeIf { it.isNotBlank() }
+            ?: "This did not go through yet. It will be tried again."
+
     private suspend fun recordFailure(item: OutboxEntity, error: Throwable): Long? {
         val attempt = item.attemptCount + 1
         // Terminal = a definitive server rejection (validation) OR a non-retryable 4xx: neither
@@ -218,14 +250,65 @@ class SyncEngine(
             attemptCount = attempt,
             nextAttemptAt = nextAttemptAt,
             conflict = conflict,
-            lastError = error.message ?: (error::class.simpleName ?: "sync_failed"),
+            // SubmitScreen renders this verbatim to the operator when the row lands in
+            // CONFLICT, so it must be the SERVER's own explanation of the refusal (message plus
+            // any named field problems), never the transport's status line. A rejection the
+            // server already explained arrives as NonRetryableSyncException carrying that copy.
+            lastError = error.outboxLastError(),
             now = clock(),
         )
+        // Report only what actually happened: a non-applied transition means another pass /
+        // a manual retry already moved the row, so claiming a failure here would be a lie.
+        if (applied) {
+            val failureClass = error.javaClass.simpleName
+            report(
+                OutboxTelemetryEvent(
+                    phase = OutboxWritePhase.ATTEMPT_FAILED,
+                    opType = item.opType,
+                    itemId = item.id,
+                    attempt = attempt,
+                    maxAttempts = item.maxAttempts,
+                    failureClass = failureClass,
+                ),
+            )
+            report(
+                if (terminal) {
+                    OutboxTelemetryEvent(
+                        phase = OutboxWritePhase.TERMINAL,
+                        opType = item.opType,
+                        itemId = item.id,
+                        attempt = attempt,
+                        maxAttempts = item.maxAttempts,
+                        failureClass = failureClass,
+                        terminalReason = if (conflict) {
+                            OutboxTerminalReason.CONFLICT
+                        } else {
+                            OutboxTerminalReason.ATTEMPTS_EXHAUSTED
+                        },
+                    )
+                } else {
+                    OutboxTelemetryEvent(
+                        phase = OutboxWritePhase.RETRY_SCHEDULED,
+                        opType = item.opType,
+                        itemId = item.id,
+                        attempt = attempt,
+                        maxAttempts = item.maxAttempts,
+                        failureClass = failureClass,
+                        retryInMs = (nextAttemptAt - clock()).coerceAtLeast(0),
+                    )
+                },
+            )
+        }
         return if (applied && !terminal) {
             nextAttemptAt
         } else {
             null
         }
+    }
+
+    /** Telemetry is diagnostics, never control flow: a broken reporter must not fail a write. */
+    private fun report(event: OutboxTelemetryEvent) {
+        runCatching { telemetry.onOutboxWrite(event) }
     }
 
     /** Calls the app-api for [item], reusing its stored idempotency key verbatim (never a new

@@ -33,6 +33,16 @@ receipt_mode=""
 receipt_base=""
 receipt_jobs=""
 declare -a RESULTS
+# FAILURES mirrors every blocking failure so the RED verdict can name the failing
+# steps immediately above the exit line. The summary can run 130+ rows, so a FAIL
+# buried at row 10 is invisible to anyone reading the tail of the output — a gate
+# that says RED without saying why costs more time than one that fails loudly.
+declare -a FAILURES
+
+record_failure() { # name
+  FAILURES+=("$1")
+  fail=1
+}
 
 fast_local_ci_enabled() {
   case "${GOATOS_FAST_LOCAL_CI:-0}" in
@@ -48,7 +58,7 @@ step() { # name, command...
     RESULTS+=("PASS  ${name}")
   else
     RESULTS+=("FAIL  ${name}")
-    fail=1
+    record_failure "${name}"
     echo "!! ci-local step FAILED: ${name}"
   fi
 }
@@ -177,6 +187,7 @@ run_common() {
   step "agent: boundaries"        bash tools/agent-hooks/check-boundaries.sh
   step "agent: refresh-binding"   node tools/agent-hooks/check-refresh-binding.mjs
   step "agent: UI vaccine labels" make ui-vaccine-labels-guard
+  step "agent: notification specificity" make notification-specificity-guard
   step "agent: vaccination shared source sync" make vaccination-shared-source-sync-guard
   step "agent: calendar endpoint grain" make calendar-endpoint-grain-guard
   step "agent: contract-drift"    bash tools/agent-hooks/check-contract-drift.sh
@@ -205,13 +216,16 @@ run_backend() {
   step "clinical-defer-guard"     make clinical-defer-guard
   step "ceo-ai-boundary-guard"    make ceo-ai-boundary-guard
   step "goat-shed-scope-guard"    make goat-shed-scope-guard
+  step "proof-capture-authorization-guard" make proof-capture-authorization-guard
   step "weighing-free-flow-guard" make weighing-free-flow-guard
   step "weighing-operator-scope-guard" make weighing-operator-scope-guard
   step "weighing-one-operator-per-bucket-guard" make weighing-one-operator-per-bucket-guard
   step "weighing-kernel-phase2-guard" make weighing-kernel-phase2-guard
   step "migration-duplicate-versions-guard" make migration-duplicate-versions-guard
   step "vaccination-drive-clubbing-guard" make vaccination-drive-clubbing-guard
+  step "vaccination-adult-drive-contract-guard" make vaccination-adult-drive-contract-guard
   step "vaccination-shed-ack-guard" make vaccination-shed-ack-guard
+  step "module-alerts-tab-guard" make module-alerts-tab-guard
   step "sweeper-deployment-guard" make sweeper-deployment-guard
   step "deployed-job-flags-guard" make deployed-job-flags-guard
   step "kernel-worker-cutover-guard" make kernel-worker-cutover-guard
@@ -281,10 +295,13 @@ run_admin_web() {
 run_android_guards() {
   step "offline-first-guard"          make offline-first-guard
   step "mobile-guard"                 make mobile-guard
+  step "domain-event-envelope-enum-guard" make domain-event-envelope-enum-guard
+  step "design-system-guard"          make design-system-guard
   step "android-row-action-scope-guard" make android-row-action-scope-guard
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "nav-entry-point-placement-guard" make nav-entry-point-placement-guard
   step "mobile-contract-ownership-guard" make mobile-contract-ownership-guard
   step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard
   step "telemetry-guard"              make telemetry-guard
@@ -293,12 +310,16 @@ run_android_guards() {
 }
 
 run_android() {
+  # Orphaned test JVMs from a previously-killed Gradle run hold module build locks, so the
+  # next run blocks on a lock nobody is watching and reads as "the suite is slow". Reap first.
+  bash tools/agent-hooks/reap-stale-gradle-workers.sh || true
+
   run_android_guards
   local jdk="${JAVA_HOME:-/opt/homebrew/opt/openjdk@21}"
   local sdk="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
   if [ ! -x "$jdk/bin/java" ] || [ ! -d "$sdk" ]; then
     RESULTS+=("FAIL  android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)")
-    fail=1
+    record_failure "android toolchain (no JDK/SDK: jdk=$jdk sdk=$sdk)"
     return
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
@@ -401,6 +422,18 @@ if [ "$fail" -eq 0 ]; then
     echo "ci-local: explicit partial run ('${only}') — no main-push evidence receipt written."
   fi
 else
-  echo "ci-local: RED @ ${sha}"
+  echo ""
+  echo "──────── ci-local FAILING STEPS @ ${sha} ────────"
+  if [ "${#FAILURES[@]}" -eq 0 ]; then
+    # Should be unreachable: every `fail=1` goes through record_failure. If it is
+    # ever reached, a new failure site skipped the recorder — say so instead of
+    # emitting a cause-free RED.
+    echo "  (none recorded — BUG in run-local-ci.sh: a failure site set fail=1 without record_failure)"
+  else
+    for f in "${FAILURES[@]}"; do echo "  FAIL  ${f}"; done
+    echo ""
+    echo "  Re-run just the first failure, e.g.:  grep -n '${FAILURES[0]}' tools/ci/run-local-ci.sh"
+  fi
+  echo "ci-local: RED @ ${sha} (${#FAILURES[@]} failing step(s) named above)"
 fi
 exit "$fail"

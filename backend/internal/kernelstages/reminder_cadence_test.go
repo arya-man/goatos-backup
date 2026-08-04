@@ -73,8 +73,9 @@ func TestReminderCadenceStageRunsAgainstRealPostgres(t *testing.T) {
 // production ReminderCadenceStage (the stage wired into cmd/kernel-worker), NOT a direct repository
 // call, against a pgtest DB seeded with only INPUT facts:
 //
-//   - a park + workforce roster: operator, park head, PHC manager, PC director, and CEO, each with
-//     an active device carrying an FCM token — so ResolvePositionRecipientsBatch actually returns
+//   - a park + workforce roster: vaccination operator, park head, preventive care manager (each
+//     carrying the pc.vaccination duty the audience is resolved by), plus PC director and CEO, each
+//     with an active device carrying an FCM token — so recipient resolution actually returns
 //     recipients;
 //   - three unbatched, scheduled vaccination obligations in that park, due at D0 (today), D+3, and
 //     D+7 relative to biztime.BusinessDayStart(time.Now()) — anchored to the business day, NO fixed
@@ -200,8 +201,9 @@ WHERE tenant_id = $1::uuid AND idempotency_key = $2`,
 	}
 }
 
-// seedReminderRoster seeds the reminder audience: park-scoped operator, park head, PHC manager,
-// plus tenant-scoped PC director and CEO, each with an active FCM device. Position validity is
+// seedReminderRoster seeds the reminder audience: park-scoped vaccination operator, park head and
+// preventive care manager (with their pc.vaccination duties), plus tenant-scoped PC director and
+// CEO, each with an active FCM device. Position validity is
 // anchored to activeAt so pinned-clock tests never depend on database wall time.
 func seedReminderRoster(t *testing.T, ctx context.Context, pool *pgxpool.Pool, activeAt time.Time) {
 	t.Helper()
@@ -215,7 +217,7 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', $5)`,
 	}
 	member(rcOperatorMember, "RC-OP", "RC Operator", "operator")
 	member(rcParkHeadMember, "RC-PH", "RC Park Head", "park_head")
-	member(rcManagerMember, "RC-MGR", "RC PHC Manager", "supervisor")
+	member(rcManagerMember, "RC-MGR", "RC Preventive Care Manager", "supervisor")
 	member(rcDirectorMember, "RC-DIR", "RC PC Director", "other")
 	member(rcCEOMember, "RC-CEO", "RC CEO", "other")
 
@@ -227,9 +229,29 @@ VALUES ($1::uuid, $2::uuid, 'center', $3::uuid, $4, $5, 'active', $6::timestampt
 			t.Fatalf("seed position %s: %v", positionCode, err)
 		}
 	}
-	position(rcOperatorMember, "operator", "assistant")
+	// Seat codes are the ones the roster seeder actually writes (seed-position-duties /
+	// seed-roster-real): a per-person "vaccination_operator_<name>" seat and
+	// "preventive_care_manager". There is no seat called "operator" and none called "phc_manager" --
+	// the ladder used to address those two names and therefore reached nobody but the park head.
+	position(rcOperatorMember, "vaccination_operator_rc", "assistant")
 	position(rcParkHeadMember, "park_head", "head")
-	position(rcManagerMember, "phc_manager", "manager")
+	position(rcManagerMember, "preventive_care_manager", "manager")
+
+	// The reminder audience is resolved by MODULE DUTY, so the seats must carry the duties
+	// seed-position-duties derives for them: operators execute pc.vaccination, manager-tier seats
+	// manage it.
+	duty := func(positionCode, dutyType string) {
+		if _, err := pool.Exec(ctx, `
+INSERT INTO position_module_duties (tenant_id, position_code, module_code, duty_type, capability_code, effective_from, status)
+VALUES ($1::uuid, $2, 'pc.vaccination', $3, 'vaccination.execute', $4::timestamptz, 'active')
+ON CONFLICT DO NOTHING`,
+			rcTenant, positionCode, dutyType, activeAt.Add(-time.Hour)); err != nil {
+			t.Fatalf("seed duty %s/%s: %v", positionCode, dutyType, err)
+		}
+	}
+	duty("vaccination_operator_rc", "execute")
+	duty("park_head", "manage")
+	duty("preventive_care_manager", "manage")
 	tenantPosition := func(memberID, positionCode, tier string) {
 		if _, err := pool.Exec(ctx, `
 INSERT INTO workforce_positions (tenant_id, workforce_member_id, scope_type, scope_id, position_code, position_tier, status, valid_from)
