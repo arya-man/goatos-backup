@@ -67,6 +67,13 @@ CREATE TABLE milk_feeding_farm_watchlist (
     REFERENCES goats(tenant_id, goat_id)
 );
 
+-- projection-review: membership=goats, unique on (tenant_id, goat_id), filtered to live unmerged
+-- animals whose normalized management_stage is a milk cohort; group_key=(tenant_id, park_id) --
+-- the FARM grain this migration moves milk actions to, matching
+-- milk_feeding_tasks_farm_session_uidx; join_cardinality=locations is 1:1 on
+-- (tenant_id, location_id) and is further filtered to location_type='park' AND status='active', so
+-- it qualifies each goat's park without duplicating the head count; pagination=none, one-shot
+-- set-based backfill; scope=park, from the goat's own canonical park_id
 WITH eligible_farms AS (
   SELECT g.tenant_id, g.park_id, count(*)::integer AS head_count
   FROM goats g

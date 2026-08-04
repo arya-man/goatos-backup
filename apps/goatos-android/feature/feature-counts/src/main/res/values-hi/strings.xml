@@ -220,4 +220,5 @@
     <string name="counts_workflow_rerecord_video">वीडियो फिर रिकॉर्ड करें</string>
     <string name="counts_workflow_weight_kg">वजन (किग्रा)</string>
     <string name="counts_workflow_weight_continue">वीडियो रिकॉर्ड करने के लिए आगे बढ़ें</string>
+    <string name="counts_shifting_videos_label">रिकॉर्ड किए गए वीडियो</string>
 </resources>

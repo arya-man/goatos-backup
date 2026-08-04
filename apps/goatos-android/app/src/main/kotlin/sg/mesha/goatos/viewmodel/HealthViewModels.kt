@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.HealthFilters
 import sg.mesha.goatos.core.data.HealthRepository
@@ -152,6 +154,7 @@ class AddHealthCaseViewModel @Inject constructor(
     private val healthRepository: HealthRepository,
     private val countsRepository: CountsRepository,
     private val syncRepository: SyncRepository,
+    private val analytics: AnalyticsPort,
 ) : ViewModel() {
     private val ageBand: String = savedStateHandle.get<String>("healthAgeBand")
         ?.takeIf { it == "adult" || it == "kid" } ?: "adult"
@@ -224,7 +227,14 @@ class AddHealthCaseViewModel @Inject constructor(
                         },
                     )
                 }
-                .onFailure {
+                .onFailure { error ->
+                    analytics.track(
+                        AnalyticsEvents.HEALTH_READ_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "case_animal_lookup",
+                            AnalyticsEvents.Params.REASON to (error.message ?: "unknown"),
+                        ),
+                    )
                     _state.value = _state.value.copy(lookingUp = false, lookupMessage = "Could not search goats. Check the connection and retry.")
                 }
             recompute()
@@ -247,12 +257,27 @@ class AddHealthCaseViewModel @Inject constructor(
                 diseaseName = current.diseases.firstOrNull { it.key == current.diseaseKey }?.label
                     ?: current.diseaseKey.replace('_', ' ').replaceFirstChar { it.uppercase() },
             )) {
-                is AppResult.Ok -> _state.value = _state.value.copy(
-                    submitting = false,
-                    returnToList = true,
-                    message = "Sick goat recorded. The treatment plan is queued and will sync automatically.",
-                )
-                is AppResult.Err -> _state.value = _state.value.copy(submitting = false, message = result.message)
+                // Tracked on the DURABLE enqueue, not on a network round trip -- the operator's
+                // work being safe in the outbox is the moment worth measuring. Same convention as
+                // COUNTS_BIRTH_SUBMITTED / COUNTS_DEATH_SUBMITTED.
+                is AppResult.Ok -> {
+                    analytics.track(AnalyticsEvents.HEALTH_CASE_SUBMITTED, mapOf(AnalyticsEvents.Params.KIND to ageBand))
+                    _state.value = _state.value.copy(
+                        submitting = false,
+                        returnToList = true,
+                        message = "Sick goat recorded. The treatment plan is queued and will sync automatically.",
+                    )
+                }
+                is AppResult.Err -> {
+                    analytics.track(
+                        AnalyticsEvents.HEALTH_WRITE_FAILURE,
+                        mapOf(
+                            AnalyticsEvents.Params.KIND to "case",
+                            AnalyticsEvents.Params.REASON to result.message,
+                        ),
+                    )
+                    _state.value = _state.value.copy(submitting = false, message = result.message)
+                }
             }
         }
     }

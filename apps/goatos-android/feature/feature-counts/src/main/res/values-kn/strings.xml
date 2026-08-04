@@ -220,4 +220,5 @@
     <string name="counts_workflow_rerecord_video">ವೀಡಿಯೊವನ್ನು ಮರು-ರೆಕಾರ್ಡ್ ಮಾಡಿ</string>
     <string name="counts_workflow_weight_kg">ತೂಕ (ಕೆಜಿ)</string>
     <string name="counts_workflow_weight_continue">ವೀಡಿಯೊ ದಾಖಲಿಸಲು ಮುಂದುವರಿಯಿರಿ</string>
+    <string name="counts_shifting_videos_label">ರೆಕಾರ್ಡ್ ಮಾಡಿದ ವೀಡಿಯೊಗಳು</string>
 </resources>

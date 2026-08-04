@@ -78,6 +78,13 @@ CREATE INDEX milk_feeding_watchlist_shed_idx
 -- Seed today's durable Actions. The five-minute kernel stage uses the same set-based shape for
 -- every following India business date. Stage spellings are normalized because the imported herd
 -- currently contains both `ICU- kid` and `ICU-Kid`.
+-- projection-review: membership=goats, unique on (tenant_id, goat_id), filtered to live unmerged
+-- animals whose normalized management_stage is a milk cohort; group_key=(tenant_id, park_id,
+-- shed_id) which is exactly the grain milk_feeding_tasks is keyed at, so one shed-session is one
+-- row; join_cardinality=no join on the counted side -- head_count is a plain count over goats and
+-- the sessions VALUES list is a 4-row cross product that multiplies SESSIONS, never animals;
+-- pagination=none, this is a one-shot set-based seed of today's rows; scope=park+shed, taken from
+-- the goat's own canonical FKs and never from a caller
 WITH eligible_sheds AS (
   SELECT g.tenant_id, g.park_id, g.shed_id, count(*)::integer AS head_count
   FROM goats g

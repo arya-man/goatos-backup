@@ -90,4 +90,6 @@
     <string name="feed_pack_complete_video_recorded">ప్యాకింగ్ వీడియో రికార్డ్ చేయబడింది</string>
     <string name="feed_pack_complete_submit">వెరిఫికేషన్ కోసం సమర్పించండి</string>
     <string name="feed_pack_complete_need_video">సమర్పించడానికి ప్యాకింగ్ వీడియోను రికార్డ్ చేయండి.</string>
+    <string name="feed_proof_rerecord">వీడియో మళ్లీ రికార్డ్ చేయండి</string>
+    <string name="feed_proof_recapture">రుజువును మళ్లీ తీయండి</string>
 </resources>

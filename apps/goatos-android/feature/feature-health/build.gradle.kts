@@ -1,3 +1,6 @@
+// telemetry:exempt: build config only, no product code — AnalyticsPort/AnalyticsEvents wiring for
+// Health lives in AddHealthCaseViewModel (HEALTH_CASE_SUBMITTED / HEALTH_WRITE_FAILURE /
+// HEALTH_READ_FAILURE).
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)

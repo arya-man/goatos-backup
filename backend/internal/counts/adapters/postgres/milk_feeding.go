@@ -27,6 +27,7 @@ func intPtrValue(value *int) int {
 
 const milkFeedingResourceType = "milk_feeding_task"
 
+// projection-review: membership=goats filtered to live milk-stage kids (K1/K2/K3/ICU-Kid/Quarantine-milk-kid); group_key=(tenant_id,park_id); join_cardinality=locations is 1:1 on (tenant_id,location_id) and is filtered to location_type='park', so it labels each goat's park without multiplying the head count; pagination=none, this is a whole-tenant INSERT..SELECT materialize, not a paged read; scope=park, taken from goats.park_id and never from a caller-supplied scope
 func (r *Repository) MaterializeMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingMaterializeRequest) (domain.MilkFeedingMaterializeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -58,9 +59,7 @@ ON CONFLICT DO NOTHING`, in.TenantID, day.Format("2006-01-02"))
 	return domain.MilkFeedingMaterializeResult{FeedingDate: day.Format("2006-01-02"), Inserted: command.RowsAffected()}, nil
 }
 
-// projection-review: producer unique columns=(tenant_id,park_id,feeding_date,session_no);
-// consumer match columns are identical. locations are 1:1 labels and watchlist is pre-aggregated
-// to one JSON value per task farm, so neither join multiplies the task grain.
+// projection-review: membership=milk_feeding_tasks, unique on (tenant_id,park_id,feeding_date,session_no) via milk_feeding_tasks_farm_session_uidx; group_key=(tenant_id,park_id,feeding_date,session_no) -- the consumer matches on exactly the producer's unique columns; join_cardinality=locations is 1:1 on (tenant_id,location_id) so it only labels the row, and the watchlists CTE is pre-aggregated to ONE jsonb value per (tenant_id,park_id) before it is joined, so neither side multiplies the task grain; pagination=LIMIT/OFFSET over a set bounded to parks*4 rows (one feeding_date, farm grain, session_no CHECK 1..4), and the status counts are not derived from the page; scope=park, clamped from the caller's park filter, never widened
 func (r *Repository) ListMilkFeedingTasks(ctx context.Context, in domain.MilkFeedingQuery) (domain.MilkFeedingPage, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

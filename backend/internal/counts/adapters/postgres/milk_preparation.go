@@ -11,11 +11,20 @@ import (
 )
 
 // milkPreparationGroupedCTE is the single definition of the page's canonical membership and row
-// grain. Producer unique columns are goats(tenant_id, goat_id); consumer group columns are
-// (park_id, shed_id, management_stage). The locations joins are both 1:0..1 label lookups on the
-// tenant/location key and cannot multiply goats. Page and summary consume the identical grouped
-// key set; numerator and denominator for every quantity both range over those K1/K2/K3 live-goat
-// rows.
+// grain.
+//
+// projection-review: membership=goats, unique on (tenant_id,goat_id), filtered to live unmerged
+// animals in management_stage K1/K2/K3; group_key=(park_id, shed_id, management_stage) -- every
+// consumer (page rows, cohort summary, farm_tasks) re-groups this same CTE rather than re-deriving
+// membership, so the key set is identical on both sides; join_cardinality=both locations joins are
+// 1:0..1 label lookups on (tenant_id, location_id) and cannot multiply goats, and farm_verification
+// is pre-aggregated to one row per park_uuid before farm_tasks joins it, so head_count and
+// required_ml stay one-row-per-goat sums; pagination=OFFSET walks only the GROUPED set (physical
+// sheds x three milk cohorts), never goats, and every summary is a whole-filter aggregate over the
+// CTE rather than a rollup of the returned page; scope=park, applied inside the CTE from the
+// caller's clamped park filter so page and summary share one scope
+//
+// Numerator and denominator for every quantity both range over those same K1/K2/K3 live-goat rows.
 const milkPreparationGroupedCTE = `
 WITH grouped AS MATERIALIZED (
   SELECT

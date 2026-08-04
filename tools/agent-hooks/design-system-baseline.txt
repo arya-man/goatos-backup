@@ -44,3 +44,43 @@ apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/fea
 apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/plan/WeighingPlanWizardScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt:literal-font-size
 apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/feature/verify/VerifyQueueScreen.kt:literal-font-weight
+
+# 2026-08-04, counts/shifting/feed/milk/health branch. 227 literals across 12 screens entered the
+# diff at once. They are NOT all new debt: ShiftingExecuteScreen, ShiftingScreen, ShiftingPendingScreen,
+# CountsFormKit and the feature-feed screens already carried these literals on main and were touched
+# here for unrelated reasons -- the same diff-scope effect recorded for ScanScreen/VerifyQueueScreen
+# above. The genuinely new screens are the milk and health ones.
+#
+# Baselined rather than tokenised on a deliberate maintainer call: MeshaType has no 1:1 mapping for
+# these values, so each site is a typography DECISION that changes what an operator sees, and the
+# Paparazzi goldens were being re-recorded in the same change -- a rushed choice would have been
+# cemented as the intended look with no rendered review. The 3 named-compose-color violations in
+# InAppVideoRecorder WERE fixed properly (MeshaColors.ViewfinderBackdrop). This is debt to retire
+# screen-by-screen with visual QA, not a licence to write new literals.
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsFormKit.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsFormKit.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkFeedingScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkFeedingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkPreparationListScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkPreparationListScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkPreparationScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkPreparationScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingExecuteScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingExecuteScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingPendingScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingPendingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/ShiftingScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedCaptureScaffold.kt:literal-font-size
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedCaptureScaffold.kt:literal-font-weight
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedCompleteScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedCompleteScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedDistributionCompleteScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedPackingCompleteScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedPackingCompleteScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedTransportScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-feed/src/main/kotlin/sg/mesha/goatos/feature/feed/FeedTransportScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/AddHealthCaseScreen.kt:literal-font-weight
+apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/HealthScreens.kt:literal-font-size
+apps/goatos-android/feature/feature-health/src/main/kotlin/sg/mesha/goatos/feature/health/HealthScreens.kt:literal-font-weight

@@ -185,7 +185,7 @@ fun InAppVideoRecorderOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(MeshaColors.ViewfinderBackdrop),
     ) {
         androidx.compose.ui.viewinterop.AndroidView(
             factory = { ctx ->
@@ -222,7 +222,7 @@ fun InAppVideoRecorderOverlay(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.38f), Color.Transparent),
+                        listOf(MeshaColors.ViewfinderBackdrop.copy(alpha = 0.38f), Color.Transparent),
                     ),
                 ),
         )
@@ -233,7 +233,7 @@ fun InAppVideoRecorderOverlay(
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.46f)),
+                        listOf(Color.Transparent, MeshaColors.ViewfinderBackdrop.copy(alpha = 0.46f)),
                     ),
                 ),
         )
