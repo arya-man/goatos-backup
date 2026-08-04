@@ -34,8 +34,8 @@ For unresolved rows, keep the same visual style but use these columns:
 
 ## Verification Boundary
 
-This document is source/projection evidence plus the local rehearsal result.
-It is not a completed live-stg mutation record.
+This document is source/projection evidence plus the local rehearsal and live
+`goatos-stg` mutation record.
 
 | Surface | Status |
 |---|---|
@@ -45,9 +45,13 @@ It is not a completed live-stg mutation record.
 | Local rehearsal DB | Latest JSON imported; identity replacement semantics preserved; CBE ET+TT 5 Aug campaign generated through GoatOS sweeper code |
 | Local API/admin-web smoke | API `/healthz` returned 204 and admin-web root rendered from the rehearsal DB on 2026-08-05 |
 | Firebase tester credential seed | Completed 2026-08-05 for `natheswar7@gmail.com` / display name `Eshwar`; password intentionally not recorded in this doc |
-| Live `goatos-stg` Cloud SQL mutation | Not performed in this pass |
+| Live `goatos-stg` Cloud SQL mutation | Performed 2026-08-05 after code landed on `origin/main`; active herd imported to 1670, accidental broad open/scheduled vaccine generation removed, and only the intended CBE ET+TT drive rows were left scheduled |
 
-Do not claim the `114 / 163 / 47` split is live-DB verified until `goatos-stg` Cloud SQL is queried directly.
+Live `goatos-stg` keeps the replacement RFID `901007000504379` as the active
+primary tag for the CPT Mandela 2 Part 8 animal. The old source tag
+`901007000503735` is retained only as a secondary alias. The 24/25/26 Jul CPT
+adult ET+TT operational split remains sourced from the GoatOS fixture and ops
+notes; do not overwrite this animal back to the old tag from Manohar JSON.
 
 ## Local Rehearsal Result - 2026-08-04
 
@@ -119,15 +123,15 @@ Generated CBE assignment proof:
 
 | Date | Dose code | Animals | Sheds / partitions | Operator |
 |---|---|---:|---|---|
-| 2026-08-05 | `et_tt_adult_w2` | 134 | Sumathi 1 Parts 1-8; Sumathi 2 Parts 1-6 | Natheswar |
-| 2026-08-05 | `et_tt_kid_7w` | 3 | Yashoda 6 cleanup RFIDs `901007000504784`, `901007000504725`, `901007000504736` | Natheswar |
+| 2026-08-05 | `et_tt_adult_w2` | 76 | Sumathi 1 Parts 1-8 | Natheswar |
+| 2026-08-06 | `et_tt_adult_w2` | 58 | Sumathi 2 Parts 1-6 | Natheswar |
+| 2026-08-06 | `et_tt_kid_7w` | 3 | Yashoda 6 cleanup RFIDs `901007000504784`, `901007000504725`, `901007000504736` | Natheswar |
 | **Total** | **ET+TT** | **137** |  |  |
 
-The local code-generated plan places the full 137-animal ET+TT campaign on
-**2026-08-05** under the configured single-operator capacity. There is no
-generated CBE ET+TT row for **2026-08-06** unless the operator manually moves or
-capacity/config is changed. There are no generated CBE Blue Tongue or PPR
-assignments on 5-6 Aug in the final local campaign rehearsal.
+The final `goatos-stg` plan splits the 137-animal ET+TT campaign across 5-6 Aug
+as requested: Sumathi 1 on **2026-08-05**, Sumathi 2 plus Yashoda 6 cleanup on
+**2026-08-06**. There are no generated CBE/CPT Blue Tongue or PPR assignments on
+5-6 Aug after cleanup.
 
 Important local-smoke boundary: an over-broad sweeper/projection run initially
 created separate CPT Blue Tongue / PPR assignment rows on 5-6 Aug under Darshan
