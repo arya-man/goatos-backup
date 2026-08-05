@@ -5201,6 +5201,30 @@ export interface components {
              * @description Latest actual operator-administered date among accepted vaccinations in this cohort cell.
              */
             maxAdministeredDate?: string;
+            /** @description Per-IST-business-day split of this cell's verified doses, ascending. A minAdministeredDate..maxAdministeredDate span of "30 Jun-1 Jul" hides that 84 animals were dosed on the first day and 237 on the second; this array carries that split so leadership reads the actual operator story rather than a range. */
+            administeredDays?: components["schemas"]["VaccinationCommandBoardCohortDay"][];
+            /** @description Dose-sequence EXCEPTION count for this cell: animals of this cohort holding an accepted LATER dose of the same vaccine course while THIS dose has no accepted completion (for example an accepted ET+TT Dose 2 with no accepted Dose 1). Whole-cohort truth, never capped. Cohort scope and key set are identical to verifiedCount, so "321 verified · 3 exceptions" compares like with like. */
+            missingPriorDoseCount?: number;
+            /** @description The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never return an unbounded list. missingPriorDoseCount remains the full count when capped. */
+            missingPriorDoseGoats?: components["schemas"]["VaccinationCommandBoardCohortAnimal"][];
+        };
+        /** @description One business day of accepted administration inside a cohort x dose cell. */
+        VaccinationCommandBoardCohortDay: {
+            /**
+             * Format: date
+             * @description IST business date the dose actually went in.
+             */
+            date: string;
+            /** @description DISTINCT animals dosed on that date in this cell. */
+            animalCount: number;
+        };
+        /** @description One animal behind a cohort cell exception, in farm-readable identity. */
+        VaccinationCommandBoardCohortAnimal: {
+            /** Format: uuid */
+            goatId: string;
+            displayId: string;
+            /** @description Primary visible tag when the animal has one. */
+            tag?: string;
         };
         ShedDoseMatrixCell: {
             /** Format: uuid */

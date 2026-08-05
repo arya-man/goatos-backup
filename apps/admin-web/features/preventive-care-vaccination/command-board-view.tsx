@@ -75,17 +75,28 @@ interface CohortPivotRow {
   submitted: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
-  // The real management stages that fold into this rung, kept as their own sub-rows so the
-  // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
-  members: Array<{
-    label: string;
-    animals: number;
-    pending: Record<string, number>;
-    submitted: Record<string, number>;
-    verified: Record<string, number>;
-    administeredDates: Record<string, AdministeredDateRange>;
-  }>;
+  // Per-vaccine day split and dose-sequence exceptions, both backend-owned. The grid shows the
+  // exception COUNT (a clean 324 and a 321-with-3-missing must not read alike) and the drilldown
+  // shows the days and the animals.
+  days: Record<string, CohortDay[]>;
+  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+  // The real management stages that fold into this rung. They are CEO-level noise in the grid, so
+  // they live in the drilldown only — the grid stays one row per cohort.
+  members: CohortMember[];
 }
+
+interface CohortMember {
+  label: string;
+  animals: number;
+  pending: Record<string, number>;
+  submitted: Record<string, number>;
+  verified: Record<string, number>;
+  administeredDates: Record<string, AdministeredDateRange>;
+  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+}
+
+type CohortDay = { date: string; animalCount: number };
+type CohortAnimal = { goatId: string; displayId: string; tag?: string };
 
 interface CohortCellInput {
   cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
@@ -95,6 +106,39 @@ interface CohortCellInput {
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
+  administeredDays?: CohortDay[];
+  missingPriorDoseCount?: number;
+  missingPriorDoseGoats?: CohortAnimal[];
+}
+
+// Day counts of the same vaccine coming from several (stage, sex) cohorts land on the same cohort
+// row, so identical dates ADD rather than overwrite — otherwise "1 Jul: 237" would silently become
+// whichever sub-cohort was folded last.
+function mergeDays(target: Record<string, CohortDay[]>, vaccine: string, days?: CohortDay[]) {
+  if (!days?.length) return;
+  const list = target[vaccine] ?? [];
+  days.forEach((day) => {
+    const found = list.find((candidate) => candidate.date === day.date);
+    if (found) found.animalCount += day.animalCount;
+    else list.push({ date: day.date, animalCount: day.animalCount });
+  });
+  list.sort((a, b) => a.date.localeCompare(b.date));
+  target[vaccine] = list;
+}
+
+function mergeExceptions(
+  target: Record<string, { count: number; goats: CohortAnimal[] }>,
+  vaccine: string,
+  count?: number,
+  goats?: CohortAnimal[],
+) {
+  if (!count) return;
+  const current = target[vaccine] ?? { count: 0, goats: [] };
+  current.count += count;
+  (goats ?? []).forEach((goat) => {
+    if (!current.goats.some((candidate) => candidate.goatId === goat.goatId)) current.goats.push(goat);
+  });
+  target[vaccine] = current;
 }
 
 // One matrix per FARM: leadership reads this farmwise, so Channapatna and Coimbatore never
@@ -125,17 +169,9 @@ function buildCohortPivot(
     const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const administeredDates: Record<string, AdministeredDateRange> = {};
-    const members = new Map<
-      string,
-      {
-        label: string;
-        animals: number;
-        pending: Record<string, number>;
-        submitted: Record<string, number>;
-        verified: Record<string, number>;
-        administeredDates: Record<string, AdministeredDateRange>;
-      }
-    >();
+    const days: Record<string, CohortDay[]> = {};
+    const exceptions: Record<string, { count: number; goats: CohortAnimal[] }> = {};
+    const members = new Map<string, CohortMember>();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
     // the head count by the number of vaccines.
@@ -153,6 +189,8 @@ function buildCohortPivot(
         cell.minAdministeredDate,
         cell.maxAdministeredDate,
       );
+      mergeDays(days, cell.vaccineLabel, cell.administeredDays);
+      mergeExceptions(exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
 
       let member = members.get(key);
       if (!member) {
@@ -163,9 +201,11 @@ function buildCohortPivot(
           submitted: {},
           verified: {},
           administeredDates: {},
+          exceptions: {},
         };
         members.set(key, member);
       }
+      mergeExceptions(member.exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.submitted[cell.vaccineLabel] =
         (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
@@ -190,6 +230,8 @@ function buildCohortPivot(
       submitted,
       verified,
       administeredDates,
+      days,
+      exceptions,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
   });
@@ -318,6 +360,42 @@ function enrichDriveOptions(
   }).filter((option) => option.status !== "planned" || (option.targetCount ?? 0) > 0);
 }
 
+// One selected cohort × dose cell, resolved entirely from the row already rendered.
+interface SelectedCohortCell {
+  key: string;
+  farm: string;
+  cohort: string;
+  vaccine: string;
+  animals: number;
+  pending: number;
+  submitted: number;
+  verified: number;
+  dateSpan: string;
+  days: CohortDay[];
+  exceptionCount: number;
+  exceptionGoats: CohortAnimal[];
+  members: Array<{
+    label: string;
+    animals: number;
+    pending: number;
+    submitted: number;
+    verified: number;
+    exceptions: number;
+    dateSpan: string;
+  }>;
+}
+
+// Reading order and the "not adult" qualifier are backend-owned (the cohort row-order option
+// group), so the grid never re-sorts business rows or invents its own qualifier text.
+function cohortRowOrder(pageContract: AdminUiPageContract): string[] {
+  return optionGroup(pageContract, "command_board_cohort_row_order").map((option) => option.label);
+}
+
+function rowQualifier(pageContract: AdminUiPageContract, cohort: string): string {
+  const match = optionGroup(pageContract, "command_board_cohort_row_order").find((option) => option.label === cohort);
+  return match?.title ?? "";
+}
+
 export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
@@ -348,6 +426,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
   const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set(STATUS_KEYS));
+  // Cell drilldown is client-local overlay state: the cohort row already carries its sub-cohorts,
+  // so opening a cell must not re-run the route (local-overlay rule).
+  const [selectedCell, setSelectedCell] = useState<SelectedCohortCell | null>(null);
   const futureCampaigns = useMemo(
     () => statuses.has("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
@@ -625,14 +706,27 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             across the top, pending count in the cell (red when > 0) with the verified count
             beneath it so closure is readable without subtracting from the head count. */}
         {(() => {
+          // MATCHING ladder (catch-all last) and READING order are different backend lists: the
+          // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
+          // not-adult cohorts.
           const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
-          const farms = buildCohortFarms(view.cohortMatrix, ladder);
+          const readingOrder = cohortRowOrder(pageContract);
+          const farms = buildCohortFarms(view.cohortMatrix, ladder).map((farmBlock) => ({
+            ...farmBlock,
+            rows: [...farmBlock.rows].sort((a, b) => {
+              const ai = readingOrder.indexOf(a.cohort);
+              const bi = readingOrder.indexOf(b.cohort);
+              return (ai < 0 ? readingOrder.length : ai) - (bi < 0 ? readingOrder.length : bi);
+            }),
+          }));
           return (
             <div className="cbm-cohort-section">
               <div className="cbm-section-head">
                 <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
                 <span className="cbm-meta">{copy(pageContract, "command_board.cohort_matrix.meta")}</span>
+                <span className="cbm-meta cbm-cohort-hint">{copy(pageContract, "command_board.cohort_matrix.row_hint")}</span>
               </div>
+              <div className="cbm-cohort-note">{copy(pageContract, "command_board.cohort_matrix.note")}</div>
               {farms.length === 0 ? (
                 <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
               ) : (
@@ -651,21 +745,21 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                           </tr>
                         </thead>
                         <tbody>
-                          {rows.flatMap((row) => {
+                          {rows.map((row) => {
                             // Three DISJOINT buckets, rendered together: the big number is what
                             // the OPERATOR still owes, and the sub-line carries what the VERIFIER
                             // owes (submitted) plus what is closed (verified). Showing pending
                             // alone made a fully vaccinated, fully submitted park read identically
                             // to an untouched one, and contradicted the "awaiting verification"
                             // KPI directly above this table.
-                            const cells = (
-                              pendingOf: Record<string, number>,
-                              submittedOf: Record<string, number>,
-                              verifiedOf: Record<string, number>,
-                              administeredDatesOf: Record<string, AdministeredDateRange>,
-                              label: string,
-                              present: boolean,
-                            ) =>
+                            const label = row.cohort;
+                            const present = row.animals > 0;
+                            const animals = row.animals;
+                            const pendingOf = row.pending;
+                            const submittedOf = row.submitted;
+                            const verifiedOf = row.verified;
+                            const administeredDatesOf = row.administeredDates;
+                            const cells =
                               vaccines.map((v) => {
                                 const pending = pendingOf[v];
                                 if (!present || pending === undefined) {
@@ -695,44 +789,222 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                   : done > 0
                                     ? ` · ${copy(pageContract, "command_board.cohort_matrix.date_unavailable")}`
                                     : "";
+                                const exception = row.exceptions[v];
+                                const exceptionCount = exception?.count ?? 0;
+                                const exceptionWord = copy(
+                                  pageContract,
+                                  exceptionCount === 1
+                                    ? "command_board.cohort_matrix.exception_word_one"
+                                    : "command_board.cohort_matrix.exception_word",
+                                );
+                                // Only the buckets that carry work are spelled out. A CEO cell that
+                                // prints "0 pending · 0 submitted · 324 verified" makes the reader
+                                // subtract zeroes to find the one fact that matters.
+                                const parts: string[] = [];
+                                if (pending > 0) parts.push(`${pending} ${pendingWord}`);
+                                if (awaiting > 0) parts.push(`${awaiting} ${submittedWord}`);
+                                if (done > 0) parts.push(`${done} ${verifiedWord}`);
+                                const cellKey = `${farm}|${label}|${v}`;
+                                const selection: SelectedCohortCell = {
+                                  key: cellKey,
+                                  farm,
+                                  cohort: label,
+                                  vaccine: v,
+                                  animals,
+                                  pending,
+                                  submitted: awaiting,
+                                  verified: done,
+                                  dateSpan: administeredDate,
+                                  days: row.days[v] ?? [],
+                                  exceptionCount,
+                                  exceptionGoats: exception?.goats ?? [],
+                                  members: row.members.map((member) => ({
+                                    label: member.label,
+                                    animals: member.animals,
+                                    pending: member.pending[v] ?? 0,
+                                    submitted: member.submitted[v] ?? 0,
+                                    verified: member.verified[v] ?? 0,
+                                    exceptions: member.exceptions[v]?.count ?? 0,
+                                    dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
+                                  })),
+                                };
+                                // Colour follows who owes the next move; an exception rides ON TOP of
+                                // that colour as its own chip, because "324 verified" and "321
+                                // verified with 3 animals missing this dose" are different medical
+                                // facts that must not render as the same green block.
                                 return (
                                   <td
                                     key={v}
-                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}`}
-                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
+                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${
+                                      exceptionCount > 0 ? " cbm-cell-exception" : ""
+                                    }${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
+                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}${
+                                      exceptionCount > 0 ? ` · ${exceptionCount} ${exceptionWord}` : ""
+                                    }`}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={selectedCell?.key === cellKey}
+                                    onClick={() => setSelectedCell((prev) => (prev?.key === cellKey ? null : selection))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        setSelectedCell((prev) => (prev?.key === cellKey ? null : selection));
+                                      }
+                                    }}
                                   >
-                                    {headline}
-                                    <small>
-                                      {awaiting} {submittedWord} · {done} {verifiedWord}{dateSuffix}
-                                    </small>
+                                    <span className="cbm-cell-head">{headline}</span>
+                                    <small>{parts.join(" · ")}</small>
+                                    {administeredDate ? (
+                                      <small className="cbm-cell-date">{administeredDate}</small>
+                                    ) : done > 0 ? (
+                                      <small className="cbm-cell-date">{copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</small>
+                                    ) : null}
+                                    {exceptionCount > 0 ? (
+                                      <span className="cbm-cell-exception-chip">
+                                        {exceptionCount} {exceptionWord}
+                                      </span>
+                                    ) : null}
                                   </td>
                                 );
                               });
 
-                            return [
+                            return (
                               <tr key={`${farm}-${row.cohort}`}>
-                                <th className="cbm-rowh">{row.cohort}</th>
-                                {cells(row.pending, row.submitted, row.verified, row.administeredDates, row.cohort, row.animals > 0)}
+                                <th className="cbm-rowh">
+                                  {row.cohort}
+                                  {rowQualifier(pageContract, row.cohort) ? (
+                                    <span className="cbm-rowh-note">{rowQualifier(pageContract, row.cohort)}</span>
+                                  ) : null}
+                                </th>
+                                {cells}
                                 <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
-                              </tr>,
-                              // The live stages inside this rung, so folding onto the ladder never
-                              // hides the detail the herd actually carries.
-                              ...(row.members.length > 1 || (row.members.length === 1 && row.members[0].label !== row.cohort)
-                                ? row.members.map((member) => (
-                                    <tr key={`${farm}-${row.cohort}-${member.label}`} className="cbm-cohort-sub">
-                                      <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
-                                      {cells(member.pending, member.submitted, member.verified, member.administeredDates, member.label, true)}
-                                      <td className="cbm-cell cbm-na">{member.animals}</td>
-                                    </tr>
-                                  ))
-                                : []),
-                            ];
+                              </tr>
+                            );
                           })}
                         </tbody>
                       </table>
                     </div>
                   </div>
                 ))
+              )}
+              {selectedCell ? (
+                <div className="cbm-cohort-detail">
+                  <div className="cbm-cohort-detail-hd">
+                    <b>
+                      {selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · {selectedCell.cohort} ×{" "}
+                      {selectedCell.vaccine}
+                    </b>
+                    <button type="button" className="btn sm" onClick={() => setSelectedCell(null)}>
+                      {copy(pageContract, "command_board.cohort_matrix.detail.close")}
+                    </button>
+                  </div>
+                  <div className="cbm-cohort-detail-grid">
+                    <div>
+                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</span>
+                      <span className="v">{selectedCell.animals}</span>
+                    </div>
+                    <div>
+                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</span>
+                      <span className="v">{selectedCell.pending}</span>
+                    </div>
+                    <div>
+                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</span>
+                      <span className="v">{selectedCell.submitted}</span>
+                    </div>
+                    <div>
+                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</span>
+                      <span className="v">{selectedCell.verified}</span>
+                    </div>
+                    <div>
+                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</span>
+                      <span className="v">
+                        {selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="cbm-cohort-detail-cols">
+                    {/* The day story: which day the operator actually dosed how many animals. */}
+                    <div className="cbm-cohort-detail-block">
+                      <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
+                      {selectedCell.days.length > 0 ? (
+                        <ul className="cbm-daylist">
+                          {selectedCell.days.map((day) => (
+                            <li key={day.date}>
+                              {/* Same farm-readable date wording the cell span uses ("30 Jun 2026"),
+                                  never the stored ISO value. */}
+                              <span className="d">{formatDateSpan(day.date, day.date)}</span>
+                              <span className="n">{day.animalCount}</span>
+                              <span className="u">{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="cbm-cohort-detail-muted">
+                          {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                        </span>
+                      )}
+                    </div>
+                    {/* The exception story: animals whose later dose is accepted while THIS dose is
+                        not. Named, so the CEO can hand the list to a park head. */}
+                    <div className="cbm-cohort-detail-block">
+                      <b>{copy(pageContract, "command_board.cohort_matrix.detail.exceptions")}</b>
+                      {selectedCell.exceptionCount > 0 ? (
+                        <>
+                          <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
+                          <ul className="cbm-goatlist">
+                            {selectedCell.exceptionGoats.map((goat) => (
+                              <li key={goat.goatId}>
+                                {goat.displayId}
+                                {goat.tag ? <span className="t">{goat.tag}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                          {selectedCell.exceptionCount > selectedCell.exceptionGoats.length ? (
+                            <span className="cbm-cohort-detail-muted">
+                              {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
+                            </span>
+                          ) : null}
+                        </>
+                      ) : (
+                        <span className="cbm-cohort-detail-muted">
+                          {copy(pageContract, "command_board.cohort_matrix.detail.clean")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {selectedCell.members.length > 0 ? (
+                    <table className="cbm-cohort-detail-table">
+                      <thead>
+                        <tr>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.exception_word")}</th>
+                          <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedCell.members.map((member) => (
+                          <tr key={member.label}>
+                            <td>{member.label}</td>
+                            <td>{member.animals}</td>
+                            <td>{member.pending}</td>
+                            <td>{member.submitted}</td>
+                            <td>{member.verified}</td>
+                            <td>{member.exceptions}</td>
+                            <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="cbm-cohort-detail cbm-cohort-detail-empty">
+                  {copy(pageContract, "command_board.cohort_matrix.detail.empty")}
+                </div>
               )}
             </div>
           );
