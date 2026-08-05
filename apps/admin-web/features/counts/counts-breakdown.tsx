@@ -165,7 +165,12 @@ export async function CountsBreakdownPage({
     {
       param: "bd_shed",
       label: copy(pageContract, "filter.shed_label"),
-      value: shedId ?? "",
+      // The COMPOSITE "<shed_id>|<partition_label>" is the option value, so the control must be
+      // set to the composite too. Using the bare shedId meant no <option> matched when a partition
+      // was chosen and the native <select> silently fell back to showing "All" -- the table was
+      // correctly filtered while the dropdown claimed nothing was selected. The split into
+      // shedId/partitionLabel for the API call happens separately above.
+      value: shedIdParam ?? "",
       options: buildShedFilterOptions(breakdown?.facets.sheds, selectedParkId),
     },
     {

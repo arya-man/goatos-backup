@@ -13,6 +13,8 @@ export type CountsBreakdownShedFacetLike = {
   label: string;
   count: number;
   park_id: string;
+  /** Parent physical shed uuid, sent explicitly so clients never parse the composite key. */
+  shed_id?: string | null;
   /** Park display label, used to disambiguate shed names that repeat across parks. */
   park_label?: string | null;
   partition_label?: string | null;
@@ -44,9 +46,18 @@ export function buildShedFilterOptions(
     .filter((shed) => selectedParkId === "" || shed.park_id === selectedParkId);
 
   // Group by shed_id to identify parent sheds and their partitions
+  // The backend facet `key` is COMPOSITE for a partition row: "<shed_id>#<normalized_label>"
+  // (the oploc.Key() convention), and bare "<shed_id>" for the parent-shed row. Treating that key
+  // as a shed id put "<uuid>#2" into the option value, so the parent-aggregate option carried a
+  // PARTITION key and the selected partition could never round-trip. Split it back apart here and
+  // key every group on the real shed id.
+  // shed_id now arrives EXPLICITLY on the facet; the composite-key split is only a fallback for a
+  // backend that predates that field.
+  const shedIdOf = (row: CountsBreakdownShedFacetLike): string =>
+    (row.shed_id ?? "").trim() || ((row.key ?? "").split("#")[0] ?? "");
   const shedMap = new Map<string, CountsBreakdownShedFacetLike[]>();
   for (const shed of filtered) {
-    const groupKey = `${shed.park_id}|${shed.key}`;
+    const groupKey = `${shed.park_id}|${shedIdOf(shed)}`;
     if (!shedMap.has(groupKey)) {
       shedMap.set(groupKey, []);
     }
@@ -65,10 +76,14 @@ export function buildShedFilterOptions(
     if (!parksPerShedName.has(name)) parksPerShedName.set(name, new Set());
     parksPerShedName.get(name)!.add(shed.park_id);
   }
+  // NEVER fall back to park_id here: it is a UUID, and rendering it would put a raw internal id in
+  // front of a CEO (the copy-firewall rule in AGENTS.md). With no human park label available we
+  // simply omit the suffix -- an ambiguous-but-clean label beats a leaked identifier.
   const parkLabelFor = new Map<string, string>();
   for (const shed of filtered) {
-    if (shed.park_id && !parkLabelFor.has(shed.park_id)) {
-      parkLabelFor.set(shed.park_id, shed.park_label ?? shed.park_id);
+    const label = (shed.park_label ?? "").trim();
+    if (shed.park_id && label && !parkLabelFor.has(shed.park_id)) {
+      parkLabelFor.set(shed.park_id, label);
     }
   }
   const needsParkSuffix = (shedName: string): boolean =>

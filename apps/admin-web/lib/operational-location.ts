@@ -36,6 +36,11 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   const shed = (shedName ?? "").trim() || (sourceShedName ?? "").trim();
   const rawPartition = (partitionLabel ?? "").trim();
   if (!isPartitioned(rawPartition)) return shed;
+  // With no shed name there is nothing to prefix, so return the partition alone rather than
+  // concatenating onto an empty string -- that produced a leading space (" 2") or a leading dash
+  // (" - Part 3") and made admin-web render this edge case differently from Android for the same
+  // animal. Matches PartitionLabel.kt and oploc.Display().
+  if (!shed) return rawPartition;
   return /^part\b/i.test(rawPartition) ? `${shed} - ${rawPartition}` : `${shed} ${rawPartition}`;
 }
 
