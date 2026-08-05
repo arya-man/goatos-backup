@@ -124,8 +124,6 @@ class VerifyQueueViewModel @Inject constructor(
     // and isRefreshing flips on every later refresh, which yanked already-drawn content away.
     private val _hasLoadedOnce = MutableStateFlow(false)
 
-    /** Which query the marker belongs to; a different scope has not been read yet. */
-    private var loadedScopeKey: String? = null
     private val _isLoadingMore = MutableStateFlow(false)
     private val _closingBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
@@ -301,6 +299,13 @@ class VerifyQueueViewModel @Inject constructor(
                 _selectedCategory.value = event.category
                 _selectedParkId.value = null
                 _selectedShedId.value = null
+                // Reset HERE, at the scope change, not inside refresh(). The old scope's
+                // marker stayed true until refresh() ran its own reset, leaving a window
+                // between this scope change and refresh() completing where a recomposition
+                // could show the OLD scope's confident answer (rows or "Queue clear") as if
+                // it belonged to the new scope -- STALE SCOPE, see
+                // VerifyQueueLoadSequenceTest's "switching scope resets the loaded marker".
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectPark -> {
@@ -311,6 +316,8 @@ class VerifyQueueViewModel @Inject constructor(
                     dimension = "park",
                     action = if (event.parkId != null) "set" else "cleared",
                 )
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectShed -> {
@@ -320,18 +327,24 @@ class VerifyQueueViewModel @Inject constructor(
                     dimension = "shed",
                     action = if (event.shedId != null) "set" else "cleared",
                 )
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectStatus -> {
                 if (event.status == _selectedStatus.value && !_missedOnly.value) return
                 _selectedStatus.value = event.status
                 _missedOnly.value = false
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectBusinessDate -> {
                 if (event.businessDate.isBlank()) return
                 _selectedBusinessDate.value = event.businessDate
                 _missedOnly.value = false
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.SelectModule -> {
@@ -339,11 +352,15 @@ class VerifyQueueViewModel @Inject constructor(
                 _selectedParkId.value = null
                 _selectedShedId.value = null
                 AnalyticsFunnels.trackVerifyQueueFilterApplied(analytics, dimension = "module", action = "set")
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             VerifyQueueEvent.ToggleMissed -> {
                 _missedOnly.value = !_missedOnly.value
                 if (_missedOnly.value) _selectedStatus.value = VerificationStatus.PENDING
+                // See SelectCategory above: reset at the scope change, not inside refresh().
+                _hasLoadedOnce.value = false
                 refresh()
             }
             is VerifyQueueEvent.OpenItem -> Unit // navigation — handled by the nav host.
@@ -358,13 +375,10 @@ class VerifyQueueViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         _isLoadingMore.value = false
         _isRefreshing.value = true
-        // The marker belongs to the QUERY, not the screen. Changing category/park/shed/status/
-        // date starts a brand-new read, and leaving it true let the previous scope's answer stand
-        // in for the new one -- "Queue clear" rendered over a scope nothing had been read for
-        // yet. Keyed rather than blindly reset: a pull-to-refresh on the SAME scope must not
-        // blank a legitimately empty queue while it re-reads.
-        val scopeKey = currentScope().toString()
-        if (loadedScopeKey != scopeKey) _hasLoadedOnce.value = false
+        // NOTE: hasLoadedOnce is reset at the SCOPE CHANGE call sites (SelectCategory/
+        // SelectPark/SelectShed/SelectStatus/SelectBusinessDate/SelectModule/ToggleMissed/
+        // clearStaleLocationFilters), not here. A same-scope call (pull-to-refresh, Refresh
+        // event) must never blank a legitimately-loaded/empty queue while it re-reads.
         try {
             val scope = currentScope()
             val category = scope.category ?: return@launch
@@ -388,12 +402,25 @@ class VerifyQueueViewModel @Inject constructor(
                 )
             }
             _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
+        } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+            // A repository throw must not escape viewModelScope.launch -- an uncaught
+            // exception here takes the whole app down, not just this screen. Same defect
+            // shape already fixed in SessionViewModel's dev-session bring-up (see the catch
+            // there): record it and resolve to an honest offline/error state instead of
+            // propagating. hasLoadedOnce still flips in `finally` below, so the screen
+            // reaches a real (if degraded) state rather than wedging on the skeleton.
+            runCatching { crashReporter.recordException(t, "verify queue refresh failed") }
+            _isOffline.value = true
         } finally {
             _isRefreshing.value = false
             // In FINALLY, not after the result: a throw on the way here would leave this false
             // forever and wedge the screen on a spinner over a blank list.
             _hasLoadedOnce.value = true
-            loadedScopeKey = scopeKey
         }
     }
 
@@ -490,12 +517,16 @@ class VerifyQueueViewModel @Inject constructor(
         if (selectedPark != null && data.filterOptions.parks.orEmpty().none { it.id == selectedPark }) {
             _selectedParkId.value = null
             _selectedShedId.value = null
+            // This is a scope change (the selected park no longer exists in the backend's
+            // options) -- reset at the change, same as the onEvent scope-change handlers above.
+            _hasLoadedOnce.value = false
             refresh()
             return
         }
         val selectedShed = _selectedShedId.value
         if (selectedShed != null && data.filterOptions.sheds.orEmpty().none { it.id == selectedShed }) {
             _selectedShedId.value = null
+            _hasLoadedOnce.value = false
             refresh()
         }
     }

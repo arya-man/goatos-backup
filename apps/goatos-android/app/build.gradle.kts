@@ -376,6 +376,10 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
+    // Flow state-emission testing (turbine: deterministic collection of Flow emissions
+    // in test context, no manual launch/collect needed). Catches state-sequence bugs:
+    // flashes, wedges, yanks, stale-scope issues (item: state-sequence tests).
+    testImplementation(libs.turbine)
 }
 
 configurations.matching { configuration ->

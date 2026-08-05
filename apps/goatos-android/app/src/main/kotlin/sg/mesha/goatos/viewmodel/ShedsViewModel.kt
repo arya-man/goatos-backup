@@ -123,9 +123,6 @@ class ShedsViewModel @Inject constructor(
     // -- an empty result never sets it -- and isRefreshing flips on every later refresh, so both
     // made the screen either wedge on a spinner or yank already-drawn content away mid-refresh.
     private val _hasLoadedOnce = MutableStateFlow(false)
-
-    /** Which query the marker belongs to; a different scope has not been read yet. */
-    private var loadedScopeKey: String? = null
     private val transientState = combine(
         _selectedDay,
         combine(_isRefreshing, _isOffline, _isLoadingMore, _leadershipMode, _hasLoadedOnce) { r, o, l, m, h ->
@@ -263,12 +260,13 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        // Same rule as the verify queue: the marker belongs to the QUERY. A park/day change is a
-        // new read, and carrying the previous scope's marker let "No sheds" render over a scope
-        // nothing had been read for. Keyed, not blindly reset, so a pull-to-refresh on the same
-        // scope does not blank a legitimately empty day while it re-reads.
-        val scopeKey = "${'$'}{selectedParkId.value}|${'$'}{selectedDay.value}"
-        if (loadedScopeKey != scopeKey) _hasLoadedOnce.value = false
+        // NOTE: hasLoadedOnce is reset at the SCOPE CHANGE call site (selectPark, below), not
+        // here -- see VerifyQueueViewModel's onEvent handlers for the same fix and rationale
+        // (a reset done only inside refresh() left a window where a recomposition could show
+        // the OLD park's confident answer as if it belonged to the new one). `day` is NOT part
+        // of the network scope: selectDay never calls refresh() -- the fetched window already
+        // spans the whole 7-day strip and a day switch only re-filters that same cached data
+        // client-side, so there is no new read for a day change to reset a marker in front of.
         try {
             // INSIDE the try: a throw from analytics here would skip the finally that sets
             // hasLoadedOnce, leaving the screen permanently blank with a frozen spinner.
@@ -292,12 +290,24 @@ class ShedsViewModel @Inject constructor(
                 )
                 crashReporter.recordException(it, "vaccination sheds refresh failed")
             }
+        } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+            // A repository throw must not escape viewModelScope.launch and crash the app --
+            // same defect shape fixed in SessionViewModel's dev-session bring-up and in
+            // VerifyQueueViewModel.refresh() (see the catch there). Record it and resolve to
+            // an honest offline state instead of propagating; hasLoadedOnce still flips in
+            // `finally` below so the screen never wedges on the skeleton.
+            runCatching { crashReporter.recordException(t, "vaccination sheds refresh failed") }
+            _isOffline.value = true
         } finally {
             _isRefreshing.value = false
             // In FINALLY, not after the result: a throw on the way here would otherwise leave the
             // flag false forever and wedge the screen on a spinner over a blank list.
             _hasLoadedOnce.value = true
-            loadedScopeKey = scopeKey
         }
     }
 
@@ -381,6 +391,8 @@ class ShedsViewModel @Inject constructor(
                 AnalyticsEvents.Params.ACTION to if (normalized != null) "set" else "cleared",
             ),
         )
+        // Reset HERE, at the scope change, not inside refresh() -- see refresh()'s NOTE above.
+        _hasLoadedOnce.value = false
         refresh()
     }
 

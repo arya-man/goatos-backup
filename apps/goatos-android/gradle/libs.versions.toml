@@ -56,6 +56,10 @@ firebasePerfPlugin = "2.0.2"
 # CLI login (or FIREBASE_TOKEN / a service account) at invoke time; nothing secret
 # is committed. 5.3.0 is latest at wiring.
 firebaseAppdistribution = "5.3.0"
+# Turbine: Flow testing library for collecting emissions in a deterministic test context
+# (no manual launch/collect loops). Enables assertion of state-emission order to catch
+# bugs like flashes, wedges, yanks, and stale-scope issues (item: state-sequence tests).
+turbine = "1.0.0"
 # Robolectric: JVM-shadowed Android framework so core-data's Room migration + cache
 # round-trip test (GoatDatabaseCacheTest) can build a real in-memory GoatDatabase under
 # `testDebugUnitTest` — Room's Android Context-based builder needs a real (shadowed)
@@ -160,6 +164,7 @@ androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-
 showkase = { group = "com.airbnb.android", name = "showkase", version.ref = "showkase" }
 showkase-annotation = { group = "com.airbnb.android", name = "showkase-annotation", version.ref = "showkase" }
 showkase-processor = { group = "com.airbnb.android", name = "showkase-processor", version.ref = "showkase" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 
 [plugins]
 # AGP 9+ has built-in Kotlin: Android modules apply NO kotlin.android plugin.
