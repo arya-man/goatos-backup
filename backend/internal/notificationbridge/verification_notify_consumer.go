@@ -54,9 +54,9 @@ const (
 	// Per-animal vaccination proof: one verification item per goat, raised by the same
 	// submission the legacy notifier already covers.
 	vaccinationGoatSourceRefType = "vaccination_goat"
-	positionPCDirector             = "pc_director"
-	positionGrowthDirector         = "growth_director"
-	positionCEOInternal            = "ceo_internal"
+	positionPCDirector           = "pc_director"
+	positionGrowthDirector       = "growth_director"
+	positionCEOInternal          = "ceo_internal"
 	// positionFeedDirector / positionHealthDirector are the tenant seats that own Feed and
 	// Counts (maintainer decision 2026-08-01). health_director is NOT pc_director: Health and
 	// Preventive Care are separate departments, so routing a counts proof to the PC Director

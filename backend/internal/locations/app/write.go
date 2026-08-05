@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/locations/domain"
@@ -359,10 +358,7 @@ func (s *Service) RetireLocation(ctx context.Context, input RetireLocationInput)
 	route := fmt.Sprintf("/admin/locations/%s/retire", locationID)
 	hash, err := canonicalRequestHash(tenantID, retireLocationCommand, route, locationID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID),
-			slog.String("op", retireLocationCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location request hash failed: %w", err)
 	}
 	result, err := s.repo.RetireLocation(ctx, ports.RetireLocationCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -396,10 +392,7 @@ func (s *Service) DeleteLocation(ctx context.Context, input DeleteLocationInput)
 	route := fmt.Sprintf("/admin/locations/%s", locationID)
 	hash, err := canonicalRequestHash(tenantID, deleteLocationCommand, route, locationID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID),
-			slog.String("op", deleteLocationCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location request hash failed: %w", err)
 	}
 	result, err := s.repo.DeleteLocation(ctx, ports.DeleteLocationCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -441,10 +434,7 @@ func (s *Service) CreateLocationAlias(ctx context.Context, input CreateLocationA
 	route := fmt.Sprintf("/admin/locations/%s/aliases", locationID)
 	hash, err := canonicalRequestHash(tenantID, createLocationAliasCommand, route, locationID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID),
-			slog.String("op", createLocationAliasCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location request hash failed: %w", err)
 	}
 	result, err := s.repo.CreateLocationAlias(ctx, ports.CreateLocationAliasCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -481,10 +471,7 @@ func (s *Service) UpdateLocationAlias(ctx context.Context, input UpdateLocationA
 	route := fmt.Sprintf("/admin/locations/%s/aliases/%s", locationID, aliasID)
 	hash, err := canonicalRequestHash(tenantID, updateLocationAliasCommand, route, aliasID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_alias_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID), slog.String("alias_id", aliasID),
-			slog.String("op", updateLocationAliasCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location alias request hash failed: %w", err)
 	}
 	result, err := s.repo.UpdateLocationAlias(ctx, ports.UpdateLocationAliasCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -526,10 +513,7 @@ func (s *Service) RetireLocationAlias(ctx context.Context, input RetireLocationA
 	route := fmt.Sprintf("/admin/locations/%s/aliases/%s/retire", locationID, aliasID)
 	hash, err := canonicalRequestHash(tenantID, retireLocationAliasCommand, route, aliasID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_alias_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID), slog.String("alias_id", aliasID),
-			slog.String("op", retireLocationAliasCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location alias request hash failed: %w", err)
 	}
 	result, err := s.repo.RetireLocationAlias(ctx, ports.RetireLocationAliasCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -567,10 +551,7 @@ func (s *Service) DeleteLocationAlias(ctx context.Context, input DeleteLocationA
 	route := fmt.Sprintf("/admin/locations/%s/aliases/%s", locationID, aliasID)
 	hash, err := canonicalRequestHash(tenantID, deleteLocationAliasCommand, route, aliasID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_alias_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID), slog.String("alias_id", aliasID),
-			slog.String("op", deleteLocationAliasCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location alias request hash failed: %w", err)
 	}
 	result, err := s.repo.DeleteLocationAlias(ctx, ports.DeleteLocationAliasCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -603,10 +584,7 @@ func (s *Service) CreateLocationCapacity(ctx context.Context, input CreateLocati
 	route := fmt.Sprintf("/admin/locations/%s/capacity", locationID)
 	hash, err := canonicalRequestHash(tenantID, createLocationCapacityCommand, route, locationID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_capacity_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID),
-			slog.String("op", createLocationCapacityCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location capacity request hash failed: %w", err)
 	}
 	result, err := s.repo.CreateLocationCapacity(ctx, ports.CreateLocationCapacityCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -657,10 +635,7 @@ func (s *Service) UpdateLocationCapacity(ctx context.Context, input UpdateLocati
 	route := fmt.Sprintf("/admin/locations/%s/capacity/%s", locationID, capacityID)
 	hash, err := canonicalRequestHash(tenantID, updateLocationCapacityCommand, route, capacityID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_capacity_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID), slog.String("capacity_id", capacityID),
-			slog.String("op", updateLocationCapacityCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location capacity request hash failed: %w", err)
 	}
 	result, err := s.repo.UpdateLocationCapacity(ctx, ports.UpdateLocationCapacityCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -701,10 +676,7 @@ func (s *Service) DeleteLocationCapacity(ctx context.Context, input DeleteLocati
 	route := fmt.Sprintf("/admin/locations/%s/capacity/%s", locationID, capacityID)
 	hash, err := canonicalRequestHash(tenantID, deleteLocationCapacityCommand, route, capacityID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_capacity_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("location_id", locationID), slog.String("capacity_id", capacityID),
-			slog.String("op", deleteLocationCapacityCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location capacity request hash failed: %w", err)
 	}
 	result, err := s.repo.DeleteLocationCapacity(ctx, ports.DeleteLocationCapacityCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -733,10 +705,7 @@ func (s *Service) CreateLocationReviewItem(ctx context.Context, input CreateLoca
 	route := "/admin/location-review-items"
 	hash, err := canonicalRequestHash(tenantID, createLocationReviewCommand, route, body.EvidenceHash, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_review_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("evidence_hash", body.EvidenceHash),
-			slog.String("op", createLocationReviewCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location review request hash failed: %w", err)
 	}
 	result, err := s.repo.CreateLocationReviewItem(ctx, ports.CreateLocationReviewItemCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,
@@ -783,10 +752,7 @@ func (s *Service) ResolveLocationReviewItem(ctx context.Context, input ResolveLo
 	route := fmt.Sprintf("/admin/location-review-items/%s/resolve", reviewID)
 	hash, err := canonicalRequestHash(tenantID, resolveLocationReviewCommand, route, reviewID, input.RawBody)
 	if err != nil {
-		slog.ErrorContext(ctx, "location_review_request_hash_failed",
-			slog.String("tenant_id", tenantID), slog.String("review_id", reviewID),
-			slog.String("op", resolveLocationReviewCommand), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("location review request hash failed: %w", err)
 	}
 	result, err := s.repo.ResolveLocationReviewItem(ctx, ports.ResolveLocationReviewItemCommand{
 		TenantID: tenantID, ActorID: actorID, ClientIdempotencyKey: clientKey,

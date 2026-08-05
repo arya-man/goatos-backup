@@ -157,6 +157,15 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /app/config, /app/bootstrap, /app/me, /admin-web/bootstrap | EXCLUDED | Client/session bootstrap; RBAC/chrome, not data |
 | GET /app/proofs/{id}/download(+/signed) | EXCLUDED | Binary proof retrieval |
 | GET /healthz, /livez, /readyz, /version | EXCLUDED | Infra probes; no tenant scope, no business data |
+| vaccination_completion_rejections | EXCLUDED | Per-completion rejection audit rows written when a verifier sends a vaccination proof back. Leadership reads the CONSEQUENCE, not the row: a rejected completion reopens its obligation and reappears through `view:verification_queue_status`. No new assistant read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:ResolveProofDownloadURL, func:WithProofURLResolver (weighing proof URL resolver) | EXCLUDED | Proof-media retrieval plumbing. Signed URL resolution at download time, part of the existing verification proof-media surfaces covered by `view:verification_queue_status` and `action_center_current`. No new assistant read API, Cube metric, `ceo_ai` view, or Toolbox tool. |
+| func:GetWeightHistory, func:GetLeadershipGrowthADG (weighing read-model functions) | api | Leadership weighing historical trend and growth metrics. Covered by new read model functions that back leadership reporting. Admin-web Growth Dashboard reads through these functions; leadership assistant coverage through same endpoints + `ceo_ai.weighing_capture_activity` (migration 000080). No new Cube metric, `ceo_ai` view, or Toolbox tool beyond the function itself. |
+| func:ExportCampaignCSV, func:ListParks (weighing campaign export) | api | Weighing campaign export functionality and park listing for planner. Planner/admin-web surfaces export campaign results to CSV for analysis. No new assistant tool, Cube metric, or `ceo_ai` view. |
+| func:ReopenObligation, func:ReopenTaskForRework (obligation/weighing rework) | EXCLUDED | Write-path rework and obligation state helpers for verification rejection flow. Part of the existing verification verdict application; leadership sees result through `view:verification_queue_status`. No new assistant read API, Cube metric, or `ceo_ai` view. |
+| func:ListExhausted, func:RequeueExhausted (outbox/event queue) | EXCLUDED | Operational kernel event delivery retry workers. Infrastructure-layer delivery-health instrumentation; no leadership read API, Cube metric, `ceo_ai` view, or Toolbox tool. Delivery health already covered by `ceo_ai.notification_delivery_health`. |
+| func:DeviceIDFromContext, func:WithDeviceID (device context) | EXCLUDED | Device identity context plumbing for FCM and push notification routing. Internal middleware, not a leadership read surface. No new assistant tool, Cube metric, or `ceo_ai` view. |
+| func:RetryableConflict, func:WithObligationCompleter, func:Error (error/helper types) | EXCLUDED | Internal error types and completeness helpers for obligation/verification workflows. Type definitions and interface plumbing, not leadership-facing reads. No new assistant tool, Cube metric, or `ceo_ai` view. |
+| func:Write (miscellaneous write helper) | EXCLUDED | Internal write-path helper. Not a leadership read surface or API. |
 
 ## B. `ceo_ai.*` reporting views
 
@@ -190,7 +199,7 @@ tracked as gaps below.
 |---|---|
 | goats, herd_register_summary_projection | animal_current_scope, counts_movement_daily |
 | locations, park_profiles, shed_profiles, location_capacity_records | shed_capacity_current |
-| vaccination_eligibility_rollups, obligation_instances, obligation_batches, vaccination_completions | vaccination_shed_status, vaccination_dose_pickup |
+| vaccination_eligibility_rollups, obligation_instances, obligation_batches, vaccination_completions, vaccination_completion_rejections | vaccination_shed_status, vaccination_dose_pickup |
 | vaccination_drive_assignments (operator-based drive model) | vaccination_operator_status (operator load / capacity / overdue / utilization) |
 | obligation_escalations | ops_exception_queue, action_center_current |
 | feed_direction_issues, feed_direction_issue_rows | feed_direction_current, ops_exception_queue |

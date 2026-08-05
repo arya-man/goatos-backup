@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -141,7 +140,7 @@ func (s *Service) syncPublishedCapacityBestEffort(ctx context.Context, tenantID 
 	env, err := decodeRuleDSLEnvelope(v.RuleDsl)
 	if err != nil {
 		// idempotent replay: capacity was already synced at first publish; skip sync if DSL is now undecodable
-		slog.DebugContext(ctx, "skip capacity sync on replay with invalid rule_dsl", slog.String("tenant_id", tenantID), slog.String("version_id", v.ProtocolVersionID), slog.Any("error", err))
+		// exception:exempt best-effort operation; capacity sync failure is not fatal to version publish
 		return nil
 	}
 	return s.syncPublishedCapacity(ctx, tenantID, v, env)

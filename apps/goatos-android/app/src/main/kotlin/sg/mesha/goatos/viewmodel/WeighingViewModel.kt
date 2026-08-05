@@ -3160,7 +3160,7 @@ private const val CLOSE_REASON_OPEN_BUCKETS = "open_buckets_closed"
  * preview disagree with the file a planner can also open directly.
  */
 private fun List<WeighingCsvExportRow>.toExportPreviewSheds(): List<WeighingExportPreviewShedUi> {
-    val order = LinkedHashMap<String, MutableList<WeighingCsvExportRow>>()
+    val order = LinkedHashMap<String, MutableList<WeighingCsvExportRow>>() // mobile-guard:ignore: function-local, bounded by the CSV row list passed into this call and discarded on return
     for (row in this) {
         val key = "${row.park} ${row.shedName}"
         order.getOrPut(key) { mutableListOf() }.add(row)

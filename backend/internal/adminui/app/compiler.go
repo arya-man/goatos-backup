@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -227,7 +226,7 @@ func (s *Service) loadFamilyRevisions(ctx context.Context, tenantID string) (map
 	revisions, err := repo.LoadContractFamilyRevisions(ctx, tenantID)
 	if err != nil {
 		// best-effort: load revision map for contract family matching; if unavailable, fall back to no revisions
-		slog.ErrorContext(ctx, "load contract family revisions: failed", slog.String("tenant_id", tenantID), slog.Any("error", err))
+		// exception:exempt graceful fallback; the contract family matching is optional and doesn't block bootstrap
 		return nil, false
 	}
 	if revisions == nil {

@@ -78,7 +78,13 @@ class GoatOsApplication : Application(), Configuration.Provider {
         // The mirror and DataStore are read-through of each other (see DataStoreDeviceStore),
         // so the ids resolved here are exactly the ids DataStore converges to on every later
         // read -- including the very first-ever launch, where the mirror mints the id.
+        // exception:exempt a DataStore read that fails here is INDISTINGUISHABLE from a first
+        // launch with no id yet, and both are handled identically by the null branch below,
+        // which reports the unattributable run rather than swallowing it. Recording the
+        // throwable here would fire on every clean install.
+        // exception:exempt first launch has no id yet, so a failed read is indistinguishable from an unminted id; the null branch below reports the unattributable run
         val deviceId = runCatching { deviceStore.appInstallIdSync() }.getOrNull()?.ifBlank { null }
+        // exception:exempt same first-launch ambiguity as the line above; handled by the null branch, not swallowed
         val journeyId = runCatching { deviceStore.journeyIdSync() }.getOrNull()?.ifBlank { null }
         if (deviceId == null || journeyId == null) {
             // Never silently: a missing id means every event this run is unattributable, and

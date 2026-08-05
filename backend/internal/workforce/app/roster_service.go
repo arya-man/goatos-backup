@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -425,13 +424,11 @@ func (s *RosterService) ApplyLeave(ctx context.Context, tenantID, actorID string
 	}
 	startsAt, err := parseBusinessDate(body.StartsOn)
 	if err != nil {
-		slog.DebugContext(ctx, "apply staff leave: invalid starts_on date format", slog.String("tenant_id", tenantID), slog.String("starts_on", body.StartsOn), slog.Any("error", err))
-		return nil, BadRequest("invalid_starts_on", "starts_on must be YYYY-MM-DD")
+		return nil, fmt.Errorf("apply staff leave: invalid starts_on date format: %w", err)
 	}
 	endsOnDay, err := parseBusinessDate(body.EndsOn)
 	if err != nil {
-		slog.DebugContext(ctx, "apply staff leave: invalid ends_on date format", slog.String("tenant_id", tenantID), slog.String("ends_on", body.EndsOn), slog.Any("error", err))
-		return nil, BadRequest("invalid_ends_on", "ends_on must be YYYY-MM-DD")
+		return nil, fmt.Errorf("apply staff leave: invalid ends_on date format: %w", err)
 	}
 	endsAt := endsOnDay.AddDate(0, 0, 1) // exclusive end: covers the whole ends_on business day
 	if !endsAt.After(startsAt) {
@@ -833,8 +830,7 @@ func (s *RosterService) ResolveVaccinationOwner(ctx context.Context, tenantID, a
 	}
 	date, err := parseBusinessDate(dateStr)
 	if err != nil {
-		slog.DebugContext(ctx, "get vaccination owner: invalid date format", slog.String("tenant_id", tenantID), slog.String("date", dateStr), slog.Any("error", err))
-		return nil, BadRequest("invalid_date", "date must be YYYY-MM-DD")
+		return nil, fmt.Errorf("get vaccination owner: invalid date format: %w", err)
 	}
 	owner, err := s.resolveEffectiveOwner(ctx, tenantID, actorID, scopeType, scopeID, vaccinationPositionCode, date)
 	if err != nil {

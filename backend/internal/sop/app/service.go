@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -558,8 +557,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
-			slog.ErrorContext(ctx, "submit task: proof refs resolution failed", slog.String("tenant_id", cmd.TenantID), slog.String("task_id", cmd.TaskID), slog.Any("error", err))
-			return nil, BadRequest("invalid_proof_refs", "proof_refs must reference server-issued proof records for this tenant")
+			return nil, fmt.Errorf("submit task: proof refs resolution failed: %w", err)
 		}
 		cmd.Body.ProofRefs = proofRefs
 	}

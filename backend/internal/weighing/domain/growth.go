@@ -89,10 +89,10 @@ type GrowthTrendPoint struct {
 
 // GrowthShedLeaderboardRow is one shed's ADG/weight summary for the period.
 type GrowthShedLeaderboardRow struct {
-	LocationID      string  `json:"location_id"`
-	DisplayName     string  `json:"display_name"`
-	AnimalCount     int     `json:"n"`
-	MedianWeightKg  float64 `json:"median_weight_kg"`
+	LocationID       string  `json:"location_id"`
+	DisplayName      string  `json:"display_name"`
+	AnimalCount      int     `json:"n"`
+	MedianWeightKg   float64 `json:"median_weight_kg"`
 	MedianADGGPerDay float64 `json:"median_adg_g_per_day"`
 	// ADGPairCount is how many qualifying ADG pairs this shed's median is based on. Can be
 	// less than AnimalCount -- a shed can have animals weighed once (no pair yet).
@@ -134,11 +134,11 @@ type GrowthSaleReadiness struct {
 // answers a different, valid question: "is this shed's average getting
 // heavier" -- not "are these specific animals growing".
 type GrowthLumpSumShedTrendPoint struct {
-	LocationID        string  `json:"location_id"`
-	DisplayName       string  `json:"display_name"`
-	WeekStart         string  `json:"week_start"`
-	AverageWeightKg   float64 `json:"average_weight_kg"`
-	HeadCount         int     `json:"head_count"`
+	LocationID      string  `json:"location_id"`
+	DisplayName     string  `json:"display_name"`
+	WeekStart       string  `json:"week_start"`
+	AverageWeightKg float64 `json:"average_weight_kg"`
+	HeadCount       int     `json:"head_count"`
 }
 
 // GrowthLumpSum is the lump-sum (per-shed-partition) aggregate, reported
@@ -177,23 +177,23 @@ type GrowthADG struct {
 	// omitted park_id (herd-wide view): the set is exactly the caller's own authorized-park scope
 	// (reusing the same scoping helper other leadership reads use), never widened. When a single
 	// park_id was requested, this is that one park's id, for a consistent contract either way.
-	ParkIDs       []string                     `json:"park_ids"`
+	ParkIDs []string `json:"park_ids"`
 	// Parks names the ids in ParkIDs so a client can offer a park selector without inventing
 	// labels. Read from `locations`, which is an allowlisted org table -- NOT herd data.
 	Parks []GrowthPark `json:"parks"`
 	// LosingAnimals names the animals whose latest pair shows a LOSS. Returned so the headline
 	// count is drillable: a tappable "15 losing" that leads nowhere specific is a dead end, and
 	// the whole point of surfacing it is to let someone go and look at those animals.
-	LosingAnimals []GrowthLosingAnimal `json:"losing_animals"`
-	PeriodStart   string                       `json:"period_start"`
-	PeriodEnd     string                       `json:"period_end"`
-	Headline      GrowthADGHeadline            `json:"headline"`
-	Eligibility   GrowthEligibility            `json:"eligibility"`
-	Trend         []GrowthTrendPoint           `json:"trend"`
+	LosingAnimals   []GrowthLosingAnimal       `json:"losing_animals"`
+	PeriodStart     string                     `json:"period_start"`
+	PeriodEnd       string                     `json:"period_end"`
+	Headline        GrowthADGHeadline          `json:"headline"`
+	Eligibility     GrowthEligibility          `json:"eligibility"`
+	Trend           []GrowthTrendPoint         `json:"trend"`
 	ShedLeaderboard []GrowthShedLeaderboardRow `json:"shed_leaderboard"`
-	Distribution  []GrowthDistributionBucket   `json:"distribution"`
-	SaleReadiness GrowthSaleReadiness          `json:"sale_readiness"`
-	LumpSum       GrowthLumpSum                `json:"lump_sum"`
+	Distribution    []GrowthDistributionBucket `json:"distribution"`
+	SaleReadiness   GrowthSaleReadiness        `json:"sale_readiness"`
+	LumpSum         GrowthLumpSum              `json:"lump_sum"`
 }
 
 // GrowthPark is the id/name pair behind a park scope option.

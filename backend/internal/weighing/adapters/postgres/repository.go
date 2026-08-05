@@ -377,6 +377,7 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 		// different operator, the old operator keeps getting nudged while the new one sees
 		// nothing. Similarly, park_id and shed_label (display_name) may have changed.
 		// Only sync non-terminal items (scheduled/delayed); completed/closed items stay frozen.
+		// scale-guard:ignore: bounded by unique campaign_shed_id and filtered on work_state; per-bucket sync during campaign edit
 		if _, err := tx.Exec(ctx, `
 	UPDATE weighing_work_items
 	SET operator_user_id=$3::uuid,

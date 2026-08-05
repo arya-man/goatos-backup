@@ -205,6 +205,7 @@ func (r *Repository) GetLeadershipGrowthADG(ctx context.Context, tenantID string
 
 func (r *Repository) growthHeadlineStats(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) (domain.GrowthADGHeadline, error) {
 	q := `WITH ` + growthPairsCTE + `),
+-- projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 inperiod AS (
   SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
 ),
@@ -241,7 +242,9 @@ SELECT
 
 func (r *Repository) growthRejectedCount(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (int, error) {
 	var count int
+	// projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
+	-- projection-review: membership=weighing_observations; group_key=park_aggregate; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 SELECT COUNT(*)
 FROM weighing_observations wo
 JOIN weighing_campaign_sheds wcs
@@ -258,6 +261,7 @@ WHERE wo.tenant_id = $1::uuid
 
 func (r *Repository) growthEligibility(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthEligibility, error) {
 	var e domain.GrowthEligibility
+	// projection-review: membership=weighing_observations; group_key=animal_key; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	err := r.pool.QueryRow(ctx, `
 WITH obs AS (
   SELECT lower(btrim(wo.scanned_identifier)) AS animal_key
@@ -281,6 +285,7 @@ SELECT COUNT(*) FILTER (WHERE n >= 2), COUNT(*) FROM per_animal`,
 }
 
 func (r *Repository) growthTrend(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthTrendPoint, error) {
+	// projection-review: membership=weighing_observations; group_key=week_start; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
   SELECT *, (date_trunc('week', accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start
@@ -315,6 +320,7 @@ ORDER BY week_start`
 }
 
 func (r *Repository) growthShedLeaderboard(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthShedLeaderboardRow, error) {
+	// projection-review: membership=weighing_observations; group_key=location_id; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	q := `WITH ` + growthPairsCTE + `),
 inperiod AS (
   SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz
@@ -379,6 +385,7 @@ const (
 
 func (r *Repository) growthDistribution(ctx context.Context, tenantID string, parkIDs []string, lookbackStart, periodStart, periodEnd time.Time) ([]domain.GrowthDistributionBucket, error) {
 	var negativeCount int
+	// projection-review: membership=weighing_observations; group_key=bucket; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	if err := r.pool.QueryRow(ctx, `WITH `+growthPairsCTE+`),
 inperiod AS (SELECT * FROM qualifying WHERE accepted_at >= $5::timestamptz)
 SELECT COUNT(*) FROM inperiod WHERE adg_g_per_day < 0`,
@@ -436,6 +443,7 @@ func (r *Repository) growthSaleReadiness(ctx context.Context, tenantID string, p
 	// bounding it to a reporting window would make an animal that was not weighed this month
 	// (but is definitely heavy enough to sell, per its last known weight) invisible to the
 	// exact question this section answers.
+	// projection-review: membership=weighing_observations; group_key=animal_key; join_cardinality=one_to_many; pagination=single_row; scope=park_ids
 	rows, err := r.pool.Query(ctx, `
 WITH obs AS (
   SELECT wo.observation_id, wo.weight_kg::float8 AS weight_kg, wo.accepted_at,
@@ -473,6 +481,7 @@ func (r *Repository) growthLumpSumTrend(ctx context.Context, tenantID string, pa
 	// Lump-sum shed totals are read HERE, entirely separately from the individual-observation
 	// queries above -- see the GrowthLumpSum domain comment for why a per-animal ADG must never
 	// be derived from the delta between two shed-level averages.
+	// projection-review: membership=weighing_shed_observations; group_key=location_id_week; join_cardinality=one_to_many; pagination=multi_row; scope=park_ids
 	rows, err := r.pool.Query(ctx, `
 SELECT wcs.location_id, wcs.display_name,
        (date_trunc('week', wso.accepted_at AT TIME ZONE 'Asia/Kolkata'))::date AS week_start,

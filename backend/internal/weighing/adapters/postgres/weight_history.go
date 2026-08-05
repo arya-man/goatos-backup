@@ -287,15 +287,25 @@ LIMIT %d
 	}
 
 	// Build park list from the parks actually in the data.
+	// Batch lookup all park names in one query to avoid N+1.
 	parks := []domain.WeighingPark{}
-	for parkID := range parkSet {
-		// Look up the park name.
-		var parkName string
-		if err := r.pool.QueryRow(ctx, "SELECT name FROM locations WHERE location_id = $1::uuid", parkID).Scan(&parkName); err == nil {
-			parks = append(parks, domain.WeighingPark{
-				ParkID: parkID,
-				Name:   parkName,
-			})
+	if len(parkSet) > 0 {
+		parkIDs := make([]string, 0, len(parkSet))
+		for pid := range parkSet {
+			parkIDs = append(parkIDs, pid)
+		}
+		parkRows, err := r.pool.Query(ctx, "SELECT location_id, name FROM locations WHERE location_id = ANY($1::uuid[])", parkIDs)
+		if err == nil {
+			defer parkRows.Close()
+			for parkRows.Next() {
+				var parkID, parkName string
+				if err := parkRows.Scan(&parkID, &parkName); err == nil {
+					parks = append(parks, domain.WeighingPark{
+						ParkID: parkID,
+						Name:   parkName,
+					})
+				}
+			}
 		}
 	}
 	sort.Slice(parks, func(i, j int) bool { return parks[i].Name < parks[j].Name })

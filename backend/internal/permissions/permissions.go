@@ -113,8 +113,8 @@ const (
 	// applied here in the opposite direction, a dedicated capability rather than
 	// borrowing someone else's.
 	VaccinationAlertsRead = "vaccination.alerts_read"
-	VaccinationVerify         = "vaccination.verify"
-	VaccinationCampaign       = "vaccination.campaign"
+	VaccinationVerify     = "vaccination.verify"
+	VaccinationCampaign   = "vaccination.campaign"
 	// VaccinationOverseeExecution gates the READ-ONLY, park-scoped OVERSIGHT view of vaccination
 	// execution on the app routes (/app/vaccination/execution): every shed/partition in the
 	// actor's authorized park(s) instead of only the drives the caller was assigned.

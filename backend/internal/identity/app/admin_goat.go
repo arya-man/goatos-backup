@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -135,13 +134,11 @@ func (s *Service) CreateAdminGoat(ctx context.Context, input CreateAdminGoatInpu
 	}
 	raw, err := json.Marshal(normalized)
 	if err != nil {
-		slog.ErrorContext(ctx, "admin goat create: json marshal failed", slog.String("tenant_id", tenantID), slog.Any("error", err))
-		return nil, Internal("goat create request normalization failed")
+		return nil, fmt.Errorf("goat create request normalization failed: %w", err)
 	}
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats", "", raw)
 	if err != nil {
-		slog.ErrorContext(ctx, "admin goat create: canonical request hash failed", slog.String("tenant_id", tenantID), slog.Any("error", err))
-		return nil, BadRequest("invalid_json", "request body must be valid JSON")
+		return nil, fmt.Errorf("goat create request hash failed: %w", err)
 	}
 	cmd.RequestHash = requestHash
 	cmd.StoredIdempotencyKey = fmt.Sprintf("%s:%s:%s", tenantID, createAdminGoatCommand, clientKey)
@@ -239,8 +236,7 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 	response.Summary.Total = len(response.Rows)
 	response.PreviewToken, err = s.signAdminGoatBulkPreview(input.TenantID, body.FileHash, previewCommitRows(response.Rows))
 	if err != nil {
-		slog.ErrorContext(ctx, "admin goat bulk preview: token generation failed", slog.String("tenant_id", input.TenantID), slog.Any("error", err))
-		return nil, Internal("bulk preview token generation failed")
+		return nil, fmt.Errorf("bulk preview token generation failed: %w", err)
 	}
 	return response, nil
 }
@@ -305,14 +301,12 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 		}
 		raw, err := json.Marshal(normalized)
 		if err != nil {
-			slog.ErrorContext(ctx, "admin goat bulk commit: json marshal failed", slog.String("tenant_id", tenantID), slog.Int("row_number", rowNumber), slog.Any("error", err))
-			return nil, Internal("bulk row normalization failed")
+			return nil, fmt.Errorf("bulk row normalization failed: %w", err)
 		}
 		rowKey := rowIdempotencyKey(clientKey, rowNumber)
 		requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats/bulk-commit", fmt.Sprintf("row:%d", rowNumber), raw)
 		if err != nil {
-			slog.ErrorContext(ctx, "admin goat bulk commit: canonical request hash failed", slog.String("tenant_id", tenantID), slog.Int("row_number", rowNumber), slog.Any("error", err))
-			return nil, BadRequest("invalid_json", "bulk row must be valid JSON")
+			return nil, fmt.Errorf("bulk row hash failed: %w", err)
 		}
 		cmd.ClientIdempotencyKey = rowKey
 		cmd.StoredIdempotencyKey = fmt.Sprintf("%s:%s:%s:%s", tenantID, commitAdminGoatBulkCommand, clientKey, rowKey)

@@ -804,6 +804,16 @@
       "owningDoc": "docs/decisions/module-alerts-tab.md",
       "requiredInCI": true,
       "ciStep": "module-alerts-tab-guard"
+    },
+    {
+      "id": "screen-view-authoring",
+      "script": "tools/agent-hooks/check-screen-view-authoring.mjs",
+      "makeTarget": "telemetry-guard-ratchet-v2",
+      "realCheck": "node tools/agent-hooks/check-screen-view-authoring.mjs",
+      "selfTest": "node tools/agent-hooks/check-screen-view-authoring.mjs --self-test",
+      "owningDoc": "docs/TELEMETRY.md",
+      "requiredInCI": true,
+      "ciStep": "admin-web-local-overlay-guard"
     }
   ]
 }

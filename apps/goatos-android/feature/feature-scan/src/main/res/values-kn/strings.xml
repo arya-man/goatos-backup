@@ -50,4 +50,8 @@
         <item quantity="one">%1$d ಐಟಂ ಸಿಂಕ್ ಆಗುತ್ತಿದೆ</item>
         <item quantity="other">%1$d ಐಟಂಗಳು ಸಿಂಕ್ ಆಗುತ್ತಿವೆ</item>
     </plurals>
+    <string name="scan_submit_confirmation_title">ಈ ಶೆಡ್ ಅನ್ನು ಅಂತಿಮಗೊಳಿಸಬೇಕೇ?</string>
+    <string name="scan_submit_confirmation_subtitle">ಅಂತಿಮಗೊಳಿಸಿದ ನಂತರ, ಈ ಶೆಡ್ ಕೆಲಸ ಲಾಕ್ ಆಗುತ್ತದೆ. ನೀವು ಇದನ್ನು ನೀವಾಗಿಯೇ ಮತ್ತೆ ತೆರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ — ಕೇವಲ ಮ್ಯಾನೇಜರ್ ಅಥವಾ ಡೈರೆಕ್ಟರ್ ಮಾತ್ರ ತೆರೆಯಬಹುದು.</string>
+    <string name="scan_submit_confirmation_dismiss">ರದ್ದುಮಾಡಿ</string>
+    <string name="scan_submit_confirmation_confirm">ಅಂತಿಮಗೊಳಿಸಿ</string>
 </resources>

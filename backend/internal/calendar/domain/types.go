@@ -79,10 +79,10 @@ type DriveSummary struct {
 	// left": a fully submitted drive reports progress_pct 100 AND remaining_count 0. The
 	// outstanding verifier review is carried by SubmittedCount and the verification_pending status.
 	// (It was TotalCount - CompletedCount, which read "20 remaining" beside a 100% ring.)
-	RemainingCount   int `json:"remaining_count"`
-	DueCount         int `json:"due_count"`
-	OverdueCount     int `json:"overdue_count"`
-	DeferredCount    int `json:"deferred_count"`
+	RemainingCount int `json:"remaining_count"`
+	DueCount       int `json:"due_count"`
+	OverdueCount   int `json:"overdue_count"`
+	DeferredCount  int `json:"deferred_count"`
 	// RejectedCount is INFORMATIONAL ONLY -- a subset already counted inside DueCount/OverdueCount
 	// above (status='rejected' is one of the statuses those buckets allow), never an additional
 	// partition; it does not change the five-bucket total invariant. It exists so the card can

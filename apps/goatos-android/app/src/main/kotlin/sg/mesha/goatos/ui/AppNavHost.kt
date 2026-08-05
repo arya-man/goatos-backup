@@ -826,17 +826,25 @@ internal class NavRouteAnalyticsViewModel @Inject constructor(
 private fun NavRouteAnalyticsEffect(navController: NavController) {
     val analyticsViewModel: NavRouteAnalyticsViewModel = hiltViewModel()
     DisposableEffect(navController) {
-        var previousBackStackSize = navController.currentBackStack.value.size
-        var previousTopRoute: String? = navController.currentDestination?.route
-        val listener = NavController.OnDestinationChangedListener { controller, destination, _ ->
-            val currentBackStackSize = controller.currentBackStack.value.size
+        // [NavController.currentBackStack] is `@RestrictedApi` to navigation-compose's own library
+        // group, so it cannot be called from here. Instead this mirrors the visited route stack
+        // itself: a route already present lower in [seenRoutes] reappearing at the top means the
+        // controller popped back to it (a system Back gesture, or the shell's own
+        // `popBackStack(href)` return-to-sibling-tab); anything else is a forward move (drawer
+        // module switch, bottom-bar tab, or a drill-in) and is simply pushed.
+        val seenRoutes = mutableListOf<String>()
+        navController.currentDestination?.route?.let(seenRoutes::add)
+        val listener = NavController.OnDestinationChangedListener { _, destination, _ ->
+            val previousTopRoute = seenRoutes.lastOrNull()
             val newRoute = destination.route
-            if (currentBackStackSize < previousBackStackSize) {
+            val poppedToIndex = if (newRoute != null) seenRoutes.lastIndexOf(newRoute) else -1
+            if (poppedToIndex in 0 until seenRoutes.lastIndex) {
                 previousTopRoute?.let(analyticsViewModel::trackRouteExitedViaBack)
+                while (seenRoutes.size > poppedToIndex + 1) seenRoutes.removeAt(seenRoutes.lastIndex)
+            } else if (newRoute != null && newRoute != previousTopRoute) {
+                seenRoutes.add(newRoute)
             }
             analyticsViewModel.trackRouteEntered(newRoute)
-            previousBackStackSize = currentBackStackSize
-            previousTopRoute = newRoute
         }
         navController.addOnDestinationChangedListener(listener)
         onDispose { navController.removeOnDestinationChangedListener(listener) }
@@ -1228,6 +1236,9 @@ fun AppNavHost(
         ) { entry ->
             val campaignId = entry.arguments?.getString(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
             val listEntry = remember(entry) {
+                // exception:exempt getBackStackEntry THROWS when the tasks list is not on the
+                // stack, which is the ordinary deep-link/process-restore case, not a fault. The
+                // elvis below falls back to this entry's own scope; there is nothing to report.
                 runCatching { navController.getBackStackEntry(Routes.WEIGHING_TASKS) }.getOrNull()
             }
             val vm: WeighingViewModel = hiltViewModel(listEntry ?: entry)
@@ -1287,6 +1298,7 @@ fun AppNavHost(
         ) { entry ->
             val campaignId = entry.arguments?.getString(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
             val listEntry = remember(entry) {
+                // exception:exempt getBackStackEntry throws when the tasks list is not on the stack, the ordinary deep-link case; the elvis falls back to this entry
                 runCatching { navController.getBackStackEntry(Routes.WEIGHING_TASKS) }.getOrNull()
             }
             val vm: WeighingViewModel = hiltViewModel(listEntry ?: entry)
