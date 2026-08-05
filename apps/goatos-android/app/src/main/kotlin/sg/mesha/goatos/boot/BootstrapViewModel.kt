@@ -206,12 +206,11 @@ class BootstrapViewModel @Inject constructor(
         // not landed yet. Re-deriving it here unconditionally made two concurrent resolvers of the
         // same ids, and the events already stamped with the first value would no longer match the
         // value that finally persisted -- splitting the very session the journey id exists to join.
-        // exception:exempt these are the SAME first-launch-vs-failure ambiguity as in
-        // GoatOsApplication: a null id is handled by the caller, and recording a throwable here
-        // would fire on every clean install where the id has not been minted yet.
         val deviceId = analyticsContext.deviceId
+            // exception:exempt first launch has not minted the id yet, so a failed read is indistinguishable from a legitimately absent one; the null is handled by the caller
             ?: runCatching { deviceStore.appInstallId() }.getOrNull()?.ifBlank { null }
         val journeyId = analyticsContext.journeyId
+            // exception:exempt first launch has not minted the id yet, so a failed read is indistinguishable from a legitimately absent one; the null is handled by the caller
             ?: runCatching { deviceStore.journeyId() }.getOrNull()?.ifBlank { null }
 
         analyticsContext.role = role
