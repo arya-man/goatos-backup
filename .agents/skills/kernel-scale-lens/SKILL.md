@@ -54,7 +54,8 @@ abstract. Applies to every notification type (vaccination, weighing, feed,
 counts), not just vaccination.
 
 A compliant Title/Body names:
-- **Park** and **shed/partition**.
+- **Park** and **shed/partition** (when partition exists, never parent shed alone
+  — see [`docs/decisions/operational-location-display-contract.md`](../../../docs/decisions/operational-location-display-contract.md)).
 - **Vaccine/work-item name in human form** (`ET+TT`, `PPR · Booster` — never a
   raw config token like `et_tt_adult_w2`; use the vaccine display mapper, see
   `docs/decisions/scale-anti-patterns.md` UI-copy section).

@@ -4823,6 +4823,30 @@ components:
             - string
             - "null"
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 80
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or
+            absent means the shed is non-partitioned. Never the literal string
+            "whole".
+        source_shed_name:
+          type:
+            - string
+            - "null"
+          maxLength: 200
+          description: >-
+            Original partition-bearing source name (e.g. "Castro 1"), kept for
+            traceability only. Not a display field.
+        operational_location_display:
+          type: string
+          maxLength: 200
+          description: >-
+            User-facing location label. No partition -> bare shed name
+            ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention
+            -> "Godel 1 - Part 3".
     GoatSummary:
       type: object
       additionalProperties: false

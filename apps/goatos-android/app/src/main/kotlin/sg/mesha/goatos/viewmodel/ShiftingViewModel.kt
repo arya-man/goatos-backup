@@ -91,7 +91,7 @@ class ShiftingViewModel @Inject constructor(
             ShiftingEvent.LookupAnimals -> lookupAnimals()
             is ShiftingEvent.SelectAnimal -> onSelectAnimal(event.goatId)
             is ShiftingEvent.SelectDestinationPark -> onSelectDestinationPark(event.parkId)
-            is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId)
+            is ShiftingEvent.SelectDestinationShed -> onSelectDestinationShed(event.shedId, event.partitionLabel)
             is ShiftingEvent.SelectPriority -> onSelectPriority(event.priority)
             is ShiftingEvent.SelectCategory -> onSelectCategory(event.category)
             is ShiftingEvent.EditComment -> onEditComment(event.value)
@@ -121,14 +121,25 @@ class ShiftingViewModel @Inject constructor(
                     // offers. Re-validate both against the new catalog and clear what is gone.
                     val parkStillOffered = parks.any { it.parkId == current.destinationParkId }
                     val parkId = if (parkStillOffered) current.destinationParkId else ""
-                    val shedStillOffered = parks
+                    // Identity is shed_id + partition_label together — a partitioned shed offers
+                    // several entries sharing one shed_id, so checking shed_id alone would treat a
+                    // now-gone partition as still offered.
+                    val destinationStillOffered = parks
                         .firstOrNull { it.parkId == parkId }
                         ?.sheds
-                        ?.any { it.shedId == current.destinationShedId } == true
+                        ?.any {
+                            it.shedId == current.destinationShedId &&
+                                it.partitionLabel == current.destinationPartitionLabel
+                        } == true
                     current.copy(
                         destinationParks = parks,
                         destinationParkId = parkId,
-                        destinationShedId = if (shedStillOffered) current.destinationShedId else "",
+                        destinationShedId = if (destinationStillOffered) current.destinationShedId else "",
+                        destinationPartitionLabel = if (destinationStillOffered) {
+                            current.destinationPartitionLabel
+                        } else {
+                            null
+                        },
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
                 }
@@ -256,6 +267,7 @@ class ShiftingViewModel @Inject constructor(
                 // so selecting the animal also selects the only legal destination farm.
                 destinationParkId = match.parkId,
                 destinationShedId = "",
+                destinationPartitionLabel = null,
             )
         }
         recomputeSubmitGate()
@@ -278,13 +290,21 @@ class ShiftingViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
-    private fun onSelectDestinationShed(shedId: String) {
+    private fun onSelectDestinationShed(shedId: String, partitionLabel: String?) {
         if (!beginEdit()) return
         _state.update { current ->
-            // Guard the pairing at the point of selection too: only a shed that belongs to the
-            // chosen park may be stored.
-            val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(destinationShedId = shedId) else current
+            // Guard the pairing at the point of selection too: only an operational location
+            // (shed_id + partition_label together) that belongs to the chosen park's catalog may
+            // be stored — never just a shed_id, since a partitioned shed offers several entries
+            // that share one shed_id.
+            val belongsToPark = current.shedsForSelectedPark.any {
+                it.shedId == shedId && it.partitionLabel == partitionLabel
+            }
+            if (belongsToPark) {
+                current.copy(destinationShedId = shedId, destinationPartitionLabel = partitionLabel)
+            } else {
+                current
+            }
         }
         recomputeSubmitGate()
     }
@@ -366,6 +386,7 @@ class ShiftingViewModel @Inject constructor(
     private fun ShiftingUiState.toRequest(): CountsShiftingEventRequestDto = CountsShiftingEventRequestDto(
         destinationParkId = destinationParkId,
         destinationShedId = destinationShedId,
+        destinationPartitionLabel = destinationPartitionLabel,
         priority = priority,
         category = category,
         // Blank normalizes to absent: "left empty" and "typed then cleared" are the same intent,
@@ -503,6 +524,7 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     shedId = locationPath.shedId.orEmpty(),
     parkName = locationPath.parkName.orEmpty(),
     shedName = locationPath.shedName.orEmpty(),
+    partitionLabel = locationPath.partitionLabel,
     locationLabel = locationPath.display,
     // Carried for the death target (Birth/Death screen): the write sends this row_version verbatim
     // and the confirmation card shows sex + status. Shifting ignores all three.
@@ -516,9 +538,17 @@ internal fun GoatSearchItemDto.isEligibleForShifting(): Boolean =
         !locationPath.parkId.isNullOrBlank() &&
         !locationPath.shedId.isNullOrBlank()
 
-/** Wire catalog -> dropdown vocabulary. Both levels keep their ids: names are display only. */
+/**
+ * Wire catalog -> dropdown vocabulary. Both levels keep their ids: names are display only.
+ *
+ * The backend emits one [CountsDestinationShedDto] row per selectable OPERATIONAL LOCATION — one
+ * row per partition for a partitioned shed, one row (null `partition_label`) for a shed with none.
+ * This mapping is a straight pass-through of that shape; it never invents or collapses rows.
+ */
 internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = ShiftingParkUi(
     parkId = parkId,
     name = name,
-    sheds = sheds.map { ShiftingShedUi(shedId = it.shedId, name = it.name) },
+    sheds = sheds.map {
+        ShiftingShedUi(shedId = it.shedId, name = it.name, partitionLabel = it.partitionLabel)
+    },
 )

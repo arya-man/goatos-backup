@@ -18,6 +18,7 @@ import {
   type AdminUiPageContract,
 } from "@/lib/admin-ui-contract";
 import { sendNudgeAction, snoozeAction } from "./calendar-actions";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   blockEntries,
@@ -544,7 +545,16 @@ function CalendarEventDrawerPanel({
             <div className="metagrid">
               <MetaCell
                 k={copy(pageContract, "label.park_shed")}
-                v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${event.shed_name ?? copy(pageContract, "label.all_sheds")}`}
+                v={`${event.park_code ?? copy(pageContract, "label.placeholder")} · ${
+                  event.shed_name
+                    ? event.operational_location_display ||
+                      operationalLocationLabel({
+                        shedName: event.shed_name,
+                        partitionLabel: event.partition_label,
+                        sourceShedName: event.source_shed_name,
+                      })
+                    : copy(pageContract, "label.all_sheds")
+                }`}
               />
               <MetaCell
                 k={copy(pageContract, "label.cohort_target")}
@@ -626,8 +636,14 @@ function CalendarEventDrawerPanel({
                             <span className="gid">{row.display_id}</span>
                           </td>
                           <td>
-                            {row.shed_name ??
-                              copy(pageContract, "label.placeholder")}
+                            {row.shed_name
+                              ? row.operational_location_display ||
+                                operationalLocationLabel({
+                                  shedName: row.shed_name,
+                                  partitionLabel: row.partition_label,
+                                  sourceShedName: row.source_shed_name,
+                                })
+                              : copy(pageContract, "label.placeholder")}
                           </td>
                           <td>
                             {row.animal_identifier_1 ??

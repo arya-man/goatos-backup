@@ -278,7 +278,12 @@ type PlannerParkBuckets struct {
 type PlannerShed struct {
 	LocationID string `json:"location_id"`
 	Name       string `json:"name"`
-	KidCount   int    `json:"kid_count"`
+	// ParentShedName and PartitionLabel are derived from Name (see CampaignShed for why: no
+	// goat_shed_partitions/goats join in this isolated module).
+	ParentShedName             string `json:"parent_shed_name,omitempty"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	KidCount                   int    `json:"kid_count"`
 	// Scheduled and the Scheduled* fields describe whether this shed is ALREADY
 	// claimed by an open weighing task on the REQUESTED weigh date, and by whom.
 	// They are the availability the planner renders (available vs already
@@ -319,14 +324,23 @@ type PlannerOperator struct {
 }
 
 type CampaignShed struct {
-	CampaignShedID      string `json:"campaign_shed_id"`
-	CampaignID          string `json:"campaign_id"`
-	LocationID          string `json:"location_id"`
-	LocationType        string `json:"location_type"`
-	DisplayName         string `json:"display_name"`
-	ExpectedAnimalCount int    `json:"expected_animal_count"`
-	WeighingCategory    string `json:"weighing_category"`
-	OperatorUserID      string `json:"operator_user_id"`
+	CampaignShedID string `json:"campaign_shed_id"`
+	CampaignID     string `json:"campaign_id"`
+	LocationID     string `json:"location_id"`
+	LocationType   string `json:"location_type"`
+	DisplayName    string `json:"display_name"`
+	// ParentShedName and PartitionLabel are derived from DisplayName, NEVER from a join to
+	// goat_shed_partitions or goats -- weighing is an isolated module and must not read
+	// animal-scoped data (see AGENTS.md "Weighing Is ISOLATED"). LocationType is an enum
+	// (shed/cohort/pen) and must never be treated as a partition label -- that is a known bug
+	// class, not a source of partition data. PartitionLabel is "" when DisplayName carries no
+	// partition suffix.
+	ParentShedName             string `json:"parent_shed_name,omitempty"`
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ExpectedAnimalCount        int    `json:"expected_animal_count"`
+	WeighingCategory           string `json:"weighing_category"`
+	OperatorUserID             string `json:"operator_user_id"`
 	// OperatorDisplayName is the backend-resolved name of the bucket's assignee
 	// (active workforce member only). It travels WITH the bucket so a client never
 	// has to join the bucket against a separately paged operator vocabulary — doing

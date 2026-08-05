@@ -30,6 +30,15 @@ type appShiftingDestinationShed struct {
 	ShedID           string   `json:"shed_id"`
 	Name             string   `json:"name"`
 	ManagementStages []string `json:"management_stages"`
+
+	// PartitionLabel is omitted for a non-partitioned destination entry (the bare shed) and set to
+	// the raw stored label for a real-partition entry. A partitioned shed appears multiple times in
+	// its park's sheds list, once per real partition -- never as a synthesized "whole shed" option.
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	// Display is the operator-facing operational-location label ("Yashoda", "Castro 2",
+	// "Godel 1 - Part 3"), so the client renders exactly what oploc.OperationalLocation.Display
+	// produces and never re-derives it from ShedID + PartitionLabel itself.
+	Display string `json:"display"`
 }
 
 // ListShiftingDestinations returns the active park -> shed cascade for the caller's tenant.
@@ -61,7 +70,13 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 	for _, park := range catalog.Parks {
 		sheds := make([]appShiftingDestinationShed, 0, len(park.Sheds))
 		for _, shed := range park.Sheds {
-			sheds = append(sheds, appShiftingDestinationShed{ShedID: shed.ShedID, Name: shed.Name, ManagementStages: shed.ManagementStages})
+			sheds = append(sheds, appShiftingDestinationShed{
+				ShedID:           shed.ShedID,
+				Name:             shed.Name,
+				ManagementStages: shed.ManagementStages,
+				PartitionLabel:   shed.PartitionLabel,
+				Display:          shed.Display,
+			})
 		}
 		parks = append(parks, appShiftingDestinationPark{
 			ParkID: park.ParkID,

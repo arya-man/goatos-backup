@@ -30,6 +30,12 @@ const (
 // applying this to an already-normalized breed_key is a no-op rather than a second transform.
 const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '_', 'g'))`
 
+// feedPartitionKeyExpr normalizes a partition label to a comparison key. It mirrors the Go
+// platform/oploc.NormalizePartition exactly:
+// regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+// NULL, '', and 'whole' all collapse to 'whole' because all three mean "not partitioned".
+const feedPartitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')`
+
 // scale-guard:ignore: 5k-50k-envelope — canonical indexed read per
 // docs/decisions/operational-kernel-5k-50k-scale-envelope.md. The live-herd census and the
 // approved-but-unexecuted movement set are both served directly from canonical SQL at the current
@@ -84,8 +90,14 @@ WITH live AS MATERIALIZED (
     ` + fmt.Sprintf(feedGrainNormSQL, "g.management_stage") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.sex") + ` AS sex_key,
+    ` + feedPartitionKeyExpr + ` AS partition_key,
+    min(gsp.partition_label) AS partition_label_raw,
     count(*) AS head_count
   FROM goats g
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+  -- A goat with no row here is not partitioned and normalizes to 'whole'.
+  LEFT JOIN goat_shed_partitions gsp
+         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -98,7 +110,8 @@ WITH live AS MATERIALIZED (
     AND (cardinality($9::uuid[]) = 0 OR g.shed_id = ANY($9::uuid[]))
     AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` = $10)
   GROUP BY g.park_id, g.shed_id,
-           COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
+           COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
+           ` + feedPartitionKeyExpr + `
 ),
 -- Authorized but NOT yet executed movements, feed-effective from the authorization business date.
 -- Maintainer decision 2026-07-27: there is NO lead time and NO priority branch -- a movement is a
@@ -119,8 +132,10 @@ pending_event AS (
     se.shifting_event_id,
     se.source_park_id,
     se.source_shed_id,
+    se.source_partition_label,
     se.destination_park_id,
     se.destination_shed_id,
+    se.destination_partition_label,
     (se.authorized_at AT TIME ZONE $6)::date AS feed_effective_date
   FROM shifting_events se
   WHERE se.tenant_id = $1::uuid
@@ -149,15 +164,20 @@ pending_event AS (
 dest_cohort AS (
   SELECT
     g.shed_id,
+    ` + feedPartitionKeyExpr + ` AS partition_key,
+    min(gsp.partition_label) AS partition_label_raw,
     CASE WHEN count(DISTINCT COALESCE(g.management_stage, '')) = 1
          THEN min(g.management_stage) END AS cohort_stage
   FROM goats g
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+  LEFT JOIN goat_shed_partitions gsp
+         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
     AND g.management_stage IS NOT NULL
     AND btrim(g.management_stage) <> ''
-  GROUP BY g.shed_id
+  GROUP BY g.shed_id, ` + feedPartitionKeyExpr + `
 ),
 -- One row per (movement, impact, direction). Source loses head_count, destination gains it.
 --
@@ -172,6 +192,7 @@ pending_leg AS (
     p.feed_effective_date,
     p.source_park_id AS park_id,
     p.source_shed_id AS shed_id,
+    regexp_replace(lower(btrim(COALESCE(p.source_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
     COALESCE(i.stage_tag, '') AS stage_label,
     i.breed_label             AS breed_label,
     COALESCE(i.sex, '')       AS sex_label,
@@ -188,6 +209,7 @@ pending_leg AS (
     p.feed_effective_date,
     p.destination_park_id,
     p.destination_shed_id,
+    regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
     -- DESTINATION tag, not the source stage_tag: the animals adopt the destination shed's cohort on
     -- arrival. Falls back to the source tag only when the destination shed is empty/mixed and its
     -- cohort cannot be inferred (bridge limitation until shed_profiles is seeded -- see dest_cohort).
@@ -201,6 +223,7 @@ pending_leg AS (
    AND i.shifting_event_id = p.shifting_event_id
   LEFT JOIN dest_cohort dc
     ON dc.shed_id = p.destination_shed_id
+   AND dc.partition_key = regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '')
   WHERE p.feed_effective_date <= $5::date
 ),
 -- Pre-aggregate the legs to ONE row per grain BEFORE joining the live herd. This is what keeps a
@@ -209,6 +232,7 @@ delta AS (
   SELECT
     l.park_id,
     l.shed_id,
+    l.partition_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.stage_label") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.sex_label") + ` AS sex_key,
@@ -232,7 +256,7 @@ delta AS (
     -- shed-set page must not show a delta sourced from a shed the page excluded.
     AND (cardinality($9::uuid[]) = 0 OR l.shed_id = ANY($9::uuid[]))
     AND ($10 = '' OR ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` = $10)
-  GROUP BY 1, 2, 3, 4, 5
+  GROUP BY 1, 2, 3, 4, 5, 6
 ),
 -- FULL OUTER, not LEFT. A destination shed that holds none of this grain today has no live row at
 -- all, and a LEFT JOIN from live would drop the incoming animals entirely -- the exact shed the
@@ -241,6 +265,8 @@ combined AS (
   SELECT
     COALESCE(lv.park_id, d.park_id)                  AS park_id,
     COALESCE(lv.shed_id, d.shed_id)                  AS shed_id,
+    COALESCE(lv.partition_key, d.partition_key, 'whole') AS partition_key,
+    COALESCE(lv.partition_label_raw, d.partition_label_raw, NULL) AS partition_label_raw,
     COALESCE(lv.management_stage, d.stage_label, '') AS management_stage,
     COALESCE(lv.breed, d.breed_label, '')            AS breed,
     COALESCE(lv.sex, d.sex_label, '')                AS sex,
@@ -252,6 +278,7 @@ combined AS (
   FULL OUTER JOIN delta d
     ON  d.park_id   IS NOT DISTINCT FROM lv.park_id
     AND d.shed_id   IS NOT DISTINCT FROM lv.shed_id
+    AND d.partition_key IS NOT DISTINCT FROM lv.partition_key
     AND d.stage_key = lv.stage_key
     AND d.breed_key = lv.breed_key
     AND d.sex_key   = lv.sex_key
@@ -261,6 +288,7 @@ SELECT
   COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
   c.shed_id::text,
   COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  COALESCE(c.partition_label_raw, '') AS partition_label,
   c.management_stage,
   c.breed,
   c.sex,
@@ -291,6 +319,7 @@ ORDER BY
   GREATEST(c.current_head_count + c.pending_delta, 0) DESC,
   COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(c.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  c.partition_key,
   c.management_stage,
   c.breed,
   c.sex
@@ -307,6 +336,7 @@ const feedProjectedCountsOrderByIdentity = `
 ORDER BY
   COALESCE(c.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(c.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  c.partition_key,
   c.management_stage,
   c.breed,
   c.sex
@@ -409,6 +439,7 @@ func (r *Repository) ProjectedShedCountsForFeed(
 			&row.ParkLabel,
 			&row.ShedID,
 			&row.ShedLabel,
+			&row.PartitionLabel,
 			&row.ManagementStage,
 			&row.Breed,
 			&row.Sex,

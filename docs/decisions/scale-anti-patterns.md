@@ -282,6 +282,16 @@ Do not model raw partition-bearing shed names as separate canonical buildings.
 `Part 3` under physical shed `Godel 1`. Splitting them into separate `locations`
 rows multiplies work, breaks operator ownership, and makes UI grouping lie.
 
+**STORAGE IS ONLY ONE HALF — PRODUCT/DISPLAY IS THE OTHER.** Storage collapses
+`Castro 1`/`Castro 2` into shed `Castro` + partitions `1`/`2`. PRODUCT does the
+opposite: an animal's ground location is `OperationalLocation = park +
+physical_shed + optional partition_label`, and every user-facing surface (counts,
+herd register, shifting destinations, vaccination detail, Action Center, CEO
+reporting) must answer with the partition when one exists. In the maintainer's
+words: **"Castro 1 and Castro 2 is the only correct way. Castro is not
+correct."** Both halves are true; they describe different layers. Full display
+rule and examples: `docs/decisions/operational-location-display-contract.md`.
+
 Derive a person's role from their AUTHORITATIVE current position, not a frozen
 snapshot taken earlier in the seed. `seed-roster-real` recasts a rehearsal
 operator's resolved seat into a `vaccination_operator_<name>` position via the

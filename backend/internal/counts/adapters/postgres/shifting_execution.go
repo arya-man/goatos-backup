@@ -473,8 +473,9 @@ type lockedShiftingEvent struct {
 	VerificationState  string
 	Priority           string
 
-	DestinationParkID string
-	DestinationShedID string
+	DestinationParkID         string
+	DestinationShedID         string
+	DestinationPartitionLabel *string
 
 	AppliedAt                *time.Time
 	AppliedBy                *string
@@ -514,7 +515,7 @@ FROM shifting_events
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 FOR UPDATE`, tenantID, shiftingEventID).Scan(
 		&out.EventStatus, &out.AuthorizationState, &out.VerificationState, &out.Priority,
-		&out.DestinationParkID, &out.DestinationShedID,
+		&out.DestinationParkID, &out.DestinationShedID, &out.DestinationPartitionLabel,
 		&out.AppliedAt, &out.AppliedBy, &out.CompletedAt, &out.CompletedBy,
 		&out.CompletionDestinationTag, &out.ManagementStageMode, &out.TargetManagementStage,
 		&out.RaiseComment,
@@ -574,12 +575,34 @@ func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	} else if current.CompletionDestinationTag != nil { // legacy pre-selection row
 		destinationTag = *current.CompletionDestinationTag
 	}
+	// Operational location is park + physical shed + OPTIONAL partition, so the
+	// partition raised with the movement has to survive to the applying
+	// transaction. Shifting applies at whichever of park-head-approval /
+	// operator-completion arrives SECOND, and the raised
+	// destination_partition_label was previously validated at raise time and then
+	// dropped here -- which is exactly why "Yashoda 1 -> Yashoda 2" committed as a
+	// plain "Yashoda" move and the partition silently reverted.
+	//
+	// Re-validate against the CURRENT shed_partitions catalog rather than trusting
+	// the raise-time check: the two gates are independent and may be hours apart,
+	// so a partition can be retired in between. Fail closed instead of writing a
+	// label that no longer names a real place.
+	destShedName, err := validateDestinationPartitionAgainstCatalogTx(
+		ctx, tx, tenantID, destShedID, current.DestinationPartitionLabel,
+	)
+	if err != nil {
+		return domain.ShiftingExecutionResult{}, err
+	}
 	moved, err := r.identityTx.RelocateGoatsToShedInTx(ctx, tx, identityports.RelocateGoatsCommand{
 		TenantID: tenantID, ActorID: *current.CompletedBy, GoatIDs: goatIDs,
 		FromParkID: sourceParkID, FromShedID: sourceShedID,
 		ToParkID: destParkID, ToShedID: destShedID, DestinationTag: destinationTag,
-		TraceID: traceID, Reason: "counts shifting approved and operator-completed " + shiftingEventID,
-		OccurredAt: appliedAt.UTC(), OutboxIdempotencyPrefix: "counts-shifting-applied:" + shiftingEventID,
+		DestinationPartitionLabel: current.DestinationPartitionLabel,
+		DestinationShedName:       destShedName,
+		TraceID:                   traceID,
+		Reason:                    "counts shifting approved and operator-completed " + shiftingEventID,
+		OccurredAt:                appliedAt.UTC(),
+		OutboxIdempotencyPrefix:   "counts-shifting-applied:" + shiftingEventID,
 	})
 	if err != nil {
 		return domain.ShiftingExecutionResult{}, err
@@ -838,10 +861,10 @@ WITH page AS (
        coalesce(preview.animals, '[]'::jsonb) AS animals
 FROM page p
 LEFT JOIN req r ON r.shifting_event_id = p.shifting_event_id
-LEFT JOIN locations src_park ON src_park.location_id = p.source_park_id
-LEFT JOIN locations src_shed ON src_shed.location_id = p.source_shed_id
-LEFT JOIN locations dst_park ON dst_park.location_id = p.destination_park_id
-LEFT JOIN locations dst_shed ON dst_shed.location_id = p.destination_shed_id
+LEFT JOIN locations src_park ON src_park.location_id = p.source_park_id AND src_park.status = 'active'
+LEFT JOIN locations src_shed ON src_shed.location_id = p.source_shed_id AND src_shed.status = 'active'
+LEFT JOIN locations dst_park ON dst_park.location_id = p.destination_park_id AND dst_park.status = 'active'
+LEFT JOIN locations dst_shed ON dst_shed.location_id = p.destination_shed_id AND dst_shed.status = 'active'
 LEFT JOIN LATERAL (
     SELECT jsonb_agg(jsonb_build_object(
                'goat_id', g.goat_id::text,
@@ -970,4 +993,85 @@ ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID
 		}
 	}
 	return page, nil
+}
+
+// validateDestinationPartitionAgainstCatalogTx re-checks, inside the applying
+// transaction, that the destination the operator raised still names a real
+// place, and returns the destination shed's display name.
+//
+// Why re-check at all: shifting applies at whichever of park-head-approval /
+// operator-completion arrives SECOND, and the two gates are independent and may
+// be far apart in time. A partition validated at raise time can be retired
+// before the move commits. Writing the stale label would file animals into a
+// partition that no longer exists.
+//
+// The authority is `shed_partitions` (migration 000111), NOT the per-goat
+// `goat_shed_partitions` table: the latter only knows partitions that currently
+// hold animals, so an EMPTY partition would be wrongly rejected here — that is
+// precisely the destination an operator is trying to fill.
+//
+// Dual-shape rule, both directions must work:
+//   - destination shed HAS active catalog partitions -> a label is required and
+//     must match one of them (compared with the shared normalizer, so 'Part 3'
+//     and '3' are the same partition).
+//   - destination shed has NO catalog partitions -> a NULL label is correct and
+//     is left NULL. Never coerce it to the 'whole' sentinel here; 'whole' is a
+//     matching key, not a location.
+func validateDestinationPartitionAgainstCatalogTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	tenantID string,
+	destShedID string,
+	label *string,
+) (string, error) {
+	var shedName string
+	var partitionCount int
+	var matches int
+	if err := tx.QueryRow(ctx, `
+SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
+       (SELECT count(*) FROM shed_partitions sp
+         WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.status = 'active')::int,
+       (SELECT count(*) FROM shed_partitions sp
+         WHERE sp.tenant_id = $1::uuid AND sp.shed_id = $2::uuid AND sp.status = 'active'
+           AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', ''))::int
+FROM locations shed
+WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid`,
+		tenantID, destShedID, strings.TrimSpace(derefOrEmpty(label)),
+	).Scan(&shedName, &partitionCount, &matches); err != nil {
+		return "", fmt.Errorf("resolve destination shed %s partition catalog: %w", destShedID, err)
+	}
+
+	trimmed := strings.TrimSpace(derefOrEmpty(label))
+	isBlank := trimmed == "" || strings.EqualFold(trimmed, "whole")
+
+	if partitionCount == 0 {
+		// Non-partitioned shed. A blank label is the correct answer; a label that
+		// names a partition this shed does not have is a real error, not something
+		// to silently drop.
+		if !isBlank {
+			return "", fmt.Errorf(
+				"%w: destination shed %s has no partitions but movement names partition %q",
+				ports.ErrShiftingExecutionIncomplete, destShedID, trimmed)
+		}
+		return shedName, nil
+	}
+
+	if isBlank {
+		return "", fmt.Errorf(
+			"%w: destination shed %s is partitioned (%d partitions) but movement carries no destination partition",
+			ports.ErrShiftingExecutionIncomplete, destShedID, partitionCount)
+	}
+	if matches == 0 {
+		return "", fmt.Errorf(
+			"%w: destination partition %q is no longer in the catalog for shed %s (retired between raise and apply)",
+			ports.ErrShiftingExecutionIncomplete, trimmed, destShedID)
+	}
+	return shedName, nil
+}
+
+func derefOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }

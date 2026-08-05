@@ -25,6 +25,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // App-tier Counts write surface (mobile-facing).
@@ -240,15 +241,32 @@ func (h *AppWriteHandler) PromoteTemporaryIdentifier(w http.ResponseWriter, r *h
 // ---------------------------------------------------------------------------
 
 type appShiftingEventRequest struct {
-	SourceParkID      *string                    `json:"source_park_id,omitempty"`
-	SourceShedID      *string                    `json:"source_shed_id,omitempty"`
-	DestinationParkID string                     `json:"destination_park_id"`
-	DestinationShedID string                     `json:"destination_shed_id"`
-	EffectiveAt       *time.Time                 `json:"effective_at,omitempty"`
-	Priority          string                     `json:"priority,omitempty"`
-	Category          string                     `json:"category,omitempty"`
-	ProofRef          *string                    `json:"proof_ref,omitempty"`
-	Impacts           []appShiftingImpactRequest `json:"impacts"`
+	SourceParkID      *string    `json:"source_park_id,omitempty"`
+	SourceShedID      *string    `json:"source_shed_id,omitempty"`
+	DestinationParkID string     `json:"destination_park_id"`
+	DestinationShedID string     `json:"destination_shed_id"`
+	EffectiveAt       *time.Time `json:"effective_at,omitempty"`
+
+	// DestinationPartitionLabel names the real partition within DestinationShedID this movement
+	// targets ('1', 'Part 3'), when the destination shed is one that actually carries partitions
+	// (see backend/internal/platform/oploc). Nil for a movement into a genuinely non-partitioned
+	// shed. It is REQUIRED when the destination shed's catalog entries are all partition entries --
+	// otherwise the movement is ambiguous about which physical sub-location the animals land in.
+	// Validated against the same operator-facing destination catalog the shifting form renders
+	// (h.shifting.ShiftingDestinations), so the accepted vocabulary can never drift from what the
+	// picker offered.
+	DestinationPartitionLabel *string `json:"destination_partition_label,omitempty"`
+
+	// SourcePartitionLabel optionally names the partition the animals are reported as moving FROM,
+	// when the operator (or a back-dated/corrective submission) supplies an explicit source. Like
+	// SourceShedID/SourceParkID this is enrichment carried on the raised event, not a field the
+	// server derives from ground truth at raise time when omitted -- see the source backfill note on
+	// RecordShiftingEvent.
+	SourcePartitionLabel *string                    `json:"source_partition_label,omitempty"`
+	Priority             string                     `json:"priority,omitempty"`
+	Category             string                     `json:"category,omitempty"`
+	ProofRef             *string                    `json:"proof_ref,omitempty"`
+	Impacts              []appShiftingImpactRequest `json:"impacts"`
 
 	// Comment is the raiser's OPTIONAL note on why the animals are moving (maintainer decision
 	// 2026-07-31). It is read by the approving park head and by the verifier reviewing the
@@ -370,11 +388,28 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			return
 		}
 		var destinationStages []string
+		var destinationEntries []domain.ShiftingDestinationShed
 		for _, park := range catalog.Parks {
 			for _, shed := range park.Sheds {
 				if shed.ShedID == normalized.DestinationShedID {
 					destinationStages = shed.ManagementStages
+					destinationEntries = append(destinationEntries, shed)
 				}
+			}
+		}
+		// The destination catalog is built ONLY from active locations (see
+		// counts/adapters/postgres.shiftingDestinationCatalogQuery), so a shed id present in it can
+		// never be an INACTIVE location -- a retired alias such as "Castro 1"/"Godel 1 - Part 3" never
+		// appears here. When the catalog DOES know the shed, validate the operational-location
+		// contract against it (partition required vs allowed, and that a supplied partition is real).
+		// A shed absent from the catalog is not re-litigated here: the relocation write path
+		// (identity.ensureShedUnderPark, at approval-completion) already fails closed on an
+		// inactive/nonexistent shed with its own ground-truth check, and this raise-time lookup must
+		// not turn into a second, looser copy of that guard.
+		if len(destinationEntries) > 0 {
+			if err := validateDestinationPartition(destinationEntries, normalized.DestinationPartitionLabel); err != nil {
+				h.writeAppError(w, r, err)
+				return
 			}
 		}
 		if resolved := domain.ResolveShiftingDestinationStage(destinationStages, catalog.ManagementStages); resolved != "" {
@@ -493,8 +528,10 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category:                normalized.Category,
 		SourceParkID:            sourceParkID,
 		SourceShedID:            sourceShedID,
+		SourcePartitionLabel:    nil, // Source partition is not yet populated from derivation
 		DestinationParkID:       normalized.DestinationParkID,
 		DestinationShedID:       normalized.DestinationShedID,
+		DestinationPartitionLabel: normalized.DestinationPartitionLabel,
 		ManagementStageMode:     stageMode,
 		TargetManagementStage:   targetStage,
 		RaisedAt:                raisedAt,
@@ -584,9 +621,56 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// validateDestinationPartition enforces the operational-location contract for a chosen destination:
+//
+//   - entries is every catalog row for the request's destination_shed_id -- one row per real
+//     partition when the shed is partitioned, or exactly one row with a nil PartitionLabel for a
+//     genuinely non-partitioned shed (see domain.ShiftingDestinationShed and
+//     shiftingDestinationCatalogQuery). It is never empty here; the caller already rejected that.
+//   - A blank requested label means "no partition selected". That is ACCEPTED when any catalog entry
+//     for the shed is the non-partitioned (nil PartitionLabel) entry -- a genuinely non-partitioned
+//     shed, or a partitioned shed's caller explicitly moving to the shed as a whole where such an
+//     entry exists. It is REJECTED when every catalog entry for the shed carries a real partition
+//     label: the destination is then ambiguous about which physical sub-location the animals land
+//     in, and guessing would silently misplace them.
+//   - A non-blank requested label must equal (oploc.SamePartition) one of the shed's real catalog
+//     partitions. An unknown label is rejected rather than silently accepted, the same way an
+//     unknown shed id is.
+func validateDestinationPartition(entries []domain.ShiftingDestinationShed, requested *string) error {
+	label := ""
+	if requested != nil {
+		label = strings.TrimSpace(*requested)
+	}
+	hasBareShedEntry := false
+	partitionMatch := false
+	for _, entry := range entries {
+		if entry.PartitionLabel == nil {
+			hasBareShedEntry = true
+			continue
+		}
+		if label != "" && oploc.SamePartition(*entry.PartitionLabel, label) {
+			partitionMatch = true
+		}
+	}
+	if label == "" {
+		if hasBareShedEntry {
+			return nil
+		}
+		return identityapp.BadRequest("missing_destination_partition_label",
+			"destination_partition_label is required: the destination shed is partitioned")
+	}
+	if !partitionMatch {
+		return identityapp.BadRequest("invalid_destination_partition_label",
+			"destination_partition_label does not match a real partition of the destination shed")
+	}
+	return nil
+}
+
 func normalizeShiftingEventRequest(req appShiftingEventRequest) (appShiftingEventRequest, error) {
 	req.SourceParkID = trimOptionalPtr(req.SourceParkID)
 	req.SourceShedID = trimOptionalPtr(req.SourceShedID)
+	req.SourcePartitionLabel = trimOptionalPtr(req.SourcePartitionLabel)
+	req.DestinationPartitionLabel = trimOptionalPtr(req.DestinationPartitionLabel)
 	req.ProofRef = trimOptionalPtr(req.ProofRef)
 	req.Comment = trimOptionalPtr(req.Comment)
 	req.DestinationParkID = strings.TrimSpace(req.DestinationParkID)

@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -2596,6 +2597,14 @@ WHERE g.tenant_id = $1
 //
 //	$1 tenant_id, $2 lifecycle_status, $3 park_id, $4 shed_id,
 //	$5 management_stage, $6 breed, $7 sex
+//
+// partition_key is the SQL twin of oploc.NormalizePartition: NULL/""/"whole" (any case/
+// whitespace) collapse to 'whole', and the 'Part N' convention normalizes to bare 'N' so both
+// label conventions group together. Keep this expression byte-for-byte identical to the
+// operator-execution normalizer at vaccinationexecution/adapters/postgres/repository.go and to
+// oploc.NormalizePartition -- see internal/platform/oploc for the shared Go-side contract.
+const partitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')`
+
 const countsBreakdownGroupedCTE = `
 WITH grouped AS MATERIALIZED (
   SELECT
@@ -2604,6 +2613,12 @@ WITH grouped AS MATERIALIZED (
     COALESCE(g.management_stage, '') AS management_stage,
     COALESCE(g.breed, '')            AS breed,
     g.sex,
+    ` + partitionKeyExpr + ` AS partition_key,
+    -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
+    -- display can preserve each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
+    -- representative among rows sharing the same normalized key (both conventions never coexist
+    -- for one shed in real data).
+    min(gsp.partition_label) AS partition_label_raw,
     count(*) AS animal_count,
     -- COALESCE is load-bearing: herd_register_is_kid returns NULL when age_band is NULL (NULL='kid'
     -- propagates), and a bare NOT would then drop those animals from BOTH buckets, so kid+adult
@@ -2612,6 +2627,10 @@ WITH grouped AS MATERIALIZED (
     count(*) FILTER (WHERE COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS kid_count,
     count(*) FILTER (WHERE NOT COALESCE(herd_register_is_kid(g.age_band, g.management_stage), false)) AS adult_count
   FROM goats g
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. A goat with
+  -- no row here is not partitioned and normalizes to 'whole'.
+  LEFT JOIN goat_shed_partitions gsp
+         ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND ($2 = '' OR g.lifecycle_status = $2)
@@ -2620,7 +2639,8 @@ WITH grouped AS MATERIALIZED (
     AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
     AND ($6 = '' OR COALESCE(g.breed, '') = $6)
     AND ($7 = '' OR g.sex = $7)
-  GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex
+  GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
+           ` + partitionKeyExpr + `
 )`
 
 // scale-guard:ignore: 5k-50k-envelope — canonical indexed read per
@@ -2661,6 +2681,8 @@ SELECT
   COALESCE(NULLIF(park.location_code, ''), park.name, '') AS park_label,
   gr.shed_id::text,
   COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
+  -- '' when partition_key is 'whole' (non-partitioned): never surface the sentinel to a client.
+  CASE WHEN gr.partition_key = 'whole' THEN '' ELSE gr.partition_label_raw END AS partition_label,
   gr.management_stage,
   gr.breed,
   gr.sex,
@@ -2678,6 +2700,7 @@ ORDER BY
   gr.animal_count DESC,
   COALESCE(gr.park_id, '00000000-0000-0000-0000-000000000000'::uuid),
   COALESCE(gr.shed_id, '00000000-0000-0000-0000-000000000000'::uuid),
+  gr.partition_key,
   gr.management_stage,
   gr.breed,
   gr.sex
@@ -2701,6 +2724,10 @@ SELECT 'sex', gr.sex, gr.sex, sum(gr.animal_count)
 FROM grouped gr GROUP BY gr.sex
 UNION ALL
 SELECT * FROM (
+  -- Parent-shed aggregate bars for the chart: rolled up ACROSS partitions so the chart never
+  -- fragments one physical shed into N tiny bars. Partition drill-down lives in the page rows and
+  -- the facets list below, not in this display-capped chart.
+  -- partition-review: membership=same canonical goats rows as the grouped CTE; group_key=(shed_id, park_id) mapped from denormalized goats columns; aggregation=rolled up ACROSS partition_key to show parent sheds only on chart; join_cardinality=locations joined once per shed on (tenant_id, location_id) for label only; pagination=whole-result rollup capped at 12 for chart legibility; scope=same tenant plus predicates as the page query
   SELECT 'shed' AS dimension,
          COALESCE(gr.shed_id::text, '') AS series_key,
          COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS series_label,
@@ -2708,7 +2735,7 @@ SELECT * FROM (
   FROM grouped gr
   LEFT JOIN locations shed
          ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
-  GROUP BY gr.shed_id, shed.name, shed.location_code
+  GROUP BY gr.shed_id, gr.park_id, shed.name, shed.location_code -- partition-grain-guard:ignore: parent aggregate — rolled up ACROSS partitions for chart display (partition drill-down lives in page rows and facets)
   ORDER BY series_count DESC, series_key
   LIMIT 12
 ) top_sheds`
@@ -2808,6 +2835,10 @@ WHERE g.tenant_id = $1::uuid
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.park_id::text, ''), park.location_code, park.name
 UNION ALL
+-- Parent-shed aggregate option ("Castro"): every animal in the physical shed regardless of
+-- partition. shed_id is the parent physical shed on every goats row -- never the inactive alias
+-- location -- so this branch already excludes inactive alias rows by construction (it never joins
+-- locations by name).
 SELECT 'shed', COALESCE(g.shed_id::text, ''),
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        count(*), COALESCE(g.park_id::text, '')
@@ -2817,6 +2848,60 @@ WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.shed_id::text, ''), COALESCE(g.park_id::text, ''), shed.name, shed.location_code
+UNION ALL
+-- Specific-partition options ("Castro 2"): key is shed_id + normalized partition so it never
+-- collides across parks (Key() convention from internal/platform/oploc). Non-partitioned goats
+-- (no goat_shed_partitions row) are excluded here -- they are only offered via the parent-shed
+-- aggregate above, since there is no real partition to select.
+SELECT 'shed',
+       COALESCE(g.shed_id::text, '') || '#' || ` + partitionKeyExpr + `,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') ||
+         CASE WHEN gsp.partition_label ~* '^part[[:space:]]+'
+              THEN ' - ' || gsp.partition_label
+              ELSE ' ' || gsp.partition_label END,
+       count(*), COALESCE(g.park_id::text, '')
+FROM goats g
+JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
+WHERE g.tenant_id = $1::uuid
+  AND g.merged_into_goat_id IS NULL
+  AND ($2 = '' OR g.lifecycle_status = $2)
+  AND ` + partitionKeyExpr + ` <> 'whole'
+GROUP BY g.shed_id, COALESCE(g.park_id::text, ''), shed.name, shed.location_code,
+         ` + partitionKeyExpr + `, gsp.partition_label
+UNION ALL
+-- EMPTY partitions. The two branches above are derived from goats, so a partition that currently
+-- holds ZERO animals is invisible to them -- and a partition can be genuinely empty (CBE
+-- "Yashoda 5" is a real pen with no animals in it right now). Leaving it out of the facet means a
+-- CEO filtering the census cannot even ask about it, and it reads as though the pen does not
+-- exist. The authoritative list of which partitions EXIST is the shed_partitions catalog
+-- (migration 000111), not the per-goat goat_shed_partitions table.
+--
+-- Only partitions with no live goats are added here; the branch above already emits every occupied
+-- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.
+SELECT 'shed',
+       sp.shed_id::text || '#' || sp.normalized_label,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') ||
+         CASE WHEN sp.partition_label ~* '^part[[:space:]]+'
+              THEN ' - ' || sp.partition_label
+              ELSE ' ' || sp.partition_label END,
+       0,
+       COALESCE(shed.parent_location_id::text, '')
+FROM shed_partitions sp
+JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
+WHERE sp.tenant_id = $1::uuid
+  AND sp.status = 'active'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM goats g2
+    JOIN goat_shed_partitions gsp2 ON gsp2.tenant_id = g2.tenant_id AND gsp2.goat_id = g2.goat_id
+    WHERE g2.tenant_id = sp.tenant_id
+      AND g2.shed_id = sp.shed_id
+      AND g2.merged_into_goat_id IS NULL
+      AND ($2 = '' OR g2.lifecycle_status = $2)
+      AND regexp_replace(lower(btrim(COALESCE(gsp2.partition_label, 'whole'))), '^part[[:space:]]+', '')
+          = sp.normalized_label
+  )
 ORDER BY 1, 2, 5`
 
 const (
@@ -2886,12 +2971,14 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	}
 	for pageRows.Next() {
 		var row domain.CountsBreakdownRow
+		var partitionLabel *string
 		var totalRows, totalCount, totalKids, totalAdults int64
 		if err := pageRows.Scan(
 			&row.ParkID,
 			&row.ParkLabel,
 			&row.ShedID,
 			&row.ShedLabel,
+			&partitionLabel,
 			&row.ManagementStage,
 			&row.Breed,
 			&row.Sex,
@@ -2904,6 +2991,13 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			pageRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: page scan: %w", err)
 		}
+		if partitionLabel != nil {
+			row.PartitionLabel = *partitionLabel
+		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedLabel,
+			PartitionLabel: row.PartitionLabel,
+		}.Display()
 		// Every row carries the same window totals; the last write wins and they agree.
 		out.TotalRows = totalRows
 		out.TotalCount = totalCount

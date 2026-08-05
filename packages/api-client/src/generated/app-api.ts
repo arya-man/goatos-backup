@@ -3707,7 +3707,11 @@ export interface components {
             /** Format: uuid */
             task_id: string;
             shed_name: string;
-            partition_label?: string;
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             drive_name: string;
             expected_count: number;
             handled_count: number;
@@ -4182,6 +4186,12 @@ export interface components {
             cohort_id?: string | null;
             cohort_code?: string | null;
             cohort_name?: string | null;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
         };
         EvidenceRef: {
             /** @enum {string} */
@@ -4336,6 +4346,12 @@ export interface components {
             /** Format: uuid */
             shed_id: string | null;
             shed_name: string | null;
+            /** @description Raw stored partition label for shed_id ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label for shed_id. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string | null;
             /** Format: uuid */
             cohort_id: string | null;
             cohort_name: string | null;
@@ -4432,6 +4448,12 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
+            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             total_animals: number;
         };
         CalendarPresentationQuery: {
@@ -4626,6 +4648,12 @@ export interface components {
             animal_identifier_1: string | null;
             animal_identifier_2: string | null;
             shed_name?: string | null;
+            /** @description Raw stored partition label for this target's shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string | null;
             stage?: string | null;
             lifecycle_status?: string | null;
             health_status?: string | null;
@@ -4828,7 +4856,12 @@ export interface components {
         AdherenceRow: {
             row_id: string;
             shed_name: string;
-            partition_label?: string;
+            /** @description EXISTING field, kept as-is for existing consumers. Historically populated with "whole" for unsplit sheds by some producers; new code should not rely on that and should treat "whole"/""/null as non-partitioned. Nullable, matching that stated contract: the previous non-nullable typing contradicted this very description and forced clients to model an impossible shape. */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             expected: string;
             actual: string;
             gap: string;
@@ -4880,7 +4913,7 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_name: string;
-            partition_label?: string;
+            partition_label?: string | null;
             drive_name?: string;
             owner: components["schemas"]["ProcessIntegrityOwner"];
             next_action: string;
@@ -4949,8 +4982,14 @@ export interface components {
             shedName: string;
             /** @description Normalized physical shed/building name. Partition suffixes such as "Gandhi 1" are exposed separately as partition. */
             physicalShed?: string;
-            /** @description Partition inside the physical shed when the source shed label carries one; "whole" for unsplit sheds. */
+            /** @description DEPRECATED ALIAS — kept for existing consumers; "whole" for unsplit sheds. New consumers must use partition_label instead, which is null (never the string "whole") when the shed is non-partitioned. */
             partition?: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             animalStage: string;
             /** @description Number of distinct current-drive animals represented by this aggregated execution row. */
             targetCount: number;
@@ -5123,6 +5162,12 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            /** @description Raw stored partition label for shedId ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** @description Dose rule identifier (e.g., et_tt_adult_w1) or human label. */
             doseRule: string;
             /**
@@ -5182,6 +5227,12 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            /** @description Raw stored partition label for shedId ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** @description Dose rule identifier or human label. */
             doseRule: string;
             /** @description Count of completions awaiting verification (status=recorded, verified_at=null). */
@@ -5823,7 +5874,14 @@ export interface components {
             /** Format: uuid */
             shedId?: string | null;
             physicalShed: string;
+            /** @description EXISTING camelCase field, kept for existing consumers. New consumers should prefer partition_label below (nullable, never "whole"). */
             partitionLabel: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** @description Assigned operator-capacity animals for this operator/date/shed/partition row. */
             animals: number;
             /** @description Assigned animals still planned or in progress and not yet overdue. */
@@ -5874,6 +5932,12 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
+            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". NOT the same field as location_type, which is an enum (shed/cohort/pen) and carries no partition information. */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** @description Backend-resolved assignee name, carried ON the bucket so a client never has to join it against a separately paged operator vocabulary. Empty WITH a non-empty operator_user_id is a roster gap, not "not assigned". */
             operator_display_name: string;
             expected_animal_count: number;
@@ -5996,6 +6060,12 @@ export interface components {
             /** Format: uuid */
             location_id: string;
             name: string;
+            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             kid_count: number;
             /** @description True when an open weighing task already claims this shed on the requested weigh date. Absent/false means the shed is free on that date. */
             scheduled?: boolean;
@@ -6053,6 +6123,10 @@ export interface components {
             /** Format: uuid */
             expected_location_id: string;
             expected_location_label: string;
+            /** @description Raw stored partition label for expected_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
+            expected_location_partition_label?: string | null;
+            /** @description User-facing label for expected_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            expected_operational_location_display?: string;
             /** @enum {string} */
             status: "pending" | "weighed" | "unavailable" | "missed" | "canceled" | "closed_by_override";
             /** @enum {string} */
@@ -6060,6 +6134,10 @@ export interface components {
             /** Format: uuid */
             current_location_id?: string;
             current_location_label?: string;
+            /** @description Raw stored partition label for current_location_id ('1', 'Part 3'). Null or absent means non-partitioned. */
+            current_location_partition_label?: string | null;
+            /** @description User-facing label for current_location_id. No partition -> bare shed name; numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            current_operational_location_display?: string;
             current_lifecycle_status?: string;
             seq: number;
         };
@@ -6294,6 +6372,12 @@ export interface components {
             /** Format: uuid */
             campaign_shed_id: string;
             display_name: string;
+            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing label for this shed option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** Format: uuid */
             park_id: string;
             /** Format: uuid */
@@ -6479,6 +6563,12 @@ export interface components {
             /** Format: uuid */
             shedId: string;
             shedName: string;
+            /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             animals: number;
             due: number;
             done: number;
@@ -6701,6 +6791,12 @@ export interface components {
             farmId?: string | null;
             /** Format: uuid */
             currentLocationId?: string | null;
+            /** @description Raw stored partition label for currentLocationId's shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label for currentLocationId. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string | null;
             breed?: string | null;
             sex: string;
             lifecycleStatus: string;
@@ -6727,6 +6823,12 @@ export interface components {
             shed_id?: string | null;
             /** @description Shed name or code; empty when the goat has no shed assigned. */
             shed_label?: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string | null;
             /** @description Raw goats.management_stage. Free text with no CHECK constraint — near-duplicate source labels are reported verbatim, not normalized. */
             management_stage: string;
             breed: string;
@@ -6745,14 +6847,20 @@ export interface components {
             /** @description Top sheds by head count; display-capped, never the source of totals. */
             shed: components["schemas"]["CountsBreakdownSeriesPoint"][];
         };
-        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. */
+        /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. When a shed has partitions, one row per partition is returned, each with its partition_label, count for that partition, and operational_location_display for the partition label. */
         CountsBreakdownShedFacet: {
             /** @description Shed UUID; empty for the bucket of animals with no shed assigned. */
             key: string;
+            /** @description Shed name or code; for partitioned sheds, this is the shed name (without the partition suffix). */
             label: string;
+            /** @description Count of animals in this shed (or partition if partition_label is present). */
             count: number;
             /** @description Park UUID these animals sit in; empty only when the animals have no park assigned. Matches the park_id request filter, so count equals what ?park_id=<park_id>&shed_id=<key> returns. */
             park_id: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description User-facing location label for this operational location. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string | null;
         };
         CountsBreakdownFacets: {
             /** @description Distinct lifecycle_status values present in the whole tenant herd (alive/dead/sold/ culled/transferred), independent of the currently-selected lifecycle filter — this is what lets a client offer Live/Sold/Culled/Dead/Transferred as filter options rather than only ever showing the live herd. */
@@ -7198,6 +7306,14 @@ export interface components {
             name: string;
             /** @description Distinct stages currently represented by live animals in this shed. */
             management_stages: string[];
+            /** @description Raw stored partition label for this shed option ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string | null;
+            /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
+            source_shed_name?: string | null;
+            /** @description User-facing label for this destination option. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
+            /** @description Live animal count for this operational location option (shed or partition), used to render dropdown option counts. */
+            animal_count?: number;
         };
         RecordShiftingEventRequest: {
             /**
@@ -7217,6 +7333,8 @@ export interface components {
             destination_park_id: string;
             /** Format: uuid */
             destination_shed_id: string;
+            /** @description Raw stored partition label for the selected destination option ('1', 'Part 3'). Omit or null when the destination shed is non-partitioned or the whole shed was selected. */
+            destination_partition_label?: string | null;
             /**
              * Format: date-time
              * @description When the movement actually took effect. Defaults to the time the event is recorded. Normalized to UTC before the request is fingerprinted, so two representations of the same instant are the same request.
@@ -11710,6 +11828,7 @@ export interface operations {
             query?: {
                 park_id?: string;
                 shed_id?: string;
+                partition_label?: string | null;
                 management_stage?: string;
                 breed?: string;
                 sex?: string;

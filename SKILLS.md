@@ -54,6 +54,7 @@ Operational read model contract:
 
 ```text
 docs/architecture/operational-read-model-contract.md
+docs/decisions/operational-location-display-contract.md
 ```
 
 Load this contract whenever a change touches Calendar, Control Tower, Action
@@ -61,8 +62,16 @@ Center, Protocol Adherence, Workflows, admin-web detail pages, Android
 execution/proof screens, OpenAPI/generated clients, or any new vertical/module
 such as shifting, counts, breeding, weighing, feed, or procurement. It is the
 default pattern for pluggable verticals: canonical facts -> grain-explicit
-operational read model -> shared surface adapters. Discoverability/static-text
-guard:
+operational read model -> shared surface adapters.
+
+**MANDATORY: Operational Location rule** — when a shed partition exists (a
+`Castro 1` alongside `Castro 2`), every user-facing surface must render the
+partition label (`"Castro 2"`, never just `"Castro"`), group/key by `shed_id` +
+park (never by name), and never collapse partitions into the parent unless
+explicitly the aggregate. Full contract and shared primitives:
+`docs/decisions/operational-location-display-contract.md`.
+
+Discoverability/static-text guard:
 `make operational-read-model-contract-guard`.
 
 Critical animal action guardrails:

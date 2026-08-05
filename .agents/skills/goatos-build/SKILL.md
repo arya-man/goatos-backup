@@ -80,12 +80,16 @@ enforces this in local CI.
 
 Operational read model rule: shared command surfaces and mobile/admin/reporting
 reads must follow `docs/architecture/operational-read-model-contract.md`.
+**Partition display rule (MANDATORY):** when a partition exists (`Castro 1`
+alongside `Castro 2`), every surface must render the partition label, group by
+`shed_id` + park, never collapse unless explicitly the aggregate. See
+`docs/decisions/operational-location-display-contract.md`.
 Whenever developing or debugging Calendar, Control Tower, Action Center,
 Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
 screens, OpenAPI/generated clients, or a new vertical/module, first identify the
 canonical write owner, row/summary grain, bucket disjointness, stable scope
 identity, whole-result summary behavior, and every consuming surface. Run
-`make operational-read-model-contract-guard`.
+`make operational-read-model-contract-guard` + `make operational-location-guard`.
 
 Critical animal actions (quarantine, ICU, death, contagious disease isolation,
 high-risk movement, and sale/allocation blockers) must follow `docs/features/critical-animal-action-guardrails.md`.

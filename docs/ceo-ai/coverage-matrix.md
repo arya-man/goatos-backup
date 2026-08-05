@@ -175,11 +175,11 @@ tracked as gaps below.
 
 | View | Status | Column gaps (typed NULL + TODO) |
 |---|---|---|
-| animal_current_scope | draft | — (all mapped) |
-| shed_capacity_current | draft | — |
-| vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx) |
-| vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2) |
-| vaccination_operator_status | draft | — (operator-grain drive load/capacity/overdue/utilization over `vaccination_drive_assignments`; migration 000026) |
+| animal_current_scope | draft | — (all mapped; `partition_label` added migration 000110 — see "Partition-scoped reporting rule" below) |
+| shed_capacity_current | draft | — (`partition_label` + per-partition occupancy rows added migration 000110; capacity/variance/status stay shed-grain, no per-partition capacity column exists anywhere in schema) |
+| vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx). **partition_label NOT covered** — reads `vaccination_eligibility_rollups` / `obligation_instances`, which are shed-grain by schema with no partition column; see "Partition-scoped reporting rule" → known gap below. |
+| vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2). **partition_label NOT covered** — same shed-grain schema limitation as vaccination_shed_status; see known gap below. |
+| vaccination_operator_status | draft | — (operator-grain drive load/capacity/overdue/utilization over `vaccination_drive_assignments`; migration 000026). `partition_label` added migration 000110 by grouping on the partition column already stored on `vaccination_drive_assignments` — see "Partition-scoped reporting rule" below. |
 | vaccination_prearrival_history_review | draft | vaccine_label (raw protocol `vaccine_code` only at this grain — typed NULL + TODO; joining the published rule label would fan the trust buckets out per vaccine). Supplier pre-arrival vaccination-claim trust for PROCURED animals over `vaccination_prearrival_history_entries` (migration 000043); Toolbox tool `mesha_prearrival_history_review`; golden eval `prearrival-history-rejected-share` |
 | feed_direction_current | draft | — (directive only; actuals → gap G7 feed_adherence) |
 | counts_movement_daily | draft | transfers_out (derived from terminal exits — partial) |
@@ -242,6 +242,87 @@ scoped-refusal exclusion so the bot says "not covered yet" rather than inventing
 | G11 | Identity-resolution / data-quality backlog uncovered | Surface via `ops_exception_queue` (location-review + escalations); dedicated identity-conflict view deferred, documented here |
 | G12 | Transit/holding, proof artifacts, device fleet | EXCLUDED for now: transit/holding deferred (draft when volume matters); proof artifacts surfaced via per-module "evidence present" derivation; device fleet is ops-admin telemetry, not a leadership KPI |
 | G13 | API-tier tool executors (in-process adapters) | CLOSED: tier-2 in-process `ToolExecutor` adapters registered in `ceoai/adapters/readtools/` for planner-routed API tools (vaccination_shed_summary, vaccination_execution, feed_direction_today). Species counts routed to Cube tier (active_animal_count metric) instead of API. Executors propagate errors via `ToolResult.Err` instead of swallowing them; toolexecutors_test.go covers error-propagation + species-split assertions. Resolves `backend/internal/ceoai/app/registry.go:106` routing error + P0-critical error-swallowing bug. |
+
+## Partition-scoped reporting rule (migration 000110, 2026-08-05)
+
+OperationalLocation = park + physical shed + OPTIONAL partition
+(`backend/internal/platform/oploc`). `goats.shed_id` is always the PARENT
+physical shed; `goat_shed_partitions` (PK `(tenant_id, goat_id)`) carries the
+actual sub-location for a goat that lives in a partitioned shed. Not every shed
+has partitions — a non-partitioned shed renders as the bare shed name, never a
+synthetic "whole" location; shed names repeat across parks, so grouping/
+filtering must always key off `shed_id`, never the shed name alone.
+
+**Leadership reporting rule: when a partition exists, a leadership answer must
+never resolve at the parent-shed grain only.** "How many kids in Castro 1" must
+answer Castro 1's count, not the whole-Castro total, whenever `goat_shed_partitions`
+has rows for that shed. A view/tool that silently collapses every partition of a
+shed into one shed-total row is a coverage defect, not an acceptable
+approximation — that was exactly the bug migration 000110 fixed in four views
+(`animal_current_scope`, `shed_capacity_current`, `counts_movement_daily`,
+`vaccination_operator_status`): "at Castro 1" and "at Castro 2" both answered
+with the Castro TOTAL before this migration.
+
+**Fixed (migration 000110):**
+
+- `ceo_ai.animal_current_scope` — `partition_label` added to the per-goat row
+  (LEFT JOIN `goat_shed_partitions`, 1:{0,1} per goat, no fan-out).
+- `ceo_ai.shed_capacity_current` — one additional row per (shed, partition)
+  reporting occupancy scoped to that partition; the pre-existing bare-shed row
+  is unchanged (still the whole-shed total). Capacity/variance/status stay
+  shed-grain on every row (partition or bare) because no per-partition capacity
+  column exists anywhere in the schema — `shed_profiles.capacity` is a
+  whole-shed figure only.
+- `ceo_ai.counts_movement_daily` — the birth/death branches (read `goats`
+  per-animal) now carry `partition_label`. The transfer/shift/approval branches
+  (read `shifting_event_impacts`, which is aggregated per `(event, breed,
+  stage)`, NOT per goat) cannot honestly attribute a partition and continue to
+  emit `partition_label = NULL`, rolling up at shed grain only — documented,
+  not silently dropped.
+- `ceo_ai.vaccination_operator_status` — GROUP BY now includes the
+  `partition_label` column `vaccination_drive_assignments` already stores (it
+  existed pre-migration but was ignored by the view's GROUP BY), so two
+  partitions of one shed assigned to the same operator on the same day report
+  as distinct rows instead of merging. The per-operator-per-day capacity/
+  utilization window stays `PARTITION BY (tenant_id, operator_id, planned_date)`
+  — unchanged — because capacity is a whole-day, cross-shed, cross-partition
+  cap, never a per-partition one.
+- `backend/internal/bootstrap/ceoai_readers.go` (`buildCountsReader`, backing
+  the `counts_breakdown` tool) now accepts `partition_label` as a scoped param:
+  rows are filtered to the named partition (`oploc.SamePartition`, tolerating
+  both the numeric and "Part N" label conventions) and every scope string
+  renders through `oploc.OperationalLocation.Display()`.
+
+**Leadership surfaces that MUST carry partition labels (when one exists):**
+
+Every leadership-visible answer about animal/shed location, counts, vaccination,
+shifting, or work status must carry `partition_label` in the response payload,
+in scope params, in tool names, and in rendered text when a partition exists.
+Affected surfaces:
+
+- Counts Breakdown (Cube metric + tool) — filters/groups by partition
+- Vaccination Shed Status (tool) — per-partition animal/obligation counts
+- Vaccination Operator Status (view) — operator-date rows per partition
+- Animal Current Scope (view) — per-goat partition label
+- Shed Capacity (view) — per-partition rows alongside shed total
+- Counts Movement Daily (view) — birth/death partition labels
+- Any leadership drilldown or detail drawer showing "animals at Shed X"
+
+A CEO tool/query/report that answers "X animals/doses/actions at [ShedName]"
+without checking `goat_shed_partitions` for that shed is incomplete.
+
+**Known gap — deliberately NOT fixed (do not build without a separate,
+explicit maintainer decision):**
+
+`ceo_ai.vaccination_shed_status` and `ceo_ai.vaccination_dose_pickup` read
+`vaccination_eligibility_rollups` and `obligation_instances`, both of which are
+**shed-grain by schema** — neither table has a partition column. Fixing these
+two views needs a rollup-grain migration plus a backfill of historical rollup
+rows, which migration 000110 intentionally does not attempt. Do NOT fake a
+per-partition number here by dividing the shed total or guessing a split; a
+leadership question that names a specific partition of a shed covered only by
+these two views must fail closed with "not covered at partition grain yet"
+rather than answer with an invented split.
 
 ## E. Rule
 

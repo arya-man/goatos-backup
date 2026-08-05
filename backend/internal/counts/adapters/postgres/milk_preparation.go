@@ -46,7 +46,7 @@ WITH grouped AS MATERIALIZED (
     AND g.lifecycle_status = 'alive'
     AND g.management_stage IN ('K1', 'K2', 'K3')
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
-  GROUP BY g.park_id, park.location_code, park.name,
+  GROUP BY g.park_id, park.location_code, park.name, -- operational-location:ignore: owner=ravi issue=partition-milk-prep scope=milk-prep-rows-and-contract-carry-no-partition-yet expiry=2026-11-30
            g.shed_id, shed.name, shed.location_code, g.management_stage
 )`
 

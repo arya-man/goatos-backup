@@ -130,12 +130,13 @@ type FeedProjectedCountQuery struct {
 }
 
 // FeedProjectedCountRow is one projected shed grain:
-// park x shed x management stage x breed x sex.
+// park x shed x partition x management stage x breed x sex.
 type FeedProjectedCountRow struct {
 	ParkID          *string `json:"park_id"`
 	ParkLabel       string  `json:"park_label"`
 	ShedID          *string `json:"shed_id"`
 	ShedLabel       string  `json:"shed_label"`
+	PartitionLabel  string  `json:"partition_label"`
 	ManagementStage string  `json:"management_stage"`
 	Breed           string  `json:"breed"`
 	Sex             string  `json:"sex"`

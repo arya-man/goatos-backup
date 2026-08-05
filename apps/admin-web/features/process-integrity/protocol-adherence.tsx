@@ -13,6 +13,7 @@ import { VaccinationFilterButton, VaccinationTablePager, type VaccinationPageSiz
 import { vaccinationDriveDisplayName } from "@/lib/vaccine-display";
 import { ProtocolAdherenceLocalDrawer, type ProtocolAdherenceDrawerRecord } from "./protocol-adherence-local-drawer";
 import { fmtDate } from "@/lib/format";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { EvidenceMedia } from "./evidence-media";
 
 type Tone4 = "ok" | "warn" | "dng" | "info" | "mut";
@@ -167,9 +168,14 @@ function readableAdherenceActual(pageContract: AdminUiPageContract, raw: string)
 }
 
 function adherenceLocationDetail(row: AdherenceRow): string {
-  return [row.shed_name, row.partition_label && row.partition_label !== "whole" ? row.partition_label : undefined]
-    .filter(Boolean)
-    .join(" · ");
+  return (
+    row.operational_location_display ||
+    operationalLocationLabel({
+      shedName: row.shed_name,
+      partitionLabel: row.partition_label,
+      sourceShedName: row.source_shed_name,
+    })
+  );
 }
 
 function readableScheduleTiming(pageContract: AdminUiPageContract, code: string): string | undefined {

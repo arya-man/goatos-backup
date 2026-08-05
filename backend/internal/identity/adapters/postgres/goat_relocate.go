@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/identity/ports"
+	obligationpg "github.com/vgoats/goatos/backend/internal/obligation/adapters/postgres"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	protocoldomain "github.com/vgoats/goatos/backend/internal/protocol/domain"
 )
 
@@ -150,7 +152,79 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		return ports.RelocateGoatsResult{}, err
 	}
 	sort.Strings(moved)
+
+	// OperationalLocation = park + physical shed + optional partition (backend/internal/platform/
+	// oploc). goats.shed_id/park_id above always carries the PARENT physical shed; the partition half
+	// lives here, in goat_shed_partitions, and must move atomically with the shed/park write -- in the
+	// SAME transaction -- or a reader combining the two tables would observe an animal whose shed says
+	// "moved" but whose partition still names its old location.
+	if err := r.upsertGoatShedPartitionsInTx(ctx, tx, cmd, moved); err != nil {
+		return ports.RelocateGoatsResult{}, err
+	}
+	// Re-derive vaccination_drive_assignment_members for whichever moved goats still have open,
+	// BATCHED obligations. A cross-shed move is separately re-scoped by the async
+	// goat.location.changed consumer (SM-2), which unbatches those obligations outright, so this call
+	// is typically a no-op for that case; a SAME-shed partition-only move has no shed change to
+	// trigger that async path at all, so this is the only place that keeps drive-assignment
+	// membership (and its counters) correct for it. See
+	// obligationpg.SyncDriveAssignmentMembershipForGoatsInTx.
+	if err := obligationpg.SyncDriveAssignmentMembershipForGoatsInTx(ctx, tx, cmd.TenantID, moved); err != nil {
+		return ports.RelocateGoatsResult{}, fmt.Errorf("identity: relocate goats: sync drive assignment membership: %w", err)
+	}
 	return ports.RelocateGoatsResult{MovedGoatIDs: moved}, nil
+}
+
+// upsertGoatShedPartitionsInTx writes the destination operational location's partition half for
+// every moved goat: goat_shed_partitions.shed_id/partition_label/source_shed_name. PRIMARY KEY
+// (tenant_id, goat_id) makes this a straightforward upsert -- every goat carries at most one
+// partition row, mirroring its current shed_id at all times, whether or not that shed is actually
+// partitioned (a non-partitioned destination writes the 'whole' sentinel, never a synthesized
+// business label -- see oploc.WholeSentinel/Display).
+//
+// cmd.DestinationPartitionLabel is nil for a genuinely non-partitioned destination (or for an
+// existing caller that has not been updated to supply it, which preserves today's behaviour: those
+// callers already only ever moved goats into non-partitioned sheds). cmd.DestinationShedName, when
+// supplied, avoids a redundant shed-name lookup the caller may already have; when blank this reads
+// the name from `locations` so source_shed_name is a real display string and not the shed uuid.
+func (r *Repository) upsertGoatShedPartitionsInTx(ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, goatIDs []string) error {
+	if len(goatIDs) == 0 {
+		return nil
+	}
+	partitionLabel := oploc.WholeSentinel
+	if cmd.DestinationPartitionLabel != nil {
+		if trimmed := strings.TrimSpace(*cmd.DestinationPartitionLabel); trimmed != "" {
+			partitionLabel = trimmed
+		}
+	}
+	shedName := strings.TrimSpace(cmd.DestinationShedName)
+	if shedName == "" {
+		if err := tx.QueryRow(ctx, `SELECT name FROM locations WHERE tenant_id = $1::uuid AND location_id = $2::uuid`,
+			cmd.TenantID, cmd.ToShedID).Scan(&shedName); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("identity: relocate goats: destination shed name: %w", err)
+		}
+	}
+	sourceShedName := oploc.OperationalLocation{
+		ParkID: cmd.ToParkID, ShedID: cmd.ToShedID, ShedName: shedName, PartitionLabel: partitionLabel,
+	}.Display()
+	if strings.TrimSpace(sourceShedName) == "" {
+		// goat_shed_partitions_source_nonblank requires a non-blank value; a shed name lookup miss
+		// (should not happen -- ensureShedUnderPark already verified the shed exists) still leaves the
+		// write satisfying the constraint rather than failing the whole relocation on a cosmetic field.
+		sourceShedName = cmd.ToShedID
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+SELECT $1::uuid, g.goat_id, $2::uuid, $3, $4, now()
+FROM unnest($5::uuid[]) AS g(goat_id)
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+    shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now()`,
+		cmd.TenantID, cmd.ToShedID, partitionLabel, sourceShedName, goatIDs); err != nil {
+		return fmt.Errorf("identity: relocate goats: upsert goat_shed_partitions: %w", err)
+	}
+	return nil
 }
 
 // destinationStageResolution is the canonical active stage selected when the shifting was raised.

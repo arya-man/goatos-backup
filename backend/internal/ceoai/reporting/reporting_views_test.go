@@ -96,6 +96,47 @@ func goat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkID,
 	}
 }
 
+// goatWithID is goat() but returns the inserted goat_id, needed by callers that
+// must also insert a goat_shed_partitions row for the same animal.
+func goatWithID(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, parkID, shedID, species, lifecycle string, entry *time.Time, exited *time.Time) string {
+	t.Helper()
+	origin := "procured"
+	if entry != nil {
+		origin = "birth"
+	}
+	exitReason := (*string)(nil)
+	if exited != nil {
+		r := "died"
+		exitReason = &r
+	}
+	party := custodian(t, ctx, pool, tenant)
+	var id string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO goats (goat_id, tenant_id, display_id, species, sex, lifecycle_status, management_stage, health_status,
+		                    custodian_party_id, park_id, shed_id, origin_type, entry_date, exited_at, exit_reason, row_version, created_at, updated_at)
+		 VALUES (gen_random_uuid(), $1, 'G-' || lpad((floor(random()*1000000000))::bigint::text, 9, '0'), $2, 'female', $3, 'active_adult', 'healthy',
+		         $10, $4, $5, $6, $7, $8, $9, 1, now(), now())
+		 RETURNING goat_id::text`,
+		tenant, species, lifecycle, parkID, shedID, origin, entry, exited, exitReason, party).Scan(&id); err != nil {
+		t.Fatalf("insert goat: %v", err)
+	}
+	return id
+}
+
+// partition assigns a goat to a partition of the shed it already sits in
+// (goat_shed_partitions is a "which sub-location inside its shed" fact, keyed
+// (tenant_id, goat_id)). label may be the numeric convention ("2") or the
+// "Part N" convention -- both are stored verbatim.
+func partition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, goatID, shedID, label, sourceShedName string) {
+	t.Helper()
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, now())`,
+		tenant, goatID, shedID, label, sourceShedName); err != nil {
+		t.Fatalf("insert goat_shed_partitions: %v", err)
+	}
+}
+
 func seat(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenant, shedID, name string, backup bool) {
 	t.Helper()
 	var memberID string
@@ -277,5 +318,147 @@ func TestCountsMovementDateShift(t *testing.T) {
 	}
 	if deaths["2026-07-11"] != 1 {
 		t.Fatalf("deaths day2=%d want 1", deaths["2026-07-11"])
+	}
+}
+
+// TestAnimalCurrentScopePartitionLabel proves ceo_ai.animal_current_scope
+// (migration 000110) carries partition_label per goat: two goats in the SAME
+// physical shed but different partitions come back as distinct labels, and a
+// goat in a non-partitioned shed comes back with a NULL/bare label -- never the
+// "whole" sentinel.
+func TestAnimalCurrentScopePartitionLabel(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park P")
+	partitioned := shed(t, ctx, pool, tenant, pk, "Castro", nil)
+	bare := shed(t, ctx, pool, tenant, pk, "Yashoda", nil)
+
+	g1 := goatWithID(t, ctx, pool, tenant, pk, partitioned, "goat", "alive", nil, nil)
+	partition(t, ctx, pool, tenant, g1, partitioned, "1", "Castro 1")
+	g2 := goatWithID(t, ctx, pool, tenant, pk, partitioned, "goat", "alive", nil, nil)
+	partition(t, ctx, pool, tenant, g2, partitioned, "2", "Castro 2")
+	g3 := goatWithID(t, ctx, pool, tenant, pk, bare, "goat", "alive", nil, nil)
+
+	got := map[string]string{}
+	rows, err := pool.Query(ctx,
+		`SELECT animal_id::text, COALESCE(partition_label, '') FROM ceo_ai.animal_current_scope WHERE tenant_id=$1`, tenant)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got[id] = label
+	}
+	if got[g1] != "1" {
+		t.Fatalf("g1 partition_label=%q want %q", got[g1], "1")
+	}
+	if got[g2] != "2" {
+		t.Fatalf("g2 partition_label=%q want %q", got[g2], "2")
+	}
+	if label, ok := got[g3]; !ok || label != "" {
+		t.Fatalf("g3 (non-partitioned shed) partition_label=%q want empty, never the whole sentinel", label)
+	}
+}
+
+// TestShedCapacityCurrentPartitionRows proves ceo_ai.shed_capacity_current
+// (migration 000110) adds distinct rows per partition of a shed WITHOUT
+// changing the pre-existing bare-shed row: Castro has 5 animals total across
+// two partitions (2 in "1", 3 in "2"); the bare row still reports 5 (whole-shed,
+// unchanged from before this migration) and two new rows report 2 and 3.
+func TestShedCapacityCurrentPartitionRows(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	cap10 := 10
+	pk := park(t, ctx, pool, tenant, "Park Q")
+	sh := shed(t, ctx, pool, tenant, pk, "Castro", &cap10)
+
+	for i := 0; i < 2; i++ {
+		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+		partition(t, ctx, pool, tenant, g, sh, "1", "Castro 1")
+	}
+	for i := 0; i < 3; i++ {
+		g := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", nil, nil)
+		partition(t, ctx, pool, tenant, g, sh, "2", "Castro 2")
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(partition_label, ''), animals, capacity FROM ceo_ai.shed_capacity_current
+		 WHERE tenant_id=$1 AND shed_label='Castro' ORDER BY COALESCE(partition_label, '')`, tenant)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	type row struct {
+		label    string
+		animals  int64
+		capacity int64
+	}
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.label, &r.animals, &r.capacity); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 rows (bare + 2 partitions), got %d: %+v", len(got), got)
+	}
+	want := map[string]int64{"": 5, "1": 2, "2": 3}
+	for _, r := range got {
+		if r.animals != want[r.label] {
+			t.Errorf("partition %q animals=%d want %d", r.label, r.animals, want[r.label])
+		}
+		// no per-partition capacity column exists anywhere in the schema, so
+		// every row -- bare or partitioned -- carries the SAME shed-level cap.
+		if r.capacity != 10 {
+			t.Errorf("partition %q capacity=%d want 10 (shed-level, not per-partition)", r.label, r.capacity)
+		}
+	}
+}
+
+// TestCountsMovementDailyPartitionLabel proves the birth/death branches of
+// ceo_ai.counts_movement_daily (migration 000110) attribute per-goat events to
+// the correct partition: two births on the same day in different partitions of
+// the same shed land as two distinct rows, not one merged shed-total row.
+func TestCountsMovementDailyPartitionLabel(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	pk := park(t, ctx, pool, tenant, "Park R")
+	sh := shed(t, ctx, pool, tenant, pk, "Godel 1", nil)
+	day := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+
+	g1 := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", &day, nil)
+	partition(t, ctx, pool, tenant, g1, sh, "Part 3", "Godel 1 - Part 3")
+	g2 := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", &day, nil)
+	partition(t, ctx, pool, tenant, g2, sh, "Part 3", "Godel 1 - Part 3")
+	g3 := goatWithID(t, ctx, pool, tenant, pk, sh, "goat", "alive", &day, nil)
+	partition(t, ctx, pool, tenant, g3, sh, "Part 5", "Godel 1 - Part 5")
+
+	got := map[string]int64{}
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(partition_label, ''), births FROM ceo_ai.counts_movement_daily
+		 WHERE tenant_id=$1 AND shed_label='Godel 1' AND event_date='2026-07-20'`, tenant)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var label string
+		var b int64
+		if err := rows.Scan(&label, &b); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got[label] = b
+	}
+	if got["Part 3"] != 2 {
+		t.Fatalf("Part 3 births=%d want 2", got["Part 3"])
+	}
+	if got["Part 5"] != 1 {
+		t.Fatalf("Part 5 births=%d want 1", got["Part 5"])
 	}
 }

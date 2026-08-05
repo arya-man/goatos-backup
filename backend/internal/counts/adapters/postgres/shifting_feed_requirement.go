@@ -54,11 +54,15 @@ WITH events AS (
     WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = ANY($2::uuid[])
 ), grains AS (
     SELECT e.shifting_event_id, e.destination_park_id, e.destination_shed_id, e.target_stage,
+           regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
            feed_config_norm(g.breed) AS breed_key, count(*)::bigint AS head_count
     FROM events e
     LEFT JOIN LATERAL jsonb_array_elements_text(COALESCE(e.payload->'goat_ids','[]'::jsonb)) gid ON true
     LEFT JOIN goats g ON g.tenant_id = $1::uuid AND g.goat_id = gid::uuid
+    -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out.
+    LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
     GROUP BY e.shifting_event_id, e.destination_park_id, e.destination_shed_id, e.target_stage,
+             regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', ''),
              feed_config_norm(g.breed)
 ), resolved AS (
     SELECT g.*, tag.shed_tag_id, tag.shed_tag_label, tag.shed_tag_key, tag.applies_to,

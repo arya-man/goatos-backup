@@ -17,6 +17,7 @@ import { scheduleLoadBuckets, type ScheduleLoadBucket } from "./full-vaccine-sch
 import { ScheduleLocalDrawer, type ScheduleDrawerRow } from "./full-vaccine-schedule-drawer";
 import { ScheduleMoveDrawer, type ScheduleMoveDrawerRow } from "./full-vaccine-schedule-move-drawer";
 import { revalidateVaccinationCommandLenses } from "@/lib/vaccination-command-lenses";
+import { hasOperationalPartition } from "@/lib/operational-location";
 
 const CURRENT_YEAR = Number(todayIso().slice(0, 4));
 const CURRENT_MONTH = Number(todayIso().slice(5, 7));
@@ -82,7 +83,7 @@ function dateEyebrow(date: string): string {
 
 function partitionLabel(pageContract: AdminUiPageContract, label: string): string {
   const trimmed = label.trim();
-  if (!trimmed) return copy(pageContract, "schedule.partition.whole_shed");
+  if (!hasOperationalPartition(trimmed)) return copy(pageContract, "schedule.partition.whole_shed");
   return /^part\b/i.test(trimmed) ? trimmed : `${copy(pageContract, "schedule.partition.prefix")} ${trimmed}`;
 }
 

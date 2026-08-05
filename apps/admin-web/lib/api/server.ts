@@ -488,6 +488,7 @@ export type CountsBreakdownParams = {
   farm_id?: string;
   park_id?: string;
   shed_id?: string;
+  partition_label?: string | null;
   management_stage?: string;
   breed?: string;
   sex?: string;
