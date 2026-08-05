@@ -769,3 +769,5 @@ folded into it:
 These two deliberately disagree, and that is correct: a 30-week F2 fattening animal is on the
 ADULT vaccination path while the farm still counts it as a kid. Do not "reconcile" them by
 deriving one from the other, and do not let a seeded source date write `age_band`.
+
+<!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->

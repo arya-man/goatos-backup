@@ -244,6 +244,11 @@
       "date": "2026-08-05",
       "change": "seed-vaccination-real now accepts an optional source rfid2 column as an additional active animal_identifier_2 alias, and GOATOS_SEED_EXCLUDE_VACCINES can publish a seed-specific vaccination matrix excluding named vaccines while canonical source/history mapping remains unchanged.",
       "vaccination_hrms_source_impact": "none to committed full fixture bytes, hashes, row counts, or existing schedule anchors: the committed full fixture has no rfid2 values and does not set GOATOS_SEED_EXCLUDE_VACCINES. This is for CBE/CPT port sources where double-tagged animals carry a second RFID and current operations intentionally exclude Blue Tongue/PPR from generated open work until stock/manual scheduling is confirmed."
+    },
+    {
+      "date": "2026-08-05",
+      "change": "seed-roster-real defaultDepartmentModules drops \"milk\" from preventive_care, and migration 000110 deactivates the existing preventive_care milk + aas_health rows in department_module_grants (maintainer decision 2026-08-05). This retires the counts-implies-milk seed coupling; the health department is unchanged and keeps both modules.",
+      "vaccination_hrms_source_impact": "none. department_module_grants decides which modules a department's bottom bar OFFERS; it is not a vaccination source input. The change touches no HRMS source row, no fixture byte, hash or row count, no goat/DOB/species field, no protocol_rules or vaccination matrix, and no operator capacity -- vaccination operator capacity comes from the operator role grant plus shed assignment, not from a department module grant, so Amit/Darshan/Sagar/Natheswar keep their vaccination work and their capacity unchanged. Migration 000110 does DML on department_module_grants only, with no DDL on any canonical seed table."
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",

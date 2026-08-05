@@ -793,3 +793,8 @@ if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) main
 // position upserts do not alter HRMS source rows, hashes, or counts. Current
 // open obligation generation excludes Blue Tongue and PPR by policy until later
 // stock-confirmed scheduling.
+
+// Coupling review 2026-08-05 (preventive_care module grants): reviewed against this source audit and
+// found nothing to validate. Removing milk/aas_health from the preventive_care department affects
+// which modules that department is OFFERED in the app; it is not an HRMS/vaccination source input and
+// changes no column, row count, or hash this auditor reads.

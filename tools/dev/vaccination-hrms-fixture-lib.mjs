@@ -658,3 +658,9 @@ export function updateManifestHashes(directory, manifest) {
 // duties, and active position conflict keys only. The HRMS fixture source remains
 // byte-for-byte unchanged; current open-port policy explicitly excludes Blue
 // Tongue and PPR generation until stock/source scheduling is confirmed.
+
+// Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from
+// preventive_care defaultDepartmentModules; migration 000110 deactivates the existing preventive_care
+// milk + aas_health department_module_grants rows. Nothing in this fixture contract changes: module
+// grants gate a bottom bar, not a vaccination source input. No fixture byte, hash, row count, goat
+// field, protocol rule or operator capacity is touched, so no validator here needed updating.

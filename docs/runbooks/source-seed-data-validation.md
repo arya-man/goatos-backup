@@ -521,3 +521,5 @@ cohorts as kid at up to 67 weeks of age and K2 to 55 weeks. "Kid" is an operatio
 classification made by PLACEMENT, not a birthday, so an age-derived band would contradict the
 source it claims to be validating — for 261 animals in the current herd. The stage vocabulary is
 the authority; a new cohort is classified by editing `animal_stage_lookup`, not by seeding rules.
+
+<!-- Coupling review 2026-08-05 (preventive_care module grants): seed-roster-real drops "milk" from preventive_care defaultDepartmentModules and migration 000110 deactivates the existing preventive_care milk + aas_health department_module_grants rows. No vaccination/HRMS source impact: department_module_grants decides which modules a bottom bar OFFERS and is not a seed source input. No HRMS row, fixture byte/hash/count, goat/DOB/species field, protocol_rules row or vaccination matrix changes. Vaccination operator capacity is unaffected -- it derives from the operator role grant plus shed assignment, never from a department module grant, so the four PC operators keep their drives and their caps. Migration 000110 is DML on department_module_grants only, no canonical-table DDL. -->
