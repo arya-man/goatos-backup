@@ -871,6 +871,19 @@ class WeighingViewModel @Inject constructor(
                         )
                     }
                 }
+            } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                // A repository throw must not escape viewModelScope.launch and crash the app --
+                // same defect shape fixed in SessionViewModel's dev-session bring-up and in
+                // VerifyQueueViewModel.refresh() (see the catch there). Record it and resolve to
+                // an honest error state instead of propagating; hasLoadedOnce still flips in
+                // `finally` below so the screen never wedges on the empty-preview spinner.
+                exportPreviewError.value = "Could not read the export file."
+                runCatching { crashReporter.recordException(t, "weighing csv export preview fetch failed") }
             } finally {
                 exportPreviewLoading.value = false
                 // In FINALLY, not after the result: a throw on the way here would leave this false
@@ -1127,6 +1140,20 @@ class WeighingViewModel @Inject constructor(
                         reportReadFailure(loaded.message)
                     }
                 }
+            } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
+                // A repository throw must not escape viewModelScope.launch and crash the app --
+                // same defect shape fixed in SessionViewModel's dev-session bring-up and in
+                // VerifyQueueViewModel.refresh() (see the catch there). Record it and resolve to
+                // an honest error state instead of propagating; hasLoadedOnce still flips in
+                // `finally` below so the screen never wedges on the empty-work spinner.
+                val reason = t.message ?: "Unknown error"
+                assignmentsError.value = reason.toWeighingReadMessage()
+                reportReadFailure(reason)
             } finally {
                 loadingAssignments.value = false
                 // In FINALLY, not after the result: a throw on the way here would leave this false

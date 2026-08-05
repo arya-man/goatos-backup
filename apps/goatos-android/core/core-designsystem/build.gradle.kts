@@ -23,6 +23,11 @@ dependencies {
     api(libs.androidx.compose.material3)
     api(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
+
+    // Plain-JUnit coverage for MeshaIcons.forNavKey (pure String -> ImageVector mapping, no
+    // Compose runtime needed) -- see feature-verify's own testImplementation("junit") for the
+    // same pattern.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

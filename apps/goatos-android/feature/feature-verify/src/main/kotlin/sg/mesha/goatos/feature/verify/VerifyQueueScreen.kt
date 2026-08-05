@@ -549,6 +549,34 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
     }
 }
 
+/**
+ * Pure title resolver for [QueueHeader], extracted so the title-is-the-module invariant can be
+ * unit-tested without a Compose runtime (see VerifyQueueTitleTest). Bug this guards: the app bar
+ * used to show a hardcoded "Video verification" string regardless of which module the nav bar
+ * was on -- the one thing that actually changes between taps was invisible. Callers resolve the
+ * string-resource values with [stringResource] and pass them in; this function contains only the
+ * selection logic.
+ */
+internal fun verifyQueueTitle(
+    state: VerifyQueueUiState,
+    actionQueueTitle: String,
+    vaccinationLabel: String,
+    weighingLabel: String,
+    genericFallback: String,
+): String = when {
+    state.isActionQueue -> actionQueueTitle
+    state.moduleLabel.isNotBlank() -> state.moduleLabel
+    state.selectedModule == VerifyModuleTab.VACCINATION -> vaccinationLabel
+    state.selectedModule == VerifyModuleTab.WEIGHING -> weighingLabel
+    // Blank only while the module is still resolving -- the generic title used to flash
+    // for a few frames on every cold start and then swap, which is the same
+    // draw-a-wrong-answer-first defect as the shimmer. Once a fetch has completed and the
+    // module STILL has no label (an unrecognised category from a newer backend), a blank
+    // app bar is worse than a generic one, so fall back rather than sit headerless.
+    state.hasLoadedOnce -> genericFallback
+    else -> ""
+}
+
 @Composable
 // The eyebrow is the BACKEND's own module label (filterOptions.moduleLabel), not a client
 // string table keyed off a guessed module: it is blank exactly when there is no module to name,
@@ -566,21 +594,13 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMiss
         // fall straight through to a fixed "Video verification", the one fact a verifier already
         // knows, wrapped over two lines. Fall back to the module this queue IS before falling back
         // to that generic string.
-        title = when {
-            state.isActionQueue -> stringResource(R.string.verify_action_queue_title)
-            state.moduleLabel.isNotBlank() -> state.moduleLabel
-            state.selectedModule == VerifyModuleTab.VACCINATION ->
-                stringResource(R.string.verify_module_vaccination)
-            state.selectedModule == VerifyModuleTab.WEIGHING ->
-                stringResource(R.string.verify_module_weighing)
-            // Blank only while the module is still resolving -- the generic title used to flash
-            // for a few frames on every cold start and then swap, which is the same
-            // draw-a-wrong-answer-first defect as the shimmer. Once a fetch has completed and the
-            // module STILL has no label (an unrecognised category from a newer backend), a blank
-            // app bar is worse than a generic one, so fall back rather than sit headerless.
-            state.hasLoadedOnce -> stringResource(R.string.verify_queue_title)
-            else -> ""
-        },
+        title = verifyQueueTitle(
+            state = state,
+            actionQueueTitle = stringResource(R.string.verify_action_queue_title),
+            vaccinationLabel = stringResource(R.string.verify_module_vaccination),
+            weighingLabel = stringResource(R.string.verify_module_weighing),
+            genericFallback = stringResource(R.string.verify_queue_title),
+        ),
         below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,

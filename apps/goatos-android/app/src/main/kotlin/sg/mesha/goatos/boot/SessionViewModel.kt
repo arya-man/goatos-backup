@@ -148,6 +148,11 @@ class SessionViewModel @Inject constructor(
                     analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
                 }
                 } catch (t: Throwable) {
+                    // A cancelled scope is not a failure. Catching Throwable without letting
+                    // CancellationException through breaks structured concurrency: rotating the
+                    // screen or navigating away would be reported as an error and would publish
+                    // state after the scope had already been cancelled.
+                    if (t is kotlinx.coroutines.CancellationException) throw t
                     // FAIL CLOSED. The wipe above revokes the previous principal's device and
                     // clears its state; if it threw partway, the OLD bearer may still be on disk.
                     // Simply opening the gate here would let bootstrap reopen that principal --
@@ -155,7 +160,12 @@ class SessionViewModel @Inject constructor(
                     // this catch was added to prevent. Drop the token first, so the gate opens on
                     // a signed-OUT app the operator can sign into.
                     runCatching { sessionStore.setBearerToken(null) }
-                    throw t
+                    // Do NOT rethrow. This runs in viewModelScope.launch, so an uncaught throw
+                    // here takes the app down on cold start instead of showing the signed-out
+                    // gate this catch exists to reach. Record it and let the finally publish the
+                    // resolved (signed-out) state.
+                    // exception:exempt startup-path diagnostic; the signed-out state IS the handling
+                    android.util.Log.e(TAG, "dev session bring-up failed; signing out", t)
                 } finally {
                     // Resolve either way: unknown-forever is a locked-out app. By here the token
                     // is either the new principal's or gone.

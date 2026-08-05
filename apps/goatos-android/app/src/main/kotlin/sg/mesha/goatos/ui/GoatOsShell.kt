@@ -393,6 +393,20 @@ fun GoatOsShellChrome(
     val drawerState = rememberDrawerState(initialDrawerValue)
     val scope = rememberCoroutineScope()
 
+    // The bottom bar's DOUBLE-TAP guard. `isSelected` inside [MeshaNavBar] is derived from
+    // `currentRoute`, which only updates once the nav graph's back-stack entry actually settles
+    // — navigate() is not synchronous with the composition. Two fast taps on a tab that is not
+    // yet selected both see `isSelected == false` and both call onNavigate, firing navigation
+    // twice. Tracking the href a tap is ALREADY headed for -- independent of `isSelected` --
+    // closes that window: a repeat tap on the same href is ignored until `currentRoute` catches
+    // up to it (or the attempt is known to have failed, see below).
+    var pendingNavTarget by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentRoute) {
+        if (pendingNavTarget != null && currentRoute?.routeBase() == pendingNavTarget) {
+            pendingNavTarget = null
+        }
+    }
+
     // The bottom bar is MODULE-SCOPED: it shows the OPEN module's own destinations, so
     // switching modules in the drawer swaps the bar. Resolution lives in the shared nav
     // contract (NavState.resolveModule) — the shell holds no module list of its own and
@@ -474,7 +488,22 @@ fun GoatOsShellChrome(
                         currentRoute = currentRoute,
                         // A bar tab has no fallback candidate; the guard inside onNavigate is what
                         // keeps a stale cached tab from crashing the app.
-                        onSelect = { onNavigate(it) },
+                        //
+                        // DOUBLE-TAP guard (see `pendingNavTarget` above): ignore a repeat tap on
+                        // the href already in flight. If onNavigate itself refuses the href (stale
+                        // cache / unhosted route -- returns false), immediately release the guard
+                        // so the tap is not permanently swallowed with nothing on screen to show
+                        // for it.
+                        onSelect = { href ->
+                            // Tapping the tab you are ALREADY on must not arm the guard. The
+                            // guard clears when the route becomes the target, so arming it for a
+                            // route that is already current means the clearing effect never
+                            // re-runs and every later tap on that tab is swallowed for good.
+                            if (href != currentRoute && pendingNavTarget != href) {
+                                pendingNavTarget = href
+                                if (!onNavigate(href)) pendingNavTarget = null
+                            }
+                        },
                     )
                 }
             },
