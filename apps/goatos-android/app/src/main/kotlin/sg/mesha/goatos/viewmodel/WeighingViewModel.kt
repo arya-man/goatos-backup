@@ -183,6 +183,14 @@ class WeighingViewModel @Inject constructor(
      */
     private val knownAssignmentParks = MutableStateFlow<Map<String, String>>(emptyMap())
 
+    // Set the first time an ASSIGNMENTS fetch COMPLETES, whatever it returned. `loadingAssignments`
+    // flips on every later refresh too, so the screen used to gate on that instead and either wedged
+    // on a spinner forever or yanked already-drawn rows away mid-refresh. A throw before `finally` in
+    // [refreshAssignments] leaves this false forever and wedges the empty state on a spinner.
+    private val _hasLoadedOnce = MutableStateFlow(false)
+    /** Which assignments query the marker belongs to; a different park filter has not been read yet. */
+    private var loadedAssignmentsScopeKey: String? = null
+
     /**
      * What the viewer may do to the ASSIGNMENT rows, as the backend states it on the same read.
      *
@@ -322,6 +330,15 @@ class WeighingViewModel @Inject constructor(
     // label, so it cannot be declared above that property.
     private val exportPreviewLoading = MutableStateFlow(false)
     private val exportPreviewError = MutableStateFlow("")
+    // Set the first time an export-preview fetch for the CURRENT task COMPLETES. NOTE: this marker
+    // is published to [exportPreviewState] but the screen keeps `loading` in its own gate --
+    // [loadExportPreview] returns early (before the try) when [selectedTask] has not resolved yet
+    // or the viewer's capability has not landed yet, and neither path ever reaches the `finally`
+    // that sets this true. Dropping `loading` there would wedge the screen blank whenever the
+    // deep-linked task or capability flag is still in flight when the screen first opens.
+    private val _exportPreviewHasLoadedOnce = MutableStateFlow(false)
+    /** Which task's export the marker belongs to; a different task has not been read yet. */
+    private var loadedExportPreviewCampaignId: String? = null
     // Grouped by shed and parsed ONCE per fetch, off the main thread -- see [loadExportPreview].
     // A real park export is up to ~8,000 CSV rows; parsing and grouping that on every recomposition
     // (the old shape, done inline inside the [exportPreviewState] combine) is exactly the "throwing
@@ -426,7 +443,8 @@ class WeighingViewModel @Inject constructor(
                 loadingAssignments,
                 plannerMode,
                 assignmentCapabilities,
-            ) { selection, loading, isPlanner, capabilities ->
+                _hasLoadedOnce,
+            ) { selection, loading, isPlanner, capabilities, hasLoadedOnce ->
                 WeighingRootState(
                     assignments = selection.assignments,
                     loading = loading,
@@ -436,6 +454,7 @@ class WeighingViewModel @Inject constructor(
                     knownParks = selection.knownParks,
                     capabilities = capabilities,
                     operatorSummaries = selection.operatorSummaries,
+                    hasLoadedOnce = hasLoadedOnce,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingRootState())
@@ -538,6 +557,10 @@ class WeighingViewModel @Inject constructor(
             totalRowCount = sheds.sumOf { it.rows.size },
             sharing = sharing,
         )
+    }.let { base ->
+        combine(base, _exportPreviewHasLoadedOnce) { uiState, hasLoadedOnce ->
+            uiState.copy(hasLoadedOnce = hasLoadedOnce)
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingExportPreviewUiState())
 
     /**
@@ -818,6 +841,11 @@ class WeighingViewModel @Inject constructor(
     fun loadExportPreview() {
         val task = selectedTask() ?: return
         if (!taskCache.value.capabilities.canExportCsv) return
+        // The marker belongs to the TASK, not the screen: a different campaign id is a different
+        // export, and leaving the marker true would let a previous task's answer stand in for one
+        // never read. Keyed rather than blindly reset: re-running preview for the SAME task must
+        // not blank a legitimately empty sheet list while it re-reads.
+        if (loadedExportPreviewCampaignId != task.campaignId) _exportPreviewHasLoadedOnce.value = false
         exportPreviewJob?.cancel()
         exportPreviewJob = viewModelScope.launch {
             exportPreviewLoading.value = true
@@ -845,6 +873,10 @@ class WeighingViewModel @Inject constructor(
                 }
             } finally {
                 exportPreviewLoading.value = false
+                // In FINALLY, not after the result: a throw on the way here would leave this false
+                // forever and wedge the empty-preview card on a spinner over a blank sheet list.
+                _exportPreviewHasLoadedOnce.value = true
+                loadedExportPreviewCampaignId = task.campaignId
             }
         }
     }
@@ -966,6 +998,7 @@ class WeighingViewModel @Inject constructor(
                 appendingAssignments = root.appendingAssignments,
                 isPlanner = root.plannerMode,
                 selectedParkId = root.selectedParkId,
+                hasLoadedOnce = root.hasLoadedOnce,
                 localScans = capture.scans,
                 proofs = capture.proofs,
                 readerConnection = capture.readerConnection,
@@ -1067,6 +1100,13 @@ class WeighingViewModel @Inject constructor(
         // a park is NAMED (park_selection_required for a multi-park viewer), so a vocabulary that
         // waited for a successful list read would be missing in precisely that case.
         refreshParkVocabulary()
+        // The marker belongs to the QUERY (surface + park filter), not the screen. Selecting a
+        // different park starts a brand-new read, and leaving the marker true let the previous
+        // park's answer stand in for the new one -- the empty-work card rendered over a park
+        // nothing had been read for yet. Keyed rather than blindly reset: a pull-to-refresh on the
+        // SAME park must not blank a legitimately empty list while it re-reads.
+        val assignmentsScopeKey = selectedAssignmentParkId.value.toString()
+        if (loadedAssignmentsScopeKey != assignmentsScopeKey) _hasLoadedOnce.value = false
         loadingAssignments.value = true
         viewModelScope.launch {
             try {
@@ -1089,6 +1129,10 @@ class WeighingViewModel @Inject constructor(
                 }
             } finally {
                 loadingAssignments.value = false
+                // In FINALLY, not after the result: a throw on the way here would leave this false
+                // forever and wedge the empty-work card on a spinner over a blank list.
+                _hasLoadedOnce.value = true
+                loadedAssignmentsScopeKey = assignmentsScopeKey
             }
         }
     }
@@ -2391,6 +2435,7 @@ class WeighingViewModel @Inject constructor(
         appendingAssignments: Boolean,
         isPlanner: Boolean,
         selectedParkId: String?,
+        hasLoadedOnce: Boolean,
         localScans: List<WeighingRosterRowEntity>,
         proofs: List<ProofCaptureRow>,
         readerConnection: ScanReaderConnection?,
@@ -2447,6 +2492,7 @@ class WeighingViewModel @Inject constructor(
             plannerMode = isPlanner,
             readerConnection = readerConnection,
             shedProofs = proofs.toShedProofUiRows(),
+            hasLoadedOnce = hasLoadedOnce,
         )
         val effectiveScans = (
             localScans + scope.individualDrafts.map { draft ->
@@ -2866,6 +2912,8 @@ private data class WeighingRootState(
     val capabilities: WeighingCapabilities = WeighingCapabilities(),
     /** Backend-owned per-person tallies for the current park filter. Never page-derived. */
     val operatorSummaries: List<WeighingOperatorSummary> = emptyList(),
+    /** True once an assignments fetch for the CURRENT park filter has completed at least once. */
+    val hasLoadedOnce: Boolean = false,
 )
 
 private data class AssignmentParkSelection(

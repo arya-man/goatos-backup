@@ -516,10 +516,11 @@ fun WeighingScreen(
                         // by a shimmer that flashes in and out on every navigation.
                         // Renders nothing while the first read is in flight -- no shimmer, and no
                         // empty state either, which would be a wrong answer that then flips.
-                        // Gated on `loading` as well as the marker: WeighingViewModel does not
-                        // publish hasLoadedOnce, so the marker alone would stick false and leave
-                        // this screen permanently blank.
-                        if (state.assignments.isEmpty() && state.loading && !state.hasLoadedOnce) {
+                        // Gated on the marker alone: WeighingViewModel now publishes hasLoadedOnce
+                        // (set in refreshAssignments' finally, keyed by park filter), so it is safe
+                        // to drop `loading` -- keeping it would have re-blanked already-drawn rows
+                        // the instant a background refresh started.
+                        if (state.assignments.isEmpty() && !state.hasLoadedOnce) {
                             // NOTHING is drawn here. The absence of content is not known until the first
                             // read completes, so rendering a skeleton before that read is a confident
                             // wrong answer that then flips to a correct one.

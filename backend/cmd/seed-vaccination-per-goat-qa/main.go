@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,8 +48,18 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("seed-vaccination-per-goat-qa", flag.ContinueOnError)
 	tenantID := fs.String("tenant-id", getenv("GOATOS_TENANT_ID", defaultTenantID), "tenant id")
 	timeout := fs.Duration("timeout", 30*time.Second, "seed timeout")
+	// This binary only seeds the fixed 5-goat pool that owns the maintainer's 5 physical
+	// RFID tags (qaShed1/qaShed2). The per-shed fan-out to N animals/shed across the full
+	// 2-park/8-shed matrix happens in tools/local/phone-qa-throwaway-seed.sh, which reads
+	// GOATOS_ANIMALS_PER_SHED. The flag is accepted here too (same env default) purely so
+	// the two tools stay in sync and the seed run reports the count it was invoked with;
+	// it is validated but does not change what this binary inserts.
+	animalsPerShed := fs.Int("animals-per-shed", getenvInt("GOATOS_ANIMALS_PER_SHED", 20), "target animal count per shed for the full phone-QA fixture (informational; the per-shed fan-out is done by tools/local/phone-qa-throwaway-seed.sh)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *animalsPerShed < 5 {
+		return fmt.Errorf("animals-per-shed must be >= 5 (the fixture always seeds the 5 physical-RFID identities first), got %d", *animalsPerShed)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
@@ -67,7 +78,7 @@ func run(args []string) error {
 	if err := execSeedSQL(ctx, pool, seedSQL, *tenantID); err != nil {
 		return err
 	}
-	fmt.Printf("seeded per-goat vaccination QA tenant=%s park=%s sheds=%s,%s rfids=901007000504418,901007000504332,901007000504407,901007000504419,901007000504392 task=%s\n", *tenantID, qaParkID, qaShed1ID, qaShed2ID, qaTaskID)
+	fmt.Printf("seeded per-goat vaccination QA tenant=%s park=%s sheds=%s,%s rfids=901007000504418,901007000504332,901007000504407,901007000504419,901007000504392 task=%s animals-per-shed=%d (full fan-out done by tools/local/phone-qa-throwaway-seed.sh)\n", *tenantID, qaParkID, qaShed1ID, qaShed2ID, qaTaskID, *animalsPerShed)
 	return nil
 }
 
@@ -107,6 +118,18 @@ func getenv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func getenvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 const perGoatProofPolicy = `{"types":["video"],"required":true,"proof_mode":"per_goat_video","subject_scope":"goat","expected_subjects":["goat"],"minimum_count":1,"minimum_count_per_subject":1,"maximum_count":25,"maximum_count_per_subject":5,"capture_source":"in_app_camera","allowed_capture_sources":["in_app_camera","gallery_picker"],"verify_capability":"proof.verify","verify_before_apply":true,"retention_policy":"operational_90d"}`

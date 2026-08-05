@@ -69,17 +69,30 @@ Operators never receive tenant scope in this fixture. They get a park-scoped
 
 ## Seeded Work
 
-Vaccination is strict and uses forty goat identities across eight sheds in two
-parks. This fixture exists because the maintainer only has five physical RFID
-tags but needs to exercise several sheds per park on a real phone.
+Vaccination is strict and uses 160 goat identities across eight sheds in two
+parks (2 parks x 4 sheds x 20 animals/shed). The per-shed animal count is
+tunable via `GOATOS_ANIMALS_PER_SHED` (default `20`), passed through
+`tools/local/phone-qa-throwaway-seed.sh` to `cmd/seed-vaccination-per-goat-qa
+-animals-per-shed`. This fixture exists because the maintainer only has five
+physical RFID tags but needs to exercise several sheds per park, each with a
+realistic animal count, on a real phone.
 
 Important identity rule:
 
 - `goat_identifiers` is unique by `(tenant_id, normalized_value)`.
 - The same raw physical RFID must never be assigned to two goats in one tenant.
 - The fixture therefore gives each shed its own PREFIXED copy of the five
-  physical tags. Godel 1 keeps them raw; every other shed prefixes them. Five
-  physical tags x eight sheds = forty distinct identities.
+  physical tags (slots 1-5), plus 15 more synthetic, non-RFID identities per
+  shed (slots 6-20, tag value `SYN006`..`SYN020`, prefixed the same way). Godel
+  1 keeps slots 1-5 raw; every other shed prefixes them. 8 sheds x 20 slots =
+  160 distinct identities, of which 8 x 5 = 40 are reachable by a real RFID
+  scan.
+- Only the first 5 animals in any shed can actually be walked with the phone's
+  5 physical tags. Animals 6-20 in a shed exist so the roster, obligation
+  counts, and shed-completion UX are realistically sized, but they are
+  deliberately unscannable synthetic identities -- there is no way to make them
+  scannable without either inventing fake physical RFIDs (rejected below) or
+  owning more real tags.
 - The Android dev/local build applies the matching shed prefix to a vaccination
   scan (for example `901007000504418` -> `M2-901007000504418` in Mandela 2)
   before Room roster lookup, scan-attempt recording, scan-capture recording, and

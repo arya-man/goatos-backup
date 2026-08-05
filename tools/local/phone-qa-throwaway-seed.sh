@@ -8,10 +8,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 tenant_id="${GOATOS_TENANT_ID:-00000000-0000-4000-8000-000000000001}"
 today_sql="(now() AT TIME ZONE 'Asia/Kolkata')::date"
+# Target animal count per shed. Only the first 5 tag slots map to the maintainer's
+# 5 physical RFIDs (scannable); slots 6..N get synthetic non-RFID identifiers so a
+# shed can hold N animals while only 5 are reachable by a real scan. See the
+# "Widening" section below for the tag-generation logic.
+animals_per_shed="${GOATOS_ANIMALS_PER_SHED:-20}"
 
 die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
+
+case "$animals_per_shed" in
+  ''|*[!0-9]*) die "GOATOS_ANIMALS_PER_SHED must be a positive integer, got '${animals_per_shed}'" ;;
+esac
+[ "$animals_per_shed" -ge 5 ] || die "GOATOS_ANIMALS_PER_SHED must be >= 5 (the fixture always seeds the 5 physical-RFID identities first), got ${animals_per_shed}"
 
 case "$DATABASE_URL" in
   *127.0.0.1:15544/*|*localhost:15544/*) ;;
@@ -27,7 +37,7 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -qAt -c "SELECT 1" >/dev/null
 
 (
   cd "$repo_root/backend"
-  go run ./cmd/seed-vaccination-per-goat-qa -tenant-id "$tenant_id"
+  go run ./cmd/seed-vaccination-per-goat-qa -tenant-id "$tenant_id" -animals-per-shed "$animals_per_shed"
 )
 
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<SQL
@@ -775,13 +785,25 @@ INSERT INTO qa_sheds VALUES
   (7, '9c000000-0000-4000-8000-000000000303', '92000000-0000-4000-8000-000000000101', 'Castro 2',  'C2-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true),
   (8, '9c000000-0000-4000-8000-000000000304', '92000000-0000-4000-8000-000000000101', 'Castro 3',  'C3-', '90000000-0000-4000-8000-000000000103', '92000000-0000-4000-8000-000000000711', '92000000-0000-4000-8000-000000000712', true);
 
-CREATE TEMP TABLE qa_tags (idx int PRIMARY KEY, tag text NOT NULL) ON COMMIT DROP;
-INSERT INTO qa_tags VALUES
+-- qa_tags has ${animals_per_shed} rows per shed. Only the maintainer's 5 physical
+-- RFIDs exist, so slots 1-5 map to them (scannable = true) and slots 6..N get a
+-- synthetic, non-RFID identifier (SYN###) so the shed can hold N distinct animal
+-- identities without inventing fake physical tags or colliding with a real one.
+-- Vaccination still resolves 1 identifier -> 1 goat either way; only the 5
+-- scannable slots per shed can actually be walked with a phone.
+CREATE TEMP TABLE qa_tags (idx int PRIMARY KEY, tag text NOT NULL, scannable boolean NOT NULL) ON COMMIT DROP;
+INSERT INTO qa_tags
+SELECT s.idx,
+       COALESCE(rt.tag, 'SYN' || lpad(s.idx::text, 3, '0')),
+       rt.tag IS NOT NULL
+FROM generate_series(1, ${animals_per_shed}) AS s(idx)
+LEFT JOIN (VALUES
   (1, '901007000504418'),
   (2, '901007000504332'),
   (3, '901007000504407'),
   (4, '901007000504419'),
-  (5, '901007000504392');
+  (5, '901007000504392')
+) AS rt(idx, tag) ON rt.idx = s.idx;
 
 INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, parent_location_id, state_region, status, display_order, updated_at)
 SELECT s.shed_id, '${tenant_id}'::uuid, 'shed', upper(replace(s.shed_name, ' ', '-')), s.shed_name, s.park_id, 'Karnataka', 'active', 50 + s.seq, now()
@@ -836,7 +858,10 @@ SELECT ('9a000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::t
        DATE '2026-05-15' + t.idx, 'birth', DATE '2026-05-15' + t.idx
 FROM qa_sheds s
 CROSS JOIN qa_tags t
-WHERE s.seq NOT IN (1, 5)
+-- Sheds 1 (Godel 1) and 5 (Mandela 2) already own goats 1-5 from the base fixture
+-- (real RFIDs for Godel 1, M2-<RFID> for Mandela 2) -- only their slots 6..N are
+-- freshly minted here. Every other shed is entirely new, so it gets all N slots.
+WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
 ON CONFLICT (goat_id) DO UPDATE
 SET lifecycle_status = 'alive', park_id = EXCLUDED.park_id, shed_id = EXCLUDED.shed_id,
     current_location_id = EXCLUDED.current_location_id, updated_at = now();
@@ -851,7 +876,10 @@ SELECT ('9b000000-0000-4000-8000-' || lpad(s.seq::text, 6, '0') || lpad(t.idx::t
        'phone-qa-throwaway-seed', 'qa-' || s.seq || '-' || t.idx, 'seed-v1', 1.0
 FROM qa_sheds s
 CROSS JOIN qa_tags t
-WHERE s.seq NOT IN (1, 5)
+-- Sheds 1 (Godel 1) and 5 (Mandela 2) already own goats 1-5 from the base fixture
+-- (real RFIDs for Godel 1, M2-<RFID> for Mandela 2) -- only their slots 6..N are
+-- freshly minted here. Every other shed is entirely new, so it gets all N slots.
+WHERE (s.seq NOT IN (1, 5)) OR (t.idx > 5)
 ON CONFLICT (tenant_id, normalized_value) DO UPDATE
 SET goat_id = EXCLUDED.goat_id, identifier_value = EXCLUDED.identifier_value,
     identifier_type = EXCLUDED.identifier_type, is_primary_for_goat = true, status = 'active', updated_at = now();
@@ -1045,21 +1073,25 @@ END
 \$check\$;
 SQL
 
-cat <<'EOF'
+cat <<EOF
 
-Widened phone-QA fixture: 8 weighing sheds, 40 vaccination identities.
+Widened phone-QA fixture: 8 weighing sheds, $((8 * animals_per_shed)) vaccination identities
+(${animals_per_shed} per shed; only the first 5 per shed are scannable with a real RFID).
 
-  Shed        Park  Vaccination tags   Weighing assignee
-  Godel 1     CBE   <raw>              Pramod
-  Yashoda 1   CBE   Y1-<raw>           Pramod
-  Gandhi 1    CBE   G1-<raw>           Dinakar
-  Gandhi 2    CBE   G2-<raw>           Dinakar
-  Mandela 2   CPT   M2-<raw>           Amit
-  Castro 1    CPT   C1-<raw>           Amit
-  Castro 2    CPT   C2-<raw>           Dinakar
-  Castro 3    CPT   C3-<raw>           Dinakar (LUMP-SUM)
+  Shed        Park  Vaccination tags               Weighing assignee
+  Godel 1     CBE   <raw>, SYN006..SYN$(printf '%03d' "$animals_per_shed")           Pramod
+  Yashoda 1   CBE   Y1-<raw>, Y1-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Pramod
+  Gandhi 1    CBE   G1-<raw>, G1-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Dinakar
+  Gandhi 2    CBE   G2-<raw>, G2-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Dinakar
+  Mandela 2   CPT   M2-<raw>, M2-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Amit
+  Castro 1    CPT   C1-<raw>, C1-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Amit
+  Castro 2    CPT   C2-<raw>, C2-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Dinakar
+  Castro 3    CPT   C3-<raw>, C3-SYN006..SYN$(printf '%03d' "$animals_per_shed")     Dinakar (LUMP-SUM)
 
 The five physical tags are 901007000504418, 901007000504332, 901007000504407,
 901007000504419 and 901007000504392. Vaccination applies the shed prefix in the
-dev build; weighing is free-flow and takes the raw tag in any shed.
+dev build; weighing is free-flow and takes the raw tag in any shed. Slots 6..${animals_per_shed}
+per shed are synthetic (SYN###) identities: they exist so the shed roster is
+realistically sized, but they cannot be reached by a real RFID scan -- only the
+5 physical tags can be walked per shed.
 EOF
