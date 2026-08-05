@@ -165,6 +165,7 @@ pending_event AS (
 dest_cohort AS (
   SELECT
     g.shed_id,
+    -- projection-review: membership=the destination-cohort side of the feed projection, drawn from the same canonical live-goat set and LEFT JOINed 1:{0,1} to each animal's own goat_shed_partitions row; group_key=the existing destination grain PLUS the normalized partition key, so a destination shed's projected cohort is resolved per pen instead of being inferred shed-wide; join_cardinality=1:{0,1} on the partition PK and primary-key label lookups elsewhere, so no branch can fan an animal out; pagination=none, the projection is consumed whole; scope=tenant plus the caller's park/shed/business-date predicates
     ` + feedPartitionKeyExpr + ` AS partition_key,
     min(gsp.partition_label) AS partition_label_raw,
     CASE WHEN count(DISTINCT COALESCE(g.management_stage, '')) = 1
