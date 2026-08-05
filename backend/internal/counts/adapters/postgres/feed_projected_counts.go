@@ -90,6 +90,7 @@ WITH live AS MATERIALIZED (
     ` + fmt.Sprintf(feedGrainNormSQL, "g.management_stage") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.breed") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "g.sex") + ` AS sex_key,
+    -- projection-review: membership=canonical live goats for the tenant, LEFT JOINed 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)) so an animal cannot be duplicated; group_key=the previous feed grain PLUS the normalized partition key, which SPLITS a shed's projected head count across its pens instead of multiplying it; join_cardinality=every other join here is a label/config lookup on a primary key, 1:{0,1}, and the shifting-delta side is pre-aggregated before it meets the live side; pagination=none, the feed sheet is a whole-scope projection consumed in full; scope=tenant plus the caller's park/shed/business-date predicates
     ` + feedPartitionKeyExpr + ` AS partition_key,
     min(gsp.partition_label) AS partition_label_raw,
     count(*) AS head_count

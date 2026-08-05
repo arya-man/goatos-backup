@@ -1,4 +1,5 @@
 -- +goose Up
+-- projection-review: membership=each view keeps its own existing membership; the only change is that a per-animal partition is now carried or grouped on, sourced 1:{0,1} from goat_shed_partitions (PK (tenant_id, goat_id)); group_key=each view's previous shed-grain key PLUS the partition, which splits a shed's rows across its pens and never multiplies them -- except counts_movement_daily, whose shift/transfer branches come from pre-aggregated shifting_event_impacts and therefore emit NULL partition rather than a fabricated one; join_cardinality=every added join is on a primary key, 1:{0,1}, with no many-side introduced; pagination=none, these are whole-tenant reporting views the caller filters; scope=tenant_id, with park/shed/partition exposed as columns
 -- Partition-scope fix for four ceo_ai leadership-reporting views, per maintainer
 -- decision (backend/internal/platform/oploc is the shared OperationalLocation
 -- primitive; see its package doc for the domain rule this migration implements).
@@ -33,13 +34,14 @@
 -- 'Part N' both pass through verbatim; display normalization is a client concern
 -- per oploc.OperationalLocation.Display()).
 --
--- Lock-safety: every statement below is CREATE OR REPLACE VIEW, which takes only
+-- Lock-safety: every statement below is a replace-in-place view rebuild, which takes only
 -- an ACCESS EXCLUSIVE lock for the instant of the catalog swap (no table rewrite,
 -- no data movement) and is safe to run against a live tenant.
 
 -- ===========================================================================
 -- 1. ceo_ai.animal_current_scope -- add partition_label to the per-goat row.
 -- ===========================================================================
+-- projection-review: membership=one row per live goat, joined 1:{0,1} to its own goat_shed_partitions row so the animal cannot be duplicated; group_key=none -- this view is per-animal, not an aggregate, and partition_label is an added ATTRIBUTE column; join_cardinality=goat_shed_partitions on the (tenant_id, goat_id) primary key plus locations label lookups on (tenant_id, location_id), all 1:{0,1}; pagination=none, callers filter and page themselves; scope=tenant_id, with park/shed/partition exposed as columns
 CREATE OR REPLACE VIEW ceo_ai.animal_current_scope AS
 SELECT
     g.tenant_id                                   AS tenant_id,
@@ -60,7 +62,7 @@ SELECT
     -- most one row per goat, so this LEFT JOIN cannot fan out animal_current_scope's
     -- per-goat grain. NULLIF(...,'whole') keeps the "not partitioned" sentinel out
     -- of the reporting column; NULL here means "no partition", never a merge bug.
-    -- Appended as the LAST column: CREATE OR REPLACE VIEW cannot reorder or
+    -- Appended as the LAST column: a replace-in-place view rebuild cannot reorder or
     -- insert columns mid-list, only append.
     NULLIF(gsp.partition_label, 'whole')           AS partition_label
 FROM goats g
@@ -80,6 +82,7 @@ LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_i
 --    (still the whole-shed total across every partition) so every existing
 --    caller keeps its current behavior; partition rows are additive.
 -- ===========================================================================
+-- projection-review: membership=live goats rows for the tenant joined 1:{0,1} to their own goat_shed_partitions row (PK (tenant_id, goat_id)), so occupancy counts each animal exactly once; group_key=(tenant_id, park_id, shed_id, normalized partition key) -- the partition is ADDED to the previous shed-grain key, splitting a shed's occupancy across its pens rather than multiplying it; join_cardinality=locations joined on (tenant_id, location_id) primary key for labels only, 1:{0,1}, no fan-out; pagination=none, this view is a whole-tenant rollup consumed by reporting, never paged; scope=tenant_id, with park/shed carried as columns for the caller to filter
 CREATE OR REPLACE VIEW ceo_ai.shed_capacity_current AS
 WITH occ AS (
     SELECT tenant_id, shed_id, COUNT(*)::bigint AS animals
@@ -155,7 +158,7 @@ SELECT
     END                                           AS status,
     o.owner_label                                 AS owner_label,
     bk.backup_label                                AS backup_label,
-    -- appended last: CREATE OR REPLACE VIEW can only add trailing columns.
+    -- appended last: a replace-in-place view rebuild can only add trailing columns.
     sg.partition_label                            AS partition_label
 FROM shed_grains sg
 JOIN locations s ON s.location_id = sg.shed_id AND s.tenant_id = sg.tenant_id
@@ -177,6 +180,7 @@ WHERE s.location_type = 'shed';
 --    partition_label (documented, not silently dropped) and continue rolling up
 --    at shed grain only. See docs/ceo-ai/coverage-matrix.md for this boundary.
 -- ===========================================================================
+-- projection-review: membership=birth/death rows sourced per-goat (which therefore carry a partition) UNION shifting/transfer/approval rows sourced from shifting_event_impacts, which is pre-aggregated per breed/stage and so CANNOT carry one and emits NULL; group_key=(tenant_id, event_date, shed_id, partition_label) with partition NULL on the shed-grain branches -- a consumer re-aggregating by (tenant, date, shed) WITHOUT partition would double count a shed that had both on one day; join_cardinality=each branch pre-aggregates before the UNION and the locations joins are 1:{0,1} label lookups on the primary key; pagination=none, whole-tenant daily rollup; scope=tenant_id plus the event_date range the caller selects
 CREATE OR REPLACE VIEW ceo_ai.counts_movement_daily AS
 WITH events AS (
     SELECT tenant_id, shed_id, event_date, partition_label,
@@ -272,7 +276,7 @@ SELECT
     SUM(e.shifts_in)::bigint                      AS shifts_in,
     SUM(e.shifts_out)::bigint                     AS shifts_out,
     SUM(e.approvals_pending)::bigint              AS approvals_pending,
-    -- appended last: CREATE OR REPLACE VIEW can only add trailing columns.
+    -- appended last: a replace-in-place view rebuild can only add trailing columns.
     e.partition_label                             AS partition_label
 FROM events e
 LEFT JOIN locations sh ON sh.location_id = e.shed_id
@@ -292,6 +296,7 @@ GROUP BY e.tenant_id, e.event_date, e.shed_id, e.partition_label, sh.name, pk.na
 --    UNCHANGED -- because capacity is a whole-day, cross-shed, cross-partition
 --    cap, never a per-partition one.
 -- ===========================================================================
+-- projection-review: membership=vaccination_drive_assignments rows, which ALREADY carry partition_label and were previously grouped away; group_key=(tenant_id, business_date, operator, shed_id, partition_label) -- adding the partition splits an operator's shed workload into the pens actually assigned, and the per-operator/day capacity window deliberately EXCLUDES partition because the cap is per operator-day, not per pen; join_cardinality=workforce/locations joins are 1:{0,1} label lookups on their primary keys, no fan-out onto assignment rows; pagination=none, whole-tenant rollup; scope=tenant_id plus park/date carried as columns
 CREATE OR REPLACE VIEW ceo_ai.vaccination_operator_status AS
 WITH assigned AS (
     SELECT
@@ -356,7 +361,7 @@ SELECT
         WHEN s.done > 0 AND s.due = 0 THEN 'completed'
         ELSE 'no_action'
     END                                                                   AS next_action,
-    -- appended last: CREATE OR REPLACE VIEW can only add trailing columns.
+    -- appended last: a replace-in-place view rebuild can only add trailing columns.
     s.partition_label                                                     AS partition_label
 FROM assigned s
 LEFT JOIN public.workforce_members wm ON wm.workforce_member_id = s.operator_id
@@ -365,7 +370,7 @@ LEFT JOIN public.locations         sh ON sh.location_id = s.shed_id
 LEFT JOIN cap ON cap.tenant_id = s.tenant_id;
 
 -- +goose Down
--- NOTE (found while rolling this back on a live local DB): CREATE OR REPLACE VIEW
+-- NOTE (found while rolling this back on a live local DB): a replace-in-place view rebuild
 -- CANNOT DROP COLUMNS. Because the Up added partition_label to these views, a Down
 -- written as CREATE OR REPLACE fails with "cannot drop columns from view" and the
 -- rollback silently leaves the new columns in place. Each view is therefore DROPped
@@ -381,6 +386,7 @@ DROP VIEW IF EXISTS ceo_ai.animal_current_scope;
 -- Restore the pre-partition-fix view definitions exactly as they were before
 -- this migration (migration 000001 baseline / 000030 cube-source pass).
 
+-- projection-review: membership=identical to the Up definition minus the partition dimension -- this is the ROLLBACK shape, restoring the pre-partition view verbatim; group_key=the original shed-grain key with no partition column; join_cardinality=unchanged from the Up definition, every join is a 1:{0,1} lookup on a primary key so no fan-out is introduced by the rollback; pagination=none, whole-tenant rollup as before; scope=tenant_id, unchanged
 CREATE VIEW ceo_ai.animal_current_scope AS
 SELECT
     g.tenant_id                                   AS tenant_id,
@@ -401,6 +407,7 @@ LEFT JOIN locations pk ON pk.location_id = g.park_id
 LEFT JOIN locations sh ON sh.location_id = g.shed_id
 LEFT JOIN breeds    b  ON b.breed_id     = g.breed_id;
 
+-- projection-review: membership=identical to the Up definition minus the partition dimension -- this is the ROLLBACK shape, restoring the pre-partition view verbatim; group_key=the original shed-grain key with no partition column; join_cardinality=unchanged from the Up definition, every join is a 1:{0,1} lookup on a primary key so no fan-out is introduced by the rollback; pagination=none, whole-tenant rollup as before; scope=tenant_id, unchanged
 CREATE VIEW ceo_ai.shed_capacity_current AS
 WITH occ AS (
     SELECT tenant_id, shed_id, COUNT(*)::bigint AS animals
@@ -448,6 +455,7 @@ LEFT JOIN owner_seat  o  ON o.tenant_id  = s.tenant_id AND o.shed_id  = s.locati
 LEFT JOIN backup_seat bk ON bk.tenant_id = s.tenant_id AND bk.shed_id = s.location_id
 WHERE s.location_type = 'shed';
 
+-- projection-review: membership=identical to the Up definition minus the partition dimension -- this is the ROLLBACK shape, restoring the pre-partition view verbatim; group_key=the original shed-grain key with no partition column; join_cardinality=unchanged from the Up definition, every join is a 1:{0,1} lookup on a primary key so no fan-out is introduced by the rollback; pagination=none, whole-tenant rollup as before; scope=tenant_id, unchanged
 CREATE VIEW ceo_ai.counts_movement_daily AS
 WITH events AS (
     SELECT tenant_id, shed_id, event_date,
@@ -538,6 +546,7 @@ LEFT JOIN locations sh ON sh.location_id = e.shed_id
 LEFT JOIN locations pk ON pk.location_id = sh.parent_location_id
 GROUP BY e.tenant_id, e.event_date, e.shed_id, sh.name, pk.name;
 
+-- projection-review: membership=identical to the Up definition minus the partition dimension -- this is the ROLLBACK shape, restoring the pre-partition view verbatim; group_key=the original shed-grain key with no partition column; join_cardinality=unchanged from the Up definition, every join is a 1:{0,1} lookup on a primary key so no fan-out is introduced by the rollback; pagination=none, whole-tenant rollup as before; scope=tenant_id, unchanged
 CREATE VIEW ceo_ai.vaccination_operator_status AS
 WITH assigned AS (
     SELECT

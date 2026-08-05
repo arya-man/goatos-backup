@@ -63,6 +63,7 @@ LEFT JOIN locations shed
       AND shed.location_type = 'shed'
       AND shed.status = 'active'
       AND shed.retired_at IS NULL
+-- projection-review: membership=active parent sheds for the tenant LEFT JOINed to the shed_partitions CATALOG, which is the authoritative list of pens that physically exist (goat-derived membership would hide an EMPTY pen and make it unreachable as a destination); group_key=(shed_id, normalized partition label) -- the catalog's own primary key, so a pen appears at most once and a shed with no catalog rows still yields exactly one bare-shed row; join_cardinality=1:N by design (one shed -> its pens) with the animal count computed in a correlated subquery per pen rather than by joining goats, so no goat row can fan the catalog out; pagination=none, this catalog is bounded (two parks, ~154 sheds) and is returned whole; scope=tenant_id plus active/non-retired locations, which is what keeps inactive partition-alias rows out of the picker
 LEFT JOIN shed_partitions partitions
        ON partitions.tenant_id = park.tenant_id
       AND partitions.shed_id = shed.location_id
