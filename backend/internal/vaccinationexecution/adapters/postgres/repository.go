@@ -754,6 +754,12 @@ WITH completions AS (
     FROM vaccination_completions
     WHERE tenant_id = $1::uuid
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    -- projection-review: membership=accepted completions UNION the rejection archive, so an
+    -- animal whose clip was sent back is outstanding work again instead of vanishing;
+    -- group_key=obligation_id at this grain; join_cardinality=each branch yields at most one
+    -- row per obligation and the archive branch is ranked BELOW accepted, so the union cannot
+    -- multiply obligation membership; pagination=none here, the caller's keyset pages the
+    -- outer projection; scope=tenant plus the caller's as_of instant.
     UNION ALL
     -- Rejected completions are MOVED to the rejection archive (migration 000093) so the animal
     -- becomes outstanding work again by default on every read. This reads them back so a
@@ -1096,6 +1102,11 @@ WITH completion_candidates AS (
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, created_at) <= $7::timestamptz
   UNION ALL
+  -- projection-review: membership=accepted completions UNION the rejection archive, so an animal
+  -- whose clip was sent back is outstanding work again; group_key=obligation_id at this grain;
+  -- join_cardinality=each side contributes at most one row per obligation before the outer join,
+  -- so the union cannot multiply obligation membership; pagination=inherited from the caller's
+  -- keyset, this CTE is not paged itself; scope=tenant plus the caller's as_of instant.
   -- Rejected completions no longer live in vaccination_completions: they are MOVED to the
   -- rejection archive (migration 000093) so the animal becomes outstanding work again on every
   -- read by default. The shed's Sent-back state still has to be visible, so the archive is read
@@ -1846,6 +1857,12 @@ completions AS (
       -- existence bound: a completion is only "seen" if its event time (administered_at, falling back to
       -- the recording time) is at or before as_of.
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    -- projection-review: membership=accepted completions UNION the rejection archive, so an
+    -- animal whose clip was sent back is outstanding work again instead of vanishing;
+    -- group_key=obligation_id at this grain; join_cardinality=each branch yields at most one
+    -- row per obligation and the archive branch is ranked BELOW accepted, so the union cannot
+    -- multiply obligation membership; pagination=none here, the caller's keyset pages the
+    -- outer projection; scope=tenant plus the caller's as_of instant.
     UNION ALL
     -- Rejected completions are MOVED to the rejection archive (migration 000093), so they must be
     -- read back here or a sent-back animal disappears from this surface instead of showing as work
@@ -2233,6 +2250,11 @@ SELECT
   pd.name AS protocol_name,
   pr.dose_code,
   CASE
+    -- projection-review: membership=obligations decorated with this animal's own latest verdict;
+    -- group_key=obligation_id (per ANIMAL, never per shed); join_cardinality=verdict and scan
+    -- presence are each pre-reduced to one row per obligation before this CASE reads them, so a
+    -- re-scanned animal cannot duplicate its obligation; pagination=applied by the caller after
+    -- this projection; scope=tenant plus the caller's park/shed filter.
     -- A verifier's verdict on THIS animal outranks the fact that it was scanned. Proof is
     -- captured per animal, so the verdict is issued per animal: an animal whose clip was sent
     -- back is outstanding work again, and an accepted animal is finished and must not be
