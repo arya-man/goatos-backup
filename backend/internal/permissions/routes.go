@@ -415,6 +415,12 @@ var protectedRoutes = []Route{
 	{OperationID: "closeVerificationItem", Method: "POST", Pattern: "/verification/items/{item_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVerificationSubmission", Method: "POST", Pattern: "/verification/submissions/{submission_id}/close", Permissions: []string{VerificationAct}},
 	{OperationID: "closeVaccinationBatch", Method: "POST", Pattern: "/verification/vaccination-batches/{batch_id}/close", Permissions: []string{VerificationAct}},
+	// Verifier video-review analytics (CEO integrity signal: did the verifier actually WATCH the
+	// proof before deciding). Gated on verification.review -- the same permission that already
+	// gates seeing the queue/evidence at all; this is telemetry ABOUT that same review activity,
+	// never a separate write authority.
+	{OperationID: "recordVerificationReviewEvents", Method: "POST", Pattern: "/verification/review-events", Permissions: []string{VerificationReview}},
+	{OperationID: "getVerificationItemReviewFacts", Method: "GET", Pattern: "/verification/items/{item_id}/review-facts", Permissions: []string{VerificationReview}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary
 	// task coverage (#4), and the vaccination-ownership resolution read.

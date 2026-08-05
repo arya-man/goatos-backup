@@ -21,9 +21,10 @@ import (
 )
 
 type Handler struct {
-	service    *app.Service
-	dutyReader VerificationModuleDutyReader
-	log        *slog.Logger
+	service     *app.Service
+	dutyReader  VerificationModuleDutyReader
+	reviewEvent ports.ReviewEventRepository
+	log         *slog.Logger
 }
 
 // VerificationModuleDutyReader resolves the active verify duties held by one authenticated actor.
@@ -49,6 +50,14 @@ func (h *Handler) WithModuleDutyReader(reader VerificationModuleDutyReader) *Han
 	return h
 }
 
+// WithReviewEventRepository wires the video-review-analytics ingest/read repository
+// (verification_review_events, migration 000112). Left optional/nil-safe like the duty reader
+// above so existing wiring call sites do not have to change until they opt in.
+func (h *Handler) WithReviewEventRepository(repo ports.ReviewEventRepository) *Handler {
+	h.reviewEvent = repo
+	return h
+}
+
 func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/queue", h.ListQueue)
 	mux.HandleFunc("GET /verification/action-queue", h.ListActionQueue)
@@ -57,6 +66,8 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
 	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
 	mux.HandleFunc("POST /verification/vaccination-batches/{batch_id}/close", h.CloseVaccinationBatch)
+	mux.HandleFunc("POST /verification/review-events", h.RecordReviewEvents)
+	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
 }
 
 type queueItemResponse struct {

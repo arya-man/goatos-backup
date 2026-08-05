@@ -5649,6 +5649,83 @@ paths:
           $ref: "#/components/responses/WriteConflict"
         "500":
           $ref: "#/components/responses/ServerError"
+  /verification/review-events:
+    post:
+      tags:
+        - Verification
+      operationId: recordVerificationReviewEvents
+      summary: Ingest one batch of verifier video-review telemetry events.
+      description: >-
+        CEO integrity signal: proves (or disproves) that a verifier actually WATCHED a proof video
+        rather than rubber-stamping the verdict. The browser flushes a small batch periodically and
+        on unload. Gated on verification.review -- the same permission that already gates seeing
+        the queue/evidence at all.
+
+
+        Idempotent per event: client_event_id is a client-minted UUID and is the idempotency key
+        for that one event -- a replayed batch (retry after a network blip) inserts nothing new and
+        `inserted` reports 0 on an exact replay.
+
+
+        Every event's item_id is authorized against the caller's authorized categories (the SAME
+        rule GET /verification/queue applies): an item outside those categories answers 403.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationReviewEventBatchRequest"
+      responses:
+        "200":
+          description: Batch accepted (idempotent count of newly-inserted rows).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationReviewEventBatchResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
+  /verification/items/{item_id}/review-facts:
+    get:
+      tags:
+        - Verification
+      operationId: getVerificationItemReviewFacts
+      summary: Derived per-actor watch/timing integrity facts for one verification item.
+      description: >-
+        Computed read-time from the raw verification_review_events stream for this one item
+        (bounded by that item's own event count, not a whole-table scan): total distinct-covered
+        watch time, watch fraction against the proof's duration, play/pause/seek counts, time from
+        item_opened to verdict_recorded, and whether the watch fraction cleared the configured
+        watched_full threshold.
+      parameters:
+        - name: item_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Derived review facts, one entry per actor who reviewed this item.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationItemReviewFactsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/counts/shifting/destinations:
     get:
       tags:
@@ -19014,6 +19091,143 @@ components:
         row_version:
           type: integer
           minimum: 1
+    VerificationReviewEventType:
+      type: string
+      enum:
+        - queue_opened
+        - item_opened
+        - video_play
+        - video_pause
+        - video_seek_attempt
+        - video_ended
+        - proof_switched
+        - fullscreen_toggled
+        - verdict_recorded
+    VerificationReviewEventPayload:
+      type: object
+      additionalProperties: false
+      properties:
+        video_position_ms:
+          type: integer
+          minimum: 0
+        video_duration_ms:
+          type: integer
+          minimum: 0
+        seek_from_ms:
+          type: integer
+          minimum: 0
+        seek_to_ms:
+          type: integer
+          minimum: 0
+        verdict:
+          type: string
+    VerificationReviewEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - item_id
+        - session_id
+        - event_type
+        - occurred_at
+        - client_event_id
+      properties:
+        item_id:
+          type: string
+          format: uuid
+        proof_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          maxLength: 200
+        event_type:
+          $ref: "#/components/schemas/VerificationReviewEventType"
+        occurred_at:
+          type: string
+          format: date-time
+        payload:
+          $ref: "#/components/schemas/VerificationReviewEventPayload"
+        client_event_id:
+          type: string
+          format: uuid
+          description: >-
+            Client-minted UUID. This is the idempotency key for THIS event -- a replayed batch
+            (retry after a network blip) that repeats the same client_event_id inserts nothing new.
+    VerificationReviewEventBatchRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/VerificationReviewEvent"
+    VerificationReviewEventBatchResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - inserted
+        - trace_id
+      properties:
+        inserted:
+          type: integer
+          description: Count of ACTUALLY new rows persisted (excludes rows skipped as exact replays).
+        trace_id:
+          type: string
+    VerificationItemReviewFactsEntry:
+      type: object
+      additionalProperties: false
+      required:
+        - actor_id
+        - proof_duration_ms
+        - watched_distinct_ms
+        - watch_fraction
+        - play_count
+        - pause_count
+        - seek_attempt_count
+        - watched_full
+      properties:
+        actor_id:
+          type: string
+          format: uuid
+        proof_duration_ms:
+          type: integer
+        watched_distinct_ms:
+          type: integer
+          description: >-
+            Union of distinct-covered played spans (overlapping replays merge, never sum) -- see
+            verification/adapters/postgres/review_events.go mergeIntervalsDistinctMs.
+        watch_fraction:
+          type: number
+          format: double
+        play_count:
+          type: integer
+        pause_count:
+          type: integer
+        seek_attempt_count:
+          type: integer
+        time_to_verdict_seconds:
+          type: number
+          format: double
+        watched_full:
+          type: boolean
+          description: watch_fraction >= the configured threshold (0.9).
+    VerificationItemReviewFactsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - facts
+        - trace_id
+      properties:
+        facts:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerificationItemReviewFactsEntry"
+        trace_id:
+          type: string
     VerificationCloseSubmissionResponse:
       type: object
       additionalProperties: false
