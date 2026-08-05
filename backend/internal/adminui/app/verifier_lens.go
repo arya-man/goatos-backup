@@ -55,7 +55,7 @@ func verifierLensIconForModule(moduleKey string) string {
 	if icon, ok := icons[moduleKey]; ok {
 		return icon
 	}
-	// Default icon for "All evidence" landing and any future modules
+	// Fallback for any future module the icon map does not name yet.
 	return "clipboard-check"
 }
 
@@ -216,18 +216,22 @@ func sortedVerifierModules(modules []VerificationNavModule) []VerificationNavMod
 	return out
 }
 
-// verifierLensNavigation composes the verifier sidebar: one "All evidence" landing plus one group
-// per evidence module, whose leaves are that module's page tabs.
+// verifierLensNavigation composes the verifier sidebar: one group per evidence module, whose leaves
+// are that module's page tabs.
+//
+// There is deliberately NO cross-category "All evidence" landing (maintainer decision 2026-08-06,
+// matching mock/verifier-web-mock.SPEC.md): the verifier always picks the feature she is reviewing,
+// so an aggregate row is one more thing to explain and the mock's sidebar does not have it. Do not
+// reintroduce it. `category` staying optional on the queue read is still correct and load-bearing
+// for API callers; it just no longer has a nav entry.
 //
 // Every leaf points at the SAME route and differs only by its category query parameter, which the
 // shell appends from Extra. That is why the queue page needs no new route per module.
 func verifierLensNavigation(modules []VerificationNavModule, footer string) domain.NavigationContract {
 	nav := domain.NavigationContract{
-		Primary: []domain.NavigationItem{
-			navItemDomain("verification-actions", "All evidence", verifierLensRoute, "clipboard-check", "", "admin.verification"),
-		},
-		Groups: make([]domain.NavigationGroup, 0, len(modules)),
-		Footer: footer,
+		Primary: []domain.NavigationItem{},
+		Groups:  make([]domain.NavigationGroup, 0, len(modules)),
+		Footer:  footer,
 	}
 	for _, module := range modules {
 		leaves := make([]domain.NavigationItem, 0, len(module.Pages))
