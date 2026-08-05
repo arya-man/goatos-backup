@@ -267,6 +267,15 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 	// A bucket's weighing category may only change while it holds nothing: the two categories
 	// write to different tables and every count sums both, so flipping over captured work double
 	// counts the same animals rather than migrating them.
+	// Take the SAME campaign row lock every capture writer takes before reading the bucket
+	// counts. Without it this is check-then-act: the guard reads "no captures", a concurrent
+	// RecordAnimalObservation commits into that bucket, and the flip proceeds anyway --
+	// reproducing exactly the double-count this guard exists to prevent. Lock ordering matches
+	// lockCampaignRowForNoKeyUpdate's convention (campaign first), so it cannot deadlock against
+	// the capture path.
+	if err := r.lockCampaignRowForNoKeyUpdate(ctx, tx, cmd.TenantID, campaignID); err != nil {
+		return domain.Campaign{}, err
+	}
 	if err := r.assertNoCategoryFlipOverCapturedWork(ctx, tx, cmd.TenantID, campaignID, cmd.Sheds); err != nil {
 		return domain.Campaign{}, err
 	}
@@ -1706,9 +1715,25 @@ WITH campaign AS (
   ORDER BY created_at, campaign_shed_id
   LIMIT 1
   FOR NO KEY UPDATE OF cs
+), rejected_proof_guard AS (
+  -- Re-check INSIDE this transaction, under the bucket lock taken above. The service layer also
+  -- checks, but that read runs in its own connection before this transaction opens: a verifier
+  -- rejecting the proof in that window would slip through and the operator would "re-record" with
+  -- the very video that was sent back. The lump-sum writer has carried this CTE for the same
+  -- reason; the individual-animal writer had only the outside-the-transaction read.
+  SELECT 1
+  FROM assigned_shed s
+  WHERE NOT EXISTS (
+    SELECT 1 FROM weighing_observations rejected
+    WHERE rejected.tenant_id=$1::uuid
+      AND rejected.campaign_shed_id=s.campaign_shed_id
+      AND rejected.verification_status='rework'
+      AND rejected.proof_artifact_id=$5::uuid
+  )
 ), proof_ok AS (
   SELECT proof.proof_id
   FROM assigned_shed s
+  JOIN rejected_proof_guard ON true
   JOIN proof_artifacts proof ON true
   WHERE proof.tenant_id=$1::uuid
     AND proof.proof_id=$5::uuid

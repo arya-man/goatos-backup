@@ -16,15 +16,20 @@ import "strings"
 // and the registry still speaks navigation keys.
 func navigationModuleForDutyCode(dutyModuleCode string) string {
 	normalized := strings.TrimSpace(strings.ToLower(dutyModuleCode))
-	switch normalized {
-	case "pc.vaccination":
+	// "preventive_care" is the LEGACY vaccination duty code; workforce's roster repository still
+	// treats it as equivalent to "pc.vaccination"/"vaccination" when resolving duty holders, so a
+	// row seeded before the current convention must translate here too or its holder is refused
+	// the vaccination queue -- the same failure this translation exists to remove.
+	if normalized == "preventive_care" {
 		return "vaccination"
+	}
+	switch normalized {
 	case "feed.direction":
 		return "feed_direction"
-	default:
-		// Every other duty code is already a navigation key ("weighing", "counts"). Dots are
-		// still folded to underscores so a newly added dotted code degrades to the obvious
-		// key instead of silently matching nothing.
-		return strings.ReplaceAll(normalized, ".", "_")
 	}
+	// Generic: strip a "pc." product-area prefix and fold dots, matching
+	// workforce/app.normalizeModuleFeatureKey so the two do not drift. "pc.vaccination" ->
+	// "vaccination"; "weighing"/"counts" are already navigation keys and pass through.
+	normalized = strings.TrimPrefix(normalized, "pc.")
+	return strings.ReplaceAll(normalized, ".", "_")
 }
