@@ -28,9 +28,25 @@ if [[ "${GOATOS_ALLOW_DIRTY_RELEASE:-}" != "1" ]]; then
   git diff --cached --quiet || die "working tree has staged changes; commit or set GOATOS_ALLOW_DIRTY_RELEASE=1"
 fi
 
+# Accounts permitted to release Goat OS staging. Deliberately an EXPLICIT NAMED LIST, not a
+# `*@mesha.sg` domain test and not an environment override: staging deploys are authorised
+# per person, and the list of people is reviewable in this file's git history. Anyone added
+# here can build and push images and roll out Cloud Run staging services and jobs, so adding
+# an entry IS the act of granting deploy authority -- treat it as a maintainer decision.
+#
+# 2026-08-05: manohark@mesha.sg added alongside ravi@mesha.sg at the maintainer's request.
+STG_DEPLOY_ACCOUNTS=(
+  "ravi@mesha.sg"
+  "manohark@mesha.sg"
+)
+
 active_account="$(gcloud config get-value account 2>/dev/null)"
 active_project="$(gcloud config get-value project 2>/dev/null)"
-[[ "$active_account" == "ravi@mesha.sg" ]] || die "active gcloud account must be ravi@mesha.sg, got $active_account"
+account_allowed=0
+for allowed in "${STG_DEPLOY_ACCOUNTS[@]}"; do
+  [[ "$active_account" == "$allowed" ]] && account_allowed=1 && break
+done
+[[ "$account_allowed" == "1" ]] || die "active gcloud account must be one of: ${STG_DEPLOY_ACCOUNTS[*]}; got $active_account"
 [[ "$active_project" == "$PROJECT_ID" ]] || die "active gcloud project must be $PROJECT_ID, got $active_project"
 
 commit_sha="$(git rev-parse --short=12 HEAD)"
