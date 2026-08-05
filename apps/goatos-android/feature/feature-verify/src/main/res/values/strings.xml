@@ -38,6 +38,7 @@
     <string name="verify_scope_individual">Individual (%1$d)</string>
     <string name="verify_scope_lumpsum">Lump-sum (%1$d)</string>
     <string name="verify_shed_group_summary">%1$d rows · %2$d videos</string>
+    <string name="verify_shed_group_progress">%1$d goats · %2$d to review</string>
 
     <string name="verify_detail_close">Close</string>
     <string name="verify_detail_fullscreen">Open video fullscreen</string>
@@ -79,4 +80,5 @@
     <string name="verify_approve_dialog_subtitle">Approving is final — it cannot be undone later.</string>
     <string name="verify_approve_dialog_confirm">Confirm approve</string>
     <string name="verify_approve_dialog_cancel">Cancel</string>
+    <string name="verify_detail_group_accepted">All videos in this shed are accepted</string>
 </resources>

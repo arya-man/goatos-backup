@@ -1403,6 +1403,7 @@ private fun StatusChip(chip: sg.mesha.goatos.feature.calendar.StatusChip) {
         "due" -> MeshaColors.Warn to R.string.calendar_drive_due
         "overdue" -> MeshaColors.Danger to R.string.calendar_drive_overdue
         "deferred" -> MeshaColors.Purple to R.string.calendar_drive_deferred
+        "rejected" -> MeshaColors.Danger to R.string.calendar_drive_rejected
         else -> MeshaColors.Muted to R.string.calendar_drive_due
     }
     Row(

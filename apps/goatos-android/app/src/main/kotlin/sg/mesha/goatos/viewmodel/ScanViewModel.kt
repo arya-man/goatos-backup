@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -180,6 +181,14 @@ class ScanViewModel @Inject constructor(
     // needs its video.") when that goat's capture is cancelled in favor of a newly scanned goat.
     private var strandedGoatTag: String? = null
     private var proofCaptureJob: Job? = null
+    // The ONE goat queued behind an in-flight capture for a DIFFERENT goat. An in-flight capture
+    // (recording or already-captured-and-uploading) is NEVER cancelled by a later scan — that
+    // would destroy an unrecoverable field recording, the exact defect confirmed from real shed
+    // use ("RFID scan mid-recording stops recording and comes out"). Instead the newly scanned
+    // goat is queued here and [requestGoatProof]'s own `finally` opens its camera automatically
+    // the instant the in-flight job completes. Only the LAST queued goat survives a later scan —
+    // see the drop notice in [requestGoatProof].
+    private var pendingProofRow: RosterRow? = null
     // Flips true the instant `proofCaptureSource.captureVideo(...)` RETURNS a non-null
     // [sg.mesha.goatos.capture.CapturedVideo] for the in-flight goat — i.e. once a real, complete
     // recording exists and hand-off to Room/the outbox has begun. From that point the capture must
@@ -187,6 +196,10 @@ class ScanViewModel @Inject constructor(
     // exact prior incident this repo must not repeat); a later scan is refused with the busy
     // notice instead, same as before this fix.
     private var proofCaptureVideoCaptured = false
+
+    // Fires funnel_scan_completed at most once per shed session, the first time the roster is
+    // fully scanned (canSubmit flips true) — see [maybeTrackScanCompleted].
+    private var scanCompletedTracked = false
 
     // Transient flags for manual updates
     private val _isRefreshing = MutableStateFlow(false)
@@ -893,8 +906,10 @@ class ScanViewModel @Inject constructor(
         shedSummary: ShedCompletionSummaryDto?,
     ): ScanUiState {
         if (policy.isShedLevelVideo) {
+            val canSubmit = base.ringTotal > 0 && base.pendingCount == 0
+            maybeTrackScanCompleted(canSubmit, base.ringDone)
             return base.copy(
-                canSubmit = base.ringTotal > 0 && base.pendingCount == 0,
+                canSubmit = canSubmit,
                 proofActionNeeded = emptyList(),
             )
         }
@@ -930,7 +945,9 @@ class ScanViewModel @Inject constructor(
             .mapNotNull { it.subjectId }
             .toSet() + rosterSyncedGoatIds
         if (shedSummary.allHandledProofsReady()) {
-            return base.copy(canSubmit = base.ringTotal > 0 && base.pendingCount == 0, proofActionNeeded = emptyList())
+            val canSubmit = base.ringTotal > 0 && base.pendingCount == 0
+            maybeTrackScanCompleted(canSubmit, base.ringDone)
+            return base.copy(canSubmit = canSubmit, proofActionNeeded = emptyList())
         }
         val missingGoatIds = requiredGoatIds - syncedGoatIds
         val proofComplete = missingGoatIds.isEmpty()
@@ -954,7 +971,19 @@ class ScanViewModel @Inject constructor(
                 }
         }
         val canSubmit = base.ringTotal > 0 && base.pendingCount == 0 && proofComplete
+        maybeTrackScanCompleted(canSubmit, base.ringDone)
         return base.copy(canSubmit = canSubmit, proofActionNeeded = actionNeeded)
+    }
+
+    /** Fires funnel_scan_completed the first time the shed's scan step is fully done (roster
+     *  scanned + proof gate satisfied) — distinguishes "scan finished" from "operator walked away
+     *  mid-scan", which trackScanStarted alone cannot tell apart. Fires at most once per shed
+     *  session (a later re-open/refresh must not re-fire it). */
+    private fun maybeTrackScanCompleted(canSubmit: Boolean, scannedCount: Int) {
+        if (!canSubmit || scanCompletedTracked) return
+        val id = shedId ?: return
+        scanCompletedTracked = true
+        AnalyticsFunnels.trackScanCompleted(analytics, id, scannedCount)
     }
 
     private fun statusOf(raw: String): ScanStatus {
@@ -1016,13 +1045,15 @@ class ScanViewModel @Inject constructor(
      *
      *  A scan of a DIFFERENT goat while the current goat's video is still recording (i.e.
      *  `captureVideo()` has not yet returned — no [sg.mesha.goatos.capture.CapturedVideo] exists,
-     *  nothing has been written to Room or the outbox) CLOSES the wrong-goat window instead of
-     *  merely warning about it: the still-open camera for the old goat is cancelled and a fresh
-     *  camera opens bound to the newly scanned goat's tags. This is safe specifically because
-     *  nothing has been captured yet — cancelling discards an unfinished camera session, never a
-     *  completed field recording (see [proofCaptureVideoCaptured]). The old goat is left needing
-     *  its proof and the operator is told so via the visible notice banner (repo rule:
-     *  disabled-with-reason, never silent).
+     *  nothing has been written to Room or the outbox) must NEVER cancel that recording — that
+     *  destroys unrecoverable field footage, the confirmed shed defect ("RFID scan mid-recording
+     *  stops recording and comes out"). Instead the new goat is QUEUED in [pendingProofRow]: its
+     *  camera opens automatically the moment the in-flight job's `finally` runs (capture saved OR
+     *  failed), so the operator can scan ahead to the next animal without losing the current one's
+     *  video or having to remember to rescan. Only the LAST queued goat survives — an earlier
+     *  queued-but-not-yet-opened goat is overtaken and its camera will never open, which is a
+     *  genuine drop surfaced via [AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED] and a visible notice
+     *  (repo rule: disabled-with-reason, never silent).
      *
      *  A re-scan of the SAME goat that is already recording (e.g. a duplicate hardware read of the
      *  animal currently in front of the camera) is refused with the busy notice, same as before —
@@ -1035,21 +1066,37 @@ class ScanViewModel @Inject constructor(
 
         val strandedGoatId = proofCaptureGoatId
         if (proofCaptureInFlight && strandedGoatId != null) {
-            if (strandedGoatId == row.goatId || proofCaptureVideoCaptured) {
-                // Same goat re-scanned mid-recording, OR the in-flight capture already has a
-                // completed video mid-upload — in either case there is nothing safe to cancel.
+            if (strandedGoatId == row.goatId) {
+                // Same goat re-scanned mid-recording — nothing to do, restarting would just reopen
+                // the same camera on itself.
                 _duplicateNotice.value = PROOF_CAPTURE_BUSY_MESSAGE
                 return
             }
-            // A different goat was just scanned while the previous goat's camera is still open and
-            // recording — nothing has been captured for it yet, so cancel that unfinished session.
-            val strandedTag = strandedGoatTag ?: strandedGoatId
-            proofCaptureJob?.cancel()
-            proofCaptureJob = null
-            proofCaptureGoatId = null
-            proofCaptureVideoCaptured = false
-            proofCaptureInFlight = false
-            _duplicateNotice.value = "$strandedTag still needs its video."
+            // A DIFFERENT goat was scanned while a capture is still in flight for another one —
+            // recording, or already captured and mid-upload. The camera can never be cancelled to
+            // serve this new scan (that is the defect this fix removes), so queue it instead.
+            val replaced = pendingProofRow
+            if (replaced != null && replaced.goatId != row.goatId) {
+                // An earlier queued goat is overtaken before its camera ever opened — a genuine
+                // drop, not a silent one.
+                analytics.track(
+                    AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
+                    mapOf(AnalyticsEvents.Params.KIND to "vaccination"),
+                )
+                _duplicateNotice.value = "${replaced.primaryTag} still needs its video — dropped for ${row.primaryTag}."
+            } else {
+                val strandedTag = strandedGoatTag ?: strandedGoatId
+                _duplicateNotice.value = "${row.primaryTag} queued — camera opens once $strandedTag's video is saved."
+            }
+            pendingProofRow = row
+            analytics.track(
+                AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED,
+                mapOf(
+                    AnalyticsEvents.Params.KIND to "vaccination",
+                    AnalyticsEvents.Params.REASON to "recording_in_progress",
+                ),
+            )
+            return
         }
 
         proofCaptureInFlight = true
@@ -1118,6 +1165,15 @@ class ScanViewModel @Inject constructor(
                     // scanned · X") is never clobbered.
                     if (_duplicateNotice.value == PROOF_CAPTURE_BUSY_MESSAGE) {
                         _duplicateNotice.value = null
+                    }
+                    // The camera just freed up — if a goat was queued behind this capture (see
+                    // [pendingProofRow]'s doc), open its camera now instead of stranding it until
+                    // another scan happens to arrive. This runs whether the capture succeeded or
+                    // failed: either way the physical camera is free again.
+                    val queued = pendingProofRow
+                    pendingProofRow = null
+                    if (queued != null) {
+                        requestGoatProof(queued)
                     }
                 }
             }

@@ -28,6 +28,7 @@ import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.appApiStatusCode
 import sg.mesha.goatos.core.network.userFacingMessage
+import sg.mesha.goatos.core.network.WeightHistoryResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAcceptedObservationDto
 import sg.mesha.goatos.core.network.dto.WeighingAnimalObservationRequestDto
 import sg.mesha.goatos.core.network.dto.WeighingCampaignDto
@@ -198,7 +199,33 @@ data class WeighingCapabilities(
     val canPublish: Boolean = false,
     val canEnd: Boolean = false,
     val canReopen: Boolean = false,
-)
+) {
+    /**
+     * The CSV export shares the SAME backend permission (weighing.monitor) as ending a task -- the
+     * contract carries no separate export flag, so there is nothing to gain by adding one on the
+     * client. Named distinctly so a caller reads "may this viewer export" rather than having to
+     * remember which unrelated action [canEnd] otherwise names.
+     */
+    val canExportCsv: Boolean get() = canEnd
+}
+
+/**
+ * The bytes of ONE task's CSV export, downloaded straight from the backend.
+ *
+ * [suggestedFileName] mirrors the backend-documented `Content-Disposition` filename
+ * (`weighing-export-<campaign_id>.csv`) -- the repository builds it from the same campaign id the
+ * caller already has rather than parsing the header back out of the response, since [AppApi]'s
+ * download method hands back the body only, not the wrapping HTTP response.
+ */
+data class WeighingCsvExport(
+    val bytes: ByteArray,
+    val suggestedFileName: String,
+) {
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is WeighingCsvExport && suggestedFileName == other.suggestedFileName && bytes.contentEquals(other.bytes))
+
+    override fun hashCode(): Int = 31 * suggestedFileName.hashCode() + bytes.contentHashCode()
+}
 
 /**
  * One park the viewer may filter weighing by, as the BACKEND scopes it. Identity only.
@@ -302,6 +329,15 @@ data class WeighingPlannerShed(
     val scheduledStatus: String = "",
     val scheduledOperatorDisplayName: String = "",
     val scheduledCategory: String = "",
+    /**
+     * The operator user id CURRENTLY assigned to this bucket, when it already sits on a campaign --
+     * including the wizard's OWN campaign in edit mode, where [scheduled] reads false because that
+     * campaign is excluded from the "already taken" check. This is the live server answer for
+     * "what is this bucket's assignment right now", never a snapshot: the edit wizard's own carried
+     * seed is captured once when the wizard was staged and goes stale the moment anything on the
+     * campaign changes after that, while this field is re-read on every catalog refresh.
+     */
+    val scheduledOperatorUserId: String = "",
 )
 
 data class WeighingCampaignSummary(
@@ -544,6 +580,15 @@ interface WeighingRepository {
     suspend fun refreshTaskBuckets(campaignId: String, reset: Boolean = true): AppResult<Int>
 
     /**
+     * Downloads the task's full CSV export (every shed, including ones with nothing captured).
+     *
+     * A FILE, not a cached read: the export is a leadership snapshot taken at request time, so it
+     * is never written into Room and never observed -- each call is a fresh network round trip,
+     * same as [publishCampaign] or [closeCampaign]. Requires permission weighing.monitor.
+     */
+    suspend fun exportCampaignCsv(campaignId: String): AppResult<WeighingCsvExport>
+
+    /**
      * ONE shed bucket from Room — its own context plus a bounded window of its captured records.
      *
      * The park name, weigh date and assignee name come from the cached shed row, so a cold deep
@@ -588,6 +633,10 @@ interface WeighingRepository {
         periodStartDate: String,
         parkId: String,
         windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE,
+        // The task being EDITED, so its own sheds are never cached back as "taken" against
+        // themselves. Also separates the edit wizard's cache scope from the create wizard's, so
+        // the two never share (and clobber) one another's availability rows for the same park/date.
+        excludeCampaignId: String? = null,
     ): Flow<WeighingPlannerParkBucketsCache>
 
     /**
@@ -604,6 +653,7 @@ interface WeighingRepository {
         periodStartDate: String,
         parkId: String,
         pages: Int,
+        excludeCampaignId: String? = null,
     ): AppResult<Int>
 
     /** Fetches ONE keyset page of ONE park's shed buckets into Room. */
@@ -611,6 +661,7 @@ interface WeighingRepository {
         periodStartDate: String,
         parkId: String,
         reset: Boolean = true,
+        excludeCampaignId: String? = null,
     ): AppResult<Int>
 
     suspend fun createAndPublishPlan(draft: WeighingPlanDraft): AppResult<WeighingAssignment?>
@@ -663,6 +714,19 @@ interface WeighingRepository {
         campaignId: String,
         reason: String = "",
     ): AppResult<Unit>
+    /** [parkId]/[campaignShedId] narrow the query server-side (both null = the caller's full
+     *  authorized scope) — see `AppApi.getWeightHistory`. */
+    suspend fun fetchWeightHistory(
+        parkId: String? = null,
+        campaignShedId: String? = null,
+    ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto>
+
+    /** Leadership growth (ADG). parkId null = every park the caller may see. */
+    suspend fun fetchGrowthSummary(
+        parkId: String?,
+        from: String?,
+        to: String?,
+    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto>
 }
 
 class DefaultWeighingRepository(
@@ -716,7 +780,14 @@ class DefaultWeighingRepository(
      */
     private val inMemoryTransitionEpochs = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private suspend fun transitionIdempotencyKey(transition: String, scopeId: String): String {
+    private suspend fun transitionIdempotencyKey(transition: String, rawScopeId: String): String {
+        // The epoch is keyed by (transition, scope), never by scope alone. `update` and
+        // `close-campaign` both scope to the bare campaignId, so a shared counter let a
+        // landed close rotate the epoch out from under an in-flight update: the update's
+        // retry then computed a DIFFERENT key, the server no longer recognised it as the
+        // same attempt, and re-applied it -- the exact double-apply this mechanism exists
+        // to prevent, crossing transition types instead of repeating within one.
+        val scopeId = "$transition:$rawScopeId"
         val dao = epochDao ?: return "weighing:$transition:$scopeId:" +
             inMemoryTransitionEpochs.getOrPut(scopeId) { idGenerator() }
         // Claim-then-read: IGNORE on conflict means a concurrent attempt on the same scope loses
@@ -729,7 +800,9 @@ class DefaultWeighingRepository(
     }
 
     /** Called only after the server confirmed the transition, so a failed attempt stays retryable. */
-    private suspend fun advanceTransitionEpoch(scopeId: String) {
+    /** [transition] MUST match the one passed to [transitionIdempotencyKey]; the epoch is per pair. */
+    private suspend fun advanceTransitionEpoch(transition: String, rawScopeId: String) {
+        val scopeId = "$transition:$rawScopeId"
         val dao = epochDao ?: run {
             inMemoryTransitionEpochs[scopeId] = idGenerator()
             return
@@ -899,6 +972,30 @@ class DefaultWeighingRepository(
             }
         }
 
+    override suspend fun exportCampaignCsv(campaignId: String): AppResult<WeighingCsvExport> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("This task's export is not configured.")
+            val id = campaignId.takeIf { it.isNotBlank() }
+                ?: return@withContext AppResult.Err("This task's export is not configured.")
+            runCatching {
+                // [AppApi.exportWeighingCampaignCsv] already reads and closes the underlying
+                // OkHttp body inside core-network; this module only ever sees the plain bytes, so
+                // it stays free of any HTTP-client type. A task's CSV covers one park's sheds for
+                // one weigh date -- tens of KB at most -- so holding it whole is bounded, unlike
+                // the roster/bucket reads elsewhere in this file, which stay keyset-paged because
+                // they can run to thousands of rows.
+                val bytes = client.exportWeighingCampaignCsv(id)
+                AppResult.Ok(
+                    WeighingCsvExport(
+                        bytes = bytes,
+                        suggestedFileName = "weighing-export-$id.csv",
+                    ),
+                )
+            }.getOrElse { failure ->
+                AppResult.Err(failure.userFacingMessage("Could not export this task."))
+            }
+        }
+
     override suspend fun listParks(): AppResult<List<WeighingParkRef>> =
         withContext(Dispatchers.IO) {
             val client = api ?: return@withContext AppResult.Err("Weighing parks are not configured.")
@@ -918,9 +1015,19 @@ class DefaultWeighingRepository(
             rows.observeWindow(campaignId, windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)),
             keys.observe(campaignId),
         ) { cached, remoteKey ->
+            // Canceled buckets are dropped here for the same reason `toTask()` drops them from
+            // the card: an edit that removes a shed leaves the row behind as status='canceled'
+            // rather than deleting it. Rendering those made the task DETAIL header read
+            // "4 shed buckets" while the card read 3 and the detail's own action line read
+            // "3 not submitted" -- three counts of one task on one screen. totalCount is
+            // corrected by the same removal so the header cannot disagree with the list.
+            val visible = cached
+                .map { cacheJson.decodeFromString<WeighingCampaignShedDto>(it.dtoJson) }
+                .filter { it.status.lowercase() !in setOf("canceled", "cancelled") }
+            val dropped = cached.size - visible.size
             WeighingTaskBucketCache(
-                items = cached.map { cacheJson.decodeFromString<WeighingCampaignShedDto>(it.dtoJson).toTaskShed() },
-                totalCount = remoteKey?.totalCount ?: 0,
+                items = visible.map { it.toTaskShed() },
+                totalCount = ((remoteKey?.totalCount ?: 0) - dropped).coerceAtLeast(visible.size),
                 canLoadMore = remoteKey?.endReached == false && !remoteKey.nextCursor.isNullOrBlank(),
                 hasCache = remoteKey != null,
                 cachedAt = remoteKey?.updatedAt ?: 0L,
@@ -1197,10 +1304,11 @@ class DefaultWeighingRepository(
         periodStartDate: String,
         parkId: String,
         windowSize: Int,
+        excludeCampaignId: String?,
     ): Flow<WeighingPlannerParkBucketsCache> {
         val catalog = plannerDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
         val keys = plannerKeyDao ?: return kotlinx.coroutines.flow.flowOf(WeighingPlannerParkBucketsCache())
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
         val bounded = windowSize.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW)
         return combine(
             catalog.observeShedWindow(queryKey, bounded),
@@ -1220,12 +1328,13 @@ class DefaultWeighingRepository(
         periodStartDate: String,
         parkId: String,
         pages: Int,
+        excludeCampaignId: String?,
     ): AppResult<Int> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (parkId.isBlank()) return@withContext AppResult.Ok(0)
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
         // Walk only as many pages as the wizard is actually showing, never the whole park.
         val pageCount = pages.coerceIn(1, WEIGHING_LEADERSHIP_MAX_WINDOW / WEIGHING_LEADERSHIP_PAGE_SIZE)
         runCatching {
@@ -1238,6 +1347,7 @@ class DefaultWeighingRepository(
                     periodStartDate = periodStartDate,
                     cursor = cursor,
                     limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                    excludeCampaignId = excludeCampaignId,
                 )
                 val now = clock()
                 val startIndex = sortIndex
@@ -1276,13 +1386,14 @@ class DefaultWeighingRepository(
         periodStartDate: String,
         parkId: String,
         reset: Boolean,
+        excludeCampaignId: String?,
     ): AppResult<Int> = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         val keys = plannerKeyDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
         if (parkId.isBlank()) return@withContext AppResult.Ok(0)
-        val queryKey = plannerBucketQueryKey(periodStartDate, parkId)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
         val cursor = if (reset) {
             null
         } else {
@@ -1295,6 +1406,7 @@ class DefaultWeighingRepository(
                 periodStartDate = periodStartDate,
                 cursor = cursor,
                 limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                excludeCampaignId = excludeCampaignId,
             )
             val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
             val now = clock()
@@ -1453,7 +1565,16 @@ class DefaultWeighingRepository(
         if (campaignId.isBlank()) return@withContext AppResult.Err("Existing weighing task is missing.")
         if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
         runCatching {
-            val updateIdem = "weighing:update:$campaignId:${draft.periodStartDate}:${draft.sheds.joinToString(",") { "${it.locationId}:${it.category}" }}"
+            // The key names the ATTEMPT, not the shed set. It used to be derived from
+            // (date, locationId, category) only, which made two different edits collide:
+            // an operator-only change produced a byte-identical key and was answered from
+            // the previous edit's snapshot, so the planner's reassignment was silently
+            // dropped while the app reported success. Reverting a bucket to a combination
+            // this campaign had already been through failed the same way. This is the same
+            // failure the close/reopen epoch above exists to prevent, so it uses the same
+            // mechanism: the epoch rotates only after the server confirms, so retrying an
+            // unknown-outcome attempt still deduplicates while a genuinely new edit applies.
+            val updateIdem = transitionIdempotencyKey("update", campaignId)
             val updated = client.updateWeighingCampaign(campaignId, updateIdem, draft.toCreateRequest()).campaign
             val visible = if (updated.status == "draft") {
                 val publishIdem = "weighing:publish:$campaignId"
@@ -1461,6 +1582,7 @@ class DefaultWeighingRepository(
             } else {
                 updated
             }
+            advanceTransitionEpoch("update", campaignId)
             AppResult.Ok(visible.toAssignments(WEIGHING_SCOPE_MINE).firstOrNull())
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not update weighing plan.")) }
     }
@@ -1584,17 +1706,23 @@ class DefaultWeighingRepository(
         withContext(Dispatchers.IO) {
             val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
             try {
-                val idempotencyKey = weighingSubmitIdempotencyKey(
-                    campaignId,
-                    campaignShedId,
-                    scannedIdentifiers,
-                )
+                // The key names the ATTEMPT, not the shed's contents. It used to hash only
+                // (campaignId, campaignShedId, scannedIdentifiers), which is byte-identical
+                // when a verifier REJECTS a shed and the operator re-submits the same tags:
+                // the server replayed the first submission's stored response, returned 200,
+                // and wrote nothing, while the phone navigated away as if it had worked. The
+                // operator's rework was silently lost -- the same failure the close/reopen
+                // epoch below exists to prevent. The epoch rotates only after the server
+                // confirms, so retrying an unknown outcome still deduplicates.
+                val scopeId = "$campaignId:$campaignShedId"
+                val idempotencyKey = transitionIdempotencyKey("submit", scopeId)
                 service.submitWeighingScope(
                     campaignId,
                     campaignShedId,
                     idempotencyKey,
                     WeighingScopeSubmitRequestDto(scannedIdentifiers),
                 )
+                advanceTransitionEpoch("submit", scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't submit weighing shed."), error)
@@ -1617,7 +1745,7 @@ class DefaultWeighingRepository(
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeReopenRequestDto(reason = reason),
                 )
-                advanceTransitionEpoch(scopeId)
+                advanceTransitionEpoch("reopen", scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't reopen weighing shed."), error)
@@ -1640,7 +1768,7 @@ class DefaultWeighingRepository(
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
-                advanceTransitionEpoch(scopeId)
+                advanceTransitionEpoch("close-shed", scopeId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't close weighing shed."), error)
@@ -1660,10 +1788,38 @@ class DefaultWeighingRepository(
                     idempotencyKey = idempotencyKey,
                     request = WeighingScopeCloseRequestDto(reason = reason, idempotencyKey = idempotencyKey),
                 )
-                advanceTransitionEpoch(campaignId)
+                advanceTransitionEpoch("close-campaign", campaignId)
                 AppResult.Ok(Unit)
             } catch (error: Throwable) {
                 AppResult.Err(error.userFacingMessage("Couldn't close weighing campaign."), error)
+            }
+        }
+
+    override suspend fun fetchWeightHistory(
+        parkId: String?,
+        campaignShedId: String?,
+    ): AppResult<WeightHistoryResponseDto> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                val response = service.getWeightHistory(parkId = parkId, campaignShedId = campaignShedId)
+                AppResult.Ok(response)
+            } catch (error: Throwable) {
+                AppResult.Err(error.userFacingMessage("Couldn't fetch weight history."), error)
+            }
+        }
+
+    override suspend fun fetchGrowthSummary(
+        parkId: String?,
+        from: String?,
+        to: String?,
+    ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
+        withContext(Dispatchers.IO) {
+            val service = api ?: return@withContext AppResult.Err("Weighing service is unavailable.")
+            try {
+                AppResult.Ok(service.getWeighingGrowth(parkId, from, to))
+            } catch (error: Throwable) {
+                AppResult.Err(error.userFacingMessage("Couldn't fetch growth."), error)
             }
         }
 
@@ -2034,7 +2190,10 @@ private fun String?.nextWeighingCursorAfter(requestCursor: String?): String? =
     this?.trim()?.takeIf { it.isNotEmpty() && it != requestCursor }
 
 private fun String.toEpochMillisOrNow(): Long =
-    runCatching { Instant.parse(this).toEpochMilli() }.getOrDefault(System.currentTimeMillis())
+    runCatching {
+        // exception:exempt timestamp fallback; unparseable timestamp uses current time
+        Instant.parse(this).toEpochMilli()
+    }.getOrDefault(System.currentTimeMillis())
 
 private fun WeighingPlannerShedDto.toPlannerShed(): WeighingPlannerShed =
     WeighingPlannerShed(
@@ -2045,6 +2204,7 @@ private fun WeighingPlannerShedDto.toPlannerShed(): WeighingPlannerShed =
         scheduledStatus = scheduledStatus,
         scheduledOperatorDisplayName = scheduledOperatorDisplayName,
         scheduledCategory = scheduledWeighingCategory,
+        scheduledOperatorUserId = scheduledOperatorUserId,
     )
 
 private fun WeighingCampaignSummaryDto.toCampaignSummary(): WeighingCampaignSummary =
@@ -2076,8 +2236,9 @@ private fun WeighingPlannerParkRowEntity.toPlannerPark(json: Json): WeighingPlan
  * Two parks are two independent keyset streams and must never interleave in one scope — the
  * flattened all-parks page they used to share is what made a 76-shed park swallow page one.
  */
-private fun plannerBucketQueryKey(periodStartDate: String, parkId: String): String =
-    "${periodStartDate.trim()}|${parkId.trim()}"
+private fun plannerBucketQueryKey(periodStartDate: String, parkId: String, excludeCampaignId: String? = null): String =
+    "${periodStartDate.trim()}|${parkId.trim()}" +
+        (excludeCampaignId?.trim()?.takeIf { it.isNotBlank() }?.let { "|edit:$it" } ?: "")
 
 /** How many task-list FILTERS keep their cached rows. Bounds the task tables. */
 private const val WEIGHING_CACHED_TASK_FILTERS = 4
@@ -2342,6 +2503,7 @@ private data class WeighingShedResultValues(
 
 private fun weighingShedResultValues(resultJson: String): WeighingShedResultValues? =
     runCatching {
+        // exception:exempt JSON parse fallback; malformed result returns null for null-coalescing
         val result = Json.parseToJsonElement(resultJson).jsonObject
         val total = (result["total_weight_kg"] ?: result["weight"])?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
         val count = result["animal_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1

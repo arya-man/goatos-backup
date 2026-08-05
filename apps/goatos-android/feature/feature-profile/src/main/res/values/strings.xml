@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
+<!--
   Profile (v-you), Alerts (v-alerts), and RFID (v-rfid) chrome strings.
   Extracted from ProfileUiState defaults, ProfileScreen, AlertsScreen, and
   ProfileViewModel. All static UI chrome is localized; data values (name, role,

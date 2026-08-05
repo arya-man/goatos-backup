@@ -30,8 +30,13 @@ class FirebaseAnalyticsAdapter(
         // AnalyticsContext) so the same login on two phones is distinguishable per-event. Null
         // before bootstrap resolves; an explicit prop of the same key always wins.
         val deviceId = analyticsContext.deviceId
-        val bundle = Bundle(props.size + 1)
+        // Stamp this work session's journey id the same way, so a single login-to-logout drive
+        // (hours long) is reconstructible from one id instead of fragmenting across Firebase's
+        // 30-minute auto-sessions. Null before bootstrap resolves; an explicit prop wins.
+        val journeyId = analyticsContext.journeyId
+        val bundle = Bundle(props.size + 2)
         if (!deviceId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.DEVICE_ID, deviceId)
+        if (!journeyId.isNullOrBlank()) bundle.putString(AnalyticsEvents.Params.JOURNEY_ID, journeyId)
         for ((key, value) in props) bundle.putString(key, value)
         firebaseAnalytics.logEvent(event, bundle)
     }

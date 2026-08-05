@@ -181,3 +181,19 @@ are pre-existing (unrelated files this task never touched — `AppNavHost.kt`, `
 **Not run** (out of scope / needs a device): `assembleStgRelease` / Firebase App Distribution
 end-to-end, and any real on-device run with `TELEMETRY_ENABLED=true` hitting a live Firebase
 project.
+
+## 8. Companion rule: never swallow an exception
+
+The `CrashReporter`/`recordException` seam documented in §2 exists to be used on *every* caught
+exception, not just the ones a screen's own analytics wiring happens to hit. The maintainer's
+golden rule — "never swallow any exception, always dump it into Firebase non-fatal errors
+(mobile) or backend logs (server)" — is enforced separately from this doc's per-screen telemetry
+rule, by a diff-scoped guard: `tools/exception-guard/` (CI target `make exception-guard`, chained
+into `make ci-local`). It flags an empty `catch {}`, a catch body that only logs
+(`Log.x`/`println`) without a `CrashReporter.recordException(...)` call, a catch body that only
+`return`s/`emit`s without recording anything, and `runCatching { ... }.getOrNull()` /
+`.getOrDefault(...)` chains that discard the failure instead of chaining `.onFailure { ... }`.
+Escape hatch: `// exception:exempt <reason>` (distinct from this doc's own `// telemetry:exempt
+<reason>` marker family in `docs/observability/TELEMETRY_GUARDRAILS.md` §4, so the two guards'
+findings don't get confused). Full write-up, the Go-side equivalent, and the deliberately-NOT-
+detected list: `docs/observability/TELEMETRY_GUARDRAILS.md` §8.

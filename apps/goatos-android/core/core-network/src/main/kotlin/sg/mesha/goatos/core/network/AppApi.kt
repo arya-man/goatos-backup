@@ -447,6 +447,9 @@ interface AppApi {
         periodStartDate: String,
         cursor: String? = null,
         limit: Int = WEIGHING_PAGE_SIZE,
+        // The task being EDITED, so its own sheds never read back as "already scheduled" against
+        // themselves. Null on the create wizard, where there is no source task to exclude.
+        excludeCampaignId: String? = null,
     ): WeighingPlannerParkBucketsResponseDto
 
     suspend fun createWeighingCampaign(
@@ -581,6 +584,19 @@ interface AppApi {
         idempotencyKey: String,
         request: WeighingScopeCloseRequestDto,
     )
+
+    /**
+     * GET /weighing/campaigns/{campaign_id}/export (the PLANNER route, NOT under `/app`) — the
+     * task's full CSV export (every shed, including ones with nothing captured). Requires
+     * permission weighing.monitor, park-scope checked. Returns the raw `text/csv` bytes: this is a
+     * FILE download, not a decoded DTO, and okhttp3.ResponseBody stays confined to core-network --
+     * the implementation reads and closes it here so nothing above this module depends on OkHttp
+     * types for what is otherwise just "give me the bytes of a CSV".
+     */
+    suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray
+
+    /** Leadership growth (ADG). parkId null = every park the caller may see. */
+    suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto
 
     /** POST /admin/tasks/{task_id}/verify — leadership verify action on a record task (C35-011).
      *  Idempotent via [idempotencyKey]. The outbox drains this like submitAppTask. */
@@ -1096,6 +1112,12 @@ interface AppApi {
         idempotencyKey: String,
         request: HealthCompleteRequestDto,
     ): HealthCompleteResponseDto
+    /**
+     * GET /app/weighing/weight-history — fetch weight history data for charting.
+     * [parkId]/[campaignShedId] narrow the result server-side (handler.go `GetWeightHistory`).
+     * Both null = every park/shed the caller may see, matching the unfiltered gallery view.
+     */
+    suspend fun getWeightHistory(parkId: String? = null, campaignShedId: String? = null): WeightHistoryResponseDto
 }
 
 /**
@@ -1259,6 +1281,7 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         periodStartDate: String,
         cursor: String?,
         limit: Int,
+        excludeCampaignId: String?,
     ): WeighingPlannerParkBucketsResponseDto = WeighingPlannerParkBucketsResponseDto()
 
     override suspend fun createWeighingCampaign(
@@ -1357,6 +1380,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         idempotencyKey: String,
         request: WeighingScopeCloseRequestDto,
     ) = Unit
+
+    override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray = ByteArray(0)
+
+    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
+        GrowthSummaryDto()
 
     override suspend fun verifyAppTask(
         taskId: String,
@@ -1729,6 +1757,14 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         healthSessionId = healthSessionId,
         status = "completed",
     )
+    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
+        WeightHistoryResponseDto(
+            parks = emptyList(),
+            sheds = emptyList(),
+            series = emptyList(),
+            truncated = false,
+            capped_at = null,
+        )
 }
 
 /**

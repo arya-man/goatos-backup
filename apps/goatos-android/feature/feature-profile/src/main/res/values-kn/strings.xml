@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Profile screen defaults and chrome -->
     <string name="profile_screen_title">ನೀವು</string>

@@ -87,6 +87,8 @@ class SubmitViewModelWhileSubscribedTest {
             scanSource = FakeScanSource(),
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+        analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+        crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-1")),
         )
 

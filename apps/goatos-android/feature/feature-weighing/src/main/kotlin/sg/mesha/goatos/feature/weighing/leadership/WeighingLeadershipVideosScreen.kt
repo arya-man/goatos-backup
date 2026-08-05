@@ -46,7 +46,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.compose.runtime.rememberUpdatedState
 import sg.mesha.goatos.core.media.LocalProofPlayerFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -59,7 +64,11 @@ import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.feature.weighing.R
 
-// telemetry:exempt Weighing leadership evidence gallery is read-only in V1; verifier decisions are tracked in the verification surface.
+// telemetry:exempt This screen is a pure stateless renderer — the gallery is read-only (no
+// verdicts here, tracked in the verification surface); actual funnel/AnalyticsPort wiring for
+// video playback lives in WeighingLeadershipVideosViewModel (:app), which owns every side effect
+// [onPlayback] below triggers. This screen only forwards synchronous player-listener callbacks
+// (WeighingLeadershipVideoPlaybackEvent) at the exact moments the ViewModel needs.
 
 data class WeighingLeadershipVideosUiState(
     val loading: Boolean = true,
@@ -113,6 +122,29 @@ private data class SelectedLeadershipVideo(
     val video: WeighingLeadershipVideoUi,
 )
 
+enum class WeighingLeadershipVideoPlaybackAction {
+    PLAY_STARTED,
+    WATCH_SUMMARY,
+    PLAYBACK_ERROR,
+}
+
+/** Mirrors the verifier surface's watch-time telemetry shape (VerifyDetailEvent.VideoPlayback,
+ *  `:feature-verify`) for the leadership evidence gallery's own inline player, forwarded
+ *  synchronously from the ExoPlayer listener to [WeighingLeadershipVideosViewModel]. */
+data class WeighingLeadershipVideoPlaybackEvent(
+    val proofId: String,
+    val mimeType: String,
+    val action: WeighingLeadershipVideoPlaybackAction,
+    val reason: String? = null,
+    val watchTimeMs: Long = 0,
+    val durationMs: Long = 0,
+    val positionMs: Long = 0,
+    val percentWatched: Int = 0,
+    val seekCount: Int = 0,
+    val replayCount: Int = 0,
+    val bufferingTimeMs: Long = 0,
+)
+
 // media3's player APIs are opt-in. Containing that here -- rather than at file scope -- keeps the
 // requirement from propagating to callers: with @file:UnstableApi the annotation rode out on this
 // screen's public signature, so AppNavHost had to opt in to a media concern just to navigate to it.
@@ -123,6 +155,7 @@ fun WeighingLeadershipVideosScreen(
     state: WeighingLeadershipVideosUiState,
     onShedVisible: (Int) -> Unit = {},
     onRefresh: () -> Unit = {},
+    onPlayback: (WeighingLeadershipVideoPlaybackEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onRefresh() }
@@ -251,7 +284,7 @@ fun WeighingLeadershipVideosScreen(
         }
     }
     selectedVideo?.let { video ->
-        LeadershipVideoPlayer(video = video, onDismiss = { selectedVideo = null })
+        LeadershipVideoPlayer(video = video, onPlayback = onPlayback, onDismiss = { selectedVideo = null })
     }
 }
 
@@ -601,9 +634,15 @@ private fun VideoActionRow(
 }
 
 @Composable
-private fun LeadershipVideoPlayer(video: SelectedLeadershipVideo, onDismiss: () -> Unit) {
+private fun LeadershipVideoPlayer(
+    video: SelectedLeadershipVideo,
+    onPlayback: (WeighingLeadershipVideoPlaybackEvent) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val currentOnPlayback by rememberUpdatedState(onPlayback)
+    val mimeType = remember(video.video.url) { video.video.url.inferVideoMimeType() }
     // Telemetry-instrumented player (W-22) — see ProofMediaHttp.
     val playerFactory = LocalProofPlayerFactory.current
     val player = remember(video.video.url) {
@@ -614,7 +653,54 @@ private fun LeadershipVideoPlayer(video: SelectedLeadershipVideo, onDismiss: () 
         }
     }
     DisposableEffect(player) {
-        onDispose { player.release() }
+        val tracker = LeadershipVideoPlaybackTracker(
+            proofId = video.video.id,
+            mimeType = mimeType,
+            onPlayback = currentOnPlayback,
+        )
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlayingNow: Boolean) {
+                tracker.onPlayingChanged(isPlayingNow, player.duration, player.currentPosition)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                tracker.onPlaybackStateChanged(playbackState, player.duration, player.currentPosition)
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int,
+            ) {
+                tracker.onPositionDiscontinuity(reason)
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                tracker.onError(error.message ?: error.errorCodeName)
+            }
+        }
+        player.addListener(listener)
+        onDispose {
+            tracker.flush(player.duration, player.currentPosition)
+            player.removeListener(listener)
+            player.release()
+        }
+    }
+    // This gallery has no inline/list players to pause on scroll: each video thumbnail is a plain
+    // clickable chip (VideoActionRow) — tapping it is what BUILDS this single full-screen dialog
+    // player, and dismissing the dialog is what releases it (the onDispose above). There is never
+    // more than one decoder alive here, so the "row scrolled out of the viewport" gap that affects
+    // VerifyDetailScreen's always-composed inline players does not exist on this screen.
+    //
+    // Backgrounding while the dialog is open is still a real gap (nothing paused the video before
+    // this): ON_STOP matches the ExoPlayer-recommended pause point and stops a proof clip from
+    // playing audio behind a locked screen or after a task switch. This does not auto-resume on
+    // ON_START — the reader must tap play again via the player's own controller.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (player.isPlaying) {
+            player.playWhenReady = false
+            player.pause()
+        }
     }
     Dialog(
         onDismissRequest = onDismiss,
@@ -750,4 +836,132 @@ private fun videoCountLabel(count: Int): String = if (count == 1) {
     stringResource(R.string.weighing_videos_video_one, count)
 } else {
     stringResource(R.string.weighing_videos_video_other, count)
+}
+
+/** No mime type ships on [WeighingLeadershipVideoUi] (backend only sends a download URL) — this
+ *  is a client-side best-effort label for the telemetry payload only, never used for playback. */
+private fun String.inferVideoMimeType(): String =
+    when (substringAfterLast('.', "").substringBefore('?').lowercase()) {
+        "webm" -> "video/webm"
+        "3gp" -> "video/3gpp"
+        "mov" -> "video/quicktime"
+        else -> "video/mp4"
+    }
+
+/** Mirrors [sg.mesha.goatos.feature.verify.VerifyDetailScreen]'s `VideoPlaybackTracker`: turns
+ *  raw ExoPlayer listener callbacks into the same watch_time/percent_watched/seek_count/
+ *  replay_count/buffering_time_ms summary shape, scoped to the leadership gallery's single
+ *  full-screen dialog player (no per-row `armed` deferral needed here — only one player exists
+ *  at a time, built when the reader picks a video and released on dismiss). */
+private class LeadershipVideoPlaybackTracker(
+    private val proofId: String,
+    private val mimeType: String,
+    private val onPlayback: (WeighingLeadershipVideoPlaybackEvent) -> Unit,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+    private var playStarted = false
+    private var playingSinceMs: Long? = null
+    private var watchTimeMs: Long = 0
+    private var bufferingSinceMs: Long? = null
+    private var bufferingTimeMs: Long = 0
+    private var seekCount: Int = 0
+    private var replayCount: Int = 0
+    private var ended = false
+    private var flushed = false
+
+    fun onPlayingChanged(isPlaying: Boolean, durationMs: Long, positionMs: Long) {
+        if (isPlaying) {
+            if (!playStarted) {
+                playStarted = true
+                onPlayback(
+                    WeighingLeadershipVideoPlaybackEvent(
+                        proofId = proofId,
+                        mimeType = mimeType,
+                        action = WeighingLeadershipVideoPlaybackAction.PLAY_STARTED,
+                        durationMs = durationMs.safeMediaMs(),
+                        positionMs = positionMs.safeMediaMs(),
+                    ),
+                )
+            } else if (ended) {
+                replayCount += 1
+                ended = false
+            }
+            if (playingSinceMs == null) playingSinceMs = nowMs()
+        } else {
+            accrueWatchTime()
+        }
+    }
+
+    fun onPlaybackStateChanged(playbackState: Int, durationMs: Long, positionMs: Long) {
+        when (playbackState) {
+            Player.STATE_BUFFERING -> {
+                if (bufferingSinceMs == null) bufferingSinceMs = nowMs()
+            }
+            Player.STATE_READY -> accrueBufferingTime()
+            Player.STATE_ENDED -> {
+                ended = true
+                accrueWatchTime()
+                flush(durationMs, positionMs)
+            }
+        }
+    }
+
+    fun onPositionDiscontinuity(reason: Int) {
+        if (reason == Player.DISCONTINUITY_REASON_SEEK) seekCount += 1
+    }
+
+    fun onError(reason: String) {
+        onPlayback(
+            WeighingLeadershipVideoPlaybackEvent(
+                proofId = proofId,
+                mimeType = mimeType,
+                action = WeighingLeadershipVideoPlaybackAction.PLAYBACK_ERROR,
+                reason = reason,
+            ),
+        )
+    }
+
+    fun flush(durationMs: Long, positionMs: Long) {
+        if (flushed || !playStarted) return
+        flushed = true
+        accrueWatchTime()
+        accrueBufferingTime()
+        val safeDuration = durationMs.safeMediaMs()
+        val safePosition = positionMs.safeMediaMs()
+        val percentWatched = if (safeDuration > 0) {
+            ((safePosition.coerceAtMost(safeDuration) * 100) / safeDuration).toInt()
+        } else {
+            0
+        }
+        onPlayback(
+            WeighingLeadershipVideoPlaybackEvent(
+                proofId = proofId,
+                mimeType = mimeType,
+                action = WeighingLeadershipVideoPlaybackAction.WATCH_SUMMARY,
+                watchTimeMs = watchTimeMs,
+                durationMs = safeDuration,
+                positionMs = safePosition,
+                percentWatched = percentWatched,
+                seekCount = seekCount,
+                replayCount = replayCount,
+                bufferingTimeMs = bufferingTimeMs,
+            ),
+        )
+    }
+
+    private fun accrueWatchTime() {
+        val started = playingSinceMs ?: return
+        watchTimeMs += (nowMs() - started).coerceAtLeast(0)
+        playingSinceMs = null
+    }
+
+    private fun accrueBufferingTime() {
+        val started = bufferingSinceMs ?: return
+        bufferingTimeMs += (nowMs() - started).coerceAtLeast(0)
+        bufferingSinceMs = null
+    }
+
+    /** media3 reports C.TIME_UNSET (-1) before duration/position are known; never surface a
+     *  negative telemetry value. */
+    private fun Long.safeMediaMs(): Long = coerceAtLeast(0)
 }

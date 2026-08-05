@@ -46,7 +46,9 @@ class LocalBackendConnectivityGate(
  * gate would have allowed and a queued write never leaves the phone.
  */
 fun String.isLoopbackHttpBase(): Boolean {
-    val uri = runCatching { URI(this) }.getOrNull() ?: return false
+    val uri = runCatching { URI(this) }
+        .onFailure { android.util.Log.d("ConnectivityGate", "isLoopbackHttpBase: parse URI failed for '$this'", it) }
+        .getOrNull() ?: return false
     val scheme = uri.scheme?.lowercase() ?: return false
     if (scheme != "http" && scheme != "https") return false
     val host = uri.host?.lowercase() ?: return false

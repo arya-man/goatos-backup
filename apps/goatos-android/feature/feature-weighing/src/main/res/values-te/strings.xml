@@ -10,6 +10,9 @@
     <string name="weighing_category_lumpsum">మొత్తం బరువు</string>
     <string name="weighing_category_individual">వ్యక్తిగతం</string>
     <string name="weighing_action_scan_animals">జంతువులను స్కాన్ చేయండి →</string>
+    <string name="weighing_assignment_summary_individual">స్వేచ్ఛా RFID, బరువు మరియు వీడియో సేకరణ</string>
+    <string name="weighing_assignment_summary_lumpsum">షెడ్ వీడియో మరియు మొత్తం బరువు</string>
+    <string name="weighing_action_record_lumpsum">షెడ్ నమోదు చేయండి →</string>
     <string name="weighing_category_individual_title">వ్యక్తిగతం</string>
     <string name="weighing_category_lump_sum_title">మొత్తం బరువు</string>
     <string name="weighing_status_scheduled">షెడ్యూల్ చేయబడింది</string>
@@ -35,7 +38,6 @@
     <string name="weighing_all_parks">అన్ని పార్కులు</string>
     <string name="weighing_reopen">మళ్లీ తెరవండి</string>
     <string name="weighing_pending_verification">ధృవీకరణ పెండింగ్</string>
-    <string name="weighing_assignment_summary">స్వేచ్ఛా RFID, బరువు మరియు వీడియో సేకరణ</string>
     <string name="weighing_pull_to_refresh_hint">నాయకత్వం వారపు ప్రణాళిక ప్రచురించిన తర్వాత లాగి రిఫ్రెష్ చేయండి.</string>
     <string name="weighing_icon_kg">కేజీ</string>
     <string name="weighing_icon_rfid">RFID</string>
@@ -156,6 +158,7 @@
     <string name="weighing_task_close_dismiss_label">ఈ పనిని తెరిచే ఉంచండి</string>
     <string name="weighing_task_fallback_title">పని</string>
     <string name="weighing_task_refresh">ఈ పనిని రిఫ్రెష్ చేయండి</string>
+    <string name="weighing_task_export_csv">ఈ పని యొక్క CSVని ఎగుమతి చేయండి</string>
     <string name="weighing_task_missing_title">ఈ పని ఇక జాబితాలో లేదు</string>
     <string name="weighing_task_draft_banner">ఆపరేటర్లకు ఇంకా కనిపించడం లేదు</string>
     <string name="weighing_task_closed">మూసివేయబడింది</string>
@@ -203,11 +206,12 @@
     <string name="weighing_wizard_save_draft">ముసాయిదా సేవ్ చేయండి</string>
     <string name="weighing_wizard_publish">ప్రచురించండి</string>
     <string name="weighing_wizard_continue">కొనసాగించండి</string>
-    <string name="weighing_wizard_step_date">దశ 1 / 5 · తేదీ</string>
-    <string name="weighing_wizard_step_park">దశ 2 / 5 · పార్కు</string>
-    <string name="weighing_wizard_step_buckets">దశ 3 / 5 · షెడ్ సమూహాలు</string>
-    <string name="weighing_wizard_step_configure">దశ 4 / 5 · సెట్ చేయండి</string>
-    <string name="weighing_wizard_step_review">దశ 5 / 5 · సమీక్ష</string>
+    <string name="weighing_wizard_step_fmt">దశ %1$d / %2$d · %3$s</string>
+    <string name="weighing_wizard_step_name_date">తేదీ</string>
+    <string name="weighing_wizard_step_name_park">పార్కు</string>
+    <string name="weighing_wizard_step_name_buckets">షెడ్ సమూహాలు</string>
+    <string name="weighing_wizard_step_name_configure">సెట్ చేయండి</string>
+    <string name="weighing_wizard_step_name_review">సమీక్ష</string>
     <string name="weighing_wizard_title_date">తేదీ ఎంచుకోండి</string>
     <string name="weighing_wizard_title_park">పార్కు ఎంచుకోండి</string>
     <string name="weighing_wizard_title_buckets">షెడ్ సమూహాలను ఎంచుకోండి</string>
@@ -349,4 +353,107 @@
     <string name="weighing_wizard_summary_modes_fmt">%1$d విడిగా · %2$d కలిపి</string>
     <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
     <string name="weighing_wizard_add_remaining_fmt">మిగిలిన %1$d చేర్చండి</string>
+
+    <!-- Submit confirmation dialog -->
+    <string name="weighing_submit_confirm_title">ఈ షెడ్‌ను సమర్పించాలా?</string>
+    <string name="weighing_submit_confirm_body">సమర్పించిన తర్వాత, ఈ షెడ్ పని వీడియో చెక్ కోసం వెళ్లిపోతుంది. మీరు దానిని మళ్లీ తెరవలేరు — మేనేజర్ లేదా డైరెక్టర్ మాత్రమే చేయగలరు.</string>
+    <string name="weighing_submit_confirm_dismiss">రద్దు చేయి</string>
+    <string name="weighing_submit_confirm_action">సమర్పించండి</string>
+
+    <!-- Vaccination submit confirmation dialog -->
+    <string name="vaccination_submit_confirm_title">ఈ షెడ్‌ను ముగించాలా?</string>
+    <string name="vaccination_submit_confirm_body">ముగించిన తర్వాత, ఈ షెడ్ పని లాక్ చేయబడుతుంది. మీరు దానిని మళ్లీ తెరవలేరు — మేనేజర్ లేదా డైరెక్టర్ మాత్రమే చేయగలరు.</string>
+    <string name="vaccination_submit_confirm_dismiss">రద్దు చేయి</string>
+    <string name="vaccination_submit_confirm_action">ముగించండి</string>
+
+    <!-- Weight history chart (leadership monitoring) -->
+    <string name="weighing_history_title">బరువు చరిత్ర</string>
+    <string name="weighing_history_refresh_cd">బరువు చరిత్రను రిఫ్రెష్ చేయండి</string>
+    <string name="weighing_history_all_weights">అన్ని బరువులు</string>
+    <string name="weighing_history_all_sheds">అన్ని షెడ్‌లు</string>
+    <string name="weighing_history_kind_individual">వ్యక్తిగతం</string>
+    <string name="weighing_history_kind_lump_sum">లంప్‌సమ్</string>
+    <string name="weighing_history_empty_no_data">ఇంకా బరువులు నమోదు కాలేదు.</string>
+    <string name="weighing_history_empty_filtered">ఈ ఫిల్టర్‌లకు సరిపోలే బరువులు లేవు.</string>
+    <string name="weighing_history_search_hint">ట్యాగ్ లేదా షెడ్ శోధించండి</string>
+    <string name="weighing_history_picker_search">శోధించండి</string>
+    <string name="weighing_history_axis_individual">ఒక్కో జంతువుకు బరువు (కేజీ)</string>
+    <string name="weighing_history_axis_lump_sum">షెడ్ మొత్తం బరువు (కేజీ)</string>
+    <string name="weighing_history_axis_mixed">వ్యక్తిగత బరువులు కేజీలలో; మొత్తం బరువు కార్డులు షెడ్ మొత్తం చూపిస్తాయి</string>
+    <string name="weighing_history_truncation_both_fmt">ఇటీవలి బరువులు మాత్రమే చూపబడుతున్నాయి, మరియు ఒక్కో జంతువుకు చివరి %1$d బరువు దినాలు.</string>
+    <string name="weighing_history_truncation_payload">ఇటీవలి బరువులు మాత్రమే చూపబడుతున్నాయి.</string>
+    <string name="weighing_history_truncation_per_series_fmt">ఒక్కో జంతువుకు చివరి %1$d బరువు దినాలు చూపబడుతున్నాయి.</string>
+    <string name="weighing_history_narrow_first_fmt">%1$d జంతువులు సరిపోలాయి. వాటి బరువులు చూడటానికి షెడ్‌ను ఎంచుకోండి లేదా ట్యాగ్‌ను శోధించండి.</string>
+    <string name="weighing_history_park_selector_fmt">పార్క్: %1$s</string>
+    <string name="weighing_history_shed_selector_fmt">షెడ్: %1$s</string>
+    <string name="weighing_history_nothing_matches_fmt">\"%1$s\" కు ఏదీ సరిపోలలేదు.</string>
+    <plurals name="weighing_history_animal_count">
+        <item quantity="one">%1$d జంతువు</item>
+        <item quantity="other">%1$d జంతువులు</item>
+    </plurals>
+
+    <!-- Weighing export preview -->
+    <string name="weighing_export_preview_title">ఎగుమతి ప్రివ్యూ</string>
+    <string name="weighing_export_preview_share">షేర్ చేయండి / CSV ఎగుమతి చేయండి</string>
+    <string name="weighing_export_preview_loading">ఎగుమతి లోడ్ అవుతోంది…</string>
+    <string name="weighing_export_preview_retry">మళ్లీ ప్రయత్నించండి</string>
+    <string name="weighing_export_preview_empty_title">ఇంకా ప్రివ్యూ చేయడానికి ఏమీ లేదు</string>
+    <string name="weighing_export_preview_shed_fallback">షెడ్</string>
+    <string name="weighing_export_preview_not_weighed">బరువు చేయలేదు</string>
+    <string name="weighing_export_preview_row_count_fmt">%2$d షెడ్‌లలో %1$d వరుసలు</string>
+    <string name="weighing_export_preview_lump_sum">లంప్‌సమ్</string>
+    <string name="weighing_export_preview_unknown_identifier">తెలియదు</string>
+    <string name="weighing_export_col_type">రకం</string>
+    <string name="weighing_export_col_average_weight">సగటు బరువు (కేజీ)</string>
+    <string name="weighing_export_col_animal_count">జంతువుల సంఖ్య</string>
+    <string name="weighing_export_col_proof_type">ప్రూఫ్ రిఫరెన్స్ రకం</string>
+    <string name="weighing_export_col_proof_reference">ప్రూఫ్ రిఫరెన్స్</string>
+    <string name="weighing_export_col_recorded_at">నమోదు చేసిన సమయం</string>
+    <string name="weighing_export_col_date_ist">తేదీ (IST)</string>
+    <string name="weighing_export_col_time_ist">సమయం (IST)</string>
+    <string name="weighing_export_verification_accepted">ఆమోదించబడింది</string>
+    <string name="weighing_export_verification_pending">పెండింగ్‌లో ఉంది</string>
+    <string name="weighing_export_verification_rejected">తిరస్కరించబడింది</string>
+    <string name="weighing_growth_title">పెరుగుదల</string>
+    <string name="weighing_growth_refresh_cd">పెరుగుదల రిఫ్రెష్</string>
+    <string name="weighing_growth_unknown_value">—</string>
+    <string name="weighing_growth_tile_herd">మంద పెరుగుదల</string>
+    <string name="weighing_growth_tile_gaining">పెరుగుతున్నాయి</string>
+    <string name="weighing_growth_tile_measured">కొలిచినవి</string>
+    <string name="weighing_growth_tile_losing">బరువు తగ్గుతున్నాయి</string>
+    <string name="weighing_growth_no_previous">పోల్చడానికి మునుపటి కాలం లేదు</string>
+    <string name="weighing_growth_of_measurable">పెరుగుదల ఉన్న జంతువులలో</string>
+    <string name="weighing_growth_needs_two">పెరుగుదలకు 2 బరువులు కావాలి</string>
+    <string name="weighing_growth_losing_meta">చూడటానికి ట్యాప్ చేయండి</string>
+    <string name="weighing_growth_sheds_title">షెడ్‌లు — ఉత్తమం నుండి తక్కువ</string>
+    <string name="weighing_growth_trend_title">పెరుగుదల ధోరణి</string>
+    <string name="weighing_growth_trend_caption">గ్రా/రోజు · బరువు చేసిన రోజులు మాత్రమే</string>
+    <string name="weighing_growth_shed_meta">%1$d జంతువులు</string>
+    <string name="weighing_growth_empty">ఇంకా పెరుగుదల లేదు. పెరుగుదల తెలియాలంటే జంతువును రెండుసార్లు తూకం వేయాలి.</string>
+    <plurals name="weighing_growth_quality_unverified">
+        <item quantity="one">%1$d రీడింగ్ ఇంకా తనిఖీ చేయలేదు.</item>
+        <item quantity="other">%1$d రీడింగ్‌లు ఇంకా తనిఖీ చేయలేదు.</item>
+    </plurals>
+    <plurals name="weighing_growth_quality_rejected">
+        <item quantity="one">%1$d రీడింగ్ వెనక్కి పంపబడింది.</item>
+        <item quantity="other">%1$d రీడింగ్‌లు వెనక్కి పంపబడ్డాయి.</item>
+    </plurals>
+    <string name="weighing_growth_scope_all">అన్ని పార్కులు</string>
+    <string name="weighing_growth_park_selector">పార్క్: %1$s</string>
+    <string name="weighing_growth_lumpsum_title">లంప్‌సమ్ షెడ్‌లు</string>
+    <string name="weighing_growth_lumpsum_caption">ఒకే గుంపుగా తూకం — వీటి నుండి ఒక్కో జంతువు పెరుగుదల రాదు.</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d జంతువులు · %2$s</string>
+    <string name="weighing_growth_lumpsum_avg">%1$.1f కేజీ సగటు</string>
+    <string name="weighing_growth_needs_two_with_lumpsum">పెరుగుదలకు 2 బరువులు · %1$d మరిన్ని లంప్‌సమ్‌లో</string>
+    <string name="weighing_export_preview_search_hint">షెడ్‌లను వెతకండి</string>
+    <string name="weighing_export_preview_no_matches">మీ శోధనకు ఏ షెడ్ సరిపోలలేదు</string>
+    <string name="weighing_export_preview_refreshing">రిఫ్రెష్ అవుతోంది…</string>
+    <string name="weighing_export_preview_weighed_count_fmt">%1$d తూకం వేయబడ్డాయి</string>
+    <string name="weighing_export_preview_lump_sum_count_fmt">%1$d జంతువులు</string>
+    <string name="weighing_export_preview_shed_summary_fmt">%1$.1f కేజీ మొత్తం · %2$.1f కేజీ సగటు</string>
+    <string name="weighing_history_point_sent_back">%1$s, %2$s కేజీ, తిరిగి పంపారు</string>
+    <string name="weighing_history_point_awaiting">%1$s, %2$s కేజీ, ఇంకా తనిఖీ చేయలేదు</string>
+    <string name="weighing_history_point_accepted">%1$s, %2$s కేజీ, ఆమోదించారు</string>
+    <string name="weighing_growth_losing_title">బరువు తగ్గుతున్నాయి</string>
+    <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f కేజీ</string>
 </resources>

@@ -17,6 +17,9 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
@@ -49,6 +52,8 @@ import sg.mesha.goatos.ui.Routes
 @HiltViewModel
 class WeighingShedDetailViewModel @Inject constructor(
     private val repository: WeighingRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
@@ -85,6 +90,7 @@ class WeighingShedDetailViewModel @Inject constructor(
         )
 
     init {
+        analytics.track(AnalyticsEvents.WEIGHING_SHED_DETAIL_VIEWED)
         refresh()
     }
 
@@ -101,7 +107,17 @@ class WeighingShedDetailViewModel @Inject constructor(
             try {
                 when (val result = repository.refreshLeadershipShed(campaignId, campaignShedId, reset = true)) {
                     is AppResult.Ok -> failure.value = null
-                    is AppResult.Err -> failure.value = result.message
+                    is AppResult.Err -> {
+                        failure.value = result.message
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_SHED_DETAIL_LOAD_FAILED,
+                            mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                        )
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing shed detail load failed"
+                        )
+                    }
                 }
             } finally {
                 loading.value = false
@@ -148,14 +164,26 @@ class WeighingShedDetailViewModel @Inject constructor(
         if (!current.canReopen || busy.value) return
         busy.value = true
         message.value = null
+        analytics.track(AnalyticsEvents.WEIGHING_SHED_DETAIL_REOPEN_ATTEMPTED)
         viewModelScope.launch {
             try {
                 when (val result = repository.reopenScope(campaignId, campaignShedId, "")) {
                     is AppResult.Ok -> {
                         message.value = "${current.shedName.ifBlank { "This shed" }} is back with the operator."
+                        analytics.track(AnalyticsEvents.WEIGHING_SHED_DETAIL_REOPEN_SUCCEEDED)
                         refresh()
                     }
-                    is AppResult.Err -> failure.value = result.message
+                    is AppResult.Err -> {
+                        failure.value = result.message
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_SHED_DETAIL_REOPEN_FAILED,
+                            mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                        )
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing shed detail reopen failed"
+                        )
+                    }
                 }
             } finally {
                 busy.value = false
@@ -294,7 +322,10 @@ class WeighingShedDetailViewModel @Inject constructor(
 
     /** "<Park> · <weigh date>" built from the shed read's OWN answers, never from a route argument. */
     private fun WeighingLeadershipShed.contextLabel(): String {
-        val date = runCatching { LocalDate.parse(weighDate, ISO_DATE).format(DAY_FORMAT) }.getOrDefault(weighDate)
+        val date = runCatching {
+            // exception:exempt date display fallback; unparseable date shows raw ISO string
+            LocalDate.parse(weighDate, ISO_DATE).format(DAY_FORMAT)
+        }.getOrDefault(weighDate)
         return listOf(parkName, date).filter { it.isNotBlank() }.joinToString(" · ")
     }
 

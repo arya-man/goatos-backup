@@ -91,11 +91,16 @@ import sg.mesha.goatos.feature.sheds.R
  *  - [PENDING] -> warn amber (in progress / not yet complete)
  *  - [DELAYED] -> error / RED (delayed · not started — leadership chases the team)
  */
-enum class ShedStatus { DONE, PENDING, DELAYED }
+/**
+ * SENT_BACK is its own state, NOT a flavour of DELAYED. A shed the verifier returned is not
+ * late -- it is finished work that must be done again -- and labelling it "Overdue" told the
+ * operator the wrong thing about why it is on his list.
+ */
+enum class ShedStatus { DONE, PENDING, DELAYED, SENT_BACK }
 
 enum class ShedStatusTone { OK, WARN, DANGER, INFO }
 
-enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, COMPLETE }
+enum class ShedStatusChipKey { DONE, IN_PROGRESS, IN_REVIEW, SUBMITTED, OPEN, OVERDUE, SENT_BACK, COMPLETE }
 
 @Immutable
 data class ShedStatusChip(
@@ -143,6 +148,12 @@ data class ProtocolAdherenceSummary(
     val acceptedCount: Int,
     val reviewItemCount: Int,
     val overdueItemCount: Int = 0,
+    /**
+     * Animals the verifier SENT BACK. Its own number because the card previously showed only
+     * submitted and accepted, so a rejection hid in the gap between them -- a reader could not
+     * tell "still with the verifier" from "came back and must be redone".
+     */
+    val sentBackCount: Int = 0,
     val deferredCount: Int,
     val acceptedPercent: Int,
 ) {
@@ -178,6 +189,11 @@ data class ShedRow(
     val inShed: String,
     val due: String,
     val done: String,
+    // The operator's own submitted count (`done`) and the verifier's accepted count are
+    // deliberately separate fields: a card that reads "5 DONE" while only 2 have cleared
+    // verification is misleading if only one number is shown. Backend-owned (acceptedCount on
+    // VaccinationExecutionRowDto); the client never derives this.
+    val accepted: String = "0",
     val progressLabel: String,
     val progressFraction: Float,
     val actionLabel: String? = null,
@@ -261,6 +277,11 @@ sealed interface ShedsEvent {
     data object Refresh : ShedsEvent
     data object LoadMore : ShedsEvent
     data object Back : ShedsEvent
+
+    /** A tap on a shed card was blocked before navigation (permission, ownership, schedule, or
+     *  already-submitted gate). Sent to the ViewModel purely for telemetry — the nav host still
+     *  owns the Toast and the gate logic itself. [reason] is a coarse, non-PII cause. */
+    data class OpenBlocked(val reason: String, val shedId: String?) : ShedsEvent
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +315,7 @@ private fun toneFor(status: ShedStatus): StatusTone = when (status) {
     ShedStatus.DONE -> StatusTone(fg = BrandD, bg = OkBg, edge = Brand)
     ShedStatus.PENDING -> StatusTone(fg = Warn, bg = WarnBg, edge = Warn)
     ShedStatus.DELAYED -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
+    ShedStatus.SENT_BACK -> StatusTone(fg = Danger, bg = DangerBg, edge = Danger)
 }
 
 private fun toneFor(tone: ShedStatusTone): StatusTone = when (tone) {
@@ -323,7 +345,17 @@ fun ShedsScreen(
 ) {
     RefreshOnResume { onEvent(ShedsEvent.Refresh) }
     val listState = rememberLazyListState()
-    val canFilterHere = state.parkFilters.isNotEmpty() && !state.hostedFromCalendar
+    // [hostedFromCalendar] and "a park is pinned" are ORTHOGONAL and used to be conflated here:
+    // hostedFromCalendar means "this screen is embedded in a calendar flow" (governs chrome —
+    // day tabs, protocol adherence card, park-group headers below) while whether the filter is
+    // reachable/needed depends only on whether more than one park is actually a choice. A
+    // calendar-hosted screen scoped to a single park via the drive card's parkId nav arg still
+    // needs a way to widen back to all parks; the old `!state.hostedFromCalendar` gate hid the
+    // filter (and the header's filter icon, see ShedsHeader) permanently in that case, with no
+    // escape short of navigating back out.
+    val canFilterHere = state.parkFilters.size > 1
+    val isParkPinned = state.hostedFromCalendar && state.selectedParkId != null
+    val pinnedParkLabel = state.parkFilters.firstOrNull { it.parkId == state.selectedParkId }?.label
     val parkGroups = state.parkGroups()
     // Park scope is chosen ONCE, by the filter pills above, which select through the ViewModel and
     // therefore drive the query and its cursor. There used to be a second park selector here -- the
@@ -371,6 +403,18 @@ fun ShedsScreen(
             } else {
                 item { DriveMeta(state) }
                 item { DayProgress(state) }
+            }
+            // A calendar drill-in pinned to one park is otherwise silent about WHY the list
+            // shows only that park — this makes the scope visible and clearable in one tap,
+            // going through the same SelectPark(null) flow the filter pills use (so it drives
+            // the query/cursor, not a client-side hide).
+            if (isParkPinned && pinnedParkLabel != null) {
+                item(key = "pinned-park-chip") {
+                    PinnedParkChip(
+                        label = pinnedParkLabel,
+                        onClear = { onEvent(ShedsEvent.SelectPark(null)) },
+                    )
+                }
             }
             if (canFilterHere && state.parkFilters.size > 1) {
                 item {
@@ -514,6 +558,47 @@ private fun ParkFilters(filters: List<ShedParkFilter>, onSelect: (String?) -> Un
                 selected = option.isSelected,
                 onClick = { onSelect(option.parkId) },
             )
+        }
+    }
+}
+
+/** Visible, clearable "pinned park" indicator for a calendar drill-in scoped to one park —
+ *  reads as an active filter chip (not invisible state) and clears back to all parks via the
+ *  same [ShedsEvent.SelectPark] flow the filter pills use. Follows the screen's existing
+ *  [FilterPill] visual language (selected-pill styling) rather than a new control style. */
+@Composable
+private fun PinnedParkChip(label: String, onClear: () -> Unit) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Card(
+            modifier = Modifier.height(36.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Brand),
+            border = BorderStroke(1.dp, Brand),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .clickable(onClick = onClear)
+                    .padding(start = 13.dp, end = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.sheds_park_pinned_fmt, label),
+                    color = PageBg,
+                    style = MeshaType.pillStrong,
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(
+                    imageVector = MeshaIcons.Close,
+                    contentDescription = stringResource(R.string.sheds_park_pinned_clear_description),
+                    tint = PageBg,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
         }
     }
 }
@@ -717,7 +802,11 @@ private fun ShedsHeader(
             )
         },
         actions = {
-            if (state.parkFilters.isNotEmpty() && !state.hostedFromCalendar) {
+            // Reachability depends only on whether there is more than one park to choose
+            // between — NOT on whether this screen is calendar-hosted (see the canFilterHere
+            // comment in ShedsScreen for the full rationale). A calendar drill-in pinned to one
+            // park still needs this to widen back to all parks.
+            if (state.parkFilters.size > 1) {
                 ShedsHeaderIconButton(
                     onClick = onOpenFilters,
                     icon = MeshaIcons.Filter,
@@ -868,6 +957,12 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
         else -> "${summary.reviewItemCount} shed videos awaiting review"
     }
     val acceptedLine = "${summary.acceptedCount}/${summary.expectedCount} goats accepted so far"
+    // Hidden at zero on purpose: a permanent "0 sent back" is dead text on every healthy day.
+    val sentBackLine = when (summary.sentBackCount) {
+        0 -> null
+        1 -> "1 goat sent back to redo"
+        else -> "${summary.sentBackCount} goats sent back to redo"
+    }
     val tone = when {
         summary.acceptedCount >= summary.expectedCount && summary.expectedCount > 0 -> toneFor(ShedStatus.DONE)
         summary.reviewItemCount > 0 || summary.submittedCount > 0 -> toneFor(ShedStatus.PENDING)
@@ -931,6 +1026,9 @@ private fun ProtocolAdherenceCard(summary: ProtocolAdherenceSummary, parkScope: 
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 reviewLine?.let { CompactFact(it, color = tone.fg) }
+                // Danger tone, and shown before the accepted line: work that came back is the
+                // thing a reader must act on, not a footnote under the good news.
+                sentBackLine?.let { CompactFact(it, color = toneFor(ShedStatus.SENT_BACK).fg) }
                 CompactFact(acceptedLine, color = toneFor(ShedStatus.DONE).fg)
             }
         }
@@ -1100,6 +1198,7 @@ private fun ShedStatusChip.label(): String = when (key) {
     ShedStatusChipKey.SUBMITTED -> stringResource(R.string.sheds_status_submitted)
     ShedStatusChipKey.OPEN -> stringResource(R.string.sheds_status_open)
     ShedStatusChipKey.OVERDUE -> stringResource(R.string.sheds_status_overdue)
+    ShedStatusChipKey.SENT_BACK -> stringResource(R.string.sheds_status_sent_back)
     ShedStatusChipKey.COMPLETE -> stringResource(R.string.sheds_status_complete)
 }
 
@@ -1107,12 +1206,14 @@ private fun ShedStatus.toChipKey(): ShedStatusChipKey = when (this) {
     ShedStatus.DONE -> ShedStatusChipKey.DONE
     ShedStatus.PENDING -> ShedStatusChipKey.IN_PROGRESS
     ShedStatus.DELAYED -> ShedStatusChipKey.OVERDUE
+    ShedStatus.SENT_BACK -> ShedStatusChipKey.SENT_BACK
 }
 
 private fun ShedStatus.toChipTone(): ShedStatusTone = when (this) {
     ShedStatus.DONE -> ShedStatusTone.OK
     ShedStatus.PENDING -> ShedStatusTone.WARN
     ShedStatus.DELAYED -> ShedStatusTone.DANGER
+    ShedStatus.SENT_BACK -> ShedStatusTone.DANGER
 }
 
 @Composable
@@ -1212,6 +1313,11 @@ private fun NumsRow(row: ShedRow) {
         NumCell(value = row.due, label = stringResource(R.string.sheds_num_cell_due), modifier = Modifier.weight(1f))
         NumDivider()
         NumCell(value = row.done, label = stringResource(R.string.sheds_num_cell_done), modifier = Modifier.weight(1f))
+        NumDivider()
+        // Distinct from `done` (the operator's own submitted work): this is the verifier's
+        // accepted count, so a card can read "5 DONE / 2 ACCEPTED" instead of a single number
+        // that silently conflates "I finished" with "it cleared review".
+        NumCell(value = row.accepted, label = stringResource(R.string.sheds_num_cell_accepted), modifier = Modifier.weight(1f))
     }
 }
 

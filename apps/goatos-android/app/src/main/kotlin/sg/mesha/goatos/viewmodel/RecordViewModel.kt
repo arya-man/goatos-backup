@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
@@ -49,6 +50,10 @@ class RecordViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val shedId: String? = savedStateHandle.get<String>("shedId")
+
+    // Fires funnel_vaccination_capture_completed at most once per shed session, the first time
+    // the drilldown reports the shed's vaccination work as fully done — see [toRecordUiState].
+    private var captureCompletedTracked = false
 
     // Upstream Room flow, lifecycle-aware via WhileSubscribed(5_000)
     private val observedResource: StateFlow<Resource<VaccinationExecutionShedDrilldownDto>> =
@@ -88,6 +93,10 @@ class RecordViewModel @Inject constructor(
                 AnalyticsEvents.VACCINATION_RECORD_OPENED,
                 mapOf(AnalyticsEvents.Params.SHED_ID to it),
             )
+            // Answers: did this operator actually start looking at the shed's vaccination
+            // capture, or did the screen never really open (distinguishes that from a scan that
+            // starts but the record view is never reached).
+            AnalyticsFunnels.trackVaccinationCaptureStarted(analytics, it)
         }
         refresh()
     }
@@ -111,7 +120,16 @@ class RecordViewModel @Inject constructor(
 
     fun onEvent(event: RecordEvent) {
         when (event) {
-            RecordEvent.Close -> Unit // navigation — handled by the nav host.
+            RecordEvent.Close -> {
+                // Track abandonment: if the vaccination capture was not marked as complete,
+                // the user is leaving with work still pending.
+                val dto = observedResource.value.data
+                val complete = dto?.summary?.let { it.total > 0 && it.completed >= it.total } ?: false
+                if (!complete && shedId != null && !captureCompletedTracked) {
+                    captureCompletedTracked = true
+                    AnalyticsFunnels.trackVaccinationCaptureCompleted(analytics, shedId, "abandon")
+                }
+            }
             RecordEvent.Refresh -> refresh()
         }
     }
@@ -127,6 +145,12 @@ class RecordViewModel @Inject constructor(
             )
         }
         val complete = summary.total > 0 && summary.completed >= summary.total
+        // Answers: did the vaccination-capture stage for this shed actually finish, vs. the
+        // operator leaving the record screen with work still pending — fires once per session.
+        if (complete && !captureCompletedTracked && shedId != null) {
+            captureCompletedTracked = true
+            AnalyticsFunnels.trackVaccinationCaptureCompleted(analytics, shedId, "done")
+        }
 
         // BUG-001: Detect shed with due work but no scannable task (all rows have blank sopTaskId).
         // In this case, show an explicit "awaiting task assignment" message instead of a silent dead-end.

@@ -172,4 +172,33 @@ class LogoutCoordinatorTest {
         assertNull("session token still cleared despite the callback throwing", fixture.sessionStore.currentToken())
         assertNull("device id still cleared despite the callback throwing", fixture.deviceStore.deviceId())
     }
+
+    /**
+     * Crux of the multi-device analytics requirement: the same physical Android install must
+     * keep reporting the same analytics device id (`appInstallId`) across a logout/re-login by a
+     * DIFFERENT operator, so the maintainer can tell apart sessions on the same device from
+     * sessions on a different device -- and NOT have every logout mint a fresh device identity
+     * that makes that impossible. Only the backend-registered [DeviceStore.deviceId] (a separate
+     * concept -- the device *record*, re-registered per principal) and the session-scoped
+     * [DeviceStore.journeyId] are expected to change.
+     */
+    @Test
+    fun `logout preserves the analytics install id while rotating the backend device id and journey id`() = runTest {
+        val fixture = buildFixture()
+        val installIdBeforeLogout = fixture.deviceStore.appInstallId()
+        val journeyIdBeforeLogout = fixture.deviceStore.journeyId()
+
+        fixture.coordinator.logout(signOutVendorAuth = {})
+
+        assertEquals(
+            "the physical install's analytics device id must survive a different operator logging in",
+            installIdBeforeLogout,
+            fixture.deviceStore.appInstallId(),
+        )
+        assertNull("backend-registered device id is cleared so the next principal re-registers", fixture.deviceStore.deviceId())
+        assertTrue(
+            "a new work session gets a fresh journey id, distinct from the departed session's",
+            fixture.deviceStore.journeyId() != journeyIdBeforeLogout,
+        )
+    }
 }

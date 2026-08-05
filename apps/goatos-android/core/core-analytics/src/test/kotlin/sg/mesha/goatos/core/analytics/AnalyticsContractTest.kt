@@ -15,7 +15,12 @@ class AnalyticsContractTest {
     @Test
     fun `event names are the exact snake_case contract`() {
         assertEquals("app_open", AnalyticsEvents.APP_OPEN)
-        assertEquals("session_start", AnalyticsEvents.SESSION_START)
+        // NOT "session_start": that is a Firebase RESERVED name, and Firebase silently refused
+        // every one of these events on device -- "Invalid public event name. Event will not be
+        // logged (FE): session_start". The session-start event simply did not exist in analytics
+        // until it was renamed. Keep the app_ prefix; reverting this reintroduces a permanently
+        // dropped event that looks fine in code and produces nothing in the dashboard.
+        assertEquals("app_session_start", AnalyticsEvents.SESSION_START)
         assertEquals("bootstrap_loaded", AnalyticsEvents.BOOTSTRAP_LOADED)
         assertEquals("login_attempt", AnalyticsEvents.LOGIN_ATTEMPT)
         assertEquals("login_success", AnalyticsEvents.LOGIN_SUCCESS)
@@ -33,7 +38,7 @@ class AnalyticsContractTest {
         assertEquals("reason", AnalyticsEvents.Params.REASON)
         assertEquals("chrome", AnalyticsEvents.Params.CHROME)
         assertEquals("email", AnalyticsEvents.Params.EMAIL)
-        assertEquals("firebase_uid", AnalyticsEvents.Params.FIREBASE_UID)
+        assertEquals("auth_uid", AnalyticsEvents.Params.FIREBASE_UID)
         assertEquals("role", AnalyticsEvents.UserProps.ROLE)
         assertEquals("email", AnalyticsEvents.UserProps.EMAIL)
         assertEquals("primary_park", AnalyticsEvents.UserProps.PRIMARY_PARK)

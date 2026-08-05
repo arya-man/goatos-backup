@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings for login screen; telemetry wired in LoginScreen.kt and SessionViewModel.kt
+
   Login (v-login) chrome strings. Translations are ported verbatim from the mock's TXT
   dictionary in mock/vaccination-mobile-mock.html (keys noted per string) so the app and
   the mock never drift. Two strings intentionally have NO locale variants: the brand mark

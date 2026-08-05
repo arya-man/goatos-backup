@@ -18,6 +18,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.BuildConfig
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
@@ -25,6 +29,8 @@ import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipAnimalUi
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipShedUi
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideoPlaybackAction
+import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideoPlaybackEvent
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideoUi
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosUiState
 
@@ -38,6 +44,8 @@ import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosUiSta
 @HiltViewModel
 class WeighingLeadershipVideosViewModel @Inject constructor(
     private val repository: WeighingRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
     /**
      * How many cached buckets the gallery observes. Grows ONE page at a time on scroll and is held
@@ -73,6 +81,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         )
 
     init {
+        analytics.track(AnalyticsEvents.WEIGHING_LEADERSHIP_VIDEO_VIEWED)
         refresh()
     }
 
@@ -85,7 +94,13 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
             try {
                 when (val result = repository.refreshLeadershipVideos(reset = true)) {
                     is AppResult.Ok -> failure.value = null
-                    is AppResult.Err -> failure.value = result.message
+                    is AppResult.Err -> {
+                        failure.value = result.message
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing leadership videos load failed"
+                        )
+                    }
                 }
             } finally {
                 loading.value = false
@@ -114,6 +129,43 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
                 }
             } finally {
                 loadingMore.value = false
+            }
+        }
+    }
+
+    /** Forwarded synchronously from [sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen]'s
+     *  player listener (mirrors VerifyDetailViewModel.trackVideoPlayback, `:app`). Never swallowed:
+     *  a real playback failure is recorded as a non-fatal, matching the verifier surface's own
+     *  crashReporter contract for the same failure class. */
+    fun onPlayback(event: WeighingLeadershipVideoPlaybackEvent) {
+        when (event.action) {
+            WeighingLeadershipVideoPlaybackAction.PLAY_STARTED ->
+                AnalyticsFunnels.trackWeighingLeadershipVideoPlayStarted(
+                    analytics = analytics,
+                    proofId = event.proofId,
+                    mimeType = event.mimeType,
+                    durationMs = event.durationMs,
+                )
+            WeighingLeadershipVideoPlaybackAction.WATCH_SUMMARY ->
+                AnalyticsFunnels.trackWeighingLeadershipVideoWatchSummary(
+                    analytics = analytics,
+                    proofId = event.proofId,
+                    mimeType = event.mimeType,
+                    watchTimeMs = event.watchTimeMs,
+                    durationMs = event.durationMs,
+                    positionMs = event.positionMs,
+                    percentWatched = event.percentWatched,
+                    seekCount = event.seekCount,
+                    replayCount = event.replayCount,
+                    bufferingTimeMs = event.bufferingTimeMs,
+                )
+            WeighingLeadershipVideoPlaybackAction.PLAYBACK_ERROR -> {
+                val reason = event.reason ?: "unknown"
+                crashReporter.recordException(
+                    IllegalStateException(reason),
+                    "weighing leadership video playback failed",
+                )
+                AnalyticsFunnels.trackWeighingLeadershipVideoPlaybackError(analytics, event.proofId, reason)
             }
         }
     }
@@ -154,13 +206,22 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
         String.format(Locale.US, "%.2f kg", value).replace(".00 kg", " kg")
 
     private fun formatTimestamp(value: String): String =
-        runCatching { timestampFormatter.format(Instant.parse(value)) }.getOrDefault(value)
+        runCatching {
+            // exception:exempt UI display fallback; unparseable timestamp displays raw value
+            timestampFormatter.format(Instant.parse(value))
+        }.getOrDefault(value)
 
     private fun formatPeriodLabel(value: String): String {
         val parts = value.split(" - ")
         if (parts.size != 2) return value
-        val start = runCatching { LocalDate.parse(parts[0].trim()) }.getOrNull() ?: return value
-        val end = runCatching { LocalDate.parse(parts[1].trim()) }.getOrNull() ?: return value
+        val start = runCatching {
+            // exception:exempt UI display fallback; unparseable date returns raw value
+            LocalDate.parse(parts[0].trim())
+        }.getOrNull() ?: return value
+        val end = runCatching {
+            // exception:exempt UI display fallback; unparseable date returns raw value
+            LocalDate.parse(parts[1].trim())
+        }.getOrNull() ?: return value
         return "${periodFormatter.format(start)} - ${periodFormatter.format(end)}"
     }
 

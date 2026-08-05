@@ -555,9 +555,16 @@ class DefaultSyncRepository(
                 try {
                     kotlinx.coroutines.delay(10 * 60 * 1000L) // 10 minutes
                     store.pruneSucceeded(succeededRetentionMs, clock())
+                } catch (e: CancellationException) {
+                    // Scope shutdown, not a failure: rethrow so the coroutine actually cancels
+                    // instead of this loop spinning forever inside a dead scope.
+                    throw e
                 } catch (e: Exception) {
-                    // Log and continue — a prune failure should not crash the app
-                    // (logging is deferred; in production, log via observability layer)
+                    // A prune failure is survivable -- the rows stay and the next tick retries --
+                    // but it is NOT nothing: an outbox that never prunes grows without bound and
+                    // the first symptom is a slow app with no explanation. Recorded, never
+                    // silenced; the marker this replaced kept the guard quiet and told nobody.
+                    android.util.Log.w("GoatOsOutbox", "outbox_prune_failed retained=$succeededRetentionMs", e)
                 }
             }
         }

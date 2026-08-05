@@ -93,13 +93,17 @@ fun WeighingPlanWizardScreen(
             .background(MeshaColors.PageBg),
     ) {
         MeshaScreenHeader(
-            title = stringResource(R.string.weighing_wizard_title),
+            title = if (state.isEditing) {
+                stringResource(R.string.weighing_wizard_edit_title)
+            } else {
+                stringResource(R.string.weighing_wizard_title)
+            },
             eyebrow = stringResource(R.string.weighing_eyebrow),
             eyebrowColor = MeshaColors.BrandD,
-            subtitle = stepEyebrow(state.step),
+            subtitle = stepEyebrow(state),
             onBack = onBack,
         )
-        WeighingStepper(stepCount = state.stepCount, currentIndex = state.step.ordinal)
+        WeighingStepper(stepCount = state.stepCount, currentIndex = state.stepDisplayIndex)
 
         val listState = rememberLazyListState()
         LaunchedEffect(state.step) { listState.scrollToItem(0) }
@@ -174,7 +178,7 @@ fun WeighingPlanWizardScreen(
 
         WeighingWizardActionBar(contextLine = state.contextLine) {
             WeighingWizardGhostButton(
-                label = if (state.step == WeighingWizardStep.DATE) {
+                label = if (state.isFirstStep) {
                     stringResource(R.string.weighing_wizard_cancel)
                 } else {
                     stringResource(R.string.weighing_wizard_back)
@@ -183,7 +187,17 @@ fun WeighingPlanWizardScreen(
                 onClick = onBack,
                 modifier = Modifier.weight(1f),
             )
-            if (state.step == WeighingWizardStep.REVIEW) {
+            if (state.step == WeighingWizardStep.REVIEW && state.isEditing) {
+                // Editing writes straight back to the campaign it opened from -- there is no
+                // separate draft state to leave it in, so this is one action, not the draft/
+                // publish pair a brand-new task offers.
+                WeighingWizardPrimaryButton(
+                    label = stringResource(R.string.weighing_wizard_save_changes),
+                    enabled = !state.busy,
+                    onClick = { onCommit(true) },
+                    modifier = Modifier.weight(1f),
+                )
+            } else if (state.step == WeighingWizardStep.REVIEW) {
                 WeighingWizardGhostButton(
                     label = stringResource(R.string.weighing_wizard_save_draft),
                     enabled = !state.busy,
@@ -208,13 +222,22 @@ fun WeighingPlanWizardScreen(
     }
 }
 
+/**
+ * "Step X of Y · Name" -- X and Y come from [WeighingWizardUiState.stepDisplayIndex] and
+ * [WeighingWizardUiState.stepCount], NEVER a step's raw ordinal or a fixed "of 5": edit mode is a
+ * real 3-step flow (Buckets, Configure, Review), not the create wizard's 5, and advertising a step
+ * (Date or Park) the planner can never actually land on would be a lie the header tells them.
+ */
 @Composable
-private fun stepEyebrow(step: WeighingWizardStep): String = when (step) {
-    WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_step_date)
-    WeighingWizardStep.PARK -> stringResource(R.string.weighing_wizard_step_park)
-    WeighingWizardStep.BUCKETS -> stringResource(R.string.weighing_wizard_step_buckets)
-    WeighingWizardStep.CONFIGURE -> stringResource(R.string.weighing_wizard_step_configure)
-    WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_step_review)
+private fun stepEyebrow(state: WeighingWizardUiState): String {
+    val name = when (state.step) {
+        WeighingWizardStep.DATE -> stringResource(R.string.weighing_wizard_step_name_date)
+        WeighingWizardStep.PARK -> stringResource(R.string.weighing_wizard_step_name_park)
+        WeighingWizardStep.BUCKETS -> stringResource(R.string.weighing_wizard_step_name_buckets)
+        WeighingWizardStep.CONFIGURE -> stringResource(R.string.weighing_wizard_step_name_configure)
+        WeighingWizardStep.REVIEW -> stringResource(R.string.weighing_wizard_step_name_review)
+    }
+    return stringResource(R.string.weighing_wizard_step_fmt, state.stepDisplayIndex + 1, state.stepCount, name)
 }
 
 @Composable

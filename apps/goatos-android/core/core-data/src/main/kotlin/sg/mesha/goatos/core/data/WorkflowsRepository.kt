@@ -233,7 +233,9 @@ class DefaultWorkflowsRepository(
         val activeAfter = activeWorkflowActionIds(workflowId)
         val detailDao = database.workflowDetailCacheDao()
         val cached = detailDao.observe(workflowId).firstOrNull()
-            ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }.getOrNull() }
+            ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "reconcile detail: deserialize cached workflow detail failed for $workflowId", it) }
+                .getOrNull() }
         val reconciled = detail.withActiveWorkflowActionsPreserved(
             cached = cached,
             activeActionIds = activeBefore + activeAfter,
@@ -263,11 +265,14 @@ class DefaultWorkflowsRepository(
                 json.decodeFromString<WorkflowActionCompletePayload>(item.payloadJson).actionId
             else -> null
         }
-    }.getOrNull()
+    }.onFailure { android.util.Log.w("WorkflowsRepository", "workflowActionId: deserialize outbox payload failed for op_type ${item.opType}", it) }
+        .getOrNull()
 
     override suspend fun findCachedCard(workflowId: String): WorkflowCardDto? =
         database.workflowCardDao().findById(workflowId)
-            ?.let { runCatching { json.decodeFromString<WorkflowCardDto>(it.dtoJson) }.getOrNull() }
+            ?.let { runCatching { json.decodeFromString<WorkflowCardDto>(it.dtoJson) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "findCachedCard: deserialize cached workflow card failed for $workflowId", it) }
+                .getOrNull() }
 
     override suspend fun markActionAnswered(workflowId: String, actionId: String, answerValue: String) =
         mutateCachedDetail(workflowId) { detail ->
@@ -307,7 +312,9 @@ class DefaultWorkflowsRepository(
     ) {
         val detailDao = database.workflowDetailCacheDao()
         val entity = detailDao.observe(workflowId).firstOrNull() ?: return
-        val detail = runCatching { json.decodeFromString<WorkflowDetailResponseDto>(entity.dtoJson) }.getOrNull() ?: return
+        val detail = runCatching { json.decodeFromString<WorkflowDetailResponseDto>(entity.dtoJson) }
+            .onFailure { android.util.Log.w("WorkflowsRepository", "mutateCachedDetail: deserialize cached workflow detail failed for $workflowId", it) }
+            .getOrNull() ?: return
         val mutated = transform(detail)
         // Keep the Room SSOT immediately usable while the proof upload + completion outbox group
         // drains. `in_review` means this operator has finished the step locally: count it and unlock
@@ -325,7 +332,9 @@ class DefaultWorkflowsRepository(
             )
             val cardDao = database.workflowCardDao()
             val updatedCards = cardDao.findAllById(workflowId, WORKFLOW_CACHED_QUERIES).mapNotNull { entity ->
-                runCatching { json.decodeFromString<WorkflowCardDto>(entity.dtoJson) }.getOrNull()
+                runCatching { json.decodeFromString<WorkflowCardDto>(entity.dtoJson) }
+                    .onFailure { android.util.Log.w("WorkflowsRepository", "mutateCachedDetail: deserialize cached workflow card failed", it) }
+                    .getOrNull()
                     ?.withOptimisticOperatorProgress(optimistic, updatedAt)
                     ?.let { card -> entity.copy(dtoJson = json.encodeToString(card), updatedAt = updatedAt) }
             }
@@ -393,7 +402,9 @@ internal fun WorkflowCardDto.withOptimisticOperatorProgress(
                 title = action.title,
                 dueAt = action.dueAt,
                 overdue = action.dueAt?.let { due ->
-                    runCatching { Instant.parse(due).toEpochMilli() < nowMs }.getOrDefault(false)
+                    runCatching { Instant.parse(due).toEpochMilli() < nowMs }
+                        .onFailure { android.util.Log.d("WorkflowsRepository", "withNextAction: parse action due_at failed for '$due'", it) }
+                        .getOrDefault(false)
                 } ?: false,
             )
         },
@@ -522,7 +533,9 @@ private class WorkflowRemoteMediator(
             val cachedBefore = database.workflowCardDao()
                 .findForQuery(queryKey, WORKFLOW_MAX_CACHED_ROWS)
                 .mapNotNull { entity ->
-                    runCatching { json.decodeFromString<WorkflowCardDto>(entity.dtoJson) }.getOrNull()
+                    runCatching { json.decodeFromString<WorkflowCardDto>(entity.dtoJson) }
+                        .onFailure { android.util.Log.w("WorkflowsRepository", "load: deserialize cached workflow card failed", it) }
+                        .getOrNull()
                         ?.let { entity.workflowId to it }
                 }
                 .toMap()

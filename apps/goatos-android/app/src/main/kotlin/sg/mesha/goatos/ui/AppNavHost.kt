@@ -23,13 +23,19 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.navigation.NavController
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.delay
 import sg.mesha.goatos.R
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.capture.BindPhotoCaptureSource
 import sg.mesha.goatos.capture.BindVideoCaptureSource
 import sg.mesha.goatos.capture.CaptureAccessGate
@@ -107,11 +113,14 @@ import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
+import sg.mesha.goatos.feature.weighing.WeighingExportPreviewScreen
 import sg.mesha.goatos.feature.weighing.WeighingOperatorsScreen
 import sg.mesha.goatos.feature.weighing.plan.WeighingPlanWizardScreen
 import sg.mesha.goatos.feature.weighing.WeighingScreen
 import sg.mesha.goatos.feature.weighing.WeighingTaskDetailScreen
+import sg.mesha.goatos.feature.weighing.WeighingGrowthScreen
 import sg.mesha.goatos.feature.weighing.WeighingTasksScreen
+import sg.mesha.goatos.feature.weighing.WeightHistoryChartScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingLeadershipVideosScreen
 import sg.mesha.goatos.feature.weighing.leadership.WeighingShedDetailScreen
 import sg.mesha.goatos.core.model.nav.NavState
@@ -158,7 +167,9 @@ import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
+import sg.mesha.goatos.viewmodel.WeighingGrowthViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
+import sg.mesha.goatos.viewmodel.WeightHistoryChartViewModel
 import sg.mesha.goatos.viewmodel.WeighingLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingShedDetailViewModel
 
@@ -181,6 +192,12 @@ object Routes {
      */
     const val WEIGHING_TASK = "/weighing/task"
     /**
+     * A phone-readable PREVIEW of one task's CSV export, pushed from the task detail's export
+     * icon. Sharing/exporting is offered FROM this screen, not fired the moment the icon is
+     * tapped -- see the maintainer's ask in docs/decisions/nav-entry-point-placement.md.
+     */
+    const val WEIGHING_TASK_EXPORT_PREVIEW = "/weighing/task/export"
+    /**
      * ONE shed bucket, as leadership reads it. A hosted drill pushed from the task detail.
      *
      * Deliberately SEPARATE from [WEIGHING_SCAN]: that route is the operator's own capture screen,
@@ -191,6 +208,17 @@ object Routes {
     /** Read-only oversight of weighing work assigned to someone else. Carries no scan action. */
     const val WEIGHING_OPERATORS = "/weighing/operators"
     const val WEIGHING_VIDEOS = "/weighing/videos"
+    /**
+     * Leadership-only weight history: one bar series per RFID tag (or per shed for a lump-sum
+     * weighing) across the weigh days that actually happened.
+     *
+     * Read-only and SEPARATE from [WEIGHING_VIDEOS]: that tab reviews proof clips, this one reads
+     * the numbers those clips back. Gated on WeighingMonitor by the backend nav registry, so an
+     * operator never receives the tab.
+     */
+    const val WEIGHING_WEIGHTS = "/weighing/weights"
+    /** Leadership growth (ADG) summary. Weighing data only — never herd or vaccination data. */
+    const val WEIGHING_GROWTH = "/weighing/growth"
     /**
      * The weighing module's OWN lifecycle alerts feed: work assigned, a shed submitted for
      * verification, a proof sent back for rework, a shed reopened, work closed.
@@ -481,9 +509,13 @@ object Routes {
     const val WEIGHING_EXPECTED_LOCATION_LABEL_ARG = "expectedLocationLabel"
 
     /**
-     * Names the task whose answers the authoring wizard was started FROM. It is a handoff key, not
-     * a campaign being edited: the wizard still creates a NEW task through the ordinary
-     * create-then-publish path.
+     * Names the task whose answers the authoring wizard was started FROM. It is a handoff key,
+     * not necessarily a campaign being edited: [WeighingViewModel.stageRepeatOfTask] stages a
+     * seed the wizard treats as a brand-new task on the ordinary create-then-publish path, while
+     * [WeighingViewModel.stageEditOfTask] stages a seed carrying `editCampaignId`, which the
+     * wizard reads back off [WeighingRepeatSeed.editCampaignId] and treats as an IN-PLACE change
+     * to that exact campaign instead. Either way only this id travels in the route; the answers
+     * themselves are handed over in-process through [WeighingRepeatSeedStore].
      */
     const val WEIGHING_REPEAT_OF_ARG = "repeatOfCampaignId"
 
@@ -512,6 +544,10 @@ object Routes {
     /** Opens ONE weighing task. Pushed from the task list, which already holds the task. */
     fun weighingTaskRoute(campaignId: String): String =
         "$WEIGHING_TASK?$WEIGHING_CAMPAIGN_ARG=${Uri.encode(campaignId)}"
+
+    /** Opens the export preview for ONE weighing task. Pushed from that task's detail screen. */
+    fun weighingTaskExportPreviewRoute(campaignId: String): String =
+        "$WEIGHING_TASK_EXPORT_PREVIEW?$WEIGHING_CAMPAIGN_ARG=${Uri.encode(campaignId)}"
 
     /**
      * Opens task authoring prefilled from an existing task. The seed itself is handed over
@@ -743,6 +779,71 @@ internal fun scanDisplayTitle(name: String, physicalShed: String, partition: Str
 }
 
 /**
+ * Thin analytics seam for [NavController]. Owns no navigation decisions — it only observes the
+ * destinations [AppNavHost]'s [NavHost] already renders, via the one platform callback
+ * ([NavController.addOnDestinationChangedListener]) rather than a per-`composable {}` call site,
+ * so every route (module-drawer switch, bottom-bar tab, drill-in, or a Back pop) is covered by
+ * construction and none can be missed by a future screen addition.
+ */
+@HiltViewModel
+internal class NavRouteAnalyticsViewModel @Inject constructor(
+    private val analytics: AnalyticsPort,
+) : ViewModel() {
+    fun trackRouteEntered(route: String?) {
+        analytics.track(
+            AnalyticsEventsSession.ROUTE_ENTERED,
+            mapOf(AnalyticsEventsSession.Params.NAV_ROUTE to (route ?: "unknown")),
+        )
+    }
+
+    fun trackRouteExitedViaBack(route: String) {
+        analytics.track(
+            AnalyticsEventsSession.ROUTE_EXITED_VIA_BACK,
+            mapOf(AnalyticsEventsSession.Params.NAV_ROUTE to route),
+        )
+    }
+}
+
+/**
+ * Registers ONE [NavController.OnDestinationChangedListener] for the NavHost's lifetime and
+ * classifies every destination change by comparing the back stack's size before/after:
+ *  - grew or held steady → a forward move (drawer module switch, bottom-bar tab, or a drill-in)
+ *    → [NavRouteAnalyticsViewModel.trackRouteEntered] for the NEW route.
+ *  - shrank → a pop (the system Back gesture/button, or the shell's own
+ *    `popBackStack(href)` return-to-sibling-tab) → [NavRouteAnalyticsViewModel.trackRouteExitedViaBack]
+ *    for the route that WAS on top, in addition to entering wherever the pop landed — so both
+ *    "a screen was left via back" and "a route became current" stay independently reconstructible.
+ *
+ * [route] values are the Navigation-Compose route TEMPLATE ("record/{shedId}?driveId={driveId}"),
+ * never a filled-in path — bounded cardinality by construction, exactly like every other route
+ * param in this codebase (see [sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.ROUTE]).
+ *
+ * A [DisposableEffect] (not a [LaunchedEffect]) because the listener must be registered exactly
+ * once for the controller's lifetime and explicitly torn down — a recomposition-driven effect
+ * would either re-register on every recomposition (double-counting every event) or never clean up.
+ */
+@Composable
+private fun NavRouteAnalyticsEffect(navController: NavController) {
+    val analyticsViewModel: NavRouteAnalyticsViewModel = hiltViewModel()
+    DisposableEffect(navController) {
+        var previousBackStackSize = navController.currentBackStack.value.size
+        var previousTopRoute: String? = navController.currentDestination?.route
+        val listener = NavController.OnDestinationChangedListener { controller, destination, _ ->
+            val currentBackStackSize = controller.currentBackStack.value.size
+            val newRoute = destination.route
+            if (currentBackStackSize < previousBackStackSize) {
+                previousTopRoute?.let(analyticsViewModel::trackRouteExitedViaBack)
+            }
+            analyticsViewModel.trackRouteEntered(newRoute)
+            previousBackStackSize = currentBackStackSize
+            previousTopRoute = newRoute
+        }
+        navController.addOnDestinationChangedListener(listener)
+        onDispose { navController.removeOnDestinationChangedListener(listener) }
+    }
+}
+
+/**
  * Static navigation graph of every known screen. The graph is fixed; the backend
  * nav (bottom bar + chrome) decides which destinations are *reachable/visible* —
  * the app doesn't invent routes. The first backend-visible root is the landing destination.
@@ -773,6 +874,12 @@ fun AppNavHost(
     // the new screen in from the end and the old one out toward the start; Back reverses it.
     // Gives drill-in (Calendar → sheds → Scan → Submit) real directional continuity.
     val motion = tween<Float>(280)
+    // Session-reconstruction: which destinations the operator actually moved through, and
+    // whether they got there by moving forward (drawer module switch, bottom-bar tab, or a
+    // drill-in) or by leaving one via Back (system gesture/button, or the shell's own
+    // popBackStack-to-sibling-tab). One seam at the NavHost level, so no per-screen composable
+    // needs its own tracking call and none can double-fire from recomposition.
+    NavRouteAnalyticsEffect(navController)
     NavHost(
         navController = navController,
         startDestination = startDestination,
@@ -881,6 +988,7 @@ fun AppNavHost(
             val vm: ShedsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             val context = LocalContext.current
+            val alreadySubmittedToastFmt = stringResource(R.string.sheds_toast_already_submitted_fmt)
             ShedsScreen(
                 state = state,
                 showProtocolAdherenceCard = showProtocolAdherenceCard,
@@ -889,6 +997,8 @@ fun AppNavHost(
                         is ShedsEvent.OpenShedRecord -> {
                             if (!canExecuteVaccination) {
                                 Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                // Distinguishes "blocked by permission" from "never tried".
+                                vm.onEvent(ShedsEvent.OpenBlocked("permission_denied", event.shedId))
                                 return@ShedsScreen
                             }
                             // Same oversight gate the /calendar/drive-hosted shed queue applies:
@@ -899,15 +1009,25 @@ fun AppNavHost(
                             // every write then failed `task is not assigned` in background sync.
                             if (!state.canOpenShed) {
                                 Toast.makeText(context, "This shed is assigned to another operator", Toast.LENGTH_SHORT).show()
+                                // Distinguishes "blocked because not owner" from a permission gate.
+                                vm.onEvent(ShedsEvent.OpenBlocked("not_assigned", event.shedId))
                                 return@ShedsScreen
                             }
                             val selected = state.rows.firstOrNull { it.id == event.shedId }
                             if (selected?.canOpen == false) {
                                 Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                // Distinguishes "blocked because scheduled later" from other gates.
+                                vm.onEvent(ShedsEvent.OpenBlocked("scheduled_later", event.shedId))
                                 return@ShedsScreen
                             }
                             if (selected?.opensRecordOnly == true) {
-                                Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                // Completed/submitted sheds stay visible on today's list until
+                                // their drive closes (see ShedsViewModel.toShedsUiState); tapping
+                                // one must never re-open the scan screen, so this stays a
+                                // disabled-with-reason toast, not silent or a re-entry into Scan.
+                                Toast.makeText(context, alreadySubmittedToastFmt.format(selected.name), Toast.LENGTH_SHORT).show()
+                                // Distinguishes "blocked because already submitted" from other gates.
+                                vm.onEvent(ShedsEvent.OpenBlocked("already_submitted", event.shedId))
                                 return@ShedsScreen
                             }
                             val route = shedExecutionRoute(selected, Routes.VACCINATION)
@@ -1129,17 +1249,77 @@ fun AppNavHost(
                     )
                 },
                 onBucketRowVisible = vm::onTaskBucketRowVisible,
-                // Re-editing the sheds or the assignment of a task that already exists is NOT
-                // wired: the update write replaces the whole shed set, which on a published task
-                // would drop buckets that already hold captured work. Disabled WITH the reason
-                // rather than offered and then half-honoured.
                 onRepeatTask = {
                     vm.stageRepeatOfTask(campaignId)?.let { source ->
                         navController.navigate(Routes.weighingTaskRepeatRoute(source))
                     }
                 },
+                // Edit reuses the SAME authoring wizard, seeded from this campaign: date, park,
+                // shed buckets and per-shed mode/operator. Saving from the wizard's edit mode
+                // writes back to THIS campaign id through WeighingRepository.updatePlan, never a
+                // new task -- see WeighingViewModel.stageEditOfTask.
+                onEditTask = {
+                    vm.stageEditOfTask(campaignId)?.let { source ->
+                        navController.navigate(Routes.weighingTaskRepeatRoute(source))
+                    }
+                },
                 onPublishTask = vm::publishTask,
                 onEndTask = vm::closeTask,
+                // The icon now opens the PREVIEW screen -- it no longer downloads the CSV and
+                // fires a share sheet by itself. See Routes.WEIGHING_TASK_EXPORT_PREVIEW.
+                onExportCsv = { navController.navigate(Routes.weighingTaskExportPreviewRoute(campaignId)) },
+            )
+        }
+
+        // The export PREVIEW: renders the task's CSV as a readable table before any share/export
+        // action fires. Shares the SAME ViewModel instance as the task list/detail (scoped to the
+        // list's back-stack entry, same reasoning as WEIGHING_TASK above) so the task it previews
+        // is the one already selected -- no separate single-task read.
+        composable(
+            route = "${Routes.WEIGHING_TASK_EXPORT_PREVIEW}?${Routes.WEIGHING_CAMPAIGN_ARG}={${Routes.WEIGHING_CAMPAIGN_ARG}}",
+            arguments = listOf(
+                navArgument(Routes.WEIGHING_CAMPAIGN_ARG) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            val campaignId = entry.arguments?.getString(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
+            val listEntry = remember(entry) {
+                runCatching { navController.getBackStackEntry(Routes.WEIGHING_TASKS) }.getOrNull()
+            }
+            val vm: WeighingViewModel = hiltViewModel(listEntry ?: entry)
+            val previewState by vm.exportPreviewState.collectAsStateWithLifecycle()
+            val exportReadyUri by vm.exportReadyFileUri.collectAsStateWithLifecycle()
+            val exportContext = LocalContext.current
+            // The share download completed; hand the file to whatever the viewer opens CSVs with
+            // (Sheets, Files, email, Drive) via a content:// grant, then clear the state so a
+            // configuration change cannot relaunch the same chooser. This ONLY runs now when the
+            // planner explicitly taps Share on the preview -- not on opening this screen.
+            LaunchedEffect(exportReadyUri) {
+                val uri = exportReadyUri ?: return@LaunchedEffect
+                val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                exportContext.startActivity(
+                    android.content.Intent.createChooser(shareIntent, null).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
+                )
+                vm.consumeExportReadyFile()
+            }
+            LaunchedEffect(campaignId) {
+                vm.selectTask(campaignId)
+                vm.loadExportPreview()
+            }
+            WeighingExportPreviewScreen(
+                state = previewState,
+                onBack = { navController.popBackStack() },
+                onRetry = vm::loadExportPreview,
+                onShare = vm::exportTaskCsv,
             )
         }
 
@@ -1259,6 +1439,40 @@ fun AppNavHost(
             )
         }
 
+        composable(Routes.WEIGHING_GROWTH) {
+            val vm: WeighingGrowthViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeighingGrowthScreen(
+                state = state.copy(
+                    title = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_title),
+                    eyebrow = stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_eyebrow),
+                    scopeLabel = state.parkOptions.firstOrNull { it.selected }?.label
+                        ?: stringResource(sg.mesha.goatos.feature.weighing.R.string.weighing_growth_scope_all),
+                ),
+                onRefresh = vm::refresh,
+                onSelectPark = vm::onSelectPark,
+                // The losing-weight count drills to the per-animal weight surface. It is a real
+                // destination, not a dead tap: leaving a tappable tile that goes nowhere is the
+                // same silent dead end the analytics work exists to eliminate.
+                // Expands the list in place: the animals are already in the payload, so a
+                // navigation away from the summary would lose the context they belong to.
+                onOpenLosing = vm::onToggleLosing,
+            )
+        }
+
+        composable(Routes.WEIGHING_WEIGHTS) {
+            val vm: WeightHistoryChartViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WeightHistoryChartScreen(
+                state = state,
+                onSelectKind = vm::onSelectKind,
+                onSelectPark = vm::onSelectPark,
+                onSelectShed = vm::onSelectShed,
+                onSearch = vm::onSearch,
+                onRefresh = vm::refresh,
+            )
+        }
+
         composable(Routes.WEIGHING_VIDEOS) {
             val vm: WeighingLeadershipVideosViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
@@ -1266,6 +1480,7 @@ fun AppNavHost(
                 state = state,
                 onShedVisible = vm::onShedVisible,
                 onRefresh = vm::refresh,
+                onPlayback = vm::onPlayback,
             )
         }
 
@@ -1345,6 +1560,12 @@ fun AppNavHost(
                     onSubmitIndividualScope = {
                         vm.submitIndividualScope { navController.popBackStack() }
                     },
+                    // Both halves of the confirmation are wired on purpose: submitIndividualScope
+                    // only ARMS the submit, and the write happens in confirmSubmitIndividualScope.
+                    // Leaving these at their no-op defaults means the dialog's Confirm does
+                    // nothing and the operator's shed can never be submitted.
+                    onConfirmSubmitIndividualScope = vm::confirmSubmitIndividualScope,
+                    onDismissSubmitConfirmation = vm::dismissSubmitConfirmation,
                     onRecordShedPartition = {
                         vm.recordShedPartition { navController.popBackStack() }
                     },
@@ -1381,6 +1602,7 @@ fun AppNavHost(
                 val vm: ShedsViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
                 val context = LocalContext.current
+                val alreadySubmittedToastFmt = stringResource(R.string.sheds_toast_already_submitted_fmt)
                 ShedsScreen(
                     state = state,
                     showProtocolAdherenceCard = showProtocolAdherenceCard,
@@ -1389,6 +1611,8 @@ fun AppNavHost(
                             is ShedsEvent.OpenShedRecord -> {
                                 if (!canExecuteVaccination) {
                                     Toast.makeText(context, "Vaccination scan is not enabled for this login", Toast.LENGTH_SHORT).show()
+                                    // Distinguishes "blocked by permission" from "never tried".
+                                    vm.onEvent(ShedsEvent.OpenBlocked("permission_denied", event.shedId))
                                     return@ShedsScreen
                                 }
                                 // A leadership oversight read (canOpenShed=false) is read-only:
@@ -1403,14 +1627,26 @@ fun AppNavHost(
                                     val selected = state.rows.firstOrNull { it.id == event.shedId }
                                     if (selected?.canOpen == false) {
                                         Toast.makeText(context, "${selected.name} is scheduled for ${selected.scheduleDateLabel}", Toast.LENGTH_SHORT).show()
+                                        // Distinguishes "blocked because scheduled later" from other gates.
+                                        vm.onEvent(ShedsEvent.OpenBlocked("scheduled_later", event.shedId))
                                         return@ShedsScreen
                                     }
                                     if (selected?.opensRecordOnly == true) {
-                                        Toast.makeText(context, "${selected.name} already submitted", Toast.LENGTH_SHORT).show()
+                                        // Completed/submitted sheds stay visible until their drive
+                                        // closes; tapping one must not re-open the scan screen.
+                                        Toast.makeText(context, alreadySubmittedToastFmt.format(selected.name), Toast.LENGTH_SHORT).show()
+                                        // Distinguishes "blocked because already submitted" from other gates.
+                                        vm.onEvent(ShedsEvent.OpenBlocked("already_submitted", event.shedId))
                                         return@ShedsScreen
                                     }
                                     val route = shedExecutionRoute(selected, Routes.CALENDAR_DRIVE)
                                     navController.navigate(route) { launchSingleTop = true }
+                                } else {
+                                    // This branch previously did NOTHING — a leadership oversight
+                                    // viewer's tap silently no-opped with no Toast and no signal at
+                                    // all. Distinguishes "blocked because read-only oversight" from
+                                    // "never tried".
+                                    vm.onEvent(ShedsEvent.OpenBlocked("read_only_oversight", event.shedId))
                                 }
                             }
                             ShedsEvent.Back -> navController.popBackStack()
@@ -2283,7 +2519,10 @@ fun AppNavHost(
                 videoControlsEnabled = verificationVideoControlsEnabled,
                 onEvent = { event ->
                     when (event) {
-                        VerifyDetailEvent.Close -> navController.popBackStack()
+                        VerifyDetailEvent.Close -> {
+                            vm.onEvent(event)
+                            navController.popBackStack()
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -2322,7 +2561,10 @@ fun AppNavHost(
                 videoControlsEnabled = verificationVideoControlsEnabled,
                 onEvent = { event ->
                     when (event) {
-                        VerifyDetailEvent.Close -> navController.popBackStack()
+                        VerifyDetailEvent.Close -> {
+                            vm.onEvent(event)
+                            navController.popBackStack()
+                        }
                         else -> vm.onEvent(event)
                     }
                 },
@@ -2483,6 +2725,8 @@ private val pushTargetDestinations: Set<String> = supportedRootDestinations + se
     Routes.WEIGHING_SHED,
     Routes.WEIGHING_OPERATORS,
     Routes.WEIGHING_VIDEOS,
+    Routes.WEIGHING_WEIGHTS,
+    Routes.WEIGHING_GROWTH,
     Routes.WEIGHING_SCAN,
 )
 

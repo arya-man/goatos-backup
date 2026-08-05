@@ -32,6 +32,7 @@
     <string name="verify_scope_individual">ಪ್ರತ್ಯೇಕ (%1$d)</string>
     <string name="verify_scope_lumpsum">ಒಟ್ಟು ತೂಕ (%1$d)</string>
     <string name="verify_shed_group_summary">%1$d ಸಾಲುಗಳು · %2$d ವೀಡಿಯೊಗಳು</string>
+    <string name="verify_shed_group_progress">%1$d ಮೇಕೆಗಳು · %2$d ಪರಿಶೀಲಿಸಬೇಕಾಗಿದೆ</string>
 
     <string name="verify_detail_close">ಮುಚ್ಚಿ</string>
     <string name="verify_detail_fullscreen">ವೀಡಿಯೊ ಪೂರ್ಣ ಪರದೆ ತೆರೆ</string>
@@ -73,4 +74,5 @@
     <string name="verify_approve_dialog_subtitle">ಅನುಮೋದನೆ ಅಂತಿಮ — ನಂತರ ಹಿಂಪಡೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ.</string>
     <string name="verify_approve_dialog_confirm">ಅನುಮೋದನೆ ಖಚಿತಪಡಿಸಿ</string>
     <string name="verify_approve_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
+    <string name="verify_detail_group_accepted">ಈ ಶೆಡ್‌ನ ಎಲ್ಲಾ ವೀಡಿಯೊಗಳನ್ನು ಅಂಗೀಕರಿಸಲಾಗಿದೆ</string>
 </resources>

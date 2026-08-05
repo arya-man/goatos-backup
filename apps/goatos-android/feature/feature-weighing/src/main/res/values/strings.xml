@@ -17,6 +17,9 @@
     <string name="weighing_category_lumpsum">Lumpsum</string>
     <string name="weighing_category_individual">Individual</string>
     <string name="weighing_action_scan_animals">Scan animals →</string>
+    <string name="weighing_assignment_summary_individual">Free-flow RFID, weight, and video capture</string>
+    <string name="weighing_assignment_summary_lumpsum">Shed video and lump-sum total weight</string>
+    <string name="weighing_action_record_lumpsum">Record shed →</string>
     <string name="weighing_category_individual_title">Individual</string>
     <string name="weighing_category_lump_sum_title">Lumpsum</string>
     <string name="weighing_status_scheduled">Scheduled</string>
@@ -42,7 +45,6 @@
     <string name="weighing_all_parks">All parks</string>
     <string name="weighing_reopen">Reopen</string>
     <string name="weighing_pending_verification">Pending verification</string>
-    <string name="weighing_assignment_summary">Free-flow RFID, weight, and video capture</string>
     <string name="weighing_pull_to_refresh_hint">Pull to refresh after leadership publishes the weekly plan.</string>
     <string name="weighing_icon_kg">KG</string>
     <string name="weighing_icon_rfid">RFID</string>
@@ -172,6 +174,34 @@
     <string name="weighing_task_close_dismiss_label">Keep this task open</string>
     <string name="weighing_task_fallback_title">Task</string>
     <string name="weighing_task_refresh">Refresh this task</string>
+    <string name="weighing_task_export_csv">Preview this task\'s export</string>
+    <string name="weighing_export_preview_title">Export preview</string>
+    <string name="weighing_export_preview_share">Share / export CSV</string>
+    <string name="weighing_export_preview_loading">Loading the export…</string>
+    <string name="weighing_export_preview_retry">Try again</string>
+    <string name="weighing_export_preview_empty_title">Nothing to preview yet</string>
+    <string name="weighing_export_preview_shed_fallback">Shed</string>
+    <string name="weighing_export_preview_not_weighed">Not weighed</string>
+    <string name="weighing_export_preview_row_count_fmt">%1$d rows across %2$d sheds</string>
+    <string name="weighing_export_preview_search_hint">Search sheds</string>
+    <string name="weighing_export_preview_no_matches">No sheds match your search</string>
+    <string name="weighing_export_preview_refreshing">Refreshing…</string>
+    <string name="weighing_export_preview_weighed_count_fmt">%1$d weighed</string>
+    <string name="weighing_export_preview_lump_sum_count_fmt">%1$d animals</string>
+    <string name="weighing_export_preview_shed_summary_fmt">%1$.1f kg total · %2$.1f kg avg</string>
+    <string name="weighing_export_preview_lump_sum">Lumpsum</string>
+    <string name="weighing_export_preview_unknown_identifier">Unknown</string>
+    <string name="weighing_export_col_type">Type</string>
+    <string name="weighing_export_col_average_weight">Average weight (kg)</string>
+    <string name="weighing_export_col_animal_count">Animal count</string>
+    <string name="weighing_export_col_proof_type">Proof reference type</string>
+    <string name="weighing_export_col_proof_reference">Proof reference</string>
+    <string name="weighing_export_col_recorded_at">Recorded at</string>
+    <string name="weighing_export_col_date_ist">Date (IST)</string>
+    <string name="weighing_export_col_time_ist">Time (IST)</string>
+    <string name="weighing_export_verification_accepted">Accepted</string>
+    <string name="weighing_export_verification_pending">Pending</string>
+    <string name="weighing_export_verification_rejected">Rejected</string>
     <string name="weighing_task_missing_title">This task is no longer in the list</string>
     <string name="weighing_task_draft_banner">Not visible to operators yet</string>
     <string name="weighing_task_closed">Closed</string>
@@ -182,6 +212,8 @@
     <string name="weighing_task_mark_complete">Mark task complete</string>
     <string name="weighing_task_repeat">Repeat this task on another date</string>
     <string name="weighing_task_repeat_blocked">No shed to place on another date</string>
+    <string name="weighing_task_edit">Edit task</string>
+    <string name="weighing_task_edit_blocked">This task is closed and can no longer be changed</string>
     <string name="weighing_task_all_operators">All operators</string>
     <!-- Who a shed bucket belongs to. %1$s is the operator's display name, resolved by the backend
          (operator_display_name); this app never renders a user id and never invents a name. -->
@@ -224,12 +256,18 @@
     <string name="weighing_wizard_back">Back</string>
     <string name="weighing_wizard_save_draft">Save draft</string>
     <string name="weighing_wizard_publish">Publish</string>
+    <string name="weighing_wizard_save_changes">Save changes</string>
+    <string name="weighing_wizard_edit_title">Edit weighing task</string>
     <string name="weighing_wizard_continue">Continue</string>
-    <string name="weighing_wizard_step_date">Step 1 of 5 · Date</string>
-    <string name="weighing_wizard_step_park">Step 2 of 5 · Park</string>
-    <string name="weighing_wizard_step_buckets">Step 3 of 5 · Shed buckets</string>
-    <string name="weighing_wizard_step_configure">Step 4 of 5 · Configure</string>
-    <string name="weighing_wizard_step_review">Step 5 of 5 · Review</string>
+    <!-- The step position and total are computed (edit mode is 3 steps, not the create wizard's
+         5; see WeighingWizardUiState.stepCount/stepDisplayIndex), so this is a format, not a
+         fixed "Step 1 of 5" string per step. -->
+    <string name="weighing_wizard_step_fmt">Step %1$d of %2$d · %3$s</string>
+    <string name="weighing_wizard_step_name_date">Date</string>
+    <string name="weighing_wizard_step_name_park">Park</string>
+    <string name="weighing_wizard_step_name_buckets">Shed buckets</string>
+    <string name="weighing_wizard_step_name_configure">Configure</string>
+    <string name="weighing_wizard_step_name_review">Review</string>
     <string name="weighing_wizard_title_date">Select date</string>
     <string name="weighing_wizard_title_park">Select park</string>
     <string name="weighing_wizard_title_buckets">Select shed buckets</string>
@@ -375,4 +413,78 @@
     <string name="weighing_wizard_summary_modes_fmt">%1$d individual · %2$d lump-sum</string>
     <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
     <string name="weighing_wizard_add_remaining_fmt">Add remaining %1$d</string>
+
+    <!-- ===================== Submit confirmation dialog ===================== -->
+    <string name="weighing_submit_confirm_title">Submit this shed?</string>
+    <string name="weighing_submit_confirm_body">Once submitted, this shed work goes for video check. You cannot reopen it yourself — only a manager or director can.</string>
+    <string name="weighing_submit_confirm_dismiss">Cancel</string>
+    <string name="weighing_submit_confirm_action">Submit</string>
+
+    <!-- ===================== Vaccination submit confirmation dialog ===================== -->
+    <string name="vaccination_submit_confirm_title">Finalize this shed?</string>
+    <string name="vaccination_submit_confirm_body">Once finalized, this shed work is locked. You cannot reopen it yourself — only a manager or director can.</string>
+    <string name="vaccination_submit_confirm_dismiss">Cancel</string>
+    <string name="vaccination_submit_confirm_action">Finalize</string>
+
+    <!-- ===================== Weight history chart (leadership monitoring) ===================== -->
+    <string name="weighing_history_title">Weight history</string>
+    <string name="weighing_history_refresh_cd">Refresh weight history</string>
+    <string name="weighing_history_all_weights">All weights</string>
+    <string name="weighing_history_all_sheds">All sheds</string>
+    <string name="weighing_history_kind_individual">Individual</string>
+    <string name="weighing_history_kind_lump_sum">Lumpsum</string>
+    <string name="weighing_history_empty_no_data">No weights recorded yet.</string>
+    <string name="weighing_history_empty_filtered">No weights match these filters.</string>
+    <string name="weighing_history_search_hint">Search tag or shed</string>
+    <string name="weighing_history_picker_search">Search</string>
+    <string name="weighing_history_axis_individual">Weight per animal (kg)</string>
+    <string name="weighing_history_axis_lump_sum">Shed total weight (kg)</string>
+    <string name="weighing_history_axis_mixed">Individual weights in kg; lump-sum cards show the shed total</string>
+    <string name="weighing_history_truncation_both_fmt">Showing recent weighings only, and the latest %1$d weigh days per animal.</string>
+    <string name="weighing_history_truncation_payload">Showing recent weighings only.</string>
+    <string name="weighing_history_truncation_per_series_fmt">Showing the latest %1$d weigh days per animal.</string>
+    <string name="weighing_history_narrow_first_fmt">%1$d animals match. Pick a shed or search a tag to see their weights.</string>
+    <string name="weighing_history_park_selector_fmt">Park: %1$s</string>
+    <string name="weighing_history_shed_selector_fmt">Shed: %1$s</string>
+    <string name="weighing_history_nothing_matches_fmt">Nothing matches \"%1$s\".</string>
+    <plurals name="weighing_history_animal_count">
+        <item quantity="one">%1$d animal</item>
+        <item quantity="other">%1$d animals</item>
+    </plurals>
+    <string name="weighing_growth_title">Growth</string>
+    <string name="weighing_growth_refresh_cd">Refresh growth</string>
+    <string name="weighing_growth_unknown_value">—</string>
+    <string name="weighing_growth_tile_herd">Herd growth</string>
+    <string name="weighing_growth_tile_gaining">Gaining</string>
+    <string name="weighing_growth_tile_measured">Measured</string>
+    <string name="weighing_growth_tile_losing">Losing weight</string>
+    <string name="weighing_growth_no_previous">no earlier period to compare</string>
+    <string name="weighing_growth_of_measurable">of animals with growth</string>
+    <string name="weighing_growth_needs_two">growth needs 2 weighs</string>
+    <string name="weighing_growth_losing_meta">tap to see them</string>
+    <string name="weighing_growth_sheds_title">Sheds — best to worst</string>
+    <string name="weighing_growth_trend_title">Growth trend</string>
+    <string name="weighing_growth_trend_caption">g/day · only the days weighing happened</string>
+    <string name="weighing_growth_shed_meta">%1$d animals</string>
+    <string name="weighing_growth_empty">No growth yet. An animal needs to be weighed twice before growth can be worked out.</string>
+    <plurals name="weighing_growth_quality_unverified">
+        <item quantity="one">Includes %1$d reading not yet checked.</item>
+        <item quantity="other">Includes %1$d readings not yet checked.</item>
+    </plurals>
+    <plurals name="weighing_growth_quality_rejected">
+        <item quantity="one">%1$d reading was sent back.</item>
+        <item quantity="other">%1$d readings were sent back.</item>
+    </plurals>
+    <string name="weighing_growth_scope_all">All parks</string>
+    <string name="weighing_growth_park_selector">Park: %1$s</string>
+    <string name="weighing_growth_lumpsum_title">Lumpsum sheds</string>
+    <string name="weighing_growth_lumpsum_caption">Weighed as one group — no per-animal growth from these.</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d animals · %2$s</string>
+    <string name="weighing_growth_lumpsum_avg">%1$.1f kg avg</string>
+    <string name="weighing_growth_needs_two_with_lumpsum">growth needs 2 weighs · %1$d more weighed lumpsum</string>
+    <string name="weighing_history_point_sent_back">%1$s, %2$s kg, sent back</string>
+    <string name="weighing_history_point_awaiting">%1$s, %2$s kg, not yet checked</string>
+    <string name="weighing_history_point_accepted">%1$s, %2$s kg, accepted</string>
+    <string name="weighing_growth_losing_title">Losing weight</string>
+    <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f kg</string>
 </resources>

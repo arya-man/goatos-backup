@@ -95,7 +95,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -142,12 +142,16 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-1")),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
         )
         backgroundScope.launch { submitVm.state.collect {} }
         advanceUntilIdle()
 
         assertTrue("scan-screen rows must satisfy the required GOAT_SCAN field", submitVm.state.value.canSubmit)
         submitVm.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        submitVm.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val answer = submitSync.lastRequest?.answers?.get("goat_ids") as? JsonArray
@@ -180,7 +184,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { recreated.state.collect {} }
@@ -221,7 +225,7 @@ class ScanViewModelTest {
                     form = FormSpec.Empty,
                 ),
             ),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(
                 mapOf(
                     "shedId" to "shed-1",
@@ -253,7 +257,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -274,13 +278,23 @@ class ScanViewModelTest {
         assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
     }
 
+    /**
+     * CONFIRMED SHED DEFECT (maintainer, real shed use): "When I'm on camera recording and I use
+     * the RFID reader to scan, it suddenly stops recording and comes out." The old behaviour
+     * cancelled whatever camera session was still open the moment a DIFFERENT goat's tag was
+     * read, destroying an unrecoverable in-progress recording. This is the invariant that
+     * replaces it: a scan for a different goat while a capture is in flight must NEVER stop or
+     * cancel that capture. The new goat is queued instead and its camera opens automatically once
+     * the in-flight capture's job completes.
+     */
     @Test
-    fun `scanning a second goat while the first goat's proof video is still recording cancels the first camera and reopens bound to the second goat, so a completed recording can never save under the wrong subject id`() = runTest(dispatcher) {
+    fun `scanning a second goat while the first goat's proof video is still recording must NOT stop or cancel the first camera -- it queues the second goat instead`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val proofRepo = FakeProofCaptureRepository()
         val proofSource = FakeProofCaptureSource()
         val reader = FakeRfidReaderPort()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
                 firstPage = ScanRosterResponseDto(
@@ -297,113 +311,59 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
 
         // Goat A is scanned; its camera opens and the recording is still in progress (suspended
-        // on the gate, i.e. captureVideo() has NOT returned — nothing has been written to Room or
-        // the outbox yet) when the operator walks to goat B and scans it.
+        // on the gate, i.e. captureVideo() has NOT returned) when the operator walks to goat B and
+        // scans it.
         val goatAGate = proofSource.queueGate()
         reader.emit("TAG-100")
         advanceUntilIdle()
         assertEquals("goat A's camera opened", 1, proofSource.captureCount)
         assertEquals(0, proofRepo.captureCalls.size)
 
-        val goatBGate = proofSource.queueGate()
         reader.emit("TAG-200")
         advanceUntilIdle()
 
-        // Goat A's still-recording (unfinished) camera session is cancelled and a NEW camera opens
-        // bound to goat B — the operator is standing at B, so B is what the reopened camera sees.
-        assertEquals("goat B's scan must cancel A's unfinished capture and open a fresh camera for B", 2, proofSource.captureCount)
-        assertEquals("no proof may be written until a capture actually completes", 0, proofRepo.captureCalls.size)
-        assertEquals("TAG-100 still needs its video.", scanVm.state.value.duplicateNotice)
+        // THE INVARIANT: goat A's still-recording camera session is untouched -- no second camera
+        // opens, nothing is stopped or cancelled. Goat B is queued, and the operator is told so
+        // instead of the queued scan silently vanishing.
+        assertEquals("a scan mid-recording must never open a second camera or disturb the first", 1, proofSource.captureCount)
+        assertEquals(0, proofRepo.captureCalls.size)
+        assertEquals("TAG-200 queued — camera opens once TAG-100's video is saved.", scanVm.state.value.duplicateNotice)
+        assertTrue(
+            "a deferred scan must be recorded in analytics, not silently swallowed",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED),
+        )
 
-        // Goat A's original (cancelled) gate completing now must NOT deliver a proof — the coroutine
-        // that owned it was cancelled and its result is discarded.
+        // Goat A's recording finishes normally and saves under A's own subject id -- the in-flight
+        // capture was never touched by B's scan.
         goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
-        assertEquals("a cancelled capture's late result must never be saved", 0, proofRepo.captureCalls.size)
-
-        // Goat B's recording finishes: the proof that lands is genuinely B's footage, saved under
-        // B's subject id. No path exists where A's cancelled recording could land under B's id, or
-        // vice versa.
-        goatBGate.complete(CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4))
-        advanceUntilIdle()
-
         assertEquals(1, proofRepo.captureCalls.size)
-        assertEquals("goat-2", proofRepo.captureCalls.single().subjectId)
-        assertEquals("file://goat-b.mp4", proofRepo.captureCalls.single().localUri)
-    }
+        assertEquals("goat-1", proofRepo.captureCalls[0].subjectId)
+        assertEquals("file://goat-a.mp4", proofRepo.captureCalls[0].localUri)
 
-    @Test
-    fun `goat A is left needing proof, not falsely marked done or uploading, after its capture is cancelled for goat B`() = runTest(dispatcher) {
-        val scanCaptures = FakeScanCaptureRepository()
-        val scanAttempts = FakeScanAttemptRepository()
-        val proofRepo = FakeProofCaptureRepository()
-        val proofSource = FakeProofCaptureSource()
-        val reader = FakeRfidReaderPort()
-        val scanVm = ScanViewModel(
-            repo = FakeScanExecutionRepository(
-                firstPage = ScanRosterResponseDto(
-                    rows = listOf(
-                        scanRow("goat-1", "TAG-100", "obl-1"),
-                        scanRow("goat-2", "TAG-200", "obl-2"),
-                    ),
-                ),
-            ),
-            reader = reader,
-            scanCaptureRepository = scanCaptures,
-            scanAttemptRepository = scanAttempts,
-            proofCaptureRepository = proofRepo,
-            proofCaptureSource = proofSource,
-            bootstrapRepository = FakeCaptureBootstrapRepository(),
-            tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
-            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
-        )
-        backgroundScope.launch { scanVm.state.collect {} }
-        advanceUntilIdle()
-
-        val goatAGate = proofSource.queueGate()
-        reader.emit("TAG-100")
-        advanceUntilIdle()
-
-        proofSource.queueGate()
-        reader.emit("TAG-200")
-        advanceUntilIdle()
-
-        val goatARow = scanVm.state.value.roster.first { it.goatId == "goat-1" }
-        assertEquals("goat A stays DONE (it really was scanned) but must not read as proof-synced", ScanStatus.DONE, goatARow.status)
-        assertEquals("cancelled-before-capture goat A must not read as proof-synced", sg.mesha.goatos.feature.scan.ProofUploadStatus.MISSING, goatARow.proofUploadStatus)
-        assertFalse(
-            "goat A must not keep an optimistic uploading marker for a capture that never completed",
-            goatARow.evidenceUploading,
-        )
-        assertTrue("no proof was ever written for goat A", proofRepo.captureCalls.none { it.subjectId == "goat-1" })
-
-        // Not a dangling reference either: goat A's gate completing late changes nothing about A.
-        goatAGate.complete(CapturedVideo(localUri = "file://goat-a-late.mp4", startedAtMs = 1, endedAtMs = 2))
-        advanceUntilIdle()
-        val goatARowAfter = scanVm.state.value.roster.first { it.goatId == "goat-1" }
-        assertEquals(sg.mesha.goatos.feature.scan.ProofUploadStatus.MISSING, goatARowAfter.proofUploadStatus)
-        assertFalse(goatARowAfter.evidenceUploading)
+        // The queued goat B's camera opens automatically the instant A's camera frees up -- the
+        // operator never has to remember to rescan B.
+        assertEquals("goat B's camera must open automatically once A's capture completed", 2, proofSource.captureCount)
     }
 
     /**
-     * Defect 1 of the wrong-goat capture fix, one layer down. The two tests above use
-     * [FakeProofCaptureSource]'s per-call gates, which isolate every capture from every other and
-     * so cannot express the production mechanism at all. Production shares ONE buffered result
-     * channel across every capture request (`VideoCaptureLauncher.kt:38/52/87`), so goat A's
-     * recording — finalized asynchronously by CameraX AFTER the operator turned to goat B and
-     * scanned — is left in that buffer and handed straight to goat B's capture. Goat A's clip then
-     * becomes goat B's medical proof, and nothing downstream can tell.
+     * Production shares ONE buffered result channel across every capture request
+     * (`VideoCaptureLauncher.kt` / `ProofCaptureRelay`), so this exercises the real plumbing
+     * rather than [FakeProofCaptureSource]'s per-call isolation. Because a scan for a different
+     * goat no longer cancels the in-flight capture, goat B's camera never opens while A's is still
+     * recording, so there is no way for A's eventually-finalized clip to be misdelivered to B's
+     * request -- the wrong-goat-attribution hazard the relay was built for is now structurally
+     * unreachable via this path (queuing serialises captures one goat at a time).
      */
     @Test
-    fun `a cancelled capture's finished recording is never handed to the goat scanned next`() = runTest(dispatcher) {
+    fun `a scan for a different goat never stops the in-flight recording, and its own finalized clip still lands under its own subject id`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
         val proofSource = ChannelBackedProofCaptureSource()
         val reader = FakeRfidReaderPort()
@@ -423,69 +383,61 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
 
         // Goat A is scanned; the camera opens. The operator presses stop, but CameraX finalization
-        // is asynchronous — no result has been delivered yet.
+        // is asynchronous -- no result has been delivered yet.
         reader.emit("TAG-100")
         advanceUntilIdle()
         assertEquals("goat A's camera opened", 1, proofSource.captureCount)
 
-        // The operator turns to goat B and scans it. A's unfinished capture is cancelled, a fresh
-        // camera opens for B.
+        // The operator turns to goat B and scans it. THE INVARIANT: this must not stop A's camera --
+        // no second request is opened; B is queued instead.
         reader.emit("TAG-200")
         advanceUntilIdle()
-        assertEquals("a fresh camera must open for goat B", 2, proofSource.captureCount)
+        assertEquals("goat B's scan must not open a second camera while A is still recording", 1, proofSource.captureCount)
 
-        // NOW A's recording finalizes. It belongs to request #1, which was cancelled.
+        // A's recording finalizes for request #1 -- the only request that exists -- and lands under
+        // A's own subject id.
         proofSource.deliverRecorderResult(
             requestOrdinal = 1,
             video = CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2),
         )
         advanceUntilIdle()
-        assertEquals(
-            "goat A's clip must never be delivered to goat B's capture and saved as B's proof",
-            0,
-            proofRepo.captureCalls.size,
-        )
+        assertEquals(1, proofRepo.captureCalls.size)
+        assertEquals("goat-1", proofRepo.captureCalls.single().subjectId)
+        assertEquals("file://goat-a.mp4", proofRepo.captureCalls.single().localUri)
 
-        // Goat B's own recording still lands correctly — a stale result must not be able to
-        // consume B's turn either.
+        // B's camera now opens automatically (queued goat), and its own recording lands under B's
+        // own subject id.
+        assertEquals("goat B's camera opens once A's capture is done", 2, proofSource.captureCount)
         proofSource.deliverRecorderResult(
             requestOrdinal = 2,
             video = CapturedVideo(localUri = "file://goat-b.mp4", startedAtMs = 3, endedAtMs = 4),
         )
         advanceUntilIdle()
-        assertEquals(1, proofRepo.captureCalls.size)
-        assertEquals("goat-2", proofRepo.captureCalls.single().subjectId)
-        assertEquals("file://goat-b.mp4", proofRepo.captureCalls.single().localUri)
+        assertEquals(2, proofRepo.captureCalls.size)
+        assertEquals("goat-2", proofRepo.captureCalls[1].subjectId)
+        assertEquals("file://goat-b.mp4", proofRepo.captureCalls[1].localUri)
     }
 
     /**
-     * Regression guard for the A -> B -> A rescan, where the cancelled capture's `finally` was
-     * guarded by SUBJECT identity rather than JOB identity: on the third scan `proofCaptureGoatId`
-     * is goat A once more, so a stale job's cleanup could alias the LIVE second capture of the
-     * same goat — releasing its in-flight ownership (a later scan would then open a second
-     * concurrent camera instead of being refused) and stranding its row as "uploading".
-     *
-     * HONEST NOTE: this test passes both before and after the job-identity guard. On the only
-     * cancel path that exists (`requestGoatProof` running on `Dispatchers.Main.immediate`, the
-     * capture suspended in the relay), `cancel()` resumes the cancelled continuation UNDISPATCHED,
-     * so the stale `finally` runs synchronously inside `cancel()` — before `proofCaptureGoatId` is
-     * reassigned — and the aliasing window never opens. The guard was still changed to job
-     * identity because it is the property actually meant (a capture, not an animal, owns the
-     * camera) and it removes the hazard rather than depending on a dispatcher's inlining rule.
-     * This test locks in the observable behaviour the aliasing would have broken.
+     * Only the LAST queued goat survives: if a third goat is scanned before the queued second one
+     * ever got its turn, the second is overtaken and its camera will never open. That is a genuine
+     * drop (the operator scanned it but it will never be acted on) and must be visible and
+     * recorded, never silent -- this is the one case where a scan really is dropped, as distinct
+     * from merely deferred.
      */
     @Test
-    fun `a stale cancelled job must not tear down the live capture that superseded it after an A to B to A rescan`() = runTest(dispatcher) {
+    fun `only the last queued goat survives a further scan, and the overtaken one is surfaced as a visible, analytics-tracked drop`() = runTest(dispatcher) {
         val proofRepo = FakeProofCaptureRepository()
-        val proofSource = ChannelBackedProofCaptureSource()
+        val proofSource = FakeProofCaptureSource()
         val reader = FakeRfidReaderPort()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val scanVm = ScanViewModel(
             repo = FakeScanExecutionRepository(
                 firstPage = ScanRosterResponseDto(
@@ -503,62 +455,36 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = analytics,
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
 
-        reader.emit("TAG-100") // capture #1, goat A
-        reader.emit("TAG-200") // capture #2, goat B — cancels #1
-        reader.emit("TAG-100") // capture #3, goat A again — cancels #2
+        val goatAGate = proofSource.queueGate()
+        reader.emit("TAG-100") // camera opens for goat A, recording
         advanceUntilIdle()
-        assertEquals("each different-goat scan retargets the camera", 3, proofSource.captureCount)
+        assertEquals(1, proofSource.captureCount)
 
-        // Capture #3 is the LIVE one and capture #1 (same goat) is dead. If the dead job's cleanup
-        // was allowed to run — because it is guarded by SUBJECT id, which goat A now matches again
-        // — it releases the live capture's in-flight ownership, and this duplicate read of the
-        // animal currently in front of the camera opens a SECOND concurrent camera instead of
-        // being refused.
-        reader.emit("TAG-100")
+        reader.emit("TAG-200") // goat B queued behind A
         advanceUntilIdle()
-        assertEquals(
-            "re-scanning the goat whose camera is live must be refused, not open a second concurrent camera",
-            3,
-            proofSource.captureCount,
-        )
-        assertEquals("Finish the current animal's video first.", scanVm.state.value.duplicateNotice)
+        reader.emit("TAG-300") // goat C overtakes goat B in the queue -- B is dropped
+        advanceUntilIdle()
 
-        // Scanning a third goat now must cancel #3 and open exactly one new camera.
-        reader.emit("TAG-300")
-        advanceUntilIdle()
-        assertEquals("goat C must retarget the live camera, not open a second concurrent one", 4, proofSource.captureCount)
-
-        // #3 was cancelled by C, so its late result belongs to nobody; C's is the live one.
-        proofSource.deliverRecorderResult(
-            requestOrdinal = 3,
-            video = CapturedVideo(localUri = "file://goat-a-2.mp4", startedAtMs = 5, endedAtMs = 6),
-        )
-        advanceUntilIdle()
+        assertEquals("neither queued scan may open a camera while A is still recording", 1, proofSource.captureCount)
         assertTrue(
-            "a cancelled capture's clip must never be saved for the goat scanned after it",
-            proofRepo.captureCalls.none { it.subjectId == "goat-3" },
+            "goat B being overtaken by goat C must be recorded as a drop",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED),
         )
+        assertEquals("TAG-200 still needs its video — dropped for TAG-300.", scanVm.state.value.duplicateNotice)
 
-        proofSource.deliverRecorderResult(
-            requestOrdinal = 4,
-            video = CapturedVideo(localUri = "file://goat-c.mp4", startedAtMs = 7, endedAtMs = 8),
-        )
+        // A's recording finishes; the camera that opens next must be goat C's (the surviving
+        // queued goat), never goat B's (the overtaken one).
+        goatAGate.complete(CapturedVideo(localUri = "file://goat-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
+        assertEquals(2, proofSource.captureCount)
         assertEquals(1, proofRepo.captureCalls.size)
-        assertEquals("goat-3", proofRepo.captureCalls.single().subjectId)
-        assertEquals("file://goat-c.mp4", proofRepo.captureCalls.single().localUri)
-
-        // And no goat whose capture was CANCELLED is left stranded showing "uploading" — that is
-        // the other half of the stale-cleanup defect (the live job's own guard fails after the
-        // stale one has already cleared the state it needed).
-        val stuck = scanVm.state.value.roster.filter { it.goatId != "goat-3" && it.evidenceUploading }
-        assertTrue("no cancelled goat may be stuck showing 'uploading': $stuck", stuck.isEmpty())
+        assertEquals("goat-1", proofRepo.captureCalls[0].subjectId)
     }
 
     @Test
@@ -581,7 +507,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -633,7 +559,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -679,7 +605,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -731,7 +657,7 @@ class ScanViewModelTest {
             proofCaptureSource = proofSource,
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -782,7 +708,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -816,7 +742,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { scanVm.state.collect {} }
@@ -868,12 +794,16 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-1")),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
         )
         backgroundScope.launch { submitVm.state.collect {} }
         advanceUntilIdle()
 
         assertTrue("optional scan fields should not block submission", submitVm.state.value.canSubmit)
         submitVm.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        submitVm.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertTrue("submission should still be enqueued", submitSync.lastRequest != null)
@@ -907,7 +837,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -949,7 +879,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -1013,7 +943,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -1050,7 +980,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -1106,7 +1036,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = tasks,
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-2", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -1222,7 +1152,7 @@ class ScanViewModelTest {
             proofCaptureSource = FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
         backgroundScope.launch { vm.state.collect {} }
@@ -1255,7 +1185,7 @@ class ScanViewModelTest {
                     proofPolicy = proofPolicy,
                 ),
             ),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
 
@@ -1604,7 +1534,7 @@ class ScanViewModelExecutionGateTest {
                 featureFlags = flags,
             ),
             tasksRepository = FakeTasksRepositoryForCapture(),
-            analytics = NoopAnalytics(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
             savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
         )
 

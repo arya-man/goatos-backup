@@ -70,6 +70,7 @@ class LogoutCoordinator(
      *  logout. Logged (not swallowed) so a stuck push-token binding stays diagnosable. */
     private suspend fun deregisterDeviceBestEffort() {
         val deviceId = runCatching { deviceStore.deviceId() }
+            .onFailure { android.util.Log.w("LogoutCoordinator", "deregisterDeviceBestEffort: get device ID failed", it) }
             .getOrNull()
             ?.takeIf { it.isNotBlank() }
             ?: return

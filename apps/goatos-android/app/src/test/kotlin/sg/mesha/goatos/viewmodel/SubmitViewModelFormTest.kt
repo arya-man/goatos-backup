@@ -96,6 +96,8 @@ class SubmitViewModelFormTest {
         scanSource = scanSource,
         proofCaptureSource = proofCaptureSource,
         bootstrapRepository = bootstrapRepository,
+        analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+        crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(
             buildMap {
                 if (taskId != null) put("taskId", taskId)
@@ -104,6 +106,29 @@ class SubmitViewModelFormTest {
             },
         ),
     )
+
+    @Test
+    fun `ConfirmSubmit without the gate having been raised submits nothing`() = runTest(dispatcher) {
+        // The gate is a pause in FRONT of submit()'s validations, never a way around them.
+        // confirmSubmit() returns early unless submit() actually raised it, so a stray
+        // ConfirmSubmit -- a double tap, a replayed event, a restored dialog -- must not push a
+        // shed past a pending proof or a read-only task. This drives the real ViewModel and
+        // fails if that early return is removed; the assertion it replaced built a
+        // SubmitUiState(showSubmitConfirmation = true) by hand and asserted the value it had
+        // just passed in, which held for the broken build too.
+        val task = TaskSummaryDto(taskId = "task-gate", sopVersionId = "sop-1", scopeId = "shed-1", title = "Gandhi 1", rowVersion = 1)
+        val form = FormSpec(schemaVersion = "goatos.sop-form.v1", fields = emptyList(), rules = emptyList())
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(FakeFormTasksRepository(task, form), sync, "task-gate")
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertNull("confirming a gate that was never raised must enqueue nothing", sync.lastRequest)
+        assertFalse("and must not leave the dialog flag raised", viewModel.state.value.showSubmitConfirmation)
+    }
 
     @Test
     fun `submit is blocked until a required form field is answered, then real answers travel`() = runTest(dispatcher) {
@@ -136,6 +161,10 @@ class SubmitViewModelFormTest {
         assertNull(viewModel.state.value.formRunner?.blockedReason)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val request = sync.lastRequest
@@ -210,6 +239,10 @@ class SubmitViewModelFormTest {
         )
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertEquals(JsonPrimitive("subcutaneous"), sync.lastRequest?.answers?.get("route_site"))
         assertEquals(JsonPrimitive("2026-07-20T04:45:00+05:30"), sync.lastRequest?.answers?.get("administered_at"))
@@ -248,6 +281,10 @@ class SubmitViewModelFormTest {
         assertTrue(viewModel.state.value.canSubmit)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val answer = sync.lastRequest?.answers?.get("goat_scan") as? JsonArray
@@ -303,6 +340,8 @@ class SubmitViewModelFormTest {
 
         assertTrue(viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals(
@@ -357,6 +396,8 @@ class SubmitViewModelFormTest {
             viewModel.state.value.formRunner?.blockedReason,
         )
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNull("submit must not enqueue a payload with a local Room proof id", sync.lastRequest)
 
@@ -368,6 +409,10 @@ class SubmitViewModelFormTest {
         assertNull(viewModel.state.value.formRunner?.blockedReason)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val request = sync.lastRequest
@@ -418,6 +463,10 @@ class SubmitViewModelFormTest {
         assertNull(viewModel.state.value.formRunner?.blockedReason)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals(0, sync.lastRequest?.proofRefs?.size)
@@ -459,6 +508,8 @@ class SubmitViewModelFormTest {
         assertFalse("pending optional proof must wait instead of being dropped from proof_refs", viewModel.state.value.canSubmit)
         assertEquals("Wait for proof upload to finish before submitting.", viewModel.state.value.formRunner?.blockedReason)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNull(sync.lastRequest)
 
@@ -468,6 +519,8 @@ class SubmitViewModelFormTest {
 
         assertTrue(viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals("server-proof-extra", sync.lastRequest?.proofRefs?.single()?.proofId)
@@ -510,6 +563,8 @@ class SubmitViewModelFormTest {
 
         assertFalse("second pending proof must wait instead of being dropped", viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNull(sync.lastRequest)
     }
@@ -731,6 +786,10 @@ class SubmitViewModelFormTest {
         assertNull("terminal task fields must not remain editable", viewModel.state.value.formRunner)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNull("terminal task must never enqueue another submission", sync.lastRequest)
     }
@@ -785,6 +844,8 @@ class SubmitViewModelFormTest {
 
         // Submit while blocked must never reach the outbox.
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNull("a backend-blocked shed ack must never enqueue a submission", sync.lastRequest)
     }
@@ -822,6 +883,10 @@ class SubmitViewModelFormTest {
         assertNull("no blocking reason when submit is enabled", ready.blockingReason)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNotNull("a ready shed ack must enqueue the acknowledgement submission", sync.lastRequest)
     }
@@ -877,9 +942,83 @@ class SubmitViewModelFormTest {
         assertNull("per-goat proof mode hides the generic SOP form gate", viewModel.state.value.formRunner)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertNotNull("tapping Submit must enqueue the shed acknowledgement", sync.lastRequest)
+    }
+
+    @Test
+    fun `submit_enabled true overrides a stale terminal submit_state after a per-goat rework rescan`() = runTest(dispatcher) {
+        // Regression for the P0 where a shed with an EARLIER accepted/verified round (task.state
+        // stays "accepted" at the whole-task level) has 3 goats rejected at the item level,
+        // rescanned, and re-proofed. The backend's readiness gate (submit_enabled/blocking_reason)
+        // is scoped to the CURRENT round and correctly reports ready-to-submit, but submit_state
+        // still carries the terminal-sounding word "verified" from the earlier round. The client
+        // must trust submit_enabled, not the coarse submit_state word, and must never render the
+        // "Shed record submitted" acknowledgement screen over work that was never sent.
+        val task = TaskSummaryDto(
+            taskId = "task-per-goat-rework-verified",
+            sopVersionId = "sop-per-goat-rework-verified",
+            taskType = "vaccination",
+            scopeType = "shed",
+            scopeId = "shed-gandhi-1",
+            state = "accepted",
+            rowVersion = 4,
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField("goat_scan", "Scan goats", FormFieldType.GOAT_SCAN, required = true),
+                FormField("goat_video", "Goat video", FormFieldType.VIDEO_PROOF, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val policy = ProofPolicy(
+            proofMode = "per_goat_video",
+            subjectScope = "goat",
+            expectedSubjects = listOf("goat"),
+            minimumCount = 1,
+            maximumCount = 1,
+            allowedCaptureSources = listOf("in_app_camera"),
+        )
+        val reworkReadySummary = ShedCompletionSummaryDto(
+            taskId = task.taskId,
+            shedName = "Gandhi 1",
+            driveName = "Per-animal vaccination proof QA",
+            expectedCount = 3,
+            handledCount = 3,
+            proofReadyCount = 3,
+            vaccineBreakdown = listOf(VaccineBreakdownItemDto(vaccine = "ET+TT", count = 3)),
+            submitEnabled = true,
+            blockingReason = null,
+            submitState = "verified",
+        )
+        val sync = CapturingSyncRepository()
+        val viewModel = viewModel(
+            FakeFormTasksRepository(task, form, proofPolicy = policy, shedSummary = reworkReadySummary),
+            sync,
+            task.taskId,
+        )
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            "submit_enabled=true must never render the terminal ack screen",
+            sg.mesha.goatos.feature.submit.SyncState.DRAFT,
+            viewModel.state.value.syncState,
+        )
+        assertTrue("submit_enabled=true must leave the submit control enabled", viewModel.state.value.canSubmit)
+        assertNull("no blocking reason when submit is enabled", viewModel.state.value.blockingReason)
+
+        viewModel.onEvent(SubmitEvent.Submit)
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
+        advanceUntilIdle()
+
+        assertNotNull("Finalize must actually enqueue the shed acknowledgement", sync.lastRequest)
     }
 
     @Test
@@ -1020,6 +1159,10 @@ class SubmitViewModelFormTest {
         assertTrue("backend-ready shed proof should satisfy the required video field", viewModel.state.value.canSubmit)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNotNull(sync.lastRequest)
     }
@@ -1075,6 +1218,10 @@ class SubmitViewModelFormTest {
         assertEquals("1 of 5 shed videos synced · 1 required", viewModel.state.value.proofSummarySyncedLabel)
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNotNull("unsubmitted shed must still enqueue the final submission", sync.lastRequest)
     }
@@ -1126,6 +1273,10 @@ class SubmitViewModelFormTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals("godel-2", sync.lastGroupKey)
@@ -1178,6 +1329,10 @@ class SubmitViewModelFormTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals("b0000000-0000-4000-8000-000000000002", sync.lastRequest?.sopVersionId)
@@ -1344,6 +1499,8 @@ class SubmitViewModelFormTest {
 
         assertTrue(viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         sync.markSucceeded()
@@ -1397,6 +1554,8 @@ class SubmitViewModelFormTest {
         assertEquals(sg.mesha.goatos.feature.submit.SyncState.DRAFT, viewModel.state.value.syncState)
         assertTrue("draft shed summary must reopen the submit action even if task cache is terminal", viewModel.state.value.canSubmit)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertNotNull(sync.lastRequest)
     }
@@ -1485,6 +1644,8 @@ class SubmitViewModelFormTest {
 
         viewModel.onEvent(SubmitEvent.FormToggle("cold_chain_verified", true))
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
         assertFalse("a role-blocked principal must never reach the outbox", viewModel.state.value.canSubmit)
     }

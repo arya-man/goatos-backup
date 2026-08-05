@@ -28,12 +28,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -173,6 +175,9 @@ sealed interface VerifyQueueEvent {
     data object Refresh : VerifyQueueEvent
     data object LoadMore : VerifyQueueEvent
     data class CloseDrive(val batchId: String) : VerifyQueueEvent
+    /** ONE summary per screen exit, never per scroll frame — see
+     *  `AnalyticsEvents.VERIFY_QUEUE_SCROLL_SUMMARY`. */
+    data class ScrollSummary(val maxScrollIndex: Int, val rowCount: Int) : VerifyQueueEvent
 }
 
 @Composable
@@ -199,6 +204,20 @@ fun VerifyQueueScreen(
                     onEvent(VerifyQueueEvent.LoadMore)
                 }
             }
+    }
+    // Scroll depth is THROTTLED to one summary per screen exit — an event per scroll frame would
+    // drown the funnel and drain the battery. Track only the deepest index reached in memory,
+    // then flush it once on dispose (nav-away, process death excepted).
+    var maxScrollIndexSeen by remember { mutableStateOf(0) }
+    val latestRowCount by rememberUpdatedState(state.rows.size)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex > maxScrollIndexSeen) maxScrollIndexSeen = lastVisibleIndex
+            }
+    }
+    DisposableEffect(Unit) {
+        onDispose { onEvent(VerifyQueueEvent.ScrollSummary(maxScrollIndexSeen, latestRowCount)) }
     }
     Column(
         modifier = modifier

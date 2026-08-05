@@ -20,6 +20,14 @@ import javax.inject.Singleton
  * sign-out" rule the whole coordinator follows. `FLAVOR` is intentionally left set — it is
  * build-fixed, not principal-specific (mirrors [sg.mesha.goatos.boot.BootstrapViewModel]'s
  * `applyAnalyticsIdentity`, which also never clears it).
+ *
+ * [AnalyticsContext.deviceId] is likewise intentionally left set: it identifies THIS physical
+ * install, not the departing principal (see `DeviceStore.clear` KDoc), and multiple operators
+ * sharing one field device is exactly the case the multi-device analytics keying exists to
+ * disambiguate. Clearing it here would blank device_id on the very next event (SIGN_OUT) and
+ * would only be "fixed" by the next bootstrap re-deriving the SAME persisted id — a no-op wipe
+ * that costs a null-attributed event for nothing. [journeyId] IS cleared: it is this work
+ * session's id, and logout ends the session.
  */
 @Singleton
 class PushLogoutCleanup @Inject constructor(
@@ -31,7 +39,7 @@ class PushLogoutCleanup @Inject constructor(
 
         analyticsContext.role = null
         analyticsContext.parkScope = null
-        analyticsContext.deviceId = null
+        analyticsContext.journeyId = null
 
         analytics.setUserId(null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.ROLE, null)
@@ -39,6 +47,6 @@ class PushLogoutCleanup @Inject constructor(
         analytics.setUserProperty(AnalyticsEvents.UserProps.PARK_ID, null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.TENANT, null)
         analytics.setUserProperty(AnalyticsEvents.UserProps.EMAIL, null)
-        analytics.setUserProperty(AnalyticsEvents.UserProps.DEVICE_ID, null)
+        // DEVICE_ID user property is deliberately NOT cleared -- see class KDoc.
     }
 }

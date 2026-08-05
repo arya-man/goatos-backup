@@ -11,17 +11,24 @@ data class WeighingRepeatBucket(
 )
 
 /**
- * The answers carried over when a planner starts a new task FROM an existing one.
+ * The answers carried over when a planner starts a new task FROM an existing one, or opens an
+ * existing task to CHANGE it.
  *
- * Deliberately NOT a copy of the task: there is no campaign id here and no status. Repeating goes
- * through the ordinary create-then-publish path with a date the planner has to choose, so a
- * published row is never cloned and the server's duplicate block still decides what is allowed.
+ * [editCampaignId] is what tells the two apart. Null means an ordinary repeat: there is no
+ * campaign id and no status, the wizard opens on its DATE step with nothing chosen, and the
+ * ordinary create-then-publish path decides what survives on the new day. Set means an EDIT of
+ * that exact campaign: the wizard opens already ON [editWeighDate] -- a task cannot change which
+ * day it is by being edited -- and saving calls the update write against [editCampaignId] instead
+ * of creating a new task. Either way nothing here is a copy of the task's current status; the
+ * server's own rules (duplicate-shed block, park scope) still decide what is accepted.
  */
 data class WeighingRepeatSeed(
     val parkId: String,
     val parkName: String,
     val sourceDateLabel: String,
     val buckets: List<WeighingRepeatBucket>,
+    val editCampaignId: String? = null,
+    val editWeighDate: String? = null,
 )
 
 /**

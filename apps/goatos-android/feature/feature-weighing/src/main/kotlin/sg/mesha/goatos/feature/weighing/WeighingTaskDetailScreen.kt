@@ -12,9 +12,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -37,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -192,6 +197,15 @@ data class WeighingTaskDetailUiState(
     val staleNotice: String = "",
     val loading: Boolean = false,
     val busy: Boolean = false,
+    /**
+     * True only when the signed-in viewer holds weighing.monitor -- the SAME permission the
+     * export endpoint is gated on server-side. An operator must never see this button: it would
+     * only ever answer 403, and a control that can never be pressed is decoration, not a
+     * disabled-with-reason control.
+     */
+    val canExportCsv: Boolean = false,
+    /** True while the CSV download is in flight. Disables the button so a second tap cannot fire. */
+    val exportingCsv: Boolean = false,
 ) {
     /** Every bucket a verifier has not accepted yet, whichever queue it is sitting in. */
     val unacceptedBucketCount: Int get() = openBucketCount + awaitingVerificationBucketCount
@@ -226,9 +240,10 @@ private fun closeTaskLabel(state: WeighingTaskDetailUiState): String = when {
  * "View shed" hands off to the existing capture destination, which enforces assignment itself.
  *
  * [onRepeatTask] is nullable on purpose: task authoring is a separate surface, and the action is
- * offered only when this task actually has a shed that can be placed on another date. There is
- * deliberately no "edit task" or "reopen task" action here -- neither has a screen behind it, and
- * a control that can never be pressed is decoration, not a disabled control.
+ * offered only when this task actually has a shed that can be placed on another date. [onEditTask]
+ * is the same shape for the same reason: it reopens the authoring wizard on this campaign rather
+ * than starting a new one. There is deliberately no "reopen task" action here -- it has no screen
+ * behind it, and a control that can never be pressed is decoration, not a disabled control.
  */
 @Composable
 fun WeighingTaskDetailScreen(
@@ -238,10 +253,22 @@ fun WeighingTaskDetailScreen(
     onBack: () -> Unit = {},
     onOpenShed: (WeighingTaskShedUiRow) -> Unit = {},
     onRepeatTask: (() -> Unit)? = null,
+    /**
+     * Opens THIS task in the authoring wizard's edit mode. Nullable so a surface with no wizard
+     * behind it (there is none today, but the shape matches [onRepeatTask]) can omit the action
+     * entirely rather than wire a no-op.
+     */
+    onEditTask: (() -> Unit)? = null,
     onPublishTask: () -> Unit = {},
     onEndTask: () -> Unit = {},
     /** Scroll-driven prefetch for the bucket list. Index runs across the whole rendered list. */
     onBucketRowVisible: (Int) -> Unit = {},
+    /**
+     * Downloads THIS task's CSV export. An app-bar action, not a nav destination: it acts on the
+     * task already open on screen, the same reasoning that keeps refresh here -- see
+     * docs/decisions/nav-entry-point-placement.md.
+     */
+    onExportCsv: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     RefreshOnResume { onRefresh() }
@@ -283,6 +310,29 @@ fun WeighingTaskDetailScreen(
             subtitle = state.dateLabel.takeIf { it.isNotBlank() },
             onBack = onBack,
             actions = {
+                // Leadership-only, gated on the SAME weighing.monitor permission the backend
+                // checks -- an operator holds no monitor grant and must never see this button,
+                // not even disabled: it would only ever answer 403.
+                if (state.canExportCsv) {
+                    IconButton(
+                        onClick = onExportCsv,
+                        enabled = !state.exportingCsv,
+                    ) {
+                        if (state.exportingCsv) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = MeshaColors.Muted,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = MeshaIcons.Download,
+                                contentDescription = stringResource(R.string.weighing_task_export_csv),
+                                tint = MeshaColors.Muted,
+                            )
+                        }
+                    }
+                }
                 SyncIconButton(
                     isSyncing = state.loading,
                     onSync = onRefresh,
@@ -398,13 +448,33 @@ fun WeighingTaskDetailScreen(
             }
             // Secondary actions sit BELOW the work, and ONLY actions that do something.
             //
-            // "Reopen task" and "Edit sheds & assignment" used to render here as permanently
-            // dead cards -- neither has a backing surface, so onClick was always null and the
-            // pair showed up on every task as two grey blocks of prose the planner could not
-            // act on. A control that can never be pressed is not a disabled control, it is
-            // decoration, and it pushed the one real action off the fold. Reopening is not
-            // lost: it lives on each shed's own card, which is where its grain actually is.
-            // Reinstate either one only WITH the screen that performs it.
+            // "Reopen task" used to render here as a permanently dead card -- it has no backing
+            // surface, so onClick was always null and it showed up on every task as a grey block
+            // of prose the planner could not act on. A control that can never be pressed is not a
+            // disabled control, it is decoration, and it pushed the one real action off the fold.
+            // Reopening is not lost: it lives on each shed's own card, which is where its grain
+            // actually is. Reinstate it only WITH the screen that performs it.
+            //
+            // "Edit sheds & assignment" USED to be dead for the same reason -- the update write
+            // was there but nothing called it. It is wired now: this reuses the SAME authoring
+            // wizard the "+ New task" action opens, pre-hydrated from this campaign, and saving
+            // from it writes back to THIS task through WeighingRepository.updatePlan rather than
+            // creating a second one.
+            //
+            // Gated on [state.canPublish] || [state.canEnd] -- the two capabilities the backend
+            // already returns on this same read to say the task is not yet closed -- rather than
+            // a role-name check the service layer explicitly warns against, and rather than
+            // inventing a dedicated "can edit" field the server does not send. A closed task has
+            // neither, and there is nothing left on it to change.
+            if (onEditTask != null) {
+                item(key = "task-edit") {
+                    TaskGhostAction(
+                        label = stringResource(R.string.weighing_task_edit),
+                        onClick = onEditTask.takeIf { state.canPublish || state.canEnd },
+                        disabledReason = stringResource(R.string.weighing_task_edit_blocked),
+                    )
+                }
+            }
             item(key = "task-repeat") {
                 TaskGhostAction(
                     label = stringResource(R.string.weighing_task_repeat),

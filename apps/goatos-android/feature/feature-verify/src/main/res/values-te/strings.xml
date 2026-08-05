@@ -32,6 +32,7 @@
     <string name="verify_scope_individual">వ్యక్తిగతం (%1$d)</string>
     <string name="verify_scope_lumpsum">మొత్తం బరువు (%1$d)</string>
     <string name="verify_shed_group_summary">%1$d వరుసలు · %2$d వీడియోలు</string>
+    <string name="verify_shed_group_progress">%1$d మేకలు · %2$d సమీక్షించాలి</string>
 
     <string name="verify_detail_close">మూయి</string>
     <string name="verify_detail_fullscreen">వీడియోను ఫుల్‌స్క్రీన్‌లో తెరవండి</string>
@@ -73,4 +74,5 @@
     <string name="verify_approve_dialog_subtitle">ఆమోదం తుది నిర్ణయం — తర్వాత వెనక్కి తీసుకోలేరు.</string>
     <string name="verify_approve_dialog_confirm">ఆమోదం ఖరారు చేయండి</string>
     <string name="verify_approve_dialog_cancel">రద్దు చేయండి</string>
+    <string name="verify_detail_group_accepted">ఈ షెడ్‌లోని అన్ని వీడియోలు ఆమోదించబడ్డాయి</string>
 </resources>

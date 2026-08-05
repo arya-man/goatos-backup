@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
@@ -80,6 +81,7 @@ class VerifyQueueViewModel @Inject constructor(
     private val syncRepo: SyncRepository,
     private val analytics: AnalyticsPort,
     savedStateHandle: SavedStateHandle,
+    private val crashReporter: CrashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
 ) : ViewModel() {
 
     private val isActionQueue: Boolean = savedStateHandle.get<Boolean>("actionMode") ?: false
@@ -204,7 +206,13 @@ class VerifyQueueViewModel @Inject constructor(
         val items = resource.data?.items.orEmpty()
         val filterOptions = resource.data?.filterOptions
         VerifyQueueUiState(
-            rows = items.map { it.toRow() },
+            // ONE CARD PER SHED: the backend emits one verification_item per goat, so a naive
+            // items.map here regresses a 40-animal shed into 40 rows. Group first -- [toShedRow]
+            // folds each group's per-animal counts into one row's progress copy, and a legacy
+            // bundled item (sharing no submissionId) still yields its own singleton card.
+            rows = items
+                .groupBy { it.verificationGroupKey() }
+                .map { (groupKey, groupItems) -> groupItems.toShedRow(groupKey) },
             moduleKey = filterOptions?.moduleKey.orEmpty(),
             moduleLabel = filterOptions?.moduleLabel.orEmpty(),
             // Null for a category this client has no dedicated chrome for (counts, feed). The
@@ -270,7 +278,14 @@ class VerifyQueueViewModel @Inject constructor(
     fun onEvent(event: VerifyQueueEvent) {
         when (event) {
             is VerifyQueueEvent.SelectCategory -> {
+                // The no-op guard comes FIRST: re-selecting the category already showing must
+                // not emit a filter event, or the funnel counts taps that changed nothing.
                 if (event.category == _selectedCategory.value) return
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "category",
+                    action = if (event.category != null) "set" else "cleared",
+                )
                 _selectedCategory.value = event.category
                 _selectedParkId.value = null
                 _selectedShedId.value = null
@@ -279,10 +294,20 @@ class VerifyQueueViewModel @Inject constructor(
             is VerifyQueueEvent.SelectPark -> {
                 _selectedParkId.value = event.parkId
                 _selectedShedId.value = null
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "park",
+                    action = if (event.parkId != null) "set" else "cleared",
+                )
                 refresh()
             }
             is VerifyQueueEvent.SelectShed -> {
                 _selectedShedId.value = event.shedId
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(
+                    analytics,
+                    dimension = "shed",
+                    action = if (event.shedId != null) "set" else "cleared",
+                )
                 refresh()
             }
             is VerifyQueueEvent.SelectStatus -> {
@@ -301,6 +326,7 @@ class VerifyQueueViewModel @Inject constructor(
                 _selectedCategory.value = categoryForModule(event.module)
                 _selectedParkId.value = null
                 _selectedShedId.value = null
+                AnalyticsFunnels.trackVerifyQueueFilterApplied(analytics, dimension = "module", action = "set")
                 refresh()
             }
             VerifyQueueEvent.ToggleMissed -> {
@@ -312,6 +338,8 @@ class VerifyQueueViewModel @Inject constructor(
             VerifyQueueEvent.Refresh -> refresh()
             VerifyQueueEvent.LoadMore -> loadMore()
             is VerifyQueueEvent.CloseDrive -> closeDrive(event.batchId)
+            is VerifyQueueEvent.ScrollSummary ->
+                AnalyticsFunnels.trackVerifyQueueScrollSummary(analytics, event.maxScrollIndex, event.rowCount)
         }
     }
 
@@ -363,6 +391,7 @@ class VerifyQueueViewModel @Inject constructor(
         )
         _isOffline.value = result.isFailure
         _isLoadingMore.value = false
+        AnalyticsFunnels.trackVerifyQueueLoadMore(analytics, category, observedResource.value.data?.items?.size ?: 0)
     }
 
     private fun currentScope() = VerifyQueueScope(
@@ -379,6 +408,7 @@ class VerifyQueueViewModel @Inject constructor(
         _closingBatchId.value = batchId
         _closeErrorBatchId.value = null
         _closeErrorMessage.value = null
+        AnalyticsFunnels.trackVerifyDriveCloseAttempted(analytics, batchId)
         when (val result = syncRepo.enqueueVerificationBatchClose(batchId)) {
             is AppResult.Ok -> {
                 val error = waitForCloseSync(result.value)
@@ -393,15 +423,21 @@ class VerifyQueueViewModel @Inject constructor(
                     )
                     _isOffline.value = false
                     refresh()
+                    AnalyticsFunnels.trackVerifyDriveCloseSucceeded(analytics, batchId)
                 } else {
                     _closeErrorBatchId.value = batchId
                     _closeErrorMessage.value = error
+                    AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, batchId, error)
                 }
             }
             is AppResult.Err -> {
                 _closingBatchId.value = null
                 _closeErrorBatchId.value = batchId
                 _closeErrorMessage.value = result.message
+                result.cause?.let { error ->
+                    runCatching { crashReporter.recordException(error, "verification drive close enqueue failed") }
+                }
+                AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, batchId, result.message)
             }
         }
     }
@@ -470,10 +506,66 @@ class VerifyQueueViewModel @Inject constructor(
                 .withLocale(locale)
                 .withZone(java.time.ZoneId.of("Asia/Kolkata"))
                 .format(instant)
-        }.getOrDefault(raw)
+        }.getOrElse { error ->
+            // Falls back to the raw backend timestamp so the row still renders something — but a
+            // malformed `capturedAt` from the backend must not vanish silently either.
+            runCatching { crashReporter.recordException(error, "verification capturedAt format failed") }
+            raw
+        }
     }
 
-    private fun VerificationQueueItem.toRow(): VerificationQueueRow {
+    /**
+     * One card per GROUP (shed submission), not per animal — see [verificationGroupKey]. A
+     * multi-item group (the new per-goat shape) renders shed-level copy with a live
+     * "N goats · M to review" progress line; a single-item group (legacy bundled item, or any
+     * item with no siblings) renders exactly as the old per-item card did, so a queue that has
+     * not migrated to the new shape yet is visually unchanged.
+     */
+    private fun List<VerificationQueueItem>.toShedRow(groupKey: String): VerificationQueueRow {
+        val representative = first()
+        if (size == 1) return representative.toSingleItemRow(groupKey)
+
+        val pendingCount = count { it.status == VerificationStatus.PENDING }
+        // Every item in a group shares one shed/park/operator/category — the shed submission's
+        // own metadata, not any one animal's.
+        val shedLabel = representative.shedLabel?.takeIf { it.isNotBlank() }
+        val title = listOfNotNull(shedLabel, "$size goats · $pendingCount to review")
+            .joinToString(" · ")
+            .ifBlank { humanizeCategory(representative.category) }
+        val subtitle = listOfNotNull(
+            representative.parkLabel,
+            representative.operatorName,
+            representative.capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) },
+        ).joinToString(" · ")
+        val mediaCount = sumOf { it.media.size }
+        val groupStatusTone = when {
+            all { it.status == VerificationStatus.APPROVED } -> VerifyTone.APPROVED
+            any { it.status == VerificationStatus.REJECTED } -> VerifyTone.REJECTED
+            else -> VerifyTone.PENDING
+        }
+        return VerificationQueueRow(
+            id = groupKey,
+            category = representative.category,
+            categoryLabel = humanizeCategory(representative.category),
+            title = title,
+            subtitle = subtitle,
+            scopeType = VerifyScopeType.INDIVIDUAL,
+            shedLabel = shedLabel.orEmpty(),
+            animalLabel = "",
+            weightLabel = "",
+            mediaCountLabel = when (mediaCount) {
+                0 -> ""
+                1 -> "1 video"
+                else -> "$mediaCount videos"
+            },
+            parkLabel = representative.parkLabel.orEmpty(),
+            operatorLabel = representative.operatorName.orEmpty(),
+            capturedAtLabel = representative.capturedAt,
+            statusTone = groupStatusTone,
+        )
+    }
+
+    private fun VerificationQueueItem.toSingleItemRow(groupKey: String): VerificationQueueRow {
         // Backend-owned display labels: never render raw UUIDs. Use labels when available; the
         // category-humanized name is the last-resort fallback so a non-vaccination row never
         // mislabels as "Vaccination proof".
@@ -489,7 +581,7 @@ class VerifyQueueViewModel @Inject constructor(
         val firstMedia = media.firstOrNull()
         val scopeType = weighingScopeType()
         return VerificationQueueRow(
-            id = itemId,
+            id = groupKey,
             category = category,
             categoryLabel = humanizeCategory(category),
             title = title,
@@ -571,6 +663,38 @@ private fun locationOptions(
 
 internal fun humanizeCategory(category: String): String =
     category.replace('_', ' ').replaceFirstChar { it.uppercase() }
+
+/**
+ * The shed-level grouping key shared by [VerifyQueueViewModel] (one card per shed) and
+ * [VerifyDetailViewModel] (one verdict per animal inside that card).
+ *
+ * The backend emits one verification_item PER GOAT (`source_ref_type=vaccination_goat`), with
+ * every per-goat item produced from one shed submission sharing one `source.submissionId`. A
+ * legacy bundled item (`ref_type=sop_submission`, several clips already under one verdict) sets
+ * no shared submissionId across other items, so it falls back to its OWN item id — a group of
+ * exactly itself, which is what "render/judge as a group-of-one" means for that shape.
+ */
+/**
+ * The shed's work, across redos — NOT one submission.
+ *
+ * A rejected animal is re-scanned and submitted again, and that redo is a NEW submission. Keying
+ * the group on `submissionId` therefore split one shed across two cards the moment anything was
+ * sent back: the original card kept its rejected animal forever and the redo appeared as a
+ * separate one-goat card, so the verifier could never see the shed as a whole.
+ *
+ * `taskId` + `shedId` are stable across redos (both survive a new submission), so the redone
+ * animal lands back on the shed it belongs to. `submissionId` remains the fallback for items that
+ * carry no task/shed, and `itemId` the last resort — a group of exactly itself, which renders and
+ * is judged exactly as a single item always was.
+ */
+internal fun VerificationQueueItem.verificationGroupKey(): String {
+    val taskID = source.taskId?.takeIf { it.isNotBlank() }
+    val shedID = shedId?.takeIf { it.isNotBlank() }
+    if (taskID != null && shedID != null) {
+        return "task:$taskID|shed:$shedID"
+    }
+    return source.submissionId?.takeIf { it.isNotBlank() } ?: itemId
+}
 
 internal fun statusTone(status: String): VerifyTone = when (status) {
     VerificationStatus.APPROVED -> VerifyTone.APPROVED

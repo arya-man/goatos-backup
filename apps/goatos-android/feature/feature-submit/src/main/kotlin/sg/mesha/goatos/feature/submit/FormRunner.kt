@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.submit
 
+// telemetry:exempt Stateless reusable form-rendering library; telemetry wired in host screens/ViewModels
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

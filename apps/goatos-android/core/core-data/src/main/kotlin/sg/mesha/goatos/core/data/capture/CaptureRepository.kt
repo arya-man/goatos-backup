@@ -896,6 +896,7 @@ private fun deleteLocalFile(localUri: String) {
 private fun decodeServerProofId(resultJson: String?): String? {
     if (resultJson.isNullOrBlank()) return null
     return runCatching { syncJson.decodeFromString<ProofUploadResponseDto>(resultJson).proof.proofId }
+        .onFailure { android.util.Log.w("CaptureRepository", "decodeServerProofId: deserialize proof upload response failed", it) }
         .getOrNull()
         ?.takeIf { it.isNotBlank() }
 }

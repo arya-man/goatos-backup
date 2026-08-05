@@ -55,7 +55,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `empty response anchors the day strip on yesterday and lands on today`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), FakeShedsBootstrapRepository(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), sg.mesha.goatos.core.analytics.NoopAnalytics(), FakeShedsBootstrapRepository(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -73,7 +73,7 @@ class ShedsEmptyStateDayStripTest {
 
     @Test
     fun `yesterday tab is selectable`() = runTest(dispatcher) {
-        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), FakeShedsBootstrapRepository(), SavedStateHandle())
+        val vm = ShedsViewModel(EmptyExecutionRepository(), NoopCrashReporter(), sg.mesha.goatos.core.analytics.NoopAnalytics(), FakeShedsBootstrapRepository(), SavedStateHandle())
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
@@ -121,6 +121,7 @@ class ShedsEmptyStateDayStripTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             FakeShedsBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -141,6 +142,7 @@ class ShedsEmptyStateDayStripTest {
         val vm = ShedsViewModel(
             EmptyExecutionRepository(),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             FakeShedsBootstrapRepository(role = "pc_director"),
             SavedStateHandle(),
         )

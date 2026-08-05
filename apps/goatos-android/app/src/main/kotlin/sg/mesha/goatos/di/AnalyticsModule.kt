@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.core.analytics.AnalyticsContext
 import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.LogcatAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.FirebaseAnalyticsAdapter
 import sg.mesha.goatos.core.analytics.NoopAnalytics
@@ -37,12 +38,19 @@ object AnalyticsModule {
         @ApplicationContext context: Context,
         crashReporter: CrashReporter,
         analyticsContext: AnalyticsContext,
-    ): AnalyticsPort =
-        if (BuildConfig.TELEMETRY_ENABLED) {
+    ): AnalyticsPort {
+        val sink: AnalyticsPort = if (BuildConfig.TELEMETRY_ENABLED) {
             FirebaseAnalyticsAdapter(context, crashReporter, analyticsContext)
         } else {
             NoopAnalytics()
         }
+        // DEBUG builds also print every event to logcat (tag GoatOSAnalytics). During device E2E
+        // the only way to confirm an event fired was to wait for Firebase, which is invisible when
+        // the app runs under a secondary Android user and impossible on a device without Play
+        // Services. "Did my tap register?" must be answerable from `adb logcat`, not from a
+        // network round trip.
+        return if (BuildConfig.DEBUG) LogcatAnalyticsAdapter(sink, analyticsContext) else sink
+    }
 
     @Provides
     @Singleton

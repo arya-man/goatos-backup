@@ -152,6 +152,7 @@ data class WeighingUiState(
     val category: String = "",
     val readerConnection: ScanReaderConnection? = null,
     val shedProofs: List<WeighingProofUiRow> = emptyList(),
+    val showSubmitConfirmation: Boolean = false,
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -322,6 +323,9 @@ data class WeighingAssignmentUiRow(
 
     val canClose: Boolean
         get() = readyToClose && !isClosed
+
+    val isShedPartition: Boolean
+        get() = category.trim().equals("per_shed_partition", ignoreCase = true)
 }
 
 /** One filter chip: a stable id, its label, and whether it is the active filter. */
@@ -361,6 +365,8 @@ fun WeighingScreen(
     onSelectAnimal: (String) -> Unit = {},
     onRecordIndividual: () -> Unit = {},
     onSubmitIndividualScope: () -> Unit = {},
+    onConfirmSubmitIndividualScope: () -> Unit = {},
+    onDismissSubmitConfirmation: () -> Unit = {},
     onRecordShedPartition: () -> Unit = {},
     onCaptureShedVideo: () -> Unit = {},
     onRetryShedVideo: (String) -> Unit = {},
@@ -426,6 +432,8 @@ fun WeighingScreen(
                 onSelectAnimal = onSelectAnimal,
             onRecordIndividual = onRecordIndividual,
             onSubmitIndividualScope = onSubmitIndividualScope,
+            onConfirmSubmitIndividualScope = onConfirmSubmitIndividualScope,
+            onDismissSubmitConfirmation = onDismissSubmitConfirmation,
             onRecordShedPartition = onRecordShedPartition,
             onCaptureShedVideo = onCaptureShedVideo,
             onRetryShedVideo = onRetryShedVideo,
@@ -693,7 +701,7 @@ private fun AssignmentRow(
             )
             if (row.isClickable) {
                 Text(
-                    text = assignmentAction(),
+                    text = assignmentAction(row),
                     color = MeshaColors.BrandD,
                     style = MeshaType.cta,
                     modifier = Modifier
@@ -796,13 +804,27 @@ private fun mapWeighingStatusLabel(backendStatus: String): String = when {
     else -> backendStatus
 }
 
-@Composable
-private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
-    stringResource(R.string.weighing_assignment_summary)
+internal fun assignmentSummaryRes(row: WeighingAssignmentUiRow): Int =
+    if (row.isShedPartition) {
+        R.string.weighing_assignment_summary_lumpsum
+    } else {
+        R.string.weighing_assignment_summary_individual
+    }
+
+internal fun assignmentActionRes(row: WeighingAssignmentUiRow): Int =
+    if (row.isShedPartition) {
+        R.string.weighing_action_record_lumpsum
+    } else {
+        R.string.weighing_action_scan_animals
+    }
 
 @Composable
-private fun assignmentAction(): String =
-    stringResource(R.string.weighing_action_scan_animals)
+private fun assignmentSummary(row: WeighingAssignmentUiRow): String =
+    stringResource(assignmentSummaryRes(row))
+
+@Composable
+private fun assignmentAction(row: WeighingAssignmentUiRow): String =
+    stringResource(assignmentActionRes(row))
 
 @Composable
 private fun weighingCategoryLabel(category: String): String =
@@ -1147,6 +1169,8 @@ private fun WeighingExecutionScanScreen(
     onSelectAnimal: (String) -> Unit,
     onRecordIndividual: () -> Unit,
     onSubmitIndividualScope: () -> Unit,
+    onConfirmSubmitIndividualScope: () -> Unit,
+    onDismissSubmitConfirmation: () -> Unit,
     onRecordShedPartition: () -> Unit,
     onCaptureShedVideo: () -> Unit,
     onRetryShedVideo: (String) -> Unit,
@@ -1157,6 +1181,16 @@ private fun WeighingExecutionScanScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (state.showSubmitConfirmation) {
+        SubmitConfirmationDialog(
+            title = stringResource(R.string.weighing_submit_confirm_title),
+            subtitle = stringResource(R.string.weighing_submit_confirm_body),
+            dismissLabel = stringResource(R.string.weighing_submit_confirm_dismiss),
+            confirmLabel = stringResource(R.string.weighing_submit_confirm_action),
+            onConfirm = onConfirmSubmitIndividualScope,
+            onDismiss = onDismissSubmitConfirmation,
+        )
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MeshaColors.PageBg,

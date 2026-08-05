@@ -1,13 +1,17 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.BuildConfig
+
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.capture.ProofCaptureContext
@@ -34,6 +39,8 @@ import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
+import sg.mesha.goatos.core.data.weighing.WeighingCsvExportRow
+import sg.mesha.goatos.core.data.weighing.parseWeighingExportCsv
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
@@ -55,6 +62,9 @@ import sg.mesha.goatos.core.data.weighing.weighingScopeKey
 import sg.mesha.goatos.feature.weighing.WEIGHING_BUCKET_LADDER_STEPS
 import sg.mesha.goatos.feature.weighing.WeighingAssignmentUiRow
 import sg.mesha.goatos.feature.weighing.WeighingDraftUiRow
+import sg.mesha.goatos.feature.weighing.WeighingExportPreviewRowUi
+import sg.mesha.goatos.feature.weighing.WeighingExportPreviewShedUi
+import sg.mesha.goatos.feature.weighing.WeighingExportPreviewUiState
 import sg.mesha.goatos.feature.weighing.WeighingOperatorFilterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingOperatorUiRow
 import sg.mesha.goatos.feature.weighing.WeighingParkFilterUiRow
@@ -97,6 +107,7 @@ class WeighingViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val repeatSeedStore: WeighingRepeatSeedStore,
+    private val exportFileWriter: sg.mesha.goatos.export.WeighingExportFileWriter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
@@ -282,6 +293,42 @@ class WeighingViewModel @Inject constructor(
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskBucketCache())
     private val message = MutableStateFlow<String?>(null)
     private val actionInFlight = MutableStateFlow(false)
+    private val showSubmitConfirmation = MutableStateFlow(false)
+
+    // ---- Task-detail CSV export (leadership-only, weighing.monitor) -------------------------
+    private val exportingCsv = MutableStateFlow(false)
+
+    /**
+     * A file the export just wrote, waiting for the screen to hand it to a share sheet.
+     *
+     * State, not a one-shot event channel: this ViewModel already renders every other action's
+     * result through [taskDetailState] the same way, so a second signalling mechanism just for
+     * this one action would be a second pattern to remember. [consumeExportReadyFile] clears it
+     * once the screen has launched the intent, so a configuration change cannot re-fire it.
+     */
+    private val exportReadyFile = MutableStateFlow<android.net.Uri?>(null)
+    val exportReadyFileUri: StateFlow<android.net.Uri?> = exportReadyFile
+
+    // ---- Export PREVIEW (see the sheet before any share sheet fires) ------------------------
+    //
+    // The maintainer's ask: tapping the export icon used to download the CSV AND immediately fire
+    // ACTION_SEND, with no way to see what was actually in the file first. This is a SEPARATE
+    // fetch from [exportTaskCsv] -- the preview parses the bytes into rows for on-screen reading
+    // and never writes them to disk or a share intent; sharing from the preview reuses
+    // [exportTaskCsv] unchanged, which still does its own disk write + share hand-off.
+    //
+    // [exportPreviewState] itself is declared further down, AFTER [activeTask]: Kotlin initialises
+    // property initialisers in declaration order, and it reads [activeTask] for the park/date
+    // label, so it cannot be declared above that property.
+    private val exportPreviewLoading = MutableStateFlow(false)
+    private val exportPreviewError = MutableStateFlow("")
+    // Grouped by shed and parsed ONCE per fetch, off the main thread -- see [loadExportPreview].
+    // A real park export is up to ~8,000 CSV rows; parsing and grouping that on every recomposition
+    // (the old shape, done inline inside the [exportPreviewState] combine) is exactly the "throwing
+    // up entirely at once" the maintainer flagged. This holds the already-computed result so combine
+    // only re-packages it, never re-parses it.
+    private val exportPreviewSheds = MutableStateFlow<List<WeighingExportPreviewShedUi>>(emptyList())
+    private var exportPreviewJob: Job? = null
 
     // ---- The ONE open camera, and which animal it is pointed at -----------------------------
     //
@@ -297,6 +344,13 @@ class WeighingViewModel @Inject constructor(
     // Past that point the capture must NEVER be cancelled by a later scan — that would throw away
     // a finished field recording. A later scan is refused with a visible reason instead.
     private var proofCaptureVideoCaptured = false
+    // The ONE row queued behind an in-flight capture for a DIFFERENT animal. An in-flight capture
+    // is NEVER cancelled by a later scan — cancelling an active recording destroys unrecoverable
+    // field footage (the confirmed shed defect: an RFID scan mid-recording stops recording and
+    // exits the camera). The newly scanned animal is queued here instead and [captureVideoForRow]
+    // opens its camera automatically once the in-flight job completes. Only the LAST queued row
+    // survives a later scan.
+    private var pendingProofRow: WeighingRosterRowEntity? = null
 
     private val updatingWeightAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val loadingAssignments = MutableStateFlow(false)
@@ -454,6 +508,39 @@ class WeighingViewModel @Inject constructor(
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
+     * The export PREVIEW state: [activeTask]'s park/date plus the parsed CSV rows -- see the
+     * fields declared next to [exportPreviewLoading] above for why this reads [activeTask].
+     */
+    val exportPreviewState: StateFlow<WeighingExportPreviewUiState> = combine(
+        activeTask,
+        exportPreviewLoading,
+        exportPreviewError,
+        exportPreviewSheds,
+        exportingCsv,
+    ) { task, loading, error, sheds, sharing ->
+        WeighingExportPreviewUiState(
+            campaignId = task?.campaignId.orEmpty(),
+            parkName = task?.parkName?.ifBlank { task.parkId }.orEmpty(),
+            dateLabel = task?.weighDate?.let { weighDate ->
+                runCatching {
+                    // exception:exempt date display; unparseable date shows raw ISO string
+                    LocalDate.parse(weighDate, weighingIsoDateFormatter)
+                }
+                    .getOrNull()
+                    ?.format(weighingTodayFormatter)
+                    ?: weighDate
+            }.orEmpty(),
+            loading = loading,
+            error = error,
+            sheds = sheds,
+            // The grouping already walks every row once; re-summing here is O(sheds), not
+            // O(rows-again), and keeps [WeighingExportPreviewShedUi] the single source of truth.
+            totalRowCount = sheds.sumOf { it.rows.size },
+            sharing = sharing,
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingExportPreviewUiState())
+
+    /**
      * The task DETAIL state: one task, its buckets grouped by the operator who owns them.
      *
      * Operator display names come from the planner catalog. An id the catalog does not know is
@@ -463,14 +550,14 @@ class WeighingViewModel @Inject constructor(
         combine(
             activeTask,
             selectedTaskId,
-            combine(plannerCatalog, deepLinkCapabilities) { catalog, caps -> catalog to caps },
+            combine(plannerCatalog, deepLinkCapabilities, exportingCsv) { catalog, caps, exporting -> Triple(catalog, caps, exporting) },
             tasksLoading,
             actionInFlight,
-        ) { task, taskId, (catalog, deepLinkCaps), loading, busy ->
+        ) { task, taskId, (catalog, deepLinkCaps, exporting), loading, busy ->
             val operatorNames = catalog?.operators.orEmpty()
                 .filter { it.userId.isNotBlank() && it.displayName.isNotBlank() }
                 .associate { it.userId to it.displayName }
-            TaskDetailInputs(task, taskId.orEmpty(), operatorNames, loading, busy, deepLinkCaps)
+            TaskDetailInputs(task, taskId.orEmpty(), operatorNames, loading, busy, deepLinkCaps, exporting)
         }.let { base ->
             combine(base, taskCache, taskBucketCache, tasksStale, selectedOperatorFilter) { inputs, listCache, buckets, stale, operatorFilter ->
                 inputs.task.toTaskDetailUiState(
@@ -488,6 +575,7 @@ class WeighingViewModel @Inject constructor(
                     staleNotice = listOf(stale, weighingCacheAgeNotice(buckets.cachedAt))
                         .filter { it.isNotBlank() }
                         .joinToString(" "),
+                    exportingCsv = inputs.exportingCsv,
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskDetailUiState())
@@ -657,6 +745,111 @@ class WeighingViewModel @Inject constructor(
     }
 
     /**
+     * Downloads the selected task's CSV export and hands the file to the screen for a share/open
+     * intent.
+     *
+     * Gated on [WeighingCapabilities.canExportCsv], the SAME weighing.monitor permission the
+     * backend checks: a viewer without it never sees the button (see
+     * [sg.mesha.goatos.feature.weighing.WeighingTaskDetailUiState.canExportCsv]), so reaching this
+     * function without the capability would already be a UI bug, not a legitimate 403 to surface.
+     * Every failure path -- the network read AND the on-device file write -- reports through
+     * [message] and [crashReporter], matching every other write in this ViewModel; nothing here is
+     * caught and dropped.
+     */
+    fun exportTaskCsv() {
+        val task = selectedTask() ?: return
+        if (exportingCsv.value) return
+        if (!taskCache.value.capabilities.canExportCsv) return
+        exportingCsv.value = true
+        viewModelScope.launch {
+            try {
+                when (val exported = repository.exportCampaignCsv(task.campaignId)) {
+                    is AppResult.Ok -> {
+                        try {
+                            exportReadyFile.value = exportFileWriter.write(
+                                exported.value.bytes,
+                                exported.value.suggestedFileName,
+                            )
+                        } catch (writeFailure: Exception) {
+                            message.value = "Could not save the export file."
+                            crashReporter.recordException(writeFailure, "weighing csv export write failed")
+                        }
+                    }
+                    is AppResult.Err -> {
+                        message.value = exported.message
+                        crashReporter.recordException(
+                            IllegalStateException(exported.message),
+                            "weighing csv export failed",
+                        )
+                    }
+                }
+            } finally {
+                exportingCsv.value = false
+            }
+        }
+    }
+
+    /** The screen calls this once it has launched the share/open intent for [exportReadyFileUri]. */
+    fun consumeExportReadyFile() {
+        exportReadyFile.value = null
+    }
+
+    /**
+     * Downloads and parses the selected task's CSV for on-screen reading only.
+     *
+     * This is the fetch behind [exportPreviewState] -- it never writes a file and never launches
+     * a share intent, which is exactly the behaviour change the maintainer asked for: tapping the
+     * export icon now opens this preview, and sharing is a SEPARATE action the preview screen
+     * offers via [exportTaskCsv]. Same gate as export ([WeighingCapabilities.canExportCsv]) since
+     * this reads the same backend endpoint. Both the network read and a malformed response are
+     * reported through [exportPreviewError] and [crashReporter] -- nothing here fails silently.
+     *
+     * Parsing AND grouping run on [Dispatchers.Default], not [viewModelScope]'s main dispatcher --
+     * a real park export is up to ~8,000 rows, and walking that many characters/rows on the main
+     * thread is exactly the freeze the maintainer reported. This is a SINGLE whole-file parse: the
+     * backend returns the full CSV in one response body regardless, so a lazy per-shed parse would
+     * still need the whole byte array in memory first for no main-thread win -- what actually
+     * mattered was moving the CPU work off the UI thread and doing it ONCE, which this does.
+     *
+     * A refresh does NOT clear [exportPreviewSheds] on failure -- the previous good preview stays
+     * on screen (see [WeighingExportPreviewScreen]'s no-flicker rule) and only [exportPreviewError]
+     * carries the new failure.
+     */
+    fun loadExportPreview() {
+        val task = selectedTask() ?: return
+        if (!taskCache.value.capabilities.canExportCsv) return
+        exportPreviewJob?.cancel()
+        exportPreviewJob = viewModelScope.launch {
+            exportPreviewLoading.value = true
+            exportPreviewError.value = ""
+            try {
+                when (val exported = repository.exportCampaignCsv(task.campaignId)) {
+                    is AppResult.Ok -> {
+                        try {
+                            val sheds = withContext(Dispatchers.Default) {
+                                parseWeighingExportCsv(exported.value.bytes).toExportPreviewSheds()
+                            }
+                            exportPreviewSheds.value = sheds
+                        } catch (parseFailure: Exception) {
+                            exportPreviewError.value = "Could not read the export file."
+                            crashReporter.recordException(parseFailure, "weighing csv export parse failed")
+                        }
+                    }
+                    is AppResult.Err -> {
+                        exportPreviewError.value = exported.message
+                        crashReporter.recordException(
+                            IllegalStateException(exported.message),
+                            "weighing csv export preview fetch failed",
+                        )
+                    }
+                }
+            } finally {
+                exportPreviewLoading.value = false
+            }
+        }
+    }
+
+    /**
      * Hands the selected task's park, buckets, modes and operators to the authoring wizard.
      *
      * Nothing is written here and no campaign is copied: the wizard opens on its DATE step with
@@ -691,9 +884,58 @@ class WeighingViewModel @Inject constructor(
                 parkId = task.parkId,
                 parkName = task.parkName.ifBlank { task.parkId },
                 sourceDateLabel = runCatching {
+                    // exception:exempt date display; unparseable date shows raw ISO string
                     LocalDate.parse(task.weighDate, weighingIsoDateFormatter).format(weighingTodayFormatter)
                 }.getOrDefault(task.weighDate),
                 buckets = buckets,
+            ),
+        )
+        return campaignId
+    }
+
+    /**
+     * Hands the selected task's park, weigh date, buckets, modes and operators to the authoring
+     * wizard for an IN-PLACE change, rather than a new task.
+     *
+     * Unlike [stageRepeatOfTask], the weigh date travels with the seed and is applied immediately:
+     * an edit changes what a task holds, never which day it runs on. The wizard's own shed-picker
+     * excludes this campaign id from the server's availability check, so this task's own sheds
+     * never come back as "already scheduled" against themselves. Saving from edit mode calls
+     * [WeighingRepository.updatePlan] against this campaign id -- the create-then-publish path
+     * never runs, so a second task is never fabricated.
+     *
+     * Returns the source task id when a seed was staged, so the caller can navigate; null means
+     * there was nothing to carry over and the caller must not pretend otherwise.
+     */
+    fun stageEditOfTask(campaignId: String): String? {
+        val task = tasks.value.firstOrNull { it.campaignId == campaignId }
+            ?: selectedTaskSnapshot.value?.takeIf { it.campaignId == campaignId }
+            ?: return null
+        val buckets = task.sheds
+            .filter { it.locationId.isNotBlank() }
+            .map {
+                WeighingRepeatBucket(
+                    locationId = it.locationId,
+                    category = it.category,
+                    operatorUserId = it.operatorUserId,
+                )
+            }
+        if (task.parkId.isBlank() || buckets.isEmpty() || task.weighDate.isBlank()) {
+            message.value = REPEAT_BLOCKED_REASON
+            return null
+        }
+        repeatSeedStore.stage(
+            sourceCampaignId = campaignId,
+            seed = WeighingRepeatSeed(
+                parkId = task.parkId,
+                parkName = task.parkName.ifBlank { task.parkId },
+                sourceDateLabel = runCatching {
+                    // exception:exempt date display; unparseable date shows raw ISO string
+                    LocalDate.parse(task.weighDate, weighingIsoDateFormatter).format(weighingTodayFormatter)
+                }.getOrDefault(task.weighDate),
+                buckets = buckets,
+                editCampaignId = campaignId,
+                editWeighDate = task.weighDate,
             ),
         )
         return campaignId
@@ -728,7 +970,19 @@ class WeighingViewModel @Inject constructor(
                 proofs = capture.proofs,
                 readerConnection = capture.readerConnection,
             )
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
+        }
+            .let { base ->
+                // The confirmation flag MUST be folded in here. It was a private flow nobody read:
+                // submitIndividualScope set it true, the screen renders its dialog on
+                // state.showSubmitConfirmation, and that field stayed false forever -- so Submit
+                // passed every gate, armed the pending identifiers, showed no dialog, and
+                // confirmSubmitIndividualScope was never reached. The tap did nothing at all,
+                // with no message to say why.
+                combine(base, showSubmitConfirmation) { uiState, confirming ->
+                    uiState.copy(showSubmitConfirmation = confirming)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingUiState())
 
     init {
         analytics.track(
@@ -741,7 +995,10 @@ class WeighingViewModel @Inject constructor(
         if (scopeKey != null) {
             refreshScope()
             viewModelScope.launch {
-                val profile = runCatching { bootstrapRepository.operatorProfile() }.getOrNull()
+                val profile = runCatching {
+                    // exception:exempt cached profile fetch; best-effort, null is acceptable fallback
+                    bootstrapRepository.operatorProfile()
+                }.getOrNull()
                 currentPrincipalId = profile?.operatorId?.takeIf { it.isNotBlank() }
                 restoreLumpSumInputDraft()
             }
@@ -1320,25 +1577,72 @@ class WeighingViewModel @Inject constructor(
             submittedIdentifiers.size != pairedDrafts.size
         ) {
             message.value = "Every scanned RFID in this shed needs saved weight and synced video before submit."
+            analytics.track(
+                AnalyticsEvents.SUBMIT_BLOCKED,
+                weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                    (AnalyticsEvents.Params.REASON to "scope_incomplete"),
+            )
             return
         }
+        // Show confirmation dialog instead of submitting directly
+        showSubmitConfirmation.value = true
+        submitPendingIdentifiers = submittedIdentifiers
+        submitPendingCallback = onSubmitted
+    }
+
+    private var submitPendingIdentifiers: List<String>? = null
+    private var submitPendingCallback: (() -> Unit)? = null
+
+    fun confirmSubmitIndividualScope() {
+        val identifiers = submitPendingIdentifiers ?: return
+        val callback = submitPendingCallback ?: return
+        showSubmitConfirmation.value = false
+        submitPendingIdentifiers = null
+        submitPendingCallback = null
         actionInFlight.value = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED,
+            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+        )
         viewModelScope.launch {
             try {
                 when (
-                    repository.submitIndividualScope(
+                    val submitted = repository.submitIndividualScope(
                         campaignId,
                         campaignShedId,
-                        submittedIdentifiers,
+                        identifiers,
                     )
                 ) {
-                    is AppResult.Ok -> onSubmitted()
-                    is AppResult.Err -> message.value = "Couldn't submit this shed. Try again."
+                    is AppResult.Ok -> {
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED,
+                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                        )
+                        callback()
+                    }
+                    is AppResult.Err -> {
+                        message.value = "Couldn't submit this shed. Try again."
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED,
+                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
+                                (AnalyticsEvents.Params.REASON to submitted.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
+                        crashReporter.recordException(
+                            submitted.cause ?: IllegalStateException(submitted.message),
+                            "weighing individual scope submit failed",
+                        )
+                    }
                 }
             } finally {
                 actionInFlight.value = false
             }
         }
+    }
+
+    fun dismissSubmitConfirmation() {
+        showSubmitConfirmation.value = false
+        submitPendingIdentifiers = null
+        submitPendingCallback = null
     }
 
     private fun recordIndividualRow(
@@ -1516,11 +1820,28 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         actionInFlight.value = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
+            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId),
+        )
         viewModelScope.launch {
             try {
                 when (val retried = proofCaptureRepository.retryUpload(key, proofId)) {
-                    is AppResult.Ok -> message.value = "Group video retry queued."
-                    is AppResult.Err -> message.value = retried.message
+                    is AppResult.Ok -> {
+                        message.value = "Group video retry queued."
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
+                            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId),
+                        )
+                    }
+                    is AppResult.Err -> {
+                        message.value = retried.message
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
+                            shedVideoActionProps(SHED_VIDEO_ACTION_RETRY, proofId) +
+                                (AnalyticsEvents.Params.REASON to retried.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
+                    }
                 }
             } finally {
                 actionInFlight.value = false
@@ -1532,11 +1853,28 @@ class WeighingViewModel @Inject constructor(
         val key = scopeKey ?: return
         if (category != PER_SHED_PARTITION_CATEGORY || actionInFlight.value) return
         actionInFlight.value = true
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
+            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId),
+        )
         viewModelScope.launch {
             try {
                 when (val removed = proofCaptureRepository.remove(key, proofId)) {
-                    is AppResult.Ok -> message.value = "Group video removed."
-                    is AppResult.Err -> message.value = removed.message
+                    is AppResult.Ok -> {
+                        message.value = "Group video removed."
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
+                            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId),
+                        )
+                    }
+                    is AppResult.Err -> {
+                        message.value = removed.message
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
+                            shedVideoActionProps(SHED_VIDEO_ACTION_REMOVE, proofId) +
+                                (AnalyticsEvents.Params.REASON to removed.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
+                    }
                 }
             } finally {
                 actionInFlight.value = false
@@ -1587,6 +1925,11 @@ class WeighingViewModel @Inject constructor(
             return
         }
         actionInFlight.value = true
+        val shedVideoAction = if (replacingProofId == null) SHED_VIDEO_ACTION_CAPTURE else SHED_VIDEO_ACTION_REPLACE
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_ATTEMPTED,
+            shedVideoActionProps(shedVideoAction, replacingProofId),
+        )
         viewModelScope.launch {
             try {
                 val slotNumber = if (replacingIndex >= 0) replacingIndex + 1 else existing + 1
@@ -1599,7 +1942,10 @@ class WeighingViewModel @Inject constructor(
                     ),
                 ) ?: return@launch
                 val principalId = currentPrincipalId
-                    ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
+                    ?: runCatching {
+                        // exception:exempt cached profile fetch; best-effort, null triggers early return
+                        bootstrapRepository.operatorProfile()?.operatorId
+                    }.getOrNull()
                         ?.takeIf { it.isNotBlank() }
                         ?.also { currentPrincipalId = it }
                     ?: return@launch
@@ -1634,6 +1980,14 @@ class WeighingViewModel @Inject constructor(
                                 is AppResult.Ok -> Unit
                                 is AppResult.Err -> {
                                     message.value = removed.message
+                                    analytics.track(
+                                        AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
+                                        shedVideoActionProps(shedVideoAction, replacingProofId) +
+                                            (
+                                                AnalyticsEvents.Params.REASON to
+                                                    removed.message.take(MAX_ANALYTICS_REASON_CHARS)
+                                                ),
+                                    )
                                     return@launch
                                 }
                             }
@@ -1643,8 +1997,19 @@ class WeighingViewModel @Inject constructor(
                         } else {
                             "Group video replaced."
                         }
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_SUCCEEDED,
+                            shedVideoActionProps(shedVideoAction, replacingProofId ?: proof.value.id),
+                        )
                     }
-                    is AppResult.Err -> message.value = proof.message
+                    is AppResult.Err -> {
+                        message.value = proof.message
+                        analytics.track(
+                            AnalyticsEventsWeighing.WEIGHING_SHED_VIDEO_ACTION_FAILED,
+                            shedVideoActionProps(shedVideoAction, replacingProofId) +
+                                (AnalyticsEvents.Params.REASON to proof.message.take(MAX_ANALYTICS_REASON_CHARS)),
+                        )
+                    }
                 }
             } finally {
                 actionInFlight.value = false
@@ -1726,13 +2091,46 @@ class WeighingViewModel @Inject constructor(
             put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
         }
 
+    private fun shedVideoActionProps(action: String, proofId: String?): Map<String, String> =
+        buildMap {
+            put(AnalyticsEvents.Params.CATEGORY, action)
+            put(AnalyticsEvents.Params.ITEM_ID, scopeKey.orEmpty())
+            put(AnalyticsEvents.Params.SHED_ID, campaignShedId)
+            proofId?.let { put(AnalyticsEvents.Params.PROOF_ID, it) }
+        }
+
     override fun onCleared() {
         readerRefreshJob?.cancel()
         reader.setCompletionKeySwallowEnabled(false)
         reader.setCaptureEnabled(false)
     }
 
-    private fun matchTag(tag: String) {
+    /**
+     * Namespaces a scanned tag to THIS shed, in dev builds only.
+     *
+     * A tester has a handful of physical tags and many sheds to walk, so the same tag is read in
+     * every one of them. Weighing accepts that by design -- its duplicate rule is scoped per shed
+     * (migration 000073: "a goat is not fenced to one shed by this table") -- but everything
+     * downstream then sees ONE animal weighed several times a day, which is exactly how a 15 kg
+     * reading in one shed and an 11 kg reading in another became a herd growth figure.
+     *
+     * Prefixing with the shed's own location id keeps the physical tag readable at the end while
+     * making each shed's read a distinct identifier, so 5 tags behave like 5 animals PER shed.
+     * Gated on the dev flavour's BuildConfig field, so stg and prod never compile it in and real
+     * scans are never rewritten.
+     */
+    private fun scopedScanIdentifier(tag: String): String {
+        if (!(scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX)) return tag
+        val shed = expectedLocationId.takeIf { it.isNotBlank() } ?: return tag
+        val trimmed = tag.trim()
+        if (trimmed.isEmpty()) return tag
+        val namespace = shed.filter { it.isLetterOrDigit() }.takeLast(6).uppercase()
+        if (namespace.isEmpty() || trimmed.startsWith("$namespace-")) return trimmed
+        return "$namespace-$trimmed"
+    }
+
+    private fun matchTag(rawTag: String) {
+        val tag = scopedScanIdentifier(rawTag)
         val key = scopeKey ?: return
         val normalizedTag = normalizeFreeFlowTag(tag)
         if (normalizedTag.isBlank()) return
@@ -1803,28 +2201,43 @@ class WeighingViewModel @Inject constructor(
     /** Opens the video camera for [row]. Only one animal's video can be RECORDING at a time — the
      *  camera is one physical device pointed at one animal.
      *
-     *  A scan of a DIFFERENT animal while the current animal's video is still being recorded (i.e.
-     *  the camera has not returned a recording yet, so nothing has been written) CLOSES that
-     *  window rather than dropping the scan: the still-open camera is cancelled and a fresh one
-     *  opens for the newly scanned animal, and the operator is told the first animal still needs
-     *  its video. Cancelling is only safe before a recording exists — once one does
-     *  ([proofCaptureVideoCaptured]) the new scan is refused with a visible reason so a finished
-     *  recording is never thrown away. */
+     *  A scan of a DIFFERENT animal while the current animal's video is still being recorded must
+     *  NEVER cancel that recording — that destroys unrecoverable field footage, the confirmed shed
+     *  defect ("RFID scan mid-recording stops recording and exits the camera"). Instead the new
+     *  animal is QUEUED in [pendingProofRow]: its camera opens automatically once the in-flight
+     *  job's `finally` runs (capture saved or failed), so the operator can scan ahead without
+     *  losing the current animal's video or having to remember to rescan. Only the LAST queued
+     *  animal survives a later scan — an earlier queued-but-not-yet-opened one is overtaken and
+     *  its camera will never open, which is a genuine drop and is surfaced, never silent. */
     private fun captureVideoForRow(key: String, row: WeighingRosterRowEntity) {
         val strandedAnimalId = proofCaptureAnimalId
         if (strandedAnimalId != null) {
-            if (strandedAnimalId == row.animalId || proofCaptureVideoCaptured) {
-                // The same animal was re-scanned mid-recording, or the open capture already has a
-                // finished recording being saved. Nothing safe to cancel in either case.
+            if (strandedAnimalId == row.animalId) {
+                // The same animal was re-scanned mid-recording — nothing to do.
                 message.value = "Finish the current animal's video first."
                 return
             }
-            proofCaptureJob?.cancel()
-            proofCaptureJob = null
-            proofCaptureAnimalId = null
-            proofCaptureVideoCaptured = false
-            actionInFlight.value = false
-            message.value = "$strandedAnimalId still needs its video."
+            // A DIFFERENT animal was scanned while a capture is still in flight for another one.
+            // The camera can never be cancelled to serve this new scan, so queue it instead.
+            val replaced = pendingProofRow
+            if (replaced != null && replaced.animalId != row.animalId) {
+                analytics.track(
+                    AnalyticsEvents.PROOF_CAPTURE_SCAN_DROPPED,
+                    mapOf(AnalyticsEvents.Params.KIND to "weighing"),
+                )
+                message.value = "${replaced.displayAnimalId} still needs its video — dropped for ${row.displayAnimalId}."
+            } else {
+                message.value = "${row.displayAnimalId} queued — camera opens once $strandedAnimalId's video is saved."
+            }
+            pendingProofRow = row
+            analytics.track(
+                AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED,
+                mapOf(
+                    AnalyticsEvents.Params.KIND to "weighing",
+                    AnalyticsEvents.Params.REASON to "recording_in_progress",
+                ),
+            )
+            return
         } else if (actionInFlight.value) {
             return
         }
@@ -1859,6 +2272,13 @@ class WeighingViewModel @Inject constructor(
                     proofCaptureAnimalId = null
                     proofCaptureJob = null
                     proofCaptureVideoCaptured = false
+                    // The camera just freed up — open a queued animal's camera now instead of
+                    // stranding it until another scan happens to arrive.
+                    val queued = pendingProofRow
+                    pendingProofRow = null
+                    if (queued != null) {
+                        captureVideoForRow(key, queued)
+                    }
                 }
             }
         }
@@ -1882,7 +2302,10 @@ class WeighingViewModel @Inject constructor(
         // longer cancel this capture — see [captureVideoForRow].
         proofCaptureVideoCaptured = true
         val principalId = currentPrincipalId
-            ?: runCatching { bootstrapRepository.operatorProfile()?.operatorId }.getOrNull()
+            ?: runCatching {
+                // exception:exempt cached profile fetch; best-effort, null triggers error response
+                bootstrapRepository.operatorProfile()?.operatorId
+            }.getOrNull()
                 ?.takeIf { it.isNotBlank() }
                 ?.also { currentPrincipalId = it }
             ?: return AppResult.Err("missing_operator")
@@ -2125,6 +2548,7 @@ class WeighingViewModel @Inject constructor(
 
     private fun scanTimeLabel(epochMs: Long): String =
         runCatching {
+            // exception:exempt timestamp display fallback; format failure shows generic label
             "Scanned " + WEIGHING_SCAN_TIME_FORMATTER.format(Instant.ofEpochMilli(epochMs))
         }.getOrDefault("just now")
 
@@ -2168,10 +2592,32 @@ class WeighingViewModel @Inject constructor(
         val activeIds = sessionProofIds.value.toMutableSet()
         scope?.individualDrafts.orEmpty()
             .mapNotNullTo(activeIds) { it.proofCaptureId?.takeIf(String::isNotBlank) }
+        // A shed video is revived only while this scope still holds an OPEN round. Reviving
+        // every synced shed proof brought back ones a reopen had superseded, which filled the
+        // 5-video cap with dead clips and blocked the operator from filming the new one.
+        val hasOpenShedRound = scope?.shedDrafts.orEmpty().isNotEmpty()
         return proofs.filter { proof ->
-            proof.syncStatus != CaptureSyncStatus.SYNCED || proof.id in activeIds
+            proof.syncStatus != CaptureSyncStatus.SYNCED ||
+                proof.id in activeIds ||
+                (hasOpenShedRound && proof.belongsToThisShedScope())
         }
     }
+
+    /**
+     * A shed/lump-sum video belongs to this scope on its own evidence, not on session memory.
+     *
+     * sessionProofIds is in-heap and individualDrafts only ever carries INDIVIDUAL proof ids, so a
+     * shed video that finished syncing was dropped from the active list the moment the process
+     * restarted. Nothing repopulated it: the screen said "No video added yet" and
+     * recordShedPartition refused to submit, while the video sat in Room SYNCED with a
+     * serverProofId and its file was already on the server. The operator's proof was unreachable
+     * with no way to recover short of filming it again.
+     */
+    /** Caller gates this on an open round; see [activeWeighingProofs]. */
+    private fun ProofCaptureRow.belongsToThisShedScope(): Boolean =
+        fieldKey == SHED_PARTITION_PROOF_FIELD_KEY &&
+            subjectId == expectedLocationId &&
+            expectedLocationId.isNotBlank()
 
     private suspend fun publishActiveProofs(scope: String, proofs: List<ProofCaptureRow>) {
         val activeProofs = activeWeighingProofs(proofs, scopeState.value)
@@ -2230,7 +2676,18 @@ class WeighingViewModel @Inject constructor(
             actionLabel = "Reconnect",
         )
 
-    private companion object {
+    internal companion object {
+        /**
+         * Test-only override for the dev-flavour scan namespacing in [scopedScanIdentifier].
+         *
+         * A companion field, NOT a constructor parameter: this ViewModel is built by Hilt via
+         * @Inject and Hilt has no binding for a bare Boolean, so a constructor flag breaks the
+         * Dagger build. Unit tests run on the DEV variant where the namespacing is on, so
+         * without this they assert the test-rig-prefixed identifier instead of the real one.
+         */
+        @JvmStatic
+        internal var scanScopePrefixOverride: Boolean? = null
+
         const val ROSTER_WINDOW_SIZE = 20
         const val LIST_PREFETCH_DISTANCE = 3
         const val ROSTER_SYNC_MAX_ROWS = MAX_SCOPE_HYDRATION_ROWS
@@ -2242,6 +2699,10 @@ class WeighingViewModel @Inject constructor(
         const val INDIVIDUAL_ANIMAL_CATEGORY = "individual_animal"
         const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
         const val MAX_ANALYTICS_REASON_CHARS = 96
+        const val SHED_VIDEO_ACTION_RETRY = "retry"
+        const val SHED_VIDEO_ACTION_REMOVE = "remove"
+        const val SHED_VIDEO_ACTION_CAPTURE = "capture"
+        const val SHED_VIDEO_ACTION_REPLACE = "replace"
         const val MAX_SHED_GROUP_VIDEOS = 5
         const val DEFAULT_PLANNED_CAP_PER_DAY = 100
         val WEIGHING_SCAN_TIME_FORMATTER: DateTimeFormatter =
@@ -2309,6 +2770,7 @@ private fun String.readableWeighingPeriodLabel(): String {
     val parts = split(" - ")
     if (parts.size != 2) return this
     return runCatching {
+        // exception:exempt period label display; parsing failure shows raw input
         val start = LocalDate.parse(parts[0], DateTimeFormatter.ISO_LOCAL_DATE)
         val end = LocalDate.parse(parts[1], DateTimeFormatter.ISO_LOCAL_DATE)
         val week = start.get(WeekFields.ISO.weekOfWeekBasedYear())
@@ -2489,11 +2951,15 @@ internal fun WeighingTask?.toTaskDetailUiState(
     loading: Boolean,
     busy: Boolean,
     staleNotice: String,
+    exportingCsv: Boolean = false,
 ): WeighingTaskDetailUiState {
     if (this == null) {
         return WeighingTaskDetailUiState(campaignId = campaignId, found = false, loading = loading, busy = busy)
     }
-    val date = runCatching { LocalDate.parse(weighDate, weighingIsoDateFormatter) }.getOrNull()
+    val date = runCatching {
+        // exception:exempt date parsing for display; null fallback shows raw date
+        LocalDate.parse(weighDate, weighingIsoDateFormatter)
+    }.getOrNull()
     val normalizedStatus = status.trim().lowercase()
     // The RENDERED buckets are the cached keyset page, not the whole set the task record embeds:
     // one park can hold 76+ sheds, and the reader is shown a page at a time.
@@ -2583,6 +3049,8 @@ internal fun WeighingTask?.toTaskDetailUiState(
         loading = loading,
         busy = busy,
         staleNotice = staleNotice,
+        canExportCsv = capabilities.canExportCsv,
+        exportingCsv = exportingCsv,
     )
 }
 
@@ -2626,7 +3094,10 @@ private fun WeighingTask.toTaskUiRow(): WeighingTaskUiRow {
     val bucketCount = sheds.size
     // "Accepted" is a bucket whose evidence a verifier has cleared, or one leadership has closed.
     val accepted = sheds.count { it.readyToClose || it.status.equals("closed", ignoreCase = true) }
-    val date = runCatching { LocalDate.parse(weighDate, weighingIsoDateFormatter) }.getOrNull()
+    val date = runCatching {
+        // exception:exempt date parsing for display; null fallback shows raw date
+        LocalDate.parse(weighDate, weighingIsoDateFormatter)
+    }.getOrNull()
     return WeighingTaskUiRow(
         campaignId = campaignId,
         parkId = parkId,
@@ -2657,10 +3128,13 @@ private data class TaskDetailInputs(
     val busy: Boolean,
     /** The single-task read's capability answer, or null when only the list answered. */
     val deepLinkCapabilities: WeighingCapabilities? = null,
+    /** True while the CSV export download is in flight. */
+    val exportingCsv: Boolean = false,
 )
 
 /** The weigh date as a person reads it, never the machine form. */
 private fun WeighingTask.weighDateLabel(): String = runCatching {
+    // exception:exempt date display formatter; unparseable date shows raw ISO string
     LocalDate.parse(weighDate, weighingIsoDateFormatter).format(weighingTodayFormatter)
 }.getOrDefault(weighDate)
 
@@ -2679,3 +3153,40 @@ internal const val REPEAT_BLOCKED_REASON =
 /** Reason CODES for ending a task. The backend owns the sentence that is recorded. */
 private const val CLOSE_REASON_ALL_ACCEPTED = "all_buckets_accepted"
 private const val CLOSE_REASON_OPEN_BUCKETS = "open_buckets_closed"
+
+/**
+ * Groups the export's flat row list by shed, PRESERVING the backend's own row order within and
+ * across sheds -- the CSV is already ordered by park/shed, and re-sorting here would make the
+ * preview disagree with the file a planner can also open directly.
+ */
+private fun List<WeighingCsvExportRow>.toExportPreviewSheds(): List<WeighingExportPreviewShedUi> {
+    val order = LinkedHashMap<String, MutableList<WeighingCsvExportRow>>()
+    for (row in this) {
+        val key = "${row.park} ${row.shedName}"
+        order.getOrPut(key) { mutableListOf() }.add(row)
+    }
+    return order.entries.map { (key, rows) ->
+        val first = rows.first()
+        WeighingExportPreviewShedUi(
+            shedKey = key,
+            park = first.park,
+            shedName = first.shedName,
+            shedStatus = first.shedStatus,
+            rows = rows.map { it.toPreviewRowUi() },
+        )
+    }
+}
+
+private fun WeighingCsvExportRow.toPreviewRowUi(): WeighingExportPreviewRowUi = WeighingExportPreviewRowUi(
+    type = type,
+    scannedIdentifier = scannedIdentifier,
+    weightKg = weightKg,
+    averageWeightKg = averageWeightKg,
+    animalCount = animalCount,
+    verificationStatus = verificationStatus,
+    proofReferenceType = proofReferenceType,
+    proofReference = proofReference,
+    recordedAt = recordedAt,
+    dateIst = dateIst,
+    timeIst = timeIst,
+)

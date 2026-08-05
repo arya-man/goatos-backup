@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="submit_eyebrow">ಲಸಿಕೆ</string>
     <string name="submit_record_title">ಶೆಡ್ ದಾಖಲೆ</string>
@@ -46,4 +49,8 @@
     <string name="submit_snackbar_succeeded">ಸಲ್ಲಿಕೆ ಸಿಂಕ್ ಆಯಿತು · ಫೈಲ್‌ನಲ್ಲಿ ರೆಕಾರ್ಡ್</string>
     <string name="submit_snackbar_conflict">ಸರ್ವರ್ ಸಲ್ಲಿಕೆಯನ್ನು ನಿರಾಕರಿಸಿದೆ</string>
     <string name="submit_snackbar_dead_letter">ಸಲ್ಲಿಕೆ ವಿಫಲ ಆಯಿತು — ಆನ್‌ಲೈನ್‌ನಲ್ಲಿರುವಾಗ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸುತ್ತದೆ</string>
+    <string name="submit_confirm_title">ಈ ಶೆಡ್ ಮುಗಿಸುವುದೇ?</string>
+    <string name="submit_confirm_body">ಈ ಶೆಡ್ ವಿಡಿಯೊ ಪರಿಶೀಲನೆಗೆ ಹೋಗುತ್ತದೆ. ನೀವೇ ಇದನ್ನು ಮತ್ತೆ ತೆರೆಯಲು ಆಗುವುದಿಲ್ಲ — ಮ್ಯಾನೇಜರ್ ಅಥವಾ ಡೈರೆಕ್ಟರ್ ತೆರೆಯಬಹುದು.</string>
+    <string name="submit_confirm_cancel">ಈಗ ಬೇಡ</string>
+    <string name="submit_confirm_confirm">ಮುಗಿಸಿ</string>
 </resources>

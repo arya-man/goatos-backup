@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,10 +58,19 @@ import sg.mesha.goatos.core.permissions.shouldShowRationale
  *
  * Renders nothing once every OS-required permission is already granted, so a returning
  * operator's login screen stays uncluttered (no dead/static UI — repo standing rule).
+ *
+ * This composable owns no analytics client (no Hilt in this module — see feature-auth's
+ * `build.gradle.kts`): [onGateShown]/[onPermissionAnswered] report every render-with-a-gap and
+ * every grant/deny to the host (`LoginScreen` -> `MainActivity`, which holds the injected
+ * [sg.mesha.goatos.core.analytics.AnalyticsPort]), the same pattern
+ * [RoleBasedPermissionGate] already uses for the mandatory gate. A denied camera permission here
+ * is exactly why an operator "can't record" later, and today nothing at all surfaces that.
  */
 @Composable
 fun PermissionGateCard(
     modifier: Modifier = Modifier,
+    onGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -83,9 +93,14 @@ fun PermissionGateCard(
     // the gate outright.
     val registryOwner = LocalActivityResultRegistryOwner.current
     val launcher: ActivityResultLauncher<Array<String>>? = if (registryOwner != null) {
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             requestRounds += 1
             grantedSnapshot = required.associateWith { permission -> isPermissionGranted(context, permission) }
+            // Report every answer the OS actually returned — only the still-missing permissions
+            // were launched, so this never reports one already granted in an earlier round.
+            // `results` keys are already manifest permission strings (RequestMultiplePermissions'
+            // contract), not [AppPermission].
+            results.forEach { (manifestPermission, granted) -> onPermissionAnswered(manifestPermission, granted) }
         }
     } else {
         null
@@ -104,6 +119,13 @@ fun PermissionGateCard(
     if (statuses.all { it.second == PermissionGrantState.GRANTED }) return
 
     val needsRequest = statuses.filter { it.second == PermissionGrantState.DENIED }.map { it.first }
+    val stillMissing = statuses.filter { it.second != PermissionGrantState.GRANTED }.map { it.first.manifestPermission }
+
+    // Fire once per DISTINCT missing set, not on every recomposition — keyed on the resolved
+    // list so a parent recompose that leaves the same gap in place never double-counts it.
+    LaunchedEffect(stillMissing) {
+        if (stillMissing.isNotEmpty()) onGateShown(stillMissing)
+    }
 
     MeshaCard(modifier = modifier) {
         MeshaSectionLabel(text = stringResource(R.string.perm_gate_title))

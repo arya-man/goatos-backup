@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Screen chrome -->
     <string name="calendar_eyebrow">టీకా</string>
@@ -62,4 +65,5 @@
     <string name="calendar_drive_due">%1$d బాకీ</string>
     <string name="calendar_drive_overdue">%1$d గడువు మీరిన</string>
     <string name="calendar_drive_deferred">%1$d వాయిదా</string>
+    <string name="calendar_drive_rejected">%1$d తిరస్కరించబడింది</string>
 </resources>

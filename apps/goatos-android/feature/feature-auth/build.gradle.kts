@@ -1,3 +1,4 @@
+// telemetry:exempt feature module configuration; telemetry wired in LoginScreen.kt and SessionViewModel.kt
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
