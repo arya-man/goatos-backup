@@ -169,47 +169,13 @@ private class GateRepository(
     )
     private val response = VerificationQueueResponseDto(items = listOf(item))
 
-    override suspend fun queue(
-        category: String?,
-        status: String?,
-        businessDate: String?,
-        missed: Boolean?,
-        parkId: String?,
-        shedId: String?,
-        limit: Int?,
-        cursor: String?,
-    ): VerificationQueueResponseDto = response
+    override suspend fun queue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = response
 
-    override fun observeQueue(
-        category: String?,
-        status: String?,
-        businessDate: String?,
-        missed: Boolean?,
-        parkId: String?,
-        shedId: String?,
-        limit: Int?,
-    ): Flow<Resource<VerificationQueueResponseDto>> = flowOf(Resource(data = response))
+    override fun observeQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = flowOf(Resource(data = response))
 
-    override suspend fun refreshQueue(
-        category: String?,
-        status: String?,
-        businessDate: String?,
-        missed: Boolean?,
-        parkId: String?,
-        shedId: String?,
-        limit: Int?,
-    ): Result<Unit> = Result.success(Unit)
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
 
-    override suspend fun appendQueue(
-        cursor: String,
-        category: String?,
-        status: String?,
-        businessDate: String?,
-        missed: Boolean?,
-        parkId: String?,
-        shedId: String?,
-        limit: Int?,
-    ): Result<Unit> = Result.success(Unit)
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> =
         flowOf(Resource(data = response))
 
