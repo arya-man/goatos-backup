@@ -293,6 +293,20 @@ and bounded row-number examples that do not print staff PII:
 - unresolved or duplicate roster seats;
 - every source center's Preventive Care Manager, Backup Manager, and Park Head
   coverage. A CPT-only rehearsal source must not be forced to include CBE seats;
+- a `manage` duty holder for `pc.vaccination`, not only `execute` holders.
+  `seed-closeout.sh` fails the whole stack when no ACTIVE seat holds BOTH
+  `execute` and `manage` for that module, because the reminder ladder
+  (`kernelstages/reminder_cadence.go`) resolves both duty types and would
+  otherwise queue reminders to nobody. `seed-position-duties` derives `manage`
+  for manager-tier seats -- `preventive_care_manager`, `park_head`,
+  `shed_manager` -- while deliberately keeping two prefixes on `execute`
+  regardless of their HR tier:
+    * `vaccination_operator_*` -- a drive operator whose title reads manager is
+      still executing the drive, not managing the module;
+    * `backup_manager` -- a backup covers the absent manager's TASKS, never
+      their authority.
+  A source whose roster contains only operators therefore seeds no `manage`
+  holder and fails closeout; that is the intended signal, not a bug;
 - one reviewed manager and backup for every committed source physical shed and
   every animal. Private CPT operator-drive seed bundles may leave the
   shed-manager CSV empty only when the reviewed CPT roster contains the three

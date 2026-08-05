@@ -423,6 +423,29 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
       if (value && !value.startsWith("Fixture ")) pushSample(nonSyntheticNames, `shed-manager row ${index + 1}:${field}`);
     }
   }
+  // pc.vaccination MANAGE coverage. seed-closeout fails the whole stack unless an active seat holds
+  // BOTH `execute` and `manage` for pc.vaccination, because the reminder ladder
+  // (kernelstages/reminder_cadence.go) resolves both duty types. seed-position-duties derives
+  // `manage` ONLY from manager-tier seats that are not operators and not backups --
+  // vaccination_operator_* stays `execute` (a drive operator whose HR title reads manager is still
+  // executing) and backup_manager stays `execute` (a backup covers the absent manager's tasks, not
+  // their authority). So a source whose shed-manager mapping names only operators/backups seeds no
+  // manage holder, and the failure surfaces LATE, as a local stack that loops
+  // "Local database preparation failed". Catch it here, at source-validation time, instead.
+  const manageCapableRoles = [];
+  for (let index = 1; index < managers.length; index += 1) {
+    const role = String(cell(managers[index], managerColumns, "manager_role") ?? "").trim().toLowerCase();
+    if (!role) continue;
+    if (role.includes("operator") || role.includes("backup")) continue;
+    manageCapableRoles.push(role);
+  }
+  // count is the number of PROBLEMS: zero manager-tier roles is one problem, otherwise none.
+  checks.push(makeCheck(
+    "pc.vaccination manage coverage",
+    manageCapableRoles.length > 0 ? 0 : 1,
+    "shed-manager mapping must name at least one manager-tier role outside operator/backup, or seed-position-duties derives no pc.vaccination `manage` holder and seed-closeout fails the stack",
+    "add a Preventive Care Manager / Park Head / shed manager seat to the source roster",
+  ));
   for (let index = 1; index < timetable.length; index += 1) {
     for (const column of [2, 3, 5]) {
       const value = String(timetable[index]?.[column] ?? "").trim();

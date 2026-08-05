@@ -553,6 +553,13 @@ export function validateLoadedFixture(bundle, { checkHashes = true } = {}) {
     expect(managerCode !== backupCode, `shed manager row ${index + 1}: manager and backup must differ`, problems);
     const managerSeat = rosterSeatByCode.get(managerCode);
     const backupSeat = rosterSeatByCode.get(backupCode);
+    // This assertion is what guarantees the seeded stack can BOOT, not just a naming rule.
+    // seed-position-duties derives the pc.vaccination `manage` duty only from manager-tier seats
+    // that are neither operators nor backups -- vaccination_operator_* and backup_manager stay on
+    // `execute` -- and seed-closeout fails the whole stack when no active seat holds `manage`,
+    // because the reminder ladder resolves both duty types. "Preventive Care Manager" is that seat.
+    // Relaxing this to allow an operator or backup here would produce a fixture that validates,
+    // seeds, and then loops "Local database preparation failed" at closeout.
     expect(managerSeat?.center === park && managerSeat?.position === "Preventive Care Manager", `shed manager row ${index + 1}: manager must hold ${park} Preventive Care Manager`, problems);
     expect(backupSeat?.center === park && backupSeat?.position === "Backup Manager", `shed manager row ${index + 1}: backup must hold ${park} Backup Manager`, problems);
     expect(cell(row, managerHeader, "manager_name") === managerSeat?.candidate, `shed manager row ${index + 1}: manager name/code mismatch`, problems);
