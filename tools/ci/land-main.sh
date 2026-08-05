@@ -40,6 +40,13 @@ selected_jobs_against() {
     | sed -n 's/^selected_jobs=//p'
 }
 
+# Attempt log (gitignored, inside the git dir). Instrumentation only: it never
+# changes control flow, gate semantics, or exit status.
+attempt_log="$(git rev-parse --git-path goatos-land-main-attempts.log 2>/dev/null || echo /dev/null)"
+log_attempt() { # key=value...
+  printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >>"$attempt_log" 2>/dev/null || true
+}
+
 is_clean() {
   [ -z "$(git status --porcelain --untracked-files=all)" ]
 }
@@ -135,6 +142,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
 
   echo "land-main: CI green at $(short_sha "$candidate_sha"); checking main again"
   base_after="$(fetch_main)"
+  log_attempt "attempt=${attempt} base_before=$(short_sha "$base_before") base_after=$(short_sha "$base_after") base_moved=$([ "$base_after" = "$base_before" ] && echo no || echo yes)"
   if [ "$base_after" != "$base_before" ]; then
     if [ "$base_after" = "$candidate_sha" ] || git merge-base --is-ancestor "$candidate_sha" "$base_after"; then
       echo "land-main: origin/main already contains candidate $(short_sha "$candidate_sha")"
@@ -145,6 +153,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
       is_clean || die "rebase left tracked or untracked changes; refusing to reuse CI evidence"
       rebased_sha="$(git rev-parse HEAD)"
       rebased_patch_id="$(patch_id_against "$base_after" "$rebased_sha")"
+      log_attempt "attempt=${attempt} patch_id_match=$([ -n "$candidate_patch_id" ] && [ "$candidate_patch_id" = "$rebased_patch_id" ] && echo yes || echo no) jobs_before=$(selected_jobs_against "$base_before" "$candidate_sha") jobs_after=$(selected_jobs_against "$base_after" "$rebased_sha")"
       if [ -n "$candidate_patch_id" ] && [ "$candidate_patch_id" = "$rebased_patch_id" ]; then
         rebased_jobs="$(selected_jobs_against "$base_after" "$rebased_sha")"
         if [ -n "$rebased_jobs" ] && node "$(local_ci_evidence_script)" \
@@ -153,6 +162,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
           --new-sha "$rebased_sha" \
           --new-base "$base_after" \
           --jobs "$rebased_jobs"; then
+          log_attempt "attempt=${attempt} receipt_reuse=ok"
           echo "land-main: reused green CI receipt after patch-identical rebase $(short_sha "$candidate_sha") -> $(short_sha "$rebased_sha")"
           candidate_sha="$rebased_sha"
           base_before="$base_after"
@@ -182,6 +192,7 @@ while [ "$attempt" -le "$max_attempts" ]; do
           die "push failed without origin/main moving; check the Mesha token and push-guard output"
         fi
       fi
+      log_attempt "attempt=${attempt} receipt_reuse=fell-through rerun_ci=yes"
       echo "land-main: rebased patch changed or CI scope changed; rerunning CI"
     else
       git rebase --abort >/dev/null 2>&1 || true
