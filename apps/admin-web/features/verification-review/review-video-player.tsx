@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import type { ReviewEventBuffer } from "./review-events";
+import { WatchTracker } from "./player-telemetry";
 
 interface ReviewVideoPlayerProps {
   src: string;
@@ -27,138 +28,88 @@ export const ReviewVideoPlayer = React.forwardRef<
     { src, mimeType, proofId, itemId, eventBuffer, ...divProps },
     ref,
   ) => {
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const playingRef = useRef(false);
-    const lastReportedTimeRef = useRef(0);
-    // Furthest point actually WATCHED, advanced by natural playback (timeupdate). Seek blocking
-    // compares against this. It must not come from the emitted video_play position alone: that only
-    // moves when playback (re)starts, so it stays at 0 during a normal watch and the revert below
-    // then pins the video at 0 — which is exactly the bug this replaces.
-    const maxWatchedMsRef = useRef(0);
+    // The element is held in STATE, not a ref, so the listener effect re-runs whenever React mounts a
+    // different <video> instance (switching proofs changes `src` and can replace the element). With a
+    // ref + an effect keyed only on the tracker, the listeners bound to the discarded element and the
+    // new one recorded nothing and could not block a skip — proven in-browser: a forward jump past
+    // unwatched video stood, and no video_seek_attempt row was written.
+    const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null);
 
-    // Handle play event
-    const handlePlay = () => {
-      playingRef.current = true;
-      const video = videoRef.current;
-      if (!video) return;
-      eventBuffer.recordEvent(
-        itemId,
-        "video_play",
-        {
-          video_position_ms: Math.round(video.currentTime * 1000),
-          video_duration_ms: Math.round(video.duration * 1000),
-        },
-        proofId,
-      );
-    };
-
-    // Handle pause event
-    const handlePause = () => {
-      playingRef.current = false;
-      const video = videoRef.current;
-      if (!video) return;
-      eventBuffer.recordEvent(
-        itemId,
-        "video_pause",
-        {
-          video_position_ms: Math.round(video.currentTime * 1000),
-          video_duration_ms: Math.round(video.duration * 1000),
-        },
-        proofId,
-      );
-    };
-
-    // Blocks a FORWARD JUMP past the furthest point already watched, so a verifier cannot skip the
-    // middle of a proof. Pausing, rewinding and re-watching are all allowed. Natural playback is
-    // never reverted: `seeking` also fires for ordinary buffering/loop boundaries, so the guard only
-    // acts on a jump clearly ahead of what has been watched.
-    const SEEK_TOLERANCE_MS = 1500;
-    const PLAYBACK_TOLERANCE_MS = 2000;
-    const handleSeeking = (e: Event) => {
-      const video = e.target as HTMLVideoElement;
-      const targetMs = Math.round(video.currentTime * 1000);
-      const allowedMs = maxWatchedMsRef.current + SEEK_TOLERANCE_MS;
-      const isForwardJump = targetMs > allowedMs;
-      if (!isForwardJump) return;
-
-      eventBuffer.recordEvent(
-        itemId,
-        "video_seek_attempt",
-        {
-          seek_from_ms: lastReportedTimeRef.current,
-          seek_to_ms: targetMs,
-          video_position_ms: maxWatchedMsRef.current,
-          video_duration_ms: Math.round(video.duration * 1000),
-        },
-        proofId,
-      );
-      // Use rAF to ensure the revert happens after the browser processes the seek.
-      // Setting currentTime in the seeking event alone may not prevent the jump.
-      requestAnimationFrame(() => {
-        video.currentTime = maxWatchedMsRef.current / 1000;
-      });
-    };
-
-    // Handle ended event
-    const handleEnded = () => {
-      const video = videoRef.current;
-      if (!video) return;
-      eventBuffer.recordEvent(
-        itemId,
-        "video_ended",
-        {
-          video_position_ms: Math.round(video.currentTime * 1000),
-          video_duration_ms: Math.round(video.duration * 1000),
-        },
-        proofId,
-      );
-    };
-
-    // Track timeupdate to update last watched position
-    const handleTimeUpdate = useCallback(() => {
-      const video = videoRef.current;
-      if (!video) return;
-      const currentMs = Math.round(video.currentTime * 1000);
-      lastReportedTimeRef.current = currentMs;
-      // Natural playback advances the watched mark; a jump beyond the tolerance is handled (and
-      // reverted) by handleSeeking instead. Split across statements deliberately: the UI-contract
-      // guard reads `>` … `<` on one line as JSX text, so a single-line comparison false-positives.
-      const advanced = currentMs > maxWatchedMsRef.current;
-      const withinPlaybackTolerance = currentMs - maxWatchedMsRef.current <= PLAYBACK_TOLERANCE_MS;
-      if (advanced && withinPlaybackTolerance) {
-        maxWatchedMsRef.current = currentMs;
-      }
-    }, []);
-
-    const memoizedHandlePlay = useCallback(handlePlay, [itemId, proofId, eventBuffer]);
-    const memoizedHandlePause = useCallback(handlePause, [itemId, proofId, eventBuffer]);
-    const memoizedHandleSeeking = useCallback(handleSeeking, [itemId, proofId, eventBuffer]);
-    const memoizedHandleEnded = useCallback(handleEnded, [itemId, proofId, eventBuffer]);
+    // All watch/seek logic lives in WatchTracker (player-telemetry.ts) so it is unit-testable
+    // without a browser; this component only wires DOM events to it and applies the revert it asks
+    // for. Do not reintroduce the emit/tolerance arithmetic here — the tests would stop guarding it.
+    const tracker = useMemo(
+      () =>
+        new WatchTracker({
+          record: (eventType, payload) => eventBuffer.recordEvent(itemId, eventType, payload, proofId),
+        }),
+      [itemId, proofId, eventBuffer],
+    );
 
     useEffect(() => {
-      const video = videoRef.current;
+      const video = videoEl;
       if (!video) return;
 
-      video.addEventListener("play", memoizedHandlePlay);
-      video.addEventListener("pause", memoizedHandlePause);
-      video.addEventListener("seeking", memoizedHandleSeeking);
-      video.addEventListener("seeked", handleTimeUpdate);
-      video.addEventListener("timeupdate", handleTimeUpdate);
-      video.addEventListener("ended", memoizedHandleEnded);
+      const onPlay = () => tracker.onPlay(video);
+      const onPause = () => tracker.onPause(video);
+      const onEnded = () => tracker.onEnded(video);
+      // Runs on BOTH `timeupdate` and `seeked`. A skip is stopped here rather than in the `seeking`
+      // handler, because the assignment made mid-seek is overridden once the in-flight seek
+      // completes. Checking on `seeked` alone worked only intermittently, so this is level-triggered:
+      // whenever the position is observed past what was watched, it is rolled back.
+      const onProgress = () => {
+        const clampToMs = tracker.overshootBeyondWatched(video);
+        if (clampToMs === null) {
+          tracker.onTimeUpdate(video);
+          return;
+        }
+        video.currentTime = clampToMs / 1000;
+      };
+      const onSeeking = () => {
+        const revertToMs = tracker.onSeeking(video);
+        if (revertToMs === null) return;
+        const revertToSeconds = revertToMs / 1000;
+        // Assign immediately AND again on a macrotask. Immediate alone does not reliably stop the
+        // jump (the browser is mid-seek). A requestAnimationFrame retry was the first attempt and
+        // FAILED an in-browser proof: rAF is suspended while the tab is not visible, so the skip
+        // stood. setTimeout still fires in a hidden tab, so the block cannot be defeated by
+        // backgrounding the tab.
+        video.currentTime = revertToSeconds;
+        setTimeout(() => {
+          if (video.currentTime > revertToSeconds) video.currentTime = revertToSeconds;
+        }, 0);
+      };
+
+      // Media events alone were NOT enough, proven in-browser three runs in a row: a skip while PAUSED
+      // emits `seeking`/`seeked` (the attempt was logged every time) but the browser kept the new
+      // position, and `timeupdate` does not tick while paused, so nothing rolled it back. This poll
+      // makes the block independent of which events fire at all — an overshoot cannot survive a tick.
+      const clampTimer = setInterval(() => {
+        const clampToMs = tracker.overshootBeyondWatched(video);
+        if (clampToMs !== null) video.currentTime = clampToMs / 1000;
+      }, 250);
+
+      video.addEventListener("play", onPlay);
+      video.addEventListener("pause", onPause);
+      video.addEventListener("seeking", onSeeking);
+      video.addEventListener("seeked", onProgress);
+      video.addEventListener("timeupdate", onProgress);
+      video.addEventListener("ended", onEnded);
 
       return () => {
-        video.removeEventListener("play", memoizedHandlePlay);
-        video.removeEventListener("pause", memoizedHandlePause);
-        video.removeEventListener("seeking", memoizedHandleSeeking);
-        video.removeEventListener("seeked", handleTimeUpdate);
-        video.removeEventListener("timeupdate", handleTimeUpdate);
-        video.removeEventListener("ended", memoizedHandleEnded);
+        clearInterval(clampTimer);
+        video.removeEventListener("play", onPlay);
+        video.removeEventListener("pause", onPause);
+        video.removeEventListener("seeking", onSeeking);
+        video.removeEventListener("seeked", onProgress);
+        video.removeEventListener("timeupdate", onProgress);
+        video.removeEventListener("ended", onEnded);
       };
-    }, [memoizedHandlePlay, memoizedHandlePause, memoizedHandleSeeking, memoizedHandleEnded, handleTimeUpdate]);
+    }, [tracker, videoEl]);
 
     return (
       <div ref={ref} {...divProps}>
-        <video ref={videoRef} controls preload="metadata">
+        <video ref={setVideoEl} controls preload="metadata">
           <source src={src} type={mimeType} />
         </video>
       </div>
