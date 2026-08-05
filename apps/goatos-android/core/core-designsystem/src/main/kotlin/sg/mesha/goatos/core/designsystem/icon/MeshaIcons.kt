@@ -227,7 +227,12 @@ object MeshaIcons {
      * identifiers from `moduleNavRegistry` (bootstrap_copy.go); an unknown key falls back to
      * the neutral [Module] tile rather than borrowing another vertical's glyph.
      */
-    fun forNavKey(key: String): ImageVector = when (key.lowercase()) {
+    fun forNavKey(key: String): ImageVector = when (key.lowercase().removePrefix("verify_")) {
+        // A verifier's drawer names its modules verify_vaccination / verify_weighing /
+        // verify_counts. Those keys matched nothing here, so EVERY module in that drawer fell
+        // through to the generic Module grid -- three different features wearing one icon. The
+        // verify_ prefix says which app section you are in, not which feature the row is, so it
+        // is stripped and the row keeps its own module glyph.
         "calendar" -> Calendar
         // Vaccination MODULE + its own destinations. The syringe is scoped to this module.
         "vaccination", "sheds", "pc.vaccination", "execution" -> Syringe
@@ -236,8 +241,13 @@ object MeshaIcons {
         // vaccination "alerts" feed but the same kind of surface, so it takes the same bell.
         "alerts", "notifications", "weighing_alerts" -> Bell
         "you", "profile", "settings" -> User
-        // Counts vertical and its field-event destinations.
-        "counts", "weighing" -> BarChart
+        // Counts vertical ("Herd Operations" in the drawer) takes the goat: it is the herd itself
+        // -- births, deaths, shifting, head counts. Sharing BarChart with weighing put two
+        // different modules under one icon in the same drawer, which is what the verifier's
+        // three-identical-grid-icons bug looked like once the keys resolved at all.
+        "counts" -> Goat
+        // Weighing is the numbers surface: weights and their trend.
+        "weighing" -> BarChart
         "birth_death" -> ArrowUpDown
         "birth" -> Birth
         "death" -> Death
