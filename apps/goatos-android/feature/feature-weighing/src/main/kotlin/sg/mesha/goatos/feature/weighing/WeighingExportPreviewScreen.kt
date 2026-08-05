@@ -42,7 +42,6 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
 
 // telemetry:exempt Read-only preview of an export the caller already fetched; the fetch itself
@@ -143,6 +142,7 @@ data class WeighingExportPreviewUiState(
     val totalRowCount: Int = 0,
     /** True while the download that will actually be shared is in flight. */
     val sharing: Boolean = false,
+    val hasLoadedOnce: Boolean = false,
 )
 
 /**
@@ -216,12 +216,19 @@ fun WeighingExportPreviewScreen(
             },
         )
         when {
-            // A skeleton wall only when there is NOTHING to read yet -- the first ever load. Once
-            // a preview has rendered once, a refresh (RefreshOnResume, retry) keeps that content on
-            // screen instead of tearing it down to a loader; see WeighingLeadershipVideosScreen for
-            // the same rule elsewhere in this module. This is what stops the flash the maintainer
-            // saw: empty -> spinner -> content, every single time the screen was revisited.
-            state.loading && state.sheds.isEmpty() -> WeighingExportPreviewSkeleton()
+            // NOTHING READ YET is not the same as NOTHING TO SHOW. A freshly navigated screen
+            // starts with an empty state flow and its refresh has not necessarily begun, so
+            // showing a skeleton before a single page load would be a loading wall that then
+            // flips to content or an empty state. That flip is the flicker being removed.
+            // Loading is already communicated by the share button's disabled state, never by a
+            // shimmer that flashes in and out on every navigation.
+            // Same guard as the work list: `loading` is required because this screen's
+            // ViewModel does not publish hasLoadedOnce, and the marker alone would stick false.
+            state.sheds.isEmpty() && state.loading && !state.hasLoadedOnce -> {
+                // NOTHING is drawn here. The absence of content is not known until the first read
+                // completes, so rendering a skeleton before that read is a confident wrong answer
+                // that then flips to a correct one.
+            }
             state.error.isNotBlank() && state.sheds.isEmpty() -> WeighingExportPreviewError(state.error, onRetry)
             state.sheds.isEmpty() -> WeighingReadOnlyEmptyCard(
                 loading = false,
@@ -230,12 +237,6 @@ fun WeighingExportPreviewScreen(
             else -> WeighingExportPreviewTable(state)
         }
     }
-}
-
-/** Placeholder shed rows shaped like [ExportShedHeader] -- a shimmer, not a spinner flash. */
-@Composable
-private fun WeighingExportPreviewSkeleton() {
-    LoadingSkeletonList(rows = 8, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp))
 }
 
 /** Nothing swallowed: a failed fetch is a real, retryable error card, never a blank screen. */

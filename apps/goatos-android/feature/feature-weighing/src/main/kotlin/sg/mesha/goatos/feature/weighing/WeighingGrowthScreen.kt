@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
@@ -84,6 +83,7 @@ data class WeighingGrowthUiState(
     val hasError: Boolean = false,
     val errorText: String = "",
     val isLoading: Boolean = false,
+    val hasLoadedOnce: Boolean = false,
 )
 
 @Immutable
@@ -158,10 +158,15 @@ fun WeighingGrowthScreen(
                 )
             },
         )
-        // A loading wall ONLY when there is nothing to show. With content already on screen a
-        // refresh spins in the header and the numbers stay put, rather than flashing to a skeleton.
-        if (state.isLoading && state.sheds.isEmpty() && state.trend.isEmpty()) {
-            LoadingSkeletonList(rows = 5)
+        // NOTHING READ YET is not the same as NOTHING TO SHOW. A freshly navigated screen starts
+        // with an empty state flow and its refresh has not necessarily begun, so showing a skeleton
+        // before a single page load would be a loading wall that then flips to content or an empty
+        // state. That flip is the flicker being removed. Loading is already told by the spinning
+        // refresh icon in the header, so a shimmer that flashes in and out on every navigation is
+        // pure redundancy.
+        if (state.sheds.isEmpty() && state.trend.isEmpty() && !state.hasLoadedOnce) {
+            // NOTHING is drawn here. Loading is told by the spinning refresh icon in the app bar,
+            // not by a skeleton that flashes in and straight back out on every navigation.
             return@Column
         }
         LazyColumn(
