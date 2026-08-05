@@ -121,7 +121,7 @@ class ScreenshotTest {
     }
 
     @Test
-    fun vaccination_sheds_initial_loading_uses_skeleton() = shot("vaccination_sheds_initial_loading_uses_skeleton") {
+    fun vaccination_sheds_initial_loading_draws_nothing() = shot("vaccination_sheds_initial_loading_draws_nothing") {
         CompositionLocalProvider(LocalIsTopLevelRoot provides true) {
             ShedsScreen(
                 state = sampleShedsState().copy(
