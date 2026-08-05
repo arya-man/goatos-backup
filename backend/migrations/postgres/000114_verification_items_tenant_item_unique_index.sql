@@ -1,5 +1,5 @@
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- +goose Up
 -- +goose NO TRANSACTION
 
@@ -8,8 +8,8 @@
 -- (verification_review_events.item_id -> (tenant_id, item_id)). item_id is already globally
 -- unique via the PK, so this index cannot fail on duplicate data -- it only exists to give
 -- Postgres a (tenant_id, item_id) key to reference.
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS verification_items_tenant_item_unique_idx
     ON public.verification_items USING btree (tenant_id, item_id);
 
