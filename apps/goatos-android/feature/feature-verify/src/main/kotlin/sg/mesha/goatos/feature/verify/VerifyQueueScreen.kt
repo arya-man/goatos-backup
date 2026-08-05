@@ -549,8 +549,20 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMiss
         // only ever verifies videos, so "Video verification" spent the most prominent line
         // restating the job (and wrapped to two lines doing it) while the one thing that actually
         // changes between taps -- which module you are looking at -- was demoted to an eyebrow.
-        title = state.moduleLabel.takeIf { !state.isActionQueue && it.isNotBlank() }
-            ?: stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
+        // Always the module the nav bar is on. The backend-owned label is preferred, but on a cold
+        // start the queue's filter options have not loaded yet and it is blank -- which used to
+        // fall straight through to a fixed "Video verification", the one fact a verifier already
+        // knows, wrapped over two lines. Fall back to the module this queue IS before falling back
+        // to that generic string.
+        title = when {
+            state.isActionQueue -> stringResource(R.string.verify_action_queue_title)
+            state.moduleLabel.isNotBlank() -> state.moduleLabel
+            state.selectedModule == VerifyModuleTab.VACCINATION ->
+                stringResource(R.string.verify_module_vaccination)
+            state.selectedModule == VerifyModuleTab.WEIGHING ->
+                stringResource(R.string.verify_module_weighing)
+            else -> stringResource(R.string.verify_queue_title)
+        },
         below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,
