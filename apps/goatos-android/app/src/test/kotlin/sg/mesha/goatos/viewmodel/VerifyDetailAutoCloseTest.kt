@@ -146,17 +146,17 @@ private class AutoCloseRepository(
     private val mutableItems = makeItems().toMutableList()
     private val queueFlow = MutableStateFlow(Resource(data = VerificationQueueResponseDto(items = mutableItems)))
 
-    override suspend fun queue(category: String?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = queueFlow.value.data ?: VerificationQueueResponseDto()
-    override fun observeQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = queueFlow
+    override suspend fun queue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?, cursor: String?): VerificationQueueResponseDto = queueFlow.value.data ?: VerificationQueueResponseDto()
+    override fun observeQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = queueFlow
 
-    override suspend fun refreshQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
+    override suspend fun refreshQueue(category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> {
         // Simulate queue refresh: remove any items that are no longer pending (decided items leave the queue)
         mutableItems.retainAll { it.status == VerificationStatus.PENDING }
         queueFlow.value = Resource(data = VerificationQueueResponseDto(items = mutableItems.toList()))
         return Result.success(Unit)
     }
 
-    override suspend fun appendQueue(cursor: String, category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
+    override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override fun observeActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Flow<Resource<VerificationQueueResponseDto>> = queueFlow
 
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
