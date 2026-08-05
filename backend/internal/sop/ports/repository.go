@@ -132,6 +132,7 @@ type ListAgedFailedSubmissionFanoutsParams struct {
 type SubmitTaskCommand struct {
 	TenantID                 string
 	ActorID                  string
+	DeviceID                 string
 	TaskID                   string
 	Body                     domain.SubmitTaskRequest
 	Report                   domain.ValidationReport
@@ -201,4 +202,5 @@ type Repository interface {
 	CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID string) ([]domain.ProofReference, error)
 	SubmitTask(ctx context.Context, cmd SubmitTaskCommand) (domain.SubmissionSummary, domain.TaskSummary, bool, error)
 	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
+	ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }

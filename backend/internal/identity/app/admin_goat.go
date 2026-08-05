@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -134,10 +135,12 @@ func (s *Service) CreateAdminGoat(ctx context.Context, input CreateAdminGoatInpu
 	}
 	raw, err := json.Marshal(normalized)
 	if err != nil {
+		slog.ErrorContext(ctx, "admin goat create: json marshal failed", slog.String("tenant_id", tenantID), slog.Any("error", err))
 		return nil, Internal("goat create request normalization failed")
 	}
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats", "", raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "admin goat create: canonical request hash failed", slog.String("tenant_id", tenantID), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	cmd.RequestHash = requestHash
@@ -236,6 +239,7 @@ func (s *Service) PreviewAdminGoatBulkImport(ctx context.Context, input PreviewA
 	response.Summary.Total = len(response.Rows)
 	response.PreviewToken, err = s.signAdminGoatBulkPreview(input.TenantID, body.FileHash, previewCommitRows(response.Rows))
 	if err != nil {
+		slog.ErrorContext(ctx, "admin goat bulk preview: token generation failed", slog.String("tenant_id", input.TenantID), slog.Any("error", err))
 		return nil, Internal("bulk preview token generation failed")
 	}
 	return response, nil
@@ -301,11 +305,13 @@ func (s *Service) CommitAdminGoatBulkImport(ctx context.Context, input CommitAdm
 		}
 		raw, err := json.Marshal(normalized)
 		if err != nil {
+			slog.ErrorContext(ctx, "admin goat bulk commit: json marshal failed", slog.String("tenant_id", tenantID), slog.Int("row_number", rowNumber), slog.Any("error", err))
 			return nil, Internal("bulk row normalization failed")
 		}
 		rowKey := rowIdempotencyKey(clientKey, rowNumber)
 		requestHash, err := CanonicalRequestHashWithSubject(tenantID, createAdminGoatCommand, "/admin/goats/bulk-commit", fmt.Sprintf("row:%d", rowNumber), raw)
 		if err != nil {
+			slog.ErrorContext(ctx, "admin goat bulk commit: canonical request hash failed", slog.String("tenant_id", tenantID), slog.Int("row_number", rowNumber), slog.Any("error", err))
 			return nil, BadRequest("invalid_json", "bulk row must be valid JSON")
 		}
 		cmd.ClientIdempotencyKey = rowKey
@@ -695,7 +701,11 @@ func parseAdminGoatCSV(raw string) ([]parsedAdminGoatCSVRow, error) {
 			break
 		}
 		if err != nil {
-			return nil, BadRequest("invalid_csv", "csv could not be parsed")
+			// parseAdminGoatCSV is a pure parser: it has no ctx and no request input, so the
+			// cause travels back to the caller in the error instead of being logged here.
+			// Wrapping keeps WHY the CSV was rejected ("unterminated quote", "wrong field
+			// count") instead of collapsing every parse failure into one opaque message.
+			return nil, BadRequest("invalid_csv", fmt.Sprintf("csv could not be parsed: %v", err))
 		}
 		if csvRecordBlank(rec) {
 			continue

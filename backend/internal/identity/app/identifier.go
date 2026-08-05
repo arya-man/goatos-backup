@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/identity/domain"
@@ -71,6 +72,7 @@ func (s *Service) AddGoatIdentifier(ctx context.Context, input AddGoatIdentifier
 	route := fmt.Sprintf("/admin/goats/%s/identifiers", goatID)
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, addGoatIdentifierCommand, route, goatID, input.RawBody)
 	if err != nil {
+		slog.ErrorContext(ctx, "add goat identifier: canonical request hash failed", slog.String("tenant_id", tenantID), slog.String("goat_id", goatID), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	isPrimary := false
@@ -126,6 +128,7 @@ func (s *Service) RetireGoatIdentifier(ctx context.Context, input RetireGoatIden
 	subjectID := goatID + ":" + identifierID
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, retireGoatIdentifierCommand, route, subjectID, input.RawBody)
 	if err != nil {
+		slog.ErrorContext(ctx, "retire goat identifier: canonical request hash failed", slog.String("tenant_id", tenantID), slog.String("goat_id", goatID), slog.String("identifier_id", identifierID), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	storedKey := fmt.Sprintf("%s:%s:%s:%s:%s", tenantID, retireGoatIdentifierCommand, goatID, identifierID, clientKey)
@@ -207,6 +210,7 @@ func (s *Service) PromoteTemporaryIdentifier(ctx context.Context, input PromoteT
 	route := fmt.Sprintf("/app/counts/goats/%s/promote-identifier", goatID)
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, promoteTemporaryIdentifierCommand, route, goatID, input.RawBody)
 	if err != nil {
+		slog.ErrorContext(ctx, "promote temporary identifier: canonical request hash failed", slog.String("tenant_id", tenantID), slog.String("goat_id", goatID), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	// Evidence is the operator's own submission: a source_record whose id is the stable idempotency

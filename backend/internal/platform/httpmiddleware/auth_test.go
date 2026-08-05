@@ -707,6 +707,62 @@ func TestFieldRoutesMayUseScopedGrantsWithoutBroadeningAdminRoutes(t *testing.T)
 	assertAuthErrorCode(t, otherRec, "permission_denied")
 }
 
+// TestParkScopedOperatorAuthorizesVaccinationControlTowerAlertsRoute is a regression test
+// for a defect found on a real device 2026-08-04: an operator's Alerts tab calls
+// GET /control-tower/vaccination, and the operator's grant is PARK-scoped (scope_type=park),
+// not tenant-scoped. Before the fix, routeAllowsScopedGrants did not list the
+// "/control-tower/" prefix, so routeRoles silently dropped the operator's grant entirely
+// (roles resolved to "" -- confirmed in the live denial log: `roles:"" required_any_permissions:
+// "obligation.read,vaccination.read,vaccination.alerts_read"`), and permissions.AuthorizeRoute
+// denied before any permission was even consulted. A permission-registry-only test cannot see
+// this: it has to go through the real middleware with a park-scoped grant, which is what this
+// test does.
+func TestParkScopedOperatorAuthorizesVaccinationControlTowerAlertsRoute(t *testing.T) {
+	cbeGrant := permissions.ActiveGrant{Role: permissions.RoleOperator, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
+	mw := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {cbeGrant}}})
+	handler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})))
+
+	req := httptest.NewRequest(http.MethodGet, "/control-tower/vaccination", nil)
+	req.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("park-scoped operator status=%d body=%s, want 204 -- routeRoles must not drop a park-scoped grant on /control-tower/vaccination (the mobile Alerts tab's only backing request)", rec.Code, rec.Body.String())
+	}
+
+	// Same route must still reject a role that holds NEITHER the shared oversight
+	// permissions NOR the operator-only alerts capability, even with a park-scoped
+	// grant -- this fix widens WHICH grants are SEEN, not WHO is authorized.
+	unrelatedGrant := permissions.ActiveGrant{Role: permissions.RoleFeedDirector, ScopeType: "park", ScopeID: cbeGrant.ScopeID}
+	unrelatedMW := testBearerMiddleware(t, fakeGrantSource{grants: map[string][]permissions.ActiveGrant{authTestUser + "|" + authTestTenant: {unrelatedGrant}}})
+	unrelatedHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(unrelatedMW.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("feed_director must not authorize the vaccination control-tower route")
+	})))
+	unrelatedReq := httptest.NewRequest(http.MethodGet, "/control-tower/vaccination", nil)
+	unrelatedReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	unrelatedRec := httptest.NewRecorder()
+	unrelatedHandler.ServeHTTP(unrelatedRec, unrelatedReq)
+	if unrelatedRec.Code != http.StatusForbidden {
+		t.Fatalf("feed_director status=%d body=%s, want 403", unrelatedRec.Code, unrelatedRec.Body.String())
+	}
+
+	// A park-scoped grant must still NOT authorize the sibling admin vaccination routes
+	// that were never proven park-scoped in this way -- this fix must not become a
+	// blanket "any /control-tower-adjacent route accepts scoped grants" widening.
+	otherHandler := RequestContext(slog.New(slog.NewTextHandler(io.Discard, nil)))(mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Fatal("scoped operator grant should not authorize the admin vaccination operations route")
+	})))
+	otherReq := httptest.NewRequest(http.MethodGet, "/vaccination/operations", nil)
+	otherReq.Header.Set("Authorization", "Bearer "+testToken(t, authTestUser, authTestTenant, nil))
+	otherRec := httptest.NewRecorder()
+	otherHandler.ServeHTTP(otherRec, otherReq)
+	if otherRec.Code != http.StatusForbidden {
+		t.Fatalf("other status=%d body=%s", otherRec.Code, otherRec.Body.String())
+	}
+}
+
 func TestAdminTaskReviewRoutesRequireTenantScopedVerifyRole(t *testing.T) {
 	scopedGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "park", ScopeID: "86000000-0000-4000-8000-000000000701"}
 	tenantGrant := permissions.ActiveGrant{Role: permissions.RoleParkHead, ScopeType: "tenant", ScopeID: authTestTenant}

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +41,7 @@ func (s *Service) ListTransportTasks(ctx context.Context, in ListTransportTasksI
 	}
 	day, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(in.Date), biztime.DefaultLocation())
 	if err != nil {
+		slog.DebugContext(ctx, "list transport tasks: invalid date format", slog.String("tenant_id", in.TenantID), slog.String("date", in.Date), slog.Any("error", err))
 		return ports.FeedTransportTaskPage{}, ports.ErrInvalidTargetDate
 	}
 	status := strings.TrimSpace(in.Status)

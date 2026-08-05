@@ -2593,6 +2593,10 @@ func (f *fakeSweepRepo) MarkCompleted(context.Context, string, string) (bool, er
 	return false, nil
 }
 
+func (f *fakeSweepRepo) ReopenObligation(context.Context, string, string) (bool, error) {
+	return false, nil
+}
+
 func (f *fakeSweepRepo) MarkMissedBefore(context.Context, string, time.Time, int32) (int, error) {
 	if f.missedCalls >= len(f.missedPages) {
 		return 0, nil

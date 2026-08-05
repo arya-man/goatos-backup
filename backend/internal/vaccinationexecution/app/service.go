@@ -398,18 +398,26 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 		partition = "whole"
 	}
 	return domain.ExecutionRow{
-		ParkID:             p.ParkID,
-		ParkName:           p.ParkName,
-		ShedID:             p.ShedID,
-		ShedName:           p.ShedName,
-		PhysicalShed:       physicalShed,
-		Partition:          partition,
-		AnimalStage:        p.AnimalStage,
-		TargetCount:        targetCount,
-		OpenCount:          openCount,
-		DoneCount:          doneCount,
-		AcceptedCount:      p.CompletionAccepted,
-		ReviewCount:        p.CompletionRecorded + p.CompletionRejected,
+		ParkID:        p.ParkID,
+		ParkName:      p.ParkName,
+		ShedID:        p.ShedID,
+		ShedName:      p.ShedName,
+		PhysicalShed:  physicalShed,
+		Partition:     partition,
+		AnimalStage:   p.AnimalStage,
+		TargetCount:   targetCount,
+		OpenCount:     openCount,
+		DoneCount:     doneCount,
+		AcceptedCount: p.CompletionAccepted,
+		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
+		// rejected) -- must match the verifier's own /verification/queue, which only ever
+		// surfaces pending items. A rejected completion is a resolved verdict, not open review
+		// work: it reopens the obligation (see WorkStateRejected / vaccinationExecutionSQL's
+		// completion_rejected semantics) and must NOT inflate this count. Previously this summed
+		// CompletionRecorded + CompletionRejected, so rejections never decremented the number and
+		// operator/CEO/PC-director screens drifted further out of sync with the queue on every
+		// rejection.
+		ReviewCount:        p.CompletionRecorded,
 		DriveID:            p.BatchID,
 		DriveName:          driveName(p),
 		DueDate:            dueDate(p),
@@ -433,12 +441,18 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 
 // executionDisplayCounts is the backend-owned count contract for mobile shed cards. One execution
 // row is an aggregated obligation group, not one goat, so clients must never infer counts from the
-// number of rows. Recorded/accepted/rejected completion evidence all means field execution occurred;
+// number of rows. Recorded/accepted completion evidence means field execution occurred and stands;
 // deferred/missed/cancelled targets are not presented as open work.
+//
+// REJECTED completions are deliberately NOT evidence of done. A verifier who sends an animal back
+// has said its work must happen again, so counting it as done rendered a rejected shed as finished
+// -- on the operator's own card, with a full progress bar -- and the person who has to redo it
+// could not see there was anything left to do. A rejected animal is OUTSTANDING work and falls
+// into `open` below, which is what makes the redo visible to whoever owns it.
 func executionDisplayCounts(p domain.ExecutionProjection) (target, open, done int) {
 	target = p.ObligationCount
 	done = p.CompletedCount
-	completionEvidence := p.CompletionRecorded + p.CompletionAccepted + p.CompletionRejected
+	completionEvidence := p.CompletionRecorded + p.CompletionAccepted
 	if completionEvidence > done {
 		done = completionEvidence
 	}

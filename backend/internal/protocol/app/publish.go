@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -139,6 +140,8 @@ func parseVersionedCapacity(raw json.RawMessage) (domain.PublishedCapacity, bool
 func (s *Service) syncPublishedCapacityBestEffort(ctx context.Context, tenantID string, v domain.Version) error {
 	env, err := decodeRuleDSLEnvelope(v.RuleDsl)
 	if err != nil {
+		// idempotent replay: capacity was already synced at first publish; skip sync if DSL is now undecodable
+		slog.DebugContext(ctx, "skip capacity sync on replay with invalid rule_dsl", slog.String("tenant_id", tenantID), slog.String("version_id", v.ProtocolVersionID), slog.Any("error", err))
 		return nil
 	}
 	return s.syncPublishedCapacity(ctx, tenantID, v, env)
@@ -1887,7 +1890,7 @@ func selectorValues(obj map[string]json.RawMessage, keys []string, fallback, fie
 		}
 		values, err := rawSelectorValues(raw)
 		if err != nil {
-			return nil, fmt.Errorf("%w: selector %s must be a string or array of strings", ErrNotPublishable, field)
+			return nil, fmt.Errorf("%w: selector %s must be a string or array of strings (parse error: %w)", ErrNotPublishable, field, err)
 		}
 		out := make([]string, 0, len(values))
 		seen := map[string]bool{}

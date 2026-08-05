@@ -192,7 +192,19 @@ var protectedRoutes = []Route{
 	{OperationID: "listVaccinationActionCenter", Method: "GET", Pattern: "/vaccination/action-center", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "countVaccinationActionCenter", Method: "GET", Pattern: "/vaccination/action-center/counts", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationProtocolAdherence", Method: "GET", Pattern: "/vaccination/adherence", Permissions: []string{ObligationRead, VaccinationRead}},
-	{OperationID: "getVaccinationControlTower", Method: "GET", Pattern: "/control-tower/vaccination", Permissions: []string{ObligationRead, VaccinationRead}},
+	// This route backs the app-tier vaccination Alerts tab (AlertsViewModel ->
+	// ControlTowerRepository -> GET /control-tower/vaccination). AnyPermissions,
+	// not Permissions: RoleOperator holds neither ObligationRead nor
+	// VaccinationRead (the leadership oversight pair every OTHER vaccination
+	// admin route ANDs), so ANDing them here 403'd every operator's Alerts tab
+	// and the mobile client rendered that 403 as an honest-looking empty state
+	// (bug found on-device 2026-08-04). VaccinationAlertsRead is a route-scoped
+	// capability granted ONLY to RoleOperator for THIS route -- see its doc
+	// comment in permissions.go for why the fix did not just add
+	// ObligationRead/VaccinationRead to the operator's base grant set. Every
+	// other caller already holds ObligationRead AND VaccinationRead, so this
+	// OR-list is a superset of the previous AND-list for them: no regression.
+	{OperationID: "getVaccinationControlTower", Method: "GET", Pattern: "/control-tower/vaccination", AnyPermissions: []string{ObligationRead, VaccinationRead, VaccinationAlertsRead}},
 	{OperationID: "getWorkflowDrilldown", Method: "GET", Pattern: "/workflows/{row_id}", Permissions: []string{ObligationRead}},
 	{OperationID: "getVaccinationWorkflowDrilldown", Method: "GET", Pattern: "/vaccination/workflows/{row_id}", Permissions: []string{ObligationRead, VaccinationRead}},
 	{OperationID: "getVaccinationOperations", Method: "GET", Pattern: "/vaccination/operations", Permissions: []string{ObligationRead, VaccinationRead}},
@@ -215,6 +227,7 @@ var protectedRoutes = []Route{
 	{OperationID: "createWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns", Permissions: []string{WeighingPlan}},
 	{OperationID: "updateWeighingCampaign", Method: "PUT", Pattern: "/weighing/campaigns/{campaign_id}", Permissions: []string{WeighingPlan}},
 	{OperationID: "publishWeighingCampaign", Method: "POST", Pattern: "/weighing/campaigns/{campaign_id}/publish", Permissions: []string{WeighingPlan}},
+	{OperationID: "exportWeighingCampaignCSV", Method: "GET", Pattern: "/weighing/campaigns/{campaign_id}/export", Permissions: []string{WeighingMonitor}},
 	// EITHER/OR, not both. These two are READS, and weighing/app/service.go's
 	// canPlanOrMonitor deliberately admits WeighingPlan OR WeighingMonitor (it calls
 	// RolesAuthorize twice for exactly that reason). Route.Permissions is ANDed, so
@@ -246,6 +259,10 @@ var protectedRoutes = []Route{
 	{OperationID: "appGetWeighingScopeRoster", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/roster", Permissions: []string{WeighingExecute}},
 	{OperationID: "appGetWeighingLeadershipShedVideos", Method: "GET", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/videos", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appListWeighingLeadershipSheds", Method: "GET", Pattern: "/app/weighing/leadership/sheds", Permissions: []string{WeighingMonitor}},
+	// CEO-tier weighing history: weight observations per RFID across weigh days, park-scoped.
+	{OperationID: "getWeighingWeightHistory", Method: "GET", Pattern: "/app/weighing/weight-history", Permissions: []string{WeighingMonitor}},
+	// CEO-tier ADG / growth aggregate: herd-level Average Daily Gain read model, park-scoped.
+	{OperationID: "getWeighingLeadershipGrowthADG", Method: "GET", Pattern: "/app/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appSubmitWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},

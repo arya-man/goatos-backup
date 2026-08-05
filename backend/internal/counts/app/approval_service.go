@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -378,6 +379,8 @@ func splitDeathPayload(req domain.ApprovalRequest) (string, []byte, error) {
 	delete(fields, "goat_id")
 	body, err := json.Marshal(fields)
 	if err != nil {
+		// stored payload corruption: unable to re-marshal death request after field removal
+		slog.Error("split death payload: json marshal failed (stored data corruption)", slog.Any("error", err))
 		return "", nil, ErrApprovalInvalidStoredPayload
 	}
 	return *req.SubjectGoatID, body, nil

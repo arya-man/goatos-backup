@@ -75,7 +75,17 @@ func BuildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// C-defect-B (2026-08-04): this is the DURABLE bus (Pub/Sub domain-event-consumer / kernel
+	// worker), the path that actually delivers a rework/approved push in production and in the
+	// E2E stack -- unlike internal/bootstrap/api.go's in-process bus, which is dev/local-only.
+	// Neither WithLocationNames nor WithVaccineLabels was ever chained here, so every push this
+	// bus produced degraded straight to the generic "The proof is ready for operational closure"/
+	// no-park copy, even after the enrichment itself was written (see verification_notify_consumer.go
+	// enrichApprovedNotificationCopy and handleVerdictRework's park-name prefix). Confirmed live: a
+	// real rework push carried no park name until this wiring was added.
+	verificationVaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
+	verificationLocationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(verificationVaccineLabels).WithLocationNames(verificationLocationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned

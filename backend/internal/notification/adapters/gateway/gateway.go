@@ -34,6 +34,17 @@ type Config struct {
 	FCMBearerToken     string
 	DryRun             bool
 	HTTPTimeout        time.Duration
+	// LocalStubUnconfiguredChannels reuses the existing "local-stub" delivery path (see the
+	// "local-stub" case below) for any channel that would otherwise fail with
+	// ErrChannelNotConfigured, instead of exhausting the request on its first attempt. It exists so
+	// a local/E2E stack with no Firebase project or Slack webhook wired up EXERCISES the real
+	// per-request routing (channel dispatch, recipient validation, payload construction) instead of
+	// silently losing the notification to ErrChannelNotConfigured after one attempt. It must default
+	// false and stay OFF in every real environment -- a genuinely unconfigured channel in prod/stg
+	// must fail loudly, never appear delivered. Distinct from DryRun: DryRun short-circuits BEFORE
+	// the channel switch for every request regardless of configuration, so it never exercises
+	// per-channel logic at all; this flag only substitutes when the channel is actually unconfigured.
+	LocalStubUnconfiguredChannels bool
 }
 
 type Gateway struct {
@@ -84,6 +95,29 @@ func (g *Gateway) SendWithResult(ctx context.Context, request domain.Request) (p
 		)
 		return ports.DeliveryResult{}, nil
 	}
+	result, err := g.dispatchByChannel(ctx, channel, request)
+	if err != nil && g.config.LocalStubUnconfiguredChannels && errors.Is(err, ports.ErrChannelNotConfigured) {
+		// The real channel is unconfigured (no FCM project, no Slack webhook, ...) but this process
+		// has opted in to local-stub substitution -- see the config field doc above. Deliver through
+		// the SAME local-stub log line real local-stub requests use, enriched with the fields an E2E
+		// assertion needs (recipient, title, body), so "a rework notification was dispatched to
+		// operator X" is provable from the log/DB instead of the request being exhausted after one
+		// attempt with nobody ever told.
+		g.log.InfoContext(ctx, "notification_local_stub_delivered",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("type", request.NotificationType),
+			slog.String("real_channel", channel),
+			slog.String("recipient_ref", request.RecipientRef),
+			slog.String("title", request.Title),
+			slog.String("substituted_for", "unconfigured:"+channel),
+		)
+		return ports.DeliveryResult{}, nil
+	}
+	return result, err
+}
+
+func (g *Gateway) dispatchByChannel(ctx context.Context, channel string, request domain.Request) (ports.DeliveryResult, error) {
 	switch channel {
 	case "local-stub":
 		g.log.InfoContext(ctx, "notification_local_stub_delivered",
@@ -521,6 +555,15 @@ func setFCMTarget(message map[string]any, recipientRef string) error {
 	switch {
 	case ref == "":
 		return fmt.Errorf("%w: no push recipient resolved", ports.ErrRecipientUnusable)
+	case strings.HasPrefix(ref, "no-active-device:"):
+		// Repository.ClaimDue's live recipient resolution (see the CASE expression in its
+		// claimed-CTE RETURNING clause) emits this sentinel when the request is addressed at a
+		// real, known workforce member but that member currently has no active device with a
+		// registered push token. This must fail loudly and distinctly -- never as a silent
+		// success, and never reported through ErrRecipientUnusable's "not a device token" text,
+		// which would misdescribe "nobody to deliver to right now" as a malformed identifier.
+		memberID := strings.TrimSpace(strings.TrimPrefix(ref, "no-active-device:"))
+		return fmt.Errorf("%w: member_id=%s", ports.ErrRecipientNoActiveDevice, memberID)
 	case strings.HasPrefix(ref, "topic:"):
 		topic := strings.TrimSpace(strings.TrimPrefix(ref, "topic:"))
 		if topic == "" {

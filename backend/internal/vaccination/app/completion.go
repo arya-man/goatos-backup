@@ -16,6 +16,10 @@ var ErrStockGateBlocked = domain.ErrStockGateBlocked
 type ObligationCompleter interface {
 	MarkCompleted(ctx context.Context, tenantID, obligationID string) (bool, error)
 	GetBoosterContext(ctx context.Context, tenantID, obligationID string) (versionID, scopeType, scopeID string, sequence int32, err error)
+	// ReopenObligation reverses MarkCompleted on a verification rejection (maintainer state-model:
+	// obligation reopens on rejection, closes on record). Idempotent; a no-op when the obligation is
+	// not currently 'completed'.
+	ReopenObligation(ctx context.Context, tenantID, obligationID string) (bool, error)
 }
 
 type ObligationCompletionReader interface {
@@ -250,12 +254,34 @@ func (s *CompletionService) Reject(ctx context.Context, in RejectInput) (RejectR
 	return RejectResult{CompletionID: cid, Applied: applied || rejected}, nil
 }
 
-// RejectExisting rejects an already-recorded completion (the SOP rework outcome). The obligation
-// stays open. Idempotent: a completion no longer in 'recorded' state is a no-op.
+// RejectExisting rejects an already-recorded completion (the SOP rework outcome) and REOPENS its
+// obligation: since recording a completion now closes the obligation immediately (obligation axis
+// closes on record, see Accept/AcceptExisting/RecordCompletionsFromSubmission callers), sending the
+// proof back for rework must put the animal back on the operator's due list -- otherwise a rejected
+// animal would silently vanish from every due-list read while also having no live completion,
+// meaning nobody could ever vaccinate it again. Idempotent: a completion no longer in 'recorded'
+// state is a no-op (RejectCompletion's own guard), and ReopenObligation only touches a currently-
+// 'completed' obligation, so a double-reject or an obligation already reopened by a sibling
+// completion's own reject is a safe no-op.
 func (s *CompletionService) RejectExisting(ctx context.Context, tenantID, completionID, reason string, verifiedBy *string) (RejectResult, error) {
+	pending, found, err := s.vacc.GetAcceptableCompletion(ctx, tenantID, completionID)
+	if err != nil {
+		return RejectResult{}, err
+	}
+	if !found || pending.Status != "recorded" {
+		return RejectResult{CompletionID: completionID, Applied: false}, nil
+	}
 	applied, err := s.vacc.RejectCompletion(ctx, tenantID, completionID, reason, verifiedBy)
 	if err != nil {
 		return RejectResult{}, err
+	}
+	if !applied {
+		return RejectResult{CompletionID: completionID, Applied: false}, nil
+	}
+	if pending.ObligationID != "" {
+		if _, err := s.obl.ReopenObligation(ctx, tenantID, pending.ObligationID); err != nil {
+			return RejectResult{}, err
+		}
 	}
 	return RejectResult{CompletionID: completionID, Applied: applied}, nil
 }

@@ -683,3 +683,27 @@ func TestVaccinationExecutionCarrySummaryPageIndependentOneToManyExecutionDatePa
 		t.Errorf("Expected 600 total ET+TT doses, got %d", vaccine.TotalDoses)
 	}
 }
+
+// TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone is the completionEvidence fix (required
+// scenario 4's counting half): a rejected animal is outstanding work, so it must land in `open`,
+// not be folded into `done`. A shed of 5 with 1 rejection must report done=4, open=1 -- never
+// done=5/open=0, which hid the redo from the operator's own card.
+func TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone(t *testing.T) {
+	p := domain.ExecutionProjection{
+		ObligationCount:    5,
+		CompletedCount:     0,
+		CompletionRecorded: 4,
+		CompletionAccepted: 0,
+		CompletionRejected: 1,
+	}
+	target, open, done := executionDisplayCounts(p)
+	if target != 5 {
+		t.Fatalf("target = %d, want 5", target)
+	}
+	if done != 4 {
+		t.Fatalf("done = %d, want 4 (rejected must NOT count as done)", done)
+	}
+	if open != 1 {
+		t.Fatalf("open = %d, want 1 (the rejected animal is outstanding work)", open)
+	}
+}

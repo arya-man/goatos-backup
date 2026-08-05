@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	cloudpubsub "cloud.google.com/go/pubsub"
@@ -51,6 +52,18 @@ func (s *GCPSubscriber) Receive(ctx context.Context, subscriptionID string, hand
 			DeliveryAttempt: deliveryAttempt,
 		})
 		if err != nil {
+			// A permanent dispatch failure (a deterministic domain rejection, e.g. "vaccination:
+			// stock gate blocked" on a completion with no reservation to consume) can NEVER succeed
+			// on redelivery -- only an operational fix changes the outcome. The handler has already
+			// written a durable, queryable 'failed' row and a loud WarnContext log for it
+			// (domainconsumer/app.Service.handleMessage). Nacking it anyway would keep this message
+			// in the redelivery loop forever with no other effect, which is exactly the incident
+			// this guards against (verification.verdict.approved retried 3056+ times). ACK it here
+			// so the message is delivered, logged, and marked failed exactly once.
+			if errors.Is(err, consumerapp.ErrPermanentDispatchFailure) {
+				message.Ack()
+				return
+			}
 			message.Nack()
 			return
 		}

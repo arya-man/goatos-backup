@@ -273,8 +273,32 @@ func TestCalendarDateMarkersStatusBucketsDateShiftParkScopeMultiPageOneToMany(t 
 			t.Fatalf("calendar date marker query lost %s invariant %q", name, fragment)
 		}
 	}
-	if strings.Contains(calendarDateMarkersSQL, "LIMIT ") {
-		t.Fatalf("calendar date marker aggregation must not page inside the month; the caller pages event lists only")
+	// Every way Postgres can page, not just LIMIT. This guard used to check the literal
+	// "LIMIT " only, and a real regression walked straight past it: a scalar tie-break
+	// subquery was added with LIMIT 1, the test caught it, and it was then "fixed" by
+	// rewriting the same clause as FETCH FIRST 1 ROW ONLY -- semantically identical, and
+	// now invisible to the guard. The row-limiting clause that survives today is legitimate
+	// (it picks ONE verdict per obligation inside a scalar subquery, well below the month
+	// grouping), so the check is scoped to the aggregation body: whatever the syntax, the
+	// month rollup itself must never page. The caller pages event lists, never markers.
+	// The ONE legitimate row-limiting clause is the per-obligation verdict tie-break, which
+	// picks a single verdict inside a scalar subquery far below the month rollup. It is
+	// identified by the live_rank ordering that immediately precedes it; anything else that
+	// pages is a real violation.
+	const verdictTieBreak = "ORDER BY verdicts.live_rank ASC, verdicts.updated_at DESC, verdicts.completion_id DESC\n      FETCH FIRST 1 ROW ONLY"
+	markerBody := strings.Replace(calendarDateMarkersSQL, verdictTieBreak, "", 1)
+	for _, pagingClause := range []string{"LIMIT ", "OFFSET ", "FETCH FIRST", "FETCH NEXT"} {
+		if strings.Contains(markerBody, pagingClause) {
+			t.Fatalf(
+				"calendar date marker aggregation must not page inside the month (found %q); the caller pages event lists only",
+				pagingClause,
+			)
+		}
+	}
+	// If the tie-break itself is ever removed or reshaped, the exclusion above silently stops
+	// matching and this guard would quietly widen. Pin it.
+	if !strings.Contains(calendarDateMarkersSQL, verdictTieBreak) {
+		t.Fatalf("verdict tie-break shape changed; re-verify the paging exclusion in this test still describes it")
 	}
 	if got := strings.Count(calendarDateMarkersSQL, "GROUP BY (scheduled_at AT TIME ZONE 'Asia/Kolkata')::date"); got != 1 {
 		t.Fatalf("live marker branch must aggregate to one row per shifted date before UNION, got %d groupings", got)

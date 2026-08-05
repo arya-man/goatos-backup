@@ -51,6 +51,9 @@ const (
 const (
 	legacyVaccinationSourceModule  = "vaccination"
 	legacyVaccinationSourceRefType = "sop_submission"
+	// Per-animal vaccination proof: one verification item per goat, raised by the same
+	// submission the legacy notifier already covers.
+	vaccinationGoatSourceRefType = "vaccination_goat"
 	positionPCDirector             = "pc_director"
 	positionGrowthDirector         = "growth_director"
 	positionCEOInternal            = "ceo_internal"
@@ -325,13 +328,30 @@ type VerificationEventPayload struct {
 
 // legacyHandledVaccination reports whether this item is ALSO covered by the legacy
 // vaccination.verify.rejected notification path, so the generic rework push must be suppressed
-// to avoid double-notifying the operator + park head. True exactly when the item was produced
-// from a legacy vaccination SOP submission (Source.Module="vaccination" AND
+// to avoid double-notifying the operator + park head. True ONLY when the item was produced from a
+// legacy, TASK-GRAIN vaccination SOP submission (Source.Module="vaccination" AND
 // Source.RefType="sop_submission"). Non-vaccination generic verticals (feed/diagnosis/death/
 // breeding, future modules) have NO legacy notifier and are never suppressed.
+//
+// C-defect-A (2026-08-04): "vaccination_goat" (per-animal) items were ALSO being suppressed here,
+// on the theory that sopbridge.VerifyFanout.OnTaskReworked fires vaccination.verify.rejected for
+// every ref type. It does not: OnTaskReworked is invoked ONLY from the SOP task-level rework
+// command (internal/sop/app/service.go RejectTask -> reviewFanout.OnTaskReworked), which is the
+// shed/task-grain "sop_submission" flow. A per-animal verdict reaches this consumer through
+// verification.Service.RecordVerdict -> internal/vaccination/app/verification_handler.go's generic
+// event branch (ApplyGoatVerification), which never publishes vaccination.verify.rejected and so
+// never drives sopbridge/notificationbridge/verification_notify.go's legacy operator+park-head
+// push. Treating "vaccination_goat" as legacy-handled therefore suppressed the ONLY notification
+// path that would have told the operator to rework their capture -- confirmed live: Pramod
+// (operator) received zero rework pushes while CEO/PC director got three each. Only the true
+// task-grain ref type is suppressed now; a per-animal rework is never legacy-covered and must
+// always notify operator + park head itself.
 func (p VerificationEventPayload) legacyHandledVaccination() bool {
-	return strings.EqualFold(strings.TrimSpace(p.Source.Module), legacyVaccinationSourceModule) &&
-		strings.EqualFold(strings.TrimSpace(p.Source.RefType), legacyVaccinationSourceRefType)
+	if !strings.EqualFold(strings.TrimSpace(p.Source.Module), legacyVaccinationSourceModule) {
+		return false
+	}
+	refType := strings.TrimSpace(p.Source.RefType)
+	return strings.EqualFold(refType, legacyVaccinationSourceRefType)
 }
 
 // VerificationEventConsumer is a durable, idempotent consumer of verification.item.pending,
@@ -1040,6 +1060,23 @@ func (c *VerificationEventConsumer) logUnroutedModule(ctx context.Context, event
 		"remedy", "add the module to pendingModuleProfiles")
 }
 
+// terminateSentence returns s with a trailing full stop, unless it already ends in terminal
+// punctuation or is empty. Verifier-authored rework reasons are free text with no guaranteed
+// punctuation, so joining "Reason: " + reason + " Please resubmit." without this produced a
+// run-on sentence ("...not clearly identifiable Please resubmit.").
+func terminateSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	switch s[len(s)-1] {
+	case '.', '!', '?':
+		return s
+	default:
+		return s + "."
+	}
+}
+
 func cloneContext(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
@@ -1110,16 +1147,43 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 	eventKey := EventVerificationVerdictRework + ":" + itemID
 	body := profile.reworkBody
 	if p.Reason != "" {
-		body = profile.reworkReasonPrefix + p.Reason + profile.reworkReasonSuffix
+		// C-defect-B: the reason came straight from the verifier's free-text field with no
+		// terminal punctuation, so concatenating reworkReasonSuffix (" Please resubmit.") onto
+		// it produced a run-on sentence: "...not clearly identifiable Please resubmit." Force a
+		// sentence break so the reason and the instruction never fuse.
+		body = profile.reworkReasonPrefix + terminateSentence(p.Reason) + profile.reworkReasonSuffix
 	}
-	// Name WHAT has to be redone. The body used to identify only the module ("a weighing
-	// proof"), so an operator holding fifteen bounced captures was told to redo something,
-	// somewhere. The item already carries the producing module's own subject sentence --
-	// the animal's tag and weight for a weighing capture, the shed/partition for a
-	// vaccination one -- and the pending and withdrawn pushes already lead with it. This
-	// closes the one lifecycle push that did not.
-	if subject := strings.TrimSpace(p.SubjectLabel); subject != "" {
+	// Name WHAT has to be redone and WHERE. The body used to identify only the module ("a
+	// weighing proof"), so an operator holding fifteen bounced captures was told to redo
+	// something, somewhere, with no park in sight. The item carries the producing module's own
+	// subject sentence -- the animal's tag and shed for a vaccination capture, the shed/
+	// partition for a weighing one -- and the pending and withdrawn pushes already lead with it;
+	// this closes the one lifecycle push that did not. Park name is resolved on top so a CEO/
+	// director reading the leadership copy of the SAME push can tell which park without opening
+	// the app (C-defect-B: park/shed/animal ids reached `context` as raw UUIDs but never the
+	// human-readable Title/Body).
+	parkName := ""
+	if c.locations != nil {
+		parkName = strings.TrimSpace(c.locations.ResolveNames(ctx, tenantID, parkID)[parkID])
+	}
+	subject := strings.TrimSpace(p.SubjectLabel)
+	switch {
+	case subject != "" && parkName != "":
+		body = subject + " (" + parkName + ") — " + body
+	case subject != "":
 		body = subject + " — " + body
+	case parkName != "":
+		body = parkName + " — " + body
+	}
+	// C-defect-C: reworkTarget used to be the module's generic landing ("/vaccination"), so the
+	// tap opened the module overview instead of the shed the rejected capture belongs to. The
+	// Android resolver (apps/goatos-android .../push/PushTargetResolver.kt workTargetRoute)
+	// already knows how to turn a "record/{shedId}" path segment into Routes.recordRoute(shedId)
+	// -- the exact shed-scoped record screen -- so emit that shape whenever the payload names a
+	// shed, and only fall back to the module landing when it does not.
+	target := profile.reworkTarget
+	if shedID := strings.TrimSpace(p.ShedID); shedID != "" {
+		target = profile.reworkTarget + "/record/" + shedID
 	}
 	_, err = c.queue.QueueRoleNotifications(ctx, calendarports.QueueRoleNotifications{
 		TenantID:         tenantID,
@@ -1136,7 +1200,7 @@ func (c *VerificationEventConsumer) handleVerdictRework(ctx context.Context, p V
 		Context: map[string]string{
 			"type":         NotificationTypeRework,
 			"screen":       profile.reworkScreen,
-			"target":       profile.reworkTarget,
+			"target":       target,
 			"message_key":  profile.messageKeyPrefix + ".proof.rework",
 			"reason":       p.Reason,
 			"item_id":      itemID,

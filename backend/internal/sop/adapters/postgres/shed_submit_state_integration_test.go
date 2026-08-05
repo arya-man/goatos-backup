@@ -439,6 +439,124 @@ func TestCompletedTaskProofRefsDoesNotRecoverParkScopedShedProofWithoutShedID(t 
 	}
 }
 
+// TestReopenTaskForReworkUnblocksResubmitAfterVerifierRejection is the regression test for the
+// P0 "rework cannot be resubmitted" incident: a task accepted terminally could never take another
+// submission (TestSubmitTaskRejectsFreshSubmitWhenSharedParkTaskAccepted above proves that guard is
+// intentional), but nothing ever moved a task OUT of 'accepted' when a verifier rejected an animal
+// and its obligation was reopened. ReopenTaskForRework is that missing transition. This proves the
+// full cycle: accepted -> (verifier rejection) reopen -> resubmit succeeds.
+func TestReopenTaskForReworkUnblocksResubmitAfterVerifierRejection(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		actorID    = "77400000-0000-4000-8000-000000000001"
+		verifierID = "77400000-0000-4000-8000-000000000009"
+		sopID      = "77400000-0000-4000-8000-000000000002"
+		sopVersion = "77400000-0000-4000-8000-000000000003"
+		taskID     = "77400000-0000-4000-8000-000000000004"
+		shedID     = "77400000-0000-4000-8000-000000000005"
+		goatID     = "77400000-0000-4000-8000-000000000006"
+	)
+
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.rework_reopen_regression', 'Rework reopen regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":false}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "accepted task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Rework reopen task', 'accepted', 'shed', $5::uuid, 11)`,
+		taskID, tenantID, sopID, sopVersion, shedID)
+	execShedSubmitState(t, ctx, pool, "prior accepted submission",
+		`INSERT INTO sop_submissions (tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, proof_refs, state)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, '{}'::jsonb, '[]'::jsonb, 'accepted')`,
+		tenantID, taskID, sopVersion, actorID, "shed-submit:"+taskID+":initial")
+
+	repo := NewRepository(pool, 5*time.Second)
+
+	// A fresh submission still 409s while the task remains terminally 'accepted' -- this is the
+	// exact behavior the incident reported, and it must stay intact for a task that is genuinely
+	// done.
+	_, _, _, err := repo.SubmitTask(ctx, ports.SubmitTaskCommand{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		TaskID:   taskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   sopVersion,
+			IdempotencyKey: "shed-submit:" + taskID + ":before-reopen",
+			Answers:        map[string]any{},
+			ProofRefs:      []domain.ProofReference{},
+		},
+		TaskState: "needs_review",
+		ItemState: "needs_review",
+	})
+	if err != ports.ErrConflict {
+		t.Fatalf("submit before reopen: error=%v want ErrConflict", err)
+	}
+
+	// Verifier rejects a goat's proof: the owning vertical (vaccination) reopens the goat's
+	// obligation on its own side; ReopenTaskForRework is the SOP-side compensation that must run
+	// alongside it.
+	priorSubmissionID := ""
+	if err := pool.QueryRow(ctx, `SELECT submission_id::text FROM sop_submissions WHERE tenant_id=$1::uuid AND task_id=$2::uuid`, tenantID, taskID).Scan(&priorSubmissionID); err != nil {
+		t.Fatalf("resolve prior submission id: %v", err)
+	}
+	if err := repo.ReopenTaskForRework(ctx, tenantID, priorSubmissionID, goatID, verifierID); err != nil {
+		t.Fatalf("ReopenTaskForRework() error = %v", err)
+	}
+
+	var state string
+	if err := pool.QueryRow(ctx, `SELECT state FROM sop_tasks WHERE tenant_id=$1::uuid AND task_id=$2::uuid`, tenantID, taskID).Scan(&state); err != nil {
+		t.Fatal(err)
+	}
+	if state != "rework_requested" {
+		t.Fatalf("task state after reopen = %q, want rework_requested", state)
+	}
+
+	// The rework submission that was dead on arrival before now succeeds.
+	submission, task, replay, err := repo.SubmitTask(ctx, ports.SubmitTaskCommand{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		TaskID:   taskID,
+		Body: domain.SubmitTaskRequest{
+			SOPVersionID:   sopVersion,
+			IdempotencyKey: "shed-submit:" + taskID + ":after-reopen",
+			Answers:        map[string]any{},
+			ProofRefs:      []domain.ProofReference{},
+		},
+		TaskState: "needs_review",
+		ItemState: "needs_review",
+	})
+	if err != nil {
+		t.Fatalf("submit after reopen: unexpected error = %v", err)
+	}
+	if replay {
+		t.Fatalf("submit after reopen: unexpectedly classified as replay")
+	}
+	if submission.State != "needs_review" {
+		t.Fatalf("submission.State = %q, want needs_review", submission.State)
+	}
+	if task.State != "needs_review" {
+		t.Fatalf("task.State = %q, want needs_review", task.State)
+	}
+
+	// A second reopen call (idempotent replay of the reject event, or a sibling goat's rejection
+	// landing after the task already moved on) is a safe no-op, not an error.
+	if err := repo.ReopenTaskForRework(ctx, tenantID, priorSubmissionID, goatID, verifierID); err != nil {
+		t.Fatalf("ReopenTaskForRework() second call error = %v", err)
+	}
+}
+
 func execShedSubmitState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label, sql string, args ...any) {
 	t.Helper()
 	if _, err := pool.Exec(ctx, sql, args...); err != nil {

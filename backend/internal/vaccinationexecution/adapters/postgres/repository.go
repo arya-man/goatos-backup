@@ -754,6 +754,21 @@ WITH completions AS (
     FROM vaccination_completions
     WHERE tenant_id = $1::uuid
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    UNION ALL
+    -- Rejected completions are MOVED to the rejection archive (migration 000093) so the animal
+    -- becomes outstanding work again by default on every read. This reads them back so a
+    -- sent-back animal stays visible instead of silently vanishing. Ranked BELOW
+    -- recorded/accepted by the ordering above, so once the operator redoes the animal and the
+    -- new clip is accepted, the live completion wins and the sent-back state clears itself.
+    SELECT
+      obligation_id, administered_at, original_created_at AS created_at,
+      CASE
+        WHEN rejected_at > $2::timestamptz THEN 'recorded'
+        ELSE 'rejected'
+      END AS asof_status
+    FROM vaccination_completion_rejections
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, original_created_at) <= $2::timestamptz
   ) c
   GROUP BY obligation_id
 ),
@@ -1080,6 +1095,30 @@ WITH completion_candidates AS (
   FROM vaccination_completions
   WHERE tenant_id = $1::uuid
     AND COALESCE(administered_at, created_at) <= $7::timestamptz
+  UNION ALL
+  -- Rejected completions no longer live in vaccination_completions: they are MOVED to the
+  -- rejection archive (migration 000093) so the animal becomes outstanding work again on every
+  -- read by default. The shed's Sent-back state still has to be visible, so the archive is read
+  -- back in here as a candidate with status 'rejected', keyed on the SAME obligation_id.
+  --
+  -- Self-clearing, which is the whole point of keying on the obligation rather than the animal:
+  -- the ordering in the completions CTE below ranks recorded/accepted ahead of everything else, so
+  -- moment the operator redoes that animal and the new clip is accepted, the live completion wins
+  -- and the shed stops reading Sent back. No flag to reset, no cleanup job -- and a goat rejected
+  -- in a previous cycle can never make today's drive look sent back, because that rejection
+  -- belongs to a different obligation.
+  SELECT
+    obligation_id,
+    completion_id,
+    administered_at,
+    original_created_at AS created_at,
+    CASE
+      WHEN rejected_at > $7::timestamptz THEN 'recorded'
+      ELSE 'rejected'
+    END AS asof_status
+  FROM vaccination_completion_rejections
+  WHERE tenant_id = $1::uuid
+    AND COALESCE(administered_at, original_created_at) <= $7::timestamptz
 ),
 completions AS (
   SELECT
@@ -1807,6 +1846,20 @@ completions AS (
       -- existence bound: a completion is only "seen" if its event time (administered_at, falling back to
       -- the recording time) is at or before as_of.
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    UNION ALL
+    -- Rejected completions are MOVED to the rejection archive (migration 000093), so they must be
+    -- read back here or a sent-back animal disappears from this surface instead of showing as work
+    -- still owed. Ranked BELOW recorded/accepted by the ordering above, so the state clears itself
+    -- once the animal is redone and the new clip is accepted.
+    SELECT
+      obligation_id, administered_at, original_created_at AS created_at,
+      CASE
+        WHEN rejected_at > $2::timestamptz THEN 'recorded'
+        ELSE 'rejected'
+      END AS asof_status
+    FROM vaccination_completion_rejections
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, original_created_at) <= $2::timestamptz
   ) c
   GROUP BY obligation_id
 ),
@@ -2180,6 +2233,27 @@ SELECT
   pd.name AS protocol_name,
   pr.dose_code,
   CASE
+    -- A verifier's verdict on THIS animal outranks the fact that it was scanned. Proof is
+    -- captured per animal, so the verdict is issued per animal: an animal whose clip was sent
+    -- back is outstanding work again, and an accepted animal is finished and must not be
+    -- offered for re-capture. Reading only the scan-capture presence made every scanned
+    -- animal 'done' regardless of verdict, so a rejected animal stayed green on the scan
+    -- screen and the operator could not tell WHICH animal to redo -- while the four accepted
+    -- ones stayed re-scannable.
+    -- SENT BACK: the verifier refused this animal's clip, so its completion was moved to the
+    -- rejection archive and the animal owes the work again. It reports 'due', NOT 'done' and not
+    -- a bespoke status: 'due' is the vocabulary every client already treats as outstanding, so
+    -- the animal reappears in the pending list, is re-scannable, and needs no special case.
+    -- Its old scan capture is deliberately ignored below (scanned_at goes NULL) -- the animal WAS
+    -- scanned, but that scan's proof was rejected, so presenting it as scanned would put a green
+    -- tick on the one animal the operator has to redo.
+    WHEN vc.completion_status = 'rejected' THEN 'due'
+    WHEN vc.completion_status = 'accepted' THEN 'completed'
+    -- A live completion IS the done evidence, and it does not depend on the scan-capture join
+    -- below (which only resolves when a task id was supplied). Without this, a shed-wide roster
+    -- read reported every animal as 'due' -- the four that were accepted looked identical to the
+    -- one that was sent back.
+    WHEN vc.completion_status = 'recorded' THEN 'done'
     WHEN sc.capture_id IS NOT NULL THEN 'done'
     WHEN oi.status = 'due' OR (COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) < now() AND oi.status = 'scheduled') THEN 'due'
     WHEN oi.status = 'in_progress' THEN 'in_progress'
@@ -2187,7 +2261,9 @@ SELECT
     WHEN oi.status IN ('deferred', 'missed', 'waived') THEN 'deferred'
     ELSE 'pending'
   END AS status,
-  sc.captured_at AS scanned_at,
+  -- NULL for a sent-back animal: it must present as not-yet-scanned so the row carries no
+  -- "Proof synced" tick and the client's own done/pending split puts it back in pending.
+  CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, vcm.administered_at) END AS scanned_at,
   oi.obligation_id::text
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
@@ -2264,6 +2340,44 @@ LEFT JOIN LATERAL (
   ORDER BY c.captured_at DESC, c.capture_id DESC
   LIMIT 1
 ) sc ON $3 <> ''
+-- This animal's own latest verdict, keyed on its obligation so one goat's rejection can never
+-- be read onto another's row. Collapsed through LIMIT 1 exactly like the scan-capture lateral
+-- above, so a re-capture cannot duplicate the roster row.
+--
+-- It MUST read the rejection archive as well as the live table. A rejected completion is moved
+-- out of vaccination_completions (migration 000093), so a lookup against the live table alone can
+-- never see status='rejected' -- the branch would be dead code, the rejected animal would fall
+-- through to the scan-capture rule below and render DONE/green exactly like its accepted
+-- shed-mates, and the operator would have no way to tell which animal to redo. That is the very
+-- defect this whole change exists to remove.
+--
+-- Ordering puts a live recorded/accepted row ahead of an archived rejection for the same
+-- obligation, so the state clears itself the moment the animal is redone and accepted.
+LEFT JOIN LATERAL (
+  SELECT vcx.administered_at
+  FROM vaccination_completions vcx
+  WHERE vcx.tenant_id = oi.tenant_id
+    AND vcx.obligation_id = oi.obligation_id
+  ORDER BY vcx.updated_at DESC, vcx.completion_id DESC
+  LIMIT 1
+) vcm ON true
+LEFT JOIN LATERAL (
+  SELECT completion_status
+  FROM (
+    SELECT vcc.status AS completion_status, vcc.updated_at, vcc.completion_id,
+           CASE WHEN vcc.status IN ('recorded', 'accepted') THEN 0 ELSE 1 END AS live_rank
+    FROM vaccination_completions vcc
+    WHERE vcc.tenant_id = oi.tenant_id
+      AND vcc.obligation_id = oi.obligation_id
+    UNION ALL
+    SELECT 'rejected', vcr.rejected_at, vcr.completion_id, 1
+    FROM vaccination_completion_rejections vcr
+    WHERE vcr.tenant_id = oi.tenant_id
+      AND vcr.obligation_id = oi.obligation_id
+  ) verdicts
+  ORDER BY live_rank ASC, updated_at DESC, completion_id DESC
+  LIMIT 1
+) vc ON true
 WHERE oi.tenant_id = $1::uuid
   AND g.shed_id = $2::uuid
   AND (
@@ -2886,6 +3000,21 @@ completions AS (
     FROM vaccination_completions
     WHERE tenant_id = $1::uuid
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    UNION ALL
+    -- Rejected completions are MOVED to the rejection archive (migration 000093) so the animal
+    -- becomes outstanding work again by default on every read. This reads them back so a
+    -- sent-back animal stays visible instead of silently vanishing. Ranked BELOW
+    -- recorded/accepted by the ordering above, so once the operator redoes the animal and the
+    -- new clip is accepted, the live completion wins and the sent-back state clears itself.
+    SELECT
+      obligation_id, administered_at, original_created_at AS created_at,
+      CASE
+        WHEN rejected_at > $2::timestamptz THEN 'recorded'
+        ELSE 'rejected'
+      END AS asof_status
+    FROM vaccination_completion_rejections
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, original_created_at) <= $2::timestamptz
   ) c
   GROUP BY obligation_id
 ),

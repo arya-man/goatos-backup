@@ -378,7 +378,59 @@ func (s *Service) RecordVerdict(ctx context.Context, in domain.Verdict) (domain.
 	if err != nil {
 		return domain.Item{}, mapRepoErr(err)
 	}
+	if in.Decision == domain.DecisionApproved {
+		s.autoCloseSubmissionWhenFullyApproved(ctx, in, item)
+	}
 	return item, nil
+}
+
+// autoCloseSubmissionWhenFullyApproved closes the SHED as soon as its last animal is approved.
+//
+// Proof is per animal, so a shed's evidence is now several verification items. Making the
+// verifier approve each animal and THEN perform a separate shed-level close would be a second
+// action carrying no extra judgement -- she already said yes to every animal in it. So the
+// submission closes itself on the approval that completes the set.
+//
+// Deliberately best-effort and non-fatal: the verdict is already committed and durable, and the
+// operator's animal is decided either way. If the close loses a race or fails, the leadership
+// close path still works exactly as before, so a failure here degrades to "not auto-closed",
+// never to a lost or half-applied verdict.
+//
+// Replay-safe on three counts: the repository's CloseSubmission locks the whole item set and
+// refuses unless every item is approved; the idempotency key is derived from the submission, so
+// a duplicated approve resolves to the same close; and an already-closed submission has no
+// still-approved-but-open item left to close.
+func (s *Service) autoCloseSubmissionWhenFullyApproved(ctx context.Context, in domain.Verdict, item domain.Item) {
+	submissionID := ""
+	if item.Source.SubmissionID != nil {
+		submissionID = strings.TrimSpace(*item.Source.SubmissionID)
+	}
+	if !uuidutil.IsUUIDString(submissionID) {
+		return
+	}
+	siblings, err := s.repo.GetSubmissionItems(ctx, in.TenantID, submissionID)
+	if err != nil || len(siblings) == 0 {
+		return
+	}
+	for _, sibling := range siblings {
+		// Withdrawn items are retractions, not outstanding work, and must not hold the shed open.
+		if sibling.Status == domain.StatusWithdrawn {
+			continue
+		}
+		if sibling.Status != domain.StatusApproved {
+			return
+		}
+		if sibling.ClosedAt != nil {
+			// Already closed by this path or by leadership; nothing left to do.
+			return
+		}
+	}
+	_, _ = s.CloseSubmission(ctx, domain.CloseSubmissionAction{
+		TenantID:       in.TenantID,
+		SubmissionID:   submissionID,
+		ActorID:        in.VerifierID,
+		IdempotencyKey: "verification:auto-close:submission:" + submissionID,
+	})
 }
 
 // assertEvidenceApprovable is the REAL evidence gate for a single approve.
@@ -562,15 +614,33 @@ func oneOf(value string, allowed ...string) bool {
 }
 
 func mapRepoErr(err error) error {
+	var notVerified *ports.ErrBatchNotFullyVerified
 	switch {
 	case errors.Is(err, ports.ErrNotFound):
 		return NotFound("item_not_found", "verification item not found")
+	case errors.As(err, &notVerified):
+		return Conflict("batch_not_fully_verified", batchNotFullyVerifiedMessage(notVerified.Blocking))
 	case errors.Is(err, ports.ErrConflict):
 		return Conflict("write_conflict", "verification item was modified by someone else")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "Idempotency-Key was reused with a different request payload")
 	default:
 		return err
+	}
+}
+
+// batchNotFullyVerifiedMessage renders CloseVaccinationBatch's named refusal: "3 animals still
+// awaiting verification: G-00X, G-00Y, G-00Z" so the UI has something to show the CEO/director
+// directly, instead of a bare "write conflict".
+func batchNotFullyVerifiedMessage(blocking []string) string {
+	n := len(blocking)
+	switch {
+	case n == 0:
+		return "This drive cannot be closed: one or more animals are still awaiting verification."
+	case n == 1:
+		return fmt.Sprintf("1 animal still awaiting verification: %s", blocking[0])
+	default:
+		return fmt.Sprintf("%d animals still awaiting verification: %s", n, strings.Join(blocking, ", "))
 	}
 }
 

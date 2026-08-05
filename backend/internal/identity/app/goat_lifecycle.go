@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -96,11 +97,17 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "move_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", moveGoatCommand), slog.Any("error", err))
 		return nil, Internal("move goat request normalization failed")
 	}
 	route := "/admin/goats/{goat_id}/move"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, moveGoatCommand, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "move_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", moveGoatCommand), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	occurredAt := time.Now().UTC()
@@ -173,10 +180,16 @@ func (s *Service) exitGoat(ctx context.Context, input ExitGoatInput, commandName
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "exit_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", commandName), slog.Any("error", err))
 		return nil, Internal("exit goat request normalization failed")
 	}
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, commandName, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "exit_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", commandName), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	occurredAt := time.Now().UTC()
@@ -224,11 +237,17 @@ func (s *Service) StageGoat(ctx context.Context, input StageGoatInput) (*domain.
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "stage_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", stageGoatCommand), slog.Any("error", err))
 		return nil, Internal("stage goat request normalization failed")
 	}
 	route := "/admin/goats/{goat_id}/stage"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, stageGoatCommand, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "stage_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", stageGoatCommand), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	occurredAt := time.Now().UTC()
@@ -274,11 +293,17 @@ func (s *Service) HealthGoat(ctx context.Context, input HealthGoatInput) (*domai
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "health_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", healthGoatCommand), slog.Any("error", err))
 		return nil, Internal("health goat request normalization failed")
 	}
 	route := "/admin/goats/{goat_id}/health"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, healthGoatCommand, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "health_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", healthGoatCommand), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	occurredAt := time.Now().UTC()
@@ -325,11 +350,17 @@ func (s *Service) ReproductiveGoat(ctx context.Context, input ReproductiveGoatIn
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "reproductive_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", reproductiveGoatCommand), slog.Any("error", err))
 		return nil, Internal("reproductive goat request normalization failed")
 	}
 	route := "/admin/goats/{goat_id}/reproductive"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, reproductiveGoatCommand, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "reproductive_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", reproductiveGoatCommand), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	occurredAt := time.Now().UTC()
@@ -381,11 +412,17 @@ func (s *Service) IdentityGoat(ctx context.Context, input IdentityGoatInput) (*d
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
+		slog.ErrorContext(ctx, "identity_goat_request_marshal_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", identityGoatCommand), slog.Any("error", err))
 		return nil, Internal("identity goat request normalization failed")
 	}
 	route := "/admin/goats/{goat_id}/identity"
 	requestHash, err := CanonicalRequestHashWithSubject(tenantID, identityGoatCommand, route, goatID, raw)
 	if err != nil {
+		slog.ErrorContext(ctx, "identity_goat_request_hash_failed",
+			slog.String("tenant_id", tenantID), slog.String("goat_id", goatID),
+			slog.String("op", identityGoatCommand), slog.Any("error", err))
 		return nil, BadRequest("invalid_json", "request body must be valid JSON")
 	}
 	// VACC-REV-07: recomputation + persistence use the SERVER processing instant, never a
@@ -713,6 +750,8 @@ func optionalDateField(field string, raw *string) (*time.Time, error) {
 	}
 	parsed, err := parseDateField(field, *raw)
 	if err != nil {
+		slog.Warn("goat_lifecycle_date_field_invalid",
+			slog.String("field", field), slog.String("raw_value", *raw), slog.Any("error", err))
 		return nil, BadRequest("invalid_"+field, field+" must be YYYY-MM-DD")
 	}
 	utc := parsed.UTC()

@@ -697,7 +697,7 @@ func optionalInt32(query url.Values, name string) (*int32, error) {
 	}
 	parsed, err := strconv.ParseInt(raw, 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("%s must be an integer", name)
+		return nil, fmt.Errorf("%s must be an integer: %w", name, err)
 	}
 	v := int32(parsed)
 	return &v, nil

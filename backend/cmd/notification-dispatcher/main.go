@@ -77,6 +77,9 @@ func run(args []string) error {
 		FCMBearerToken:     getenv("GOATOS_FCM_BEARER_TOKEN"),
 		DryRun:             *dryRun,
 		HTTPTimeout:        envDuration("GOATOS_NOTIFICATION_HTTP_TIMEOUT", 5*time.Second),
+		// Local/E2E only -- see the config field doc in adapters/gateway/gateway.go. Must never be
+		// set true in a real environment; there is no flag/default that turns it on implicitly.
+		LocalStubUnconfiguredChannels: envBool("GOATOS_NOTIFICATION_LOCAL_STUB_UNCONFIGURED_CHANNELS"),
 	}, logger)
 	service := notificationapp.NewService(repo, gateway, notificationapp.Config{
 		Limit:        *limit,

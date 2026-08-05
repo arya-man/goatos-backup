@@ -741,10 +741,24 @@ expected AS (
       vc.batch_id,
       COUNT(*)::int AS completion_count,
       COUNT(DISTINCT vc.goat_id)::int AS total_count
-    FROM vaccination_completions vc
-    WHERE vc.tenant_id = $1::uuid
-      AND vc.batch_id IS NOT NULL
-      AND vc.status IN ('recorded', 'accepted')
+    FROM (
+      SELECT batch_id, goat_id
+      FROM vaccination_completions
+      WHERE tenant_id = $1::uuid
+        AND batch_id IS NOT NULL
+        AND status IN ('recorded', 'accepted')
+      UNION ALL
+      -- A sent-back animal MUST still be counted in the drive. Its completion row was moved to
+      -- the rejection archive (migration 000093), so counting only the live table dropped it out
+      -- of the drive entirely: the denominators shrank to the animals that went well, the
+      -- rejected-count read 0, and the drive offered a Close button while an animal was still
+      -- waiting to be redone. Close is only allowed when EVERY video in the drive, across all its
+      -- sheds, has been verified.
+      SELECT batch_id, goat_id
+      FROM vaccination_completion_rejections
+      WHERE tenant_id = $1::uuid
+        AND batch_id IS NOT NULL
+    ) vc
     GROUP BY vc.batch_id
   ) completion_counts
     ON completion_counts.batch_id = ob.batch_id
@@ -780,6 +794,38 @@ proofs AS (
    )
   WHERE vc.tenant_id = $1::uuid
     AND vc.status = 'recorded'
+    AND vi.category = $2
+    AND ($3 = '' OR vi.vertical = $3)
+    AND ($4 = '' OR vi.module = $4)
+    AND (NOT $7::boolean OR vi.closed_at IS NULL)
+    AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
+    AND ($8 = '' OR vi.park_id = $8::uuid)
+    AND ($9 = '' OR vi.shed_id = $9::uuid)
+  UNION ALL
+  -- The archived counterpart of the branch above: an animal whose clip was sent back still has
+  -- its verification item, and the drive must keep seeing it as a rejected video. Without this
+  -- the readiness gate (rejected_completion_count = 0) passed on a drive that still owed work.
+  SELECT
+    vcr.batch_id,
+    vcr.completion_id,
+    vcr.goat_id,
+    vi.item_id,
+    vi.status,
+    vi.closed_at,
+    vi.park_id,
+    vi.shed_id
+  FROM vaccination_completion_rejections vcr
+  JOIN sop_submission_items si
+    ON si.tenant_id = vcr.tenant_id
+   AND si.item_id = vcr.sop_submission_item_id
+  JOIN verification_items vi
+    ON vi.tenant_id = vcr.tenant_id
+   AND vi.source_submission_id = si.submission_id
+   AND (
+     (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+     OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+   )
+  WHERE vcr.tenant_id = $1::uuid
     AND vi.category = $2
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
@@ -926,6 +972,20 @@ LIMIT 20`,
 	return out, rows.Err()
 }
 
+// blockingSubjectLabel names one animal/shed blocking a drive closure for the refusal message.
+// Prefers the human label captured at verification-item creation time (e.g. "Gandhi 1 - G-006004");
+// falls back to the raw source ref id when no label was captured, so the caller always gets SOME
+// identifier rather than a silently dropped blocker.
+func blockingSubjectLabel(item domain.Item) string {
+	if item.SubjectLabel != nil && strings.TrimSpace(*item.SubjectLabel) != "" {
+		return strings.TrimSpace(*item.SubjectLabel)
+	}
+	if item.Source.RefID != "" {
+		return item.Source.RefID
+	}
+	return item.ItemID
+}
+
 func (r *Repository) CloseVaccinationBatch(ctx context.Context, in domain.CloseVaccinationBatchAction) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1023,13 +1083,55 @@ WHERE vc.tenant_id = $1::uuid
 		}
 	}
 	allClosed := true
+	blocking := make([]string, 0)
 	for _, item := range items {
 		if item.Status != domain.StatusApproved {
-			return nil, ports.ErrConflict
+			blocking = append(blocking, blockingSubjectLabel(item))
+			continue
 		}
 		if item.ClosedAt == nil {
 			allClosed = false
 		}
+	}
+	// expectedCount/items above only see LIVE vaccination_completions -- a rejected animal's
+	// completion is MOVED to vaccination_completion_rejections (migration 000093), so a rejected
+	// goat that was never re-scanned has NO live completion and is otherwise invisible to this
+	// whole function: it would silently drop out of the drive and let leadership close a batch
+	// with real rework still outstanding. Name those animals too.
+	reworkRows, err := tx.Query(ctx, `
+SELECT DISTINCT vcr.goat_id::text
+FROM vaccination_completion_rejections vcr
+WHERE vcr.tenant_id = $1::uuid
+  AND vcr.batch_id = $2::uuid
+  AND NOT EXISTS (
+    SELECT 1 FROM vaccination_completions vc2
+    WHERE vc2.tenant_id = vcr.tenant_id
+      AND vc2.batch_id = vcr.batch_id
+      AND vc2.goat_id = vcr.goat_id
+      AND vc2.status IN ('recorded', 'accepted')
+  )`, in.TenantID, in.BatchID)
+	if err != nil {
+		return nil, err
+	}
+	for reworkRows.Next() {
+		var goatID string
+		if scanErr := reworkRows.Scan(&goatID); scanErr != nil {
+			reworkRows.Close()
+			return nil, scanErr
+		}
+		blocking = append(blocking, goatID)
+	}
+	if err := reworkRows.Err(); err != nil {
+		reworkRows.Close()
+		return nil, err
+	}
+	reworkRows.Close()
+	if len(blocking) > 0 {
+		// Named refusal (maintainer requirement): leadership cannot sign off on a drive with any
+		// animal still pending or rejected, and the UI must be able to say WHICH animals are
+		// blocking it, not render a bare 409. blockingSubjectLabel prefers the human subject_label
+		// captured at verification-item creation, falling back to the raw goat/ref id.
+		return nil, &ports.ErrBatchNotFullyVerified{Blocking: blocking}
 	}
 	if allClosed {
 		if err := r.acceptVaccinationBatch(ctx, tx, in.TenantID, in.BatchID, in.ActorID); err != nil {
@@ -1456,16 +1558,25 @@ func verificationItemPendingPayload(itemID string, in domain.CreateItem) map[str
 // existing guard real; the consumer needs no second, parallel check.
 func verificationVerdictPayload(item domain.Item) map[string]any {
 	payload := map[string]any{
-		"tenant_id":   item.TenantID,
-		"item_id":     item.ItemID,
-		"vertical":    item.Vertical,
-		"module":      item.Module,
-		"category":    item.Category,
-		"status":      item.Status,
-		"decision":    item.Status, // "approved" | "rejected" -- explicit alias, kept alongside status for notifier clarity.
-		"operator_id": derefStr(item.OperatorID),
-		"shed_id":     derefStr(item.ShedID),
-		"park_id":     derefStr(item.ParkID),
+		"tenant_id": item.TenantID,
+		"item_id":   item.ItemID,
+		"vertical":  item.Vertical,
+		"module":    item.Module,
+		"category":  item.Category,
+		"status":    item.Status,
+		"decision":  item.Status, // "approved" | "rejected" -- explicit alias, kept alongside status for notifier clarity.
+		// C-defect-B (2026-08-04): verificationItemPendingPayload has always carried subject_label
+		// (the "Shed · Animal-tag" sentence built at CreateItem time -- see
+		// vaccination_submission.go vaccinationAnimalSubjectLabel), but this verdict payload never
+		// did. That is why a rejected/approved push named no animal: notificationbridge's
+		// VerificationEventPayload.SubjectLabel decoded to "", so handleVerdictRework's own
+		// "subject + body" concatenation always took the empty branch. The field exists on the row
+		// (verification_items.subject_label, populated by RecordVerdict's own scanItemRow read
+		// immediately above) -- it just was not being put on the wire.
+		"subject_label": derefStr(item.SubjectLabel),
+		"operator_id":   derefStr(item.OperatorID),
+		"shed_id":       derefStr(item.ShedID),
+		"park_id":       derefStr(item.ParkID),
 		"source": map[string]any{
 			"module":        item.Source.Module,
 			"task_id":       derefStr(item.Source.TaskID),
