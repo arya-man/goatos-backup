@@ -8,21 +8,30 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // milkPreparationGroupedCTE is the single definition of the page's canonical membership and row
-// grain.
+// grain. The row grain is OperationalLocation-complete: physical shed x management stage x
+// partition. partitionKeyExpr (defined once in repository.go, shared byte-for-byte with the
+// Counts Breakdown and operator-execution normalizers, and with oploc.NormalizePartition on the
+// Go side) collapses NULL/”/'whole' to the same 'whole' bucket so a non-partitioned shed is one
+// row, never fragmented by encoding.
 //
 // projection-review: membership=goats, unique on (tenant_id,goat_id), filtered to live unmerged
-// animals in management_stage K1/K2/K3; group_key=(park_id, shed_id, management_stage) -- every
-// consumer (page rows, cohort summary, farm_tasks) re-groups this same CTE rather than re-deriving
-// membership, so the key set is identical on both sides; join_cardinality=both locations joins are
-// 1:0..1 label lookups on (tenant_id, location_id) and cannot multiply goats, and farm_verification
-// is pre-aggregated to one row per park_uuid before farm_tasks joins it, so head_count and
-// required_ml stay one-row-per-goat sums; pagination=OFFSET walks only the GROUPED set (physical
-// sheds x three milk cohorts), never goats, and every summary is a whole-filter aggregate over the
-// CTE rather than a rollup of the returned page; scope=park, applied inside the CTE from the
-// caller's clamped park filter so page and summary share one scope
+// animals in management_stage K1/K2/K3; group_key=(park_id, shed_id, management_stage,
+// partition_key) for page rows read directly off this CTE at full OperationalLocation grain,
+// re-rolled to (park_id, shed_id, management_stage) in grouped_by_shed for cohort summary and
+// farm_tasks BEFORE aggregating, so those whole-scope numbers are byte-identical to the
+// pre-partition grain and independent of how many partition rows a shed has; join_cardinality=both
+// locations joins are 1:0..1 label lookups on (tenant_id, location_id) that cannot multiply goats,
+// goat_shed_partitions is 1:{0,1} per animal on its (tenant_id, goat_id) primary key so it cannot
+// fan out the count either, and farm_verification is pre-aggregated to one row per park_uuid
+// before farm_tasks joins it, so head_count and required_ml stay one-row-per-goat sums;
+// pagination=OFFSET walks only the page-grain GROUPED set (physical sheds x three milk cohorts x
+// partition), never goats, and every summary is a whole-filter aggregate over grouped_by_shed
+// rather than a rollup of the returned page; scope=park, applied inside the CTE from the caller's
+// clamped park filter so page and summary share one scope
 //
 // Numerator and denominator for every quantity both range over those same K1/K2/K3 live-goat rows.
 const milkPreparationGroupedCTE = `
@@ -35,19 +44,44 @@ WITH grouped AS MATERIALIZED (
     COALESCE(g.shed_id::text, '') AS shed_id,
     COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_label,
     g.management_stage,
+    ` + partitionKeyExpr + ` AS partition_key,
+    -- Raw label as stored (or NULL for non-partitioned), kept alongside the normalized key so the
+    -- display preserves each shed's own 'N' vs 'Part N' convention. min() picks a deterministic
+    -- representative among rows sharing the same normalized key.
+    min(gsp.partition_label) AS partition_label_raw,
     count(*)::integer AS head_count
   FROM goats g
   LEFT JOIN locations park
     ON park.tenant_id = g.tenant_id AND park.location_id = g.park_id
   LEFT JOIN locations shed
     ON shed.tenant_id = g.tenant_id AND shed.location_id = g.shed_id
+  -- 1:{0,1} per animal (goat_shed_partitions PK is (tenant_id, goat_id)) -- no fan-out. A goat
+  -- with no row here is not partitioned and normalizes to 'whole'.
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.merged_into_goat_id IS NULL
     AND g.lifecycle_status = 'alive'
     AND g.management_stage IN ('K1', 'K2', 'K3')
     AND ($2 = '' OR g.park_id = NULLIF($2, '')::uuid)
-  GROUP BY g.park_id, park.location_code, park.name, -- operational-location:ignore: owner=ravi issue=partition-milk-prep scope=milk-prep-rows-and-contract-carry-no-partition-yet expiry=2026-11-30
-           g.shed_id, shed.name, shed.location_code, g.management_stage
+  GROUP BY g.park_id, park.location_code, park.name,
+           g.shed_id, shed.name, shed.location_code, g.management_stage,
+           ` + partitionKeyExpr + `
+),
+-- grouped_by_shed re-rolls the partition grain back up to the pre-partition (shed, stage) grain.
+-- Every whole-scope consumer below (farm_verification's park set, summary, farm_direction,
+-- farm_tasks) reads THIS, not grouped, so head_count/required_ml/cohort_count are byte-identical
+-- to what they were before partitions existed -- summing head_count is exact because it is already
+-- a per-row count(*), never re-derived from goats.
+grouped_by_shed AS (
+  SELECT park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, management_stage,
+         sum(head_count)::integer AS head_count
+  FROM grouped
+  GROUP BY park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, management_stage
+  -- Deliberately re-rolled up ACROSS partition_key: this GROUP BY reads the already
+  -- partition-complete grouped CTE and sums its head_count back to the pre-partition shed grain
+  -- for whole-scope summary/farm_task consumers only; page_window (the visible row grain) reads
+  -- grouped directly and keeps the partition dimension.
 )`
 
 // One indexed canonical live-herd aggregate, bounded after grouping to physical sheds x three milk
@@ -67,9 +101,13 @@ farm_verification AS MATERIALIZED (
    AND c.preparation_date = $3::date AND c.status <> 'retired'
 ),
 page_window AS (
-  SELECT park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, management_stage, head_count
+  SELECT park_uuid, park_id, park_label, shed_uuid, shed_id, shed_label, partition_key,
+         -- '' when partition_key is 'whole' (non-partitioned): never surface the sentinel to a
+         -- client. Matches the Counts Breakdown contract byte-for-byte.
+         CASE WHEN partition_key = 'whole' THEN '' ELSE partition_label_raw END AS partition_label,
+         management_stage, head_count
   FROM grouped
-  ORDER BY park_label, shed_label, management_stage, park_id, shed_id
+  ORDER BY park_label, shed_label, partition_key, management_stage, park_id, shed_id
   LIMIT $4 OFFSET $5
 ),
 summary AS (
@@ -86,7 +124,7 @@ summary AS (
     (SELECT count(*) FILTER (WHERE verification_status = 'pending_verification')::integer FROM farm_verification) AS pending_verification_farm_count,
     (SELECT count(*) FILTER (WHERE verification_status = 'completed')::integer FROM farm_verification) AS completed_farm_count,
     (SELECT count(*) FILTER (WHERE verification_status = 'rework')::integer FROM farm_verification) AS rework_farm_count
-  FROM grouped
+  FROM grouped_by_shed
 ),
 farm_direction AS (
   SELECT
@@ -100,27 +138,27 @@ farm_direction AS (
       WHEN 'K2' THEN head_count * 1200
       WHEN 'K3' THEN head_count * 400
       ELSE 0 END)::bigint AS required_ml
-  FROM grouped
+  FROM grouped_by_shed
   GROUP BY park_id, management_stage
 ),
 farm_tasks AS (
   SELECT
-    grouped.park_id,
-    grouped.park_label,
+    grouped_by_shed.park_id,
+    grouped_by_shed.park_label,
     count(*)::integer AS cohort_count,
-    COALESCE(sum(grouped.head_count), 0)::integer AS head_count,
-    COALESCE(sum(CASE grouped.management_stage
-      WHEN 'K1' THEN grouped.head_count * 800
-      WHEN 'K2' THEN grouped.head_count * 1200
-      WHEN 'K3' THEN grouped.head_count * 400
+    COALESCE(sum(grouped_by_shed.head_count), 0)::integer AS head_count,
+    COALESCE(sum(CASE grouped_by_shed.management_stage
+      WHEN 'K1' THEN grouped_by_shed.head_count * 800
+      WHEN 'K2' THEN grouped_by_shed.head_count * 1200
+      WHEN 'K3' THEN grouped_by_shed.head_count * 400
       ELSE 0 END), 0)::bigint AS total_required_ml,
     farm_verification.verification_status,
     farm_verification.completion_id,
     farm_verification.attempt_no,
     farm_verification.rework_reason
-  FROM grouped
-  JOIN farm_verification ON farm_verification.park_uuid = grouped.park_uuid
-  GROUP BY grouped.park_id, grouped.park_label,
+  FROM grouped_by_shed
+  JOIN farm_verification ON farm_verification.park_uuid = grouped_by_shed.park_uuid
+  GROUP BY grouped_by_shed.park_id, grouped_by_shed.park_label,
            farm_verification.verification_status, farm_verification.completion_id,
            farm_verification.attempt_no, farm_verification.rework_reason
 ),
@@ -157,6 +195,7 @@ SELECT
   COALESCE(page_window.park_label, ''),
   COALESCE(page_window.shed_id, ''),
   COALESCE(page_window.shed_label, ''),
+  COALESCE(page_window.partition_label, ''),
   COALESCE(page_window.management_stage, ''),
   COALESCE(page_window.head_count, 0),
 	COALESCE(farm_verification.verification_status, 'not_submitted'),
@@ -180,8 +219,8 @@ FROM summary
 CROSS JOIN farm_tasks_json
 LEFT JOIN page_window ON true
 LEFT JOIN farm_verification ON farm_verification.park_uuid = page_window.park_uuid
-ORDER BY page_window.park_label, page_window.shed_label, page_window.management_stage,
-         page_window.park_id, page_window.shed_id`
+ORDER BY page_window.park_label, page_window.shed_label, page_window.partition_key,
+         page_window.management_stage, page_window.park_id, page_window.shed_id`
 
 // GetMilkPreparation serves a bounded page plus whole-scope summary from the current canonical
 // herd. It is deliberately a live current-day read; no request date is accepted, so historical
@@ -223,7 +262,7 @@ func (r *Repository) GetMilkPreparation(ctx context.Context, req domain.MilkPrep
 		var attemptNo int32
 		if err := rows.Scan(
 			&hasItem,
-			&count.ParkID, &count.ParkLabel, &count.ShedID, &count.ShedLabel,
+			&count.ParkID, &count.ParkLabel, &count.ShedID, &count.ShedLabel, &count.PartitionLabel,
 			&count.ManagementStage, &count.HeadCount,
 			&verificationStatus, &completionID, &attemptNo, &reworkReason,
 			&summary.ShedCount, &summary.CohortCount, &summary.HeadCount,
@@ -242,6 +281,10 @@ func (r *Repository) GetMilkPreparation(ctx context.Context, req domain.MilkPrep
 		if !ok {
 			return domain.MilkPreparationPage{}, fmt.Errorf("milk preparation: unsupported stage %q returned by constrained query", count.ManagementStage)
 		}
+		row.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       row.ShedLabel,
+			PartitionLabel: row.PartitionLabel,
+		}.Display()
 		row.VerificationStatus = verificationStatus
 		row.CompletionID = completionID
 		row.AttemptNo = attemptNo

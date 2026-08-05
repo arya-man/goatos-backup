@@ -38,6 +38,7 @@ import java.time.ZoneId
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
  * Record a birth or a death (`/counts/birth-death`) — a hosted destination with Up/Back.
@@ -590,7 +591,10 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
         }
         // Park and shed as separate labelled facts when the backend supplies them, else its own
-        // composed location string — the app never assembles a location label of its own.
+        // composed location string — the app never assembles a location label of its own. The shed
+        // fact carries the partition (operationalLocationLabel: "Castro 2", never bare "Castro") —
+        // a death record is terminal, so an operator confirming the wrong-looking shed here cannot
+        // be corrected later (AGENTS.md: OperationalLocation = park + shed + partition).
         val hasParts = animal.parkName.isNotBlank() || animal.shedName.isNotBlank()
         if (hasParts) {
             ReadOnlyFact(
@@ -599,7 +603,8 @@ private fun DeathTargetCard(animal: ShiftingAnimalUi) {
             )
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_shed),
-                value = animal.shedName.ifBlank { stringResource(R.string.counts_location_unknown) },
+                value = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                    .ifBlank { stringResource(R.string.counts_location_unknown) },
             )
         } else if (animal.locationLabel.isNotBlank()) {
             ReadOnlyFact(

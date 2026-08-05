@@ -13,6 +13,12 @@ type ApprovalDisplayNames struct {
 	Locations map[string]string
 	// People is user_id -> the person's display name, for whoever raised the request.
 	People map[string]string
+	// AnimalLocations is goat_id -> that animal's CURRENT operational location ("park, shed" or
+	// "park, shed partition" -- see internal/platform/oploc), for a death row's location clause.
+	// Resolved from the animal's live goats/goat_shed_partitions row, not from any request
+	// payload: a death is terminal and never moves goats.shed_id, so the animal's current row is
+	// still its location at time of death.
+	AnimalLocations map[string]string
 }
 
 // ApprovalNameResolver turns the ids stored on an approval request into the names an approver
@@ -33,5 +39,5 @@ type ApprovalNameResolver interface {
 	// ResolveApprovalNames returns names for the given ids within tenantID. Ids may repeat and may
 	// be blank; implementations dedupe and drop blanks. An empty input returns empty maps without
 	// touching the database.
-	ResolveApprovalNames(ctx context.Context, tenantID string, locationIDs, userIDs []string) (ApprovalDisplayNames, error)
+	ResolveApprovalNames(ctx context.Context, tenantID string, locationIDs, userIDs, goatIDs []string) (ApprovalDisplayNames, error)
 }

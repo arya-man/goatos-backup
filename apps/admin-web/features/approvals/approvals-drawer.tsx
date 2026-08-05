@@ -33,9 +33,15 @@ function statusTone(status: AdminWebApprovalItem["status"]): Tone {
 // Turns the backend `summary` JSON into HUMAN-READABLE detail rows: park/shed IDs resolved to their
 // names ("From" / "To"), category/priority title-cased, reason shown verbatim. Raw UUIDs
 // (park/shed/event/goat ids) are never surfaced — an operator reads names, not ids.
+//
+// subjectAnimalLocation is BACKEND-OWNED COPY (item.subject_animal_location): a death payload
+// carries no shed/park id this function could resolve locally, so the animal's current park/shed/
+// partition — the fact this drawer used to omit entirely — is rendered verbatim from the backend
+// rather than re-derived here.
 function readableDetail(
   summary: unknown,
   locationNames: Record<string, string>,
+  subjectAnimalLocation?: string,
 ): Array<{ label: string; value: string }> {
   const s = summary && typeof summary === "object" && !Array.isArray(summary) ? (summary as Record<string, unknown>) : {};
   const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : typeof s[k] === "number" ? String(s[k]) : "");
@@ -52,6 +58,7 @@ function readableDetail(
   if (from) out.push({ label: "From", value: from });
   const to = place(str("destination_park_id"), str("destination_shed_id"));
   if (to) out.push({ label: "To", value: to });
+  if (subjectAnimalLocation) out.push({ label: "Location", value: subjectAnimalLocation });
   const reason = str("reason");
   if (reason) out.push({ label: "Reason", value: reason });
   // The raiser's own words on WHY the animals are moving, captured on the phone at raise time.
@@ -191,7 +198,7 @@ function ApprovalsDrawerPanel({
   locationNames: Record<string, string>;
 }) {
   const decided = item.status !== "pending";
-  const detail = readableDetail(item.summary, locationNames);
+  const detail = readableDetail(item.summary, locationNames, item.subject_animal_location);
 
   return (
     <aside className={`drawer${open ? " on" : ""}`} aria-label={COPY.drawer.aria} aria-hidden={!open} inert={!open}>

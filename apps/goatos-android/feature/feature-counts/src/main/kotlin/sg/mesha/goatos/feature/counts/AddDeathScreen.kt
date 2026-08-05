@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
  * Add-death form (`/counts/death/add` — docs/decisions/birth-death-workflows.md, mock's "Add"
@@ -188,6 +189,9 @@ private fun AddDeathTargetCard(animal: ShiftingAnimalUi) {
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
         }
+        // Shed value carries the partition (operationalLocationLabel: "Castro 2", never bare
+        // "Castro") — a death record is terminal, so a wrong-looking shed here cannot be corrected
+        // later (AGENTS.md: OperationalLocation = park + shed + partition).
         val hasParts = animal.parkName.isNotBlank() || animal.shedName.isNotBlank()
         if (hasParts) {
             ReadOnlyFact(
@@ -196,7 +200,8 @@ private fun AddDeathTargetCard(animal: ShiftingAnimalUi) {
             )
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_shed),
-                value = animal.shedName.ifBlank { stringResource(R.string.counts_location_unknown) },
+                value = operationalLocationLabel(animal.shedName, animal.partitionLabel)
+                    .ifBlank { stringResource(R.string.counts_location_unknown) },
             )
         } else if (animal.locationLabel.isNotBlank()) {
             ReadOnlyFact(

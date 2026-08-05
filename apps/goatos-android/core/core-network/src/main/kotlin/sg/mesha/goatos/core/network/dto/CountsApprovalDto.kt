@@ -54,6 +54,14 @@ data class CountsApprovalListItemDto(
     @SerialName("summary_line") val summaryLine: String? = null,
     @SerialName("shifting_event_id") val shiftingEventId: String? = null,
     @SerialName("subject_goat_id") val subjectGoatId: String? = null,
+    /**
+     * Present only for a death request whose animal resolves to a real park/shed. Same
+     * BACKEND-OWNED park/shed/partition fact already folded into [summaryLine] (this queue card
+     * renders [summaryLine] verbatim and needs no separate rendering of this field today); declared
+     * so the DTO stays contract-true and a future structured death card can use it directly instead
+     * of parsing [summaryLine].
+     */
+    @SerialName("subject_animal_location") val subjectAnimalLocation: String? = null,
     @SerialName("summary") val summary: JsonElement? = null,
     @SerialName("decided_by_user_id") val decidedByUserId: String? = null,
     @SerialName("decided_at") val decidedAt: String? = null,

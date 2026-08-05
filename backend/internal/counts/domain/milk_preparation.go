@@ -31,12 +31,15 @@ type MilkPreparationQuery struct {
 }
 
 // MilkPreparationCohortCount is the exact producer grain read from canonical goats:
-// physical shed x management stage.
+// physical shed x management stage x partition (OperationalLocation-complete).
 type MilkPreparationCohortCount struct {
-	ParkID          string
-	ParkLabel       string
-	ShedID          string
-	ShedLabel       string
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the raw stored label ('1', 'Part 3'), or '' for a non-partitioned shed.
+	// Never the literal sentinel "whole".
+	PartitionLabel  string
 	ManagementStage string
 	HeadCount       int
 }
@@ -50,22 +53,29 @@ type MilkPreparationSession struct {
 	RequiredML int64 `json:"required_ml"`
 }
 
-// MilkPreparationRow is one physical shed x milk cohort planning row.
+// MilkPreparationRow is one physical shed x milk cohort x partition planning row.
 type MilkPreparationRow struct {
-	ParkID             string                   `json:"park_id"`
-	ParkLabel          string                   `json:"park_label"`
-	ShedID             string                   `json:"shed_id"`
-	ShedLabel          string                   `json:"shed_label"`
-	ManagementStage    string                   `json:"management_stage"`
-	HeadCount          int                      `json:"head_count"`
-	Sessions           []MilkPreparationSession `json:"sessions"`
-	DailyRequiredML    int64                    `json:"daily_required_ml"`
-	Status             string                   `json:"status"`
-	BlockedReason      string                   `json:"blocked_reason,omitempty"`
-	VerificationStatus string                   `json:"verification_status"`
-	CompletionID       string                   `json:"completion_id,omitempty"`
-	AttemptNo          int32                    `json:"attempt_no,omitempty"`
-	ReworkReason       string                   `json:"rework_reason,omitempty"`
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
+	ShedID    string `json:"shed_id"`
+	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the raw stored partition label, or "" for a non-partitioned shed. Never
+	// the literal sentinel "whole".
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the user-facing ground location: the bare shed name when
+	// PartitionLabel is empty ("Yashoda"), otherwise the shed joined to its partition following
+	// that shed's own convention ("Castro 2", "Godel 1 - Part 3"). See oploc.OperationalLocation.
+	OperationalLocationDisplay string                   `json:"operational_location_display,omitempty"`
+	ManagementStage            string                   `json:"management_stage"`
+	HeadCount                  int                      `json:"head_count"`
+	Sessions                   []MilkPreparationSession `json:"sessions"`
+	DailyRequiredML            int64                    `json:"daily_required_ml"`
+	Status                     string                   `json:"status"`
+	BlockedReason              string                   `json:"blocked_reason,omitempty"`
+	VerificationStatus         string                   `json:"verification_status"`
+	CompletionID               string                   `json:"completion_id,omitempty"`
+	AttemptNo                  int32                    `json:"attempt_no,omitempty"`
+	ReworkReason               string                   `json:"rework_reason,omitempty"`
 }
 
 // MilkPreparationFarmTask is the only actionable operator grain: one farm on one preparation
@@ -155,6 +165,7 @@ func BuildMilkPreparationRow(count MilkPreparationCohortCount) (MilkPreparationR
 		ParkLabel:          count.ParkLabel,
 		ShedID:             count.ShedID,
 		ShedLabel:          count.ShedLabel,
+		PartitionLabel:     count.PartitionLabel,
 		ManagementStage:    strings.ToUpper(strings.TrimSpace(count.ManagementStage)),
 		HeadCount:          count.HeadCount,
 		Sessions:           make([]MilkPreparationSession, 0, milkPreparationSessionCount),
