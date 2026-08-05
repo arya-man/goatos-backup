@@ -28,13 +28,13 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(drawerSource, /item\.verified_by_name \|\| \(item\.verified_by \? shortId\(item\.verified_by\) : "—"\)/);
 });
 
-test("top bar renders the backend-owned as-of calendar filter used by Actions", () => {
-  assert.match(shellSource, /contract\.top_bar\.date_range_selector/);
-  assert.match(shellSource, /<TopBarDatePicker/);
-  assert.match(shellSource, /onSelectDate=\{\(date\) =>/);
-  assert.match(shellSource, /currentScopeHref\(\{ asOf: date \}/);
+test("top bar hides the backend-owned as-of calendar filter", () => {
+  assert.doesNotMatch(shellSource, /contract\.top_bar\.date_range_selector/);
+  assert.doesNotMatch(shellSource, /<TopBarDatePicker/);
+  assert.doesNotMatch(shellSource, /onSelectDate=\{\(date\) =>/);
+  assert.doesNotMatch(shellSource, /currentScopeHref\(\{ asOf: date \}/);
   assert.match(shellSource, /const pageFilters = Object\.fromEntries\(searchParams\?\.entries\(\) \?\? \[\]\)/);
   assert.match(shellSource, /\.\.\.pageFilters, \.\.\.preserveVaccinationSchedule/);
   assert.doesNotMatch(shellSource, /type="date"/);
-  assert.match(shellSource, /date\.menu_aria/);
+  assert.doesNotMatch(shellSource, /date\.menu_aria/);
 });
