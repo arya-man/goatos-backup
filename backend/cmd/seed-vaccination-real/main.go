@@ -316,24 +316,35 @@ type seedAnimalStage struct {
 	MinAgeDay *int32
 	MaxAgeDay *int32
 	SortOrder int
+	// AgeBand is the kid/adult classification this cohort carries ('kid', 'adult', or "" for the
+	// clinical stages, which are deliberately unclassified). It is what a shifting copies onto the
+	// animals it moves, so the herd stops counting a goat as a kid the moment it joins an adult
+	// cohort. See migration 000109 for the source data behind each assignment -- in particular that
+	// F2* is a KID cohort no matter how old the animal gets, which is why this is not derived from
+	// MinAgeDay/MaxAgeDay.
+	AgeBand string
 }
 
 func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) error {
 	stages := []seedAnimalStage{
-		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0},
-		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10},
-		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20},
-		{Code: "K3", Name: "Weaned kids", MinAgeDay: int32Ptr(43), SortOrder: 30},
-		{Code: "F2", Name: "Fattening", SortOrder: 40},
-		{Code: "F2-Male", Name: "Fattening male", SortOrder: 41},
-		{Code: "F2-Female", Name: "Fattening female", SortOrder: 42},
-		{Code: "Buck", Name: "Buck", SortOrder: 50},
-		{Code: "Mother", Name: "Mother", SortOrder: 60},
-		{Code: "Milking", Name: "Milking", SortOrder: 70},
-		{Code: "M0", Name: "Mother newborn", SortOrder: 80},
-		{Code: "Warmup", Name: "Warmup", SortOrder: 90},
-		{Code: "Pregnant", Name: "Pregnant", SortOrder: 100},
-		{Code: "Non-Pregnant", Name: "Non-pregnant", SortOrder: 110},
+		{Code: "K0", Name: "Newborn", MinAgeDay: int32Ptr(0), MaxAgeDay: int32Ptr(1), SortOrder: 0, AgeBand: "kid"},
+		{Code: "K1", Name: "Milk training", MinAgeDay: int32Ptr(2), MaxAgeDay: int32Ptr(7), SortOrder: 10, AgeBand: "kid"},
+		{Code: "K2", Name: "Milk drinking", MinAgeDay: int32Ptr(8), MaxAgeDay: int32Ptr(42), SortOrder: 20, AgeBand: "kid"},
+		{Code: "K3", Name: "Weaned kids", MinAgeDay: int32Ptr(43), SortOrder: 30, AgeBand: "kid"},
+		{Code: "F2", Name: "Fattening", SortOrder: 40, AgeBand: "kid"},
+		{Code: "F2-Male", Name: "Fattening male", SortOrder: 41, AgeBand: "kid"},
+		{Code: "F2-Female", Name: "Fattening female", SortOrder: 42, AgeBand: "kid"},
+		{Code: "Buck", Name: "Buck", SortOrder: 50, AgeBand: "adult"},
+		{Code: "Mother", Name: "Mother", SortOrder: 60, AgeBand: "adult"},
+		{Code: "Milking", Name: "Milking", SortOrder: 70, AgeBand: "adult"},
+		{Code: "M0", Name: "Mother newborn", SortOrder: 80, AgeBand: "adult"},
+		// Warmup is KID by maintainer decision 2026-08-05, deliberately against the source sheet,
+		// which labels its one live Warmup animal Adult. See migration 000109 for the override.
+		{Code: "Warmup", Name: "Warmup", SortOrder: 90, AgeBand: "kid"},
+		{Code: "Pregnant", Name: "Pregnant", SortOrder: 100, AgeBand: "adult"},
+		{Code: "Non-Pregnant", Name: "Non-pregnant", SortOrder: 110, AgeBand: "adult"},
+		// ICU and Quarantine stay unclassified on purpose: a clinical placement must never
+		// reclassify an animal as a kid or an adult.
 		{Code: "ICU", Name: "ICU", SortOrder: 120},
 		{Code: "Quarantine", Name: "Quarantine", SortOrder: 130},
 	}
@@ -341,9 +352,9 @@ func seedAnimalStageLookup(ctx context.Context, tx pgx.Tx, tenantID string) erro
 		if _, err := tx.Exec(ctx, `
 INSERT INTO animal_stage_lookup (
   animal_stage_id, tenant_id, stage_code, name, min_age_days, max_age_days,
-  sort_order, status
+  sort_order, status, age_band
 ) VALUES (
-  $1::uuid, $2::uuid, $3, $4, $5, $6, $7, 'active'
+  $1::uuid, $2::uuid, $3, $4, $5, $6, $7, 'active', NULLIF($8::text, '')
 )
 ON CONFLICT (tenant_id, stage_code) DO UPDATE
 SET name = EXCLUDED.name,
@@ -351,6 +362,7 @@ SET name = EXCLUDED.name,
     max_age_days = EXCLUDED.max_age_days,
     sort_order = EXCLUDED.sort_order,
     status = 'active',
+    age_band = EXCLUDED.age_band,
     updated_at = now()`,
 			detUUID("animal_stage_lookup", tenantID, stage.Code),
 			tenantID,
@@ -359,6 +371,7 @@ SET name = EXCLUDED.name,
 			stage.MinAgeDay,
 			stage.MaxAgeDay,
 			stage.SortOrder,
+			stage.AgeBand,
 		); err != nil {
 			return fmt.Errorf("seed animal stage %s: %w", stage.Code, err)
 		}

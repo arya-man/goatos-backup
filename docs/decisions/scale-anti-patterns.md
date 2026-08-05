@@ -1186,3 +1186,23 @@ leaving the key present and unread is not.
 `weight_history.go` resolved park names with one query per park inside a loop.
 Replaced with a single `ANY($1::uuid[])` lookup. Classic N+1: invisible with two
 parks, linear with the farm's growth.
+
+## 2026-08-05: one-shot migration backfill of a canonical column
+
+Migration `000109` adds `animal_stage_lookup.age_band` and backfills `goats.age_band` for the
+live herd in a single set-based `UPDATE ... FROM` joined on the stage vocabulary.
+
+This is **not** the banned *full (stop-the-world) MV refresh*, and the distinction is worth
+recording because the shapes look similar:
+
+- It is a **one-shot schema migration**, not a projector that re-runs on a schedule. There is no
+  repeated whole-tenant `DELETE`+reinsert; the guarded `age_band IS DISTINCT FROM` predicate makes
+  a re-run a no-op.
+- It is **set-based**, not a per-animal loop — no N+1 and no fan-out.
+- It runs under a bounded `SET lock_timeout = '5s'` because `goats` is a hot table, so a
+  lock-contended deploy fails fast instead of queueing behind a long transaction and blocking
+  every concurrent herd write.
+
+The steady-state path is compute-on-write as required: `RelocateGoatsToShedInTx` stamps `age_band`
+in the same `UPDATE` that moves the animal, so no read path ever re-derives kid/adult. The Herd
+Register's kid/adult split stays trigger-maintained on `goats.age_band`.

@@ -105,6 +105,11 @@
   "seed_contract_coupling_reviews": [
     {
       "date": "2026-08-05",
+      "change": "Migration 000109 adds animal_stage_lookup.age_band ('kid'/'adult'/NULL) and seed-vaccination-real/seed-vaccination-trigger now seed it, so a shifting stamps the destination cohort's kid/adult band onto the animals it moves.",
+      "vaccination_hrms_source_impact": "none to the committed HRMS source fixture bytes, hashes, counts, or validation semantics. age_band is a property of the STAGE VOCABULARY (animal_stage_lookup), not of the HRMS roster or the vaccination source rows this fixture ships; the fixture supplies no stage-catalog rows and no animal age band. minimum_migration stays 000008. Note for future authors: the band is deliberately NOT derivable from this fixture's DOB columns or from animal_stage_lookup.min_age_days/max_age_days -- F2 fattening cohorts are kid at up to 67 weeks of age -- so any later attempt to synthesize age_band from source dates would contradict the farm's own classification."
+    },
+    {
+      "date": "2026-08-05",
       "change": "CBE/CPT controlled animal and vaccination port adds deterministic identifier alias handling, campaign-only sweeper filters, verifier seeding from existing grants, weighing duties, and active position conflict targeting.",
       "vaccination_hrms_source_impact": "none to the committed HRMS source fixture bytes, hashes, counts, or validation semantics. These changes affect runtime seed/import behavior and constrained obligation generation only. Blue Tongue and PPR remain intentionally excluded from the current open stg port; they must be scheduled later from stock-confirmed source data, not generated-and-deleted as part of this port."
     },

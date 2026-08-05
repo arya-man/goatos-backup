@@ -709,3 +709,26 @@ reopened by a rejection (`ReopenTaskForRework`) and a weighing bucket refuses to
 complete while any animal in it sits in `rework`. Both exist because a rejected
 animal's re-submission used to be silently dropped: the server replayed the old
 response, the app reported success, and the operator's redone work vanished.
+
+## Kid/adult is a cohort property (do not re-derive it from age)
+
+An animal's `goats.age_band` follows its `management_stage` through
+`animal_stage_lookup.age_band` (`kid` / `adult` / NULL). A shifting stamps the destination
+cohort's band in the same transaction that moves the animal
+(`identity/adapters/postgres.RelocateGoatsToShedInTx`); migration `000109` owns the
+classification and the live-herd backfill.
+
+It is deliberately NOT age-derived. In the live CBE/CPT herd, F2 fattening cohorts are kid at up
+to 67 weeks and K2 to 55 weeks — "kid" means *not yet in a breeding cohort*, an operational
+classification made by placement. A `>20 weeks ⇒ adult` rule would flip 261 animals against the
+farm's own record.
+
+Consequences for anyone touching this:
+
+- Classify a new cohort by editing `animal_stage_lookup`, never by adding a rule in Go.
+- ICU / Quarantine carry NULL band on purpose: a clinical placement must not reclassify an animal.
+- `Warmup` is kid by maintainer decision, deliberately against the source sheet.
+- The vaccination **schedule path** is separately age-derived and is expected to disagree; do not
+  reconcile them.
+- Pinned by `migrations/postgres.TestStageAgeBandClassification` and the
+  `story_shifting_kid_to_adult` kernel story.

@@ -95,6 +95,12 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 	// The raise request snapshots the explicit target. An empty value means preserve each animal's
 	// current stage; the destination shed and its residents never infer or override it.
 	effectiveStage := stageResolution.stage
+	// KID/ADULT RIDES ALONG WITH THE COHORT TAG (maintainer decision 2026-08-05). age_band is a
+	// property of the stage, read from the tenant's stage vocabulary, so an animal that adopts an
+	// adult cohort at the destination stops being a kid in the SAME write that moves it. Empty when
+	// the stage is unclassified (clinical tags carry NULL age_band) -- then age_band is preserved
+	// exactly like the stage itself.
+	effectiveAgeBand := stageResolution.ageBand
 
 	reason := cmd.Reason
 	if reason == "" {
@@ -139,7 +145,7 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 		}
 	}
 
-	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
+	moved, err := r.applyRelocation(ctx, tx, cmd, reason, occurredAt, effectiveStage, effectiveAgeBand, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs)
 	if err != nil {
 		return ports.RelocateGoatsResult{}, err
 	}
@@ -151,6 +157,11 @@ func (r *Repository) RelocateGoatsToShedInTx(ctx context.Context, tx pgx.Tx, cmd
 // It deliberately carries no shed-profile provenance because destination sheds may be mixed-stage.
 type destinationStageResolution struct {
 	stage string
+	// ageBand is the kid/adult classification the tenant's stage vocabulary attaches to that stage
+	// ('kid', 'adult', or "" when the stage is deliberately unclassified). It is read here, from the
+	// same animal_stage_lookup row that canonicalizes the stage code, so the two answers can never
+	// disagree about the same tag.
+	ageBand string
 }
 
 // resolveDestinationTag validates the explicit raise-time target. An empty target means preserve
@@ -160,17 +171,17 @@ func (r *Repository) resolveDestinationTag(ctx context.Context, tx pgx.Tx, cmd p
 	if stage == "" {
 		return destinationStageResolution{}, nil
 	}
-	var canonical string
-	err := tx.QueryRow(ctx, `SELECT stage_code FROM animal_stage_lookup
+	var canonical, ageBand string
+	err := tx.QueryRow(ctx, `SELECT stage_code, COALESCE(age_band, '') FROM animal_stage_lookup
 WHERE tenant_id=$1::uuid AND status='active' AND lower(stage_code)=lower($2)
-ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical)
+ORDER BY stage_code LIMIT 1`, cmd.TenantID, stage).Scan(&canonical, &ageBand)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return destinationStageResolution{}, ports.ErrDestinationTagConflict
 	}
 	if err != nil {
 		return destinationStageResolution{}, fmt.Errorf("identity: validate requested management stage: %w", err)
 	}
-	resolved := destinationStageResolution{stage: canonical}
+	resolved := destinationStageResolution{stage: canonical, ageBand: ageBand}
 
 	// Clinical fail-closed. Movement never invents clinical truth: a profile naming a clinical state
 	// (sick/under_treatment/recovering/quarantine/icu -- protocol/domain.MandatoryClinicalDeferStates,
@@ -386,12 +397,14 @@ RETURNING goat_id::text, identity_event_id::text`
 // cover exactly the same animals by construction -- they cannot drift apart. The rows are already
 // locked FOR UPDATE by the first statement, so re-deriving them here is stable.
 // It also, in the SAME statement, writes the destination cohort tag onto every moved animal
-// (management_stage = $16) and enqueues the goat.stage_changed outbox row for the reclassified subset
-// (the (goat_id, stage_event_id) pairs from insertStageChangeIdentityEvents). Shed and tag move
-// together atomically: a goat can never land in the destination shed still carrying its old cohort.
+// (management_stage = $16), the kid/adult band that tag carries (age_band = $19), and enqueues the
+// goat.stage_changed outbox row for the reclassified subset (the (goat_id, stage_event_id) pairs
+// from insertStageChangeIdentityEvents). Shed, tag and band move together atomically: a goat can
+// never land in the destination shed still carrying its old cohort, nor sit in an adult cohort
+// still counted as a kid.
 func (r *Repository) applyRelocation(
 	ctx context.Context, tx pgx.Tx, cmd ports.RelocateGoatsCommand, reason string, occurredAt time.Time,
-	effectiveStage string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string,
+	effectiveStage, effectiveAgeBand string, assignedGoatIDs, assignedEventIDs, stageGoatIDs, stageEventIDs []string,
 ) ([]string, error) {
 	// NOT compute-on-read. This is a single set-based WRITE for one bounded shifting completion
 	// (<= MaxRelocateGoatsPerCommand animals): the CTEs are data-modifying (bulk UPDATE of
@@ -434,6 +447,11 @@ moved AS (
         park_id             = $3::uuid,
         shed_id             = $2::uuid,
         management_stage    = CASE WHEN $16::text = '' THEN g.management_stage ELSE $16::text END,
+        -- Kid/adult follows the cohort tag it is a property of. Guarded on the SAME "is there a
+        -- destination tag" condition ($16) as management_stage, and additionally on the band being
+        -- classified ($20), so a keep-current move and an unclassified/clinical tag both leave the
+        -- animal's existing band untouched rather than blanking it.
+        age_band            = CASE WHEN $16::text = '' OR $20::text = '' THEN g.age_band ELSE $20::text END,
         updated_at          = $4::timestamptz,
         row_version         = row_version + 1
     FROM identified i
@@ -579,6 +597,7 @@ SELECT goat_id::text FROM moved`
 		stageGoatIDs,                // $17 (reclassified subset only)
 		stageEventIDs,               // $18
 		goatStageChangedEventType,   // $19
+		effectiveAgeBand,            // $20 (kid/adult band carried by that cohort tag; "" = leave as-is)
 	)
 	if err != nil {
 		return nil, fmt.Errorf("identity: relocate goats: %w", err)

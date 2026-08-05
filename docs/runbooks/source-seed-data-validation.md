@@ -504,3 +504,20 @@ the redone work was lost while the phone reported success.
 Seeding impact: none on source data or its date contract. A seeded task that has
 already been accepted can now be reopened by a verdict, so a fixture asserting a
 task is terminal-forever is asserting behaviour that no longer exists.
+
+## 2026-08-05: kid/adult band is a cohort property, not a source-date derivation
+
+Migration `000109` adds `animal_stage_lookup.age_band` (`kid` / `adult` / NULL), and a
+shifting now stamps the destination cohort's band onto the animals it moves.
+
+**Nothing in the source intake contract changes.** The band is a property of the STAGE
+VOCABULARY, not of any source row this runbook validates: no source column supplies it, no
+source column is validated against it, and no importer derives it.
+
+Recorded here because the obvious future "improvement" is wrong: **do not derive `age_band`
+from a source DOB column, from `age`, or from `animal_stage_lookup.min_age_days` /
+`max_age_days`.** The farm's own data (1,670 live CBE/CPT animals) classifies F2 fattening
+cohorts as kid at up to 67 weeks of age and K2 to 55 weeks. "Kid" is an operational
+classification made by PLACEMENT, not a birthday, so an age-derived band would contradict the
+source it claims to be validating — for 261 animals in the current herd. The stage vocabulary is
+the authority; a new cohort is classified by editing `animal_stage_lookup`, not by seeding rules.
