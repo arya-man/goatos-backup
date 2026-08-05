@@ -1,9 +1,11 @@
 package app
 
 import (
+	"io"
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -285,4 +287,20 @@ func (r *parkScopeCheckRepo) RefreshAvailability(ctx context.Context, tenantID, 
 
 func (r *parkScopeCheckRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
 	return domain.AlertPage{}, nil
+}
+
+func (r *parkScopeCheckRepo) ExportCampaignCSV(context.Context, string, string, io.Writer) error {
+	return nil
+}
+
+func (r *parkScopeCheckRepo) GetWeightHistory(context.Context, string, []string, string, string) (domain.WeightHistory, error) {
+	return domain.WeightHistory{}, nil
+}
+
+func (r *parkScopeCheckRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time) (domain.GrowthADG, error) {
+	return domain.GrowthADG{}, nil
+}
+
+func (r *parkScopeCheckRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
 }

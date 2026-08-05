@@ -681,8 +681,8 @@ func TestListCampaignsForOperatorAppliesOperatorPredicateBeforeLimitOnPageTwo(t 
 	seedWeighingObservationFixture(t, ctx, pool)
 	repo := NewRepository(pool, 5*time.Second)
 
-	// Sort order is period_start_date DESC. Newest = a foreign operator's campaign,
-	// middle = ours, oldest (fixture, 2026-07-27) = ours. So page 1 and page 2 for our
+	// Sort order is period_start_date ASC (soonest first). Oldest = our operator (fixture, 2026-07-27),
+	// middle = our operator (2026-08-10), newest = foreign operator (2026-08-17). So page 1 and page 2 for our
 	// operator are both ours only if the predicate runs before LIMIT.
 	foreignCampaign := "00000000-0000-4000-8000-00000000a001"
 	foreignShed := "00000000-0000-4000-8000-00000000a002"
@@ -710,8 +710,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'indi
 	if err != nil {
 		t.Fatalf("page 1: %v", err)
 	}
-	if len(pageOne.Items) != 1 || pageOne.Items[0].CampaignID != ourSecondCampaign {
-		t.Fatalf("page 1=%+v, want only our newest campaign (the foreign newer campaign must be filtered before LIMIT)", pageOne.Items)
+	if len(pageOne.Items) != 1 || pageOne.Items[0].CampaignID != repoCampaign {
+		t.Fatalf("page 1=%+v, want only our oldest campaign (the foreign newer campaign must be filtered before LIMIT)", pageOne.Items)
 	}
 	if pageOne.NextCursor == "" {
 		t.Fatal("page 1 returned no cursor; the operator's second campaign is unreachable")
@@ -724,8 +724,8 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'shed', 'Our Second Shed', 'indi
 	if len(pageTwo.Items) != 1 {
 		t.Fatalf("page 2 items=%d, want 1; an empty page 2 means the operator predicate ran after LIMIT", len(pageTwo.Items))
 	}
-	if pageTwo.Items[0].CampaignID != repoCampaign {
-		t.Fatalf("page 2 campaign=%q, want the operator's older campaign %q", pageTwo.Items[0].CampaignID, repoCampaign)
+	if pageTwo.Items[0].CampaignID != ourSecondCampaign {
+		t.Fatalf("page 2 campaign=%q, want the operator's newer campaign %q", pageTwo.Items[0].CampaignID, ourSecondCampaign)
 	}
 	for _, item := range append(pageOne.Items, pageTwo.Items...) {
 		if item.CampaignID == foreignCampaign {

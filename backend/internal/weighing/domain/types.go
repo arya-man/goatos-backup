@@ -602,6 +602,13 @@ type Observation struct {
 	ActualLocationID    string       `json:"actual_location_id,omitempty"`
 	ActualLocationLabel string       `json:"actual_location_label,omitempty"`
 	AcceptedAt          time.Time    `json:"accepted_at"`
+	// VerificationStatus and ReworkReason are what tell the operator WHICH tag came back.
+	// The verifier judges one animal at a time, so a rejection lands on a single observation --
+	// but the scope roster used to serialize neither field, and a sent-back tag looked exactly
+	// like the ones that were accepted. The operator could see "rework 1" on the shed card and
+	// still have no way to know which animal to weigh again.
+	VerificationStatus  string       `json:"verification_status,omitempty"`
+	ReworkReason        string       `json:"rework_reason,omitempty"`
 	// Superseded is true when this capture UPDATED an existing, not-yet-submitted
 	// (or verifier-reworked) evidence row in place, rather than inserting a fresh
 	// one. It is the signal the service layer uses to advance the observation's
@@ -746,6 +753,10 @@ type RecordAnimalObservation struct {
 	ActualLocationID  string
 	IdempotencyKey    string
 	RecordedBy        string
+	// DeviceID is the client-supplied device identifier (X-Device-Id), optional
+	// since older clients omit it. It lets the same operator's multiple phones
+	// be told apart when reconstructing "I scanned and nothing happened" reports.
+	DeviceID string
 }
 
 type RecordShedObservation struct {
@@ -759,6 +770,9 @@ type RecordShedObservation struct {
 	ProofArtifactIDs []string
 	IdempotencyKey   string
 	RecordedBy       string
+	// DeviceID mirrors RecordAnimalObservation.DeviceID: optional client device
+	// identifier, empty when the caller did not send one.
+	DeviceID string
 }
 
 // WeighingPark is the park VOCABULARY a weighing oversight surface renders as chips.
@@ -775,4 +789,72 @@ type RecordShedObservation struct {
 type WeighingPark struct {
 	ParkID string `json:"park_id"`
 	Name   string `json:"name"`
+}
+
+// WeightHistoryPoint is one observation: (scanned_identifier, weigh_date, weight_kg or shed totals).
+// The date is the Asia/Kolkata business date (YYYY-MM-DD) when the observation was accepted.
+// CaptureKind identifies whether this is an individual animal weight ("individual") or a shed total ("lump_sum").
+type WeightHistoryPoint struct {
+	// CaptureKind is "individual" for per-animal weights or "lump_sum" for shed totals.
+	CaptureKind string `json:"capture_kind"`
+	// ScannedIdentifier is the RFID/tag read by the scanner (individual only; empty for lump_sum).
+	ScannedIdentifier string `json:"scanned_identifier,omitempty"`
+	// WeighDate is the business date (YYYY-MM-DD) in Asia/Kolkata when this observation was accepted.
+	WeighDate string `json:"weigh_date"`
+	// WeightKg is the recorded weight (individual only).
+	WeightKg float64 `json:"weight_kg,omitempty"`
+	// For lump_sum captures:
+	// TotalWeightKg is the total weight of the shed.
+	TotalWeightKg float64 `json:"total_weight_kg,omitempty"`
+	// AverageWeightKg is the average weight per animal.
+	AverageWeightKg float64 `json:"average_weight_kg,omitempty"`
+	// AnimalCount is the number of animals in the lump-sum measurement.
+	AnimalCount int `json:"animal_count,omitempty"`
+	// VerificationStatus is the approval status: pending, verified, or rework.
+	VerificationStatus string `json:"verification_status,omitempty"`
+	// CampaignShedID is the shed this observation belongs to (for filtering/identification).
+	CampaignShedID string `json:"campaign_shed_id"`
+	// ShedDisplayName is the display name of the shed.
+	ShedDisplayName string `json:"shed_display_name"`
+}
+
+// WeightHistorySeries is the time series for one RFID tag (individual) or shed (lump_sum) across multiple weigh days.
+type WeightHistorySeries struct {
+	// ScannedIdentifier is the RFID/tag (the series key for individual captures; empty for lump_sum).
+	ScannedIdentifier string `json:"scanned_identifier,omitempty"`
+	// CampaignShedID is the shed id (for lump_sum series).
+	CampaignShedID string `json:"campaign_shed_id,omitempty"`
+	// ShedDisplayName is the display name (for lump_sum series).
+	ShedDisplayName string `json:"shed_display_name,omitempty"`
+	// CaptureKind identifies the series type.
+	CaptureKind string `json:"capture_kind"`
+	// Points are ordered by weigh_date (oldest first).
+	Points []WeightHistoryPoint `json:"points"`
+}
+
+// WeightHistory is the CEO-tier weight history for a park and optional shed scope.
+//
+// The response includes parks and sheds that are actually represented in the data,
+// so the client can render park/shed filter chips with backend-owned vocabulary.
+type WeightHistory struct {
+	// Parks is the list of parks that have data in this result.
+	Parks []WeighingPark `json:"parks"`
+	// Sheds is the list of sheds that have data in this result.
+	Sheds []WeighingParkShed `json:"sheds"`
+	// Series is the weight data: one series per unique scanned_identifier (individual) or per shed (lump_sum).
+	Series []WeightHistorySeries `json:"series"`
+	// Truncated is true if the result was capped (too many unique tags, too many weigh days, or too many points).
+	// When true, CappedAt describes which limit was hit.
+	Truncated bool `json:"truncated"`
+	// CappedAt describes which limit was applied. Values: "max_unique_tags", "max_weigh_days", "max_points".
+	CappedAt string `json:"capped_at,omitempty"`
+}
+
+// WeighingParkShed is a shed within a park for the weight history filter vocabulary.
+type WeighingParkShed struct {
+	CampaignShedID string `json:"campaign_shed_id"`
+	DisplayName    string `json:"display_name"`
+	ParkID         string `json:"park_id"`
+	// LocationID is the underlying location.
+	LocationID string `json:"location_id"`
 }

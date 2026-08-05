@@ -136,3 +136,113 @@ WHERE tenant_id=$1::uuid AND campaign_shed_id=$2::uuid AND withdrawn_at IS NULL`
 		t.Fatalf("stored shed observation=%s, want the resubmitted %s", id, second.ObservationID)
 	}
 }
+
+// TestRejectedProofCannotBeReused verifies that an operator cannot re-submit a
+// lump-sum observation using a proof that was already attached to a rejected
+// (withdrawn or rework) observation. The server MUST refuse with ErrRejectedProofReuse.
+//
+// BUG SCENARIO: After a verifier rejects a lump-sum shed video, the operator
+// re-submits with the SAME rejected video. The app (WeighingViewModel) keeps a
+// SYNCED shed proof so the video survives an app restart, making the rejected video
+// re-attachable. The server must reject this, forcing a new video.
+func TestRejectedProofCannotBeReused(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`,
+		repoTenant, repoOperator, repoPark)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// First submission with proof A
+	first, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 410, AnimalCount: 10, ProofArtifactID: repoShedProof,
+		IdempotencyKey: "shed:rejected-proof-first", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("first lump-sum submission: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+
+	// Verifier rejects it by marking it as rework and then reopening the scope
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_shed_observations
+SET verification_status='rework'
+WHERE tenant_id=$1::uuid AND shed_observation_id=$2::uuid`,
+		repoTenant, first.ObservationID)
+
+	if _, err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoShedScope, repoOperator, "reopen:rejected-proof", "video unusable"); err != nil {
+		t.Fatalf("reopen lump-sum scope after rejection: %v", err)
+	}
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusInProgress)
+
+	// THE BUG: Operator tries to re-submit using the SAME rejected proof (proof A)
+	// Server must REFUSE with ErrRejectedProofReuse, not accept it.
+	_, err = repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 410, AnimalCount: 10, ProofArtifactID: repoShedProof,
+		IdempotencyKey: "shed:rejected-proof-reuse", RecordedBy: repoOperator,
+	})
+	if !errors.Is(err, ports.ErrRejectedProofReuse) {
+		t.Fatalf("reuse of rejected proof: err=%v, want ErrRejectedProofReuse", err)
+	}
+}
+
+// TestRejectedProofResubmitWithNewProofSucceeds verifies that an operator CAN
+// re-submit a lump-sum observation using a NEW proof after a rejection.
+func TestRejectedProofResubmitWithNewProofSucceeds(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`,
+		repoTenant, repoOperator, repoPark)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// First submission with proof A
+	first, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 410, AnimalCount: 10, ProofArtifactID: repoShedProof,
+		IdempotencyKey: "shed:new-proof-first", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("first lump-sum submission: %v", err)
+	}
+
+	// Mark as rework and reopen
+	execWeighingTestSQL(t, ctx, pool, `
+UPDATE weighing_shed_observations
+SET verification_status='rework'
+WHERE tenant_id=$1::uuid AND shed_observation_id=$2::uuid`,
+		repoTenant, first.ObservationID)
+
+	if _, err := repo.ReopenScope(ctx, repoTenant, repoCampaign, repoShedScope, repoOperator, "reopen:new-proof", "video unusable"); err != nil {
+		t.Fatalf("reopen lump-sum scope: %v", err)
+	}
+
+	// Re-submit with a NEW proof (proof B, different from proof A)
+	second, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
+		TenantID: repoTenant, CampaignID: repoCampaign, CampaignShedID: repoShedScope,
+		WeightKg: 420, AnimalCount: 10, ProofArtifactID: repoShedProofTwo,
+		IdempotencyKey: "shed:new-proof-second", RecordedBy: repoOperator,
+	})
+	if err != nil {
+		t.Fatalf("lump-sum resubmit with new proof: %v", err)
+	}
+
+	// Verify new observation was created
+	if second.ObservationID == first.ObservationID {
+		t.Fatalf("resubmit reused observation id %s, want a new submission", second.ObservationID)
+	}
+	if second.ProofArtifactID != repoShedProofTwo {
+		t.Fatalf("resubmitted with proof %s, want %s", second.ProofArtifactID, repoShedProofTwo)
+	}
+	assertScopeStatus(t, ctx, pool, repoShedScope, domain.StatusCompleted)
+}

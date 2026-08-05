@@ -766,6 +766,23 @@ RETURNING device_id::text`,
 	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "app.device.register", "workforce_member_device", deviceID, nil, map[string]any{"operator_id": profile.OperatorID, "app_version": cmd.Body.AppVersion}); err != nil {
 		return domain.DeviceSummary{}, err
 	}
+	// NOTE: registration deliberately does NOT clear sibling devices' fcm_token anymore. A prior
+	// version called a supersedeSiblingDeviceTokens helper here to stop dead rows (post `pm clear`
+	// reinstall) from accumulating live-looking tokens. That helper could not distinguish "same
+	// physical device, reinstalled" from "genuinely different device for the same member" --
+	// device_public_key_hash, the only signal that could make that distinction, is NULL for every
+	// device in this fleet today -- so it silently zeroed the token of a second real handset the
+	// instant its owner registered a first one. The maintainer requires the same person to be
+	// usable on multiple devices simultaneously (device_id is a primary analytics key precisely
+	// because of this), so proactive supersession at registration time is retired outright.
+	//
+	// Stale rows left behind by a reinstall are handled at delivery time instead, and this is a
+	// bounded, self-healing path already relied on elsewhere: ClaimDue/ResolveMemberRecipients
+	// fans a push out to every reachable device (see pushReachableDeviceSQL), so a genuinely dead
+	// install still receives (and drops) at most one more delivery attempt; when FCM reports that
+	// token invalid, SuppressInvalidRecipient (notification/app/service.go, same token-only,
+	// never-touches-status/revoked_at invariant) clears it for good. No cross-device write happens
+	// at registration time at all, so there is no outage window for any other device.
 	if err := tx.Commit(ctx); err != nil {
 		return domain.DeviceSummary{}, err
 	}

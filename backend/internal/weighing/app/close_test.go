@@ -1,10 +1,12 @@
 package app
 
 import (
+	"io"
 	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
@@ -354,4 +356,36 @@ func (r *multiParkScenarioRepo) WeighingProcessState(context.Context, string, st
 
 func (r *multiParkScenarioRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
 	return domain.AlertPage{}, nil
+}
+
+func (r *scenarioRepo) ExportCampaignCSV(context.Context, string, string, io.Writer) error {
+	return nil
+}
+
+func (r *scenarioRepo) GetWeightHistory(context.Context, string, []string, string, string) (domain.WeightHistory, error) {
+	return domain.WeightHistory{}, nil
+}
+
+func (r *scenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time) (domain.GrowthADG, error) {
+	return domain.GrowthADG{}, nil
+}
+
+func (r *scenarioRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
+func (r *multiParkScenarioRepo) ExportCampaignCSV(context.Context, string, string, io.Writer) error {
+	return nil
+}
+
+func (r *multiParkScenarioRepo) GetWeightHistory(context.Context, string, []string, string, string) (domain.WeightHistory, error) {
+	return domain.WeightHistory{}, nil
+}
+
+func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, []string, time.Time, time.Time) (domain.GrowthADG, error) {
+	return domain.GrowthADG{}, nil
+}
+
+func (r *multiParkScenarioRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
 }

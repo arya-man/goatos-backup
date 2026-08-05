@@ -271,3 +271,12 @@ func TestBucketPageAndEvidenceReadTenantWideMonitorIsNotLockedOut(t *testing.T) 
 		t.Fatalf("internal caller reached the bucket page with a park-restricted access %+v", repo.campaignShedsAccess)
 	}
 }
+
+func (r *parkMovingRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
+func (r *singleTaskRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+

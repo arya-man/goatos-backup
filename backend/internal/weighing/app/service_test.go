@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"strings"
 	"testing"
@@ -758,6 +759,21 @@ type fakeRepo struct {
 	shedWrites   int
 }
 
+// ExportCampaignCSV is a stub implementation for test fakes.
+func (r *fakeRepo) ExportCampaignCSV(_ context.Context, _, _ string, _ io.Writer) error {
+	return nil
+}
+
+// GetWeightHistory is a stub implementation for test fakes.
+func (r *fakeRepo) GetWeightHistory(_ context.Context, _ string, _ []string, _, _ string) (domain.WeightHistory, error) {
+	return domain.WeightHistory{}, nil
+}
+
+// GetLeadershipGrowthADG is a stub implementation for test fakes.
+func (r *fakeRepo) GetLeadershipGrowthADG(_ context.Context, _ string, _ []string, _, _ time.Time) (domain.GrowthADG, error) {
+	return domain.GrowthADG{}, nil
+}
+
 type campaignListRepo struct {
 	fakeRepo
 	monitorPage    domain.CampaignPage
@@ -1329,4 +1345,8 @@ func scenarioProgress(sheds []domain.CampaignShed, animals map[string]domain.Exp
 
 func (r *scenarioRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
 	return domain.AlertPage{}, nil
+}
+
+func (r *fakeRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
 }

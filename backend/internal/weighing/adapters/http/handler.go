@@ -43,6 +43,9 @@ type Service interface {
 	CloseCampaign(ctx context.Context, actor domain.Actor, campaignID, idempotencyKey, reason string) (domain.CloseResult, error)
 	WeighingProcessState(ctx context.Context, actor domain.Actor, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
+	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
+	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error)
+	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 }
 
 type Handler struct {
@@ -73,6 +76,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /weighing/campaigns", h.CreateCampaign)
 	mux.HandleFunc("PUT /weighing/campaigns/{campaign_id}", h.UpdateCampaign)
 	mux.HandleFunc("POST /weighing/campaigns/{campaign_id}/publish", h.PublishCampaign)
+	mux.HandleFunc("GET /weighing/campaigns/{campaign_id}/export", h.ExportCampaignCSV)
 	mux.HandleFunc("GET /app/weighing/planner/catalog", h.PlannerCatalog)
 	mux.HandleFunc("GET /app/weighing/planner/parks/{park_id}/buckets", h.PlannerParkBuckets)
 	mux.HandleFunc("GET /app/weighing/campaigns", h.AppListCampaigns)
@@ -98,6 +102,8 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// so the href carries the module scoping and the nav tab can stay labelled
 	// just "Alerts" (maintainer ruling 2026-08-03).
 	mux.HandleFunc("GET /app/weighing/alerts", h.ListAlerts)
+	mux.HandleFunc("GET /app/weighing/weight-history", h.GetWeightHistory)
+	mux.HandleFunc("GET /app/weighing/leadership/growth", h.GetLeadershipGrowthADG)
 }
 
 // ListAlerts serves the weighing alerts feed. Title and empty-state copy travel
@@ -115,6 +121,38 @@ func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
 		"title":         page.Title,
 		"empty_message": page.EmptyMessage,
 	}, err)
+}
+
+// GetWeightHistory serves CEO-tier weight history per RFID tag across weigh days.
+// Query parameters:
+//   - park_id (optional): filter to a specific park
+//   - campaign_shed_id (optional): filter to a specific shed
+func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetWeightHistory(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("park_id"),
+		r.URL.Query().Get("campaign_shed_id"),
+	)
+	h.respond(w, r, result, err)
+}
+
+// GetLeadershipGrowthADG serves the CEO-tier ADG (Average Daily Gain) / growth aggregate for a
+// park, or the herd-wide aggregate across every park the caller is authorized to monitor. Query
+// parameters:
+//   - park_id (optional): the park to report on. When omitted, the response aggregates across
+//     the caller's own authorized-park scope (never widened) -- see domain.GrowthADG.ParkIDs.
+//   - from, to (optional): INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD). Defaults to the
+//     last 90 days ending today when omitted.
+func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetLeadershipGrowthADG(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("park_id"),
+		r.URL.Query().Get("from"),
+		r.URL.Query().Get("to"),
+	)
+	h.respond(w, r, result, err)
 }
 
 // WeighingProcessState serves Calendar day markers and the Control Tower gap
@@ -467,7 +505,9 @@ func (h *Handler) RecordAnimalObservation(w http.ResponseWriter, r *http.Request
 	}
 	obs, err := h.service.RecordAnimalObservation(r.Context(), actor(r), domain.RecordAnimalObservation{
 		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, ScannedIdentifier: req.ScannedIdentifier, WeightKg: req.WeightKg, ProofArtifactID: req.ProofArtifactID, ActualLocationID: req.ActualLocationID, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		DeviceID: httpmiddleware.DeviceIDFromContext(r.Context()),
 	})
+	h.logScanOutcome(r, "record_animal_observation", err)
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
 }
 
@@ -479,7 +519,9 @@ func (h *Handler) RecordShedObservation(w http.ResponseWriter, r *http.Request) 
 	obs, err := h.service.RecordShedObservation(r.Context(), actor(r), domain.RecordShedObservation{
 		CampaignID: r.PathValue("campaign_id"), CampaignShedID: req.CampaignShedID, WeightKg: req.WeightKg, AverageWeightKg: req.AverageWeightKg, AnimalCount: req.AnimalCount,
 		ProofArtifactID: req.ProofArtifactID, ProofArtifactIDs: req.ProofArtifactIDs, IdempotencyKey: r.Header.Get("Idempotency-Key"),
+		DeviceID: httpmiddleware.DeviceIDFromContext(r.Context()),
 	})
+	h.logScanOutcome(r, "record_shed_observation", err)
 	h.respond(w, r, map[string]any{"observation": obs, "trace_id": traceID(r)}, err)
 }
 
@@ -496,7 +538,30 @@ func (h *Handler) SubmitIndividualScope(w http.ResponseWriter, r *http.Request) 
 		r.Header.Get("Idempotency-Key"),
 		req.ScannedIdentifiers,
 	)
+	h.logScanOutcome(r, "submit_individual_scope", err)
 	h.respond(w, r, map[string]any{"status": "completed", "trace_id": traceID(r)}, err)
+}
+
+// logScanOutcome makes "I scanned and nothing happened" reconstructable: WriteError
+// (httpresponse) only logs status >= 400, so a successful scan/submit otherwise leaves
+// no trace at all. Failure paths are already logged with full context by
+// h.respond/WriteError, so this only needs to cover the success case. It is
+// deliberately scoped to the handful of scan/submit write routes -- NOT a blanket
+// "log every 2xx" -- because farm-scale traffic through this service makes an
+// unconditional success log a volume problem.
+func (h *Handler) logScanOutcome(r *http.Request, route string, err error) {
+	if err != nil {
+		return
+	}
+	h.log.InfoContext(r.Context(), "weighing_scan_attempt",
+		slog.String("request_id", httpmiddleware.RequestIDFromContext(r.Context())),
+		slog.String("trace_id", traceID(r)),
+		slog.String("tenant_id", tenantID(r)),
+		slog.String("actor_id", httpmiddleware.ActorIDFromContext(r.Context())),
+		slog.String("device_id", httpmiddleware.DeviceIDFromContext(r.Context())),
+		slog.String("route", route),
+		slog.Int("status", http.StatusOK),
+	)
 }
 
 func (h *Handler) ReopenScope(w http.ResponseWriter, r *http.Request) {
@@ -604,6 +669,8 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "invalid_state", Message: "weighing resource is not editable in its current state", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrVerificationPending):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrReworkNotRecaptured):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "rework_not_recaptured", Message: "A video was sent back. Re-record that animal before submitting this shed again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrCaptureIncomplete):
@@ -638,6 +705,8 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		}, nil)
 	case errors.Is(err, ports.ErrProofNotReady):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_video_missing", Message: "This shed's video is not ready yet. Wait for the video to finish uploading, then submit again.", TraceID: traceID(r)}, nil)
+	case errors.Is(err, ports.ErrRejectedProofReuse):
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "weighing_rejected_proof_reuse", Message: "This video was sent back. Record a new video for this shed, then submit again.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrOperatorOutsidePark):
 		// Farm language, not a rule name: the planner picked someone who does not work that park.
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "operator_outside_park", Message: "One of the people chosen does not work in this park. Pick someone from this park, or a director who covers both.", TraceID: traceID(r)}, nil)
@@ -722,6 +791,84 @@ func actor(r *http.Request) domain.Actor {
 
 func tenantID(r *http.Request) string { return httpmiddleware.TenantIDFromContext(r.Context()) }
 func traceID(r *http.Request) string  { return httpmiddleware.TraceIDFromContext(r.Context()) }
+
+// ExportCampaignCSV exports weighing observations for a campaign as CSV.
+// It requires WeighingMonitor permission and enforces park scoping.
+func (h *Handler) ExportCampaignCSV(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	a := actor(r)
+
+	// Check authorization: WeighingMonitor only
+	if !permissions.RolesAuthorize(a.Roles, []string{permissions.WeighingMonitor}, false) {
+		httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
+			Code:    "permission_denied",
+			Message: "requires weighing monitor permission",
+			TraceID: traceID(r),
+		}, nil)
+		return
+	}
+
+	campaignID := strings.TrimSpace(r.PathValue("campaign_id"))
+	if campaignID == "" {
+		h.badRequest(w, r, "invalid_argument", "campaign_id is required")
+		return
+	}
+
+	// Export CSV via service
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="weighing-export-%s.csv"`, campaignID))
+
+	// Counts bytes so a mid-stream failure is not "corrected" by appending a JSON error body to
+	// a half-written CSV. Once a single row has gone out the status is already 200 and the file
+	// is already downloading; writing an error envelope after that produces a CSV whose last
+	// line is JSON, which opens in Excel as a corrupt sheet that LOOKS like data. A truncated
+	// file that fails loudly in the client is honest; a silently corrupted one is not.
+	counting := &countingResponseWriter{ResponseWriter: w}
+	if err := h.service.ExportCampaignCSV(ctx, a, campaignID, counting); err != nil {
+		if counting.written > 0 {
+			// Already streaming: log it and cut the response off. The client sees a truncated
+			// body, which its CSV parse will reject.
+			h.log.Error("export campaign csv failed mid-stream",
+				"campaign_id", campaignID, "bytes_written", counting.written, "error", err)
+			return
+		}
+		if errors.Is(err, ports.ErrNotFound) {
+			httpresponse.WriteError(w, r, h.log, http.StatusNotFound, errorEnvelope{
+				Code:    "not_found",
+				Message: "campaign not found",
+				TraceID: traceID(r),
+			}, nil)
+		} else if errors.Is(err, ports.ErrForbidden) {
+			httpresponse.WriteError(w, r, h.log, http.StatusForbidden, errorEnvelope{
+				Code:    "permission_denied",
+				Message: "not authorized for this campaign",
+				TraceID: traceID(r),
+			}, nil)
+		} else {
+			h.log.Error("export campaign csv failed", "campaign_id", campaignID, "error", err)
+			httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, errorEnvelope{
+				Code:    "internal_error",
+				Message: "failed to export campaign data",
+				TraceID: traceID(r),
+			}, err)
+		}
+		return
+	}
+}
+
+// countingResponseWriter records whether any body bytes reached the client, so the export
+// handler can tell "failed before anything was sent" (safe to write a proper error status) from
+// "failed halfway through a download" (must not append anything).
+type countingResponseWriter struct {
+	http.ResponseWriter
+	written int
+}
+
+func (w *countingResponseWriter) Write(p []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(p)
+	w.written += n
+	return n, err
+}
 
 var _ = permissions.WeighingMonitor
 

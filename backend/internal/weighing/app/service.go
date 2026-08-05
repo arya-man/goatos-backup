@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
@@ -1247,6 +1249,189 @@ func validateCreate(cmd domain.CreateCampaign) error {
 // The park filter below is defence in depth on top of that. A caller without a
 // tenant-wide weighing capability is narrowed to the parks their grants actually
 // reach, so a park-scoped seat cannot read another park's rows even if a future
+// GetWeightHistory returns weight observations per RFID tag across recent weigh days,
+// scoped by the actor's park permissions. Optionally filtered by campaign_shed_id.
+//
+// The response includes:
+// - All parks the caller can access weighing data for
+// - All sheds in the filtered park (or across parks if no park filter)
+// - Weight time series grouped by scanned_identifier
+// - Truncation flag if the result hit a cap (too many tags, too many days, or too many points)
+func (s *Service) GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error) {
+	// Require WeighingMonitor: this is CEO/leadership oversight only.
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.WeightHistory{}, ports.ErrForbidden
+	}
+	// Both filters come off the query string. They are bound as parameters in the repository, so
+	// this is not the injection boundary -- but an unvalidated id still reaches Postgres as a cast
+	// failure and surfaces as a 500 instead of an honest 400, and validating here matches what
+	// ExportCampaignCSV does with its campaign id a few functions away.
+	if strings.TrimSpace(parkID) != "" && !uuidutil.IsUUIDString(strings.TrimSpace(parkID)) {
+		return domain.WeightHistory{}, ports.ErrInvalidArgument
+	}
+	if strings.TrimSpace(campaignShedID) != "" && !uuidutil.IsUUIDString(strings.TrimSpace(campaignShedID)) {
+		return domain.WeightHistory{}, ports.ErrInvalidArgument
+	}
+
+	// Resolve the actor's authorized parks.
+	grants := httpmiddleware.AuthGrantsFromContext(ctx)
+	authorizedParkIDs := []string{}
+
+	// If tenant-wide capability, access all parks.
+	if hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) {
+		// Fetch all parks via the repository (park-scoped: empty slice = no restriction).
+		// ListParks returns all parks for a tenant and does its own authorization.
+		allParks, err := s.repo.ListParks(ctx, actor.TenantID)
+		if err != nil {
+			return domain.WeightHistory{}, err
+		}
+		for _, p := range allParks {
+			authorizedParkIDs = append(authorizedParkIDs, p.ParkID)
+		}
+	} else {
+		// Park-scoped grant: get the specific parks.
+		authorizedParkIDs = httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor)
+		if len(authorizedParkIDs) == 0 {
+			return domain.WeightHistory{}, ports.ErrNotFound
+		}
+	}
+
+	// If parkID is supplied, verify it's in the authorized set.
+	if parkID != "" {
+		found := false
+		for _, authPark := range authorizedParkIDs {
+			if authPark == parkID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return domain.WeightHistory{}, ports.ErrNotFound
+		}
+	}
+
+	// Delegate to the repository to fetch the weight history.
+	return s.repo.GetWeightHistory(ctx, actor.TenantID, authorizedParkIDs, parkID, campaignShedID)
+}
+
+// growthDefaultPeriodDays is the reporting window used when the caller supplies neither `from`
+// nor `to`. 90 days matches the horizon MaxWeightHistoryWeighDays already uses for the sibling
+// weight-history chart, so the two CEO-tier weighing reads default to the same lookback.
+const growthDefaultPeriodDays = 90
+
+// GetLeadershipGrowthADG serves the herd-level ADG (Average Daily Gain) read model for one park.
+//
+// fromBusinessDate/toBusinessDate are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD),
+// matching WeighingProcessState's date contract. Both are optional; when either is blank, the
+// period defaults to the last growthDefaultPeriodDays days ending today (business "today" in
+// Asia/Kolkata).
+//
+// Requires WeighingMonitor, park-scoped exactly like GetWeightHistory: a park-scoped monitor may
+// only request a park inside their own grant, and a tenant-wide monitor may request any park in
+// the tenant.
+func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.GrowthADG{}, ports.ErrForbidden
+	}
+	// park_id is now OPTIONAL: a caller may omit it to get the herd-wide headline across every
+	// park they are authorized to monitor (see the scope resolution below). When supplied, it
+	// must still be a real uuid.
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.GrowthADG{}, ports.ErrInvalidArgument
+	}
+	from := strings.TrimSpace(fromBusinessDate)
+	to := strings.TrimSpace(toBusinessDate)
+	if from != "" && !isBusinessDate(from) {
+		return domain.GrowthADG{}, ports.ErrInvalidArgument
+	}
+	if to != "" && !isBusinessDate(to) {
+		return domain.GrowthADG{}, ports.ErrInvalidArgument
+	}
+
+	loc := biztime.DefaultLocation()
+	now := time.Now().In(loc)
+	var periodStart, periodEndInclusive time.Time
+	var err error
+	if to == "" {
+		periodEndInclusive = biztime.BusinessDayStart(now)
+	} else {
+		periodEndInclusive, err = time.ParseInLocation("2006-01-02", to, loc)
+		if err != nil {
+			return domain.GrowthADG{}, ports.ErrInvalidArgument
+		}
+	}
+	if from == "" {
+		periodStart = periodEndInclusive.AddDate(0, 0, -(growthDefaultPeriodDays - 1))
+	} else {
+		periodStart, err = time.ParseInLocation("2006-01-02", from, loc)
+		if err != nil {
+			return domain.GrowthADG{}, ports.ErrInvalidArgument
+		}
+	}
+	if periodEndInclusive.Before(periodStart) {
+		return domain.GrowthADG{}, ports.ErrInvalidArgument
+	}
+	// The repository period is half-open [periodStart, periodEnd): the caller's LAST day is
+	// inclusive, so the exclusive boundary passed down is midnight the day AFTER it.
+	periodEndExclusive := periodEndInclusive.AddDate(0, 0, 1)
+
+	// Resolve the park scope this response aggregates over.
+	//
+	// If the caller named a park_id, behaviour is EXACTLY what it was before this response
+	// supported an all-parks view: WeighingMonitor is a capability check, not a scope check, so
+	// the actor's authorized parks must be resolved and the requested park confirmed to be
+	// inside them, or a park-scoped monitor could read another park's herd by naming its id.
+	//
+	// If park_id was omitted, this is the herd-wide view: reuse authorizedParkSet, the SAME
+	// park-scope helper GetLeadershipShedVideos/ListLeadershipSheds already use, to compute the
+	// caller's own authorized-park set -- never a wider one -- and aggregate across exactly that.
+	var parkIDs []string
+	if parkID != "" {
+		grants := httpmiddleware.AuthGrantsFromContext(ctx)
+		if !hasTenantWideCapability(grants, actor.TenantID, permissions.WeighingMonitor) {
+			authorizedParkIDs := httpmiddleware.AuthorizedParkIDsForCapability(grants, permissions.WeighingMonitor)
+			found := false
+			for _, id := range authorizedParkIDs {
+				if id == parkID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return domain.GrowthADG{}, ports.ErrNotFound
+			}
+		}
+		parkIDs = []string{parkID}
+	} else {
+		authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.WeighingMonitor)
+		if tenantWide {
+			// Tenant-wide monitor: every park in the tenant, exactly like GetWeightHistory
+			// resolves its own "all parks" case.
+			allParks, err := s.repo.ListParks(ctx, actor.TenantID)
+			if err != nil {
+				return domain.GrowthADG{}, err
+			}
+			for _, p := range allParks {
+				parkIDs = append(parkIDs, p.ParkID)
+			}
+		} else {
+			for id := range authorizedParks {
+				parkIDs = append(parkIDs, id)
+			}
+		}
+		if len(parkIDs) == 0 {
+			// Park-scoped grants that carry no monitor capability anywhere: the actor passed the
+			// flat role gate but owns no park here. An unrestricted read would be the escalation
+			// this whole path exists to prevent, so the answer is a 404, matching
+			// ListLeadershipSheds's identical no-scope case.
+			return domain.GrowthADG{}, ports.ErrNotFound
+		}
+	}
+
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+}
+
 // producer routes too broadly.
 func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error) {
 	if !permissions.RolesAuthorizeAny(actor.Roles, []string{
@@ -1278,6 +1463,27 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 		parkIDs = append(parkIDs, httpmiddleware.AuthorizedParkIDsForCapability(grants, capability)...)
 	}
 	return s.repo.ListAlerts(ctx, actor.TenantID, actor.UserID, tenantWide, dedupeStrings(parkIDs), strings.TrimSpace(cursor), limit)
+}
+
+// ExportCampaignCSV exports weighing observations for a campaign to CSV format.
+// It requires WeighingMonitor permission and enforces park scoping.
+func (s *Service) ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error {
+	// Check authorization
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return ports.ErrForbidden
+	}
+
+	if !uuidutil.IsUUIDString(campaignID) {
+		return ports.ErrInvalidArgument
+	}
+
+	// Check park scope: the actor must be authorized for this campaign's park
+	if err := s.checkParkScope(ctx, actor.TenantID, campaignID); err != nil {
+		return err
+	}
+
+	// Delegate to repository for actual export
+	return s.repo.ExportCampaignCSV(ctx, actor.TenantID, campaignID, writer)
 }
 
 // dedupeStrings keeps the park-scope argument small and stable; the same park can

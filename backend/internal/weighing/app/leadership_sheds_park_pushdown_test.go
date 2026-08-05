@@ -113,3 +113,7 @@ func TestListLeadershipShedsUnrestrictedForTenantWideMonitor(t *testing.T) {
 		t.Fatalf("tenant-wide monitor saw %d buckets, want the whole tenant's page", len(page.Items))
 	}
 }
+
+func (r *pagingLeadershipRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}

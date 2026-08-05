@@ -243,3 +243,7 @@ func TestLeadershipShedVideosAndListDenyCrossPark(t *testing.T) {
 		}
 	}
 }
+
+func (r *parkRoutedRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
