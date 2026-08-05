@@ -1774,11 +1774,18 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 150; }
 .scrim.on { display: flex; }
 /* Verification review modal — centered overlay, never dims sidebar */
-.vr-modal-scrim { position: fixed; inset: 0; background: rgba(4, 9, 7, .76); opacity: 0; pointer-events: none; transition: .16s; z-index: 210; display: grid; place-items: center; padding: 26px; }
+.vr-modal-scrim { position: fixed; inset: 0; background: rgba(4, 9, 7, .76); opacity: 0; pointer-events: none; transition: opacity .18s ease; z-index: 210; display: grid; place-items: center; padding: 26px; }
 .vr-modal-scrim.on { opacity: 1; pointer-events: auto; }
 html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
-.vr-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, calc(-50% - 8px)) scale(.99); width: 900px; max-width: 96vw; max-height: 92vh; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; transform: translateY(-8px) scale(.99); transition: .16s; z-index: 220; }
-.vr-modal-scrim.on .vr-modal, .vr-modal.on { transform: translate(-50%, -50%); }
+.vr-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, calc(-50% - 10px)) scale(.985); opacity: 0; will-change: transform, opacity; width: 900px; max-width: 96vw; max-height: 92vh; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; transition: transform .19s cubic-bezier(.2,.8,.2,1), opacity .16s ease; z-index: 220; }
+.vr-modal-scrim.on .vr-modal, .vr-modal.on { transform: translate(-50%, -50%); opacity: 1; }
+/* The shell replays its `fade` entry animation on every RSC re-render, and changing `vi_row`
+   (opening the modal, Prev/Next) is exactly that — so the whole page flashed on each step and read
+   as "stuck". While a review modal is open the page underneath must hold still. */
+.screen:has(.vr-modal-scrim.on) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .vr-modal-scrim, .vr-modal { transition: none; }
+}
 .vr-modal-hd { display: flex; align-items: center; gap: 13px; padding: 17px 22px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
 .vr-modal-hd h2 { margin: 0; font-size: 18px; font-weight: 640; line-height: 1.2; }
 .vr-modal-hd .sb { font-size: 12.5px; color: var(--faint); font-weight: 600; margin-top: 3px; }

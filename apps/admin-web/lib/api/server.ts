@@ -2585,6 +2585,7 @@ export async function decideAdminWebApproval(args: {
  */
 export async function postVerificationReviewEvents(
   events: VerificationReviewEvent[],
+  idempotencyKey?: string,
 ): Promise<ApiResult<VerificationReviewEventBatchResponse>> {
   const config = await getServerConfig(true);
   if (!config.ok) return config;
@@ -2594,6 +2595,7 @@ export async function postVerificationReviewEvents(
     client.request<VerificationReviewEventBatchResponse>(path, {
       method: "POST",
       cache: "no-store",
+      headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined,
       body: { events },
     }),
   );
