@@ -566,7 +566,11 @@
   .tsearch{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:6px 10px;color:var(--muted);min-width:200px;flex:1;max-width:300px}
   .tsearch input{border:0;background:transparent;outline:0;font:inherit;color:var(--ink);width:100%}
   .tcount{font-size:12px;color:var(--faint);font-weight:600;white-space:nowrap}
-  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink)}
+  /* max-width: a native <select> sizes itself to its WIDEST OPTION, so one long
+     option (e.g. "Mandela 2 - Part 10 . Coimbatore" once partition + park
+     disambiguation landed) stretched the Shed control to 436px and wrapped the
+     whole filter bar onto a second row. Option text must never drive layout. */
+  .tsize{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 8px;font:inherit;font-size:12.5px;color:var(--ink);max-width:200px;text-overflow:ellipsis}
   .tfoot{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line2)}
   .trange{font-size:12px;color:var(--muted);font-weight:600}
   .pager{display:flex;gap:5px}
