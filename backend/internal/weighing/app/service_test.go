@@ -756,8 +756,8 @@ func validCreate() domain.CreateCampaign {
 
 type fakeRepo struct {
 	animalProofRejected bool
-	animalWrites int
-	shedWrites   int
+	animalWrites        int
+	shedWrites          int
 }
 
 // ExportCampaignCSV is a stub implementation for test fakes.
@@ -1000,6 +1000,7 @@ func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalO
 	f.animalWrites++
 	return domain.Observation{}, nil
 }
+
 // AnimalProofWasRejected defaults to false: the reuse guard is exercised by its own tests, and a
 // fake that claimed "rejected" here would block every other capture path in this file.
 func (f *fakeRepo) AnimalProofWasRejected(context.Context, string, string, string) (bool, error) {

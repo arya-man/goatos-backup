@@ -730,7 +730,6 @@ func (s *Service) MarkVerdictApplied(
 	return applied, nil
 }
 
-
 // isAlreadyDecided keeps mapRepoErr readable; AlreadyDecidedError carries the current status
 // rather than being a bare sentinel, so errors.Is has nothing to match against.
 func isAlreadyDecided(err error) bool {
