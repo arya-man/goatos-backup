@@ -41,6 +41,19 @@ else
   hooks_dir="$(git rev-parse --git-path hooks)"
 fi
 
+# ABSOLUTE, ALWAYS. `git rev-parse --git-path hooks` answers RELATIVE to the cwd
+# ('.git/hooks' from the repo root), and the hook probe below runs its `cp` AFTER
+# `cd`-ing into a throwaway sandbox — where '.git/hooks/pre-push' does not exist.
+# That made the probe die with `cp: .git/hooks/pre-push: No such file or directory`
+# and score as exit 97 = GUARD FAILURE, blocking `make guardrails` on every clone
+# whose hooks dir is the default. The cmp loop above never noticed because it runs
+# before the cd. The core.hooksPath arm already absolutises itself; this covers the
+# rev-parse arm and is a no-op for a path that is absolute already.
+case "$hooks_dir" in
+  /*) ;;
+  *) hooks_dir="$repo/$hooks_dir" ;;
+esac
+
 # repo source -> installed copy
 pairs="
 tools/ci/check-local-ci-evidence.mjs:goatos-check-local-ci-evidence.mjs
