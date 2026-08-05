@@ -192,6 +192,10 @@ function isComment(line) {
 function scanContent(file, content) {
   const problems = [];
   const lines = content.split("\n");
+  // This guard's own source is exempt from EVERY check: its self-test fixtures
+  // deliberately contain each banned pattern (and each correct counter-example),
+  // so scanning itself is guaranteed self-indictment.
+  if (file.endsWith("tools/agent-hooks/check-operational-location.mjs")) return problems;
   const owned = SENTINEL_OWNERS.some((p) => file.includes(p));
   lines.forEach((line, i) => {
     if (isComment(line) || IGNORE_RE.test(line)) return;
