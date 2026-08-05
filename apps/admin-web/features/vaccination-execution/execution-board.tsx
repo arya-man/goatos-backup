@@ -37,6 +37,7 @@ import {
   type VaccinationPageSize,
 } from "@/features/preventive-care-vaccination";
 import { ShedEventActions } from "./shed-event-actions";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import { vaccinationCurrentViewScope } from "@/features/vaccination-sheds";
 
 // Work states that mean "someone must act now" — used for the per-park attention count.
@@ -82,8 +83,14 @@ function physicalShedName(row: VaccinationExecutionRow): string {
 }
 
 function partitionLabel(row: VaccinationExecutionRow): string {
-  const partition = (row.partition || "").trim();
-  return partition && partition !== "whole" ? partition : row.shedName;
+  return (
+    row.operational_location_display ||
+    operationalLocationLabel({
+      shedName: physicalShedName(row),
+      partitionLabel: row.partition_label,
+      sourceShedName: row.source_shed_name,
+    })
+  );
 }
 
 function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup[] {
@@ -153,10 +160,11 @@ function executionDriveLabel(row: VaccinationExecutionRow): string {
 }
 
 function executionActionTitle(pageContract: AdminUiPageContract, row: VaccinationExecutionRow): string {
-  if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${row.shedName}`;
-  if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${row.shedName}`;
-  if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${row.shedName}`;
-  return `${executionDriveLabel(row)} — ${row.shedName}`;
+  const location = partitionLabel(row);
+  if (row.proofStatus === "missing") return `${copy(pageContract, "action.capture_vaccination_proof")} — ${location}`;
+  if (row.verificationStatus === "pending") return `${copy(pageContract, "action.verify_vaccination_proof")} — ${location}`;
+  if (row.workState === "overdue") return `${executionDriveLabel(row)} ${copy(pageContract, "label.overdue")} — ${location}`;
+  return `${executionDriveLabel(row)} — ${location}`;
 }
 
 function ExecutionRow({ row, drawerHref, pageContract, labels }: { row: VaccinationExecutionRow; drawerHref: string; pageContract: AdminUiPageContract; labels: string[] }) {

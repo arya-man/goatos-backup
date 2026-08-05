@@ -193,6 +193,38 @@ These invariants should become testable for every vertical.
    as lookup dimensions, but child execution/proof/submission state must come
    from child-grain facts.
 
+9. Location Grain Invariant
+
+   An animal's ground location is `OperationalLocation = park + physical_shed +
+   optional partition_label`. When a partition exists, every surface must
+   render/answer it:
+   
+   - No partition → `Yashoda` (bare shed name)
+   - Numeric partition → `Castro 2`
+   - Prefixed partition → `Godel 1 - Part 3`
+   
+   Never render a non-partitioned shed as `Yashoda whole` — `whole` is an
+   internal matching sentinel only, never user-facing copy. `NULL`, `''`, and
+   `'whole'` all mean non-partitioned.
+   
+   Counts, destination catalogs, animal search results, vaccination obligation
+   detail, shifting form, action center rows, CEO/leadership reporting, and any
+   location-bearing surface must carry `partition_label` alongside `shed_id` and
+   park. Collapsing partitions into the parent shed for display makes the
+   dropdown lie: an operator cannot express "Castro 1 → Castro 2" from a
+   parent-only `Castro` list, and a CEO report showing `Castro: 200 animals` when
+   the animals actually live in `Castro 1/2/3: 50+75+75` obscures operational
+   reality.
+   
+   Partitions must group by `shed_id` (uuid) + park, never by shed name: names
+   repeat across parks, so name-keyed aggregation silently merges parks.
+   
+   A partition catalog must enumerate all existing partitions, including empty
+   ones. A partition with zero live animals still exists (e.g., CBE `Yashoda 5`)
+   and must remain a valid shifting destination. Derive partition existence from
+   `shed_partitions` (migration 000111), not from `goat_shed_partitions` (a
+   per-goat relation that hides empty partitions).
+
 ## Proposed Pluggable Model
 
 Each vertical should expose a small set of operational providers. These do not

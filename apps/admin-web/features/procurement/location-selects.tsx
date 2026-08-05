@@ -2,12 +2,20 @@
 
 import { useMemo, useState } from "react";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 export type ProcurementLocationOption = {
   id: string;
   code: string | null;
   name: string;
   parentId: string | null;
+  // Optional operational-location metadata: present once the backend contract for this
+  // picker emits it (see contracts/openapi/app-api.yaml -> ShiftingDestinationShed for the
+  // precedent shape). Absent means treat this option as non-partitioned.
+  partitionLabel?: string | null;
+  sourceShedName?: string | null;
+  operationalLocationDisplay?: string | null;
+  animalCount?: number | null;
 };
 
 export type ProcurementLocations = {
@@ -18,7 +26,15 @@ export type ProcurementLocations = {
 };
 
 function locationLabel(location: ProcurementLocationOption): string {
-  return location.code ? `${location.code} - ${location.name}` : location.name;
+  const baseName =
+    location.operationalLocationDisplay ||
+    operationalLocationLabel({
+      shedName: location.name,
+      partitionLabel: location.partitionLabel,
+      sourceShedName: location.sourceShedName,
+    });
+  const withCount = typeof location.animalCount === "number" ? `${baseName} (${location.animalCount})` : baseName;
+  return location.code ? `${location.code} - ${withCount}` : withCount;
 }
 
 export function ParkLocationSelect({

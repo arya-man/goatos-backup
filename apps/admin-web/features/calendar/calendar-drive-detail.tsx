@@ -10,6 +10,19 @@ import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "@/features
 import { getCalendarVaccinationEventDetail, getCalendarDriveTargets } from "./calendar-server";
 import { driveSummaryOf, type CalendarDriveTarget } from "./calendar-contract";
 import { driveVisibleProgress, drivePctFor, driveStatusChips, driveStatusClass } from "./drive-card-metrics";
+import { operationalLocationLabel } from "@/lib/operational-location";
+
+function targetLocationLabel(item: CalendarDriveTarget): string {
+  if (!item.shed_name) return "—";
+  return (
+    item.operational_location_display ||
+    operationalLocationLabel({
+      shedName: item.shed_name,
+      partitionLabel: item.partition_label,
+      sourceShedName: item.source_shed_name,
+    })
+  );
+}
 
 // Full-screen drive detail (owner-directed replacement for the calendar drive drawer, 2026-07-14).
 // New route with no backend page contract yet, so its structural labels (breadcrumb crumbs, roster
@@ -152,7 +165,7 @@ export async function VaccinationDriveDetail({
     tag1: item.animal_identifier_1,
     tag2: item.animal_identifier_2,
     park: summary.park_name,
-    shed: item.shed_name ?? "—",
+    shed: targetLocationLabel(item),
     breed: null,
     sex: null,
     lifecycleStatus: item.lifecycle_status,
@@ -243,7 +256,7 @@ export async function VaccinationDriveDetail({
                               <span className="gid">{item.display_id || "—"}</span>
                             </LocalOverlayLink>
                           </td>
-                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.shed_name || "—"}</LocalOverlayLink></td>
+                          <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{targetLocationLabel(item)}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_1 || "—"}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.animal_identifier_2 || "—"}</LocalOverlayLink></td>
                           <td><LocalOverlayLink href={passportHref} className="celllink" scroll={false}>{item.stage || "—"}</LocalOverlayLink></td>

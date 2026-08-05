@@ -1169,6 +1169,55 @@ Do:
   partition strings as separate physical shed buildings. Drive planning and UI
   must show physical shed -> partition -> operator assignment, with capacity
   counted as unique animals per assigned operator/day.
+- **That normalization is a STORAGE rule. It is NOT a display rule, and the two
+  halves must always be read together (maintainer decision 2026-08-05).**
+  Storage collapses `Castro 1`/`Castro 2` into shed `Castro` + partition `1`/`2`.
+  PRODUCT does the opposite: the animal's ground location is
+  `OperationalLocation = park + physical_shed + optional partition_label`, and
+  every user-facing surface must answer with the partition when one exists.
+  In the maintainer's words: **"Castro 1 and Castro 2 is the only correct way.
+  Castro is not correct."** Both statements are true; they describe different
+  layers.
+  - Display: no partition -> `Yashoda`; numeric convention -> `Castro 2`;
+    prefixed convention -> `Godel 1 - Part 3`. NEVER render `Yashoda whole` —
+    `whole` is a matching key, never copy. `NULL`, `''`, and `'whole'` all mean
+    non-partitioned.
+  - Not every shed has partitions. Never demand a partition for a shed that has
+    none, and never invent one to make a shape uniform.
+  - `shed_id` alone is NOT an animal's ground location when a partition exists;
+    neither is `current_location_id`. Counts, passport, herd register, search,
+    shifting, weighing, vaccination detail, action center, and CEO/AI reporting
+    must all carry `partition_label` + `operational_location_display`.
+  - Counts must not collapse partitions into the parent unless the caller
+    explicitly asked for the aggregate, and partition rows must SUM EXACTLY to
+    the parent count.
+  - Shifting must express partition-to-partition moves (`Castro 1 -> Castro 2`),
+    so the contract carries `destination_shed_id` + `destination_partition_label`.
+  - Group and key by `shed_id` (uuid) + park, NEVER by shed NAME: names repeat
+    across parks (there are two `Castro`, two `Gandhi`, two `Yashoda`), so
+    name-keyed grouping silently merges parks.
+  - "Active shed" as a product concept means **active operational location**,
+    not "physical building holding >= 1 live animal after collapsing
+    partitions". The old wording is what produced parent-only dropdowns.
+  - A partition that currently holds ZERO animals still EXISTS (CBE `Yashoda 5`
+    is real and empty). A partition catalog derived only from
+    `goat_shed_partitions` — a per-goat table, PK `(tenant_id, goat_id)` — hides
+    empty partitions and makes them unreachable as a shifting destination.
+  - The `locations` rows named `Castro 1` / `Godel 1 - Part 3` with
+    `status='inactive'` are NOT dead: `weighing_campaign_sheds` already
+    references them, and they are today the only complete record of which
+    partitions physically exist. Never use one as a goat's `shed_id`; do use
+    them when enumerating partitions until a real `shed_partitions` catalog
+    exists.
+  Shared primitives, use them instead of re-deriving: Go
+  `backend/internal/platform/oploc`, admin-web
+  `apps/admin-web/lib/operational-location.ts`, Android
+  `core/core-ui/.../PartitionLabel.kt`. Machine-gated by
+  `make operational-location-guard`.
+  **If you delegate location-bearing work to a subagent, this rule goes in the
+  brief** — same reason as the weighing isolation rule above: an agent that was
+  never told the boundary will propose crossing it, and it will sound
+  reasonable.
 - Adult animals with no accepted history for a vaccine automatically join that
   vaccine's normal adult drive. Do not require or render a separate manual
   campaign; `repeat` versus `initial/catch-up` is per-animal dose status inside

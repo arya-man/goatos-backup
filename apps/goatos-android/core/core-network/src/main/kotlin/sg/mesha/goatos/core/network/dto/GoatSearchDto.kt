@@ -24,6 +24,8 @@ data class GoatLocationPathDto(
     @SerialName("park_name") val parkName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
     @SerialName("shed_name") val shedName: String? = null,
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String? = null,
 )
 
 /**

@@ -24,6 +24,7 @@ import (
 	locationsports "github.com/vgoats/goatos/backend/internal/locations/ports"
 	operationsauditdomain "github.com/vgoats/goatos/backend/internal/operationsaudit/domain"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	processintegritydomain "github.com/vgoats/goatos/backend/internal/processintegrity/domain"
 	procurementdomain "github.com/vgoats/goatos/backend/internal/procurement/domain"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -122,6 +123,19 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 	return "", false, nil
 }
 
+// buildCountsReader maps park_label/shed_id/stage/breed/sex onto
+// countsdomain.CountsBreakdownQuery's real fields, plus "partition_label" --
+// which the underlying grain (ceo_ai.animal_current_scope's counts-domain
+// twin) already carries per row (CountsBreakdownRow.PartitionLabel /
+// OperationalLocationDisplay) even though CountsBreakdownQuery itself has no
+// partition filter field. So "at Castro 1" is honored two ways: every row's
+// Scope renders through oploc.OperationalLocation.Display() -- which already
+// disambiguates "Castro 1" from "Castro 2" instead of collapsing both under
+// the bare "Castro" shed label -- and, when the caller names a specific
+// partition, rows for every OTHER partition of that shed are dropped before
+// the fact list is built (oploc.SamePartition, so "1" and "Part 1" match the
+// same partition). A shed with no partitions renders its bare shed name,
+// never the "whole" sentinel, per oploc.OperationalLocation.Display().
 func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
@@ -153,6 +167,9 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			return nil, err
 		}
 
+		partitionFilter, hasPartitionFilter := params["partition_label"].(string)
+		hasPartitionFilter = hasPartitionFilter && partitionFilter != ""
+
 		facts := []ceodomain.Fact{{
 			Label: "Active animals",
 			Value: fmt.Sprintf("%d", result.TotalCount),
@@ -164,9 +181,13 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			})
 		}
 		for _, row := range result.Items {
+			if hasPartitionFilter && !oploc.SamePartition(row.PartitionLabel, partitionFilter) {
+				continue
+			}
+			loc := oploc.OperationalLocation{ShedName: row.ShedLabel, PartitionLabel: row.PartitionLabel}
 			scope := row.ParkLabel
 			if row.ShedLabel != "" {
-				scope = fmt.Sprintf("%s / %s", row.ParkLabel, row.ShedLabel)
+				scope = fmt.Sprintf("%s / %s", row.ParkLabel, loc.Display())
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Counts breakdown",

@@ -951,6 +951,16 @@
       "owningDoc": "docs/decisions/weighing-free-flow.md",
       "requiredInCI": false,
       "ciStep": "check-weighing-isolation-on-edit.sh"
+    },
+    {
+      "id": "operational-location",
+      "script": "tools/agent-hooks/check-operational-location.mjs",
+      "makeTarget": "operational-location-guard",
+      "realCheck": "node tools/agent-hooks/check-operational-location.mjs",
+      "selfTest": "node tools/agent-hooks/check-operational-location.mjs --self-test",
+      "owningDoc": "docs/architecture/operational-read-model-contract.md",
+      "requiredInCI": true,
+      "ciStep": "operational-location-guard"
     }
   ]
 }

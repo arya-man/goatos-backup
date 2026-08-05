@@ -27,7 +27,7 @@ func protocolVersion(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tena
 	var versionID string
 	if err := pool.QueryRow(ctx,
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, row_version, created_at, updated_at)
-		 VALUES (gen_random_uuid(), $1, $2, 'tenant', 1, 'active', current_date, 1, now(), now())
+		 VALUES (gen_random_uuid(), $1, $2, 'tenant', 1, 'published', current_date, 1, now(), now())
 		 RETURNING protocol_version_id::text`, tenant, protoID).Scan(&versionID); err != nil {
 		t.Fatalf("insert protocol_version: %v", err)
 	}
@@ -79,8 +79,8 @@ func TestOperatorStatusGrainAndCapacity(t *testing.T) {
 
 	// tenant per-operator-per-day cap = 10 animals.
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days)
-		 VALUES ($1, 10, 'tenant', 7)`, tenant); err != nil {
+		`INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+		 VALUES ($1, 10, 'tenant', 7, 'split_within_safe_window_last_safe_may_exceed_cap')`, tenant); err != nil {
 		t.Fatalf("insert capacity config: %v", err)
 	}
 
@@ -171,5 +171,65 @@ func TestOperatorStatusGrainAndCapacity(t *testing.T) {
 	}
 	if action != "completed" {
 		t.Errorf("op2 next_action=%q want completed", action)
+	}
+}
+
+// TestOperatorStatusPartitionGrain proves ceo_ai.vaccination_operator_status
+// (migration 000110) keeps two partitions of the SAME physical shed, assigned
+// to the SAME operator on the SAME day, as distinct rows -- "Castro 1" and
+// "Castro 2" must not silently merge into a single "Castro" row -- while the
+// per-operator-per-day capacity/utilization window still sums across BOTH
+// partitions (capacity is a whole-day cap, never a per-partition one).
+func TestOperatorStatusPartitionGrain(t *testing.T) {
+	ctx := context.Background()
+	pool, tenant := newDB(t, ctx)
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO vaccination_capacity_config (tenant_id, max_per_day, capacity_scope, max_buffer_days, overflow_policy)
+		 VALUES ($1, 200, 'tenant', 7, 'split_within_safe_window_last_safe_may_exceed_cap')`, tenant); err != nil {
+		t.Fatalf("insert capacity config: %v", err)
+	}
+	pk := park(t, ctx, pool, tenant, "Castro Park")
+	castro := shed(t, ctx, pool, tenant, pk, "Castro", nil)
+	ver := protocolVersion(t, ctx, pool, tenant)
+	op := operatorMember(t, ctx, pool, tenant, "Divya")
+
+	today := "2020-06-15"
+	b := batch(t, ctx, pool, tenant, ver, castro, today, "planned")
+	assignment(t, ctx, pool, tenant, b, op, pk, castro, "Castro", "1", today, 8)
+	assignment(t, ctx, pool, tenant, b, op, pk, castro, "Castro", "2", today, 6)
+
+	type row struct {
+		partition string
+		assigned  int64
+		dayTotal  int64
+	}
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(partition_label, ''), assigned_animals, operator_day_assigned
+		 FROM ceo_ai.vaccination_operator_status
+		 WHERE tenant_id=$1 AND operator_id=$2 ORDER BY partition_label`, tenant, op)
+	if err != nil {
+		t.Fatalf("query operator status: %v", err)
+	}
+	defer rows.Close()
+	var got []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.partition, &r.assigned, &r.dayTotal); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, r)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 distinct partition rows, got %d: %+v", len(got), got)
+	}
+	want := map[string]int64{"1": 8, "2": 6}
+	for _, r := range got {
+		if r.assigned != want[r.partition] {
+			t.Errorf("partition %q assigned_animals=%d want %d", r.partition, r.assigned, want[r.partition])
+		}
+		// the operator's whole-day total sums BOTH partitions on every row.
+		if r.dayTotal != 14 {
+			t.Errorf("partition %q operator_day_assigned=%d want 14 (summed across partitions)", r.partition, r.dayTotal)
+		}
 	}
 }

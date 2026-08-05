@@ -20,6 +20,7 @@ import {
 } from "@/features/preventive-care-vaccination";
 import { CountsBreakdownFilters, type BreakdownFilterField } from "./counts-breakdown-filters";
 import { buildShedFilterOptions } from "./counts-breakdown-sheds";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 // Counts -> Counts Breakdown. The census view: how many live animals exist at each
 // farm x stage x breed x gender x shed combination, plus the same numbers as distributions.
@@ -63,10 +64,14 @@ export async function CountsBreakdownPage({
   const { parkId } = backendScope(scope);
 
   const farmParkId = one(sp, "bd_farm");
-  const shedId = one(sp, "bd_shed");
+  const shedIdParam = one(sp, "bd_shed");
   const stage = one(sp, "bd_stage");
   const breed = one(sp, "bd_breed");
   const sex = one(sp, "bd_sex");
+
+  // Parse shed_id and partition_label from the shed filter parameter.
+  // The filter value may be "shed_id" (non-partitioned) or "shed_id|partition_label" (partitioned).
+  const [shedId, partitionLabel] = shedIdParam ? shedIdParam.split("|") : ["", ""];
 
   const pageSizeOptions = tablePageSizes(pageContract, "detail-breakdown");
   const requestedLimit = Number(one(sp, "bd_limit"));
@@ -81,6 +86,7 @@ export async function CountsBreakdownPage({
   const breakdownResult = await getCountsBreakdown({
     park_id: parkId || farmParkId,
     shed_id: shedId,
+    partition_label: partitionLabel || undefined,
     management_stage: stage,
     breed,
     sex,
@@ -316,13 +322,20 @@ export async function CountsBreakdownPage({
               ) : (
                 rows.map((row) => (
                   <tr
-                    key={`${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`}
+                    key={`${row.park_id ?? ""}|${row.shed_id ?? ""}|${row.partition_label ?? ""}|${row.management_stage}|${row.breed}|${row.sex}`}
                   >
                     <td className="muted">{row.park_label || noParkLabel}</td>
                     <td>{row.management_stage || noStageLabel}</td>
                     <td>{row.breed || noBreedLabel}</td>
                     <td>{row.sex}</td>
-                    <td className="muted">{row.shed_label || noShedLabel}</td>
+                    <td className="muted">
+                      {row.operational_location_display ||
+                        operationalLocationLabel({
+                          shedName: row.shed_label,
+                          partitionLabel: row.partition_label,
+                        }) ||
+                        noShedLabel}
+                    </td>
                     <td style={{ textAlign: "right", fontWeight: 700, color: "var(--brand-d)" }}>{row.count}</td>
                   </tr>
                 ))

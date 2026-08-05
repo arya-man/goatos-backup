@@ -21,6 +21,41 @@ fun partitionDisplayLabel(partition: String, format: (String) -> String): String
 }
 
 /**
+ * Format operational location as shed name with optional partition label.
+ *
+ * Rules:
+ *  - null/blank shed name or null/blank/whole partition → bare shed name only, e.g. "Yashoda"
+ *  - numeric partition (e.g. "2") → "Castro 2" (shedName + " " + label)
+ *  - partition already prefixed with "Part" (case-insensitive) → "Godel 1 - Part 3" style
+ *    (shedName + " - " + label)
+ *  - if shed name is null/blank, fall back to partition label or empty string
+ *
+ * Never produces "Yashoda whole" — the literal string "whole" is treated as non-partitioned.
+ */
+fun operationalLocationLabel(shedName: String?, partitionLabel: String?): String {
+    val normalizedShed = shedName?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
+    val normalizedPartition = partitionLabel?.trim().takeIf { !it.isNullOrEmpty() } ?: ""
+
+    // No partition or literal "whole" means non-partitioned
+    if (normalizedPartition.isEmpty() || normalizedPartition.equals("whole", ignoreCase = true)) {
+        return normalizedShed
+    }
+
+    // No shed name: return partition label alone (fallback)
+    if (normalizedShed.isEmpty()) {
+        return normalizedPartition
+    }
+
+    // Partition already starts with "Part" → use dash format
+    return if (isAlreadyWordedPartition(normalizedPartition)) {
+        "$normalizedShed - $normalizedPartition"
+    } else {
+        // Numeric/bare label → use space format
+        "$normalizedShed $normalizedPartition"
+    }
+}
+
+/**
  * True when the raw label already reads as a partition phrase, so re-wording it would double the
  * noun. Matches `Part`/`Parts` as a whole leading word only — `Part 3` and `Parts 1-3` are worded,
  * a bare `3` is not.

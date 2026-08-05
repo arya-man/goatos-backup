@@ -29,6 +29,7 @@ import {
 import { HerdActions, type HerdAnimalStageOption } from "./herd-actions-ui";
 import { HerdFiltersModalClient } from "./herd-filters-modal-client";
 import { HerdPassportLocalDrawer, type HerdPassportDrawerItem } from "./herd-passport-local-drawer";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 // Counts -> Herd Register. The vaccination cascade's real business entry point: register/import a goat,
 // emit goat.created, generate vaccination obligations. This screen is the OPERATIONAL Counts module surface.
@@ -87,7 +88,16 @@ function statusTone(value: string | null | undefined, kind: "lifecycle" | "healt
 function locationLabel(g: GoatRow, part: "park" | "shed"): string {
   const path = g.location_path;
   if (part === "park") return path.park_code ?? path.park_name ?? "—";
-  return path.shed_name ?? path.shed_code ?? "—";
+  const shedName = path.shed_name ?? path.shed_code ?? "";
+  if (!shedName) return "—";
+  return (
+    path.operational_location_display ||
+    operationalLocationLabel({
+      shedName,
+      partitionLabel: path.partition_label,
+      sourceShedName: path.source_shed_name,
+    })
+  );
 }
 
 function weightLabel(weight: number | null | undefined): string {

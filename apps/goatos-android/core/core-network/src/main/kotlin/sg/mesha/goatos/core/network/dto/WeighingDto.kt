@@ -25,6 +25,8 @@ data class WeighingCampaignShedDto(
     @SerialName("location_id") val locationId: String = "",
     @SerialName("location_type") val locationType: String = "",
     @SerialName("display_name") val displayName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     /** Backend-owned count; do NOT render as a denominator. Weighing is free-flow with no expected roster.
      *  This field is sent for historical reasons but MUST NOT be used to compute completeness ratios. */
     @SerialName("expected_animal_count") val expectedAnimalCount: Int = 0,
@@ -252,6 +254,8 @@ data class WeighingPlannerParkBucketsResponseDto(
 data class WeighingPlannerShedDto(
     @SerialName("location_id") val locationId: String = "",
     @SerialName("name") val name: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("kid_count") val kidCount: Int = 0,
     // Whether an OPEN weighing task already claims this shed on the REQUESTED weigh date, and who
     // holds it. The server answers this per date; the app never infers availability by scanning its
@@ -388,6 +392,7 @@ data class WeighingObservationDto(
     @SerialName("expected_location_id") val expectedLocationId: String? = null,
     @SerialName("actual_location_id") val actualLocationId: String? = null,
     @SerialName("actual_location_label") val actualLocationLabel: String? = null,
+    @SerialName("actual_partition_label") val actualPartitionLabel: String? = null,
     @SerialName("accepted_at") val acceptedAt: String = "",
     @SerialName("media") val media: List<WeighingProofMediaDto> = emptyList(),
     /**
@@ -411,6 +416,8 @@ data class WeighingLeadershipShedVideosDto(
     @SerialName("campaign_id") val campaignId: String = "",
     @SerialName("campaign_shed_id") val campaignShedId: String = "",
     @SerialName("shed_name") val shedName: String = "",
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     /** The park this bucket's task belongs to. Rendered as the screen eyebrow. */
     @SerialName("park_name") val parkName: String = "",
     /** The task's Asia/Kolkata business DATE. Never a timestamp. */

@@ -47,12 +47,14 @@ type ShiftingEvent struct {
 	LogicalShiftingEventKey string
 	Priority                string
 	Category                string
-	SourceParkID            *string
-	SourceShedID            *string
-	DestinationParkID       string
-	DestinationShedID       string
-	ManagementStageMode     string
-	TargetManagementStage   string
+	SourceParkID                *string
+	SourceShedID                *string
+	SourcePartitionLabel        *string
+	DestinationParkID           string
+	DestinationShedID           string
+	DestinationPartitionLabel   *string
+	ManagementStageMode         string
+	TargetManagementStage       string
 	RaisedAt                time.Time
 	EffectiveAt             time.Time
 	AuthorizedAt            *time.Time
@@ -221,6 +223,9 @@ type ProjectionRow struct {
 	BreedID                      *string
 	BreedKey                     string
 	BreedLabel                   string
+	// PartitionLabel is the raw stored partition label for ShedID ("2", "Part 3"), or "" when the
+	// shed is not partitioned. Never the "whole" sentinel -- see internal/platform/oploc.
+	PartitionLabel               string
 	StageTag                     *string
 	AgeClass                     *string
 	Sex                          *string
@@ -237,8 +242,10 @@ type ProjectionRow struct {
 // ProjectionShedBreedTotal summarizes the returned projection page at the
 // aggregate shed + breed grain Feed Direction needs for generation review.
 type ProjectionShedBreedTotal struct {
-	ParkID                       string
-	ShedID                       string
+	ParkID string
+	ShedID string
+	// PartitionLabel is the raw stored partition label, or "" when ShedID is not partitioned.
+	PartitionLabel               string
 	BreedKey                     string
 	BreedLabel                   string
 	HeadCount                    int32
@@ -434,14 +441,22 @@ type HerdRegisterSummaryQuery struct {
 // are reported as distinct rows on purpose — collapsing them here would hide a real data
 // quality problem that count_dimension_aliases exists to fix at the source.
 type CountsBreakdownRow struct {
-	ParkID          *string `json:"park_id"`
-	ParkLabel       string  `json:"park_label"`
-	ShedID          *string `json:"shed_id"`
-	ShedLabel       string  `json:"shed_label"`
-	ManagementStage string  `json:"management_stage"`
-	Breed           string  `json:"breed"`
-	Sex             string  `json:"sex"`
-	Count           int64   `json:"count"`
+	ParkID    *string `json:"park_id"`
+	ParkLabel string  `json:"park_label"`
+	ShedID    *string `json:"shed_id"`
+	ShedLabel string  `json:"shed_label"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" for a
+	// non-partitioned shed / a shed-less row. Never the "whole" sentinel -- see
+	// internal/platform/oploc.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is oploc.OperationalLocation{ShedName: ShedLabel,
+	// PartitionLabel: PartitionLabel}.Display(): "Castro 2" for a partition, bare "Yashoda" for a
+	// non-partitioned shed, never a synthetic "Yashoda whole".
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	ManagementStage            string `json:"management_stage"`
+	Breed                      string `json:"breed"`
+	Sex                        string `json:"sex"`
+	Count                      int64  `json:"count"`
 }
 
 // CountsBreakdownSeriesPoint is one chart bar or one filter facet value.
@@ -471,6 +486,8 @@ type CountsBreakdownCharts struct {
 // and ParkID is carried as its own field rather than smuggled into Label, so the client never
 // has to parse a display string to recover an identifier.
 type CountsBreakdownShedFacet struct {
+	// Key is the parent shed UUID for the whole-shed aggregate option, or "<shed_uuid>#<partition
+	// key>" (oploc.OperationalLocation.Key() convention) for a specific-partition option.
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Count int64  `json:"count"`
@@ -556,11 +573,27 @@ type ShiftingDestinationPark struct {
 	Sheds  []ShiftingDestinationShed
 }
 
-// ShiftingDestinationShed is one selectable destination shed.
+// ShiftingDestinationShed is one selectable operational-location destination: a physical parent
+// shed, OR one of that shed's real partitions.
+//
+// A partitioned shed (Castro, Gandhi, Godel...) appears MULTIPLE times in the flat Sheds list of its
+// park, once per distinct partition_label actually in use on that shed's animals -- never as a
+// single "whole shed" entry synthesized from thin air. A non-partitioned shed appears exactly once,
+// with PartitionLabel nil. See backend/internal/platform/oploc for the shared normalization/display
+// rules this mirrors.
 type ShiftingDestinationShed struct {
 	ShedID           string
 	Name             string
 	ManagementStages []string
+
+	// PartitionLabel is nil for the bare-shed (non-partitioned) destination entry, or the raw stored
+	// partition label ('1', 'Part 3') for a partition destination entry. Never "whole": that sentinel
+	// is a matching key, not a real label, and must never reach this field or the API surface.
+	PartitionLabel *string
+
+	// Display is the operator-facing operational-location label (oploc.OperationalLocation.Display):
+	// "Yashoda" for a non-partitioned shed, "Castro 2" / "Godel 1 - Part 3" for a partition.
+	Display string
 }
 
 // GoatShiftingFact is the narrow set of canonical goat attributes needed to DERIVE a shifting
@@ -597,4 +630,10 @@ type GoatShiftingFact struct {
 	// and leave the source absent rather than storing an empty string.
 	ParkID *string
 	ShedID *string
+
+	// ShedPartitionLabel is the animal's CURRENT partition within ShedID, when it sits inside a
+	// partitioned shed (goat_shed_partitions.partition_label). Nil for a non-partitioned placement or
+	// a goat with no goat_shed_partitions row. Used the same way ShedID is: to backfill the source
+	// half of a shifting event's operational location when the operator did not send one.
+	ShedPartitionLabel *string
 }

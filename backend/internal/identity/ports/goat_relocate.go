@@ -29,6 +29,21 @@ type RelocateGoatsCommand struct {
 	ToParkID string
 	ToShedID string
 
+	// DestinationPartitionLabel is the raw partition label ('1', 'Part 3') within ToShedID this move
+	// targets, or nil for a genuinely non-partitioned destination shed. OperationalLocation = park +
+	// physical shed + optional partition (see backend/internal/platform/oploc); ToShedID always
+	// stays the PARENT physical shed, never a partition-bearing alias, and this field carries the
+	// partition half separately. Applied to every moved goat's goat_shed_partitions row in the SAME
+	// transaction as the shed_id write, whether or not the shed itself also changed.
+	DestinationPartitionLabel *string
+
+	// DestinationShedName is the destination physical shed's display name, needed to compose the
+	// operator-facing operational-location label (oploc.OperationalLocation.Display) stored as
+	// goat_shed_partitions.source_shed_name. Required whenever a caller wants that column populated
+	// with a real display string; an empty value falls back to the shed id so the write still
+	// satisfies the non-blank source_shed_name constraint.
+	DestinationShedName string
+
 	// DestinationTag is the raise-time selected management_stage. Sheds may contain mixed stages;
 	// residents and shed_profiles never override it. Empty means preserve each goat's current stage.
 	// This field changes management_stage only; it never creates pregnancy or lactation facts.

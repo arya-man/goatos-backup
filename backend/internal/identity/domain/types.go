@@ -32,6 +32,10 @@ type Warning struct {
 }
 
 type LocationPath struct {
+	// Display is the operational location for this animal: bare shed/park name when not
+	// partitioned, "<shed> <partition>" / "<shed> - Part <n>" when it is. Composed via
+	// internal/platform/oploc.OperationalLocation.Display() so it can never render the "whole"
+	// sentinel.
 	Display    string  `json:"display"`
 	FarmID     *string `json:"farm_id"`
 	FarmCode   *string `json:"farm_code,omitempty"`
@@ -45,6 +49,15 @@ type LocationPath struct {
 	CohortID   *string `json:"cohort_id"`
 	CohortCode *string `json:"cohort_code,omitempty"`
 	CohortName *string `json:"cohort_name,omitempty"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3") for ShedID, nil when the
+	// shed is not partitioned or the animal has no shed. Never the "whole" sentinel.
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	// SourceShedName is the original partition-bearing name the row was normalized from
+	// ("Castro 1"), kept for traceability only -- it is not a display field.
+	SourceShedName *string `json:"source_shed_name,omitempty"`
+	// OperationalLocationDisplay duplicates Display under an explicit name for API consumers that
+	// migrated off the historically ambiguous "display" field; both are always equal.
+	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
 }
 
 type EvidenceRef struct {

@@ -1106,6 +1106,7 @@ LIMIT $8`,
 		shed.ScheduledOperatorUserID = deref(takenOperatorID)
 		shed.ScheduledOperatorDisplayName = deref(takenOperatorName)
 		shed.ScheduledWeighingCategory = deref(takenCategory)
+		applyPlannerShedPartitionDisplay(&shed)
 		out.Sheds = append(out.Sheds, shed)
 		sorts = append(sorts, sort)
 	}
@@ -3061,6 +3062,7 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
+		applyShedPartitionDisplay(&shed)
 		c.Sheds = append(c.Sheds, shed)
 	}
 	completedAnimals, completedScopes, wrongShed, missing, err := r.progressStats(ctx, tx, tenantID, campaignID)
@@ -3104,6 +3106,7 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 			return err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
+		applyShedPartitionDisplay(&shed)
 		if idx, ok := byID[shed.CampaignID]; ok {
 			campaigns[idx].Sheds = append(campaigns[idx].Sheds, shed)
 		}

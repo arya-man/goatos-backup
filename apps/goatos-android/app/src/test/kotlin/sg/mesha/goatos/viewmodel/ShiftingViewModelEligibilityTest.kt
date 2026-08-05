@@ -137,28 +137,129 @@ class ShiftingViewModelEligibilityTest {
         assertTrue(vm.state.value.canSubmit)
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Partition carrying — the maintainer-reported defect: FROM must show the animal's PARTITION,
+    // and MOVE TO must be able to target a different partition of the SAME shed, or any partition
+    // of any other shed. Source: source->UI->submit payload. Destination: catalog->UI->submit.
+    // -------------------------------------------------------------------------------------------
+
+    @Test
+    fun `selecting an animal in a partitioned shed carries its partition into the UI`() = runTest(dispatcher) {
+        val vm = newViewModel(listOf(animal(lifecycle = "alive", partitionLabel = "1")))
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        // The DTO -> UI mapping preserves the animal's current partition rather than dropping it,
+        // which is the root cause of the reported "Coimbatore · Yashoda" FROM chip that could not
+        // say which partition the animal was actually in.
+        assertEquals("1", vm.state.value.selectedAnimal?.partitionLabel)
+    }
+
+    @Test
+    fun `a same-shed cross-partition move is expressible and carries the destination partition on submit`() =
+        runTest(dispatcher) {
+            val sync = NoopShiftingSyncRepository()
+            val destinations = listOf(
+                CountsDestinationParkDto(
+                    parkId = CBE_PARK_ID,
+                    name = "Coimbatore",
+                    sheds = listOf(
+                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "1"),
+                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "2"),
+                        CountsDestinationShedDto(shedId = YASHODA_SHED_ID, name = "Yashoda", partitionLabel = "3"),
+                    ),
+                ),
+            )
+            val vm = newViewModel(
+                listOf(animal(lifecycle = "alive", shedId = YASHODA_SHED_ID, shedName = "Yashoda", partitionLabel = "1")),
+                sync,
+                destinations,
+            )
+            advanceUntilIdle()
+            vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+            vm.onEvent(ShiftingEvent.LookupAnimals)
+            advanceUntilIdle()
+            vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+            // Three distinct dropdown entries exist for the ONE shed_id, one per partition — the
+            // exact shape that used to be an unexpressible "bare Shed dropdown".
+            assertEquals(3, vm.state.value.shedsForSelectedPark.size)
+
+            vm.onEvent(ShiftingEvent.SelectDestinationShed(YASHODA_SHED_ID, "2"))
+            assertEquals("2", vm.state.value.destinationPartitionLabel)
+            assertTrue(vm.state.value.canSubmit)
+
+            vm.onEvent(ShiftingEvent.Submit)
+            advanceUntilIdle()
+            sync.succeed("shift-outbox")
+            advanceUntilIdle()
+
+            val sent = sync.lastShiftingRequest
+            assertEquals(YASHODA_SHED_ID, sent?.destinationShedId)
+            assertEquals("2", sent?.destinationPartitionLabel)
+        }
+
+    @Test
+    fun `a non-partitioned shed offers exactly one destination entry with no partition label`() = runTest(dispatcher) {
+        val destinations = listOf(
+            CountsDestinationParkDto(
+                parkId = CBE_PARK_ID,
+                name = "Coimbatore",
+                sheds = listOf(
+                    CountsDestinationShedDto(shedId = CBE_SHED_ID, name = "Old Yashoda", partitionLabel = null),
+                ),
+            ),
+        )
+        val vm = newViewModel(listOf(animal(lifecycle = "alive")), destinations = destinations)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.EditAnimalQuery("CBE-ASSUMED-RFID-00002"))
+        vm.onEvent(ShiftingEvent.LookupAnimals)
+        advanceUntilIdle()
+        vm.onEvent(ShiftingEvent.SelectAnimal(GOAT_ID))
+
+        // Exactly one entry, and it carries no partition — the operator is never forced to pick a
+        // fake "whole" partition for a shed that does not have any.
+        assertEquals(1, vm.state.value.shedsForSelectedPark.size)
+        assertNull(vm.state.value.shedsForSelectedPark.single().partitionLabel)
+
+        vm.onEvent(ShiftingEvent.SelectDestinationShed(CBE_SHED_ID, null))
+        assertTrue(vm.state.value.canSubmit)
+        assertNull(vm.state.value.destinationPartitionLabel)
+    }
+
     private fun newViewModel(
         matches: List<GoatSearchItemDto>,
         syncRepository: NoopShiftingSyncRepository = NoopShiftingSyncRepository(),
+        destinations: List<CountsDestinationParkDto>? = null,
     ) = ShiftingViewModel(
         syncRepository = syncRepository,
-        countsRepository = FakeShiftingCountsRepository(matches),
+        countsRepository = FakeShiftingCountsRepository(matches, destinations),
         analytics = NoopShiftingAnalytics(),
         crashReporter = NoopShiftingCrashReporter(),
         savedStateHandle = SavedStateHandle(),
     )
 
-    private fun animal(lifecycle: String) = GoatSearchItemDto(
+    private fun animal(
+        lifecycle: String,
+        shedId: String = CBE_SHED_ID,
+        shedName: String = "Castro 1",
+        partitionLabel: String? = null,
+    ) = GoatSearchItemDto(
         goatId = GOAT_ID,
         displayId = "G-000325",
         animalIdentifier1 = "CBE-ASSUMED-RFID-00001",
         lifecycleStatus = lifecycle,
         locationPath = GoatLocationPathDto(
-            display = "Coimbatore / Castro 1",
+            display = "Coimbatore / $shedName",
             parkId = CBE_PARK_ID,
             parkName = "Coimbatore",
-            shedId = CBE_SHED_ID,
-            shedName = "Castro 1",
+            shedId = shedId,
+            shedName = shedName,
+            partitionLabel = partitionLabel,
         ),
     )
 
@@ -167,11 +268,13 @@ class ShiftingViewModelEligibilityTest {
         const val CBE_PARK_ID = "00000000-0000-4000-8000-000000003001"
         const val CBE_SHED_ID = "43071c6e-3b00-47a9-860c-1bbacb570575"
         const val CPT_PARK_ID = "00000000-0000-4000-8000-000000003002"
+        const val YASHODA_SHED_ID = "63071c6e-3b00-47a9-860c-1bbacb570576"
     }
 }
 
 private class FakeShiftingCountsRepository(
     private val matches: List<GoatSearchItemDto>,
+    private val destinations: List<CountsDestinationParkDto>? = null,
 ) : CountsRepository {
     override fun observeHerdSummary(lifecycleStatus: String?, parkId: String?, breed: String?, sex: String?): Flow<Resource<HerdRegisterSummaryResponseDto>> =
         flowOf(Resource(data = HerdRegisterSummaryResponseDto()))
@@ -186,8 +289,8 @@ private class FakeShiftingCountsRepository(
         MutableStateFlow(
             Resource(
                 data = CountsShiftingDestinationsResponseDto(
-					managementStages = listOf("K0", "K1", "Mother"),
-                    parks = listOf(
+                    managementStages = listOf("K0", "K1", "Mother"),
+                    parks = destinations ?: listOf(
                         CountsDestinationParkDto(
                             parkId = "00000000-0000-4000-8000-000000003001",
                             name = "Coimbatore",
