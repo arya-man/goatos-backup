@@ -807,9 +807,11 @@ unchanged by definition.
 **EXCLUDED — `func:AnimalProofWasRejected`** (weighing postgres adapter) — a
 boolean guard read asking whether a proof is already attached to an observation a
 verifier sent back, so re-recording an animal cannot reuse the very video that was
-rejected. It answers one write path's precondition and returns no rows, no totals,
-and nothing time-series; a refused capture writes nothing, so every leadership
-number is unchanged by definition. Leadership continues to see weighing progress
+rejected. It DOES read weighing_observations -- stating otherwise would hide a real query
+surface -- but only to answer one write path's precondition, returning a single
+boolean to the caller. It is excluded because nothing in the leadership surface
+reads it, not because it touches no data; if a leader ever needs rejected-proof
+counts, that is a NEW read to add here, not this one. Leadership continues to see weighing progress
 through `GET /weighing/campaigns`, `GET /app/weighing/leadership/sheds` and the
 Control Tower process-state summary.
 

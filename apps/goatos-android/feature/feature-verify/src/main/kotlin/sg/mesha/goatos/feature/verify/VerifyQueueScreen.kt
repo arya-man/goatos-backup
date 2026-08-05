@@ -573,10 +573,12 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMiss
                 stringResource(R.string.verify_module_vaccination)
             state.selectedModule == VerifyModuleTab.WEIGHING ->
                 stringResource(R.string.verify_module_weighing)
-            // BLANK, not "Video verification". Before the module resolves there is no honest
-            // title to show, and the generic one flashed for a few frames on every cold start
-            // then swapped to the real module name -- the same draw-a-wrong-answer-first defect
-            // as the shimmer.
+            // Blank only while the module is still resolving -- the generic title used to flash
+            // for a few frames on every cold start and then swap, which is the same
+            // draw-a-wrong-answer-first defect as the shimmer. Once a fetch has completed and the
+            // module STILL has no label (an unrecognised category from a newer backend), a blank
+            // app bar is worse than a generic one, so fall back rather than sit headerless.
+            state.hasLoadedOnce -> stringResource(R.string.verify_queue_title)
             else -> ""
         },
         below = {

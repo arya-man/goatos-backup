@@ -260,8 +260,10 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
-        analytics.track(AnalyticsEvents.VACCINATION_REFRESH_ATTEMPTED)
         try {
+            // INSIDE the try: a throw from analytics here would skip the finally that sets
+            // hasLoadedOnce, leaving the screen permanently blank with a frozen spinner.
+            analytics.track(AnalyticsEvents.VACCINATION_REFRESH_ATTEMPTED)
             val result = repo.refreshRows(
                 parkId = _selectedParkId.value,
                 asOf = workWindow.asOf,
