@@ -2484,6 +2484,16 @@ export type AdminWebApprovalItem = {
   status: AdminWebApprovalStatus;
   raised_by_user_id: string;
   raised_at: string;
+  // Backend-composed display copy (added 2026-08-05 with the mobile Approvals module). The queue
+  // now resolves the raiser and the shed ids to NAMES server-side, so both surfaces read one
+  // authored line instead of each composing its own from raw ids. Optional by contract: absent
+  // when nothing was resolvable, in which case a renderer drops the line rather than showing an id.
+  //
+  // This page does not render either field today — it deliberately omits the raiser and builds its
+  // own readable subject from resolved location names (see readableSubject). They are declared so
+  // the shape stays true to the contract and so this page can adopt the shared line later.
+  raised_by_name?: string;
+  summary_line?: string;
   shifting_event_id?: string;
   subject_goat_id?: string;
   summary: unknown;

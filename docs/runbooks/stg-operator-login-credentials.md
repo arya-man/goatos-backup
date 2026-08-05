@@ -47,21 +47,40 @@ Field roles and vaccination capacity:
 | Natheswar / Eshwar | `Natheswar@2026` | operator, CBE vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Chandrakant | `Chandrakant@2026` | `pc_director` | Preventive Care | Vaccination only | **no** |
 | Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
-| Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
-| Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing only | **no** |
+| Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing, Herd Operations (Counts) | **no** |
+| Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing, Herd Operations (Counts) | **no** |
 | Dinakar | `Dinakar@2026` | `growth_director`; business title Growth Director | Growth | Weighing only | **no** |
 
 - ONLY Amit + Darshan + Sagar + Natheswar count toward vaccination operator
   animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
-- Pramod and Kumar Sharath are weighing-only STG operator users.
+- Pramod and Kumar Sharath are CBE Weighing Operations operators. Since the
+  maintainer decision of 2026-08-05 they hold Herd Operations (Counts) **on top
+  of** Weighing — birth, death and shifting capture on the phone. Neither module
+  was removed, and neither user gains Vaccination or vaccination capacity.
+- **Chandrakant and Dinakar additionally hold `counts_approver`** (maintainer
+  decision 2026-08-05): approve/reject on the birth/death/shifting queue, on the
+  phone (Approvals module) and on admin-web `/approvals`. It is a PER-PERSON
+  authority granted by name alongside their job role — `pc_director` and
+  `growth_director` themselves carry no approval permission, so a future holder
+  of either job inherits none. The named list is `countsApproverEmails` in
+  `backend/cmd/seed-stg-login-grants/approvers.go`; adding an email there is the
+  act of granting the authority. Chandrakant's grant materializes ACTIVE at seed
+  (his Firebase UID is committed); Dinakar's is staged as a pending grant and
+  activates on his next sign-in, because his UID is not committed to this repo.
+  See `docs/runbooks/current-active-rbac-roles.md` -> "`counts_approver` is
+  granted by NAME".
 - Dinakar is a director user (`growth_director`), not an `operator` grant. He
   has both-park Growth visibility and can execute Weighing scan/submit/reopen
   flows because backend permissions expose `weighing_execute` in
   `/app/bootstrap`. He does **not** get Vaccination, does **not** add vaccination
   operator capacity, and does **not** get Counts.
-- Counts is temporarily inactive for operator module grants in STG.
+- Counts (Herd Operations) is active for the `weighing_ops` department only
+  (maintainer decision 2026-08-05). It remains `inactive` for the `health`
+  department; `preventive_care` already carried it before that decision. Do not
+  restate the retired blanket rule that Counts is inactive for all operator
+  module grants in STG.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
   context must pass — for the 4 field users AND the 5 leadership users (leadership

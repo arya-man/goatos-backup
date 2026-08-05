@@ -32,6 +32,30 @@ const (
 	// substrate a census sits on) and Responsibility 9 (death assessment). Recorded as a
 	// decision in AGENTS.md and docs/runbooks/current-active-rbac-roles.md.
 	RoleHealthDirector = "health_director"
+	// RoleCountsApprover is a PER-PERSON authority grant, not a job. It carries exactly the
+	// three Counts approval permissions and nothing else, so it can be handed to a NAMED
+	// individual without widening the job role that person also holds.
+	//
+	// Maintainer decision 2026-08-05: the birth/death/shifting approval queue returns to the
+	// phone (superseding the 2026-07-21 "approvals live on admin-web only" decision), and the
+	// approvers are the CEO/CXO cohort plus two specific directors -- explicitly "rbac per
+	// person, not per group".
+	//
+	// Why a narrow role rather than adding the permissions to pc_director/growth_director:
+	// permissions in this package resolve from a caller's ROLES, and a caller holds every role
+	// on their active user_scope_grants rows (see RolesAuthorize + httpmiddleware.routeRoles).
+	// So granting THIS role to two named people gives exactly those two people approval
+	// authority, while pc_director and growth_director keep their published definitions --
+	// "Preventive Care only" and "Weighing and ONLY Weighing". A future PC Director inherits
+	// no approval power by holding the job; someone must grant them this role by name. That
+	// keeps the one-module-one-director segregation intact (director_module_segregation_test.go)
+	// instead of quietly reversing it for everyone who ever holds those jobs.
+	//
+	// It grants no bootstrap, no read, and no write: a holder must already have AppBootstrap /
+	// AdminWebBootstrap from their real job role to have anywhere to render this. A grant of
+	// this role ALONE authorizes reaching the approvals routes and nothing else, which is the
+	// intended fail-closed shape.
+	RoleCountsApprover = "counts_approver"
 	RoleOperator       = "operator"
 	RoleCEOInternal    = "ceo_internal"
 
@@ -559,6 +583,25 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
+	},
+	// The whole role: three approval permissions, nothing else. See RoleCountsApprover's doc
+	// comment for why this exists as its own role rather than as additions to pc_director /
+	// growth_director.
+	//
+	// All three are present together deliberately. CountsApproveAccess is only the coarse route
+	// gate and is documented as never widening access on its own -- it is granted to exactly the
+	// roles holding at least one fine-grained approval permission, and the handler still applies
+	// DecidableApprovalRequestTypes per row. Lifecycle (birth/death) and Shifting are both here
+	// because the maintainer named these people as approvers of the queue, which is one queue
+	// carrying all three request types; splitting them would have shown an approver rows they
+	// could not decide.
+	//
+	// Nothing else belongs in this map. Every addition here silently widens what a per-person
+	// authority grant carries, on every person already holding it.
+	RoleCountsApprover: {
+		CountsApproveAccess:    {},
+		CountsApproveLifecycle: {},
+		CountsApproveShifting:  {},
 	},
 	RoleOperator: {
 		GoatRead: {}, AppBootstrap: {}, TaskRead: {}, TaskExecute: {}, CalendarRead: {}, ProcurementRead: {}, ProcurementWrite: {},

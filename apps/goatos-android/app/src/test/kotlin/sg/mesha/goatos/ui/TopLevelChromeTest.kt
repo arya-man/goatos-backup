@@ -421,10 +421,49 @@ class TopLevelChromeTest {
         val operatorRoots = rootsFor(operatorState, "counts", "/counts/birth")
         assertFalse(isTopLevelRoute(Routes.YOU, operatorRoots))
 
-        // Approvals were removed from mobile (maintainer decision 2026-07-21): no Counts bar — for
-        // any role — carries an approval route. The Counts L0 set is capture-only.
+        // Approvals came BACK to mobile as its own module (maintainer decision 2026-08-05,
+        // superseding the 2026-07-21 removal) -- and this assertion is unchanged by that, which is
+        // the point. No COUNTS bar, for any role, carries an approval route: the Counts L0 set
+        // stays capture-only, and approving lives in a separate module with separate authority.
+        // If someone ever "restores" approvals as a Counts tab, this goes red.
         val countsRoots = rootsFor(twoModules, "counts", "/counts/birth")
         assertFalse(isTopLevelRoute("/counts/approvals", countsRoots))
+    }
+
+    /**
+     * The Approvals module owns the approvals route, and owns ONLY that route.
+     *
+     * Two halves, both load-bearing (maintainer decision 2026-08-05):
+     *  - the queue IS reachable as an L0 root when the backend sends the module, so an approver
+     *    who holds counts.approve_access actually lands somewhere;
+     *  - its bar is exactly one tab, with no client-appended "You". Every holder of this module
+     *    also holds a job module, so they get the drawer -- and "You" belongs there once, not
+     *    repeated into every module's bar (docs/decisions/role-module-nav-composition.md).
+     */
+    @Test
+    fun `the approvals module owns the approvals route and nothing else`() {
+        val approvals = NavModule(
+            key = "approvals",
+            label = "Approvals",
+            href = "/counts/approvals",
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(
+                NavItem(key = "approvals", label = "Approval", href = "/counts/approvals"),
+            ),
+        )
+        val state = NavState(
+            chrome = NavChrome.EXPANDED,
+            items = approvals.navItems,
+            modules = listOf(vaccination, counts, approvals),
+        )
+
+        val approvalRoots = rootsFor(state, "approvals", "/counts/approvals")
+        assertEquals(listOf("/counts/approvals"), approvalRoots)
+        assertTrue(isTopLevelRoute("/counts/approvals", approvalRoots))
+        // No client-appended trailing tab, and no other module's landing route leaks in.
+        assertFalse(isTopLevelRoute(Routes.YOU, approvalRoots))
+        assertFalse(isTopLevelRoute("/counts/birth", approvalRoots))
+        assertFalse(isTopLevelRoute(Routes.VACCINATION, approvalRoots))
     }
 
     @Test

@@ -38,11 +38,16 @@ const (
 	appApprovalApproveCommand = "counts.app.approval_approve"
 	appApprovalRejectCommand  = "counts.app.approval_reject"
 
-	// The admin-web Approvals page is served by the SAME approval service and handler logic; only
-	// the route prefix and the caller's session differ (maintainer decision 2026-07-21, after
-	// approvals were removed from mobile). Authority is still enforced against the request's stored
-	// TYPE via permissions.DecidableApprovalRequestTypes, and the coarse route gate is still
-	// CountsApproveAccess -- now held by the four org tiers + admin + ceo_internal, not park_head.
+	// The admin-web Approvals page is served by the SAME approval service and handler logic as the
+	// phone; only the route prefix and the caller's session differ. Both surfaces are live: the
+	// mobile Approvals module returned on 2026-08-05, superseding the 2026-07-21 decision that had
+	// made admin-web the only approval surface. One permission, one service, two prefixes -- which
+	// is why granting the per-person counts_approver role lights up BOTH at once.
+	//
+	// Authority is still enforced against the request's stored TYPE via
+	// permissions.DecidableApprovalRequestTypes, and the coarse route gate is still
+	// CountsApproveAccess -- held by the four org tiers + admin + ceo_internal + counts_approver,
+	// not park_head.
 	adminWebApprovalsRoute       = "/admin-web/counts/approvals"
 	adminWebApprovalApproveRoute = "/admin-web/counts/approvals/{request_id}/approve"
 	adminWebApprovalRejectRoute  = "/admin-web/counts/approvals/{request_id}/reject"
@@ -101,17 +106,27 @@ type appApprovalListResponse struct {
 }
 
 type appApprovalListItem struct {
-	ApprovalRequestID string          `json:"approval_request_id"`
-	RequestType       string          `json:"request_type"`
-	Status            string          `json:"status"`
-	RaisedByUserID    string          `json:"raised_by_user_id"`
-	RaisedAt          time.Time       `json:"raised_at"`
-	ShiftingEventID   *string         `json:"shifting_event_id,omitempty"`
-	SubjectGoatID     *string         `json:"subject_goat_id,omitempty"`
-	Summary           json.RawMessage `json:"summary"`
-	DecidedByUserID   *string         `json:"decided_by_user_id,omitempty"`
-	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
-	DecisionReason    *string         `json:"decision_reason,omitempty"`
+	ApprovalRequestID string    `json:"approval_request_id"`
+	RequestType       string    `json:"request_type"`
+	Status            string    `json:"status"`
+	RaisedByUserID    string    `json:"raised_by_user_id"`
+	RaisedAt          time.Time `json:"raised_at"`
+	// RaisedByName and SummaryLine are BACKEND-OWNED DISPLAY COPY (golden frontend rule,
+	// AGENTS.md). Clients render them verbatim and must not compose their own line from the raw
+	// ids above -- that is exactly what the Android screen used to do, and with no name source on
+	// the phone it printed "Raised by 7f3a91c2-4d18-..." and "to shed 0b4e-...".
+	//
+	// Both are omitempty and both may legitimately be absent: a raiser with no roster row, or a
+	// payload with nothing nameable in it. A client MUST tolerate that by dropping the line, never
+	// by falling back to the id.
+	RaisedByName    *string         `json:"raised_by_name,omitempty"`
+	SummaryLine     *string         `json:"summary_line,omitempty"`
+	ShiftingEventID *string         `json:"shifting_event_id,omitempty"`
+	SubjectGoatID   *string         `json:"subject_goat_id,omitempty"`
+	Summary         json.RawMessage `json:"summary"`
+	DecidedByUserID *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt       *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason  *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -148,9 +163,15 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Names for the WHOLE page in one batched call per entity kind, before the render loop.
+	// Resolving inside the loop would be the banned N+1 fan-out: this page is capped at 20 rows,
+	// each naming a raiser and up to two sheds, so per-row lookups would turn one phone screen
+	// into dozens of serial reads (docs/decisions/scale-anti-patterns.md).
+	names := h.approvalNames(r.Context(), tenantID, page.Items)
+
 	items := make([]appApprovalListItem, 0, len(page.Items))
 	for _, item := range page.Items {
-		items = append(items, appApprovalListItem{
+		row := appApprovalListItem{
 			ApprovalRequestID: item.ApprovalRequestID,
 			RequestType:       item.RequestType,
 			Status:            item.Status,
@@ -162,9 +183,44 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 			DecidedByUserID:   item.DecidedByUserID,
 			DecidedAt:         item.DecidedAt,
 			DecisionReason:    item.DecisionReason,
-		})
+		}
+		if name := names.PersonName(item.RaisedByUserID); name != "" {
+			row.RaisedByName = &name
+		}
+		if line := domain.ApprovalSummaryLine(item.RequestType, item.Summary, names); line != "" {
+			row.SummaryLine = &line
+		}
+		items = append(items, row)
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, appApprovalListResponse{Items: items, NextCursor: page.NextCursor})
+}
+
+// approvalNames resolves every id one page of the queue needs, in a bounded number of batched
+// queries.
+//
+// Name enrichment is DECORATION, never a precondition: with no resolver wired, or on a lookup
+// error, this returns empty maps and the rows render without those clauses. An approver seeing a
+// slightly shorter line is a far better failure than a queue that will not load -- and it means
+// existing construction paths that never wire a resolver keep working unchanged.
+func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, rows []domain.ApprovalRequestSummary) domain.ApprovalNameLookup {
+	empty := domain.ApprovalNameLookup{Locations: map[string]string{}, People: map[string]string{}}
+	if h.approvalNameResolver == nil || len(rows) == 0 {
+		return empty
+	}
+	locationIDs := make([]string, 0, len(rows)*2)
+	userIDs := make([]string, 0, len(rows))
+	for _, row := range rows {
+		locationIDs = append(locationIDs, domain.ApprovalSummaryLocationIDs(row.RequestType, row.Summary)...)
+		userIDs = append(userIDs, row.RaisedByUserID)
+	}
+	resolved, err := h.approvalNameResolver.ResolveApprovalNames(ctx, tenantID, locationIDs, userIDs)
+	if err != nil {
+		// Logged, not returned: see the doc comment above on why this degrades instead of failing.
+		h.log.WarnContext(ctx, "approval name resolution failed; rendering rows without names",
+			"error", err, "tenant_id", tenantID, "rows", len(rows))
+		return empty
+	}
+	return domain.ApprovalNameLookup{Locations: resolved.Locations, People: resolved.People}
 }
 
 // ---------------------------------------------------------------------------

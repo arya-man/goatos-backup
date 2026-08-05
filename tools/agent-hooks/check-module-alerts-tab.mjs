@@ -71,6 +71,8 @@ const PENDING_ALERTS_FEED = {
     "Health shipped its execution screens in this change with no notification feed behind them: no /health/alerts route and no health alert producer exists on any branch. Giving the bar an Alerts tab now would route operators to an empty screen.",
   milk:
     "Milk shipped in this change with no notification feed of its own. Its alert-shaped items are the VERIFIER's milk_feeding queue, which belongs to the verification module, not to Milk's own bar. Same shape as counts above.",
+  approvals:
+    "Approvals returned to the phone (maintainer decision 2026-08-05) with no notification feed of its own: no /approvals/alerts route and no approval alert producer exists on any branch. The module IS the queue -- an approver opens it to see what is waiting on them, so an Alerts tab would duplicate the one screen the module has. Unblocked when a producer notifies an approver that a request was raised; at that point the queue and the alerts feed become genuinely different lists (everything pending vs what arrived since you last looked).",
 };
 
 // The verification module composes its bar per reviewed FEATURE at runtime

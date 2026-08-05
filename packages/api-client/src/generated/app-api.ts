@@ -7677,6 +7677,10 @@ export interface components {
             raised_by_user_id: string;
             /** Format: date-time */
             raised_at: string;
+            /** @description The raiser's name, for display. BACKEND-OWNED COPY: clients render this verbatim and must never compose their own label from raised_by_user_id. Absent when the raiser has no roster row; a client drops the line rather than falling back to the id. */
+            raised_by_name?: string;
+            /** @description A one-line, farm-readable description of what the request contains, composed by the backend from the payload with every id already resolved to a name (for example "12 animals - Gandhi 1 to Gandhi 2 - Routine"). BACKEND-OWNED COPY: clients render it verbatim. Absent when the payload holds nothing nameable; the row's request type still names the work. A fact whose name cannot be resolved is DROPPED from this line - it is never rendered as a raw id. */
+            summary_line?: string;
             /**
              * Format: uuid
              * @description Present only for a shifting request - the pending movement this authorizes.

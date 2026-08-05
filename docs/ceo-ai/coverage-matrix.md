@@ -34,7 +34,7 @@ APIs map to a tier; the rest are documented exclusions with a reason.
 | GET /herd-register/summary | api + Cube:active_animals | Primary census; aggregate-first |
 | GET /counts/breakdown | api + view:animal_current_scope | Grouped census drilldown |
 | GET /app/counts/shifting-events/pending-execution | api + view:counts_movement_daily | Raised/authorized/evidence-rework Actions; census moves only after Park Head approval + operator completion. High-priority feed requirement/fingerprint is operator execution detail, not a leadership KPI; leadership movement state remains covered at event/day grain. |
-| GET /app/counts/approvals | api + view:counts_movement_daily | Pending census approvals |
+| GET /app/counts/approvals | api + view:counts_movement_daily | Pending census approvals. The backend-owned display copy on each row (`raised_by_name`, `summary_line`) is composed by `WithApprovalNames` / `ResolveApprovalNames` / `PersonName` / `ApprovalSummaryLine` / `ApprovalSummaryLocationIDs`, which are EXCLUDED as leadership surfaces: they resolve ids to names for the approver's queue copy and derive no new fact. Every underlying fact they render — movement, park/shed, raiser, request type — is already covered at event/day grain by counts_movement_daily, so the assistant reads the fact, never the rendered sentence. |
 | GET /app/counts/shifting/destinations | EXCLUDED | Operator write-flow picker; not a leadership metric |
 | GET /goats/search | EXCLUDED | Record-level lookup; leadership stays aggregate |
 | GET /goats/{goat_id} | EXCLUDED | Single-animal detail |

@@ -575,15 +575,22 @@ Only these routes are current implemented product routes:
 /goats/{goat_id}
 /actions                    Actions — cross-module verification evidence (Admin / Data Ops)
 /verification               Compatibility redirect to /actions
-/approvals                  Approvals — birth/death/shifting decision queue (top-level; moved off
-                            mobile 2026-07-21; RBAC: director/head/manager/am + admin + ceo_internal)
+/approvals                  Approvals — birth/death/shifting decision queue (top-level; RBAC:
+                            director/head/manager/am + admin + ceo_internal + counts_approver)
 ```
 
-Scope note (maintainer decision 2026-07-21): `/approvals` is a NEW top-level decision surface. The
-birth/death/shifting approval queue was removed from the mobile app and now lives ONLY here, gated
-server-side by `counts.approve_access` (the four org tiers + admin + ceo_internal; park_head no
-longer holds it). It renders from local literal copy until a backend `approvals` page contract
-lands.
+Scope note: `/approvals` is a top-level decision surface, gated server-side by
+`counts.approve_access` (the four org tiers + admin + ceo_internal, plus the per-person
+`counts_approver` authority). It renders from local literal copy until a backend `approvals` page
+contract lands.
+
+It is NO LONGER the only approval surface. The mobile Approvals module returned on 2026-08-05,
+superseding the 2026-07-21 decision that had moved approvals to web only. Both surfaces are served
+by the same service, the same permission, and the same list/decide logic under different route
+prefixes — so a change to approval authority or to the queue's shape affects BOTH, and neither may
+grow its own private business truth. The queue response now carries backend-composed
+`raised_by_name` / `summary_line`; this page still builds its own readable subject from resolved
+location names, and may adopt the shared line later.
 
 `/actions` is the AUTHORITY act screen for the generic Verification vertical
 (`context/architecture/verification-module-design.md` + `verifier-app-and-flow.md`):

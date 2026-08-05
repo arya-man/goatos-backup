@@ -48,6 +48,8 @@ import sg.mesha.goatos.feature.counts.AddBirthEvent
 import sg.mesha.goatos.feature.counts.AddBirthScreen
 import sg.mesha.goatos.feature.counts.AddDeathEvent
 import sg.mesha.goatos.feature.counts.AddDeathScreen
+import sg.mesha.goatos.feature.counts.ApprovalEvent
+import sg.mesha.goatos.feature.counts.ApprovalScreen
 import sg.mesha.goatos.feature.counts.MilkPreparationScreen
 import sg.mesha.goatos.feature.counts.MilkPreparationListEvent
 import sg.mesha.goatos.feature.counts.MilkPreparationListScreen
@@ -131,6 +133,7 @@ import sg.mesha.goatos.viewmodel.AddDeathViewModel
 import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.AddHealthCaseViewModel
 import sg.mesha.goatos.viewmodel.AdultHealthViewModel
+import sg.mesha.goatos.viewmodel.ApprovalViewModel
 import sg.mesha.goatos.viewmodel.WeighingAlertsViewModel
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
@@ -425,11 +428,22 @@ object Routes {
     }
 
     /**
-     * The approver's pending-decision queue. Contributed by the counts module in the TRAILING
-     * bar slot that other modules give to [YOU], and gated on the approval permissions — so an
-     * operator never receives it and this route is simply not an L0 root for them. Hiding it is
-     * not the access control: `/app/counts/approvals` requires the same permission server-side.
+     * The approver's pending-decision queue, and the only destination of the APPROVALS module.
+     *
+     * Back on the phone as of the 2026-08-05 maintainer decision, which supersedes the 2026-07-21
+     * one that moved approvals to admin-web only. It returns as its OWN module rather than a tab
+     * inside Counts: approving is not capturing, and the two audiences barely overlap — an
+     * approver holds no CountsWrite, an operator holds no approval authority.
+     *
+     * The route keeps its original `/counts/approvals` path because the backing API is still
+     * `/app/counts/approvals`; only the module it hangs off changed.
+     *
+     * The backend gates the nav item on counts.approve_access, so a principal without that
+     * authority never receives the module and this is simply not an L0 root for them. Hiding it is
+     * NOT the access control: the same permission is required server-side, and the handler
+     * re-checks the decidable type per row.
      */
+    const val COUNTS_APPROVALS = "/counts/approvals"
 
     // Verifier evidence workspace. The backend composes five drawer modules; these are the
     // fixed client-hosted roots those modules may reference. Page tabs themselves come from
@@ -2393,10 +2407,38 @@ fun AppNavHost(
             }
         }
 
-        // Approvals were REMOVED from mobile (maintainer decision 2026-07-21): the birth/death/
-        // shifting approval queue and approve/reject actions now live only on the admin-web
-        // Approvals page, gated to the four org tiers + admin + ceo_internal. There is no mobile
-        // route, screen, or nav entry for approvals any more.
+        // The approver's queue -- the whole of the APPROVALS module (maintainer decision
+        // 2026-08-05, superseding the 2026-07-21 removal). The backend gates the module on
+        // counts.approve_access, so a principal without that authority never receives it and
+        // never reaches this route; `/app/counts/approvals` 403s them server-side regardless.
+        composable(Routes.COUNTS_APPROVALS) {
+            val vm: ApprovalViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            // Room-backed Paging window: one bounded page at a time, next page prefetched on
+            // scroll. No manual load-more, and no whole-backlog pull.
+            val rows = vm.rows.collectAsLazyPagingItems()
+            val refreshError = (rows.loadState.refresh as? LoadState.Error)?.error
+            val appendError = (rows.loadState.append as? LoadState.Error)?.error
+            LaunchedEffect(refreshError, appendError) {
+                (refreshError ?: appendError)?.let(vm::onRowsLoadFailed)
+            }
+            ApprovalScreen(
+                state = state,
+                rows = rows,
+                onEvent = { event ->
+                    when (event) {
+                        // Refresh re-runs the mediator against the backend; the VM only clears
+                        // its banner state. ApprovalScreen fires this on every resume
+                        // (RefreshOnResume), so returning to the tab always re-reads the queue.
+                        ApprovalEvent.Refresh -> {
+                            vm.onEvent(event)
+                            rows.refresh()
+                        }
+                        else -> vm.onEvent(event)
+                    }
+                },
+            )
+        }
 
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md): a
         // verifier's bootstrap nav contains ONLY VERIFY, so this is their entire app. A row

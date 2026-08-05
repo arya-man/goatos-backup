@@ -1128,14 +1128,15 @@ func (f *fakeRepo) DeregisterDevice(context.Context, ports.DeregisterDeviceComma
 }
 
 // TestCountsModuleRoleMatrix pins the maintainer-approved Counts access matrix
-// (2026-07-18; the mobile Approval tab was REMOVED 2026-07-21 — approvals moved to admin-web only;
+// (2026-07-18; the mobile Approval TAB was removed from Counts 2026-07-21 and has not returned —
+// approvals came back to the phone on 2026-08-05 as their OWN module, never as a Counts tab;
 // preventive-care leaders excluded from the Counts drawer 2026-07-24).
 // The Counts module exposes capture pages on the phone; who sees which is decided by permission
 // (counts.read / counts.write), never by a per-role nav template.
 //
 // The mobile Counts bar carries capture tabs only: EVERY role that holds the module gets the
 // same [birth, death, shifting, milk prep, milk feeding] bar. The census read page was removed
-// from mobile (maintainer decision 2026-07-30) and approvals live on admin-web. Permanent RFID
+// from mobile (maintainer decision 2026-07-30) and approvals ride their own module. Permanent RFID
 // assignment is the final action inside each kid's Birth workflow, not a separate Counts page.
 // Birth and Death were recombined into one work-list tab
 // (docs/decisions/birth-death-workflows.md).
@@ -1476,6 +1477,153 @@ func TestFeedNavGatesEqualTheirBackingRoutePermissions(t *testing.T) {
 		if len(matched.Permissions) != 1 || matched.Permissions[0] != item.requiredPermission {
 			t.Errorf("feed nav item %q gates on %q but its route %s %s requires %v",
 				item.key, item.requiredPermission, route.method, route.path, matched.Permissions)
+		}
+	}
+}
+
+// TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly pins the mobile Approvals module
+// (maintainer decision 2026-08-05, SUPERSEDING the 2026-07-21 "approvals live on admin-web only"
+// decision).
+//
+// The decision has two halves and this test exists because the SECOND half is the one a later
+// author will break by accident:
+//
+//  1. Approvals is back on the phone, as its OWN module.
+//  2. It is granted PER PERSON, via permissions.RoleCountsApprover held ALONGSIDE a job role --
+//     never by widening pc_director / growth_director themselves. The whole point is that a
+//     FUTURE PC Director inherits no approval authority by holding the job.
+//
+// So the assertions below are deliberately paired: the same job role must see the module WITH the
+// per-person grant and must NOT see it without one. A change that "simplifies" this by moving
+// counts.approve_* onto pc_director/growth_director passes half of this test and fails the other
+// half, which is exactly the signal wanted.
+func TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly(t *testing.T) {
+	moduleKeys := func(grants []domain.GrantSummary) []string {
+		modules := modulesFor(grants, []string{"vaccination", "counts", "weighing"}, "")
+		out := make([]string, 0, len(modules))
+		for _, m := range modules {
+			out = append(out, m.Key)
+		}
+		return out
+	}
+	has := func(keys []string, want string) bool {
+		for _, k := range keys {
+			if k == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// The job role ALONE never carries approvals. This is the half that keeps the
+	// one-module-one-director segregation lock intact for every future holder of these jobs.
+	for _, role := range []string{permissions.RolePCDirector, permissions.RoleGrowthDirector} {
+		grants := []domain.GrantSummary{grantWithRole(role)}
+		if keys := moduleKeys(grants); has(keys, "approvals") {
+			t.Fatalf("%s alone must NOT see the approvals module (per-person grant required); got %v", role, keys)
+		}
+	}
+
+	// The SAME job role plus the per-person authority grant does carry it. Two grant rows on one
+	// principal is the real shape: permissions OR across every role the caller holds.
+	for _, role := range []string{permissions.RolePCDirector, permissions.RoleGrowthDirector} {
+		grants := []domain.GrantSummary{
+			grantWithRole(role),
+			grantWithRole(permissions.RoleCountsApprover),
+		}
+		keys := moduleKeys(grants)
+		if !has(keys, "approvals") {
+			t.Fatalf("%s + counts_approver must see the approvals module; got %v", role, keys)
+		}
+		// The module must land on a page this principal can actually open, and carry exactly the
+		// one queue tab -- no "you", which belongs in the drawer for a 2+-module principal.
+		var approvals *domain.BootstrapModule
+		modules := modulesFor(grants, []string{"vaccination", "counts", "weighing"}, "")
+		for i := range modules {
+			if modules[i].Key == "approvals" {
+				approvals = &modules[i]
+			}
+		}
+		if approvals == nil {
+			t.Fatalf("%s + counts_approver: approvals module missing from %v", role, keys)
+		}
+		if len(approvals.NavItems) != 1 || approvals.NavItems[0].Key != "approvals" {
+			t.Fatalf("%s + counts_approver approvals bar=%#v want exactly one 'approvals' item", role, approvals.NavItems)
+		}
+		if !navItemsContainHref(approvals.NavItems, approvals.Href) {
+			t.Fatalf("%s + counts_approver approvals landing href=%q is not among its items", role, approvals.Href)
+		}
+	}
+
+	// The CEO tier reaches approvals through ceo_internal's own counts.approve_access, with no
+	// extra grant. This is the case the permission-keyed offer exists to cover: leadershipModuleKeys
+	// used to return early for ceo_internal, which would have hidden the module from the one
+	// principal who most obviously owns it.
+	ceo := []domain.GrantSummary{grantWithRole(permissions.RoleCEOInternal)}
+	if keys := moduleKeys(ceo); !has(keys, "approvals") {
+		t.Fatalf("ceo_internal must see the approvals module without a per-person grant; got %v", keys)
+	}
+
+	// Half 2 of the decision: Counts does NOT regain an approval tab. Approving is not capturing.
+	// An approver holding no CountsWrite gets the queue and no capture tabs; the operator keeps
+	// capture tabs and no queue.
+	countsBar := func(grants []domain.GrantSummary) []string {
+		items := composeNavigationFromModules([]string{"counts"}, grants, "")
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			out = append(out, item.Key)
+		}
+		return out
+	}
+	approverOnly := []domain.GrantSummary{
+		grantWithRole(permissions.RolePCDirector),
+		grantWithRole(permissions.RoleCountsApprover),
+	}
+	for _, key := range countsBar(approverOnly) {
+		if key == "approval" || key == "approvals" {
+			t.Fatalf("counts bar regained an approval tab (%q); approvals is its own module", key)
+		}
+	}
+	if got := countsBar([]domain.GrantSummary{grantWithRole(permissions.RoleOperator)}); len(got) != 3 {
+		t.Fatalf("operator counts bar=%v want the 3 capture tabs, unchanged by the approvals module", got)
+	}
+}
+
+// TestCountsApproverRoleCarriesOnlyApprovalAuthority pins that the per-person role is exactly three
+// permissions and confers no way in on its own.
+//
+// The role is handed to named individuals, so every permission added to it silently widens what
+// that hand-off carries for everyone already holding it. In particular it must NOT carry
+// AppBootstrap/AdminWebBootstrap: a grant of this role alone has to be inert, so the authority can
+// only ever ride on a principal who already has a job and a way to log in.
+func TestCountsApproverRoleCarriesOnlyApprovalAuthority(t *testing.T) {
+	want := []string{
+		permissions.CountsApproveAccess,
+		permissions.CountsApproveLifecycle,
+		permissions.CountsApproveShifting,
+	}
+	for _, p := range want {
+		if !permissions.RoleHasPermission(permissions.RoleCountsApprover, p) {
+			t.Errorf("counts_approver must hold %q", p)
+		}
+	}
+	for _, p := range []string{
+		permissions.AppBootstrap, permissions.AdminWebBootstrap,
+		permissions.CountsRead, permissions.CountsWrite,
+		permissions.GoatRead, permissions.TaskRead, permissions.CalendarRead,
+		permissions.VerificationReview, permissions.VerificationAct,
+	} {
+		if permissions.RoleHasPermission(permissions.RoleCountsApprover, p) {
+			t.Errorf("counts_approver must NOT hold %q -- it is an authority grant, not a job", p)
+		}
+	}
+
+	// And the job roles it rides on stay clean, which is the invariant the whole design rests on.
+	for _, role := range []string{permissions.RolePCDirector, permissions.RoleGrowthDirector} {
+		for _, p := range want {
+			if permissions.RoleHasPermission(role, p) {
+				t.Errorf("%s must NOT hold %q; approvals are granted per person via counts_approver", role, p)
+			}
 		}
 	}
 }

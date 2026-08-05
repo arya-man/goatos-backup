@@ -144,7 +144,11 @@ type AppWriteHandler struct {
 	// execution owns what happens AFTER a shifting is authorized: complete, cancel, and the
 	// operator's pending-execution queue. See shifting_execution_handler.go.
 	execution ShiftingExecutionWorkflow
-	log       *slog.Logger
+	// approvalNameResolver turns the ids on an approval row into names for display. OPTIONAL by
+	// design: nil means rows render without the name clauses rather than failing, so a
+	// construction path that does not wire it (tests, a DB-less assembly) still serves the queue.
+	approvalNameResolver ports.ApprovalNameResolver
+	log                  *slog.Logger
 }
 
 func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWriteHandler {
@@ -161,6 +165,13 @@ func NewAppWriteHandler(shifting ShiftingEventRecorder, log *slog.Logger) *AppWr
 func (h *AppWriteHandler) WithApprovalWorkflow(approvals ApprovalWorkflow, validator GoatLifecycleValidator) *AppWriteHandler {
 	h.approvals = approvals
 	h.validator = validator
+	return h
+}
+
+// WithApprovalNames supplies the id -> name lookup the approvals queue renders with. Without it the
+// queue still serves; it just omits the raiser name and the shed names from each row's copy.
+func (h *AppWriteHandler) WithApprovalNames(resolver ports.ApprovalNameResolver) *AppWriteHandler {
+	h.approvalNameResolver = resolver
 	return h
 }
 
