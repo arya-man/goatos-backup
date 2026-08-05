@@ -39,7 +39,15 @@ the database can contain correct canonical rows while the live pages are not
 demonstrably usable.
 
 HRMS is part of the same setup, not a later cosmetic step. Vaccination work is
-routed by shed manager and backup ownership; without the roster, attendance/
+routed by shed manager and backup ownership. The roster must also yield at least
+one manager-tier seat that is NOT an operator or a backup -- `seed-position-duties`
+derives the `pc.vaccination` `manage` duty only from `preventive_care_manager`,
+`park_head` and `shed_manager`, deliberately leaving `vaccination_operator_*`
+(a drive operator whose HR title reads manager is still executing) and
+`backup_manager` (a backup covers the absent manager's tasks, not their authority)
+on `execute`. A source that seeds only operators produces no `manage` holder, and
+`seed-closeout.sh` then fails the whole stack because the reminder ladder would
+queue to nobody. Without the roster, attendance/
 leave windows, timetable-backed positions, strict shed-manager mapping, and
 position duties, the system cannot know who owns a drive, who covers leave, or
 whether a shed is executable.

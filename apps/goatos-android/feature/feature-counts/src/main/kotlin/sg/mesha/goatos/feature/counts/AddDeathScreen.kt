@@ -19,8 +19,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.operationalLocationLabel
 
 /**
@@ -103,7 +103,7 @@ fun AddDeathScreen(
                         onClick = { onEvent(AddDeathEvent.LookupAnimals) },
                     )
                     state.animalLookupMessage?.let { message ->
-                        Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                        Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                     }
                 }
             }
@@ -138,13 +138,13 @@ fun AddDeathScreen(
                     Text(
                         text = stringResource(R.string.counts_death_guardrail_note),
                         color = MeshaColors.Faint,
-                        fontSize = 11.sp,
+                        style = MeshaType.caption,
                     )
                 }
             }
             state.validationMessage?.let { message ->
                 item(key = "validation") {
-                    Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                    Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                 }
             }
             item(key = "submit") {
@@ -168,7 +168,7 @@ fun AddDeathScreen(
                 Text(
                     text = stringResource(R.string.counts_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.caption,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -183,8 +183,10 @@ private fun AddDeathTargetCard(animal: ShiftingAnimalUi) {
         Text(
             text = animal.displayId.ifBlank { animal.tag },
             color = MeshaColors.Ink,
-            fontSize = 20.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.W800,
+            // screenTitle is the design-system entry for this heading. The literal it replaces was
+            // 20.sp/W800, which existed in no scale entry; screenTitle (22.sp/W700) is the nearest
+            // semantic match for the animal identifier that heads this card.
+            style = MeshaType.screenTitle,
         )
         if (animal.tag.isNotBlank()) {
             ReadOnlyFact(label = stringResource(R.string.counts_field_tag1), value = animal.tag)
