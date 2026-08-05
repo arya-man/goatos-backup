@@ -32,8 +32,8 @@ const feedGrainNormSQL = `lower(regexp_replace(btrim(COALESCE(%s, '')), '\s+', '
 
 // feedPartitionKeyExpr normalizes a partition label to a comparison key. It mirrors the Go
 // platform/oploc.NormalizePartition exactly:
-// regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
-// NULL, '', and 'whole' all collapse to 'whole' because all three mean "not partitioned".
+// regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', ”)
+// NULL, ”, and 'whole' all collapse to 'whole' because all three mean "not partitioned".
 const feedPartitionKeyExpr = `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')`
 
 // scale-guard:ignore: 5k-50k-envelope — canonical indexed read per

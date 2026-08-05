@@ -62,7 +62,7 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 // Castro 2 has no single source partition, so the partition comes back nil rather than naming one
 // of them and mislabelling the rest -- the per-animal "from" still survives on each animal's
 // location history. Comparison goes through oploc.SamePartition so 'Part 3' and '3' are one
-// partition, and a non-partitioned shed (NULL/''/'whole') yields nil, never the 'whole' sentinel.
+// partition, and a non-partitioned shed (NULL/”/'whole') yields nil, never the 'whole' sentinel.
 func (s *Service) DeriveShiftingSource(
 	ctx context.Context,
 	tenantID string,

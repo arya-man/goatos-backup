@@ -2886,7 +2886,22 @@ SELECT 'shed',
               THEN ' - ' || sp.partition_label
               ELSE ' ' || sp.partition_label END,
        0,
-       COALESCE(shed.parent_location_id::text, '')
+       -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands
+       -- under a different park key than its own shed's occupied partitions and the option
+       -- disappears when that park is selected. Those branches read the DENORMALIZED goats.park_id,
+       -- so prefer the same value (any goat in this shed carries it) and fall back to the
+       -- locations parentage only when the shed holds no animals at all -- the one case where no
+       -- goats row exists to read.
+       COALESCE(
+         (SELECT g3.park_id::text
+            FROM goats g3
+           WHERE g3.tenant_id = sp.tenant_id
+             AND g3.shed_id = sp.shed_id
+             AND g3.merged_into_goat_id IS NULL
+           LIMIT 1),
+         shed.parent_location_id::text,
+         ''
+       )
 FROM shed_partitions sp
 JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
 WHERE sp.tenant_id = $1::uuid

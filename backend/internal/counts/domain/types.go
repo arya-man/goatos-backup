@@ -43,28 +43,28 @@ type BaseCountAnchor struct {
 
 // ShiftingEvent is the append-only movement header used by count projections.
 type ShiftingEvent struct {
-	TenantID                string
-	LogicalShiftingEventKey string
-	Priority                string
-	Category                string
-	SourceParkID                *string
-	SourceShedID                *string
-	SourcePartitionLabel        *string
-	DestinationParkID           string
-	DestinationShedID           string
-	DestinationPartitionLabel   *string
-	ManagementStageMode         string
-	TargetManagementStage       string
-	RaisedAt                time.Time
-	EffectiveAt             time.Time
-	AuthorizedAt            *time.Time
-	AuthorizedBy            *string
-	AuthorizationState      string
-	VerificationState       string
-	EventStatus             string
-	SourceSystem            string
-	SourceRef               string
-	ProofRef                *string
+	TenantID                  string
+	LogicalShiftingEventKey   string
+	Priority                  string
+	Category                  string
+	SourceParkID              *string
+	SourceShedID              *string
+	SourcePartitionLabel      *string
+	DestinationParkID         string
+	DestinationShedID         string
+	DestinationPartitionLabel *string
+	ManagementStageMode       string
+	TargetManagementStage     string
+	RaisedAt                  time.Time
+	EffectiveAt               time.Time
+	AuthorizedAt              *time.Time
+	AuthorizedBy              *string
+	AuthorizationState        string
+	VerificationState         string
+	EventStatus               string
+	SourceSystem              string
+	SourceRef                 string
+	ProofRef                  *string
 	// RaiseComment is the raiser's optional free-text note on WHY the animals are moving. It is
 	// operator intent, never a business rule: nothing downstream branches on it. It is carried to
 	// the park head deciding the approval and to the verifier reviewing the evidence, so both read
