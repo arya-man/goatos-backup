@@ -158,6 +158,18 @@ drawer, modal, table, form, and navigation surface:
   baseline for route-driven overlay open/close controls across the whole feature
   tree and requires its adversarial self-test. Never add a legacy allowance;
 
+- an overlay whose open state lives in the URL re-renders the page on every step,
+  so a page-level entry animation replays underneath it and the overlay reads as
+  janky rather than smooth. This bit the verifier review modal on 2026-08-06 —
+  `.screen { animation: fade .25s ease }` replayed on every `vi_row` change, so
+  opening the modal and each Prev/Next flashed the whole page. Suppress the page
+  animation while an overlay is open, e.g.
+  `.screen:has(.vr-modal-scrim.on) { animation: none; }`.
+  `make overlay-motion-guard` enforces this and ships the regression itself as a
+  self-test fixture. No unit test can see this class of bug: nothing throws, and
+  the defect is the interaction between an entry animation and URL-held overlay
+  state;
+
 - compare rendered desktop and narrow screenshots to
   `mock/goatos-dashboard-mock.html`; verify alignment, spacing, card/table
   anatomy, wrapping, overflow, focus, hover, active, empty, loading, and error
