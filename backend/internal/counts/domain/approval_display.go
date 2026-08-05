@@ -31,6 +31,17 @@ type ApprovalNameLookup struct {
 	// Resolved at READ time from the animal's live goats/goat_shed_partitions row: a death is
 	// terminal and ExitGoat never touches goats.shed_id, so the animal keeps the shed/partition it
 	// died in and no location needs to be snapshotted onto the death payload at raise time.
+	//
+	// That is a VERIFIED claim, not an assumption -- if a dead animal could be moved, this line
+	// would name a place it was never in. Exactly two paths write goats.shed_id:
+	//   1. identity/adapters/postgres/goat_relocate.go -- the shifting relocate. Its callers run
+	//      counts/app.validateShiftableGoatFacts, which REJECTS any goat with exited_at set or
+	//      lifecycle_status != 'alive', so a dead animal cannot be relocated.
+	//   2. procurement/adapters/postgres/repository.go -- sets lifecycle_status='alive' in the same
+	//      statement, i.e. intake, never a post-mortem move.
+	// The guarantee is enforced in the application layer, not by a database constraint, so a raw
+	// SQL backfill could still violate it. If a third writer of goats.shed_id ever appears, it must
+	// either exclude dead animals or this resolution must move to a raise-time snapshot.
 	AnimalLocations map[string]string
 }
 

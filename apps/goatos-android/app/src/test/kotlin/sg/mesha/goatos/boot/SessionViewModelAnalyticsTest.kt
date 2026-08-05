@@ -37,13 +37,10 @@ import sg.mesha.goatos.core.network.FakeAppApi
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionViewModelAnalyticsTest {
 
-    private var dispatcher: StandardTestDispatcher? = null
+    private val dispatcher by lazy { StandardTestDispatcher() }
 
     @Before
-    fun setUp() {
-        dispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(dispatcher!!)
-    }
+    fun setUp() = Dispatchers.setMain(dispatcher)
 
     @After
     fun tearDown() = Dispatchers.resetMain()
