@@ -733,7 +733,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// The verifier-only admin-web workspace composes its sidebar from the registry above, so this
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.
-	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService))
+	adminUIService.WithVerificationModules(verificationadminuibridge.New(verificationService)).
+		WithModuleDutyReader(workforceRepo)
 
 	// Leadership read-only assistant (CEO AI). Wired end-to-end: the Vertex
 	// Gemini planner (when MESHA_AI_PROVIDER=vertex + ADC available; else the

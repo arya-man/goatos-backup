@@ -6,6 +6,26 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  "verification-review": {
+    // Accessible label for the video player's full-screen toggle, ported from the verifier mock
+    // (mock/verifier-web-mock.html .fsbtn). Purely a viewer-control affordance, not backend business
+    // copy, so it stays a local fallback until/unless the backend contract wants to own it.
+    "drawer.media.fullscreen_label": "Full screen",
+    // Blocked-accept reason when proof media does not resolve (evidence_available=false /
+    // empty media). Safety copy, not business vocabulary; local fallback until the
+    // verification-review page contract declares it. Suggested key: verdict.disabled_no_evidence.
+    "verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
+    // Mock (mock/verifier-web-mock.html) board title/shed-filter copy. The `verification-review`
+    // page contract does not yet declare these — see the frontend report's backend-contract TODO
+    // list for the suggested keys (board.title, filter.shed, filter.all_sheds).
+    "board.title": "Verification Board",
+    "filter.shed": "Shed (optional)",
+    "filter.all_sheds": "All sheds",
+    // Right-aligned section hint (mock .secthd .hint). Generic across status tabs; a status-specific
+    // variant ("Oldest first…" vs "Most recent decision first…", per the mock) is a candidate for the
+    // backend contract TODO list once this page contract owns it.
+    "table.hint": "Open a row to review the evidence and record a verdict.",
+  },
   "action-center": {
     "label.drive_over_cap_required": "capacity shortfall",
     "label.drive_medical_defer": "medical defer",

@@ -187,6 +187,18 @@ func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams
 	// projection-review: producer grain is verification_items(item_id); the consumer matches that
 	// same item_id grain. Operator/verifier LATERAL, shed, and park label joins are each
 	// 0..1, so no joined side multiplies a queue row. This query computes no numerator/denominator.
+
+	// For multi-category queries (verifier lens "All evidence" across authorized categories),
+	// use Categories slice instead of single Category. Single Category takes precedence for
+	// backward compatibility; Categories is only used when Category is empty and Categories is non-empty.
+	// Always use an array type so the SQL predicate is consistent.
+	var categoryFilterList []string
+	if params.Category != "" {
+		categoryFilterList = []string{params.Category}
+	} else if len(params.Categories) > 0 {
+		categoryFilterList = params.Categories
+	}
+
 	rows, err := r.pool.Query(ctx, `
 SELECT `+itemColumnsWithLabels+`
 FROM verification_items vi
@@ -218,7 +230,7 @@ LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id
 LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id = park_loc.location_id
 WHERE vi.tenant_id = $1::uuid
   AND ($2 = '' OR vi.status = $2)
-  AND ($3 = '' OR vi.category = $3)
+  AND ($3 = '' OR vi.category = ANY(string_to_array($3, ',')))
   AND ($4 = '' OR vi.vertical = $4)
   AND ($5 = '' OR vi.module = $5)
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
@@ -254,7 +266,7 @@ WHERE vi.tenant_id = $1::uuid
   )
 ORDER BY vi.captured_at ASC, vi.item_id ASC
 LIMIT $11`,
-		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
+		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
 		params.ParkID, params.ShedID,
@@ -280,6 +292,18 @@ func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.Li
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	options := domain.QueueFilterOptions{}
+
+	// For multi-category queries (verifier lens "All evidence" across authorized categories),
+	// use Categories slice instead of single Category. Single Category takes precedence for
+	// backward compatibility; Categories is only used when Category is empty and Categories is non-empty.
+	// Always use an array type so the SQL predicate is consistent.
+	var categoryFilterList []string
+	if params.Category != "" {
+		categoryFilterList = []string{params.Category}
+	} else if len(params.Categories) > 0 {
+		categoryFilterList = params.Categories
+	}
+
 	parkRows, err := r.pool.Query(ctx, `
 SELECT vi.park_id::text, COALESCE(park_loc.name, vi.park_id::text) AS label
 FROM verification_items vi
@@ -287,7 +311,7 @@ LEFT JOIN locations park_loc ON vi.tenant_id = park_loc.tenant_id AND vi.park_id
 WHERE vi.tenant_id = $1::uuid
   AND vi.park_id IS NOT NULL
   AND ($2 = '' OR vi.status = $2)
-  AND ($3 = '' OR vi.category = $3)
+  AND ($3 = '' OR vi.category = ANY(string_to_array($3, ',')))
   AND ($4 = '' OR vi.vertical = $4)
   AND ($5 = '' OR vi.module = $5)
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
@@ -297,7 +321,7 @@ WHERE vi.tenant_id = $1::uuid
   AND ($11::timestamptz IS NULL OR vi.captured_at < $11::timestamptz)
 GROUP BY vi.park_id, park_loc.name
 ORDER BY label, vi.park_id::text`,
-		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
+		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
 	)
@@ -315,6 +339,7 @@ ORDER BY label, vi.park_id::text`,
 	if err := parkRows.Err(); err != nil {
 		return options, err
 	}
+
 	shedRows, err := r.pool.Query(ctx, `
 SELECT vi.shed_id::text, COALESCE(shed_loc.name, vi.shed_id::text) AS label
 FROM verification_items vi
@@ -322,7 +347,7 @@ LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id
 WHERE vi.tenant_id = $1::uuid
   AND vi.shed_id IS NOT NULL
   AND ($2 = '' OR vi.status = $2)
-  AND ($3 = '' OR vi.category = $3)
+  AND ($3 = '' OR vi.category = ANY(string_to_array($3, ',')))
   AND ($4 = '' OR vi.vertical = $4)
   AND ($5 = '' OR vi.module = $5)
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
@@ -333,7 +358,7 @@ WHERE vi.tenant_id = $1::uuid
   AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
 GROUP BY vi.shed_id, shed_loc.name
 ORDER BY label, vi.shed_id::text`,
-		params.TenantID, params.Status, params.Category, params.Vertical, params.Module,
+		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
 	)
@@ -351,6 +376,64 @@ ORDER BY label, vi.shed_id::text`,
 	if err := shedRows.Err(); err != nil {
 		return options, err
 	}
+	// Whole-filter status-count aggregate (domain.QueueStatusCounts) for the mock's dot-legend
+	// pills — the SAME scope as the paginated queue read (tenant + category/vertical/module + park
+	// + shed + business date) but with NO status predicate and NO cursor/limit, grouped by status
+	// in the database. This is deliberately a separate query from ListQueue's page read: the page
+	// is keyset-limited, this aggregate never is. Uses verification_items_queue_idx
+	// (tenant_id, status, category, captured_at, item_id) to seek per status.
+	//
+	// projection-review: membership=verification_items rows with status IN (pending, approved,
+	// rejected), unique key (tenant_id, item_id) — one row per verification item, so COUNT(*) is
+	// exact; group_key=status; join_cardinality=no join (single table, so no fan-out is possible —
+	// this is the "join_cardinality=n/a" case); pagination=none — this is the whole-filter
+	// aggregate, computed with no LIMIT/OFFSET/cursor, never derived from ListQueue's keyset page;
+	// scope=tenant_id + category + vertical + module + park_id + shed_id + captured_at window,
+	// identical predicates to ListQueue's own page read (minus the status predicate, since this
+	// query needs all three buckets at once). Disjointness: pending/approved/rejected are mutually
+	// exclusive values of the single `status` column on verification_items (CHECK-constrained,
+	// see domain.QueueStatusCounts doc comment), so a row lands in exactly one bucket and the three
+	// counts partition — never overlap — the in-scope backlog.
+	countRows, err := r.pool.Query(ctx, `
+SELECT vi.status, COUNT(*)::int AS n
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid
+  AND vi.status IN ('pending', 'approved', 'rejected')
+  AND ($2 = '' OR vi.category = ANY(string_to_array($2, ',')))
+  AND ($3 = '' OR vi.vertical = $3)
+  AND ($4 = '' OR vi.module = $4)
+  AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
+  AND ($7 = '' OR vi.park_id = $7::uuid)
+  AND ($8 = '' OR vi.shed_id = $8::uuid)
+  AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
+  AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
+GROUP BY vi.status`,
+		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
+		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID,
+		params.CapturedFrom, params.CapturedBefore,
+	)
+	if err != nil {
+		return options, err
+	}
+	defer countRows.Close()
+	for countRows.Next() {
+		var status string
+		var n int
+		if err := countRows.Scan(&status, &n); err != nil {
+			return options, err
+		}
+		switch status {
+		case domain.StatusPending:
+			options.Counts.Pending = n
+		case domain.StatusApproved:
+			options.Counts.Approved = n
+		case domain.StatusRejected:
+			options.Counts.Rejected = n
+		}
+	}
+	if err := countRows.Err(); err != nil {
+		return options, err
+	}
 	if params.MissedBefore != nil {
 		err = r.pool.QueryRow(ctx, `
 SELECT EXISTS (
@@ -358,7 +441,7 @@ SELECT EXISTS (
   FROM verification_items vi
   WHERE vi.tenant_id = $1::uuid
     AND vi.status = 'pending'
-    AND ($2 = '' OR vi.category = $2)
+    AND ($2 = '' OR $2 IS NULL OR vi.category = ANY(string_to_array($2, ',')))
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
@@ -366,7 +449,8 @@ SELECT EXISTS (
     AND ($8 = '' OR vi.shed_id = $8::uuid)
     AND vi.captured_at < $9::timestamptz
   LIMIT 1
-)`, params.TenantID, params.Category, params.Vertical, params.Module,
+)`,
+			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 			params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID, params.MissedBefore,
 		).Scan(&options.HasMissed)
 		if err != nil {

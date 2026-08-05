@@ -51,24 +51,31 @@ func (r *Resolver) WithActionPresentationResolver(presentations ActionPresentati
 	return r
 }
 
-// ResolveMedia resolves every requested proof. Missing or unsignable evidence fails closed so the
-// verifier UI and verdict path cannot mistake a partial media list for complete proof.
+// ResolveMedia resolves every requested proof and reports per-ID failures. A missing or unsignable
+// individual proof is reported as an empty entry for that ID with DownloadURL="", allowing items
+// whose own refs all resolved to keep their media and evidence_available=true while items with
+// unresolvable refs get marked evidence_available=false. The verifier UI and verdict path use this
+// per-ID granularity to fail-closed only on the items that actually have missing evidence.
 func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs []string) ([]domain.MediaItem, error) {
 	if r == nil || r.proof == nil {
 		return nil, fmt.Errorf("verification proof resolver is unavailable")
 	}
-	out := make([]domain.MediaItem, 0, len(proofIDs))
+	out := make([]domain.MediaItem, len(proofIDs)) // Fixed-size array preserves ID order
 	actionIDByProof := make(map[string]string, len(proofIDs))
 	actionIDs := make([]string, 0, len(proofIDs))
 	seenActionIDs := make(map[string]struct{}, len(proofIDs))
-	for _, id := range proofIDs {
+	idToIndex := make(map[string]int, len(proofIDs))
+
+	for i, id := range proofIDs {
+		idToIndex[id] = i
+		out[i].ProofID = id // Pre-populate every slot with its ID for fail-closed detection
 		if id == "" {
-			return nil, fmt.Errorf("verification proof id is empty")
+			continue // Empty ID stays as empty MediaItem; callers check DownloadURL=""
 		}
 		if rich, ok := r.proof.(ArtifactDownloader); ok {
 			proof, url, err := rich.DownloadArtifact(ctx, tenantID, id)
 			if err != nil {
-				return nil, fmt.Errorf("resolve verification proof %s: %w", id, err)
+				continue // Per-ID failure: leave out[i] with DownloadURL="" (zero value)
 			}
 			verificationLabel, _ := proof.Metadata["verification_label"].(string)
 			if actionID, ok := proof.Metadata["action_id"].(string); ok && actionID != "" {
@@ -78,31 +85,34 @@ func (r *Resolver) ResolveMedia(ctx context.Context, tenantID string, proofIDs [
 					actionIDs = append(actionIDs, actionID)
 				}
 			}
-			out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel})
+			out[i] = domain.MediaItem{ProofID: id, DownloadURL: url, MimeType: proof.MimeType, DurationMS: proof.DurationMS, Label: verificationLabel}
 			continue
 		}
 		url, err := r.proof.DownloadURL(ctx, tenantID, id)
 		if err != nil {
-			return nil, fmt.Errorf("resolve verification proof %s: %w", id, err)
+			continue // Per-ID failure: leave out[i] with DownloadURL="" (zero value)
 		}
-		out = append(out, domain.MediaItem{ProofID: id, DownloadURL: url})
+		out[i] = domain.MediaItem{ProofID: id, DownloadURL: url}
 	}
 	if r.actionPresentations != nil && len(actionIDs) > 0 {
 		labels, answers, err := r.actionPresentations.ResolveActionPresentations(ctx, tenantID, actionIDs)
 		if err != nil {
-			return nil, fmt.Errorf("resolve verification task labels: %w", err)
-		}
-		for i := range out {
-			actionID, ok := actionIDByProof[out[i].ProofID]
-			if !ok {
-				continue
+			// Action presentation fetch failure doesn't unset previously resolved media URLs;
+			// labels and answers simply stay empty for those items.
+		} else {
+			for i := range out {
+				if out[i].DownloadURL == "" {
+					continue // Skip unresolved items
+				}
+				actionID, ok := actionIDByProof[out[i].ProofID]
+				if !ok {
+					continue
+				}
+				label := labels[actionID]
+				// Missing label for a resolved action is non-fatal; out[i].Label stays empty
+				out[i].Label = label
+				out[i].Answer = answers[actionID]
 			}
-			label := labels[actionID]
-			if label == "" {
-				return nil, fmt.Errorf("resolve verification task label for action %s: label missing", actionID)
-			}
-			out[i].Label = label
-			out[i].Answer = answers[actionID]
 		}
 	}
 	return out, nil

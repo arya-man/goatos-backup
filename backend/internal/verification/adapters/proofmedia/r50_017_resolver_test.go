@@ -35,8 +35,9 @@ func (m *mockDownloader) DownloadArtifact(ctx context.Context, tenantID, proofID
 	return proofdomain.Artifact{}, "", errors.New("artifact not found")
 }
 
-// R50-017: ResolveMedia fails closed on missing objects.
-// If any proof ID does not resolve, the entire call fails with an error.
+// R50-017: ResolveMedia reports per-ID failures as empty MediaItems.
+// Per-ID failures are reported with empty DownloadURL so the service layer
+// can fail-close per item rather than blanking the whole page.
 func TestResolveMediaMissingObject(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
@@ -60,27 +61,34 @@ func TestResolveMediaMissingObject(t *testing.T) {
 		t.Fatalf("expected 2 media items, got %d", len(result))
 	}
 
-	// Attempt to resolve with one missing proof — should fail entirely.
-	_, err = resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", "proof-missing"})
-	if err == nil {
-		t.Fatal("expected error for missing proof, but got none")
+	// Resolve with one missing proof — should return per-ID failures as empty MediaItems.
+	result, err = resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", "proof-missing"})
+	if err != nil {
+		t.Fatal("expected no error, per-ID failures are reported as empty MediaItems")
 	}
-	// Should contain "resolve verification proof" and the error message
-	if !contains(err.Error(), "resolve verification proof") {
-		t.Fatalf("error message should mention proof resolution: %v", err)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 media items (one empty), got %d", len(result))
+	}
+	// proof-1 should have resolved successfully
+	if result[0].ProofID != "proof-1" || result[0].DownloadURL == "" {
+		t.Fatalf("proof-1 should resolve: %v", result[0])
+	}
+	// proof-missing should be reported as empty (DownloadURL="")
+	if result[1].ProofID != "proof-missing" || result[1].DownloadURL != "" {
+		t.Fatalf("proof-missing should be empty: %v", result[1])
 	}
 }
 
-// R50-017: ResolveMedia fails closed when signing fails.
-// If any proof cannot be signed, the entire call fails with an error.
+// R50-017: ResolveMedia reports per-ID signing failures as empty MediaItems.
+// When a proof cannot be signed, it's reported as an empty MediaItem.
 func TestResolvemediaSigningFailure(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
 
 	signingErr := errors.New("signing failed: invalid signature")
 	mock := &mockDownloader{
-		responses: map[string]string{
-			"proof-1": "https://example.com/download/proof-1",
+		artifacts: map[string]proofdomain.Artifact{
+			"proof-1": {MimeType: "image/jpeg"},
 		},
 		errors: map[string]error{
 			"proof-signing-fail": signingErr,
@@ -89,19 +97,26 @@ func TestResolvemediaSigningFailure(t *testing.T) {
 
 	resolver := NewResolver(mock)
 
-	// Attempt to resolve a proof that fails signing — should fail the entire call.
-	_, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-signing-fail"})
-	if err == nil {
-		t.Fatal("expected error for signing failure, but got none")
+	// Resolve with mixed success/failure — signing failure is per-ID.
+	result, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", "proof-signing-fail"})
+	if err != nil {
+		t.Fatal("expected no error, per-ID failures are reported as empty MediaItems")
 	}
-
-	// Error should wrap the signing error.
-	if !contains(err.Error(), "signing failed") {
-		t.Fatalf("error should contain signing failure message: %v", err)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 media items, got %d", len(result))
+	}
+	// proof-1 should have signed successfully
+	if result[0].DownloadURL == "" {
+		t.Fatal("proof-1 should have signed successfully")
+	}
+	// proof-signing-fail should be reported as empty
+	if result[1].DownloadURL != "" {
+		t.Fatal("proof-signing-fail should be empty (DownloadURL='')")
 	}
 }
 
-// R50-017: ResolveMedia fails closed on empty proof ID.
+// R50-017: ResolveMedia reports empty proof IDs as empty MediaItems.
+// Empty proof IDs are skipped and reported as empty MediaItems.
 func TestResolveMediaEmptyProofID(t *testing.T) {
 	ctx := context.Background()
 	tenantID := "tenant-001"
@@ -114,14 +129,14 @@ func TestResolveMediaEmptyProofID(t *testing.T) {
 
 	resolver := NewResolver(mock)
 
-	// Attempt to resolve with an empty proof ID — should fail.
-	_, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", ""})
-	if err == nil {
-		t.Fatal("expected error for empty proof ID, but got none")
+	// Resolve with one valid and one empty proof ID.
+	result, err := resolver.ResolveMedia(ctx, tenantID, []string{"proof-1", ""})
+	if err != nil {
+		t.Fatal("expected no error, empty IDs are reported as empty MediaItems")
 	}
 
-	if !contains(err.Error(), "empty") {
-		t.Fatalf("error should mention empty proof ID: %v", err)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 media items, got %d", len(result))
 	}
 }
 
@@ -163,10 +178,16 @@ func TestResolveMediaWithArtifactDownloader(t *testing.T) {
 		t.Fatalf("expected duration 5000, got %v", result[0].DurationMS)
 	}
 
-	// Artifact missing — should fail.
-	_, err = resolver.ResolveMedia(ctx, tenantID, []string{"missing-artifact"})
-	if err == nil {
-		t.Fatal("expected error for missing artifact, but got none")
+	// Artifact missing — reported as empty MediaItem.
+	result, err = resolver.ResolveMedia(ctx, tenantID, []string{"missing-artifact"})
+	if err != nil {
+		t.Fatalf("expected no error, missing artifacts are reported as empty: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 media item, got %d", len(result))
+	}
+	if result[0].DownloadURL != "" {
+		t.Fatal("missing artifact should be empty")
 	}
 }
 

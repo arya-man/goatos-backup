@@ -484,6 +484,57 @@
   .card .hd{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line2)}
   .card .hd h3{margin:0;font-size:14px}.card .hd .sp{flex:1}
   .card .bd{padding:14px 16px}
+
+  /* ===== verification-review board anatomy (ported from mock/verifier-web-mock.html
+     .board/.bt/.frow/.fld/.sel/.selbtn/.legend/.lg/.secthd) — layout/CSS only, no visible copy.
+     th/td values below are the mock's real tokens, confirmed against the live console at
+     127.0.0.1:13300: th 12px/700, NO uppercase, NO letter-spacing; td 11.5px, padding 11px 12px. ===== */
+  .vr-board{padding:13px 16px;margin-bottom:16px}
+  .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
+  .vr-frow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
+  .vr-fld{display:flex;align-items:center;gap:9px}
+  .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted)}
+  .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
+  .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
+  .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .vr-lg{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:18px;padding:7px 14px;font-size:12.5px;font-weight:550;color:var(--muted);cursor:pointer;background:transparent}
+  .vr-lg:hover{border-color:var(--brand);color:var(--ink)}
+  .vr-lg.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
+  .vr-lg i{width:8px;height:8px;border-radius:50%;display:block;flex:none}
+  .vr-lg .n{font-size:11.5px;font-weight:700;color:var(--faint)}
+  .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
+  .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
+  .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
+  .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
+  .vr-table tr:last-child td{border-bottom:0}
+
+  /* ===== verification-review video review anatomy (ported from mock/verifier-web-mock.html
+     .thumb/.player/.proofstrip/.facts) — layout/CSS only, no visible copy. ===== */
+  .vr-thumb{width:86px;height:52px;border-radius:10px;background:linear-gradient(135deg,#1b2b1e,#233a4d 60%,#12211a);display:grid;place-items:center;color:#E9F1EA;flex:none;position:relative;border:1px solid var(--line)}
+  .vr-thumb .ic{width:18px;height:18px}
+  .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
+  .vr-player{background:#0a0f0c;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
+  .vr-player video{width:100%;height:100%;object-fit:contain;background:#000}
+  .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;border-radius:0;border:0}
+  .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
+  .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
+  .vr-fsbtn:hover{background:rgba(0,0,0,.72)}
+  .vr-fsbtn .ic{width:15px;height:15px}
+  .vr-proofstrip{display:flex;gap:9px;flex-wrap:wrap}
+  .vr-pthumb{border:1px solid var(--line);background:var(--panel-2);border-radius:24px;padding:9px 16px;font-size:13px;font-weight:650;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:8px}
+  .vr-pthumb .ic{width:14px;height:14px}
+  .vr-pthumb.on{border-color:var(--brand);color:var(--brand-d);background:var(--brand-soft)}
+
+  /* Verifier queue rows are clickable end to end (the mock has no Details column): every cell wraps
+     its content in the overlay link, so the link must fill the cell and inherit the row's type. */
+  .vr-row td{padding:0}
+  .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
+  .vr-row:hover td{background:var(--bg)}
+  .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
+  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+  .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
+  .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
   .grid{display:grid;gap:14px}
   /* Let grid items shrink below their content's min-content so a wide child (e.g. a multi-column table in a
      .card .bd overflow-x:auto region) scrolls INSIDE its container instead of forcing the track — and the
@@ -1127,20 +1178,17 @@
   .orow{display:flex;gap:8px;align-items:center}
   .ocell{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:600}
   .ocell .c{color:var(--faint);font-weight:600;font-size:11px}
-  .scrim{position:fixed;inset:0;background:rgba(6,12,9,.55);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:.2s;z-index:210}
-  .scrim.on{opacity:1;pointer-events:auto}
-  html:has(.drawer.on),body:has(.drawer.on){overflow:hidden}
-	  .drawer{position:fixed;top:0;right:0;height:100vh;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4);transform:translateX(100%);transition:.26s cubic-bezier(.4,.0,.2,1);z-index:220;display:flex;flex-direction:column}
-	  .drawer.on{transform:none}
-	  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219;touch-action:none}
-	  .drawer .dh{display:flex;align-items:center;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line2);background:var(--panel)}
-	  .drawer .dh h2{margin:0;font-size:17px;line-height:1.2}
-	  .drawer .dc{padding:18px 20px;overflow:auto;flex:1;overscroll-behavior:contain}
+  .veil{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(3px);z-index:219;touch-action:none}
+	  .drawer .dh h2{margin:0;font-size:18px;font-weight:640;line-height:1.2}
+	  .drawer .dh .sb{font-size:12.5px;color:var(--faint);font-weight:600;margin-top:3px}
+	  .drawer .dh .x{margin-left:auto;cursor:pointer;color:var(--muted);width:34px;height:34px;display:grid;place-items:center;border-radius:9px;font-size:21px}
+	  .drawer .dh .x:hover{background:var(--bg)}
+	  .drawer .dc{flex:1;min-height:0;overflow-y:auto;padding:20px 22px;display:flex;flex-direction:column;gap:14px}
 	  /* Footer action row WRAPS (never clips a button) with consistent button sizing — fixes the mock's own
      overflow defect where a long primary label wrapped tall and the last action was cut off. */
-  .drawer .df{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 20px;border-top:1px solid var(--line2);background:var(--panel)}
+  .drawer .df{padding:16px 22px;border-top:1px solid var(--line);background:var(--panel-2);display:flex;gap:11px;align-items:center}
+  .drawer .df .pos{margin-right:auto;font-size:13px;color:var(--faint);font-weight:650}
   .drawer .df .btn{flex:0 0 auto;white-space:nowrap;min-height:38px}
-  .drawer .df form{display:inline-flex}
   .dhd{display:flex;align-items:center;gap:11px;padding:16px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
   .dhd .x{margin-left:auto;cursor:pointer;color:var(--muted);width:32px;height:32px;display:grid;place-items:center;border-radius:8px}
   .dhd .x:hover{background:var(--bg)}
@@ -1725,6 +1773,21 @@ th { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: 
 .lvempty { color: var(--faint); font-size: 12.5px; padding: 10px 0; }
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); display: none; align-items: center; justify-content: center; z-index: 150; }
 .scrim.on { display: flex; }
+/* Verification review modal — centered overlay, never dims sidebar */
+.vr-modal-scrim { position: fixed; inset: 0; background: rgba(4, 9, 7, .76); opacity: 0; pointer-events: none; transition: .16s; z-index: 210; display: grid; place-items: center; padding: 26px; }
+.vr-modal-scrim.on { opacity: 1; pointer-events: auto; }
+html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
+.vr-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, calc(-50% - 8px)) scale(.99); width: 900px; max-width: 96vw; max-height: 92vh; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); display: flex; flex-direction: column; overflow: hidden; transform: translateY(-8px) scale(.99); transition: .16s; z-index: 220; }
+.vr-modal-scrim.on .vr-modal, .vr-modal.on { transform: translate(-50%, -50%); }
+.vr-modal-hd { display: flex; align-items: center; gap: 13px; padding: 17px 22px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.vr-modal-hd h2 { margin: 0; font-size: 18px; font-weight: 640; line-height: 1.2; }
+.vr-modal-hd .sb { font-size: 12.5px; color: var(--faint); font-weight: 600; margin-top: 3px; }
+.vr-modal-hd .x { margin-left: auto; cursor: pointer; color: var(--muted); width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; font-size: 21px; }
+.vr-modal-hd .x:hover { background: var(--bg); }
+.vr-modal-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+.vr-modal-ft { padding: 16px 22px; border-top: 1px solid var(--line); background: var(--panel-2); display: flex; gap: 11px; align-items: center; flex-wrap: wrap; }
+.vr-modal-ft .pos { margin-right: auto; font-size: 13px; color: var(--faint); font-weight: 650; }
+.vr-modal-ft .btn { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }
 button.scrim{
   display:block;
   align-items:normal;
