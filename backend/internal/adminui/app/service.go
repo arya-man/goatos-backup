@@ -925,7 +925,18 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "verification-review":
 		return map[string]string{
-			"crumb":                         "Approvals",
+			"crumb": "Approvals",
+			// Verifier video-review board copy. These are backend-owned like every other visible
+			// string here: the frontend previously carried them as local fallbacks, which is the
+			// hardcoded-visible-literal defect the contract rule exists to prevent.
+			"board.title":      "Verification Board",
+			"filter.shed":      "Shed (optional)",
+			"filter.all_sheds": "All sheds",
+			"table.hint":       "Open a row to review the evidence and record a verdict.",
+			// Accessible label for the player's full-screen toggle.
+			"drawer.media.fullscreen_label": "Full screen",
+			// Accept is blocked when the proof media does not resolve, so a verdict can never be
+			// recorded against evidence nobody could watch.
 			"filter.action_type":            "Action type",
 			"filter.all_action_types":       "All action types",
 			"filter.apply":                  "Apply filters",

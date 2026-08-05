@@ -114,3 +114,39 @@ test("repeated paused seeks just inside the tolerance cannot creep the watched m
   assert.equal(t.watchedMs, 1000, "the mark must still reflect only what actually played");
   assert.equal(t.overshootBeyondWatched(paused(6.6)), 1000, "and the position is rolled back");
 });
+
+test("the sub-tolerance seek loop bypass: many small forward jumps cannot walk the mark forward", () => {
+  const s = sink();
+  const t = new WatchTracker(s);
+  const playing = (seconds) => ({ currentTime: seconds, duration: 600, paused: false });
+  // One second genuinely played.
+  t.onTimeUpdate(playing(0.5));
+  t.onTimeUpdate(playing(1.0));
+  assert.equal(t.watchedMs, 1000);
+  // Now the attack: jump repeatedly by just under the seek tolerance. Each hop is individually
+  // allowed and records nothing, and `seeked` runs the same progress handler — which used to accept
+  // the landing position as playback and march the mark through the whole video.
+  let at = 1.0;
+  for (let i = 0; i < 200; i++) {
+    at += 1.4;
+    t.onSeeking(playing(at));    // allowed, not logged
+    t.onTimeUpdate(playing(at)); // `seeked` -> progress handler
+  }
+  assert.equal(t.watchedMs, 1000, "a 10-minute proof must not be 'watched' by seeking through it");
+  assert.equal(t.overshootBeyondWatched(playing(at)), 1000, "and the position is pulled back");
+});
+
+test("a genuine playback tick right after an allowed rewind still advances once playing resumes", () => {
+  const t = new WatchTracker(sink());
+  const playing = (seconds) => ({ currentTime: seconds, duration: 60, paused: false });
+  for (const seconds of [0.5, 1.0, 1.5, 2.0]) t.onTimeUpdate(playing(seconds)); // watched 2s for real
+  assert.equal(t.watchedMs, 2000);
+  t.onSeeking(playing(0.5));      // rewind — allowed
+  t.onTimeUpdate(playing(0.5));   // the seeked tick: consumed, not progress
+  t.onTimeUpdate(playing(0.75));  // real playback resumes
+  assert.equal(t.watchedMs, 2000, "rewatching does not lower the mark");
+  t.onTimeUpdate(playing(2.25));  // one tick's worth past the old mark
+  assert.equal(t.watchedMs, 2250, "so ordinary playback still advances it after a rewind");
+  t.onTimeUpdate(playing(9.0));   // a >1s leap is not a tick
+  assert.equal(t.watchedMs, 2250, "and a leap dressed as a tick is still refused");
+});
