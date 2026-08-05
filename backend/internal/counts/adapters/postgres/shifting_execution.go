@@ -1005,7 +1005,7 @@ ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID
 // before the move commits. Writing the stale label would file animals into a
 // partition that no longer exists.
 //
-// The authority is `shed_partitions` (migration 000111), NOT the per-goat
+// The authority is `shed_partitions` (migration 000112), NOT the per-goat
 // `goat_shed_partitions` table: the latter only knows partitions that currently
 // hold animals, so an EMPTY partition would be wrongly rejected here — that is
 // precisely the destination an operator is trying to fill.

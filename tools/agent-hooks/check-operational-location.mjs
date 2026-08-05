@@ -139,7 +139,7 @@ const CHECKS = [
   {
     id: "empty-partition-catalog",
     // Detect partition catalogs built only from goat_shed_partitions (which hides empty partitions)
-    // instead of the authoritative shed_partitions table (migration 000111).
+    // instead of the authoritative shed_partitions table (migration 000112).
     // PRECISION NOTE (this check was rewritten after a false-positive incident):
     // reading goat_shed_partitions to resolve A GOAT'S OWN partition is CORRECT and
     // is what most call sites legitimately do -- vaccination execution, obligation
@@ -164,7 +164,7 @@ const CHECKS = [
       if (/FROM\s+shed_partitions|JOIN\s+shed_partitions/i.test(window)) return false;
       return true;
     },
-    msg: "partition catalog built from goat_shed_partitions only hides empty partitions; use shed_partitions (migration 000111) as the authoritative partition source",
+    msg: "partition catalog built from goat_shed_partitions only hides empty partitions; use shed_partitions (migration 000112) as the authoritative partition source",
   },
 ];
 
