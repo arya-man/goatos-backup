@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -210,6 +211,11 @@ class Finding:
     file: str
     reason: str
     fix_hint: str
+    kind: str = ""  # ratchet key component; defaults to `surface` if unset
+
+
+def _finding_kind(f: "Finding") -> str:
+    return f.kind or f.surface
 
 
 @dataclass
@@ -302,6 +308,106 @@ def check_surface(
     return findings
 
 
+
+# --------------------------------------------------------------------------
+# Reserved Firebase Analytics name check (hard-fail, not exemptable)
+# --------------------------------------------------------------------------
+#
+# Firebase silently REJECTS events using its own reserved names/prefixes — no
+# error surfaces in the app, the event is just dropped on the floor. This bit
+# this exact repo once for real: `session_start` was the FIRST event of every
+# journey and Firebase discarded it outright, so the very start of every
+# funnel was invisible until someone noticed via `AnalyticsEvents.SESSION_START
+# = "app_session_start"` (see the comment there). This check exists so the
+# next occurrence of that class of bug is a CI failure instead of a silent
+# analytics gap discovered weeks later.
+#
+# Detection is deliberately NARROW, not "every quoted string in the tree":
+# scanning every string literal produced overwhelming noise on a first pass
+# (generic strings like "error" or object keys like "google_error" appear
+# constantly in UI code with nothing to do with analytics). Instead this only
+# looks at two specific shapes, both of which are exactly where a real event
+# name gets minted:
+#   1. a Kotlin/TS constant DECLARATION whose value looks like an event/param
+#      name, e.g. `const val LOGIN_FAILURE = "login_failure"` or
+#      `export const SCREEN_OPENED = "screen_opened"`.
+#   2. a literal passed DIRECTLY as the first argument to an emission call:
+#      `.track("...")`, `logEvent("...")`, `trackEvent("...")`, `pushEvent("...")`.
+# It CANNOT see a name built up via string concatenation/interpolation at
+# runtime, a name referenced only via its constant (not the literal), or a
+# name passed through an intermediate variable before the call. That is an
+# accepted false-negative gap for a stdlib-only, no-AST guard — see
+# docs/TELEMETRY.md "reserved-name trap" section.
+
+_RESERVED_CONST_DECL_RE = re.compile(
+    r'(?:const\s+val\s+\w+(?:\s*:\s*\w+)?|export\s+const\s+\w+(?:\s*:\s*\w+)?)\s*=\s*"([^"]+)"'
+)
+_RESERVED_CALL_SITE_RE = re.compile(
+    r'\.(?:track|logEvent)\s*\(\s*"([^"]+)"|(?:^|[^.\w])(?:trackEvent|pushEvent|logScreenView|trackScreenView)\s*\(\s*"([^"]+)"'
+)
+
+
+def check_reserved_names(candidates: list[tuple[str, str]], repo: Path, config: dict) -> list[Finding]:
+    findings: list[Finding] = []
+    reserved_events = set(config.get("reserved_event_names", []))
+    reserved_param_prefixes = tuple(config.get("reserved_param_prefixes", []))
+    scan_globs = config.get("reserved_name_scan_globs", ["**/*.kt", "**/*.tsx", "**/*.ts", "**/*.go"])
+    if not reserved_events and not reserved_param_prefixes:
+        return findings
+
+    for status, relpath in candidates:
+        if status == "D":
+            continue
+        if not matches_any_glob(relpath, scan_globs):
+            continue
+        file_path = repo / relpath
+        if not file_path.is_file():
+            continue
+        text = read_text(file_path)
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            literals: list[str] = []
+            m = _RESERVED_CONST_DECL_RE.search(line)
+            if m:
+                literals.append(m.group(1))
+            for cm in _RESERVED_CALL_SITE_RE.finditer(line):
+                literals.append(cm.group(1) or cm.group(2))
+            for literal in literals:
+                if literal in reserved_events:
+                    findings.append(
+                        Finding(
+                            surface="reserved_names",
+                            kind="reserved_event_name",
+                            severity="FAIL",
+                            file=relpath,
+                            reason=(
+                                f'event/param name "{literal}" on line {lineno} is a Firebase '
+                                "RESERVED name — Firebase silently drops events using it"
+                            ),
+                            fix_hint=(
+                                f'rename to a non-reserved name (e.g. prefix with `app_`, as '
+                                f'AnalyticsEvents.SESSION_START did: "session_start" -> '
+                                f'"app_session_start"); this is not exemptable — Firebase itself '
+                                "rejects the literal name, an exempt comment cannot change that"
+                            ),
+                        )
+                    )
+                elif literal.startswith(reserved_param_prefixes):
+                    findings.append(
+                        Finding(
+                            surface="reserved_names",
+                            kind="reserved_param_prefix",
+                            severity="FAIL",
+                            file=relpath,
+                            reason=(
+                                f'param/user-property name "{literal}" on line {lineno} uses a '
+                                "Firebase RESERVED prefix (firebase_/google_/ga_)"
+                            ),
+                            fix_hint="rename the parameter to drop the reserved prefix; not exemptable",
+                        )
+                    )
+    return findings
+
+
 def run(
     repo: Path,
     config: dict,
@@ -309,9 +415,12 @@ def run(
     staged: bool,
     scan_all: bool,
     warn=lambda msg: None,
+    only_surfaces: list[str] | None = None,
 ) -> Report:
     exempt_marker = config.get("exempt_marker", "telemetry:exempt")
     surfaces = config.get("surfaces", {})
+    if only_surfaces is not None:
+        surfaces = {k: v for k, v in surfaces.items() if k in only_surfaces}
 
     if scan_all:
         tracked = all_tracked_files(repo)
@@ -334,6 +443,15 @@ def run(
         report.findings.extend(
             check_surface(surface_name, surface_cfg, candidates, repo, exempt_marker)
         )
+    # Reserved-name check is not part of the `surfaces` marker-presence engine
+    # and is never exemptable (see check_reserved_names docstring above). It
+    # runs by default; pass --only-surfaces without "reserved_names" to scope
+    # a ratchet invocation to marker-presence surfaces only (used to keep the
+    # original telemetry-guard-ratchet baseline stable when new rule kinds
+    # were added — see tools/ci/ratchet-guard.telemetry.json vs
+    # tools/ci/ratchet-guard.telemetry-v2.json).
+    if only_surfaces is None or "reserved_names" in only_surfaces:
+        report.findings.extend(check_reserved_names(candidates, repo, config))
     return report
 
 
@@ -352,7 +470,7 @@ def format_text_report(report: Report) -> str:
     warns = [f for f in report.findings if f.severity == "WARN"]
 
     for f in report.findings:
-        lines.append(f"[{f.severity}] {f.surface}: {f.file}")
+        lines.append(f"[{f.severity}] {f.surface}/{_finding_kind(f)}: {f.file}")
         lines.append(f"    reason: {f.reason}")
         lines.append(f"    fix:    {f.fix_hint}")
 
@@ -376,6 +494,7 @@ def format_json_report(report: Report) -> str:
         "findings": [
             {
                 "surface": f.surface,
+                "kind": _finding_kind(f),
                 "severity": f.severity,
                 "file": f.file,
                 "reason": f.reason,
@@ -404,6 +523,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG_PATH), help="Path to config.json")
     parser.add_argument("--repo", default=str(REPO_ROOT), help="Repo root override (mainly for tests)")
+    parser.add_argument(
+        "--only-surfaces",
+        default=None,
+        help=(
+            "Comma-separated surface names to scope this run to (e.g. "
+            "'android,admin_web' or 'screen_view,primary_action,failure_outcome,reserved_names'). "
+            "Used to keep separate ratchet baselines for the original marker-presence "
+            "surfaces vs the newer screen-view/primary-action/failure-outcome/reserved-name "
+            "rules without disturbing the existing baseline counts."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.all and args.staged:
@@ -412,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = Path(args.repo).resolve()
     config = load_config(Path(args.config))
+    only_surfaces = [s.strip() for s in args.only_surfaces.split(",")] if args.only_surfaces else None
 
     warnings: list[str] = []
     report = run(
@@ -421,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
         staged=args.staged,
         scan_all=args.all,
         warn=warnings.append,
+        only_surfaces=only_surfaces,
     )
 
     for w in warnings:

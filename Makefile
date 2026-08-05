@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: seed-state-guard check guardrails exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -168,6 +168,11 @@ guardrails:
 	$(MAKE) admin-web-local-overlay-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
+	$(MAKE) exception-guard
+	$(MAKE) exception-guard-ratchet
+	$(MAKE) telemetry-guard-ratchet
+	$(MAKE) exception-guard-ratchet-v2
+	$(MAKE) telemetry-guard-ratchet-v2
 	$(MAKE) local-gcp-kernel-parity-guard
 
 git-identity-guard:
@@ -316,14 +321,99 @@ vaccination-hrms-source-audit:
 # Android screen/viewmodel (or admin-web route) shipped with no Firebase
 # Analytics event, no Crashlytics fatal/non-fatal wiring on failure paths, and
 # no funnel/journey step. Diff-scoped vs origin/main; `telemetry-guard-audit`
-# scans the whole tree. Escape hatch: `// telemetry:exempt <reason>`. See
-# docs/observability/TELEMETRY_GUARDRAILS.md.
+# scans the whole tree (raw, unratcheted). See telemetry-guard-ratchet below
+# for the whole-tree gate that IS wired into ci-local. Escape hatch:
+# `// telemetry:exempt <reason>`. See docs/observability/TELEMETRY_GUARDRAILS.md
+# and docs/observability/GUARDRAIL_RATCHET.md.
 telemetry-guard:
 	python3 -m unittest tools/telemetry-guard/test_telemetry_guard.py
 	python3 tools/telemetry-guard/telemetry-guard.py
 
 telemetry-guard-audit:
 	python3 tools/telemetry-guard/telemetry-guard.py --all
+
+# telemetry-guard-ratchet: whole-tree shrink-only debt ratchet for
+# telemetry-guard, same mechanism as exception-guard-ratchet (see its comment
+# and docs/observability/GUARDRAIL_RATCHET.md). Only FAIL-severity findings
+# are ratcheted; WARN-mode surfaces stay non-blocking by the guard's own
+# per-surface `mode` config. Keyed by file+surface, never line.
+telemetry-guard-ratchet:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry.json
+
+telemetry-guard-ratchet-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry.json --regenerate
+
+# telemetry-guard-ratchet-v2: SEPARATE shrink-only baseline (tools/telemetry-guard/baseline-v2.json)
+# for the newer rule kinds added on top of the original marker-presence surfaces:
+# screen_view (every Compose nav-destination screen must emit a screen-view event, mode=block)
+# and reserved_names (Firebase reserved event-name/param-prefix hard fail, never exemptable).
+# Kept in a separate baseline/ratchet from telemetry-guard-ratchet so the ORIGINAL baseline
+# (51 pre-existing violations, frozen before this guard existed) is never touched or
+# reinterpreted by the new rules — see docs/TELEMETRY.md "Guard baselines" section.
+# primary_action and failure_outcome are mode=warn (best-effort, noisy false-positive risk —
+# see config.json comments) and therefore never block CI; they are not ratcheted.
+telemetry-guard-ratchet-v2:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry-v2.json
+
+telemetry-guard-ratchet-v2-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.telemetry-v2.json --regenerate
+
+# exception-guard: block the golden rule "Never swallow any exception. Always
+# either dump it into Firebase non-fatal errors (mobile) or backend logs
+# (server)." — a new/changed Kotlin catch block or Go err-check that swallows
+# the error (empty catch, log-only catch, runCatching{}.getOrNull(), bare
+# `if err != nil { return nil }`, `_ = err` discard). Diff-scoped vs
+# origin/main (never whole-repo in THIS target — legacy code has untouched
+# debt that a whole-tree run would trip on). Both this diff-scoped target AND
+# exception-guard-ratchet below are run directly by tools/ci/run-local-ci.sh
+# (run_common), so `make ci-local` always hits both. exception-guard-ratchet
+# fails on any violation outside the committed shrink-only baseline, keyed
+# and counted per (file, kind) so stacking new debt onto an already-baselined
+# file also fails. `exception-guard-audit` remains available for a raw,
+# unratcheted whole-tree listing. Escape hatch: `// exception:exempt <reason>`.
+# See docs/observability/TELEMETRY_GUARDRAILS.md,
+# apps/goatos-android/docs/TELEMETRY.md, and
+# docs/observability/GUARDRAIL_RATCHET.md (why diff-scoped guards need a
+# whole-tree ratchet at all).
+exception-guard:
+	python3 tools/exception-guard/exception-guard.py --self-test
+	python3 tools/exception-guard/exception-guard.py
+
+exception-guard-audit:
+	python3 tools/exception-guard/exception-guard.py --all
+
+# exception-guard-ratchet: whole-tree shrink-only debt ratchet for
+# exception-guard. Fails CI on any FAIL finding (keyed by file+kind, never by
+# line — see tools/ci/ratchet-guard.py docstring) that is not already in the
+# committed baseline tools/exception-guard/baseline.json, AND fails if the
+# baseline is stale-high (contains entries that no longer reproduce, meaning
+# debt was fixed but the baseline was never shrunk). This is what actually
+# closes the gap left by exception-guard's diff-scoping: new code can never
+# add a swallowed exception anywhere in the tree, not just on touched lines.
+# Runtime ~0.1s (see docs/observability/GUARDRAIL_RATCHET.md) — cheap enough
+# to run every ci-local invocation, not gated behind MODE=all.
+exception-guard-ratchet:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception.json
+
+# Regenerate the baseline after genuinely fixing violations (shrinks it) or
+# after a legitimate exempt/marker change alters the violation set. This is
+# NOT an accepted way to land new code that trips the ratchet — see
+# docs/observability/GUARDRAIL_RATCHET.md.
+exception-guard-ratchet-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception.json --regenerate
+
+# exception-guard-ratchet-v2: SEPARATE shrink-only baseline
+# (tools/exception-guard/baseline-v2.json) for the two new rule kinds added on top of the
+# original 6: cancellation_swallowed (Kotlin `catch (e: CancellationException)` that does not
+# rethrow — hard rule, NEVER exemptable, breaks structured concurrency) and bare_exempt_marker
+# (an `// exception:exempt` with no reason text after it). Kept separate from
+# exception-guard-ratchet so the original 124-violation baseline (frozen before these rules
+# existed) is never touched or reinterpreted by the new rules.
+exception-guard-ratchet-v2:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception-v2.json
+
+exception-guard-ratchet-v2-regenerate:
+	python3 tools/ci/ratchet-guard.py --config tools/ci/ratchet-guard.exception-v2.json --regenerate
 
 local-gcp-kernel-parity-guard:
 	bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh
@@ -715,9 +805,17 @@ android-bounded-memory-guard-audit:
 # android-compose-lists-guard: block the Compose lazy-list key crash class — a
 # LazyColumn/LazyRow keyed by a per-ENTITY id on a per-ROW list (a goat with two
 # due vaccines => duplicate key => "Key was already used" crash, shipped in
-# 0.1.6-stg, fixed a9c35a1d), and items()/itemsIndexed() with no stable key.
+# 0.1.6-stg, fixed a9c35a1d), and items()/itemsIndexed() with no stable key. Also
+# carries the phone-scale UI rules (CD-PHONE-SCALE-UI): nested scroll (Lazy-in-Lazy
+# or a scrollable Column/Row) inside a list's items() row lambda; unbounded
+# `.forEach {}` rendering inside a scrollable Column/Row over state/domain data
+# (sheds/animals/operators/dates) instead of a windowed Lazy* list; a chip row
+# (FilterChip/AssistChip) over the same unbounded dimensions instead of the
+# FilterSelectorRow+SearchablePickerDialog pattern; and a bare-loading-flag
+# spinner replacing already-rendered content next to a proven cache branch.
 # Diff-scoped; `android-compose-lists-guard-audit` scans the whole tree.
-# See docs/decisions/mobile-data-fetch-anti-patterns.md + docs/mobile/android-ui-quality.md.
+# See docs/decisions/mobile-data-fetch-anti-patterns.md, docs/mobile/android-ui-quality.md,
+# apps/goatos-android/docs/phone-scale-ui.md.
 android-compose-lists-guard:
 	node tools/agent-hooks/check-android-compose-lists.mjs --self-test
 	node tools/agent-hooks/check-android-compose-lists.mjs

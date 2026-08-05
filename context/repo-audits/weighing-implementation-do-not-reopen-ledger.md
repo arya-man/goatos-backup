@@ -566,3 +566,36 @@ which would mean a verifier approving footage they did not watch.
 
 Related bans: B-0 (no clinical gate on the weighing write path), and the free-flow
 mandate that forbids an expected-animal denominator.
+
+## A-9 — Weighing reads NOTHING outside weighing (READ paths included) — CLOSED 2026-08-04
+
+Weighing is ISOLATED, not merely "free-flow on writes". It may read only
+`weighing_*` tables plus proof/idempotency/audit/outbox plumbing and three ORG
+tables (`locations`, `workforce_members`, `user_scope_grants`). `goats`,
+`goat_identifiers`, `herd_*`, `vaccination_*`, `sop_*`, `protocol_*` and
+`obligation_*` are banned on EVERY path.
+
+What happened: an ADG/growth read model joined `goat_identifiers` to resolve a
+scanned tag to a `goat_id`, so an animal moved between sheds kept one growth
+history. Technically sensible, and a direct violation — it made weighing depend
+on herd identity data and on whatever is wrong in it.
+
+Accepted cost of the rule: a re-tagged animal's history splits into two tags.
+That is honest; weighing only ever knew the tag that was scanned.
+
+Why it was missed, and what changed:
+- All 15 prior guard modes were scoped to the WRITE path; a read model matched
+  none of them. Guard mode 16 `weighing-reads-non-weighing-table` now applies
+  the table allowlist to every SQL literal in the weighing package.
+- The guard only ran under `make ci-local`. It now also runs on every weighing
+  file edit via `tools/agent-hooks/check-weighing-isolation-on-edit.sh`
+  (PostToolUse in BOTH `.claude/settings.json` and `.codex/hooks.json`).
+- The rule lived only in fetch-on-demand docs. It is now in `AGENTS.md`,
+  always-loaded.
+- The subagent brief that proposed the join never carried the constraint.
+  Weighing briefs must state it.
+
+Also closed here: NO weighing cadence exists. No "weekly"/"monthly"/minimum
+interval between weighs, no "overdue"/"missed weigh"/"expected next weigh". A
+14-day minimum gap for ADG pairs was added and removed the same day; only a
+zero-elapsed pair is excluded, and that is division-by-zero, not policy.

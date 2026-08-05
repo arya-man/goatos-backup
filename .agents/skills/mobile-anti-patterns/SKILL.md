@@ -52,9 +52,39 @@ domain object it shows.
   insert/reorder and can crash. The `items(<Int>)` count overload is exempt.
 - Bounded exception → `// compose-guard:ignore: <reason>`.
 - Also watch (review, not yet machine-checked): missing `contentType` on
-  heterogeneous lists, `mutableStateOf` without `remember`, unstable inline lambdas
-  passed per item, and a nested `Modifier.verticalScroll` wrapping a `LazyColumn`
-  (infinite-constraint measure crash).
+  heterogeneous lists, `mutableStateOf` without `remember`, and unstable inline
+  lambdas passed per item.
+- **Machine-checked (`nested-scroll-in-lazy-items`):** a `Modifier.verticalScroll`
+  Column/Row, or another `LazyColumn`/`LazyRow`, nested directly inside a list's
+  `items()` row lambda — two scrollables on one axis (infinite-constraint /
+  double-scroll bug). Hoist the inner list to its own destination/sheet.
+
+## Phone-scale UI (machine: `make android-compose-lists-guard`; rulebook: `apps/goatos-android/docs/phone-scale-ui.md`)
+Real park cardinality is ~100 sheds x ~70-90 animals/shed (~7-8k rows/park). Three shipped
+recurrences of the same class:
+- **Unbounded rendering.** `<state-or-domain>.forEach { ... Composable ... }` inside a scrollable
+  Column/Row instead of a windowed `LazyColumn`/`LazyRow` with `items(..., key = ...)` and ~20-row
+  keyset paging (same cap as the fetch/pagination rule above — do not invent a different number).
+  Machine-checked (`column-foreach-unbounded`) but deliberately narrow: only flags a `.forEach`
+  chain containing a state/domain keyword (state/list/items/rows/data/records/sheds/animals/
+  operators/dates/goats) inside a `verticalScroll`/`horizontalScroll` container; a fixed literal
+  (`listOf(...).forEach`) or enum (`DayOfWeek.entries.forEach`) is never flagged.
+- **Chips over an unbounded dimension.** Sheds/animals/operators/dates need a **searchable
+  selector**, not a chip per option. Reference implementation: `FilterSelectorRow` +
+  `SearchablePickerDialog` in
+  `apps/goatos-android/feature/feature-weighing/src/main/kotlin/sg/mesha/goatos/feature/weighing/WeightHistoryChartScreen.kt`.
+  Machine-checked in a narrow shape (`chip-row-unbounded-dimension`): a state/domain-keyword
+  `.forEach { ... FilterChip/AssistChip ... }`. A chip row built without `.forEach`, or fed through
+  a helper/param, is a false negative by design — still review-time via this skill.
+- **Spinner over rendered content.** A refresh must never replace already-rendered rows with a
+  full-screen spinner (see `docs/mobile/android-ui-quality.md` skeleton/shimmer rule below).
+  Machine-checked in a narrow shape (`spinner-replaces-cached-content`): a `when {}` branch guarded
+  by a bare loading flag rendering only `CircularProgressIndicator`, next to a sibling branch that
+  renders non-empty cached state. A plain `if (loading) {...} else {...}` chain is a false negative
+  by design; the vaccination-sheds screen additionally has a dedicated stricter check in
+  `check-android-ui-foundations.mjs`.
+- Bounded exception → `// compose-guard:ignore: <reason>` (same convention as the lazy-key rules
+  above; one guard script covers both).
 
 ## Room SSOT / offline-first (banned: network-only screen reads)
 - Every READ screen renders from **Room** (single source of truth); network refresh
