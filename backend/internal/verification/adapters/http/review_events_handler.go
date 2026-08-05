@@ -9,7 +9,7 @@ import (
 )
 
 // reviewEventRequest is the wire shape for one client-emitted review-analytics event. See
-// migrations/postgres/000112_verification_review_events.sql and domain/review_events.go for the
+// migrations/postgres/000115_verification_review_events.sql and domain/review_events.go for the
 // closed event_type vocabulary and payload contract.
 type reviewEventRequest struct {
 	ItemID        string                    `json:"item_id"`
