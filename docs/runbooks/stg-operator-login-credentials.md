@@ -12,9 +12,9 @@ permissions, Android role handling, seed docs, and tests are updated together.
 
 ## Canonical STG Personnel Rule + Weighing Addendum
 
-Current documented STG access roster: **13 people total** =
+Current documented STG access roster: **14 people total** =
 **5 Mesha leadership (Google SSO **and** Firebase email/password,
-`ceo_internal`, NO vaccination capacity)** + **3 vaccination/weighing operators
+`ceo_internal`, NO vaccination capacity)** + **4 vaccination/weighing operators
 (Firebase email/password)** + **1 preventive-care director** + **1 verifier** +
 **2 weighing-only operators** + **1 director execution user**.
 
@@ -44,13 +44,15 @@ Field roles and vaccination capacity:
 | Amit Kumar | `Amit@2026` | operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Darshan Talwar | `Darshan@2026` | operator, default vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Sagar Mahoor | `Sagar@2026` | operator, fallback vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
+| Natheswar / Eshwar | `Natheswar@2026` | operator, CBE vaccination operator | Preventive Care | Vaccination, Weighing | **yes** |
 | Chandrakant | `Chandrakant@2026` | `pc_director` | Preventive Care | Vaccination only | **no** |
 | Jyothi | `Jyothi@2026` | **verifier** | Preventive Care | Verification-only backend grant | **no** |
 | Pramod | `Pramod@2026` | operator | Weighing Operations | Weighing only | **no** |
 | Kumar Sharath | `Kumar@2026` | operator | Weighing Operations | Weighing only | **no** |
 | Dinakar | `Dinakar@2026` | `growth_director`; business title Growth Director | Growth | Weighing only | **no** |
 
-- ONLY Amit + Darshan + Sagar count toward vaccination operator animal capacity.
+- ONLY Amit + Darshan + Sagar + Natheswar count toward vaccination operator
+  animal capacity.
 - Chandrakant is director; Jyothi is verifier; the 5 leadership users are
   `ceo_internal`. None of them add vaccination operator capacity.
 - Pramod and Kumar Sharath are weighing-only STG operator users.
@@ -92,6 +94,7 @@ Canonical current STG credentials:
 | Amit | amit797069@gmail.com | `Amit@2026` |
 | Darshan | darshantalawar033@gmail.com | `Darshan@2026` |
 | Sagar | sagarmahoor143@gmail.com | `Sagar@2026` |
+| Natheswar / Eshwar | natheswar7@gmail.com | `Natheswar@2026` |
 | Chandrakant | chandrakanth119527@gmail.com | `Chandrakant@2026` |
 | Jyothi | jyothipvg12345@gmail.com | `Jyothi@2026` |
 | Pramod | pramodsahu616285@gmail.com | `Pramod@2026` |
@@ -152,3 +155,142 @@ firebase appdistribution:testers:list --project goatos-stg
 Treat a mobile grant as incomplete until the email appears in group
 `goatos-testers`. This is separate from Firebase Auth login and separate from
 the backend grant.
+
+## Add or Fix a STG Mobile Operator Login
+
+For a new STG mobile operator, all four surfaces must be updated. Missing any
+one of these produces confusing failures: Firebase may accept the password, but
+the app can still get `403 email_not_allowed`; or the backend may know the user,
+but they may not be able to install the Android build.
+
+Use this exact order:
+
+1. Seed or rotate the Firebase Auth email/password user:
+
+   ```bash
+   gcloud config set project goatos-stg
+
+   npm --prefix apps/admin-web run auth:seed-password-users -- \
+     --project goatos-stg \
+     --continue-url https://stg.dashboard.mesha.sg/login \
+     --allow-project-mismatch \
+     --user-password "<email>=<FirstName>@2026"
+   ```
+
+2. Add the same email to Firebase App Distribution:
+
+   ```bash
+   firebase appdistribution:testers:add <email> \
+     --group-alias goatos-testers \
+     --project goatos-stg
+
+   firebase appdistribution:testers:list --project goatos-stg | rg -i '<email>|goatos-testers'
+   ```
+
+3. Create or verify the backend workforce member and active `user_scope_grants`
+   row. Operator execution users need an active `workforce_members` row and a
+   park-scoped `operator` grant for the park they will work in. For CBE this is:
+
+   ```text
+   tenant_id: 00000000-0000-4000-8000-000000000001
+   CBE park/location id: 00000000-0000-4000-8000-000000003001
+   role: operator
+   scope_type: park
+   scope_id: 00000000-0000-4000-8000-000000003001
+   status: active
+   ```
+
+4. Add the email to the STG API auth allowlist secret and roll the API service
+   so Cloud Run rereads the secret:
+
+   ```bash
+   CURRENT="$(gcloud secrets versions access latest \
+     --secret=goatos-stg-auth-allowed-emails \
+     --project=goatos-stg)"
+
+   python3 - <<'PY' "$CURRENT" "<email>" > /tmp/goatos-stg-auth-allowed-emails.updated
+   import sys
+   current, new_email = sys.argv[1], sys.argv[2].strip().lower()
+   emails = [e.strip() for e in current.split(",") if e.strip()]
+   if new_email not in [e.lower() for e in emails]:
+       emails.append(new_email)
+   seen, out = set(), []
+   for email in emails:
+       key = email.lower()
+       if key not in seen:
+           seen.add(key)
+           out.append(email)
+   print(",".join(out), end="")
+   PY
+
+   gcloud secrets versions add goatos-stg-auth-allowed-emails \
+     --project=goatos-stg \
+     --data-file=/tmp/goatos-stg-auth-allowed-emails.updated
+
+   REVISION="$(gcloud secrets versions list goatos-stg-auth-allowed-emails \
+     --project=goatos-stg \
+     --filter='state:ENABLED' \
+     --sort-by='~createTime' \
+     --limit=1 \
+     --format='value(name)')"
+
+   gcloud run services update goatos-api-stg \
+     --project=goatos-stg \
+     --region=asia-south1 \
+     --update-env-vars GOATOS_AUTH_ALLOWLIST_REVISION="$REVISION"
+   ```
+
+5. Verify through the real mobile app API, not the admin dashboard. Operators
+   are not admin dashboard users, so `https://stg.dashboard.mesha.sg` can still
+   reject them even when mobile access is correct.
+
+   ```bash
+   API_URL="$(gcloud run services describe goatos-api-stg \
+     --project=goatos-stg \
+     --region=asia-south1 \
+     --format='value(status.url)')"
+
+   # Get a Firebase ID token using the Firebase web API key, then:
+   curl -i "$API_URL/app/bootstrap" \
+     -H "Authorization: Bearer $FIREBASE_ID_TOKEN" \
+     -H "X-GoatOS-Tenant-ID: 00000000-0000-4000-8000-000000000001"
+   ```
+
+Expected success is HTTP `200` with `operator_profile`, active park-scoped grant,
+and `visible_navigation` containing the modules assigned to the operator.
+
+### Natheswar STG Login Fix - 2026-08-05
+
+Natheswar/Eshwar (`natheswar7@gmail.com`) was added for the 2026-08-05 CBE
+ET+TT vaccination drive. Firebase password auth, backend workforce row, and CBE
+park operator grant were present, but login still failed because
+`goatos-stg-auth-allowed-emails` did not include `natheswar7@gmail.com`. The
+backend rejected the already-valid Firebase token with:
+
+```json
+{"code":"email_not_allowed","message":"this Google account is not allowed for Mesha Admin"}
+```
+
+Fix applied:
+
+- Firebase Auth user password set to `Natheswar@2026`.
+- Firebase UID verified as `iDPkAozncBPB9TcQWB1XP8qLeq02`.
+- Backend stable user id verified as
+  `a442ef46-034f-51af-a26b-7da27db0f6f8`.
+- Workforce member verified:
+  `4bd1f183-555c-4c67-b24a-4f5372e73e2a`, display name `Natheswar`,
+  active CBE operator.
+- Active CBE park-scoped operator grant verified:
+  `09aa5c55-2866-432c-b9b6-d9bb669b5d79`.
+- Added `natheswar7@gmail.com` to Secret Manager
+  `goatos-stg-auth-allowed-emails` as version `9`.
+- Rolled `goatos-api-stg` with
+  `GOATOS_AUTH_ALLOWLIST_REVISION=9`.
+- Added `natheswar7@gmail.com` to Firebase App Distribution group
+  `goatos-testers`.
+- Verified real STG API:
+  `/app/bootstrap`, `/app/me`, and `/app/vaccination/execution` all returned
+  HTTP `200` with CBE operator context.
+
+Do not diagnose this class of failure from the admin dashboard URL alone:
+operators use the mobile app API path. Admin dashboard access is separate.

@@ -731,6 +731,14 @@ once the token already verified. After a new secret version, roll a fresh
 `goatos-api-stg` revision so the env-var secret ref is re-read. Full RCA:
 `docs/runbooks/incidents/2026-07-25-jyothi-verifier-stg-login-403.md`.
 
+2026-08-05 repeat incident: Natheswar/Eshwar (`natheswar7@gmail.com`) had a
+valid Firebase password user and active CBE park-scoped backend operator grant,
+but still hit `403 email_not_allowed` until the same allowlist secret was updated
+and `goatos-api-stg` was rolled. The exact add-user checklist, including
+Firebase Auth, App Distribution, backend grant, allowlist secret, Cloud Run
+revision roll, and `/app/bootstrap` verification, lives in
+`docs/runbooks/stg-operator-login-credentials.md`.
+
 Verifier note: `verifier` module access currently comes from the
 `preventive_care` department binding (same as operators, but with NO vaccination
 capacity). This is a single-department binding; a truly cross-module verifier is
