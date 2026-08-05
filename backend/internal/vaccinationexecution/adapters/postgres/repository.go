@@ -4226,6 +4226,223 @@ ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 	if err := cohortRows.Err(); err != nil {
 		return resp, fmt.Errorf("vaccination command board: cohort rows: %w", err)
 	}
+	// 2a-bis. TRUE cohort head count, read from the live herd rather than from the obligations.
+	// The cohort query above can only see animals that carry an obligation for THAT dose, so the
+	// "Animals" column reported 229 for a cohort of 324 live adults — every animal whose Dose 1
+	// obligation had been closed out of the window vanished from its own head count. Head count is a
+	// herd fact, not an obligation fact, so it is read from goats.
+	// projection-review: membership=goats (live, shed-resolved); group_key=park x management_stage x sex; join_cardinality=locations 1:1 (shed -> park); pagination=bounded cohort aggregate; scope=tenant + optional park
+	// (a) producer unique columns: goat_id | consumer GROUP BY: park.location_id, management_stage, sex.
+	// (b) join multiplicity: shed 1:1 on goats.shed_id, park 1:1 on shed.parent_location_id — no fan-out.
+	// (c) key set: identical park x stage x sex key the cohort cells use, so the head count and the
+	//     cell counts describe the same cohort. Drive-batch scope is deliberately NOT applied: a
+	//     cohort's head count does not shrink because a drive covers part of it.
+	cohortHeadSQL := `
+SELECT
+  COALESCE(park.location_id::text, '') as park_id,
+  g.management_stage,
+  g.sex,
+  COUNT(*) as head_count
+FROM goats g
+LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
+WHERE g.tenant_id = $1::uuid
+  AND g.lifecycle_status != 'terminated'
+  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR park.location_id = $2::uuid)
+GROUP BY park.location_id, g.management_stage, g.sex
+`
+	headRows, err := r.pool.Query(ctx, cohortHeadSQL, q.TenantID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort head count query: %w", err)
+	}
+	defer headRows.Close()
+	type headKey struct{ parkID, stage, sex string }
+	headCounts := map[headKey]int{}
+	for headRows.Next() {
+		var parkIDValue, stage, sex string
+		var headCount int
+		if err := headRows.Scan(&parkIDValue, &stage, &sex, &headCount); err != nil {
+			return resp, fmt.Errorf("vaccination command board: cohort head count scan: %w", err)
+		}
+		headCounts[headKey{parkIDValue, stage, sex}] = headCount
+	}
+	if err := headRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort head count rows: %w", err)
+	}
+	for _, key := range cohortOrder {
+		cell := cohortAgg[key]
+		if head, ok := headCounts[headKey{cell.Cohort.ParkID, cell.Cohort.ManagementStage, cell.Cohort.Sex}]; ok {
+			cell.Cohort.AnimalCount = head
+		}
+	}
+
+	// 2b. Per-day administration split for the cohort cells.
+	// projection-review: membership=accepted vaccination_completions of the same tenant/batch/park obligations; group_key=park x management_stage x sex x dose_code x IST administered date; join_cardinality=goats 1:1 on target_id, protocol_rules 1:1 on rule_id, locations 1:1; pagination=bounded (one row per cohort-dose-DAY, days bounded by the drive window); scope=tenant + optional batch + optional park EXISTS
+	// (a) producer unique columns: (obligation_id, completion_id) accepted rows | consumer GROUP BY:
+	//     park.location_id, g.management_stage, g.sex, pr.dose_code, administered IST date.
+	// (b) join multiplicity: vaccination_completions is the MANY side and is the row source here, so
+	//     the animal count is COUNT(DISTINCT g.goat_id) — two accepted completions for the same
+	//     animal on the same day count that animal once. goats/protocol_rules/locations are 1:1.
+	// (c) ratio/cap check: none. This query only splits the cell's verified bucket by day; the
+	//     per-day counts range over the SAME key set as verified_count above plus the date, so
+	//     SUM(day counts) >= verified_count is expected only when an animal was dosed on two days
+	//     for the same dose — impossible for an accepted single dose, and the UI shows days, not a
+	//     re-derived total.
+	cohortDaySQL := `
+SELECT
+  COALESCE(park.location_id::text, '') as park_id,
+  g.management_stage,
+  g.sex,
+  pr.dose_code,
+  (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date as administered_date,
+  COUNT(DISTINCT g.goat_id) as animal_count
+FROM obligation_instances oi
+JOIN vaccination_completions vc ON vc.obligation_id = oi.obligation_id AND vc.tenant_id = oi.tenant_id AND vc.status = 'accepted'
+JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
+JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+LEFT JOIN locations shed ON oi.scope_id = shed.location_id AND oi.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
+WHERE oi.tenant_id = $1::uuid
+  AND vc.administered_at IS NOT NULL
+  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $3::uuid
+  ))
+  AND g.lifecycle_status != 'terminated'
+GROUP BY park.location_id, g.management_stage, g.sex, pr.dose_code, administered_date
+ORDER BY administered_date
+`
+	dayRows, err := r.pool.Query(ctx, cohortDaySQL, q.TenantID, q.DriveBatchID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort day query: %w", err)
+	}
+	defer dayRows.Close()
+	for dayRows.Next() {
+		var parkIDValue, stage, sex, doseCode string
+		var administeredDate pgtype.Date
+		var animalCount int
+		if err := dayRows.Scan(&parkIDValue, &stage, &sex, &doseCode, &administeredDate, &animalCount); err != nil {
+			return resp, fmt.Errorf("vaccination command board: cohort day scan: %w", err)
+		}
+		if !administeredDate.Valid {
+			continue
+		}
+		// Same cell key the cohort loop folds to, so a day row can only land on the cell it
+		// describes: dose codes collapse into the dose-qualified display label.
+		key := cohortKey{parkIDValue, stage, sex, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)}
+		cell, ok := cohortAgg[key]
+		if !ok {
+			continue
+		}
+		date := administeredDate.Time.Format("2006-01-02")
+		merged := false
+		for i := range cell.AdministeredDays {
+			if cell.AdministeredDays[i].Date == date {
+				// Two dose codes fold into one display label (ET+TT Dose 1 kid vs adult course):
+				// same cell, same day, so the day counts add.
+				cell.AdministeredDays[i].AnimalCount += animalCount
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			cell.AdministeredDays = append(cell.AdministeredDays, domain.CommandBoardCohortDay{Date: date, AnimalCount: animalCount})
+		}
+	}
+	if err := dayRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort day rows: %w", err)
+	}
+
+	// 2c. Dose-sequence exceptions: an animal holding an accepted LATER dose of the same vaccine
+	// course while THIS dose has no accepted completion. Reported on the missing dose's cell.
+	// projection-review: membership=obligation_instances of the same tenant/batch/park; group_key=park x management_stage x sex x dose_code; join_cardinality=goats 1:1, protocol_rules 1:1, accepted-later EXISTS (no fan-out), accepted-self NOT EXISTS; pagination=whole-cohort count + list capped in Go; scope=tenant + optional batch + optional park EXISTS
+	// (a) producer unique columns: obligation_id | consumer GROUP BY: park.location_id,
+	//     management_stage, sex, dose_code — plus the animal identity carried per row for the list.
+	// (b) join multiplicity: both dose-history probes are EXISTS/NOT EXISTS subqueries, so an
+	//     animal with three later accepted doses still contributes exactly ONE row.
+	// (c) key sets: the exception count ranges over the SAME park x stage x sex x dose key set as
+	//     verified_count, so "321 verified · 3 exceptions" compares like with like.
+	// Course family = the dose code with its position suffix removed (et_tt_adult_w1 -> et_tt_adult,
+	// fmd_kid_12w -> fmd_kid), so an adult Dose 2 never claims a kid-course Dose 1 is missing.
+	cohortExceptionSQL := `
+WITH dose_family AS (
+  SELECT
+    pr.tenant_id,
+    pr.rule_id,
+    pr.dose_code,
+    pr.sequence,
+    regexp_replace(pr.dose_code, '_(w[0-9]+|[0-9]+w|revac|booster|first)$', '') as family
+  FROM protocol_rules pr
+  WHERE pr.tenant_id = $1::uuid
+)
+SELECT
+  COALESCE(park.location_id::text, '') as park_id,
+  g.management_stage,
+  g.sex,
+  df.dose_code,
+  g.goat_id::text,
+  g.display_id,
+  COALESCE((
+    SELECT gi.identifier_value FROM goat_identifiers gi
+    WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+      AND gi.status = 'active' AND gi.is_primary_for_goat
+    LIMIT 1
+  ), '') as tag
+FROM obligation_instances oi
+JOIN goats g ON oi.target_id = g.goat_id AND oi.tenant_id = g.tenant_id
+JOIN dose_family df ON oi.rule_id = df.rule_id AND oi.tenant_id = df.tenant_id
+LEFT JOIN locations shed ON oi.scope_id = shed.location_id AND oi.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
+WHERE oi.tenant_id = $1::uuid
+  AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $2::uuid)
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $3::uuid
+  ))
+  AND g.lifecycle_status != 'terminated'
+  AND NOT EXISTS (
+    SELECT 1 FROM obligation_instances self_oi
+    JOIN vaccination_completions self_vc ON self_vc.obligation_id = self_oi.obligation_id AND self_vc.tenant_id = self_oi.tenant_id AND self_vc.status = 'accepted'
+    JOIN dose_family self_df ON self_oi.rule_id = self_df.rule_id AND self_oi.tenant_id = self_df.tenant_id
+    WHERE self_oi.tenant_id = oi.tenant_id AND self_oi.target_id = oi.target_id AND self_df.dose_code = df.dose_code
+  )
+  AND EXISTS (
+    SELECT 1 FROM obligation_instances later_oi
+    JOIN vaccination_completions later_vc ON later_vc.obligation_id = later_oi.obligation_id AND later_vc.tenant_id = later_oi.tenant_id AND later_vc.status = 'accepted'
+    JOIN dose_family later_df ON later_oi.rule_id = later_df.rule_id AND later_oi.tenant_id = later_df.tenant_id
+    WHERE later_oi.tenant_id = oi.tenant_id AND later_oi.target_id = oi.target_id
+      AND later_df.family = df.family AND later_df.sequence > df.sequence
+  )
+GROUP BY park.location_id, g.management_stage, g.sex, df.dose_code, g.goat_id, g.display_id, g.tenant_id
+ORDER BY g.display_id
+`
+	exceptionRows, err := r.pool.Query(ctx, cohortExceptionSQL, q.TenantID, q.DriveBatchID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort exception query: %w", err)
+	}
+	defer exceptionRows.Close()
+	for exceptionRows.Next() {
+		var parkIDValue, stage, sex, doseCode, goatID, displayID, tag string
+		if err := exceptionRows.Scan(&parkIDValue, &stage, &sex, &doseCode, &goatID, &displayID, &tag); err != nil {
+			return resp, fmt.Errorf("vaccination command board: cohort exception scan: %w", err)
+		}
+		key := cohortKey{parkIDValue, stage, sex, vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)}
+		cell, ok := cohortAgg[key]
+		if !ok {
+			continue
+		}
+		cell.MissingPriorDoseCount++
+		if len(cell.MissingPriorDoseGoats) < domain.CommandBoardCohortExceptionListCap {
+			cell.MissingPriorDoseGoats = append(cell.MissingPriorDoseGoats, domain.CommandBoardCohortAnimal{
+				GoatID:    goatID,
+				DisplayID: displayID,
+				Tag:       tag,
+			})
+		}
+	}
+	if err := exceptionRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: cohort exception rows: %w", err)
+	}
+
 	for _, key := range cohortOrder {
 		resp.CohortMatrix = append(resp.CohortMatrix, *cohortAgg[key])
 	}

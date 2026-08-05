@@ -855,7 +855,42 @@ type CommandBoardCohortCell struct {
 	// dose actually went in.
 	MinAdministeredDate *time.Time `json:"minAdministeredDate,omitempty"`
 	MaxAdministeredDate *time.Time `json:"maxAdministeredDate,omitempty"`
+	// AdministeredDays is the per-IST-business-day split of the VERIFIED doses behind
+	// MinAdministeredDate..MaxAdministeredDate. A two-day range reads "30 Jun–1 Jul" and hides
+	// that the operator gave 84 animals on the first day and 237 on the second; leadership asks
+	// for that split, so the board carries it instead of forcing a second query per cell.
+	// Ordered by date ascending. Empty when nothing is verified.
+	AdministeredDays []CommandBoardCohortDay `json:"administeredDays,omitempty"`
+	// MissingPriorDoseCount is the dose-sequence EXCEPTION for this cell: animals of this cohort
+	// that hold an accepted LATER dose of the same vaccine course while this dose has no accepted
+	// completion. "324 verified" and "321 verified with 3 animals whose Dose 1 was never accepted"
+	// are different medical facts and must not render identically.
+	MissingPriorDoseCount int `json:"missingPriorDoseCount"`
+	// MissingPriorDoseGoats names those animals, capped so a cell can never return an unbounded
+	// list. MissingPriorDoseCount stays the whole-cohort truth when the list is capped.
+	MissingPriorDoseGoats []CommandBoardCohortAnimal `json:"missingPriorDoseGoats,omitempty"`
 }
+
+// CommandBoardCohortDay is one business day of accepted administration inside a cohort × dose cell.
+type CommandBoardCohortDay struct {
+	// Date is the IST business date the dose actually went in (YYYY-MM-DD).
+	Date string `json:"date"`
+	// AnimalCount is DISTINCT animals dosed on that date in this cell.
+	AnimalCount int `json:"animalCount"`
+}
+
+// CommandBoardCohortAnimal identifies one animal behind a cell exception, in farm language.
+type CommandBoardCohortAnimal struct {
+	GoatID    string `json:"goatId"`
+	DisplayID string `json:"displayId"`
+	// Tag is the animal's primary visible tag when it has one, so the CEO can hand the list to a
+	// park head without a second lookup.
+	Tag string `json:"tag,omitempty"`
+}
+
+// CommandBoardCohortExceptionListCap bounds MissingPriorDoseGoats per cell. Exceptions are rare by
+// definition; a cell that somehow has thousands must still return a bounded page.
+const CommandBoardCohortExceptionListCap = 25
 
 // ShedDoseMatrixCell represents state of a shed × dose rule combination.
 type ShedDoseMatrixCell struct {
