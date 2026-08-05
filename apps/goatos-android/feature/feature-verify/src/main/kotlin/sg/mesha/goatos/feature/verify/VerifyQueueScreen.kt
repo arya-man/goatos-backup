@@ -573,7 +573,11 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMiss
                 stringResource(R.string.verify_module_vaccination)
             state.selectedModule == VerifyModuleTab.WEIGHING ->
                 stringResource(R.string.verify_module_weighing)
-            else -> stringResource(R.string.verify_queue_title)
+            // BLANK, not "Video verification". Before the module resolves there is no honest
+            // title to show, and the generic one flashed for a few frames on every cold start
+            // then swapped to the real module name -- the same draw-a-wrong-answer-first defect
+            // as the shimmer.
+            else -> ""
         },
         below = {
             SyncStatusIndicator(

@@ -146,14 +146,18 @@ class MainActivity : ComponentActivity() {
                     val wasAuthed = previousAuthed
                     previousAuthed = authed
                     when {
-                        !authed -> bootstrapViewModel.reset()
+                        authed == null -> Unit // session not read yet; decide nothing
+                        authed == false -> bootstrapViewModel.reset()
                         wasAuthed != true -> {
                             bootstrapViewModel.reset()
                             bootstrapViewModel.load()
                         }
                     }
                 }
-                if (!authed) {
+                if (authed == null) {
+                    // Session not read yet: show neither the app nor the login gate.
+                    BootstrapLoading()
+                } else if (authed == false) {
                     val uiState by sessionViewModel.uiState.collectAsStateWithLifecycle()
                     // dev flavor: local HS256 bearer; stg/prod: real Firebase Auth.
                     // LoginScreen itself renders the login-time device-permission gate
