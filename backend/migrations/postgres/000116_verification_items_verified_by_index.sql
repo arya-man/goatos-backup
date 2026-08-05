@@ -9,6 +9,8 @@
 -- partial index on verified_by IS NOT NULL matches that predicate exactly and carries park_id/
 -- category/verified_at as the trailing columns the view groups and buckets by, so the CEO
 -- aggregate reads an index-scoped slice of verification_items rather than the whole hot table.
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
+-- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
 CREATE INDEX CONCURRENTLY IF NOT EXISTS verification_items_verified_by_review_idx
     ON public.verification_items USING btree (tenant_id, verified_by, park_id, category, verified_at)
     WHERE verified_by IS NOT NULL;
