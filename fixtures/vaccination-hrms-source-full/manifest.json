@@ -242,5 +242,6 @@
     }
   ],
   "_coupling_review_2026_07_23_operator_config_replan": "migration 000036 obligation_operator_config_replan_watermarks is an operational idempotency-watermark table; no seed/source rows.",
-  "verify_duty_note": "Seed completeness now includes notification reachability: every module that enqueues a verification item must have at least one active verify-duty holder in scope, asserted by seed-position-duties' closeout. A seed that loads goats and roster correctly but leaves that empty is incomplete -- the verifier is never told a proof is waiting."
+  "verify_duty_note": "Seed completeness now includes notification reachability: every module that enqueues a verification item must have at least one active verify-duty holder in scope, asserted by seed-position-duties' closeout. A seed that loads goats and roster correctly but leaves that empty is incomplete -- the verifier is never told a proof is waiting.",
+  "notes": "2026-08-05: unaffected by the SOP rework-reopen change. This fixture describes IMPORT source shape only; an accepted task becoming rework_requested after a verifier rejection is post-import task state, not source data."
 }
