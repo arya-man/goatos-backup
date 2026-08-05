@@ -3,7 +3,9 @@ package ports
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -40,6 +42,23 @@ var (
 	// true of a malformed request, useless to an operator whose video is simply
 	// still uploading.
 	ErrProofNotReady = errors.New("weighing: proof not ready")
+
+// ErrReworkNotRecaptured is submit refusing a bucket that still holds an animal a
+// verifier SENT BACK. Re-capturing (a new weight or a new video) is what returns the
+// row to 'pending' and clears submitted_at; until then a re-submit of the unchanged
+// capture must not complete the bucket. It used to: the bucket went 'completed' while
+// the rejected animal stayed in 'rework' with no new verification item, so the
+// verifier's rejection was silently dropped and the work read as done.
+ErrReworkNotRecaptured = errors.New("weighing: rejected animal must be re-recorded before submit")
+
+	// ErrRejectedProofReuse is returned when an operator attempts to re-submit a shed
+	// observation using a proof that was already attached to a withdrawn or rework
+	// (rejection) observation for the same shed. The operator must record a new video.
+	// It is distinct from ErrProofNotReady (video still uploading) and ErrInvalidArgument
+	// (wrong type/shed/count) because this is not a problem the operator can wait out
+	// or fix by changing the request -- a new video is required.
+	ErrRejectedProofReuse = errors.New("weighing: rejected video cannot be re-used; record a new video")
+
 	// ErrDuplicateScan is returned when a scanned_identifier was already
 	// captured AND SUBMITTED in an earlier round for the same campaign_shed_id
 	// and business day. It is deliberately distinct from ErrIdempotencyConflict:
@@ -267,6 +286,8 @@ type Repository interface {
 	// (tenant-wide authority or an internal caller), NOT "authorized for nothing" --
 	// this port cannot tell those apart and the service is the layer that knows.
 	WeighingParks(ctx context.Context, tenantID string, parkIDs []string) ([]domain.WeighingPark, error)
+	// ListParks returns all active parks for a tenant, unrestricted by authorization scope.
+	ListParks(ctx context.Context, tenantID string) ([]domain.WeighingPark, error)
 	// PlannerCatalog is the PARK-grain planner read for ONE weigh date: EVERY park
 	// the planner may use, each with a park-grain shed COUNT (not shed rows), plus
 	// the operator picker. Bounded by domain.MaxPlannerParks; there is no park
@@ -363,6 +384,35 @@ type Repository interface {
 	// any expected-roster source -- weighing is free-flow, so there is no
 	// denominator to report against.
 	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
+
+	// GetWeightHistory returns weight observations per RFID across weigh days,
+	// scoped to authorizedParkIDs. If parkID is provided, results are narrowed to that park only.
+	// If campaignShedID is provided, results are further filtered to that shed.
+	//
+	// The response includes:
+	// - Complete park and shed vocabulary for the authorized scope (so the client can
+	//   render filter chips without a separate request)
+	// - Weight time series grouped by scanned_identifier, ordered by weigh date (oldest first)
+	// - Truncation flag if any cap is hit (max unique tags, max weigh days, or max points total)
+	//
+	// This is a bounded chart read, not an export: result caps are enforced and reported.
+	GetWeightHistory(ctx context.Context, tenantID string, authorizedParkIDs []string, parkID, campaignShedID string) (domain.WeightHistory, error)
+
+	// GetLeadershipGrowthADG returns the herd-level ADG (Average Daily Gain) read model
+	// aggregated across parkIDs (one park, or every park the caller is authorized to monitor)
+	// for one half-open period [periodStart, periodEnd), built from individual weighs only. See
+	// domain.GrowthADG for the full business-rule contract (goat_identifiers resolution,
+	// rejected-vs-pending handling, the same-timestamp-only pair exclusion -- there is NO
+	// weighing cadence rule -- and why lump-sum totals never feed per-animal ADG). parkIDs must
+	// be non-empty and every id must already be authorization-checked by the caller: this method
+	// does no scoping of its own.
+	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthADG, error)
+
+	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
+	// It streams CSV-formatted rows to the provided writer, including both individual
+	// and lump-sum observations, with verification status and proof references.
+	// The CSV includes a header row and is properly escaped for fields containing quotes/commas.
+	ExportCampaignCSV(ctx context.Context, tenantID, campaignID string, writer io.Writer) error
 }
 
 // VerificationVerdictStore is the narrow write side the weighing verdict consumer

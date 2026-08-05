@@ -24,10 +24,19 @@ import (
 type Repository struct {
 	pool         *pgxpool.Pool
 	queryTimeout time.Duration
+	proofURLs    ProofURLResolver
 }
 
 func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	return &Repository{pool: pool, queryTimeout: queryTimeout}
+}
+
+// WithProofURLResolver wires the CSV export's proof-video URL resolution. Without it,
+// ExportCampaignCSV still runs -- it just emits the raw storage reference plus a note saying no
+// resolver was configured, rather than a clickable URL.
+func (r *Repository) WithProofURLResolver(resolver ProofURLResolver) *Repository {
+	r.proofURLs = resolver
+	return r
 }
 
 // assertOperatorsScopedToPark refuses a bucket assigned to someone whose scope does not reach the
@@ -362,7 +371,43 @@ RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, sh
 				return domain.Campaign{}, err
 			}
 		}
+
+		// Sync the work item when a bucket's properties change. Cadence passes (day-start, roll-forward, delayed escalation) read operator_user_id
+		// from weighing_work_items.operator_user_id. If an edit reassigns the shed to a
+		// different operator, the old operator keeps getting nudged while the new one sees
+		// nothing. Similarly, park_id and shed_label (display_name) may have changed.
+		// Only sync non-terminal items (scheduled/delayed); completed/closed items stay frozen.
+		if _, err := tx.Exec(ctx, `
+	UPDATE weighing_work_items
+	SET operator_user_id=$3::uuid,
+	    park_id=$4::uuid,
+	    shed_label=$5,
+	    weighing_category=$6,
+	    updated_at=now()
+	WHERE tenant_id=$1::uuid
+	  AND campaign_shed_id=$2::uuid
+	  AND work_state IN ('scheduled','delayed')`, cmd.TenantID, campaignShedID, operatorID, cmd.ParkID, shed.DisplayName, shed.WeighingCategory); err != nil {
+			return domain.Campaign{}, err
+		}
 	}
+
+	// A bucket ADDED to an already-published campaign has no work item.
+	// createWorkItemsForPublishTx is only called from PublishCampaign, so an edit never
+	// backfills work items for new buckets. Since the bucket rows exist and the campaign
+	// is already published, the kernel's day-start pass will never surface them.
+	// Re-call createWorkItemsForPublishTx for the campaign: the ON CONFLICT ... DO NOTHING
+	// makes it idempotent, so existing buckets' work items are untouched and only new
+	// buckets get backfilled.
+	var campaignStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM weighing_campaigns WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid`, cmd.TenantID, campaignID).Scan(&campaignStatus); err != nil {
+		return domain.Campaign{}, err
+	}
+	if campaignStatus == "published" {
+		if _, err := r.createWorkItemsForPublishTx(ctx, tx, cmd.TenantID, campaignID); err != nil {
+			return domain.Campaign{}, err
+		}
+	}
+
 	c, err := r.getCampaignTx(ctx, tx, cmd.TenantID, campaignID)
 	if err != nil {
 		return domain.Campaign{}, err
@@ -2010,10 +2055,25 @@ func (r *Repository) RecordShedObservation(ctx context.Context, cmd domain.Recor
 	   -- completed/closed/canceled bucket back to completed.
 	   AND cs.status IN ('pending','in_progress')
 	  FOR NO KEY UPDATE OF cs
+	), rejected_proof_guard AS (
+	  -- Prevent re-using a proof that was attached to a verifier-rejected (rework)
+	  -- observation for this same bucket. The operator must record a new video.
+	  SELECT 1
+	  FROM scope
+	  WHERE NOT EXISTS (
+	    SELECT 1 FROM weighing_shed_observations rejected_obs
+	    JOIN weighing_shed_observation_proofs rejected_proofs
+	      ON rejected_proofs.shed_observation_id=rejected_obs.shed_observation_id
+	    WHERE rejected_obs.tenant_id=$1::uuid
+	      AND rejected_obs.campaign_shed_id=scope.campaign_shed_id
+	      AND rejected_obs.verification_status='rework'
+	      AND rejected_proofs.proof_artifact_id=ANY($5::uuid[])
+	  )
 	), proof_bundle AS (
 	  SELECT array_agg(proof.proof_id ORDER BY requested.proof_position) AS proof_ids
 	  FROM scope
 	  CROSS JOIN unnest($5::uuid[]) WITH ORDINALITY AS requested(proof_id, proof_position)
+	  JOIN rejected_proof_guard ON true
 	  JOIN proof_artifacts proof
 	    ON proof.tenant_id=$1::uuid
 	   AND proof.proof_id=requested.proof_id
@@ -2202,6 +2262,22 @@ WHERE cs.tenant_id=$1::uuid
 	if shedStatus != "pending" && shedStatus != domain.StatusInProgress {
 		return ports.ErrImmutable
 	}
+	// Named separately from scope-incompleteness: the operator HAS captured every
+	// animal, but a verifier sent one back and it has not been re-recorded yet.
+	var awaitingRework bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM weighing_observations observation
+  WHERE observation.tenant_id=$1::uuid
+    AND observation.campaign_id=$2::uuid
+    AND observation.campaign_shed_id=$3::uuid
+    AND observation.verification_status='rework'
+)`, tenantID, campaignID, campaignShedID).Scan(&awaitingRework); err != nil {
+		return fmt.Errorf("check individual scope rework rows: %w", err)
+	}
+	if awaitingRework {
+		return ports.ErrReworkNotRecaptured
+	}
 	var omitsObserved bool
 	if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
@@ -2325,6 +2401,20 @@ WHERE cs.tenant_id=$1::uuid
   -- not re-entrant against a completed bucket outside idempotency replay).
   AND cs.status IN ('pending','in_progress')
   AND cardinality($5::text[]) > 0
+  -- Rework gate: a REJECTED animal must be re-captured before this bucket can be
+  -- submitted again. Re-capture is what clears submitted_at and returns the row to
+  -- 'pending' (see the recapture UPDATE's submitted_at/verification_status CASE);
+  -- a re-submit of the UNCHANGED capture used to fall straight through here and mark
+  -- the bucket 'completed' while the rejected animal stayed in 'rework' forever, with
+  -- no new verification item ever raised. The verifier's rejection was silently
+  -- dropped and the bucket read as done.
+  AND NOT EXISTS (
+    SELECT 1 FROM weighing_observations rework_row
+    WHERE rework_row.tenant_id=cs.tenant_id
+      AND rework_row.campaign_id=cs.campaign_id
+      AND rework_row.campaign_shed_id=cs.campaign_shed_id
+      AND rework_row.verification_status='rework'
+  )
   AND NOT EXISTS (
     SELECT 1
     FROM unnest($5::text[]) AS captured(scanned_identifier)
@@ -3368,6 +3458,26 @@ WHERE campaign.tenant_id=$1::uuid
 		// Not this shed's videos (wrong type, wrong shed, wrong count). Genuinely a
 		// bad request, and it stays one.
 		return ports.ErrInvalidArgument
+	}
+	// Check if any proof in the bundle is attached to a verifier-rejected (rework)
+	// observation for this campaign_shed. If so, the operator must record a new video
+	// instead of re-using the rejected proof.
+	var rejectedProofReused bool
+	if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM weighing_shed_observations rejected_obs
+  JOIN weighing_shed_observation_proofs rejected_proofs
+    ON rejected_proofs.shed_observation_id=rejected_obs.shed_observation_id
+  WHERE rejected_obs.tenant_id=$1::uuid
+    AND rejected_obs.campaign_shed_id=$2::uuid
+    AND rejected_obs.verification_status='rework'
+    AND rejected_proofs.proof_artifact_id=ANY($3::uuid[])
+  LIMIT 1
+)`, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactIDs).Scan(&rejectedProofReused); err != nil {
+		return err
+	}
+	if rejectedProofReused {
+		return ports.ErrRejectedProofReuse
 	}
 	return ports.ErrNotFound
 }

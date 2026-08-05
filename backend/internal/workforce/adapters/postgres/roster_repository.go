@@ -691,11 +691,24 @@ const pushReachableDeviceSQL = `
 // using position_module_duties_by_module (tenant_id, module_code, duty_type), the active-seat index,
 // and workforce_member_devices_member_status_idx -- bounded, indexed, no N+1. Caller must pass
 // park/position/module scope, never tenant-wide.
+//
+// C-defect-A verifier gap (2026-08-04): unlike ResolvePositionRecipients (below), this query had NO
+// fallback to user_scope_grants, so a tenant whose 'verify' duty was never materialized into
+// position_module_duties (the exact gap PendingNotificationDutyModules/seed-position-duties exists
+// to close -- see that seeder's own doc comment) resolved to zero recipients, silently, even though
+// a 'verifier' role grant existed in user_scope_grants the whole time (confirmed live: Jyothi held
+// an active tenant-scope 'verifier' grant and received zero verification_pending pushes). This
+// mirrors the SAME grant_recipients fallback ResolvePositionRecipients already uses for leadership
+// seats (ceo_internal/pc_director/...), narrowly scoped to dutyType='verify' -- the one duty type
+// that has a matching user_scope_grants role today. A tenant-scope grant answers a park-scoped
+// (scope_type='center') call because verification review today is a single tenant-wide seat, not a
+// per-park one; extending this to per-park verifier grants is future work if that model changes.
 // scale-guard: bounded recipient fan-out LIMIT 1000 prevents unbounded device multi-device notifications.
 func (r *Repository) ResolveModuleDutyRecipients(ctx context.Context, tenantID, scopeType, scopeID, moduleCode, dutyType string, at time.Time) ([]domain.NotificationRecipient, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
+WITH duty_recipients AS (
 SELECT DISTINCT p.workforce_member_id::text, d.device_id::text, d.fcm_token
 FROM workforce_positions p
 JOIN position_module_duties pmd
@@ -720,6 +733,32 @@ WHERE p.tenant_id = $1::uuid
   AND p.status = 'active'
   AND p.valid_from <= $4::timestamptz
   AND (p.valid_to IS NULL OR p.valid_to > $4::timestamptz)
+), grant_recipients AS (
+SELECT DISTINCT m.workforce_member_id::text, d.device_id::text, d.fcm_token
+FROM user_scope_grants g
+JOIN workforce_members m
+  ON m.tenant_id = g.tenant_id
+ AND m.user_id = g.user_id
+ AND m.status = 'active'
+JOIN workforce_member_devices d
+  ON d.tenant_id = m.tenant_id
+ AND d.workforce_member_id = m.workforce_member_id
+`+pushReachableDeviceSQL+`
+WHERE $6 = 'verify'
+  AND g.tenant_id = $1::uuid
+  AND g.scope_type = 'tenant'
+  AND g.scope_id = $1::uuid
+  AND g.role = 'verifier'
+  AND g.status = 'active'
+  AND g.valid_from <= $7::timestamptz
+  AND (g.valid_to IS NULL OR g.valid_to > $7::timestamptz)
+)
+SELECT DISTINCT workforce_member_id, device_id, fcm_token
+FROM (
+  SELECT * FROM duty_recipients
+  UNION ALL
+  SELECT * FROM grant_recipients
+) recipients
 ORDER BY 1, 2
 LIMIT 1000`, tenantID, scopeType, scopeID, at, moduleCode, dutyType, at)
 	if err != nil {

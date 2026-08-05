@@ -134,3 +134,7 @@ func TestReopenScopeSurfacesVerificationWithdrawalFailure(t *testing.T) {
 		t.Fatalf("ReopenScope error=%v, want the withdrawal failure", err)
 	}
 }
+
+func (r *supersedingRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}

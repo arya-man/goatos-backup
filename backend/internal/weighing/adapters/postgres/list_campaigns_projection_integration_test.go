@@ -728,3 +728,142 @@ func TestWeighingObservationsCompletedCountEveryStatus(t *testing.T) {
 		}
 	}
 }
+
+// TestListCampaignsSoonestFirstOrder verifies that tasks are returned in ascending order
+// by weigh date (period_start_date), so the CEO sees today's work first.
+func TestListCampaignsSoonestFirstOrder(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Create campaigns on different dates in random order to test sorting
+	testDates := []string{
+		"2026-08-09", // Sunday (future)
+		"2026-08-05", // Wednesday (today)
+		"2026-08-07", // Friday (future)
+	}
+	campaignIDs := []string{}
+	for i, date := range testDates {
+		campaign := lcpUUID(50001 + i)
+		campaignIDs = append(campaignIDs, campaign)
+		bucket := lcpUUID(50101 + i)
+		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, date, domain.StatusPublished, repoOperator)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, repoOperator, 1, "pending")
+	}
+
+	// List campaigns and verify they come back in soonest-first order (ascending by date)
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaignsForOperator: %v", err)
+	}
+
+	// Should have our 3 campaigns plus the fixture campaign = 4 total
+	if len(page.Items) != 4 {
+		t.Fatalf("expected 4 campaigns, got %d", len(page.Items))
+	}
+
+	// Verify soonest-first order: dates should be in ascending order
+	var lastDate string
+	for i, campaign := range page.Items {
+		date := campaign.PeriodStartDate
+		if lastDate != "" && date < lastDate {
+			t.Fatalf("campaign %d: date %s < previous %s (not in soonest-first order)", i, date, lastDate)
+		}
+		lastDate = date
+	}
+
+	// Verify our campaigns are in the correct order
+	expectedOrder := []string{"2026-08-05", "2026-08-07", "2026-08-09"}
+	actualOrder := []string{}
+	for _, campaign := range page.Items {
+		// Skip the fixture campaign (it's from the seed fixture)
+		if campaign.ParkID == lcpParkCBE && (campaign.PeriodStartDate == "2026-09-14" || campaign.PeriodStartDate == "2026-08-05" || campaign.PeriodStartDate == "2026-08-07" || campaign.PeriodStartDate == "2026-08-09") {
+			actualOrder = append(actualOrder, campaign.PeriodStartDate)
+		}
+	}
+	if len(actualOrder) != 3 {
+		t.Fatalf("expected 3 CBE park campaigns in order, got %d: %v", len(actualOrder), actualOrder)
+	}
+	for i, expected := range expectedOrder {
+		if actualOrder[i] != expected {
+			t.Fatalf("order[%d]=%s, want %s", i, actualOrder[i], expected)
+		}
+	}
+}
+
+// TestListCampaignsOperatorScopingPreservedWithSoonestFirst verifies that operator
+// scoping predicate is maintained when we change to soonest-first ordering.
+func TestListCampaignsOperatorScopingPreservedWithSoonestFirst(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	grantOperatorParkScope(t, ctx, pool)
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	// Create campaigns assigned to different operators
+	dates := []string{"2026-08-05", "2026-08-07", "2026-08-09"}
+	for i, date := range dates {
+		campaign := lcpUUID(51001 + i)
+		bucket := lcpUUID(51101 + i)
+		// First two go to repoOperator, third goes to repoOtherOp
+		op := repoOperator
+		if i == 2 {
+			op = repoOtherOp
+		}
+		lcpInsertCampaign(t, ctx, pool, campaign, lcpParkCBE, date, domain.StatusPublished, op)
+		lcpInsertBucket(t, ctx, pool, bucket, campaign, lcpShedOne, domain.CategoryIndividualAnimal, op, 1, "pending")
+	}
+
+	// repoOperator should see only their own campaigns in soonest-first order
+	page, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOperator, "", "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaignsForOperator: %v", err)
+	}
+
+	// Count operators' campaigns in the result
+	var operatorCampaigns []domain.Campaign
+	for _, campaign := range page.Items {
+		if campaign.ParkID == lcpParkCBE && (campaign.PeriodStartDate == "2026-08-05" || campaign.PeriodStartDate == "2026-08-07" || campaign.PeriodStartDate == "2026-08-09") {
+			operatorCampaigns = append(operatorCampaigns, campaign)
+		}
+	}
+
+	if len(operatorCampaigns) != 2 {
+		t.Fatalf("expected 2 campaigns for repoOperator, got %d", len(operatorCampaigns))
+	}
+
+	// Verify soonest-first order (dates should be ascending)
+	if operatorCampaigns[0].PeriodStartDate != "2026-08-05" {
+		t.Fatalf("first campaign date=%s, want 2026-08-05", operatorCampaigns[0].PeriodStartDate)
+	}
+	if operatorCampaigns[1].PeriodStartDate != "2026-08-07" {
+		t.Fatalf("second campaign date=%s, want 2026-08-07", operatorCampaigns[1].PeriodStartDate)
+	}
+
+	// repoOtherOp should NOT see repoOperator's campaigns
+	otherPage, err := repo.ListCampaignsForOperator(ctx, repoTenant, repoOtherOp, "", "", 100)
+	if err != nil {
+		t.Fatalf("ListCampaignsForOperator (other): %v", err)
+	}
+
+	// repoOtherOp should see only the campaign dated 2026-08-09
+	var otherCampaigns []domain.Campaign
+	for _, campaign := range otherPage.Items {
+		if campaign.ParkID == lcpParkCBE && (campaign.PeriodStartDate == "2026-08-05" || campaign.PeriodStartDate == "2026-08-07" || campaign.PeriodStartDate == "2026-08-09") {
+			otherCampaigns = append(otherCampaigns, campaign)
+		}
+	}
+
+	if len(otherCampaigns) != 1 {
+		t.Fatalf("expected 1 campaign for repoOtherOp, got %d", len(otherCampaigns))
+	}
+	if otherCampaigns[0].PeriodStartDate != "2026-08-09" {
+		t.Fatalf("campaign date=%s, want 2026-08-09", otherCampaigns[0].PeriodStartDate)
+	}
+}

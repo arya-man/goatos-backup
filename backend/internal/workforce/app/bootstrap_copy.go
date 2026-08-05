@@ -146,7 +146,15 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// It also fixes the degenerate single-tab bar: an operator holding only
 			// WeighingExecute previously got [My work] alone, a switcher with nothing to
 			// switch to.
-			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 5}, //nav-composition:ignore: registry entry
+			// Weights and Growth are the PLANNER's read-outs, so they gate on WeighingPlan
+			// (CEO-only, see RoleGrowthDirector's own "NOT WeighingPlan" note), not on
+			// WeighingMonitor. Monitor is held by the Growth Director too, which put seven
+			// tabs in that role's bottom bar -- My work, Operators, Videos, Weights, Growth,
+			// Alerts, You -- for two destinations they do not own (maintainer ruling
+			// 2026-08-05). The Growth Director keeps My work / Operators / Videos / Alerts.
+			{key: "weights", labelKey: "nav.weights", href: "/weighing/weights", shared_key: "", priority: 5, requiredPermission: permissions.WeighingPlan}, //nav-composition:ignore: registry entry
+			{key: "growth", labelKey: "nav.growth", href: "/weighing/growth", shared_key: "", priority: 6, requiredPermission: permissions.WeighingPlan},    //nav-composition:ignore: registry entry
+			{key: "weighing_alerts", labelKey: "nav.alerts", href: "/weighing/alerts", shared_key: "", priority: 7},                                         //nav-composition:ignore: registry entry
 			{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100},
 		},
 		reviewContributions: []moduleNavContribution{
@@ -961,6 +969,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "My work",
 		"nav.tasks":            "Tasks",
 		"nav.operators":        "Operators",
+		"nav.weights":          "Weights",
+		"nav.growth":           "Growth",
 
 		"module.vaccination":    "Vaccination",
 		"module.weighing":       "Weighing",
@@ -998,6 +1008,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "मेरा काम",
 		"nav.tasks":            "कार्य",
 		"nav.operators":        "ऑपरेटर",
+		"nav.weights":          "वज़न",
+		"nav.growth":           "वृद्धि",
 
 		"module.vaccination":    "टीकाकरण",
 		"module.weighing":       "वजन",
@@ -1035,6 +1047,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "ನನ್ನ ಕೆಲಸ",
 		"nav.tasks":            "ಕಾರ್ಯಗಳು",
 		"nav.operators":        "ಆಪರೇಟರ್‌ಗಳು",
+		"nav.weights":          "ತೂಕ",
+		"nav.growth":           "ಬೆಳವಣಿಗೆ",
 
 		"module.vaccination":    "ಲಸಿಕೆ",
 		"module.weighing":       "ತೂಕ",
@@ -1072,6 +1086,8 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.my_work":          "నా పని",
 		"nav.tasks":            "పనులు",
 		"nav.operators":        "ఆపరేటర్లు",
+		"nav.weights":          "బరువులు",
+		"nav.growth":           "పెరుగుదల",
 
 		"module.vaccination":    "టీకా",
 		"module.weighing":       "బరువు",

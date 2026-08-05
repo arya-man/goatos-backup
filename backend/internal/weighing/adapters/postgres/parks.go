@@ -81,3 +81,37 @@ LIMIT $3`, tenantID, authorized, domain.MaxPlannerParks+1)
 	}
 	return out, nil
 }
+
+// ListParks returns all active parks for a tenant.
+func (r *Repository) ListParks(ctx context.Context, tenantID string) ([]domain.WeighingPark, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+SELECT park.location_id::text, park.name
+FROM locations park
+WHERE park.tenant_id=$1::uuid
+  AND park.location_type='park'
+  AND park.status='active'
+  AND park.retired_at IS NULL
+ORDER BY park.display_order, park.name, park.location_id
+LIMIT $2`, tenantID, domain.MaxPlannerParks+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.WeighingPark{}
+	for rows.Next() {
+		var park domain.WeighingPark
+		if err := rows.Scan(&park.ParkID, &park.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, park)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) > domain.MaxPlannerParks {
+		return nil, fmt.Errorf("weighing: tenant %s has more than %d weighing parks; the park chip row is unpaged and would silently omit the rest", tenantID, domain.MaxPlannerParks)
+	}
+	return out, nil
+}

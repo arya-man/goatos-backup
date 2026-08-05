@@ -36,6 +36,12 @@ type recordedAlertsCall struct {
 	limit          int
 }
 
+// ListParks satisfies ports.Repository. This fake covers the alerts path only, so the park list
+// is empty rather than fabricated -- an alerts assertion must never depend on invented parks.
+func (r *recordingAlertsRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
 func (r *recordingAlertsRepo) ListAlerts(
 	_ context.Context,
 	tenantID, memberOrUserID string,

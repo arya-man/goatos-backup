@@ -273,3 +273,15 @@ func TestListCampaignsAsksMultiParkActorToChooseWithAnActionableError(t *testing
 		t.Fatal("must not be ErrInvalidArgument -- the request was well formed")
 	}
 }
+
+func (r *plannerCatalogRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
+func (r *listScopeRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
+
+func (r *plannerOperatorRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
+	return nil, nil
+}
