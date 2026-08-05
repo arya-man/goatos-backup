@@ -118,7 +118,7 @@ func TestPartitionRollupCardinalityOneToMany(t *testing.T) {
 	for i, n := range []int64{49, 37, 40, 44, 9, 8, 7, 5} {
 		rows = append(rows, CountsBreakdownRow{
 			ParkID: strp(parkID), ShedID: strp(shedID), ShedLabel: "Godel 1",
-			PartitionLabel: string(rune('0'+i+1)), ManagementStage: "K1", Breed: "boer", Sex: "male", Count: n,
+			PartitionLabel: string(rune('0' + i + 1)), ManagementStage: "K1", Breed: "boer", Sex: "male", Count: n,
 		})
 		want += n
 	}

@@ -2824,6 +2824,7 @@ WHERE g.tenant_id = $1::uuid
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.management_stage, '')
 UNION ALL
+-- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a breed predicate (a facet must never filter by its own dimension); group_key=breed alone -- this branch carries no location grain at all, and the two trailing ''::text columns exist only to keep every UNION branch the same arity now that the shed branches also emit a partition label; join_cardinality=no joins in this branch, so nothing can fan out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
 SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text, ''::text
 FROM goats g
 WHERE g.tenant_id = $1::uuid
@@ -2831,6 +2832,7 @@ WHERE g.tenant_id = $1::uuid
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.breed, '')
 UNION ALL
+-- projection-review: membership=canonical live goats for the tenant, deliberately WITHOUT a park predicate (a facet must never filter by its own dimension); group_key=park_id alone -- no shed or partition grain in this branch; join_cardinality=locations LEFT JOINed once on its (tenant_id, location_id) primary key for the park label, 1:{0,1}, no fan-out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch. The two trailing ''::text columns keep UNION arity aligned with the shed branches, which now also emit a partition label.
 SELECT 'park', COALESCE(g.park_id::text, ''),
        COALESCE(NULLIF(park.location_code, ''), park.name, ''),
        count(*), ''::text, ''::text
@@ -2845,6 +2847,7 @@ UNION ALL
 -- partition. shed_id is the parent physical shed on every goats row -- never the inactive alias
 -- location -- so this branch already excludes inactive alias rows by construction (it never joins
 -- locations by name).
+-- projection-review: membership=canonical live goats for the tenant (no shed/partition self-filter, because a facet must never filter by its own dimension); group_key=(shed_id, park_id) for this PARENT-SHED aggregate option, deliberately WITHOUT the partition -- the per-partition options are separate UNION branches below, so the two never overlap and cannot double count; join_cardinality=locations LEFT JOINed once on its (tenant_id, location_id) primary key, 1:{0,1} label lookup, no fan-out; pagination=whole-result rollup, never paged and never capped; scope=tenant_id plus the lifecycle predicate shared by every facet branch
 SELECT 'shed', COALESCE(g.shed_id::text, ''),
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        count(*), COALESCE(g.park_id::text, ''), ''
