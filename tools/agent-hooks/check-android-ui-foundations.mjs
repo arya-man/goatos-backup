@@ -248,8 +248,12 @@ function architectureFindings(read = (rel) => fs.readFileSync(path.join(sourceRo
 
   const shedsScreen = "apps/goatos-android/feature/feature-sheds/src/main/kotlin/sg/mesha/goatos/feature/sheds/ShedsScreen.kt";
   findings.push(...requirePatterns(shedsScreen, read(shedsScreen), [
-    [/LoadingSkeletonList/, "vaccination sheds cold-load content must use skeleton/shimmer placeholders"],
-    [/state\.isInitialLoading[\s\S]{0,180}state\.rows\.isEmpty\(\)/, "vaccination sheds loading skeleton must be gated by explicit initial-loading state, not loading copy"],
+    // The shimmer placeholder is GONE by maintainer instruction: it flashed in and straight back
+    // out on every navigation, and its replacement is the app bar's spinning SyncIconButton. What
+    // still has to hold is the gate -- the screen must not draw an answer (content OR an empty
+    // state) before a fetch has completed, which is what hasLoadedOnce guarantees. Requiring the
+    // skeleton itself here would re-mandate the flicker this rule now exists to prevent.
+    [/state\.rows\.isEmpty\(\)[\s\S]{0,80}!state\.hasLoadedOnce/, "vaccination sheds cold load must render nothing until a fetch has completed (rows.isEmpty && !hasLoadedOnce), so no empty state is drawn before an answer exists"],
   ]));
 
   const shedsVm = "apps/goatos-android/app/src/main/kotlin/sg/mesha/goatos/viewmodel/ShedsViewModel.kt";
