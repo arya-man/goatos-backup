@@ -86,7 +86,7 @@ count=0
 count=\$((count + 1))
 printf '%s\n' "\$count" >"$tmp/reuse-ci-count"
 sha="\$(git rev-parse HEAD)"
-node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "\$sha" --mode all
+node "$repo/tools/ci/check-local-ci-evidence.mjs" --record "\$sha" --mode all --base "\$(git rev-parse origin/main)" --screenshots skipped
 if [ "\$count" -eq 1 ]; then
   printf 'reuse race\n' >"$tmp/reuse-publisher/reuse-race.txt"
   git -C "$tmp/reuse-publisher" add reuse-race.txt
