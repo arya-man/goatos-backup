@@ -50,4 +50,8 @@
         <item quantity="one">%1$d आइटम सिंक हो रहा है</item>
         <item quantity="other">%1$d आइटम सिंक हो रहे हैं</item>
     </plurals>
+    <string name="scan_submit_confirmation_title">इस शेड को अंतिम रूप दें?</string>
+    <string name="scan_submit_confirmation_subtitle">अंतिम रूप देने के बाद, यह शेड कार्य लॉक हो जाता है। आप इसे स्वयं फिर से नहीं खोल सकते — केवल एक प्रबंधक या निदेशक ही खोल सकता है।</string>
+    <string name="scan_submit_confirmation_dismiss">रद्द करें</string>
+    <string name="scan_submit_confirmation_confirm">अंतिम रूप दें</string>
 </resources>

@@ -110,8 +110,14 @@ class BootstrapViewModel @Inject constructor(
                     // (DefaultBootstrapRepository.loadNavState's ConnectivityFailure branch) —
                     // best-effort inferred from connectivity AT THIS MOMENT, since the
                     // repository itself does not report which path it took.
+                    // exception:exempt role is a DECORATION on an event that must still be
+                    // emitted. Failing to read the cached profile must never suppress
+                    // bootstrap_loaded itself; the event simply carries no role.
                     val role = runCatching { repo.operatorProfile() }.getOrNull()?.primaryRoleHint?.ifBlank { null }
                     val moduleKeys = navState.modules.map { it.key }.sorted().joinToString(",")
+                    // exception:exempt a connectivity probe that throws is itself evidence of
+                    // no usable network, which is exactly what `false` encodes here. There is no
+                    // second source to consult and the event must still be emitted.
                     val offline = runCatching { !connectivityGate.isOnline() }.getOrDefault(false)
                     analytics.track(
                         AnalyticsEvents.BOOTSTRAP_LOADED,
@@ -144,6 +150,9 @@ class BootstrapViewModel @Inject constructor(
                         }
                     }
 
+                    // exception:exempt a connectivity probe that throws is itself evidence of
+                    // no usable network, which is exactly what `false` encodes here. There is no
+                    // second source to consult and the event must still be emitted.
                     val offline = runCatching { !connectivityGate.isOnline() }.getOrDefault(false)
                     analytics.track(
                         AnalyticsEvents.BOOTSTRAP_FAILED,
@@ -181,19 +190,25 @@ class BootstrapViewModel @Inject constructor(
      * or not email resolves — that call is unconditional, a few lines below.
      */
     private suspend fun applyAnalyticsIdentity() {
+        // exception:exempt first launch has no persisted id yet; a null is handled by the caller and recording here would fire on every clean install
         val profile = runCatching { repo.operatorProfile() }.getOrNull()
+        // exception:exempt same first-launch ambiguity as the line above
         val tenantId = runCatching { repo.actorTenantId() }.getOrNull()
         val role = profile?.primaryRoleHint?.ifBlank { null }
         val park = profile?.primaryLocation?.ifBlank { null }
         val parkId = profile?.primaryLocationId?.ifBlank { null }
         val memberId = profile?.operatorId?.ifBlank { null }
         // Signed-in user's email (business-owner decision: primary user identity dimension).
+        // exception:exempt a connectivity probe that throws IS evidence of no usable network, which is what false encodes; no second source to consult
         val email = runCatching { authRepository.currentEmail() }.getOrNull()?.ifBlank { null }
         // Identity has ONE owner: the Application resolves it at start, before the first event.
         // This reads what is already there and only falls back to the store if that coroutine has
         // not landed yet. Re-deriving it here unconditionally made two concurrent resolvers of the
         // same ids, and the events already stamped with the first value would no longer match the
         // value that finally persisted -- splitting the very session the journey id exists to join.
+        // exception:exempt these are the SAME first-launch-vs-failure ambiguity as in
+        // GoatOsApplication: a null id is handled by the caller, and recording a throwable here
+        // would fire on every clean install where the id has not been minted yet.
         val deviceId = analyticsContext.deviceId
             ?: runCatching { deviceStore.appInstallId() }.getOrNull()?.ifBlank { null }
         val journeyId = analyticsContext.journeyId

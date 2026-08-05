@@ -97,7 +97,7 @@ class VerifyDetailViewModel @Inject constructor(
     // fired with EVIDENCE_UNAVAILABLE this screen visit — the entry map is recomputed on every
     // Room emission, so without this the event would fire once per recomposition/emission
     // instead of once per genuine transition into "stuck" state.
-    private val trackedEvidenceUnavailableItemIds = mutableSetOf<String>()
+    private val trackedEvidenceUnavailableItemIds = mutableSetOf<String>() // mobile-guard:ignore: bounded by this screen's item set (single shed/queue scope), cleared with the ViewModel on screen exit
 
     // Dead-control watchdog for the play/pause control (docs/observability/
     // TELEMETRY_GUARDRAILS.md): one per proof id so two clips in the same shed group never share

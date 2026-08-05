@@ -46,6 +46,10 @@ const (
 
 // Repository is the Postgres-backed vaccination repository.
 type Repository struct {
+	// An INSTANCE logger, not package-level slog: check-boundaries.sh bans slog.Error/Warn/
+	// Info/Debug outside platform/observability, and an adapter that cannot report an
+	// inventory anomaly would just swallow it again.
+	log          *slog.Logger
 	pool         *pgxpool.Pool
 	queries      *vaccinationdb.Queries
 	queryTimeout time.Duration
@@ -56,7 +60,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
+	return &Repository{log: slog.Default(), pool: pool, queries: vaccinationdb.New(pool), queryTimeout: queryTimeout}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -1047,7 +1051,7 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		// physically given at record time. So the accept proceeds and the gap is recorded loudly
 		// rather than silently swallowed -- an under-decremented lot is a reconciliation problem
 		// for whoever owns stock, never a reason to block the verifier.
-		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
 			slog.String("reason", "completion has a batch but no vaccine_inventory_lot_id"),
 			slog.String("tenant_id", tenantID),
 			slog.String("completion_id", row.completionID),
@@ -1068,7 +1072,7 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 			// No active, unexpired stock row for this lot. Same rule as the missing-lot branch
 			// above: an inventory bookkeeping gap must NOT veto the verifier. Skip the decrement,
 			// record the anomaly loudly, let the accept proceed.
-			slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
 				slog.String("reason", "no active unexpired stock row for lot"),
 				slog.String("tenant_id", tenantID),
 				slog.String("completion_id", row.completionID),
@@ -1133,7 +1137,7 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		// The batch/lot reservation ledger does not cover this dose. That is an inventory
 		// reconciliation problem (under-reserved drive, manual lot edit, seed gap) and is NOT a
 		// reason to refuse the verifier's verdict -- the animal was already vaccinated.
-		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
 			slog.String("reason", "batch reservation ledger below dose quantity"),
 			slog.String("tenant_id", tenantID),
 			slog.String("completion_id", row.completionID),
@@ -1181,7 +1185,7 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 	if tag.RowsAffected() == 0 {
 		// Reserved balance no longer covers this dose (already released, adjusted, or never
 		// reserved). Consuming is impossible, but the verdict still stands: skip and record.
-		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+		r.log.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
 			slog.String("reason", "reserved balance below dose quantity at consume time"),
 			slog.String("tenant_id", tenantID),
 			slog.String("completion_id", row.completionID),

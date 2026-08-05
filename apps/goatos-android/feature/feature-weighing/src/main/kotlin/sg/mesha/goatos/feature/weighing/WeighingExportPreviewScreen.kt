@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.Composable
@@ -254,7 +255,9 @@ private fun WeighingExportPreviewError(message: String, onRetry: () -> Unit) {
             text = stringResource(R.string.weighing_export_preview_retry),
             color = MeshaColors.BrandD,
             style = MeshaType.cta,
-            modifier = Modifier.clickable(onClick = onRetry),
+            modifier = Modifier
+                .minimumInteractiveComponentSize()
+                .clickable(onClick = onRetry),
         )
     }
 }
@@ -403,10 +406,7 @@ private fun ShedSearchField(query: String, onQueryChange: (String) -> Unit) {
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = androidx.compose.ui.text.TextStyle(
-                    color = MeshaColors.Ink,
-                    fontSize = MeshaType.cardSubtitle.fontSize,
-                ),
+                textStyle = MeshaType.cardSubtitle.copy(color = MeshaColors.Ink),
                 cursorBrush = androidx.compose.ui.graphics.SolidColor(MeshaColors.BrandD),
                 modifier = Modifier
                     .fillMaxWidth()

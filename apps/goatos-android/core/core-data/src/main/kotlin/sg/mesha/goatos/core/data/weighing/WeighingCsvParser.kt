@@ -41,7 +41,7 @@ data class WeighingCsvExportRow(
  * showing 90% of the sheet correctly is far safer than one silently misreading a data row.
  */
 fun parseWeighingExportCsv(bytes: ByteArray): List<WeighingCsvExportRow> {
-    val rows = mutableListOf<List<String>>()
+    val rows = mutableListOf<List<String>>() // mobile-guard:ignore: function-local, bounded by the input ByteArray's own size and discarded on return
     val field = StringBuilder()
     var row = mutableListOf<String>()
     var inQuotes = false

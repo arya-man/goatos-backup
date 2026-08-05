@@ -607,8 +607,8 @@ type Observation struct {
 	// but the scope roster used to serialize neither field, and a sent-back tag looked exactly
 	// like the ones that were accepted. The operator could see "rework 1" on the shed card and
 	// still have no way to know which animal to weigh again.
-	VerificationStatus  string       `json:"verification_status,omitempty"`
-	ReworkReason        string       `json:"rework_reason,omitempty"`
+	VerificationStatus string `json:"verification_status,omitempty"`
+	ReworkReason       string `json:"rework_reason,omitempty"`
 	// Superseded is true when this capture UPDATED an existing, not-yet-submitted
 	// (or verifier-reworked) evidence row in place, rather than inserting a fresh
 	// one. It is the signal the service layer uses to advance the observation's

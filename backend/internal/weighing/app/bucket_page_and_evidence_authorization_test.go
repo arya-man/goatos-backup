@@ -279,4 +279,3 @@ func (r *parkMovingRepo) ListParks(context.Context, string) ([]domain.WeighingPa
 func (r *singleTaskRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }
-

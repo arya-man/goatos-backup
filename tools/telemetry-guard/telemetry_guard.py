@@ -250,13 +250,21 @@ def check_surface(
     check_added = surface_cfg.get("check_added", True)
     check_modified = surface_cfg.get("check_modified", True)
     check_new_feature_files = surface_cfg.get("check_new_feature_files", False)
+    new_file_extensions = surface_cfg.get("new_file_extensions", [])
+    new_file_excludes = surface_cfg.get("new_file_excludes", [])
 
     for status, relpath in candidates:
         is_glob_match = matches_any_glob(relpath, globs)
+        # A new file under a feature package only needs telemetry if it can actually EMIT any:
+        # the rule flagged mesha_logo.png in five drawable densities and a reusable
+        # SubmitConfirmationDialog, none of which is a screen. Excludes are declarative so the
+        # next reader can see what is deliberately out of scope rather than re-deriving it.
         is_new_feature = (
             check_new_feature_files
             and status in ("A", "X")
             and is_new_feature_file(relpath, scope_root, new_file_markers)
+            and (not new_file_extensions or relpath.endswith(tuple(new_file_extensions)))
+            and not matches_any_glob(relpath, new_file_excludes)
         )
 
         if is_glob_match:

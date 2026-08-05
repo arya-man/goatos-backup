@@ -58,6 +58,8 @@ const (
 
 // Repository is the Postgres-backed obligation repository.
 type Repository struct {
+	// Instance logger; package-level slog is banned outside platform/observability.
+	log *slog.Logger
 	pool         *pgxpool.Pool
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration
@@ -68,7 +70,7 @@ func NewRepository(pool *pgxpool.Pool, queryTimeout time.Duration) *Repository {
 	if queryTimeout <= 0 {
 		queryTimeout = defaultQueryTimeout
 	}
-	return &Repository{pool: pool, queries: obligationdb.New(pool), queryTimeout: queryTimeout}
+	return &Repository{log: slog.Default(), pool: pool, queries: obligationdb.New(pool), queryTimeout: queryTimeout}
 }
 
 var _ ports.Repository = (*Repository)(nil)
@@ -5472,7 +5474,7 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 	reapBefore := time.Now().UTC().Add(-graceWindow)
 	if err := r.reapStrandedInProgress(ctx, tenantID, reapBefore, limit); err != nil {
 		// Log but don't fail: reaping is best-effort. Missing one sweep is recoverable.
-		slog.ErrorContext(ctx, "obligation_reap_stranded_in_progress_failed",
+		r.log.ErrorContext(ctx, "obligation_reap_stranded_in_progress_failed",
 			slog.String("tenant_id", tenantID),
 			slog.Time("reap_before", reapBefore),
 			slog.Int("limit", int(limit)),

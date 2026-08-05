@@ -169,6 +169,8 @@
     <string name="weighing_task_mark_complete">ಕೆಲಸ ಪೂರ್ಣ ಎಂದು ಗುರುತಿಸಿ</string>
     <string name="weighing_task_repeat">ಈ ಕೆಲಸವನ್ನು ಬೇರೆ ದಿನಾಂಕದಲ್ಲಿ ಪುನರಾವರ್ತಿಸಿ</string>
     <string name="weighing_task_repeat_blocked">ಬೇರೆ ದಿನಾಂಕದಲ್ಲಿ ಇಡಬಹುದಾದ ಶೆಡ್ ಗುಂಪು ಈ ಕೆಲಸದಲ್ಲಿ ಇಲ್ಲ</string>
+    <string name="weighing_task_edit">ಕೆಲಸ ಸಂಪಾದಿಸಿ</string>
+    <string name="weighing_task_edit_blocked">ಈ ಕೆಲಸ ಮುಚ್ಚಲ್ಪಟ್ಟಿದೆ ಮತ್ತು ಇನ್ನು ಬದಲಾಯಿಸಲಾಗುವುದಿಲ್ಲ</string>
     <string name="weighing_task_all_operators">ಎಲ್ಲಾ ಆಪರೇಟರ್‌ಗಳು</string>
     <string name="weighing_task_shed_operator_fmt">ಆಪರೇಟರ್ · %1$s</string>
     <string name="weighing_task_operator_chip_fmt">%1$s · %2$s</string>
@@ -204,6 +206,8 @@
     <string name="weighing_wizard_cancel">ರದ್ದುಗೊಳಿಸಿ</string>
     <string name="weighing_wizard_back">ಹಿಂದೆ</string>
     <string name="weighing_wizard_save_draft">ಕರಡು ಉಳಿಸಿ</string>
+    <string name="weighing_wizard_save_changes">ಬದಲಾವಣೆಗಳನ್ನು ಉಳಿಸಿ</string>
+    <string name="weighing_wizard_edit_title">ವಜ಼ನ್ ಕೆಲಸವನ್ನು ಸಂಪಾದಿಸಿ</string>
     <string name="weighing_wizard_publish">ಪ್ರಕಟಿಸಿ</string>
     <string name="weighing_wizard_continue">ಮುಂದುವರಿಸಿ</string>
     <string name="weighing_wizard_step_fmt">ಹಂತ %1$d / %2$d · %3$s</string>

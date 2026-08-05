@@ -1,8 +1,8 @@
 package httpmiddleware
 
 import (
-	"strings"
 	"context"
+	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/localization"

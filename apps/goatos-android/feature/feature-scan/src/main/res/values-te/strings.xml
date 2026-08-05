@@ -50,4 +50,8 @@
         <item quantity="one">%1$d ఐటెం సింక్ అవుతోంది</item>
         <item quantity="other">%1$d ఐటెంలు సింక్ అవుతున్నాయి</item>
     </plurals>
+    <string name="scan_submit_confirmation_title">ఈ షెడ్‌ను ఖరారు చేయాలా?</string>
+    <string name="scan_submit_confirmation_subtitle">ఖరారు చేసిన తర్వాత, ఈ షెడ్ పని లాక్ అవుతుంది. మీరు దీన్ని మీరే మళ్లీ తెరవలేరు — ఒక మేనేజర్ లేదా డైరెక్టర్ మాత్రమే తెరవగలరు.</string>
+    <string name="scan_submit_confirmation_dismiss">రద్దు చేయండి</string>
+    <string name="scan_submit_confirmation_confirm">ఖరారు చేయండి</string>
 </resources>

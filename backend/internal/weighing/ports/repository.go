@@ -43,13 +43,13 @@ var (
 	// still uploading.
 	ErrProofNotReady = errors.New("weighing: proof not ready")
 
-// ErrReworkNotRecaptured is submit refusing a bucket that still holds an animal a
-// verifier SENT BACK. Re-capturing (a new weight or a new video) is what returns the
-// row to 'pending' and clears submitted_at; until then a re-submit of the unchanged
-// capture must not complete the bucket. It used to: the bucket went 'completed' while
-// the rejected animal stayed in 'rework' with no new verification item, so the
-// verifier's rejection was silently dropped and the work read as done.
-ErrReworkNotRecaptured = errors.New("weighing: rejected animal must be re-recorded before submit")
+	// ErrReworkNotRecaptured is submit refusing a bucket that still holds an animal a
+	// verifier SENT BACK. Re-capturing (a new weight or a new video) is what returns the
+	// row to 'pending' and clears submitted_at; until then a re-submit of the unchanged
+	// capture must not complete the bucket. It used to: the bucket went 'completed' while
+	// the rejected animal stayed in 'rework' with no new verification item, so the
+	// verifier's rejection was silently dropped and the work read as done.
+	ErrReworkNotRecaptured = errors.New("weighing: rejected animal must be re-recorded before submit")
 
 	// ErrRejectedProofReuse is returned when an operator attempts to re-submit a shed
 	// observation using a proof that was already attached to a withdrawn or rework

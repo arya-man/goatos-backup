@@ -375,7 +375,7 @@ object AnalyticsFunnels {
     fun trackVerifyQueueLoadMore(analytics: AnalyticsPort, category: String, rowCount: Int) {
         safeTrack(
             analytics,
-            AnalyticsEvents.VERIFY_QUEUE_LOAD_MORE,
+            AnalyticsEvents.VERIFY_QUEUE_LOAD_MORE, // mobile-guard:ignore: analytics event name for auto-triggered keyset paging, not a tappable UI control
             mapOf(Params.CATEGORY to category, Params.ROW_COUNT to rowCount.toString()),
         )
     }

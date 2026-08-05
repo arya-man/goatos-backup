@@ -283,7 +283,7 @@ object AnalyticsEvents {
     const val VERIFY_QUEUE_FILTER_APPLIED = "verify_queue_filter_applied"
 
     /** The verifier scrolled near the end of the queue and the next keyset page was requested. */
-    const val VERIFY_QUEUE_LOAD_MORE = "verify_queue_load_more"
+    const val VERIFY_QUEUE_LOAD_MORE = "verify_queue_load_more" // mobile-guard:ignore: analytics event name for auto-triggered keyset paging, not a tappable UI control
 
     /**
      * ONE summary per queue-screen exit — never per scroll frame, which would drown the funnel
