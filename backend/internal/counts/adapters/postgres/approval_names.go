@@ -5,21 +5,24 @@ import (
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // ResolveApprovalNames implements ports.ApprovalNameResolver.
 //
-// TWO queries for the whole page, never one per row. The queue page is capped at 20 rows and each
-// row can name a raiser and a destination shed, so a per-row lookup would turn one phone screen
-// into up to 41 serial reads -- the N+1 fan-out banned by docs/decisions/scale-anti-patterns.go.
-// Both predicates keep the indexed uuid column BARE and cast the bound array instead
-// (`location_id = ANY($2::uuid[])`), because a column-side `::text` cast would disable the index.
+// THREE queries for the whole page, never one per row. The queue page is capped at 20 rows and
+// each row can name a raiser, a destination shed, and (for a death) the subject animal's location,
+// so a per-row lookup would turn one phone screen into dozens of serial reads -- the N+1 fan-out
+// banned by docs/decisions/scale-anti-patterns.go. Every predicate keeps the indexed uuid column
+// BARE and casts the bound array instead (`location_id = ANY($2::uuid[])`), because a column-side
+// `::text` cast would disable the index.
 //
-// Both id sets are bounded by the page size, so the arrays are small by construction.
-func (r *Repository) ResolveApprovalNames(ctx context.Context, tenantID string, locationIDs, userIDs []string) (ports.ApprovalDisplayNames, error) {
+// All three id sets are bounded by the page size, so the arrays are small by construction.
+func (r *Repository) ResolveApprovalNames(ctx context.Context, tenantID string, locationIDs, userIDs, goatIDs []string) (ports.ApprovalDisplayNames, error) {
 	out := ports.ApprovalDisplayNames{
-		Locations: map[string]string{},
-		People:    map[string]string{},
+		Locations:       map[string]string{},
+		People:          map[string]string{},
+		AnimalLocations: map[string]string{},
 	}
 	if r == nil || r.pool == nil || strings.TrimSpace(tenantID) == "" {
 		return out, nil
@@ -79,7 +82,61 @@ WHERE tenant_id = $1::uuid AND user_id = ANY($2::uuid[])`, tenantID, users)
 		}
 	}
 
+	if goats := dedupeNonBlank(goatIDs); len(goats) > 0 {
+		// A death is terminal and ExitGoat never touches goats.shed_id/park_id, so the animal's
+		// CURRENT row is still where it was at time of death -- read-time resolution, no payload
+		// snapshot needed. goat_shed_partitions is PK (tenant_id, goat_id), a 1:{0,1} join, so this
+		// stays a single set-based read with no fan-out.
+		rows, err := r.pool.Query(ctx, `
+SELECT g.goat_id::text,
+       COALESCE(NULLIF(park.name, ''), park.location_code, '') AS park_name,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') AS shed_name,
+       gsp.partition_label
+FROM goats g
+LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = g.park_id
+LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = $1::uuid AND gsp.goat_id = g.goat_id
+WHERE g.tenant_id = $1::uuid AND g.goat_id = ANY($2::uuid[])`, tenantID, goats)
+		if err != nil {
+			return out, err
+		}
+		for rows.Next() {
+			var goatID, parkName, shedName string
+			var partitionLabel *string
+			if err := rows.Scan(&goatID, &parkName, &shedName, &partitionLabel); err != nil {
+				rows.Close()
+				return out, err
+			}
+			label := ""
+			if partitionLabel != nil {
+				label = *partitionLabel
+			}
+			shedDisplay := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
+			out.AnimalLocations[goatID] = joinNonBlank(parkName, shedDisplay)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return out, err
+		}
+	}
+
 	return out, nil
+}
+
+// joinNonBlank composes "park, shed[+partition]", dropping either side that could not be
+// resolved rather than printing an empty half of the clause (e.g. "" ⇒ "Castro 2", never
+// ", Castro 2").
+func joinNonBlank(park, shedDisplay string) string {
+	park = strings.TrimSpace(park)
+	shedDisplay = strings.TrimSpace(shedDisplay)
+	switch {
+	case park != "" && shedDisplay != "":
+		return park + ", " + shedDisplay
+	case shedDisplay != "":
+		return shedDisplay
+	default:
+		return park
+	}
 }
 
 // dedupeNonBlank trims, drops blanks, and dedupes while preserving order. Callers pass ids

@@ -177,8 +177,8 @@ tracked as gaps below.
 |---|---|---|
 | animal_current_scope | draft | — (all mapped; `partition_label` added migration 000110 — see "Partition-scoped reporting rule" below) |
 | shed_capacity_current | draft | — (`partition_label` + per-partition occupancy rows added migration 000110; capacity/variance/status stay shed-grain, no per-partition capacity column exists anywhere in schema) |
-| vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx). **partition_label NOT covered** — reads `vaccination_eligibility_rollups` / `obligation_instances`, which are shed-grain by schema with no partition column; see "Partition-scoped reporting rule" → known gap below. |
-| vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2). **partition_label NOT covered** — same shed-grain schema limitation as vaccination_shed_status; see known gap below. |
+| vaccination_shed_status | draft | planned_sessions (park-level batches → shed derivation approx). `partition_label` added migration 000114: `vaccination_eligibility_rollups` gained a partition column (recompute now groups by it), and obligation due/done/overdue counts are resolved per-partition via a join from `obligation_instances.target_id` (the goat_id for every vaccination obligation) to `goat_shed_partitions` — see "Partition-scoped reporting rule" below. |
+| vaccination_dose_pickup | draft | vaccine_label (needs display-label mapping — gap G2). `partition_label` added migration 000114 by the same `obligation_instances.target_id` → `goat_shed_partitions` join; `doses_to_pick` stays batch-grain (no per-partition dose-reservation column exists anywhere in schema) and is repeated verbatim on every partition row of that batch/shed, never divided or guessed — see "Partition-scoped reporting rule" below. |
 | vaccination_operator_status | draft | — (operator-grain drive load/capacity/overdue/utilization over `vaccination_drive_assignments`; migration 000026). `partition_label` added migration 000110 by grouping on the partition column already stored on `vaccination_drive_assignments` — see "Partition-scoped reporting rule" below. |
 | vaccination_prearrival_history_review | draft | vaccine_label (raw protocol `vaccine_code` only at this grain — typed NULL + TODO; joining the published rule label would fan the trust buckets out per vaccine). Supplier pre-arrival vaccination-claim trust for PROCURED animals over `vaccination_prearrival_history_entries` (migration 000043); Toolbox tool `mesha_prearrival_history_review`; golden eval `prearrival-history-rejected-share` |
 | feed_direction_current | draft | — (directive only; actuals → gap G7 feed_adherence) |
@@ -293,6 +293,39 @@ with the Castro TOTAL before this migration.
   both the numeric and "Part N" label conventions) and every scope string
   renders through `oploc.OperationalLocation.Display()`.
 
+**Fixed (migration 000114 — closes the vaccination_shed_status /
+vaccination_dose_pickup gap left open by migration 000111):**
+
+- `vaccination_eligibility_rollups` (owned by this migration) gained a
+  `partition_label` column; `Repository.RecomputeEligibilityRollup`
+  (`backend/internal/vaccination/adapters/postgres/repository.go`) now groups
+  by the normalized partition key (`NULLIF(gsp.partition_label,'whole')`
+  sourced 1:{0,1} from `goat_shed_partitions`, PK `(tenant_id, goat_id)`) in the
+  same delete+reinsert transaction it already ran. The grain-uniqueness index
+  (`vaccination_eligibility_rollups_grain_uidx`) now includes the partition so
+  two partitions of one shed can coexist as distinct rows.
+- `ceo_ai.vaccination_shed_status` — one additional row per (shed, partition)
+  attested by `goat_shed_partitions`; the pre-existing bare-shed row is
+  unchanged (still the whole-shed total). `animals` comes from the now
+  partition-aware rollup; `due`/`done`/`overdue`/`planned_sessions` are
+  resolved per-partition by joining `obligation_instances.target_id` (the
+  goat_id — a vaccination obligation's `target_type` is always `'goat'`) to
+  `goat_shed_partitions`, 1:{0,1} per goat, so the added join cannot fan out
+  the `COUNT/FILTER` aggregates.
+- `ceo_ai.vaccination_dose_pickup` — same additive per-partition rows via the
+  same `target_id` → `goat_shed_partitions` join, scoping `animals_due` and
+  `animals_overdue`. `doses_to_pick` is a whole-batch dose reservation
+  (`obligation_batches.reserved_quantity`) with no per-partition column
+  anywhere in the schema, so a partition row repeats the SAME
+  `doses_to_pick` as its parent batch/shed row — mirrors
+  `ceo_ai.shed_capacity_current`'s shed-grain-only `capacity` column; never
+  divided or guessed per partition.
+- `docs/ceo-ai/mcp-toolbox-tools.yaml` — `mesha_vaccination_due_summary` and
+  `mesha_vaccination_dose_pickup` now select `partition_label` and accept it as
+  an optional filter param, matched with the same normalized comparison as
+  `oploc.SamePartition` (`'Part 3'` == `'3'`; NULL/''/'whole' all mean
+  "not partitioned").
+
 **Leadership surfaces that MUST carry partition labels (when one exists):**
 
 Every leadership-visible answer about animal/shed location, counts, vaccination,
@@ -302,6 +335,7 @@ Affected surfaces:
 
 - Counts Breakdown (Cube metric + tool) — filters/groups by partition
 - Vaccination Shed Status (tool) — per-partition animal/obligation counts
+- Vaccination Dose Pickup (tool) — per-partition animals due/overdue; doses_to_pick stays batch-grain
 - Vaccination Operator Status (view) — operator-date rows per partition
 - Animal Current Scope (view) — per-goat partition label
 - Shed Capacity (view) — per-partition rows alongside shed total
@@ -311,18 +345,12 @@ Affected surfaces:
 A CEO tool/query/report that answers "X animals/doses/actions at [ShedName]"
 without checking `goat_shed_partitions` for that shed is incomplete.
 
-**Known gap — deliberately NOT fixed (do not build without a separate,
-explicit maintainer decision):**
-
-`ceo_ai.vaccination_shed_status` and `ceo_ai.vaccination_dose_pickup` read
-`vaccination_eligibility_rollups` and `obligation_instances`, both of which are
-**shed-grain by schema** — neither table has a partition column. Fixing these
-two views needs a rollup-grain migration plus a backfill of historical rollup
-rows, which migration 000110 intentionally does not attempt. Do NOT fake a
-per-partition number here by dividing the shed total or guessing a split; a
-leadership question that names a specific partition of a shed covered only by
-these two views must fail closed with "not covered at partition grain yet"
-rather than answer with an invented split.
+There is no remaining "known gap" in this section: migration 000114 closed the
+`vaccination_shed_status` / `vaccination_dose_pickup` partition-grain gap that
+migration 000111 had left open (see "Fixed (migration 000114)" above). Any
+future leadership-relevant table/view that is shed-grain-only must be treated
+as a new gap and recorded here, not silently assumed covered by this
+migration's fix.
 
 ## E. Rule
 

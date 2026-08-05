@@ -179,19 +179,28 @@ tools:
         next_due_date,
         manager_label,
         backup_label,
-        status
+        status,
+        partition_label
       FROM ceo_ai.vaccination_shed_status
       WHERE tenant_id = $1::uuid
         AND ($2::date IS NULL OR next_due_date <= $2)
         AND ($3::text IS NULL OR status = $3)
         AND ($4::text IS NULL OR park_label ILIKE '%' || $4 || '%')
         AND ($5::text IS NULL OR shed_label ILIKE '%' || $5 || '%')
+        -- Partition match mirrors backend/internal/platform/oploc.SamePartition:
+        -- NULL/''/'whole' both sides mean "not partitioned", and 'Part 3' == '3'.
+        AND (
+          $7::text IS NULL
+          OR regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE($7, 'whole'))), '^part[[:space:]]+', '')
+        )
       ORDER BY
         CASE status WHEN 'overdue' THEN 0 WHEN 'due' THEN 1 ELSE 2 END,
         next_due_date NULLS LAST,
         due DESC,
         park_label,
-        shed_label
+        shed_label,
+        partition_label NULLS FIRST
       LIMIT LEAST($6::int, 50)
     parameters:
       - name: tenant_id
@@ -217,6 +226,16 @@ tools:
         type: integer
         description: Maximum shed rows.
         default: 10
+      - name: partition_label
+        type: string
+        description: |
+          Optional partition of the shed, e.g. "1", "Part 3" -- use when the
+          question names a specific pen ("Castro 1"), not just the shed
+          ("Castro"). Rows are returned for EVERY partition of a shed plus one
+          bare shed-total row when this is omitted; a shed with no partitions
+          only ever returns its bare row. Never sum rows for the same shed
+          across partitions -- that double counts the bare total.
+        required: false
 
   # ----------------------------------------------------------------------------
   # 3b. Vaccination OPERATOR status -> ceo_ai.vaccination_operator_status
@@ -309,13 +328,21 @@ tools:
         animals_overdue,
         owner_label,
         backup_label,
-        next_action
+        next_action,
+        partition_label
       FROM ceo_ai.vaccination_dose_pickup
       WHERE tenant_id = $1::uuid
         AND business_date = $2::date
         AND ($3::text IS NULL OR park_label ILIKE '%' || $3 || '%')
         AND ($4::text IS NULL OR shed_label ILIKE '%' || $4 || '%')
-      ORDER BY animals_overdue DESC, doses_to_pick DESC, park_label, shed_label, vaccine_label
+        -- Partition match mirrors backend/internal/platform/oploc.SamePartition:
+        -- NULL/''/'whole' both sides mean "not partitioned", and 'Part 3' == '3'.
+        AND (
+          $6::text IS NULL
+          OR regexp_replace(lower(btrim(COALESCE(partition_label, 'whole'))), '^part[[:space:]]+', '')
+             = regexp_replace(lower(btrim(COALESCE($6, 'whole'))), '^part[[:space:]]+', '')
+        )
+      ORDER BY animals_overdue DESC, doses_to_pick DESC, park_label, shed_label, vaccine_label, partition_label NULLS FIRST
       LIMIT LEAST($5::int, 50)
     parameters:
       - name: tenant_id
@@ -336,6 +363,17 @@ tools:
         type: integer
         description: Maximum rows.
         default: 15
+      - name: partition_label
+        type: string
+        description: |
+          Optional partition of the shed, e.g. "1", "Part 3" -- use when the
+          question names a specific pen ("Castro 1"), not just the shed
+          ("Castro"). doses_to_pick is a whole-batch reservation and is the SAME
+          on every partition row of one shed/batch; only animals_due and
+          animals_overdue are scoped to the named partition. Never sum
+          doses_to_pick across partition rows for the same shed/batch -- that
+          double counts a single reservation.
+        required: false
 
   # ----------------------------------------------------------------------------
   # 4b. Pre-arrival vaccination history trust -> ceo_ai.vaccination_prearrival_history_review

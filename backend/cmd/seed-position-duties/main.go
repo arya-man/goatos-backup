@@ -10,10 +10,14 @@
 //     manager-tier vaccination operators, not support-only/park-head-only
 //     users. Therefore vaccination_operator_* positions are explicit
 //     pc.vaccination execute duty rows.
-//   - duty_type = 'execute' for surfaced vaccination operator positions even
+//   - duty_type = 'execute' for surfaced vaccination_operator_* positions even
 //     when their HR/title tier is manager/head; that tier does not remove them
-//     from drive execution. Other modules still use 'manage' for supervisory
-//     tiers (manager | head | director | cxo), else 'execute'.
+//     from drive execution (see isInflatedTierVaccinationOperator). Every other
+//     pc.vaccination seat -- preventive_care_manager, park_head, shed_manager --
+//     uses 'manage' for supervisory tiers (manager | head | director | cxo),
+//     same as every other module, else 'execute'. pc.vaccination is NOT
+//     blanket-excluded from 'manage': reminder_cadence.go documents and
+//     resolves a real manage audience for that module.
 //   - capability_code is the execution permission a temporary backup grant for
 //     that seat confers. Only pc.vaccination is a built + surfaced module today
 //     (scope-lock), so only the preventive_care prefix carries
@@ -295,7 +299,7 @@ func deriveDuties(positions []positionRow) ([]dutyRow, stats) {
 			continue
 		}
 		dutyType := "execute"
-		if mp.moduleCode != "pc.vaccination" && manageTiers[p.positionTier] {
+		if manageTiers[p.positionTier] && !isInflatedTierVaccinationOperator(p.positionCode) {
 			dutyType = "manage"
 		}
 		out = append(out, dutyRow{
@@ -447,6 +451,43 @@ ORDER BY 1`, tenantID, module, dutyTypeVerify, at)
 	}
 	fmt.Printf("verify duty coverage OK: %d module(s) x %d center-scope park(s)\n", len(modules), parksInScope)
 	return nil
+}
+
+// vaccinationExecuteOnlyPrefixes are pc.vaccination position_code prefixes that
+// always carry 'execute', never 'manage', regardless of their HR/title
+// position_tier:
+//   - "vaccination_operator": the reviewed CPT roster gives these seats an
+//     inflated HR/title tier (manager/head) that does not reflect
+//     drive-execution reality (commit cae41af63).
+//   - "backup_manager": a backup slot covers the absent manager's TASKS, not
+//     their supervisory role -- it never gains management authority over the
+//     module (see goatos-backup-manager-coverage memory / leave-coverage docs).
+var vaccinationExecuteOnlyPrefixes = []string{"vaccination_operator", "backup_manager"}
+
+// isInflatedTierVaccinationOperator reports whether positionCode is one of
+// vaccinationExecuteOnlyPrefixes, the ONLY cases where a supervisory
+// position_tier (manager | head | director | cxo) does not translate to a
+// 'manage' duty for pc.vaccination.
+//
+// This is narrower than "pc.vaccination gets no manage duty": that module DOES
+// have a real manage audience -- preventive_care_manager, park_head, and
+// shed_manager are documented as carrying pc.vaccination 'manage' in
+// backend/internal/kernelstages/reminder_cadence.go ("park_head /
+// preventive_care_manager / shed_manager (manager+ tiers) carry 'manage'"), and
+// reminderCadenceDutyTypes = []string{"execute", "manage"} means the reminder
+// ladder actively resolves that duty. Blanket-excluding the whole module (as a
+// prior revision did) silently starved that real audience and made
+// tools/dev/seed-closeout.sh's assert_reminder_audience_resolves check
+// unsatisfiable on any fresh database: closeout requires an ACTIVE seat holding
+// BOTH pc.vaccination execute AND manage, but no seeded position could ever earn
+// 'manage' for that module.
+func isInflatedTierVaccinationOperator(positionCode string) bool {
+	for _, prefix := range vaccinationExecuteOnlyPrefixes {
+		if positionCode == prefix || strings.HasPrefix(positionCode, prefix+"_") {
+			return true
+		}
+	}
+	return false
 }
 
 // matchModule returns the module mapping for a position_code by longest matching

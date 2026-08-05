@@ -266,6 +266,124 @@ func TestRecomputeEligibilityRollupMarksClinicalAndLocationHoldsUnusable(t *test
 	}
 }
 
+// TestRecomputeEligibilityRollupPartitionSumsToParentShed is the HARD INVARIANT proof for
+// migration 000114: splitting vaccination_eligibility_rollups by partition must never lose or
+// double-count an animal. A shed with 5 goats split 2/3 across two partitions must show
+// per-partition rows that sum EXACTLY to the same shed total the pre-partition schema would have
+// reported, and a non-partitioned shed keeps exactly ONE row (partition_label IS NULL).
+func TestRecomputeEligibilityRollupPartitionSumsToParentShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	partitionedShed := "31000000-0000-4000-8000-000000000301"
+	barePlainShed := "31000000-0000-4000-8000-000000000302"
+	seedShedOperational(t, ctx, pool, partitionedShed, "IMPACT-PART", true, false, false)
+	seedShedOperational(t, ctx, pool, barePlainShed, "IMPACT-BARE", true, false, false)
+
+	// 2 goats in partition "1", 3 goats in partition "2" of the SAME physical shed.
+	part1Goats := []string{
+		"20000000-0000-4000-8000-000000000201",
+		"20000000-0000-4000-8000-000000000202",
+	}
+	part2Goats := []string{
+		"20000000-0000-4000-8000-000000000203",
+		"20000000-0000-4000-8000-000000000204",
+		"20000000-0000-4000-8000-000000000205",
+	}
+	for _, id := range part1Goats {
+		seedGoatAtShed(t, ctx, pool, id, partitionedShed)
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+			 VALUES ($1, $2, $3, '1', 'Castro 1', now())`, impTenant, id, partitionedShed); err != nil {
+			t.Fatalf("seed partition 1 for %s: %v", id, err)
+		}
+	}
+	for _, id := range part2Goats {
+		seedGoatAtShed(t, ctx, pool, id, partitionedShed)
+		if _, err := pool.Exec(ctx,
+			`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+			 VALUES ($1, $2, $3, '2', 'Castro 2', now())`, impTenant, id, partitionedShed); err != nil {
+			t.Fatalf("seed partition 2 for %s: %v", id, err)
+		}
+	}
+	// 4 goats in the non-partitioned shed -- no goat_shed_partitions row at all.
+	for _, id := range []string{
+		"20000000-0000-4000-8000-000000000206",
+		"20000000-0000-4000-8000-000000000207",
+		"20000000-0000-4000-8000-000000000208",
+		"20000000-0000-4000-8000-000000000209",
+	} {
+		seedGoatAtShed(t, ctx, pool, id, barePlainShed)
+	}
+
+	repo := NewRepository(pool, 5*time.Second)
+	if _, err := repo.RecomputeEligibilityRollup(ctx, impTenant); err != nil {
+		t.Fatalf("recompute: %v", err)
+	}
+
+	// Partitioned shed: exactly 2 rows (partition "1" and "2"), animal_count 2 and 3, summing to 5 --
+	// the SAME total the shed would have reported as one row before this migration.
+	rows, err := pool.Query(ctx,
+		`SELECT COALESCE(partition_label, ''), SUM(animal_count)::bigint
+		 FROM vaccination_eligibility_rollups
+		 WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
+		 GROUP BY COALESCE(partition_label, '')
+		 ORDER BY 1`, impTenant, partitionedShed)
+	if err != nil {
+		t.Fatalf("query partitioned shed rollup: %v", err)
+	}
+	defer rows.Close()
+	got := map[string]int64{}
+	for rows.Next() {
+		var label string
+		var count int64
+		if err := rows.Scan(&label, &count); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got[label] = count
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected exactly 2 partition rows (no bare/NULL row for a fully-partitioned shed), got %d: %+v", len(got), got)
+	}
+	if got["1"] != 2 {
+		t.Fatalf("partition 1 animal_count: want 2, got %d", got["1"])
+	}
+	if got["2"] != 3 {
+		t.Fatalf("partition 2 animal_count: want 3, got %d", got["2"])
+	}
+	total := got["1"] + got["2"]
+	if total != 5 {
+		t.Fatalf("HARD INVARIANT VIOLATED: partition rows must sum exactly to the parent-shed total: got %d, want 5 (no animal counted twice, none dropped)", total)
+	}
+
+	// Non-partitioned shed: exactly ONE row, partition_label IS NULL, animal_count 4.
+	var bareRows int
+	var barePartitionLabel *string
+	var bareCount int64
+	if err := pool.QueryRow(ctx,
+		`SELECT COUNT(*), MAX(animal_count)::bigint
+		 FROM vaccination_eligibility_rollups
+		 WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, impTenant, barePlainShed).Scan(&bareRows, &bareCount); err != nil {
+		t.Fatalf("query bare shed rollup: %v", err)
+	}
+	if bareRows != 1 {
+		t.Fatalf("non-partitioned shed must keep exactly one row, got %d", bareRows)
+	}
+	if bareCount != 4 {
+		t.Fatalf("non-partitioned shed animal_count: want 4, got %d", bareCount)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT partition_label FROM vaccination_eligibility_rollups
+		 WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, impTenant, barePlainShed).Scan(&barePartitionLabel); err != nil {
+		t.Fatalf("query bare shed partition_label: %v", err)
+	}
+	if barePartitionLabel != nil {
+		t.Fatalf("non-partitioned shed partition_label must be NULL, got %q", *barePartitionLabel)
+	}
+}
+
 // TestImpactPreviewReadPlanDoesNotScanGoats is a query-plan regression: the impact-preview aggregate
 // read must hit ONLY vaccination_eligibility_rollups. If a future edit joins goats back in, the plan
 // starts referencing the goats relation and this test fails.

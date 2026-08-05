@@ -6908,6 +6908,10 @@ export interface components {
             /** @description Canonical physical shed UUID, or empty when source placement is missing. */
             shed_id: string;
             shed_label: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Empty or absent means the shed is non-partitioned. Never the literal string "whole". */
+            partition_label?: string;
+            /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
+            operational_location_display?: string;
             /** @enum {string} */
             management_stage: "K1" | "K2" | "K3";
             head_count: number;
@@ -7811,6 +7815,8 @@ export interface components {
              * @description Present only for a death request - the animal the request would exit.
              */
             subject_goat_id?: string;
+            /** @description Present only for a death request whose animal resolves to a real park/shed - the animal's CURRENT operational location ("park, shed" or "park, shed partition"), already resolved to names by the backend and already folded into summary_line. A death is terminal and never moves the animal's shed, so this is read from the animal's live location, not snapshotted at raise time. BACKEND-OWNED DISPLAY COPY: clients render it verbatim; absent when the animal's location cannot be resolved. */
+            subject_animal_location?: string;
             /** @description The submitted payload, for rendering the row without a second fetch. */
             summary: {
                 [key: string]: unknown;

@@ -20,14 +20,29 @@ import (
 // approver reading "to shed 0b4e-91c2" learns nothing, and a farm-language line that is one clause
 // shorter is strictly better than one carrying a UUID.
 
-// ApprovalNameLookup resolves the ids on an approval payload to names. Both maps are id -> name; a
+// ApprovalNameLookup resolves the ids on an approval payload to names. All maps are id -> name; a
 // missing id simply yields no name, which drops that clause from the composed line.
 type ApprovalNameLookup struct {
 	Locations map[string]string
 	People    map[string]string
+	// AnimalLocations is subject_goat_id -> that animal's CURRENT operational location, already
+	// composed to "<park>, <shed display>" (park+bare shed, or park+"<shed> <partition>" /
+	// "<shed> - Part N" when the animal sits in a real partition -- see internal/platform/oploc).
+	// Resolved at READ time from the animal's live goats/goat_shed_partitions row: a death is
+	// terminal and ExitGoat never touches goats.shed_id, so the animal keeps the shed/partition it
+	// died in and no location needs to be snapshotted onto the death payload at raise time.
+	AnimalLocations map[string]string
 }
 
 func (l ApprovalNameLookup) location(id string) string { return strings.TrimSpace(l.Locations[id]) }
+
+// AnimalLocation returns the composed operational-location display for a goat id, or "" when the
+// animal has no resolvable park/shed (matches the drop-not-guess rule every other clause follows).
+// Exported so the HTTP handler can also expose it as its own field (SubjectAnimalLocation)
+// alongside the composed summary line -- see approval_handler.go.
+func (l ApprovalNameLookup) AnimalLocation(id string) string {
+	return strings.TrimSpace(l.AnimalLocations[strings.TrimSpace(id)])
+}
 
 // PersonName returns the display name for a user id, or "" when unknown.
 func (l ApprovalNameLookup) PersonName(id string) string {
@@ -40,7 +55,10 @@ func (l ApprovalNameLookup) PersonName(id string) string {
 // as a shape to assert: every clause is optional and a missing key drops out silently. An unknown
 // request type yields an empty line rather than a guess -- the type label above it still names the
 // work, so a future request type stays visible in the queue even before this function knows it.
-func ApprovalSummaryLine(requestType string, summary json.RawMessage, names ApprovalNameLookup) string {
+//
+// subjectGoatID is the row's ApprovalRequest.SubjectGoatID (blank for birth, which has no single
+// subject animal). It is not part of the JSON summary payload -- see ApprovalSummaryGoatIDs.
+func ApprovalSummaryLine(requestType string, summary json.RawMessage, subjectGoatID string, names ApprovalNameLookup) string {
 	fields := decodeApprovalSummary(summary)
 	if fields == nil {
 		return ""
@@ -64,11 +82,14 @@ func ApprovalSummaryLine(requestType string, summary json.RawMessage, names Appr
 			add("born " + dob)
 		}
 	case ApprovalRequestTypeDeath:
-		// Deliberately NOT the goat_id: it is a UUID with no name source on this payload, and the
-		// row already carries subject_goat_id for anything that needs identity. The approver is
-		// deciding on the REASON, which is the fact worth the line.
+		// Deliberately NOT the goat_id itself: it is a UUID with no name source. The approver is
+		// deciding on the REASON, which is the leading fact -- but they were reporting a real gap
+		// without a location too: "Death ke kuda current sheds sariga levu" (shed/park is missing
+		// for death rows just like it used to be missing everywhere else). Give it the same
+		// treatment shifting already gets, resolved from the animal's current location.
 		add(fields.str("reason"))
 		add(fields.str("cause"))
+		add(names.AnimalLocation(subjectGoatID))
 	case ApprovalRequestTypeShifting:
 		if n := fields.count("goat_ids"); n > 0 {
 			add(strconv.Itoa(n) + " " + pluralAnimals(n))
@@ -154,4 +175,20 @@ func ApprovalSummaryLocationIDs(requestType string, summary json.RawMessage) []s
 		return nil
 	}
 	return []string{fields.str("source_shed_id"), fields.str("destination_shed_id")}
+}
+
+// ApprovalSummaryGoatIDs returns the goat id a row's location clause needs, so the handler can
+// resolve a whole page's animal locations in one batched query instead of one lookup per row --
+// same shape as ApprovalSummaryLocationIDs, keyed off the row's SubjectGoatID rather than the JSON
+// payload (a death payload never carries the goat id itself, per ApprovalSummaryLine above).
+//
+// Returned ids may be blank; the resolver dedupes and drops blanks.
+func ApprovalSummaryGoatIDs(requestType string, subjectGoatID string) []string {
+	if requestType != ApprovalRequestTypeDeath {
+		return nil
+	}
+	if strings.TrimSpace(subjectGoatID) == "" {
+		return nil
+	}
+	return []string{subjectGoatID}
 }

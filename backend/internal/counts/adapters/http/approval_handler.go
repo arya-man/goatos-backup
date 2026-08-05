@@ -119,14 +119,19 @@ type appApprovalListItem struct {
 	// Both are omitempty and both may legitimately be absent: a raiser with no roster row, or a
 	// payload with nothing nameable in it. A client MUST tolerate that by dropping the line, never
 	// by falling back to the id.
-	RaisedByName    *string         `json:"raised_by_name,omitempty"`
-	SummaryLine     *string         `json:"summary_line,omitempty"`
-	ShiftingEventID *string         `json:"shifting_event_id,omitempty"`
-	SubjectGoatID   *string         `json:"subject_goat_id,omitempty"`
-	Summary         json.RawMessage `json:"summary"`
-	DecidedByUserID *string         `json:"decided_by_user_id,omitempty"`
-	DecidedAt       *time.Time      `json:"decided_at,omitempty"`
-	DecisionReason  *string         `json:"decision_reason,omitempty"`
+	RaisedByName    *string `json:"raised_by_name,omitempty"`
+	SummaryLine     *string `json:"summary_line,omitempty"`
+	ShiftingEventID *string `json:"shifting_event_id,omitempty"`
+	SubjectGoatID   *string `json:"subject_goat_id,omitempty"`
+	// SubjectAnimalLocation is the same animal-location fact already folded into SummaryLine for a
+	// death row, exposed separately so a structured renderer (the admin-web drawer) can show it as
+	// its own field instead of parsing it back out of the composed line. See
+	// domain.ApprovalNameLookup.AnimalLocations for how it is resolved.
+	SubjectAnimalLocation *string         `json:"subject_animal_location,omitempty"`
+	Summary               json.RawMessage `json:"summary"`
+	DecidedByUserID       *string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt             *time.Time      `json:"decided_at,omitempty"`
+	DecisionReason        *string         `json:"decision_reason,omitempty"`
 }
 
 // ListApprovals returns one keyset page of requests the caller may decide.
@@ -187,8 +192,15 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 		if name := names.PersonName(item.RaisedByUserID); name != "" {
 			row.RaisedByName = &name
 		}
-		if line := domain.ApprovalSummaryLine(item.RequestType, item.Summary, names); line != "" {
+		subjectGoatID := ""
+		if item.SubjectGoatID != nil {
+			subjectGoatID = *item.SubjectGoatID
+		}
+		if line := domain.ApprovalSummaryLine(item.RequestType, item.Summary, subjectGoatID, names); line != "" {
 			row.SummaryLine = &line
+		}
+		if loc := names.AnimalLocation(subjectGoatID); loc != "" {
+			row.SubjectAnimalLocation = &loc
 		}
 		items = append(items, row)
 	}
@@ -203,24 +215,38 @@ func (h *AppWriteHandler) ListApprovals(w http.ResponseWriter, r *http.Request) 
 // slightly shorter line is a far better failure than a queue that will not load -- and it means
 // existing construction paths that never wire a resolver keep working unchanged.
 func (h *AppWriteHandler) approvalNames(ctx context.Context, tenantID string, rows []domain.ApprovalRequestSummary) domain.ApprovalNameLookup {
-	empty := domain.ApprovalNameLookup{Locations: map[string]string{}, People: map[string]string{}}
+	empty := domain.ApprovalNameLookup{
+		Locations:       map[string]string{},
+		People:          map[string]string{},
+		AnimalLocations: map[string]string{},
+	}
 	if h.approvalNameResolver == nil || len(rows) == 0 {
 		return empty
 	}
 	locationIDs := make([]string, 0, len(rows)*2)
 	userIDs := make([]string, 0, len(rows))
+	goatIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
 		locationIDs = append(locationIDs, domain.ApprovalSummaryLocationIDs(row.RequestType, row.Summary)...)
 		userIDs = append(userIDs, row.RaisedByUserID)
+		subjectGoatID := ""
+		if row.SubjectGoatID != nil {
+			subjectGoatID = *row.SubjectGoatID
+		}
+		goatIDs = append(goatIDs, domain.ApprovalSummaryGoatIDs(row.RequestType, subjectGoatID)...)
 	}
-	resolved, err := h.approvalNameResolver.ResolveApprovalNames(ctx, tenantID, locationIDs, userIDs)
+	resolved, err := h.approvalNameResolver.ResolveApprovalNames(ctx, tenantID, locationIDs, userIDs, goatIDs)
 	if err != nil {
 		// Logged, not returned: see the doc comment above on why this degrades instead of failing.
 		h.log.WarnContext(ctx, "approval name resolution failed; rendering rows without names",
 			"error", err, "tenant_id", tenantID, "rows", len(rows))
 		return empty
 	}
-	return domain.ApprovalNameLookup{Locations: resolved.Locations, People: resolved.People}
+	return domain.ApprovalNameLookup{
+		Locations:       resolved.Locations,
+		People:          resolved.People,
+		AnimalLocations: resolved.AnimalLocations,
+	}
 }
 
 // ---------------------------------------------------------------------------

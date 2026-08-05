@@ -241,13 +241,18 @@ function itemParkId(item: AdminWebApprovalItem): string {
 }
 
 // Readable list subject: "<Farm>: <srcShed> → <dstShed>" for a shed move (all names resolved from
-// backend location data), otherwise the title-cased request type prefixed with its farm when known.
+// backend location data), the animal's BACKEND-OWNED operational location for a death (this page
+// has no shed/park id to resolve locally for death — see subject_animal_location on
+// AdminWebApprovalItem), otherwise the title-cased request type prefixed with its farm when known.
 // Never a raw UUID.
 function readableSubject(item: AdminWebApprovalItem, locationNames: Record<string, string>): string {
   const s = summaryObject(item);
   const str = (k: string): string => (typeof s[k] === "string" ? (s[k] as string) : typeof s[k] === "number" ? String(s[k]) : "");
   const nm = (id: string): string => (id && locationNames[id] ? locationNames[id] : "");
   const farm = nm(itemParkId(item));
+  if (item.request_type === "death" && item.subject_animal_location) {
+    return item.subject_animal_location;
+  }
   if (item.request_type === "shifting") {
     const from = nm(str("source_shed_id"));
     const to = nm(str("destination_shed_id"));

@@ -12,12 +12,15 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 	const shedID = "0b4e91c2-4d18-4a2b-9f31-2c7d5e8a1b40"
 	const parkID = "7f3a91c2-4d18-4a2b-9f31-2c7d5e8a1b41"
 
+	const goatID = "5c1e91c2-4d18-4a2b-9f31-2c7d5e8a1b42"
+
 	cases := []struct {
-		name        string
-		requestType string
-		summary     string
-		names       ApprovalNameLookup
-		want        string
+		name          string
+		requestType   string
+		summary       string
+		subjectGoatID string
+		names         ApprovalNameLookup
+		want          string
 	}{
 		{
 			name:        "shifting with both shed names resolved",
@@ -61,6 +64,42 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 			want:        "Found dead in shed",
 		},
 		{
+			// The gap this change closes: a death row must carry the animal's location, resolved
+			// to names, exactly like shifting already does.
+			name:          "death names the animal's park and shed",
+			requestType:   ApprovalRequestTypeDeath,
+			summary:       `{"reason":"Found dead in shed"}`,
+			subjectGoatID: goatID,
+			names: ApprovalNameLookup{AnimalLocations: map[string]string{
+				goatID: "CBE, Castro 2",
+			}},
+			want: "Found dead in shed · CBE, Castro 2",
+		},
+		{
+			// A non-partitioned shed renders bare -- never "Yashoda whole" -- and this function
+			// trusts whatever the resolver already composed, so the case is exercised end to end
+			// through the postgres adapter's own tests; here it just proves the clause passes
+			// through untouched.
+			name:          "death names a non-partitioned shed bare",
+			requestType:   ApprovalRequestTypeDeath,
+			summary:       `{"reason":"Old age"}`,
+			subjectGoatID: goatID,
+			names: ApprovalNameLookup{AnimalLocations: map[string]string{
+				goatID: "CPT, Yashoda",
+			}},
+			want: "Old age · CPT, Yashoda",
+		},
+		{
+			// The animal's location cannot be resolved (no roster row, or the goat id is blank) --
+			// the clause drops rather than rendering the raw id or an empty fragment.
+			name:          "death drops the location clause when it cannot be resolved",
+			requestType:   ApprovalRequestTypeDeath,
+			summary:       `{"reason":"Found dead in shed"}`,
+			subjectGoatID: goatID,
+			names:         ApprovalNameLookup{AnimalLocations: map[string]string{}},
+			want:          "Found dead in shed",
+		},
+		{
 			name:        "a JSON null string field is absent, never the literal null",
 			requestType: ApprovalRequestTypeBirth,
 			summary:     `{"animal_identifier_1":"777","sex":null,"breed":"Osmanabadi"}`,
@@ -92,17 +131,38 @@ func TestApprovalSummaryLineNeverRendersAnID(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := ApprovalSummaryLine(tc.requestType, json.RawMessage(tc.summary), tc.names)
+			got := ApprovalSummaryLine(tc.requestType, json.RawMessage(tc.summary), tc.subjectGoatID, tc.names)
 			if got != tc.want {
 				t.Fatalf("summary line = %q, want %q", got, tc.want)
 			}
 			// Belt and braces on the headline rule: whatever the branch, no uuid escapes.
-			for _, id := range []string{shedID, parkID} {
+			for _, id := range []string{shedID, parkID, goatID} {
 				if strings.Contains(got, id) {
 					t.Fatalf("summary line %q leaked the id %q to an approver's screen", got, id)
 				}
 			}
 		})
+	}
+}
+
+// The handler harvests the subject goat id per row and resolves the whole page's animal locations
+// in one batched call -- same shape as ApprovalSummaryLocationIDs above, and for the same reason:
+// a per-row lookup on a 20-row page is the banned N+1 fan-out.
+func TestApprovalSummaryGoatIDs(t *testing.T) {
+	const goatID = "5c1e91c2-4d18-4a2b-9f31-2c7d5e8a1b42"
+
+	if got := ApprovalSummaryGoatIDs(ApprovalRequestTypeDeath, goatID); len(got) != 1 || got[0] != goatID {
+		t.Fatalf("death goat ids = %v, want [%s]", got, goatID)
+	}
+	if got := ApprovalSummaryGoatIDs(ApprovalRequestTypeDeath, "  "); len(got) != 0 {
+		t.Fatalf("blank subject goat id contributed %v; want none", got)
+	}
+	// Birth and shifting name no single subject animal, so they must contribute nothing to the
+	// batch even when a goat id is supplied.
+	for _, requestType := range []string{ApprovalRequestTypeBirth, ApprovalRequestTypeShifting} {
+		if got := ApprovalSummaryGoatIDs(requestType, goatID); len(got) != 0 {
+			t.Fatalf("%s contributed goat ids %v; want none", requestType, got)
+		}
 	}
 }
 

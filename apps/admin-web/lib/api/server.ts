@@ -2490,13 +2490,21 @@ export type AdminWebApprovalItem = {
   // authored line instead of each composing its own from raw ids. Optional by contract: absent
   // when nothing was resolvable, in which case a renderer drops the line rather than showing an id.
   //
-  // This page does not render either field today — it deliberately omits the raiser and builds its
-  // own readable subject from resolved location names (see readableSubject). They are declared so
-  // the shape stays true to the contract and so this page can adopt the shared line later.
+  // This page does not render raised_by_name or summary_line today — it deliberately omits the
+  // raiser and builds its own readable subject from resolved location names (see readableSubject).
+  // They are declared so the shape stays true to the contract and so this page can adopt the
+  // shared line later.
   raised_by_name?: string;
   summary_line?: string;
   shifting_event_id?: string;
   subject_goat_id?: string;
+  // subject_animal_location: present only for a death request whose animal resolves to a real
+  // park/shed. BACKEND-OWNED DISPLAY COPY — the same park/shed/partition fact already folded into
+  // summary_line, exposed as its own field so this page's structured (non-summary_line) rendering
+  // can show it directly instead of parsing it back out of a composed string. Render verbatim;
+  // absent means the animal's location could not be resolved, in which case drop the row rather
+  // than falling back to an id.
+  subject_animal_location?: string;
   summary: unknown;
   decided_by_user_id?: string;
   decided_at?: string;
