@@ -1208,13 +1208,26 @@ type importStats struct {
 // Departments with no operational module today (procurement, growth, infrastructure, milk,
 // sales) are deliberately absent. A department key that does not exist in this tenant is
 // skipped by the INSERT ... SELECT below, never an error.
-//   - milk accompanies counts everywhere it is granted: Milk Preparation and Milk Feeding moved
+//
+//   - milk accompanied counts everywhere it was granted: Milk Preparation and Milk Feeding moved
 //     out of the Counts module into their own drawer module (maintainer decision 2026-07-31)
 //     while keeping their /counts/... routes and CountsWrite authority, so a department holding
-//     counts must also hold milk or those two daily pages silently vanish from its bottom bar.
-//     Migration 000064 applies the same rule to already-seeded databases.
+//     counts also held milk or those two daily pages silently vanished from its bottom bar.
+//     Migration 000064 applied the same rule to already-seeded databases.
+//
+//     That coupling is NO LONGER automatic. Maintainer decision 2026-08-05 removes BOTH milk and
+//     aas_health from preventive_care, so a PC seat's bottom bar is Vaccination + Counts + Feed
+//     only. Losing Milk Prep / Milk Feeding from the PC bar is the POINT of that decision, not the
+//     defect the old rule guarded against — health keeps both modules and is unchanged. The pages
+//     themselves are untouched: /counts/milk-preparation and /counts/milk-feeding still exist and
+//     still require CountsWrite; only the PC nav entry is gone. Because the coupling is now a
+//     per-department decision rather than an invariant, TestDefaultDepartmentModulesMatchDecisions
+//     pins this map exactly instead of asserting counts-implies-milk. Migration
+//     000110_preventive_care_drop_milk_aas_health.sql applies the same removal to already-seeded
+//     databases (aas_health reached preventive_care via migration 000098, which copied every
+//     vaccination grant, so it is not in this seed map to begin with).
 var defaultDepartmentModules = map[string][]string{
-	"preventive_care": {"vaccination", "counts", "milk", "feed_direction"},
+	"preventive_care": {"vaccination", "counts", "feed_direction"},
 	"health":          {"aas_health", "counts", "milk", "feed_direction", "vaccination"},
 	"feed":            {"feed_direction"},
 	"breeding":        {"breeding"},
