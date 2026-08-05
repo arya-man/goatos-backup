@@ -268,6 +268,11 @@ data class ShedsUiState(
     val hasMore: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
+    // True once a fetch has COMPLETED, whatever it returned. Guards the skeleton so it is never
+    // drawn before an answer exists. lastSyncedAt cannot serve this — an empty result never sets
+    // it — and isRefreshing flips on every later refresh, so both made the screen wedge on a
+    // spinner or yank already-drawn content away mid-refresh.
+    val hasLoadedOnce: Boolean = false,
 )
 
 sealed interface ShedsEvent {
@@ -435,13 +440,16 @@ fun ShedsScreen(
                 }
             }
             state.roleNote?.let { note -> item { RoleNote(note) } }
-            if (state.isInitialLoading && state.rows.isEmpty()) {
-                item(key = "initial-skeleton") {
-                    LoadingSkeletonList(
-                        modifier = Modifier.fillMaxWidth(),
-                        rows = 4,
-                    )
-                }
+            // NOTHING READ YET is not the same as NOTHING TO DO. A freshly navigated screen starts
+            // with an empty state flow and its refresh has not necessarily begun, so requiring
+            // a skeleton here left a window where the confident "No sheds" rendered before a
+            // single row had been read -- then the real rows landed a frame later. That swap is
+            // the flicker seen on every screen entered from the calendar. Until this list has
+            // synced once, the honest render is neither skeleton nor empty state: nothing at all.
+            // Loading is told by the spinning refresh icon in the app bar, not by a block of
+            // shimmer that flashes in and straight back out on every navigation.
+            if (state.rows.isEmpty() && !state.hasLoadedOnce) {
+                // NOTHING. SyncIconButton in the header shows the spinner.
             } else if (state.rows.isEmpty() && state.caption != null) {
                 item {
                     EmptyState(

@@ -154,6 +154,9 @@ data class VerifyQueueUiState(
     // Keyset pagination (~20/page) — see docs/decisions/mobile-data-fetch-anti-patterns.md.
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false,
+    /** True once a fetch has COMPLETED, whatever it returned. Guards the empty state so it is
+     *  never drawn before an answer exists, and never yanked away by a later refresh. */
+    val hasLoadedOnce: Boolean = false,
     val driveClosures: List<VerifyDriveClosure> = emptyList(),
     val closingBatchId: String? = null,
     val closeErrorBatchId: String? = null,
@@ -298,8 +301,17 @@ fun VerifyQueueScreen(
                     )
                 }
             }
-            if (state.rows.isEmpty() && state.isRefreshing && state.lastSyncedAt == null) {
-                item { LoadingSkeletonList(modifier = Modifier.fillMaxWidth()) }
+            // NOTHING READ YET is not the same as NOTHING TO DO. A freshly navigated screen starts
+            // with an empty state flow and its refresh has not necessarily begun, so requiring
+            // isRefreshing here left a window where the confident "Queue clear" rendered before a
+            // single row had been read -- then the real rows landed a frame later. That swap is
+            // the flicker seen on every screen entered from the drawer. Until this queue has
+            // synced once, the honest render is the skeleton.
+            if (state.rows.isEmpty() && !state.hasLoadedOnce) {
+                // NOTHING is drawn here. Loading is told by the spinning refresh icon in the app
+                // bar, not by a shimmer that flashes in and straight back out on every
+                // navigation -- and "Queue clear" would be a confident answer before a single
+                // row has been read, which then flips to content. That flip IS the flicker.
             } else if (state.isUnsupportedModule) {
                 // An empty "all caught up" here would be a lie: nothing was read at all.
                 item {

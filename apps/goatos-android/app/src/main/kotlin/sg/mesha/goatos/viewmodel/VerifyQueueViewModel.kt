@@ -49,6 +49,7 @@ private data class VerifyQueueFlags(
     val closingBatchId: String? = null,
     val closeErrorBatchId: String? = null,
     val closeErrorMessage: String? = null,
+    val hasLoadedOnce: Boolean = false,
 )
 
 private data class VerifyCloseFlags(
@@ -118,6 +119,10 @@ class VerifyQueueViewModel @Inject constructor(
     private val _selectedShedId = MutableStateFlow<String?>(null)
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
+    // Set the first time a fetch COMPLETES, whatever it returned. lastSyncedAt cannot serve this
+    // -- an empty result never sets it, so the screen wedged on a spinner over a blank list --
+    // and isRefreshing flips on every later refresh, which yanked already-drawn content away.
+    private val _hasLoadedOnce = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
     private val _closingBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
@@ -188,14 +193,16 @@ class VerifyQueueViewModel @Inject constructor(
         _isOffline,
         _isLoadingMore,
         closeFlags,
-    ) { isRefreshing, isOffline, isLoadingMore, closeFlags ->
+        _hasLoadedOnce,
+    ) { values ->
         VerifyQueueFlags(
-            isRefreshing = isRefreshing,
-            isOffline = isOffline,
-            isLoadingMore = isLoadingMore,
-            closingBatchId = closeFlags.closingBatchId,
-            closeErrorBatchId = closeFlags.closeErrorBatchId,
-            closeErrorMessage = closeFlags.closeErrorMessage,
+            isRefreshing = values[0] as Boolean,
+            isOffline = values[1] as Boolean,
+            isLoadingMore = values[2] as Boolean,
+            closingBatchId = (values[3] as VerifyCloseFlags).closingBatchId,
+            closeErrorBatchId = (values[3] as VerifyCloseFlags).closeErrorBatchId,
+            closeErrorMessage = (values[3] as VerifyCloseFlags).closeErrorMessage,
+            hasLoadedOnce = values[4] as Boolean,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyQueueFlags())
 
@@ -242,6 +249,7 @@ class VerifyQueueViewModel @Inject constructor(
             isOffline = flags.isOffline,
             hasMore = !isActionQueue && resource.data?.nextCursor != null,
             isLoadingMore = flags.isLoadingMore,
+            hasLoadedOnce = flags.hasLoadedOnce,
             driveClosures = resource.data?.driveClosures.orEmpty()
                 .filter { it.ready }
                 .map {
@@ -372,6 +380,9 @@ class VerifyQueueViewModel @Inject constructor(
             _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         } finally {
             _isRefreshing.value = false
+            // In FINALLY, not after the result: a throw on the way here would leave this false
+            // forever and wedge the screen on a spinner over a blank list.
+            _hasLoadedOnce.value = true
         }
     }
 

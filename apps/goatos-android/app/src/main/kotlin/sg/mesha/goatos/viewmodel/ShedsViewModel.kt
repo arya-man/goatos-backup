@@ -119,14 +119,17 @@ class ShedsViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(false)
     private val _isOffline = MutableStateFlow(false)
     private val _isLoadingMore = MutableStateFlow(false)
+    // Set the first time a fetch COMPLETES, whatever it returned. lastSyncedAt cannot serve this
+    // -- an empty result never sets it -- and isRefreshing flips on every later refresh, so both
+    // made the screen either wedge on a spinner or yank already-drawn content away mid-refresh.
+    private val _hasLoadedOnce = MutableStateFlow(false)
     private val transientState = combine(
         _selectedDay,
-        _isRefreshing,
-        _isOffline,
-        _isLoadingMore,
-        _leadershipMode,
-    ) { selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode ->
-        ShedsTransientState(selectedDay, isRefreshing, isOffline, isLoadingMore, leadershipMode)
+        combine(_isRefreshing, _isOffline, _isLoadingMore, _leadershipMode, _hasLoadedOnce) { r, o, l, m, h ->
+            TransientFlags(r, o, l, m, h)
+        }
+    ) { selectedDay, flags ->
+        ShedsTransientState(selectedDay, flags.isRefreshing, flags.isOffline, flags.isLoadingMore, flags.leadershipMode, flags.hasLoadedOnce)
     }
 
     // Combines observed resource with transient flags; lifecycle-aware.
@@ -180,6 +183,7 @@ class ShedsViewModel @Inject constructor(
             hasMore = !dto?.nextCursor.isNullOrBlank(),
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
             isOffline = transient.isOffline,
+            hasLoadedOnce = transient.hasLoadedOnce,
         )
     }.stateIn(
         viewModelScope,
@@ -257,25 +261,31 @@ class ShedsViewModel @Inject constructor(
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
         analytics.track(AnalyticsEvents.VACCINATION_REFRESH_ATTEMPTED)
-        val result = repo.refreshRows(
-            parkId = _selectedParkId.value,
-            asOf = workWindow.asOf,
-            dueBefore = workWindow.dueBefore,
-            openOnly = OPEN_ONLY_QUERY,
-            limit = PAGE_LIMIT,
-            includeFilterOptions = true,
-        )
-        _isRefreshing.value = false
-        _isOffline.value = result.isFailure
-        if (result.isSuccess) {
-            analytics.track(AnalyticsEvents.VACCINATION_REFRESH_SUCCEEDED)
-        }
-        result.exceptionOrNull()?.let {
-            analytics.track(
-                AnalyticsEvents.VACCINATION_REFRESH_FAILED,
-                mapOf(AnalyticsEvents.Params.REASON to (it::class.simpleName ?: "unknown")),
+        try {
+            val result = repo.refreshRows(
+                parkId = _selectedParkId.value,
+                asOf = workWindow.asOf,
+                dueBefore = workWindow.dueBefore,
+                openOnly = OPEN_ONLY_QUERY,
+                limit = PAGE_LIMIT,
+                includeFilterOptions = true,
             )
-            crashReporter.recordException(it, "vaccination sheds refresh failed")
+            _isOffline.value = result.isFailure
+            if (result.isSuccess) {
+                analytics.track(AnalyticsEvents.VACCINATION_REFRESH_SUCCEEDED)
+            }
+            result.exceptionOrNull()?.let {
+                analytics.track(
+                    AnalyticsEvents.VACCINATION_REFRESH_FAILED,
+                    mapOf(AnalyticsEvents.Params.REASON to (it::class.simpleName ?: "unknown")),
+                )
+                crashReporter.recordException(it, "vaccination sheds refresh failed")
+            }
+        } finally {
+            _isRefreshing.value = false
+            // In FINALLY, not after the result: a throw on the way here would otherwise leave the
+            // flag false forever and wedge the screen on a spinner over a blank list.
+            _hasLoadedOnce.value = true
         }
     }
 
@@ -551,12 +561,21 @@ private const val MAX_INCOMPLETE_FRACTION = 0.99f
 
 internal data class ExecutionCounts(val target: Int, val open: Int, val done: Int)
 
+private data class TransientFlags(
+    val isRefreshing: Boolean,
+    val isOffline: Boolean,
+    val isLoadingMore: Boolean,
+    val leadershipMode: Boolean,
+    val hasLoadedOnce: Boolean,
+)
+
 private data class ShedsTransientState(
     val selectedDay: LocalDate,
     val isRefreshing: Boolean,
     val isOffline: Boolean,
     val isLoadingMore: Boolean,
     val leadershipMode: Boolean,
+    val hasLoadedOnce: Boolean = false,
 )
 
 internal fun String?.isLeadershipShedsRole(): Boolean {
