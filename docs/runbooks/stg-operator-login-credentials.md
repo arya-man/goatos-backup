@@ -81,6 +81,24 @@ Field roles and vaccination capacity:
   department; `preventive_care` already carried it before that decision. Do not
   restate the retired blanket rule that Counts is inactive for all operator
   module grants in STG.
+- **`preventive_care` no longer holds `milk` or `aas_health`** (maintainer
+  decision 2026-08-05). A PC seat's bottom bar is Vaccination + Counts + Feed.
+  Milk Prep / Milk Feeding and the Health worklists are gone from that bar ON
+  PURPOSE — this retires the old "a department granted counts must also be
+  granted milk" coupling, which existed only so the 2026-07-31 module split
+  would not silently drop pages. The pages themselves are untouched
+  (`/counts/milk-preparation`, `/counts/milk-feeding`, still `counts.write`),
+  and the `health` department keeps both modules. Applied by migration
+  `000110_preventive_care_drop_milk_aas_health.sql`; the fresh-seed half is
+  `defaultDepartmentModules` in `backend/cmd/seed-roster-real/main.go`, pinned by
+  `TestDefaultDepartmentModulesMatchDecisions` and
+  `TestPreventiveCareDropsMilkAndHealth`.
+  - This affects the four PC OPERATORS only (Amit, Darshan, Sagar, Natheswar).
+    **Chandrakant keeps Health**, because `pc_director` is a leadership
+    principal and `candidateModuleKeys` resolves leadership drawers from
+    `leadershipModuleKeys` (`vaccination`, `weighing`, `aas_health`) and ignores
+    department grants entirely. Removing Health from the director as well is a
+    separate code change, not a grant change.
 - Firebase allowlist alone is NOT enough and Firebase user existing is NOT enough:
   backend grant AND an active `workforce_members` profile AND `/app/bootstrap`
   context must pass — for the 4 field users AND the 5 leadership users (leadership
