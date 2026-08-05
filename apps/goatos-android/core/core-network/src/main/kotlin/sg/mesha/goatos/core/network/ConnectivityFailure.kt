@@ -19,5 +19,9 @@ fun Throwable?.isConnectivityFailure(): Boolean = when (this) {
     null -> false
     is IOException -> true
     is HttpException -> code() >= 500
-    else -> true
+    // Anything else -- a serialization failure on a malformed body, an NPE while mapping a DTO --
+    // means the phone DID reach the server and got an answer it could not handle. Calling that
+    // "offline" reintroduces the exact misdirection this function exists to remove, and hides a
+    // real client defect behind a banner about the network.
+    else -> false
 }

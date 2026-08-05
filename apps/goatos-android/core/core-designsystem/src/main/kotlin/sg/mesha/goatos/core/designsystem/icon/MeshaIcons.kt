@@ -261,9 +261,12 @@ object MeshaIcons {
         "milk_feeding" -> MilkFeeding
         "breeding" -> Goat
         "aas_health", "health_adults", "health_kids" -> Health
-        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md) — its
-        // one job is a video-verification queue, so the Video glyph is its nav icon.
-        "verify", "verification", "video_verification" -> Video
+        // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). The tab is
+        // a DECISION queue, so it takes the same CheckCircle as "approvals" above rather than the
+        // Video glyph: video is the evidence, not the job, and the camcorder both restated the one
+        // thing a verifier already knows and repeated the glyph the queue cards use for their own
+        // media thumbnails -- two different meanings, one icon, on the same screen.
+        "verify", "verification", "video_verification" -> CheckCircle
         else -> Module
     }
 }

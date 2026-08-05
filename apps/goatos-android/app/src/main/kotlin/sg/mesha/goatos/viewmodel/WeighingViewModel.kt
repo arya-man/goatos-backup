@@ -2166,7 +2166,10 @@ class WeighingViewModel @Inject constructor(
                 normalizeFreeFlowTag(draft.scannedIdentifier) == normalizedTag
             }
             if (alreadyRecorded || existingRow != null) {
-                scanInput.value = if (fromTypedEntry) "" else normalizedTag
+                // Only a READER read echoes into the field. A typed entry was already cleared
+                // synchronously by submitTypedScan; re-clearing here lands AFTER a suspending DB
+                // write and would wipe whatever the operator has since typed for the NEXT animal.
+                if (!fromTypedEntry) scanInput.value = normalizedTag
                 message.value = "Already scanned · $normalizedTag"
                 return@launch
             }
@@ -2176,10 +2179,10 @@ class WeighingViewModel @Inject constructor(
                 tag = normalizedTag,
             )
             // A reader read echoes the tag so the operator can see what the gun picked up. A TYPED
-            // entry must leave the field empty instead: the echo stays put, the cursor sits after
-            // it, and the next typed tag lands appended -- captured as one concatenated identifier
-            // that free-flow happily accepts.
-            scanInput.value = if (fromTypedEntry) "" else normalizedTag
+            // entry is left alone: submitTypedScan already cleared the field synchronously, and
+            // assigning here -- after a suspending DB write -- would overwrite the keystrokes the
+            // operator has since typed for the next animal.
+            if (!fromTypedEntry) scanInput.value = normalizedTag
             if (!inserted) {
                 message.value = "Already scanned · $normalizedTag"
                 return@launch
@@ -2399,7 +2402,8 @@ class WeighingViewModel @Inject constructor(
                     .ifBlank { routeTitle }
                     .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
                 hasScope = true,
-                devScanEntryEnabled = scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX,
+                devScanEntryEnabled = (scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX) &&
+                    sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
                 scanInput = scan,
                 weightInput = weight,
                 animalCountInput = animalCount,
@@ -2464,7 +2468,8 @@ class WeighingViewModel @Inject constructor(
                 .ifBlank { routeTitle }
                 .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
-                devScanEntryEnabled = scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX,
+                devScanEntryEnabled = (scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX) &&
+                    sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
             selectedAnimalLabel = selected?.displayAnimalId,

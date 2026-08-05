@@ -823,7 +823,10 @@ class ScanViewModel @Inject constructor(
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
         return emptyScanState().copy(
             // Dev flavour only; the same flag that namespaces dev scans.
-            devScanEntryEnabled = sg.mesha.goatos.BuildConfig.SCAN_SCOPE_PREFIX,
+            // Dev flavour AND explicitly switched on by automation. A maintainer testing with a
+            // real reader on a dev build must not see a typed-tag box in the flow they are judging.
+            devScanEntryEnabled = sg.mesha.goatos.BuildConfig.SCAN_SCOPE_PREFIX &&
+                sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
             shedId = shedId?.takeIf { it.isNotBlank() },
             taskId = taskId?.takeIf { it.isNotBlank() },
             sopVersionId = sopVersionId?.takeIf { it.isNotBlank() },
