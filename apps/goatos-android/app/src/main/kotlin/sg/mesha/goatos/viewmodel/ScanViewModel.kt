@@ -488,10 +488,6 @@ class ScanViewModel @Inject constructor(
             ScanEvent.OpenList ->
                 _rosterExpanded.value = !_rosterExpanded.value
             ScanEvent.Tap -> onManualTap()
-            // Dev-only typed tag: identical to a reader read, including the proof it mints. A
-            // manual tap deliberately does NOT count as evidence, so without this there is no way
-            // to exercise the vaccination capture path without physical hardware.
-            is ScanEvent.DevTypedTag -> onTagRead(event.tag, System.currentTimeMillis())
             is ScanEvent.CaptureVideo -> requestGoatProof(event.goatId)
             is ScanEvent.CaptureProof -> requestGoatProof(event.goatId)
             is ScanEvent.RetryProof -> retryGoatProof(event.goatId)
@@ -822,11 +818,6 @@ class ScanViewModel @Inject constructor(
         val skipped = rosterRows.count { it.status == ScanStatus.SKIPPED }
         val pending = (rosterRows.size - done - skipped).coerceAtLeast(0)
         return emptyScanState().copy(
-            // Dev flavour only; the same flag that namespaces dev scans.
-            // Dev flavour AND explicitly switched on by automation. A maintainer testing with a
-            // real reader on a dev build must not see a typed-tag box in the flow they are judging.
-            devScanEntryEnabled = sg.mesha.goatos.BuildConfig.SCAN_SCOPE_PREFIX &&
-                sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
             shedId = shedId?.takeIf { it.isNotBlank() },
             taskId = taskId?.takeIf { it.isNotBlank() },
             sopVersionId = sopVersionId?.takeIf { it.isNotBlank() },

@@ -159,6 +159,7 @@ private fun statusPillTone(state: RfidConnectionState): Pair<Color, Color> = whe
 fun RfidScreen(
     state: RfidUiState,
     onEvent: (RfidEvent) -> Unit = {},
+    onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -168,7 +169,7 @@ fun RfidScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing),
         contentPadding = PaddingValues(bottom = 24.dp),
     ) {
-        item { RfidHeader() }
+        item { RfidHeader(onBack = onBack) }
         item { RfidDeviceHero(state) }
         if (state.showHidNote) {
             item { RfidInfoBox() }
@@ -197,18 +198,24 @@ fun RfidScreen(
 }
 
 @Composable
-private fun RfidHeader() {
+private fun RfidHeader(onBack: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 12.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
     ) {
+        // This chevron used to be a bare Text in a Box with NO click handler -- it LOOKED like
+        // a back button on every RFID visit (including the one an operator reaches mid-scan via
+        // "Reconnect") and did nothing. Tapping a dead affordance twice and then falling back to
+        // system Back is how an operator overshoots the scan screen and lands on the shed list.
         Box(
             modifier = Modifier
                 .size(38.dp)
+                .clip(RoundedCornerShape(13.dp))
                 .background(MeshaColors.Surf, shape = RoundedCornerShape(13.dp))
-                .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(13.dp)),
+                .border(1.dp, MeshaColors.Hair, shape = RoundedCornerShape(13.dp))
+                .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
             Text(text = "‹", color = MeshaColors.Muted, fontSize = 26.sp, fontWeight = FontWeight.W700)

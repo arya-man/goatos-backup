@@ -1524,11 +1524,13 @@ class WeighingViewModel @Inject constructor(
     private fun refreshScope() {
         viewModelScope.launch {
             when (val refreshed = repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS)) {
-                is AppResult.Ok -> {
-                    if (refreshed.value == 0 && category != PER_SHED_PARTITION_CATEGORY) {
-                        message.value = "No animals are assigned to this weighing scope."
-                    }
-                }
+                // Weighing is FREE-FLOW: any scanned tag is accepted, and nothing is gated on a
+                // roster. The scope sync only pre-warms labels, so an empty window is ordinary --
+                // a shed whose animals were never enrolled weighs exactly the same as one whose
+                // were. This used to raise "No animals are assigned to this weighing scope.",
+                // which invented an assignment rule the module does not have (and told the
+                // operator to stop when there was nothing to stop for).
+                is AppResult.Ok -> Unit
                 is AppResult.Err -> reportReadFailure(refreshed.message)
             }
         }
@@ -2474,8 +2476,6 @@ class WeighingViewModel @Inject constructor(
                     .ifBlank { routeTitle }
                     .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
                 hasScope = true,
-                devScanEntryEnabled = (scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX) &&
-                    sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
                 scanInput = scan,
                 weightInput = weight,
                 animalCountInput = animalCount,
@@ -2541,8 +2541,6 @@ class WeighingViewModel @Inject constructor(
                 .ifBlank { routeTitle }
                 .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
-                devScanEntryEnabled = (scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX) &&
-                    sg.mesha.goatos.core.common.DevScanEntryToggle.isEnabled(),
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
             selectedAnimalLabel = selected?.displayAnimalId,
