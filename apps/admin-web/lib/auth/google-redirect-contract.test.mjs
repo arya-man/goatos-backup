@@ -7,9 +7,9 @@ const here = new URL(".", import.meta.url).pathname;
 const loginSource = readFileSync(join(here, "../../components/auth/google-login.tsx"), "utf8");
 const routeSource = readFileSync(join(here, "../../app/api/auth/google-redirect/route.ts"), "utf8");
 
-test("Google SSO uses redirect mode instead of the transform-popup button flow", () => {
-  assert.match(loginSource, /ux_mode:\s*"redirect"/);
-  assert.match(loginSource, /login_uri:\s*loginUri/);
+test("Google SSO uses the callback popup flow without a redirect URI dependency", () => {
+  assert.match(loginSource, /ux_mode:\s*"popup"/);
+  assert.doesNotMatch(loginSource, /login_uri:\s*loginUri/);
   assert.doesNotMatch(loginSource, /use_fedcm_for_button:\s*true/);
   assert.doesNotMatch(loginSource, /use_fedcm_for_prompt:\s*true/);
 });
