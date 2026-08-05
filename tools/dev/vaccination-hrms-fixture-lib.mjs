@@ -1,4 +1,6 @@
 // Vaccination HRMS fixture utilities — used by seed scripts and ceo_ai reporting views
+// 2026-08-05: no fixture shape change from the SOP rework-reopen work. Reopening an
+// accepted task is a runtime state transition; the fixture's source columns are untouched.
 // (migrations 000024-000027) to load and validate vaccination source data.
 // Coupling review 2026-07-25: migration 000045 adds a nullable
 // vaccination_capacity_config.max_shots_per_animal_per_drive admin override. This fixture

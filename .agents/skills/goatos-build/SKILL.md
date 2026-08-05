@@ -701,3 +701,11 @@ visible, screens showing honest numbers. Full statement:
 <!-- Coupling review 2026-08-04: seed-roster-real adds aas_health + milk + feed_direction + vaccination to the health department module grant and milk to preventive_care, extending the same department-grant mechanism recorded on 2026-07-29 for feed_direction. Runtime module/navigation authorization only; no HRMS roster row, vaccination history, source date, fixture byte, hash or count changes. -->
 <!-- Coupling review 2026-08-05: CBE/CPT controlled seed-port support is runtime-only: preserve double-tag aliases, constrain sweeps by dose/target, seed verifier grants from existing auth-pending rows, add weighing duties, and use the active position partial-unique key. HRMS fixture/source bytes and validation contracts stay unchanged. Do not generate Blue Tongue or PPR open obligations for the current port; schedule them later only after stock/source confirmation. -->
 <!-- Coupling review 2026-08-05 follow-up: when validating CBE/CPT seed-port work, confirm optional `rfid2` values are imported as secondary aliases and that the port is run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr` until stock/manual scheduling is ready. -->
+
+### Rework is not a terminal state (2026-08-05)
+
+When touching vaccination submit/verify, remember an accepted SOP task can be
+reopened by a rejection (`ReopenTaskForRework`) and a weighing bucket refuses to
+complete while any animal in it sits in `rework`. Both exist because a rejected
+animal's re-submission used to be silently dropped: the server replayed the old
+response, the app reported success, and the operator's redone work vanished.

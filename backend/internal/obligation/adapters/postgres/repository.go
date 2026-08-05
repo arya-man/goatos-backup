@@ -59,7 +59,7 @@ const (
 // Repository is the Postgres-backed obligation repository.
 type Repository struct {
 	// Instance logger; package-level slog is banned outside platform/observability.
-	log *slog.Logger
+	log          *slog.Logger
 	pool         *pgxpool.Pool
 	queries      *obligationdb.Queries
 	queryTimeout time.Duration

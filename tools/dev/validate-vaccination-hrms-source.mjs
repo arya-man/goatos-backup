@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Validates vaccination HRMS source data before seeding.
+// 2026-08-05: unchanged by the SOP rework-reopen work. Source validation covers the
+// IMPORT contract; task state transitions after import are the SOP module's own.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).
 // Coupling review 2026-07-25: migration 000045's nullable capacity shot-cap override is not
 // part of the source fixture — seed leaves it NULL and the sweeper uses rule_dsl/default — so

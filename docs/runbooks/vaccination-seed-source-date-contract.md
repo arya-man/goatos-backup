@@ -740,3 +740,14 @@ Do not push a seed change that bypasses these gates.
 <!-- Coupling review 2026-08-04: the health/milk department -> module grant change in seed-roster-real is runtime navigation authorization only. It selects nothing about vaccination timing: no source date, trusted-history anchoring, kid/adult schedule-path selection, as-of suppression or generation eligibility is touched, and the vaccination department grant itself is unchanged for preventive_care. -->
 <!-- Coupling review 2026-08-05: CBE/CPT controlled seed-port support keeps source dates authoritative while adding runtime-only controls for aliasing incoming/current RFIDs, scoped sweeper generation, verifier-grant seeding, weighing duty seeding, and active position upserts. No HRMS/vaccination source-date contract changes. For this port, Blue Tongue and PPR are excluded from open obligation generation until stock and operational dates are confirmed later. -->
 <!-- Coupling review 2026-08-05 follow-up: optional `rfid2` is a scan alias only, never a vaccine date/history field. CBE/CPT ports that intentionally defer stock/manual vaccines must run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr`; this changes publication for generated open work only, not accepted source history. -->
+
+## 2026-08-05: rework re-submission (SOP task state)
+
+A verifier rejecting a vaccination proof now moves the SOP task from `accepted`
+back to `rework_requested` (`ReopenTaskForRework`). Before this, the task stayed
+terminal and the operator's re-submission was refused with a write conflict, so
+the redone work was lost while the phone reported success.
+
+Seeding impact: none on source data or its date contract. A seeded task that has
+already been accepted can now be reopened by a verdict, so a fixture asserting a
+task is terminal-forever is asserting behaviour that no longer exists.

@@ -493,3 +493,14 @@ a divergence is a preflight that does not predict the seed.
 <!-- Coupling review 2026-08-04: seed-roster-real's defaultDepartmentModules now grants health -> aas_health + counts + milk + feed_direction + vaccination (maintainer decision 2026-07-30) and pairs milk with counts wherever counts is granted (maintainer decision 2026-07-31, because Milk Preparation/Feeding moved into their own drawer module while keeping /counts/... routes and CountsWrite). These are department -> module GRANT rows derived at seed time from department codes, so no source spreadsheet byte, header, file hash, row count or HRMS roster row changes and the source audit surface is unchanged. A department absent from the tenant is still skipped by the INSERT ... SELECT rather than erroring. -->
 <!-- Coupling review 2026-08-05: CBE/CPT controlled seed-port changes are runtime/import controls only: deterministic RFID alias preservation, dose-code/target-scoped sweeps, verifier grants from existing auth-pending rows, weighing duties, and active position conflict keys. They do not change HRMS source rows, source validation inputs, fixture bytes, hashes, or counts. Current open-port policy excludes Blue Tongue and PPR generation until later stock-confirmed scheduling, so those vaccines must not be generated merely to be deleted. -->
 <!-- Coupling review 2026-08-05 follow-up: the deterministic RFID alias preservation explicitly includes optional source field `rfid2` as an active secondary tag alias, alongside the old-id suffix tag. The CBE/CPT port must run with `GOATOS_SEED_EXCLUDE_VACCINES=blue_tongue,ppr` so stock-deferred Blue Tongue and manually-deferred PPR are absent from generated open work. -->
+
+## 2026-08-05: rework re-submission (SOP task state)
+
+A verifier rejecting a vaccination proof now moves the SOP task from `accepted`
+back to `rework_requested` (`ReopenTaskForRework`). Before this, the task stayed
+terminal and the operator's re-submission was refused with a write conflict, so
+the redone work was lost while the phone reported success.
+
+Seeding impact: none on source data or its date contract. A seeded task that has
+already been accepted can now be reopened by a verdict, so a fixture asserting a
+task is terminal-forever is asserting behaviour that no longer exists.
