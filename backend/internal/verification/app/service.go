@@ -121,7 +121,10 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		}
 		params.Status = domain.StatusPending
 		params.CapturedBefore = &todayStart
-	} else if params.BusinessDate == "" && !params.IncludeAllStatuses {
+	} else if params.BusinessDate == "" && !params.IncludeAllStatuses && !params.IsVerifierQueueRead {
+		// For non-verifier queue reads, default BusinessDate to today. For verifier queue reads
+		// (verification.review path), do NOT clamp to today — return the full pending backlog
+		// ordered oldest-first.
 		params.BusinessDate = biztime.BusinessDate(s.now())
 	}
 	if params.BusinessDate != "" {
@@ -177,8 +180,8 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 		// together. It leads the list because an operator scanning Actions wants the whole
 		// picture first (maintainer request 2026-07-30).
 		{Key: "all", Label: "All"},
-		{Key: "due", Label: "Due", Status: domain.StatusPending},
-		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
+		{Key: "due", Label: "To verify", Status: domain.StatusPending},
+		{Key: "approved", Label: "Accepted", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},
 	}
 	options.SelectedBusinessDate = params.BusinessDate
@@ -261,6 +264,10 @@ func (s *Service) ListReadyVaccinationBatchClosures(ctx context.Context, params 
 
 // resolveMedia batch-resolves every distinct proof id referenced on the page in ONE call to the proof
 // storage signed-URL port (never a per-row lookup — bounded by page size x media-per-item).
+// Resolution is per-item: an item whose own media refs all resolve keeps its media and
+// evidence_available=true; an item with any unresolvable ref of its OWN gets empty media +
+// evidence_available=false. The resolver reports per-ID failures as empty MediaItems with DownloadURL="",
+// which the service layer detects to fail-close only that item (not the whole page).
 //
 // It deliberately does NOT verify that each stored object is retrievable. Doing so would cost one
 // stat/HEAD per proof per row: on GCS (the production provider) a signed HEAD is ~20-50ms, so a
@@ -283,26 +290,29 @@ func (s *Service) resolveMedia(ctx context.Context, tenantID string, items []dom
 		}
 	}
 	mediaByID := map[string]domain.MediaItem{}
-	resolutionOK := len(allProofIDs) > 0 && s.media != nil
-	if resolutionOK {
+	if len(allProofIDs) > 0 && s.media != nil {
 		resolved, err := s.media.ResolveMedia(ctx, tenantID, allProofIDs)
 		if err == nil && len(resolved) == len(allProofIDs) {
 			for _, m := range resolved {
 				mediaByID[m.ProofID] = m
 			}
-		} else {
-			resolutionOK = false
 		}
+		// On error, mediaByID stays empty; all items fail-close below.
 	}
 	for i, it := range items {
 		media := make([]domain.MediaItem, 0, len(it.MediaRefs))
+		allResolved := true
 		for _, id := range it.MediaRefs {
-			if m, ok := mediaByID[id]; ok {
+			if m, ok := mediaByID[id]; ok && m.DownloadURL != "" {
 				media = append(media, m)
+			} else {
+				// This item's ref did not resolve (not in mediaByID or has empty URL)
+				allResolved = false
 			}
 		}
 		labelMedia(media, s.categoryFor(it.Category))
-		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: resolutionOK && len(media) == len(it.MediaRefs)}
+		// evidence_available is true ONLY when this item's own refs all resolved AND there is actual media to show
+		rows[i] = domain.QueueRow{Item: it, Media: media, EvidenceLinkResolved: allResolved && len(media) > 0}
 	}
 	return rows
 }

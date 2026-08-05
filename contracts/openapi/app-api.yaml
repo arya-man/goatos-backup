@@ -5392,7 +5392,8 @@ paths:
         - name: category
           in: query
           required: false
-          description: Verification type-registry category (e.g. vaccination_proof). Verifiers are assigned one or more categories.
+          description: >-
+            Verification type-registry category (e.g. vaccination_proof). When omitted, a verifier sees all evidence across their assigned categories (the "All evidence" landing view). Leadership (CEO/CxO) sees all categories when omitted. When specified, filters to a single category and requires authorization for that category.
           schema:
             type: string
             maxLength: 120
@@ -18821,6 +18822,7 @@ components:
         - statuses
         - parks
         - sheds
+        - counts
         - business_timezone
         - missed_only
         - has_missed
@@ -18856,6 +18858,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/VerificationLocationOption"
+        counts:
+          $ref: "#/components/schemas/VerificationStatusCounts"
         selected_business_date:
           type: string
           format: date
@@ -18866,6 +18870,23 @@ components:
           type: boolean
         has_missed:
           type: boolean
+    VerificationStatusCounts:
+      type: object
+      additionalProperties: false
+      description: >-
+        Whole-filter row counts (pending/approved/rejected) for the SAME scope the queue page is
+        reading — tenant, category/vertical/module, park, shed, and business date — computed by one
+        indexed GROUP BY over verification_items, never derived from a fetched/paginated page. The
+        three statuses are disjoint at verification-item grain (a row is exactly one of the three),
+        so pending + approved + rejected is the whole in-scope backlog.
+      required: [pending, approved, rejected]
+      properties:
+        pending:
+          type: integer
+        approved:
+          type: integer
+        rejected:
+          type: integer
     VerificationActionTypeOption:
       type: object
       additionalProperties: false

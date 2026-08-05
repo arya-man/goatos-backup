@@ -23,9 +23,14 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /filter_options\.statuses/);
   assert.match(pageSource, /businessDate: scope\.asOf/);
   assert.match(pageSource, /parkId: scope\.parkId/);
-  assert.match(drawerSource, /href=\{media\.download_url\}/);
-  assert.match(drawerSource, /drawer\.media\.open/);
-  assert.match(drawerSource, /item\.verified_by_name \|\| \(item\.verified_by \? shortId\(item\.verified_by\) : "—"\)/);
+  // The mock has no "Open video" link and no verdict explainer card: the proof is the <video> the
+  // verifier watches, sourced from the backend-signed media URL, plus the two-step reject that
+  // cannot record a rejection without asking for a reason.
+  assert.match(drawerSource, /src=\{activeMedia\.download_url\}/);
+  assert.match(drawerSource, /<video/);
+  assert.doesNotMatch(drawerSource, /drawer\.media\.open/);
+  assert.match(drawerSource, /setRejecting\(true\)/);
+  assert.match(drawerSource, /renderLabelOrFallback\(item\.verified_by_name\)/);
 });
 
 test("top bar hides the backend-owned as-of calendar filter", () => {

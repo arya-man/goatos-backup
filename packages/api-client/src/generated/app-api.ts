@@ -7210,12 +7210,19 @@ export interface components {
             statuses: components["schemas"]["VerificationStatusOption"][];
             parks: components["schemas"]["VerificationLocationOption"][];
             sheds: components["schemas"]["VerificationLocationOption"][];
+            counts: components["schemas"]["VerificationStatusCounts"];
             /** Format: date */
             selected_business_date?: string;
             /** @example Asia/Kolkata */
             business_timezone: string;
             missed_only: boolean;
             has_missed: boolean;
+        };
+        /** @description Whole-filter row counts (pending/approved/rejected) for the SAME scope the queue page is reading — tenant, category/vertical/module, park, shed, and business date — computed by one indexed GROUP BY over verification_items, never derived from a fetched/paginated page. The three statuses are disjoint at verification-item grain (a row is exactly one of the three), so pending + approved + rejected is the whole in-scope backlog. */
+        VerificationStatusCounts: {
+            pending: number;
+            approved: number;
+            rejected: number;
         };
         VerificationActionTypeOption: {
             key: string;
@@ -12022,7 +12029,7 @@ export interface operations {
     listVerificationQueue: {
         parameters: {
             query?: {
-                /** @description Verification type-registry category (e.g. vaccination_proof). Verifiers are assigned one or more categories. */
+                /** @description Verification type-registry category (e.g. vaccination_proof). When omitted, a verifier sees all evidence across their assigned categories (the "All evidence" landing view). Leadership (CEO/CxO) sees all categories when omitted. When specified, filters to a single category and requires authorization for that category. */
                 category?: string;
                 vertical?: string;
                 module?: string;

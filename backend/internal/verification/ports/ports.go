@@ -30,11 +30,12 @@ func (e *ErrBatchNotFullyVerified) Error() string {
 
 // ListQueueParams filters + keysets one page of the verifier queue.
 type ListQueueParams struct {
-	TenantID string
-	Category string
-	Vertical string
-	Module   string
-	Status   string // defaults to domain.StatusPending in the app layer.
+	TenantID   string
+	Category   string   // Single category (backward compatible; when Categories is set, this is ignored)
+	Categories []string // Multiple categories for cross-category verifier queries (mutually exclusive with Category)
+	Vertical   string
+	Module     string
+	Status     string // defaults to domain.StatusPending in the app layer.
 	// BusinessDate is the requested Asia/Kolkata capture date (YYYY-MM-DD). MissedOnly selects
 	// pending items captured before today's business-day start; the two scopes are exclusive.
 	BusinessDate string
@@ -69,6 +70,10 @@ type ListQueueParams struct {
 	// instead of letting the item vanish out of the pending queue with no trace. Only producers
 	// that opted into the ack protocol (applier_ack_expected) can ever appear here.
 	AwaitingApplicationOnly bool
+	// IsVerifierQueueRead indicates this is a verifier queue read (verification.review path).
+	// For verifier queue reads, do not clamp BusinessDate to today — return the full pending
+	// backlog ordered oldest-first with the existing keyset cursor.
+	IsVerifierQueueRead bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
