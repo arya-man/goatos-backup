@@ -35,6 +35,9 @@
 //                         to a registry nav label ("Alerts", "Calendar", "Videos", ...), or the
 //                         literal label appears. Being named after a destination is what makes it
 //                         an entry point, whether or not it is wired yet.
+//   nav-glyph-in-appbar   a control wears a glyph reserved for a nav destination (the Alerts Bell,
+//                         the Vaccination Syringe, ...). Even a legitimate on-screen action reads
+//                         as a second entry point when it borrows a destination's icon.
 //   inert-appbar-entry    a control with a no-op handler (`onClick = {}`). A control that does
 //                         nothing to the current screen is by definition not an action on it; it
 //                         is a parked entry point. This is exactly how the weighing bell shipped.
@@ -207,6 +210,22 @@ export function findingsForSource(source, facts) {
       });
     }
 
+    // Rule 3b — a control wearing a NAV DESTINATION'S GLYPH. The action may be a legitimate
+    // on-screen one (a filter, a jump-to-today), but if it borrows the icon a bottom-bar or
+    // drawer destination uses, the app bar still READS as a second way into that destination.
+    // This is how a "missed videos" FILTER shipped wearing the Alerts Bell, on a screen whose
+    // bottom bar already had Alerts: the earlier rules only look at where an action NAVIGATES
+    // and what it is NAMED, never at what it looks like.
+    for (const [glyph, destination] of Object.entries(NAV_RESERVED_GLYPHS)) {
+      if (new RegExp(`MeshaIcons\\.${glyph}\\b`).test(body)) {
+        findings.push({
+          line: block.line,
+          rule: "nav-glyph-in-appbar",
+          message: `app-bar action uses MeshaIcons.${glyph}, the glyph the "${destination}" nav destination wears; pick an icon that says what this action does to THIS screen, or move it to the bottom bar`,
+        });
+      }
+    }
+
     // Rule 3 — an inert control: a parked entry point, not an action on this screen.
     if (/onClick\s*=\s*\{\s*\}/.test(body)) {
       findings.push({
@@ -218,6 +237,18 @@ export function findingsForSource(source, facts) {
   }
   return findings;
 }
+
+// Glyphs MeshaIcons.forNavKey hands to nav destinations. An app-bar action that borrows one
+// reads as a duplicate entry point even when it acts on the current screen.
+const NAV_RESERVED_GLYPHS = {
+  Bell: "Alerts",
+  Syringe: "Vaccination",
+  Goat: "Herd Operations",
+  Calendar: "Calendar",
+  Feed: "Feed",
+  Health: "Health",
+  MilkPreparation: "Milk",
+};
 
 // ---------------------------------------------------------------------------
 // Runner
