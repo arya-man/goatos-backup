@@ -133,3 +133,26 @@ type EvidenceAvailabilityChecker interface {
 	// when the check itself could not be completed (unknown, not proof of absence).
 	EnsureEvidenceAvailable(ctx context.Context, tenantID string, proofIDs []string) error
 }
+
+// AlreadyDecidedError is a verdict write refused because the item ALREADY carries a verdict, as
+// distinct from losing a row_version race. It stays errors.Is-comparable to ErrConflict so every
+// existing branch (and the R50-016 regression that pins "non-pending must fail with ErrConflict")
+// keeps matching, while the HTTP layer can tell the reader the decision is final instead of
+// blaming a colleague who never touched the item.
+type AlreadyDecidedError struct {
+	CurrentStatus string
+}
+
+func (e *AlreadyDecidedError) Error() string {
+	return "verification: item already decided (" + e.CurrentStatus + ")"
+}
+
+func (e *AlreadyDecidedError) Is(target error) bool { return target == ErrConflict }
+
+// AlreadyDecided wraps the current status, degrading to the bare sentinel when it is unknown.
+func AlreadyDecided(currentStatus string) error {
+	if currentStatus == "" {
+		return ErrConflict
+	}
+	return &AlreadyDecidedError{CurrentStatus: currentStatus}
+}

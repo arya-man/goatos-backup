@@ -1484,6 +1484,20 @@ WHERE tenant_id = $4::uuid
 			}
 			return domain.Item{}, scanErr
 		}
+		// Separate "already decided" from "someone else saved first". Both are refusals and both
+		// stay errors.Is(ErrConflict), but only one is worth retrying: a stale row_version means
+		// reload and try again, while a terminal verdict means the decision is made and no amount
+		// of retrying will change it. Reporting the terminal case as "modified by someone else"
+		// sent verifiers hunting for a colleague who never touched the item.
+		var currentStatus string
+		var closed bool
+		if scanErr := tx.QueryRow(ctx,
+			"SELECT status, closed_at IS NOT NULL FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid",
+			in.TenantID, in.ItemID).Scan(&currentStatus, &closed); scanErr == nil {
+			if closed || currentStatus != string(domain.StatusPending) {
+				return domain.Item{}, ports.AlreadyDecided(currentStatus)
+			}
+		}
 		return domain.Item{}, ports.ErrConflict
 	}
 

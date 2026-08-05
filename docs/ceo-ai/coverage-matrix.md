@@ -803,3 +803,41 @@ which is already excluded above for the same reason. Leadership continues to see
 weighing progress through `GET /weighing/campaigns` and the Control Tower
 process-state summary; a refused edit writes nothing, so those numbers are
 unchanged by definition.
+
+**EXCLUDED — `func:AnimalProofWasRejected`** (weighing postgres adapter) — a
+boolean guard read asking whether a proof is already attached to an observation a
+verifier sent back, so re-recording an animal cannot reuse the very video that was
+rejected. It answers one write path's precondition and returns no rows, no totals,
+and nothing time-series; a refused capture writes nothing, so every leadership
+number is unchanged by definition. Leadership continues to see weighing progress
+through `GET /weighing/campaigns`, `GET /app/weighing/leadership/sheds` and the
+Control Tower process-state summary.
+
+**EXCLUDED — `func:Error`, `func:Is`, `func:ReworkNotRecapturedFor`** (weighing
+ports) — the error-interface methods and constructor of the typed refusal that
+blocks SUBMITTING a shed still holding an animal a verifier sent back. The type
+carries the scanned identifiers so the operator is told WHICH animals to redo
+instead of "that animal", which is unactionable in a shed of forty.
+
+They render an error string, compare errors.Is-equal to
+`ErrReworkNotRecaptured`, and wrap a tag list — no query, no aggregate, no
+metric, no read surface, and nothing a leader can ask a question about. Same
+shape as `FinishedShedConflict` and `ShedScheduleConflict`, both already excluded
+above for the same reason.
+
+**EXCLUDED — `func:AlreadyDecided`** (verification ports) — the constructor of the
+typed refusal returned when a verdict write targets an item that ALREADY carries a
+verdict, as distinct from losing a row_version race. Both refuse; only one is worth
+retrying, and reporting the terminal case as "modified by someone else" sent
+verifiers hunting for a colleague who never touched the item.
+
+It wraps a status string and compares errors.Is-equal to `ErrConflict` — no query,
+no aggregate, no metric, no read surface. A refused verdict writes nothing, so
+leadership's verification numbers are unchanged by definition; they continue to
+come from `GET /verification/queue` and the Control Tower summary.
+
+**EXCLUDED — `func:navigationModuleForDutyCode`** (verification http adapter) — a
+pure string translation from a position_module_duties module_code
+("pc.vaccination") to the NavigationModule key the category registry uses
+("vaccination"). The two vocabularies had drifted, which refused verifiers the
+vaccination queue outright. It reads nothing and returns no data.
