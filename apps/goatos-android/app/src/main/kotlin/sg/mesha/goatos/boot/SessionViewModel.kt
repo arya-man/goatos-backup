@@ -147,8 +147,18 @@ class SessionViewModel @Inject constructor(
                 if (!sessionStore.currentToken().isNullOrBlank()) {
                     analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
                 }
+                } catch (t: Throwable) {
+                    // FAIL CLOSED. The wipe above revokes the previous principal's device and
+                    // clears its state; if it threw partway, the OLD bearer may still be on disk.
+                    // Simply opening the gate here would let bootstrap reopen that principal --
+                    // a cross-principal session, which is worse than the locked-loading screen
+                    // this catch was added to prevent. Drop the token first, so the gate opens on
+                    // a signed-OUT app the operator can sign into.
+                    runCatching { sessionStore.setBearerToken(null) }
+                    throw t
                 } finally {
-                    // Resolve no matter what: unknown-forever is a locked-out app.
+                    // Resolve either way: unknown-forever is a locked-out app. By here the token
+                    // is either the new principal's or gone.
                     devSessionReady.value = true
                 }
             }
