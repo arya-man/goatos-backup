@@ -577,7 +577,11 @@ private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMiss
                 Box {
                     IconButton(onClick = onMissed) {
                         Icon(
-                            imageVector = MeshaIcons.Bell,
+                            // A FILTER, not a second Alerts entry. It wore the Bell -- the exact
+                            // glyph the Alerts tab uses in the bottom bar -- so the app bar read
+                            // as a duplicate way into Alerts. Missed means overdue, so it takes
+                            // the clock.
+                            imageVector = MeshaIcons.Clock,
                             contentDescription = stringResource(R.string.verify_missed_open),
                             tint = if (state.missedOnly) MeshaColors.Brand else MeshaColors.Muted,
                         )
