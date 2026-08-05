@@ -222,8 +222,12 @@ fun WeighingExportPreviewScreen(
             // flips to content or an empty state. That flip is the flicker being removed.
             // Loading is already communicated by the share button's disabled state, never by a
             // shimmer that flashes in and out on every navigation.
-            // Same guard as the work list: `loading` is required because this screen's
-            // ViewModel does not publish hasLoadedOnce, and the marker alone would stick false.
+            // `loading` stays in this gate even though WeighingViewModel now publishes a real
+            // hasLoadedOnce: loadExportPreview() returns BEFORE its try/finally (before the task
+            // has resolved, or before the export capability has landed), and neither early-return
+            // path ever sets the marker. On first open after a deep link those can still be in
+            // flight, so the marker-only gate would wedge this screen blank forever with no retry
+            // affordance. `loading` is what still guarantees the spinner eventually resolves.
             state.sheds.isEmpty() && state.loading && !state.hasLoadedOnce -> {
                 // NOTHING is drawn here. The absence of content is not known until the first read
                 // completes, so rendering a skeleton before that read is a confident wrong answer
