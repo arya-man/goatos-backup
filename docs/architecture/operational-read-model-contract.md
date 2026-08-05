@@ -222,7 +222,7 @@ These invariants should become testable for every vertical.
    A partition catalog must enumerate all existing partitions, including empty
    ones. A partition with zero live animals still exists (e.g., CBE `Yashoda 5`)
    and must remain a valid shifting destination. Derive partition existence from
-   `shed_partitions` (migration 000111), not from `goat_shed_partitions` (a
+   `shed_partitions` (migration 000112), not from `goat_shed_partitions` (a
    per-goat relation that hides empty partitions).
 
 ## Proposed Pluggable Model

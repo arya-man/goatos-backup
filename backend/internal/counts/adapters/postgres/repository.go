@@ -2875,7 +2875,7 @@ UNION ALL
 -- "Yashoda 5" is a real pen with no animals in it right now). Leaving it out of the facet means a
 -- CEO filtering the census cannot even ask about it, and it reads as though the pen does not
 -- exist. The authoritative list of which partitions EXIST is the shed_partitions catalog
--- (migration 000111), not the per-goat goat_shed_partitions table.
+-- (migration 000112), not the per-goat goat_shed_partitions table.
 --
 -- Only partitions with no live goats are added here; the branch above already emits every occupied
 -- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.

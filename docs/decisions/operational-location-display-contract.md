@@ -71,7 +71,7 @@ vaccination detail, Action Center, CEO reporting, search results) must:
 
 - A partition with zero live animals still exists (e.g., CBE `Yashoda 5`) and
   must remain a valid shifting destination.
-- Derive partition catalogs from `shed_partitions` (migration 000111), not from
+- Derive partition catalogs from `shed_partitions` (migration 000112), not from
   `goat_shed_partitions` (a per-goat relation that hides empty partitions).
 - `locations` rows named `Castro 1` with `status='inactive'` are NOT dead:
   `weighing_campaign_sheds` references them. Do not use one as a goat's
