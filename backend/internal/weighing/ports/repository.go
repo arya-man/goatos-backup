@@ -50,6 +50,31 @@ var (
 	// the rejected animal stayed in 'rework' with no new verification item, so the
 	// verifier's rejection was silently dropped and the work read as done.
 	ErrReworkNotRecaptured = errors.New("weighing: rejected animal must be re-recorded before submit")
+)
+
+// ReworkNotRecapturedTags is ErrReworkNotRecaptured carrying the scanned identifiers that are
+// actually awaiting re-record, so the operator is told WHICH animals to redo instead of "that
+// animal". It stays errors.Is-comparable to ErrReworkNotRecaptured, so every existing handler
+// branch keeps matching.
+type ReworkNotRecapturedTags struct {
+	Tags []string
+}
+
+func (e *ReworkNotRecapturedTags) Error() string {
+	return ErrReworkNotRecaptured.Error() + ": " + strings.Join(e.Tags, ", ")
+}
+
+func (e *ReworkNotRecapturedTags) Is(target error) bool { return target == ErrReworkNotRecaptured }
+
+// ReworkNotRecapturedFor wraps tags, falling back to the bare sentinel when none were resolved.
+func ReworkNotRecapturedFor(tags []string) error {
+	if len(tags) == 0 {
+		return ErrReworkNotRecaptured
+	}
+	return &ReworkNotRecapturedTags{Tags: tags}
+}
+
+var (
 
 	// ErrRejectedProofReuse is returned when an operator attempts to re-submit a shed
 	// observation using a proof that was already attached to a withdrawn or rework
@@ -348,6 +373,9 @@ type Repository interface {
 	// apart and the service is the layer that knows.
 	ListLeadershipSheds(ctx context.Context, tenantID string, parkIDs []string, cursor string, limit, perShedLimit int) (domain.LeadershipShedPage, error)
 	RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error)
+	// AnimalProofWasRejected reports whether a proof is already attached to a rework observation
+	// in this bucket, so a re-capture cannot reuse the very video the verifier sent back.
+	AnimalProofWasRejected(ctx context.Context, tenantID, campaignShedID, proofArtifactID string) (bool, error)
 	RecordShedObservation(ctx context.Context, cmd domain.RecordShedObservation) (domain.Observation, error)
 	SubmitIndividualScope(ctx context.Context, tenantID, campaignID, campaignShedID, actorID, idempotencyKey string, scannedIdentifiers []string) error
 	// ReopenScope returns the shed-observation ids whose lump-sum submissions the
@@ -457,4 +485,16 @@ type WeighingReworkDigestStore interface {
 // `weighing_work_item` grain.
 type WeighingProcessStateReader interface {
 	WeighingProcessState(ctx context.Context, tenantID, campaignID, fromBusinessDate, toBusinessDate string) (domain.ProcessState, error)
+}
+
+// CategoryFlipConflict is an edit refusing to change a bucket's weighing category while that
+// bucket already holds captures. The two categories write to different tables and every count
+// sums both, so a flip double counts the same animals instead of migrating them.
+type CategoryFlipConflict struct {
+	Sheds []string
+}
+
+func (e *CategoryFlipConflict) Error() string {
+	return "weighing: cannot change weighing category for buckets that already hold captures: " +
+		strings.Join(e.Sheds, ", ")
 }

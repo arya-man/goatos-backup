@@ -144,6 +144,8 @@ data class WeighingUiState(
     val selectedAnimalId: String? = null,
     val selectedAnimalLabel: String? = null,
     val scanInput: String = "",
+    /** DEV builds only: renders a typed-tag entry on the BLE-only execution screen. */
+    val devScanEntryEnabled: Boolean = false,
     val weightInput: String = "",
     val animalCountInput: String = "",
     val message: String? = null,
@@ -249,6 +251,13 @@ data class WeighingRosterUiRow(
     val backendSynced: Boolean = false,
     val weightUpdating: Boolean = false,
     val reuploadRequested: Boolean = false,
+    /**
+     * Set when a verifier sent THIS animal back. The row renders green and "Video synced" on the
+     * strength of upload state alone, so without this a rejected animal is indistinguishable from
+     * an accepted one and the operator only finds out when Submit refuses the shed.
+     */
+    val sentBack: Boolean = false,
+    val sentBackReason: String? = null,
 ) {
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
@@ -888,9 +897,13 @@ private fun LoadingWorkSkeleton() {
 
 @Composable
 private fun MessageStrip(message: String) {
+    // Server-authored blocks are errors too. Matching only on "failed"/"couldn't"/"error" styled
+    // a rework bounce ("A video was sent back. Re-record that animal...") as neutral chrome, which
+    // reads as confirmation of the very submit it just refused.
     val isError = message.contains("failed", ignoreCase = true) ||
         message.contains("couldn't", ignoreCase = true) ||
-        message.contains("error", ignoreCase = true)
+        message.contains("error", ignoreCase = true) ||
+        message.contains("sent back", ignoreCase = true)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -1258,8 +1271,39 @@ private fun WeighingExecutionScanScreen(
                         onReconnect = onReconnectReader,
                     )
                 }
-                state.message?.takeIf { it.startsWith("Already scanned") }?.let { message ->
-                    item { WeighingDuplicateNotice(message) }
+                // DEV ONLY. This execution screen is BLE-only: with no reader paired there is no
+                // way to enter a tag, so the whole capture path is untestable on an emulator and
+                // an operator whose reader dies mid-shed is stuck at "Scan an RFID tag to begin".
+                // The typed tag goes through the SAME matchTag() path as a reader read, including
+                // duplicate detection and the dev shed-namespacing, so what it exercises is the
+                // real capture flow rather than a parallel one. Compiled out of stg/prod by the
+                // flavour flag, so no field build can type a tag.
+                if (state.devScanEntryEnabled) {
+                    item {
+                        InlineEntryCard(
+                            label = stringResource(R.string.weighing_field_tag_label),
+                            value = state.scanInput,
+                            placeholder = stringResource(R.string.weighing_field_tag_placeholder),
+                            onValueChange = onScanInputChange,
+                            actionLabel = stringResource(R.string.weighing_field_tag_action),
+                            actionEnabled = !state.actionInFlight && state.scanInput.isNotBlank(),
+                            onAction = onScanSubmit,
+                        )
+                    }
+                }
+                // Show EVERY message, not only the duplicate notice. Filtering on the
+                // "Already scanned" prefix silently dropped every other message this screen
+                // produces — including the submit rejection ("a video was sent back, re-record
+                // that animal first"), which left the operator tapping Submit on a shed that
+                // could never go through, with nothing on screen to say why.
+                state.message?.takeIf { it.isNotBlank() }?.let { message ->
+                    item {
+                        if (message.startsWith("Already scanned")) {
+                            WeighingDuplicateNotice(message)
+                        } else {
+                            MessageStrip(message)
+                        }
+                    }
                 }
                 item {
                     Text(
@@ -1424,6 +1468,9 @@ private fun WeighingFreeFlowFeedRow(
         row.proofUploadStatus == ProofUploadStatus.SYNCED &&
         row.backendSynced
     val tone = when {
+        // Sent-back outranks "complete": the upload succeeded, which is exactly why this row
+        // looked finished. A rejected animal is the one thing on this screen that still needs work.
+        row.sentBack -> MeshaColors.Danger
         complete -> MeshaColors.Ok
         row.proofUploadStatus == ProofUploadStatus.FAILED -> MeshaColors.Danger
         else -> MeshaColors.Hair
@@ -1432,7 +1479,13 @@ private fun WeighingFreeFlowFeedRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .background(if (complete) MeshaColors.OkX else MeshaColors.Surf)
+            .background(
+                when {
+                    row.sentBack -> MeshaColors.DangerX
+                    complete -> MeshaColors.OkX
+                    else -> MeshaColors.Surf
+                },
+            )
             .border(1.dp, tone, RoundedCornerShape(8.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1444,7 +1497,7 @@ private fun WeighingFreeFlowFeedRow(
                 style = MeshaType.bodyStrong,
                 modifier = Modifier.weight(1f),
             )
-            if (complete) {
+            if (complete && !row.sentBack) {
                 Icon(
                     imageVector = MeshaIcons.CheckCircle,
                     contentDescription = null,
@@ -1452,6 +1505,17 @@ private fun WeighingFreeFlowFeedRow(
                     modifier = Modifier.size(20.dp),
                 )
             }
+        }
+        if (row.sentBack) {
+            // The reason is the whole point: "re-record" without saying what was wrong sends the
+            // operator back to the pen to shoot the same unusable video again.
+            Text(
+                text = row.sentBackReason?.takeIf { it.isNotBlank() }
+                    ?.let { stringResource(R.string.weighing_row_sent_back_with_reason, it) }
+                    ?: stringResource(R.string.weighing_row_sent_back),
+                color = MeshaColors.Danger,
+                style = MeshaType.bodyStrong,
+            )
         }
         Text(
             text = row.scannedAtLabel.orEmpty(),

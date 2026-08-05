@@ -670,7 +670,7 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 	case errors.Is(err, ports.ErrVerificationPending):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "verification_pending", Message: "This shed still has videos waiting to be checked.", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrReworkNotRecaptured):
-		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "rework_not_recaptured", Message: "A video was sent back. Re-record that animal before submitting this shed again.", TraceID: traceID(r)}, nil)
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "rework_not_recaptured", Message: reworkNotRecapturedMessage(err), TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrScopeIncomplete):
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, errorEnvelope{Code: "scope_incomplete", Message: "submitted scan list omits already-captured observations for this shed", TraceID: traceID(r)}, nil)
 	case errors.Is(err, ports.ErrCaptureIncomplete):
@@ -752,6 +752,27 @@ func (h *Handler) respond(w http.ResponseWriter, r *http.Request, body any, err 
 		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
 			Code:        "weighing_shed_already_weighed",
 			Message:     "This task already has weighed sheds, so it cannot be moved to another date or park. Remove those sheds from it, or leave this task and plan the new date as its own.",
+			FieldErrors: fieldErrors,
+			TraceID:     traceID(r),
+		}, nil)
+	case isCategoryFlipConflict(err):
+		// Same shape as the already-weighed conflict: the blocking bucket NAMES ride the 409 so
+		// the planner sees which sheds to leave alone. Farm words, never table names.
+		flip := &ports.CategoryFlipConflict{}
+		if !errors.As(err, &flip) {
+			flip = &ports.CategoryFlipConflict{}
+		}
+		fieldErrors := make([]conflictFieldError, 0, len(flip.Sheds))
+		for _, shed := range flip.Sheds {
+			fieldErrors = append(fieldErrors, conflictFieldError{
+				Field:   "weighing_category",
+				Code:    "weighing_shed_already_captured",
+				Message: shed + " already has weighing recorded against it.",
+			})
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusConflict, shedScheduleConflictEnvelope{
+			Code:        "weighing_shed_already_captured",
+			Message:     "These sheds already have weighing recorded, so how they are weighed cannot be changed. Remove them from this task, or leave them as they are.",
 			FieldErrors: fieldErrors,
 			TraceID:     traceID(r),
 		}, nil)
@@ -895,4 +916,11 @@ func weighingParkSelectionOptions(ctx context.Context) []string {
 	}
 	sort.Strings(parks)
 	return parks
+}
+
+// isCategoryFlipConflict keeps the switch above readable; CategoryFlipConflict carries names
+// rather than being a bare sentinel, so errors.Is has nothing to match against.
+func isCategoryFlipConflict(err error) bool {
+	flip := &ports.CategoryFlipConflict{}
+	return errors.As(err, &flip)
 }

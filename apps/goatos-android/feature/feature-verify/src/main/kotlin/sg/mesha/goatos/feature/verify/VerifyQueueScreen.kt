@@ -544,8 +544,13 @@ private fun ShedGroupHeader(shedLabel: String, rows: List<VerificationQueueRow>)
 // read "VACCINATION"), and it satisfies the backend-owns-visible-copy rule at the same time.
 private fun QueueHeader(state: VerifyQueueUiState, onRefresh: () -> Unit, onMissed: () -> Unit) {
     MeshaScreenHeader(
-        eyebrow = state.moduleLabel.takeIf { !state.isActionQueue && it.isNotBlank() }?.uppercase(),
-        title = stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
+        eyebrow = null,
+        // The title is the MODULE the nav bar is on -- Counts, Vaccination, Weighing. A verifier
+        // only ever verifies videos, so "Video verification" spent the most prominent line
+        // restating the job (and wrapped to two lines doing it) while the one thing that actually
+        // changes between taps -- which module you are looking at -- was demoted to an eyebrow.
+        title = state.moduleLabel.takeIf { !state.isActionQueue && it.isNotBlank() }
+            ?: stringResource(if (state.isActionQueue) R.string.verify_action_queue_title else R.string.verify_queue_title),
         below = {
             SyncStatusIndicator(
                 isRefreshing = state.isRefreshing,

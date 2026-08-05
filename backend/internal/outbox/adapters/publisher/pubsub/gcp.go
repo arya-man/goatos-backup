@@ -49,7 +49,19 @@ func (p *GCPMessagePublisher) Publish(ctx context.Context, topicID string, data 
 		return serverID, nil
 	}
 	switch status.Code(err) {
-	case codes.InvalidArgument, codes.NotFound, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
+	case codes.InvalidArgument:
+		// The ONLY genuinely permanent class: the message itself is malformed (too large, bad
+		// attributes). Retrying the identical bytes cannot succeed, so failing fast is right.
+		//
+		// NotFound / PermissionDenied / Unauthenticated / FailedPrecondition used to land here
+		// too, and that discarded live domain events on the FIRST attempt over conditions that
+		// heal by themselves: a topic recreated by a deploy, IAM still propagating, credentials
+		// mid-refresh. One such blip permanently dropped 16 events here -- including a
+		// verification.verdict.rework, i.e. a verifier's rejection of an operator's weighing --
+		// and requeuing them published all 17 with no other change, proving they were retryable
+		// all along. They are environment faults, so they retry and, if the environment really
+		// is broken, still terminate visibly via max_attempts_exhausted -> dead_letter, which is
+		// recoverable and alertable rather than silently gone.
 		return "", ports.PermanentPublishError(fmt.Errorf("pubsub publish topic %q: %w", topicID, err))
 	default:
 		return "", ports.RetryablePublishError(fmt.Errorf("pubsub publish topic %q: %w", topicID, err))

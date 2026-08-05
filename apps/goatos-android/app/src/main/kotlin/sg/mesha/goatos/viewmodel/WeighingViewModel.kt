@@ -1522,8 +1522,10 @@ class WeighingViewModel @Inject constructor(
     }
 
     fun submitTypedScan() {
-        val tag = scanInput.value
-        if (tag.isNotBlank()) matchTag(tag)
+        val tag = scanInput.value.trim()
+        if (tag.isBlank()) return
+        matchTag(tag, fromTypedEntry = true)
+        scanInput.value = ""
     }
 
     fun recordIndividual() {
@@ -1621,7 +1623,12 @@ class WeighingViewModel @Inject constructor(
                         callback()
                     }
                     is AppResult.Err -> {
-                        message.value = "Couldn't submit this shed. Try again."
+                        // Show the SERVER's reason when it has one. A rework bounce ("a video was
+                        // sent back, re-record that animal first") is a 409 the operator can act
+                        // on; replacing it with "Try again" hands them advice that can never work
+                        // and leaves the shed stuck with no on-screen explanation.
+                        message.value = submitted.message.takeIf { it.isNotBlank() }
+                            ?: "Couldn't submit this shed. Try again."
                         analytics.track(
                             AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED,
                             weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY) +
@@ -2129,7 +2136,7 @@ class WeighingViewModel @Inject constructor(
         return "$namespace-$trimmed"
     }
 
-    private fun matchTag(rawTag: String) {
+    private fun matchTag(rawTag: String, fromTypedEntry: Boolean = false) {
         val tag = scopedScanIdentifier(rawTag)
         val key = scopeKey ?: return
         val normalizedTag = normalizeFreeFlowTag(tag)
@@ -2159,7 +2166,7 @@ class WeighingViewModel @Inject constructor(
                 normalizeFreeFlowTag(draft.scannedIdentifier) == normalizedTag
             }
             if (alreadyRecorded || existingRow != null) {
-                scanInput.value = normalizedTag
+                scanInput.value = if (fromTypedEntry) "" else normalizedTag
                 message.value = "Already scanned · $normalizedTag"
                 return@launch
             }
@@ -2168,7 +2175,11 @@ class WeighingViewModel @Inject constructor(
                 fieldKey = WEIGHING_SCAN_FIELD_KEY,
                 tag = normalizedTag,
             )
-            scanInput.value = normalizedTag
+            // A reader read echoes the tag so the operator can see what the gun picked up. A TYPED
+            // entry must leave the field empty instead: the echo stays put, the cursor sits after
+            // it, and the next typed tag lands appended -- captured as one concatenated identifier
+            // that free-flow happily accepts.
+            scanInput.value = if (fromTypedEntry) "" else normalizedTag
             if (!inserted) {
                 message.value = "Already scanned · $normalizedTag"
                 return@launch
@@ -2388,6 +2399,7 @@ class WeighingViewModel @Inject constructor(
                     .ifBlank { routeTitle }
                     .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
                 hasScope = true,
+                devScanEntryEnabled = scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX,
                 scanInput = scan,
                 weightInput = weight,
                 animalCountInput = animalCount,
@@ -2452,6 +2464,7 @@ class WeighingViewModel @Inject constructor(
                 .ifBlank { routeTitle }
                 .ifBlank { if (category == PER_SHED_PARTITION_CATEGORY) "Shed / partition weighing" else "Animal weighing" },
             hasScope = true,
+                devScanEntryEnabled = scanScopePrefixOverride ?: BuildConfig.SCAN_SCOPE_PREFIX,
             totalExpected = scope.totalExpected,
             selectedAnimalId = selected?.animalId,
             selectedAnimalLabel = selected?.displayAnimalId,
@@ -2543,6 +2556,8 @@ class WeighingViewModel @Inject constructor(
                 backendSynced = draft?.syncedToBackend == true,
                 weightUpdating = row.animalId in updatingAnimalIds,
                 reuploadRequested = row.animalId == replacementAnimalId,
+                sentBack = draft?.verificationStatus == WEIGHING_VERIFICATION_REWORK,
+                sentBackReason = draft?.reworkReason,
             )
         }
 
@@ -3190,3 +3205,8 @@ private fun WeighingCsvExportRow.toPreviewRowUi(): WeighingExportPreviewRowUi = 
     dateIst = dateIst,
     timeIst = timeIst,
 )
+
+
+// The verifier verdict that means "this animal must be captured again". Matching the wire
+// value in one place keeps the row banner and the submit refusal talking about the same state.
+private const val WEIGHING_VERIFICATION_REWORK = "rework"

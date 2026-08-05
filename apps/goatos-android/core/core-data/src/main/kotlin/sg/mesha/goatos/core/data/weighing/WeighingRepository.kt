@@ -75,6 +75,9 @@ data class IndividualWeighingDraft(
     val syncedToBackend: Boolean,
     val idempotencyKey: String,
     val serverProofId: String? = null,
+    /** Verifier verdict for this capture: "rework" is the one the operator must act on. */
+    val verificationStatus: String? = null,
+    val reworkReason: String? = null,
 )
 
 data class ShedWeighingDraft(
@@ -1662,6 +1665,8 @@ class DefaultWeighingRepository(
                                 weightKg = observation.weightKg,
                                 proofCaptureId = observation.proofArtifactId,
                                 serverProofId = observation.proofArtifactId,
+                                verificationStatus = observation.verificationStatus,
+                                reworkReason = observation.reworkReason,
                                 syncStatus = WeighingSyncStatus.ACCEPTED.name,
                                 idempotencyKey = "weighing:server:${observation.observationId}",
                                 capturedAtMs = observation.acceptedAt.toEpochMillisOrNow(),
@@ -2170,6 +2175,8 @@ private fun WeighingObservationEntity.toDraft(): IndividualWeighingDraft =
         syncedToBackend = syncStatus == WeighingSyncStatus.ACCEPTED.name,
         idempotencyKey = idempotencyKey,
         serverProofId = serverProofId,
+        verificationStatus = verificationStatus,
+        reworkReason = reworkReason,
     )
 
 private fun WeighingShedObservationEntity.toDraft(): ShedWeighingDraft =

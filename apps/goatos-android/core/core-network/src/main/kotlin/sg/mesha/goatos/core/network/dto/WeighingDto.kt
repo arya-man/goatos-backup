@@ -343,6 +343,13 @@ data class WeighingAcceptedObservationDto(
     /** Assigned location from the campaign/shed scope; not a roster expectation. Weighing is free-flow. */
     @SerialName("expected_location_id") val expectedLocationId: String = "",
     @SerialName("accepted_at") val acceptedAt: String = "",
+    /**
+     * The verifier's verdict for THIS capture, and why if it came back. "rework" is the state
+     * the operator has to act on; without it a rejected animal restores from the server looking
+     * exactly like an accepted one.
+     */
+    @SerialName("verification_status") val verificationStatus: String? = null,
+    @SerialName("rework_reason") val reworkReason: String? = null,
 )
 
 @Serializable
@@ -383,6 +390,13 @@ data class WeighingObservationDto(
     @SerialName("actual_location_label") val actualLocationLabel: String? = null,
     @SerialName("accepted_at") val acceptedAt: String = "",
     @SerialName("media") val media: List<WeighingProofMediaDto> = emptyList(),
+    /**
+     * Which tag a verifier sent back, and why. Without these the capture list renders a rejected
+     * animal identically to an accepted one — green tick, "Video synced" — so the operator only
+     * discovers the rejection when Submit refuses the whole shed.
+     */
+    @SerialName("verification_status") val verificationStatus: String? = null,
+    @SerialName("rework_reason") val reworkReason: String? = null,
 )
 
 @Serializable

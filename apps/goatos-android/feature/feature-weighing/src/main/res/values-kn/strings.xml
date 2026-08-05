@@ -444,9 +444,11 @@
     </plurals>
     <string name="weighing_growth_scope_all">ಎಲ್ಲಾ ಪಾರ್ಕ್‌ಗಳು</string>
     <string name="weighing_growth_park_selector">ಪಾರ್ಕ್: %1$s</string>
+    <string name="weighing_row_sent_back">ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ — ಈ ಪ್ರಾಣಿಯನ್ನು ಮತ್ತೆ ದಾಖಲಿಸಿ.</string>
+    <string name="weighing_row_sent_back_with_reason">ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ: %1$s. ಈ ಪ್ರಾಣಿಯನ್ನು ಮತ್ತೆ ದಾಖಲಿಸಿ.</string>
     <string name="weighing_growth_lumpsum_title">ಲಂಪ್‌ಸಮ್ ಶೆಡ್‌ಗಳು</string>
     <string name="weighing_growth_lumpsum_caption">ಒಂದೇ ಗುಂಪಾಗಿ ತೂಕ — ಇವುಗಳಿಂದ ಪ್ರತಿ ಪ್ರಾಣಿಯ ಬೆಳವಣಿಗೆ ಸಿಗದು.</string>
-    <string name="weighing_growth_lumpsum_meta">%1$d ಪ್ರಾಣಿಗಳು · %2$s</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d ಪ್ರಾಣಿಗಳು · %2$s ವಾರ</string>
     <string name="weighing_growth_lumpsum_avg">%1$.1f ಕೆಜಿ ಸರಾಸರಿ</string>
     <string name="weighing_growth_needs_two_with_lumpsum">ಬೆಳವಣಿಗೆಗೆ 2 ತೂಕ · %1$d ಹೆಚ್ಚು ಲಂಪ್‌ಸಮ್‌ನಲ್ಲಿ</string>
     <string name="weighing_export_preview_search_hint">ಶೆಡ್‌ಗಳನ್ನು ಹುಡುಕಿ</string>

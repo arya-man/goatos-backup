@@ -359,7 +359,9 @@ func (h *Handler) authorizeReviewCategory(w nethttp.ResponseWriter, r *nethttp.R
 		return false
 	}
 	for _, allowed := range modules {
-		if allowed == module {
+		// Compare in NAVIGATION-key space: duties are stored as module codes ("pc.vaccination"),
+		// categories are registered against navigation keys ("vaccination").
+		if navigationModuleForDutyCode(allowed) == module {
 			return true
 		}
 	}
@@ -572,6 +574,13 @@ func decodeJSON(w nethttp.ResponseWriter, r *nethttp.Request, dst any) bool {
 	dec := json.NewDecoder(strings.NewReader(string(body)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
+		// An unknown/misspelled field is NOT malformed JSON, and saying so sends the caller
+		// hunting for a syntax error in a body that parses fine. Name the field instead --
+		// posting {"verdict":...} when the API takes "decision" is the common case.
+		if field, ok := unknownJSONField(err); ok {
+			writeBadJSON(w, r, "unknown field "+field+" in request body")
+			return false
+		}
 		writeBadJSON(w, r, "request body must be valid JSON")
 		return false
 	}
@@ -622,4 +631,16 @@ func traceID(r *nethttp.Request) string {
 		return "missing-trace"
 	}
 	return tid
+}
+
+// unknownJSONField pulls the offending field name out of encoding/json's DisallowUnknownFields
+// error, whose text is the only place that name exists.
+func unknownJSONField(err error) (string, bool) {
+	const marker = "unknown field "
+	msg := err.Error()
+	idx := strings.Index(msg, marker)
+	if idx < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(msg[idx+len(marker):]), true
 }

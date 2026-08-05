@@ -914,3 +914,12 @@ val MIGRATION_31_32: Migration = object : Migration(31, 32) {
         db.execSQL("ALTER TABLE `capture_evidence_drafts` ADD COLUMN `answers` TEXT")
     }
 }
+
+// v33 caches the verifier's per-capture verdict beside the capture. Nullable and additive:
+// existing rows migrate as "no verdict recorded", which is exactly what they were.
+val MIGRATION_32_33: Migration = object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `verificationStatus` TEXT")
+        db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `reworkReason` TEXT")
+    }
+}

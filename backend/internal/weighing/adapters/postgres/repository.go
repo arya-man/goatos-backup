@@ -264,6 +264,12 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 	if err := r.assertNoFinishedShedBlocksMove(ctx, tx, cmd.TenantID, campaignID, cmd.ParkID, cmd.StartBusinessDate); err != nil {
 		return domain.Campaign{}, err
 	}
+	// A bucket's weighing category may only change while it holds nothing: the two categories
+	// write to different tables and every count sums both, so flipping over captured work double
+	// counts the same animals rather than migrating them.
+	if err := r.assertNoCategoryFlipOverCapturedWork(ctx, tx, cmd.TenantID, campaignID, cmd.Sheds); err != nil {
+		return domain.Campaign{}, err
+	}
 	tag, err := tx.Exec(ctx, `
 UPDATE weighing_campaigns
 SET park_id=$3::uuid,
@@ -1153,7 +1159,13 @@ SELECT weighing_observations.observation_id::text,
        weighing_observations.weight_kg::float8,
        weighing_observations.proof_artifact_id::text,
        COALESCE(weighing_observations.expected_location_id::text, ''),
-       weighing_observations.accepted_at
+       weighing_observations.accepted_at,
+       -- WHICH tag came back. Both columns already exist on domain.Observation and were
+       -- documented as the operator's only way to tell a sent-back animal from an accepted
+       -- one, but this roster never selected them: every card rendered identically, so the
+       -- operator saw a green tick on the animal a verifier had rejected.
+       COALESCE(weighing_observations.verification_status, ''),
+       COALESCE(weighing_observations.rework_reason, '')
 FROM weighing_observations
 JOIN weighing_campaign_sheds cs
   ON cs.tenant_id=weighing_observations.tenant_id
@@ -1187,6 +1199,8 @@ LIMIT $7`, tenantID, campaignID, campaignShedID, nullableString(operatorFilter),
 			&observation.ProofArtifactID,
 			&observation.ExpectedLocationID,
 			&observation.AcceptedAt,
+			&observation.VerificationStatus,
+			&observation.ReworkReason,
 		); err != nil {
 			return domain.RosterPage{}, err
 		}
@@ -2265,19 +2279,36 @@ WHERE cs.tenant_id=$1::uuid
 	}
 	// Named separately from scope-incompleteness: the operator HAS captured every
 	// animal, but a verifier sent one back and it has not been re-recorded yet.
-	var awaitingRework bool
-	if err := tx.QueryRow(ctx, `
-SELECT EXISTS (
-  SELECT 1 FROM weighing_observations observation
-  WHERE observation.tenant_id=$1::uuid
-    AND observation.campaign_id=$2::uuid
-    AND observation.campaign_shed_id=$3::uuid
-    AND observation.verification_status='rework'
-)`, tenantID, campaignID, campaignShedID).Scan(&awaitingRework); err != nil {
+	// Collect the TAGS, not just a boolean. "Re-record that animal" is unactionable in a shed
+	// of forty: the operator cannot tell which card to redo, and the card itself still renders
+	// as captured. The identifiers are already in hand here, so name them.
+	reworkTags := []string{}
+	reworkRows, err := tx.Query(ctx, `
+SELECT observation.scanned_identifier
+FROM weighing_observations observation
+WHERE observation.tenant_id=$1::uuid
+  AND observation.campaign_id=$2::uuid
+  AND observation.campaign_shed_id=$3::uuid
+  AND observation.verification_status='rework'
+ORDER BY observation.scanned_identifier
+LIMIT 20`, tenantID, campaignID, campaignShedID)
+	if err != nil {
 		return fmt.Errorf("check individual scope rework rows: %w", err)
 	}
-	if awaitingRework {
-		return ports.ErrReworkNotRecaptured
+	for reworkRows.Next() {
+		var tag string
+		if err := reworkRows.Scan(&tag); err != nil {
+			reworkRows.Close()
+			return fmt.Errorf("scan individual scope rework row: %w", err)
+		}
+		reworkTags = append(reworkTags, tag)
+	}
+	reworkRows.Close()
+	if err := reworkRows.Err(); err != nil {
+		return fmt.Errorf("check individual scope rework rows: %w", err)
+	}
+	if len(reworkTags) > 0 {
+		return ports.ReworkNotRecapturedFor(reworkTags)
 	}
 	var omitsObserved bool
 	if err := tx.QueryRow(ctx, `
