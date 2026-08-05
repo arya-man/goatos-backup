@@ -594,6 +594,54 @@ Canonical source: `context/architecture/verifier-app-and-flow.md` → "Roles (tr
 alignment)"; pinned by `TestVerificationSeparationOfDuty` and
 `TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible`.
 
+Confirmed Approvals-on-mobile rule (maintainer decision 2026-08-05, SUPERSEDING the
+2026-07-21 decision that removed approvals from mobile and moved them to admin-web
+only): the birth/death/shifting approval queue is BACK on the phone, as its OWN
+module (`approvals`), not as a tab inside Counts.
+
+Two halves, and the second is the one a later session will break by accident:
+
+1. **Approvals is a separate module.** Counts stays CAPTURE-ONLY on the phone
+   (birth, death, shifting for holders of `counts.write`) and must NOT regain an
+   approval tab. Approving is not capturing and the audiences barely overlap: the
+   two named approvers hold no `counts.write`, and operators hold no approval
+   authority. Pinned by `TestCountsModuleRoleMatrix`,
+   `TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab`, and the Android
+   `TopLevelChromeTest`.
+2. **The authority is granted PER PERSON, never per job.** The maintainer's words
+   were "keep rbac per person, not per group". `permissions.RoleCountsApprover`
+   (`counts_approver`) carries exactly `counts.approve_access` /
+   `counts.approve_lifecycle` / `counts.approve_shifting` and NOTHING else — no
+   bootstrap, no read, no write — and is granted to NAMED individuals alongside
+   their job role. Today: Chandrakant (`pc_director`) and Dinakar
+   (`growth_director`). Their job roles are byte-for-byte unchanged, so a future
+   PC Director or Growth Director inherits no approval power by holding the job.
+
+**Do NOT "simplify" this by adding the approval permissions to `pc_director` or
+`growth_director`.** That hands the authority to every future holder of those
+jobs, reverses the one-module-one-director segregation lock
+(`director_module_segregation_test.go`), contradicts "growth_director runs
+Weighing and ONLY Weighing", and overrides `health_director` as the documented
+Counts owner. `TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly` and
+`TestCountsApproverRoleCarriesOnlyApprovalAuthority` both go red if it is tried;
+both were mutation-tested when written.
+
+The named list is `countsApproverEmails` in
+`backend/cmd/seed-stg-login-grants/approvers.go` — adding an email there IS the
+act of granting approval authority, on the phone and admin-web alike (one
+permission, one set of routes, two surfaces). Role catalog row: migration
+`000108_counts_approver_role.sql`. Canonical prose:
+`docs/runbooks/current-active-rbac-roles.md` -> "`counts_approver` is granted by
+NAME".
+
+Same change closed a copy-firewall defect on that queue: the phone used to render
+`Raised by <uuid>` and `to shed <uuid>` because it composed the row's copy itself
+from the echoed payload and had no name source. The backend now owns both lines
+(`raised_by_name`, `summary_line` on `CountsApprovalListItem`), resolving ids to
+names in ONE batched query per entity kind, and a fact whose name cannot be
+resolved is DROPPED from the line rather than rendered as an id. Clients render
+both verbatim; do not reintroduce client-side composition of that copy.
+
 Confirmed verifier admin-web workspace rule (maintainer decision 2026-08-03): the
 verifier-only workspace, previously mobile-only, also runs on admin-web with the SAME
 five evidence modules as mobile — Vaccination, Weighing, Counts, Feed, Health. `verifier`

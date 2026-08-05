@@ -186,10 +186,11 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "death", labelKey: "nav.death", href: "/counts/death", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite},          //nav-composition:ignore: registry entry
 			{key: "shifting", labelKey: "nav.shifting", href: "/counts/shifting", shared_key: "", priority: 4, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			// Milk prep/feeding MOVED OUT to the "milk" module (maintainer decision 2026-07-31).
-			// Approvals were REMOVED from mobile (maintainer decision 2026-07-21): approve/reject
-			// now lives only on the admin-web Approvals page, gated to the four org tiers + admin +
-			// ceo_internal. The Counts module no longer contributes an approval tab on the phone, so
-			// its bar is capture-only (birth, death, shifting).
+			// Counts contributes NO approval tab, and must not regain one. Approvals returned to the
+			// phone on 2026-08-05 (superseding their 2026-07-21 removal) as their OWN module -- see
+			// the "approvals" registry entry below. Approving is not capturing: the approvers hold
+			// no counts.write and operators hold no approval authority, so the two ride separate
+			// modules with separate gates. This bar stays capture-only (birth, death, shifting).
 		},
 		reviewContributions: []moduleNavContribution{
 			{key: "videos", labelKey: "nav.videos", href: "/verify/counts", priority: 1, requiredPermission: permissions.VerificationReview}, //nav-composition:ignore: registry entry
@@ -267,6 +268,43 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// silently widen or narrow who may write — hiding an item is not access control.
 			{key: "milk_preparation", labelKey: "nav.milk_preparation", href: "/counts/milk-preparation", shared_key: "", priority: 1, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			{key: "milk_feeding", labelKey: "nav.milk_feeding", href: "/counts/milk-feeding", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},             //nav-composition:ignore: registry entry
+		},
+	},
+	// "approvals" is the decision surface for work RAISED in the field and applied only once
+	// someone with authority says yes: birth, death, and shifting requests.
+	//
+	// Maintainer decision 2026-08-05, SUPERSEDING the 2026-07-21 decision that removed approvals
+	// from mobile and moved them to admin-web only. Approvals are back on the phone, and this time
+	// as their OWN module rather than a tab inside Counts. That distinction is the whole design:
+	//
+	//   - Counts stays capture-only (birth, death, shifting recording) for the operators who hold
+	//     CountsWrite. It does not regain an approval tab, so TestCountsModuleRoleMatrix and
+	//     TestCountsModuleBarIsCaptureOnlyAndOmitsYouTab keep asserting exactly what they assert
+	//     today. Approving is not capturing, and the two audiences barely overlap.
+	//   - Approvals is a separate drawer entry gated on a separate authority, so an approver who
+	//     holds no CountsWrite (both named directors hold none) gets the queue and no capture
+	//     tabs, while an operator gets capture tabs and no queue.
+	//
+	// The single nav item is gated on CountsApproveAccess -- the same coarse permission its
+	// backing route requires (permissions/routes.go: GET /app/counts/approvals), so the tab and
+	// the route agree. Hiding the item is NOT the access control: the handler re-checks per row
+	// via DecidableApprovalRequestTypes, and the list only returns types this caller may decide.
+	//
+	// No "you" contribution, deliberately. Per the nav-placement rule, "You" belongs in the drawer
+	// for any principal holding 2+ modules, and nobody can hold this module alone --
+	// RoleCountsApprover grants no AppBootstrap, so every holder also carries a job role (and its
+	// module) to have anywhere to render. A "you" here would be the exact repeat-it-in-every-bar
+	// defect that rule bans.
+	"approvals": {
+		key:         "approvals",
+		labelKey:    "module.approvals",
+		landingHref: "/counts/approvals", //nav-composition:ignore: registry entry
+		status:      moduleStatusAvailable,
+		priority:    7,
+		contributions: []moduleNavContribution{
+			// labelKey reuses the pre-existing "nav.approval" key rather than minting a new one:
+			// it survived the 2026-07-21 removal already translated into all four locales.
+			{key: "approvals", labelKey: "nav.approval", href: "/counts/approvals", shared_key: "", priority: 1, requiredPermission: permissions.CountsApproveAccess}, //nav-composition:ignore: registry entry
 		},
 	},
 	// Declared-but-unbuilt modules. They render as disabled "Soon" drawer rows so the
@@ -458,14 +496,17 @@ func reviewableModuleKeys() []string {
 //
 // Verification belongs to the verifier role, not leadership nav.
 func leadershipModuleKeys(grants []domain.GrantSummary) []string {
+	keys := make([]string, 0, 8)
 	if hasRole(grants, permissions.RoleCEOInternal) {
-		return []string{"vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding"}
+		// Not an early return any more: the approvals offer below is keyed on a PERMISSION and
+		// must apply to the CEO too. Returning here would have made the one module the CEO most
+		// obviously owns the one module the CEO could not see.
+		keys = appendMissing(keys, "vaccination", "weighing", "counts", "feed_direction", "aas_health", "milk", "breeding")
 	}
 	// PC Director / Park Head: preventive-care specialty verticals.
 	// Growth Director is a separate specialty and may be held alongside them, so the sets are
 	// unioned rather than returned early. appendMissing keeps the result duplicate-free: a
 	// principal holding BOTH would otherwise contribute "weighing" twice and render it twice.
-	keys := make([]string, 0, 3)
 	if hasRole(grants, permissions.RolePCDirector) || hasRole(grants, permissions.RoleParkHead) {
 		keys = appendMissing(keys, "vaccination", "weighing", "aas_health")
 	}
@@ -488,6 +529,21 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	}
 	if hasRole(grants, permissions.RoleHealthDirector) {
 		keys = appendMissing(keys, "counts")
+	}
+	// Approvals is offered by PERMISSION, not by role (maintainer decision 2026-08-05, "rbac per
+	// person, not per group"). Every entry above asks "which job is this?"; this one asks "may
+	// this person approve?", which is the only question that has a per-person answer.
+	//
+	// That is what makes the authority portable: RoleCountsApprover is granted to named
+	// individuals on their own user_scope_grants row, and their job role (pc_director,
+	// growth_director) is untouched. Keying the offer on the role instead would have forced a
+	// second edit here every time another person is granted the authority, and keying it on the
+	// JOB would have handed it to every future holder of that job -- the exact widening this
+	// design exists to avoid.
+	//
+	// The CEO tier reaches this through ceo_internal, which carries the same permission directly.
+	if grantsHavePermission(grants, permissions.CountsApproveAccess) {
+		keys = appendMissing(keys, "approvals")
 	}
 	return keys
 }
@@ -979,6 +1035,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.breeding":       "Breeding",
 		"module.health":         "Health",
 		"module.milk":           "Milk",
+		"module.approvals":      "Approvals",
 		"queue.assigned":        "Assigned work",
 		"queue.shifting":        "Shifting",
 		"queue.proof_review":    "Proof review",
@@ -1018,6 +1075,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.breeding":       "प्रजनन",
 		"module.health":         "स्वास्थ्य",
 		"module.milk":           "दूध",
+		"module.approvals":      "अनुमोदन",
 		"queue.assigned":        "सौंपा गया काम",
 		"queue.shifting":        "शिफ्टिंग",
 		"queue.proof_review":    "प्रूफ समीक्षा",
@@ -1057,6 +1115,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.breeding":       "ಸಂತಾನೋತ್ಪತ್ತಿ",
 		"module.health":         "ಆರೋಗ್ಯ",
 		"module.milk":           "ಹಾಲು",
+		"module.approvals":      "ಅನುಮೋದನೆ",
 		"queue.assigned":        "ನಿಯೋಜಿಸಿದ ಕೆಲಸ",
 		"queue.shifting":        "ಸ್ಥಳಾಂತರ",
 		"queue.proof_review":    "ಪುರಾವೆ ಪರಿಶೀಲನೆ",
@@ -1096,6 +1155,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"module.breeding":       "సంతానోత్పత్తి",
 		"module.health":         "ఆరోగ్యం",
 		"module.milk":           "పాలు",
+		"module.approvals":      "ఆమోదం",
 		"queue.assigned":        "కేటాయించిన పని",
 		"queue.shifting":        "షిఫ్టింగ్",
 		"queue.proof_review":    "ప్రూఫ్ సమీక్ష",

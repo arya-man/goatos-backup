@@ -15,6 +15,41 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | `feed_director` | Feed Director; owns the FEED chain (config/ration grid, dispatch sheet, packing worklist, feed proof oversight) across parks | `tenant` when both parks are needed | Feed Director cohort |
 | `health_director` | Health Director; owns COUNTS (census / herd register) and health/tagging identity. DISTINCT from `pc_director` | `tenant` when both parks are needed | Health Director cohort |
 | `verifier` | Video verification review (mobile + the admin-web verifier workspace) | `tenant` unless narrowed by future verification assignment rules | Jyothi / verifier users |
+| `counts_approver` | **Per-person authority, not a job.** Approve/reject on the birth/death/shifting queue, on the phone and admin-web. Held ALONGSIDE a job role, never instead of one | `tenant` (a decision is addressed by request id; a director's remit spans both parks) | Chandrakant, Dinakar |
+
+### `counts_approver` is granted by NAME (maintainer decision 2026-08-05)
+
+This role exists because the maintainer asked for approval rights on named
+individuals — "keep rbac per person, not per group" — and the permission model
+resolves authority purely from the roles on a caller's active
+`user_scope_grants` rows. A caller may hold several rows, so a narrow role held
+alongside a job role is the only way to express "this person, not this job".
+
+What that buys, and what it costs if it is ever "simplified":
+
+- `pc_director` and `growth_director` keep their published definitions —
+  Preventive Care only, and "Weighing and ONLY Weighing". A future holder of
+  either job inherits **no** approval authority; someone must grant it by name.
+- The one-module-one-director segregation lock
+  (`backend/internal/permissions/director_module_segregation_test.go`) stays
+  intact, and Counts ownership stays with `health_director`.
+- Revoking the grant row removes the authority and leaves the person's job
+  untouched.
+
+Moving `counts.approve_access` / `counts.approve_lifecycle` /
+`counts.approve_shifting` onto `pc_director` or `growth_director` is the exact
+shortcut this design rejects: it would hand approval power to everyone who ever
+holds those jobs. Two tests fail if anyone tries — see
+`TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly` and
+`TestCountsApproverRoleCarriesOnlyApprovalAuthority` in
+`backend/internal/workforce/app/service_test.go`.
+
+The role carries the three approval permissions and **nothing else** — no
+`app.bootstrap`, no `admin_web.bootstrap`, no counts read/write. A grant of it
+alone is inert: the holder must already have a job role to have any way in. The
+named list lives in `backend/cmd/seed-stg-login-grants/approvers.go`
+(`countsApproverEmails`); adding an email there is the act of granting the
+authority.
 
 ## Dormant Catalog Roles
 

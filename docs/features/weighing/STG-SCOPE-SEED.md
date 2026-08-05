@@ -96,16 +96,23 @@ or leadership cancels/closes it.
 
 The same staging append must ensure the following people can sign in with the
 documented STG password convention and see only the modules listed below.
-It must not grant Counts. Counts is temporarily inactive for operator module
-grants.
+
+> **Maintainer decision 2026-08-05 — SUPERSEDES the previous "must not grant
+> Counts / Counts is temporarily inactive for operator module grants" rule FOR
+> the Weighing Operations department ONLY.** Pramod and Kumar Sharath keep
+> Weighing and additionally hold Counts (Herd Operations: birth, death,
+> shifting capture on the phone). Counts is added ON TOP of Weighing — no
+> module was removed, and no other department's grants changed. Counts remains
+> `inactive` for the `health` department; `preventive_care` already held it
+> before this decision.
 
 | Park | Person | App role | Business title / department | Login | Modules |
 | --- | --- | --- | --- | --- | --- |
 | CPT | Amit Kumar | Operator | Preventive Care | `amit797069@gmail.com` | Vaccination, Weighing |
 | CPT | Darshan Talwar | Operator | Preventive Care | `darshantalawar033@gmail.com` | Vaccination, Weighing |
 | CPT | Sagar Mahoor | Operator | Preventive Care | `sagarmahoor143@gmail.com` | Vaccination, Weighing |
-| CBE | Pramod | Operator | Weighing Operations | `pramodsahu616285@gmail.com` | Weighing only |
-| CBE | Kumar Sharath | Operator | Weighing Operations | `kumarsharath95279@gmail.com` | Weighing only |
+| CBE | Pramod | Operator | Weighing Operations | `pramodsahu616285@gmail.com` | Weighing, Counts (Herd Operations) |
+| CBE | Kumar Sharath | Operator | Weighing Operations | `kumarsharath95279@gmail.com` | Weighing, Counts (Herd Operations) |
 | Both | Dinakar | `growth_director` | Growth Director | `babureddy315@gmail.com` | Weighing only |
 
 Eshwar remains intentionally excluded from this STG weighing grant until his
@@ -148,7 +155,10 @@ After seeding, verify:
    `goat_identifiers` row.
 5. Capturing the same RFID in two different weighing scopes succeeds in both.
 6. No non-weighing tables change during either capture.
-7. Counts is absent from Android for operators, directors, and leadership.
+7. Counts is present on Android for the Weighing Operations department only
+   (maintainer decision 2026-08-05); it stays absent for Dinakar and for the
+   `health` department.
 8. Amit, Darshan, and Sagar see Vaccination and Weighing.
-9. Pramod, Kumar Sharath, and Dinakar see Weighing only.
+9. Pramod and Kumar Sharath see Weighing and Counts (Herd Operations).
+   Dinakar sees Weighing only.
 10. Eshwar receives no grant from this seed.

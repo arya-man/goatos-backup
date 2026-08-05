@@ -491,6 +491,9 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countsShiftingExecutionService := countsapp.NewShiftingExecutionService(countsApprovalRepo, nil)
 	countsAppWriteHandler := countshttp.NewAppWriteHandler(countsService, log).
 		WithApprovalWorkflow(countsApprovalService, identityService).
+		// Raiser and shed NAMES for the approvals queue, so neither the phone nor admin-web
+		// renders a UUID at an approver (golden frontend rule: the label is backend-owned).
+		WithApprovalNames(countsApprovalRepo).
 		WithShiftingExecutionWorkflow(countsShiftingExecutionService)
 	feedService := feedapp.NewService(feedpg.NewRepository(pool, cfg.Postgres.QueryTimeout)).
 		WithCountsProjectionProvider(countsService).

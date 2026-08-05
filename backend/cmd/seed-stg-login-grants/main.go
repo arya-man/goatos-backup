@@ -222,8 +222,15 @@ func main() {
 		fmt.Println("seed-stg-login-grants: dry-run complete, no writes performed")
 		return
 	}
+	// Per-person Counts approval authority (maintainer decision 2026-08-05). Runs AFTER the roster
+	// loop because the UID-backed half materializes an ACTIVE grant for an account seeded above.
+	approverFailures := reportCountsApprovers(seedCountsApprovers(ctx, pool, tenantID, authIssuer, source))
+	failed += approverFailures
+
+	fmt.Println()
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d/%d accounts FAILED — STG seed is INCOMPLETE\n", failed, len(results))
+		fmt.Fprintf(os.Stderr, "seed-stg-login-grants: %d failure(s) across %d accounts and %d approver(s) — STG seed is INCOMPLETE\n",
+			failed, len(results), len(countsApproverEmails))
 		os.Exit(1)
 	}
 	fmt.Printf("seed-stg-login-grants: all %d accounts have an ACTIVE scoped grant and mobile profile\n", len(results))
