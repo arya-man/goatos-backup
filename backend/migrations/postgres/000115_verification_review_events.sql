@@ -1,5 +1,5 @@
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 --
 -- Why both directives: this table is NOT the banned runtime review/reconcile queue (VACC-REV-10).
 -- It stores the verifier's own video-watch telemetry (play/pause/seek/verdict), an append-only
@@ -24,8 +24,8 @@
 -- They are cheap per-item aggregates (bounded by event count per item, not a whole-table scan),
 -- so read-time computation is not the scale-anti-pattern this repo bans for CEO-wide aggregates;
 -- the CEO-wide ceo_ai view in migration 000117 IS a stored/materialized aggregate.
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE TABLE public.verification_review_events (
     event_id uuid DEFAULT gen_random_uuid() NOT NULL,
     tenant_id uuid NOT NULL,
@@ -54,27 +54,27 @@ CREATE TABLE public.verification_review_events (
 -- Attach the composite unique CONSTRAINT using the index built CONCURRENTLY in migration
 -- 000111 (USING INDEX skips the redundant index build, so this only takes the brief catalog
 -- lock needed to record the constraint -- no CREATE-INDEX-strength table lock on the hot table).
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 ALTER TABLE public.verification_items
     ADD CONSTRAINT verification_items_tenant_item_unique UNIQUE
     USING INDEX verification_items_tenant_item_unique_idx;
 
 -- Idempotent-write contract: a replayed batch with the same client-minted ids inserts nothing new.
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE UNIQUE INDEX verification_review_events_tenant_client_event_unique_idx
     ON public.verification_review_events USING btree (tenant_id, client_event_id);
 
 -- Read path 1: per-(item,actor) derived facts -- fetch every event for one item ordered by time.
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE INDEX verification_review_events_item_actor_time_idx
     ON public.verification_review_events USING btree (tenant_id, item_id, actor_id, occurred_at);
 
 -- Read path 2: per-actor-per-day rollups feeding the CEO aggregate (migration 000112).
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE INDEX verification_review_events_actor_time_idx
     ON public.verification_review_events USING btree (tenant_id, actor_id, occurred_at);
 
@@ -82,7 +82,7 @@ CREATE INDEX verification_review_events_actor_time_idx
 DROP INDEX IF EXISTS public.verification_review_events_actor_time_idx;
 DROP INDEX IF EXISTS public.verification_review_events_item_actor_time_idx;
 DROP INDEX IF EXISTS public.verification_review_events_tenant_client_event_unique_idx;
--- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 ALTER TABLE public.verification_items DROP CONSTRAINT IF EXISTS verification_items_tenant_item_unique;
 DROP TABLE IF EXISTS public.verification_review_events;
