@@ -123,6 +123,9 @@ class ShedsViewModel @Inject constructor(
     // -- an empty result never sets it -- and isRefreshing flips on every later refresh, so both
     // made the screen either wedge on a spinner or yank already-drawn content away mid-refresh.
     private val _hasLoadedOnce = MutableStateFlow(false)
+
+    /** Which query the marker belongs to; a different scope has not been read yet. */
+    private var loadedScopeKey: String? = null
     private val transientState = combine(
         _selectedDay,
         combine(_isRefreshing, _isOffline, _isLoadingMore, _leadershipMode, _hasLoadedOnce) { r, o, l, m, h ->
@@ -260,6 +263,12 @@ class ShedsViewModel @Inject constructor(
      *  [ShedsUiState.isOffline] — cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
+        // Same rule as the verify queue: the marker belongs to the QUERY. A park/day change is a
+        // new read, and carrying the previous scope's marker let "No sheds" render over a scope
+        // nothing had been read for. Keyed, not blindly reset, so a pull-to-refresh on the same
+        // scope does not blank a legitimately empty day while it re-reads.
+        val scopeKey = "${'$'}{selectedParkId.value}|${'$'}{selectedDay.value}"
+        if (loadedScopeKey != scopeKey) _hasLoadedOnce.value = false
         try {
             // INSIDE the try: a throw from analytics here would skip the finally that sets
             // hasLoadedOnce, leaving the screen permanently blank with a frozen spinner.
@@ -288,6 +297,7 @@ class ShedsViewModel @Inject constructor(
             // In FINALLY, not after the result: a throw on the way here would otherwise leave the
             // flag false forever and wedge the screen on a spinner over a blank list.
             _hasLoadedOnce.value = true
+            loadedScopeKey = scopeKey
         }
     }
 

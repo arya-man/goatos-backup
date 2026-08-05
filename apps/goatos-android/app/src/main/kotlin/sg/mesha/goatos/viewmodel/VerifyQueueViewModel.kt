@@ -123,6 +123,9 @@ class VerifyQueueViewModel @Inject constructor(
     // -- an empty result never sets it, so the screen wedged on a spinner over a blank list --
     // and isRefreshing flips on every later refresh, which yanked already-drawn content away.
     private val _hasLoadedOnce = MutableStateFlow(false)
+
+    /** Which query the marker belongs to; a different scope has not been read yet. */
+    private var loadedScopeKey: String? = null
     private val _isLoadingMore = MutableStateFlow(false)
     private val _closingBatchId = MutableStateFlow<String?>(null)
     private val _closeErrorBatchId = MutableStateFlow<String?>(null)
@@ -355,6 +358,13 @@ class VerifyQueueViewModel @Inject constructor(
     private fun refresh() = viewModelScope.launch {
         _isLoadingMore.value = false
         _isRefreshing.value = true
+        // The marker belongs to the QUERY, not the screen. Changing category/park/shed/status/
+        // date starts a brand-new read, and leaving it true let the previous scope's answer stand
+        // in for the new one -- "Queue clear" rendered over a scope nothing had been read for
+        // yet. Keyed rather than blindly reset: a pull-to-refresh on the SAME scope must not
+        // blank a legitimately empty queue while it re-reads.
+        val scopeKey = currentScope().toString()
+        if (loadedScopeKey != scopeKey) _hasLoadedOnce.value = false
         try {
             val scope = currentScope()
             val category = scope.category ?: return@launch
@@ -383,6 +393,7 @@ class VerifyQueueViewModel @Inject constructor(
             // In FINALLY, not after the result: a throw on the way here would leave this false
             // forever and wedge the screen on a spinner over a blank list.
             _hasLoadedOnce.value = true
+            loadedScopeKey = scopeKey
         }
     }
 
