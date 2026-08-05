@@ -222,8 +222,6 @@ data class ShedSwitchOption(
 // perf/stability pass).
 @Immutable
 data class ScanUiState(
-    /** DEV builds only: renders a typed-tag entry on this otherwise BLE-only capture screen. */
-    val devScanEntryEnabled: Boolean = false,
     val shedLabel: String,                 // header eyebrow, e.g. "Vaccination · Gandhi 1"
     val cohortLabel: String,               // header title, e.g. "Milking does"
     val ringDone: Int,                     // shed total scanned
@@ -277,12 +275,6 @@ data class ScanUiState(
 sealed interface ScanEvent {
     data object Back : ScanEvent
     data object Tap : ScanEvent                            // tap reader / ring to scan
-    /**
-     * DEV BUILDS ONLY. A typed tag pushed through the SAME path a physical reader read takes, so
-     * the vaccination capture flow is exercisable on an emulator and by an operator whose reader
-     * dies mid-shed. Gated on the dev flavour; invisible in production.
-     */
-    data class DevTypedTag(val tag: String) : ScanEvent
     data object OpenList : ScanEvent                       // open the scan-list sheet
     data object Submit : ScanEvent                         // submit the shed record
     data object LoadMore : ScanEvent                       // fetch one bounded continuation page
@@ -375,13 +367,6 @@ fun ScanScreen(
                         ),
                         onReconnect = { onEvent(ScanEvent.ReconnectReader) },
                     )
-                }
-                // DEV ONLY. This screen is BLE-only: with no reader paired there is no way to
-                // supply a tag, so the whole vaccination capture path is untestable on an
-                // emulator and an operator whose reader dies mid-shed is stuck. The typed tag
-                // goes through the SAME onTagRead() path a reader read takes.
-                if (state.devScanEntryEnabled) {
-                    item { ScanDevTagEntry(onSubmit = { onEvent(ScanEvent.DevTypedTag(it)) }) }
                 }
                 item {
                     ScanRing(
@@ -1809,42 +1794,5 @@ private fun ScanListSheetPreview() {
             title = "Scanned this drive",
             rows = previewState().roster,
         )
-    }
-}
-
-
-/**
- * DEV-only typed tag entry. Deliberately plain: it exists so automated and emulator runs can
- * drive the real capture path, not as an operator-facing feature.
- */
-@Composable
-private fun ScanDevTagEntry(onSubmit: (String) -> Unit) {
-    var tag by remember { mutableStateOf("") }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        OutlinedTextField(
-            value = tag,
-            onValueChange = { tag = it },
-            singleLine = true,
-            placeholder = { Text("RFID tag (dev only)", color = ScanTokens.faint, fontSize = 13.sp) },
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        TextButton(
-            onClick = {
-                val value = tag.trim()
-                if (value.isNotEmpty()) {
-                    onSubmit(value)
-                    tag = ""
-                }
-            },
-            enabled = tag.isNotBlank(),
-        ) {
-            Text("Read", color = ScanTokens.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        }
     }
 }

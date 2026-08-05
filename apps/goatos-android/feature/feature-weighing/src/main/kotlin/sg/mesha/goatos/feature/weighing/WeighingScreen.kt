@@ -143,8 +143,6 @@ data class WeighingUiState(
     val selectedAnimalId: String? = null,
     val selectedAnimalLabel: String? = null,
     val scanInput: String = "",
-    /** DEV builds only: renders a typed-tag entry on the BLE-only execution screen. */
-    val devScanEntryEnabled: Boolean = false,
     val weightInput: String = "",
     val animalCountInput: String = "",
     val message: String? = null,
@@ -783,16 +781,34 @@ private fun StatusPill(status: String) {
 
 @Composable
 private fun CategoryPill(category: String) {
+    // The pill's whole job is to tell lump-sum apart from individual at a glance, so the two
+    // categories must not share a colour. Purple == lump-sum is the convention every other
+    // weighing surface already uses (task detail, plan wizard, leadership videos); this pill
+    // was painting BOTH purple, which made the only distinguishing chip on the work list
+    // carry no information at all.
+    val (fg, bg) = categoryPillTone(category)
     Text(
         text = weighingCategoryLabel(category),
-        color = MeshaColors.Purple,
+        color = fg,
         style = MeshaType.pillStrong,
         modifier = Modifier
             .clip(RoundedCornerShape(9.dp))
-            .background(MeshaColors.PurpleX)
+            .background(bg)
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }
+
+/**
+ * Foreground/background for the work-list category pill. Extracted so the ONE property that
+ * makes the pill worth rendering -- lump-sum and individual do not look alike -- is assertable
+ * without a screenshot. Paparazzi happily re-recorded the all-purple version as "correct".
+ */
+internal fun categoryPillTone(category: String): Pair<Color, Color> =
+    if (category.trim().equals("per_shed_partition", ignoreCase = true)) {
+        MeshaColors.Purple to MeshaColors.PurpleX
+    } else {
+        MeshaColors.BrandD to MeshaColors.Surf3
+    }
 
 @Composable
 private fun WeighingProgressBar(complete: Boolean, category: String) {
@@ -1276,26 +1292,6 @@ private fun WeighingExecutionScanScreen(
                         reader = state.readerConnection,
                         onReconnect = onReconnectReader,
                     )
-                }
-                // DEV ONLY. This execution screen is BLE-only: with no reader paired there is no
-                // way to enter a tag, so the whole capture path is untestable on an emulator and
-                // an operator whose reader dies mid-shed is stuck at "Scan an RFID tag to begin".
-                // The typed tag goes through the SAME matchTag() path as a reader read, including
-                // duplicate detection and the dev shed-namespacing, so what it exercises is the
-                // real capture flow rather than a parallel one. Compiled out of stg/prod by the
-                // flavour flag, so no field build can type a tag.
-                if (state.devScanEntryEnabled) {
-                    item {
-                        InlineEntryCard(
-                            label = stringResource(R.string.weighing_field_tag_label),
-                            value = state.scanInput,
-                            placeholder = stringResource(R.string.weighing_field_tag_placeholder),
-                            onValueChange = onScanInputChange,
-                            actionLabel = stringResource(R.string.weighing_field_tag_action),
-                            actionEnabled = !state.actionInFlight && state.scanInput.isNotBlank(),
-                            onAction = onScanSubmit,
-                        )
-                    }
                 }
                 // Show EVERY message, not only the duplicate notice. Filtering on the
                 // "Already scanned" prefix silently dropped every other message this screen

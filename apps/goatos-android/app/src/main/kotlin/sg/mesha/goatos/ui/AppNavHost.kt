@@ -1845,7 +1845,7 @@ fun AppNavHost(
         composable(Routes.RFID) {
             val vm: RfidViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            RfidScreen(state = state, onEvent = vm::onEvent)
+            RfidScreen(state = state, onEvent = vm::onEvent, onBack = { navController.popBackStack() })
         }
 
         composable(Routes.VACCINATION_ALERTS) {
