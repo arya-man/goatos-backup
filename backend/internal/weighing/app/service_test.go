@@ -755,6 +755,7 @@ func validCreate() domain.CreateCampaign {
 }
 
 type fakeRepo struct {
+	animalProofRejected bool
 	animalWrites int
 	shedWrites   int
 }
@@ -998,6 +999,11 @@ func (f fakeRepo) GetLeadershipShedVideos(context.Context, string, string, strin
 func (f *fakeRepo) RecordAnimalObservation(context.Context, domain.RecordAnimalObservation) (domain.Observation, error) {
 	f.animalWrites++
 	return domain.Observation{}, nil
+}
+// AnimalProofWasRejected defaults to false: the reuse guard is exercised by its own tests, and a
+// fake that claimed "rejected" here would block every other capture path in this file.
+func (f *fakeRepo) AnimalProofWasRejected(context.Context, string, string, string) (bool, error) {
+	return f.animalProofRejected, nil
 }
 func (f *fakeRepo) RecordShedObservation(context.Context, domain.RecordShedObservation) (domain.Observation, error) {
 	f.shedWrites++

@@ -892,6 +892,16 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	// Re-capturing after a rejection means a NEW video. Re-sending the one the verifier just
+	// rejected was accepted with a 200 that changed nothing -- success on screen, animal still
+	// in rework, shed still unsubmittable. Refuse it by name instead.
+	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
+	if rejectedProof {
+		return domain.Observation{}, ports.ErrRejectedProofReuse
+	}
 	obs, err := s.repo.RecordAnimalObservation(ctx, cmd)
 	if err != nil {
 		return domain.Observation{}, err

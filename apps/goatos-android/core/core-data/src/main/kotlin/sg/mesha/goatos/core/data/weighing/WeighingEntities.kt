@@ -88,6 +88,12 @@ data class WeighingObservationEntity(
     val idempotencyKey: String,
     val capturedAtMs: Long,
     val lastError: String?,
+    // The verifier's verdict for THIS capture, cached with the capture it belongs to so a
+    // sent-back animal still reads as sent-back offline. Without it the capture list renders a
+    // rejected animal exactly like an accepted one -- green, "Video synced" -- and the operator
+    // only discovers the rejection when Submit refuses the entire shed.
+    val verificationStatus: String? = null,
+    val reworkReason: String? = null,
 )
 
 @Entity(

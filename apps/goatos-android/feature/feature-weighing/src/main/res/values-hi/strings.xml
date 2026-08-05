@@ -444,9 +444,11 @@
     </plurals>
     <string name="weighing_growth_scope_all">सभी पार्क</string>
     <string name="weighing_growth_park_selector">पार्क: %1$s</string>
+    <string name="weighing_row_sent_back">वापस भेजा गया — इस पशु को दोबारा रिकॉर्ड करें।</string>
+    <string name="weighing_row_sent_back_with_reason">वापस भेजा गया: %1$s। इस पशु को दोबारा रिकॉर्ड करें।</string>
     <string name="weighing_growth_lumpsum_title">लंपसम शेड</string>
     <string name="weighing_growth_lumpsum_caption">एक समूह में तौला गया — इनसे प्रति पशु वृद्धि नहीं निकलती।</string>
-    <string name="weighing_growth_lumpsum_meta">%1$d पशु · %2$s</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d पशु · %2$s सप्ताह</string>
     <string name="weighing_growth_lumpsum_avg">%1$.1f किग्रा औसत</string>
     <string name="weighing_growth_needs_two_with_lumpsum">वृद्धि हेतु 2 बार वज़न · %1$d और लंपसम में तौले गए</string>
     <string name="weighing_export_preview_search_hint">शेड खोजें</string>

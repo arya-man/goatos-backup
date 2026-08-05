@@ -22,6 +22,7 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.isConnectivityFailure
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -368,7 +369,7 @@ class VerifyQueueViewModel @Inject constructor(
                     limit = VERIFY_QUEUE_PAGE_SIZE,
                 )
             }
-            _isOffline.value = result.isFailure
+            _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         } finally {
             _isRefreshing.value = false
         }
@@ -389,7 +390,7 @@ class VerifyQueueViewModel @Inject constructor(
             shedId = scope.shedId,
             limit = VERIFY_QUEUE_PAGE_SIZE,
         )
-        _isOffline.value = result.isFailure
+        _isOffline.value = result.exceptionOrNull().isConnectivityFailure()
         _isLoadingMore.value = false
         AnalyticsFunnels.trackVerifyQueueLoadMore(analytics, category, observedResource.value.data?.items?.size ?: 0)
     }

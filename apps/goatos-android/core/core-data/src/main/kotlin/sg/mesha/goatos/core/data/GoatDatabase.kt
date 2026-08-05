@@ -256,7 +256,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
     ],
-    version = 32,
+    version = 33,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema

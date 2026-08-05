@@ -444,9 +444,11 @@
     </plurals>
     <string name="weighing_growth_scope_all">అన్ని పార్కులు</string>
     <string name="weighing_growth_park_selector">పార్క్: %1$s</string>
+    <string name="weighing_row_sent_back">వెనక్కి పంపారు — ఈ జంతువును మళ్లీ రికార్డ్ చేయండి.</string>
+    <string name="weighing_row_sent_back_with_reason">వెనక్కి పంపారు: %1$s. ఈ జంతువును మళ్లీ రికార్డ్ చేయండి.</string>
     <string name="weighing_growth_lumpsum_title">లంప్‌సమ్ షెడ్‌లు</string>
     <string name="weighing_growth_lumpsum_caption">ఒకే గుంపుగా తూకం — వీటి నుండి ఒక్కో జంతువు పెరుగుదల రాదు.</string>
-    <string name="weighing_growth_lumpsum_meta">%1$d జంతువులు · %2$s</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d జంతువులు · %2$s వారం</string>
     <string name="weighing_growth_lumpsum_avg">%1$.1f కేజీ సగటు</string>
     <string name="weighing_growth_needs_two_with_lumpsum">పెరుగుదలకు 2 బరువులు · %1$d మరిన్ని లంప్‌సమ్‌లో</string>
     <string name="weighing_export_preview_search_hint">షెడ్‌లను వెతకండి</string>

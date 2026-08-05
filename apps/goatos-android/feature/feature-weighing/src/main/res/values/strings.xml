@@ -477,9 +477,11 @@
     </plurals>
     <string name="weighing_growth_scope_all">All parks</string>
     <string name="weighing_growth_park_selector">Park: %1$s</string>
+    <string name="weighing_row_sent_back">Sent back — record this animal again.</string>
+    <string name="weighing_row_sent_back_with_reason">Sent back: %1$s. Record this animal again.</string>
     <string name="weighing_growth_lumpsum_title">Lumpsum sheds</string>
     <string name="weighing_growth_lumpsum_caption">Weighed as one group — no per-animal growth from these.</string>
-    <string name="weighing_growth_lumpsum_meta">%1$d animals · %2$s</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d animals · week of %2$s</string>
     <string name="weighing_growth_lumpsum_avg">%1$.1f kg avg</string>
     <string name="weighing_growth_needs_two_with_lumpsum">growth needs 2 weighs · %1$d more weighed lumpsum</string>
     <string name="weighing_history_point_sent_back">%1$s, %2$s kg, sent back</string>

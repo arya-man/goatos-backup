@@ -405,6 +405,9 @@ private fun RfidDrivenVaccinationScanScreen(
             when (event) {
                 ScanEvent.Back -> Unit
                 ScanEvent.Tap -> reader.refreshStatus()
+                // This debug harness drives a REAL reader, so a typed tag has nothing to inject
+                // into here; the dev entry is not rendered on this screen.
+                is ScanEvent.DevTypedTag -> Unit
                 ScanEvent.OpenList -> rosterExpanded = !rosterExpanded
                 is ScanEvent.OpenTile -> selectedFilter = if (selectedFilter == event.status) null else event.status
                 ScanEvent.Submit -> Unit

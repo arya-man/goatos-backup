@@ -722,9 +722,18 @@ object AppModule {
         appScope: CoroutineScope,
         engine: SyncEngine,
         syncRepository: SyncRepository,
+        connectivityGate: ConnectivityGate,
     ): ConnectivitySyncTrigger {
         val repo = syncRepository as? DefaultSyncRepository
-        return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { online ->
+        return ConnectivitySyncTrigger(source = AndroidConnectivitySource(context)) { platformOnline ->
+            // Reconcile the RAW platform signal with the gate the rest of sync already uses.
+            // AndroidConnectivitySource reports the platform's VALIDATED-internet verdict, which
+            // is false on a device whose only route to the API is an adb-reverse loopback (device
+            // proof runs) or a network without validated internet. Pushing that straight through
+            // raised "You're offline — records save on this phone and sync when you reconnect" on
+            // a phone that was reaching the backend fine, on the same screen that had just
+            // rendered freshly fetched data.
+            val online = platformOnline || connectivityGate.isOnline()
             repo?.notifyConnectivityChanged(online)
             if (online) appScope.launch { engine.drainOnce() }
         }
