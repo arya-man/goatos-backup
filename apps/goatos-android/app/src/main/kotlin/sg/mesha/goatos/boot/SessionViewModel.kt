@@ -99,10 +99,16 @@ class SessionViewModel @Inject constructor(
     private val authMode = authModeForFlavor(BuildConfig.FLAVOR)
     private val devSessionReady = MutableStateFlow(authMode != AuthMode.DEV_BEARER)
 
-    val isAuthed: StateFlow<Boolean> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
+    /**
+     * null until the stored session has actually been READ. Seeding this false meant the login
+     * card was drawn for the first frames of every cold start, then replaced the moment the token
+     * arrived -- a sign-in screen flashed at an already-signed-in operator. Callers must treat
+     * null as "not known yet" and render neither the app nor the login gate.
+     */
+    val isAuthed: StateFlow<Boolean?> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
         ready && sessionIsAuthedForMode(authMode, token)
     }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _uiState = MutableStateFlow(LoginUiState())
     internal val uiState: StateFlow<LoginUiState> = _uiState.asStateFlow()
