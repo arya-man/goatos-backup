@@ -7340,10 +7340,27 @@ export interface components {
             seek_from_ms?: number;
             seek_to_ms?: number;
             verdict?: string;
+            /** @description REQUIRED on a queue_opened event (funnel attribution when there is no item yet, see VerificationReviewEvent.item_id). Ignored/optional on item-scoped events, which already carry category via their item_id. */
+            category?: string;
+            /**
+             * Format: uuid
+             * @description Optional queue-scope attribution when the queue view was park-scoped.
+             */
+            park_id?: string;
+            /**
+             * Format: uuid
+             * @description Optional queue-scope attribution when the queue view was shed-scoped.
+             */
+            shed_id?: string;
+            /** @description Informational client-declared queue-state context; carries no server-side meaning. */
+            status?: string;
         };
         VerificationReviewEvent: {
-            /** Format: uuid */
-            item_id: string;
+            /**
+             * Format: uuid
+             * @description REQUIRED (a real UUID) for every event type EXCEPT queue_opened. MUST be null/omitted for queue_opened -- that event fires before any item exists (landing on the queue screen), so there is no item to name yet. See migration 000118 (verification_review_events_item_id_scope_check): item_id IS NULL if and only if event_type = 'queue_opened'. Sending a placeholder string for a queue_opened event (e.g. "queue") is REJECTED with a precise 422 field error naming item_id, not accepted and not a generic invalid_json.
+             */
+            item_id?: string | null;
             /** Format: uuid */
             proof_id?: string;
             session_id: string;
