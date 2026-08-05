@@ -11,6 +11,8 @@
 
 # next.js
 /.next/
+# The e2e run uses its own build dir, which .next/ does not cover.
+/.next-e2e/
 /out/
 
 # production
