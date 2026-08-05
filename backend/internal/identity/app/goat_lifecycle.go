@@ -713,9 +713,11 @@ func optionalDateField(field string, raw *string) (*time.Time, error) {
 	}
 	parsed, err := parseDateField(field, *raw)
 	if err != nil {
-		// Typed on purpose: the HTTP layer maps this CODE to a 400. Wrapping it into a plain
-		// fmt.wrapError made a malformed date a 500 -- see TestReproductiveGoatRejectsMalformedBreedingDate.
-		return nil, BadRequest("invalid_"+field, field+" must be YYYY-MM-DD")
+		// The CODE is what the HTTP layer maps to a 400, so the typed error must survive --
+		// wrapping this into a plain fmt.wrapError turned a malformed date into a 500 (see
+		// TestReproductiveGoatRejectsMalformedBreedingDate). The cause still travels, in the
+		// detail, so neither the status nor the reason is lost.
+		return nil, BadRequest("invalid_"+field, fmt.Sprintf("%s must be YYYY-MM-DD: %v", field, err))
 	}
 	utc := parsed.UTC()
 	return &utc, nil
