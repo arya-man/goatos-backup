@@ -557,7 +557,11 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
-			return nil, fmt.Errorf("submit task: proof refs resolution failed: %w", err)
+			// Typed on purpose: callers switch on the CODE. Wrapping this into a plain
+			// fmt.wrapError erased invalid_proof_refs and turned a 400 into a 500, which is
+			// what TestSubmitRejectsForgedProofRefsBeforeRepoWrite exists to catch. The cause
+			// still travels in the detail rather than being dropped.
+			return nil, BadRequest("invalid_proof_refs", fmt.Sprintf("proof_refs must reference server-issued proof records for this tenant: %v", err))
 		}
 		cmd.Body.ProofRefs = proofRefs
 	}

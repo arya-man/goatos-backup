@@ -713,7 +713,9 @@ func optionalDateField(field string, raw *string) (*time.Time, error) {
 	}
 	parsed, err := parseDateField(field, *raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid %s: %w", field, err)
+		// Typed on purpose: the HTTP layer maps this CODE to a 400. Wrapping it into a plain
+		// fmt.wrapError made a malformed date a 500 -- see TestReproductiveGoatRejectsMalformedBreedingDate.
+		return nil, BadRequest("invalid_"+field, field+" must be YYYY-MM-DD")
 	}
 	utc := parsed.UTC()
 	return &utc, nil
