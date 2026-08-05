@@ -243,17 +243,19 @@ export function GoogleLogin({ nextPath = DEFAULT_NEXT_PATH }: { nextPath?: strin
     }
 
     renderedButton.current = true;
+    const loginUri = new URL(GOOGLE_REDIRECT_ROUTE, window.location.origin).toString();
     googleID.initialize({
       client_id: googleClientId,
       callback: handleCredential,
-      ux_mode: "popup",
+      login_uri: loginUri,
+      ux_mode: "redirect",
       auto_select: false,
       cancel_on_tap_outside: true,
       hd: "mesha.sg",
       context: "signin",
+      // Redirect mode keeps Google sign-in in top-level browser navigation,
+      // avoiding the accounts.google.com/gsi/transform popup handshake.
       itp_support: true,
-      use_fedcm_for_prompt: false,
-      use_fedcm_for_button: false,
       button_auto_select: false,
     });
     googleID.renderButton(buttonContainerRef.current, {
