@@ -2,7 +2,7 @@
 # Seed a throwaway phone-QA database for role-gated Vaccination + Weighing scans.
 #
 # This script is intentionally NOT for the canonical local app DB. Use a disposable
-# Postgres port (for example 15544) and point the laptop API + phone at that DB.
+# Postgres port (for example 15546) and point the laptop API + phone at that DB.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -14,8 +14,8 @@ die() { echo "phone-qa-throwaway-seed: $*" >&2; exit 1; }
 [ -n "${DATABASE_URL:-}" ] || die "DATABASE_URL is required"
 
 case "$DATABASE_URL" in
-  *127.0.0.1:15544/*|*localhost:15544/*) ;;
-  *) die "refusing DATABASE_URL outside throwaway port 15544: ${DATABASE_URL%%\?*}" ;;
+  *127.0.0.1:15546/*|*localhost:15546/*) ;;
+  *) die "refusing DATABASE_URL outside throwaway port 15546: ${DATABASE_URL%%\?*}" ;;
 esac
 
 case "${GOATOS_ENV:-}" in
@@ -82,9 +82,20 @@ VALUES
 ON CONFLICT (location_id) DO UPDATE
 SET usable_for_vaccination = true, usable_for_sop = true, updated_at = now();
 
--- Scope is set once, at creation, in cmd/seed-vaccination-per-goat-qa (TENANT scope so the
--- fixture's CPT sheds are covered too). It cannot be corrected here: a published version is
--- immutable by trigger, so this statement could only ever be a no-op that hid the real value.
+-- The fixture seeds vaccination work in BOTH parks (CBE Godel/Yashoda/Gandhi and CPT
+-- Mandela/Castro), so the protocol has to cover both. Pinning it to the CBE park made
+-- every CPT obligation ineligible: generateForGoat resolves versions with
+-- ListEffectiveVaccinationVersionsForGoat(tenant, goat.park_id), a CPT goat matched no
+-- park-scoped CBE version and no tenant default, and the first sweeper tick cancelled all
+-- 20 CPT obligations with reason "version_no_longer_effective_after_recheck" -- the CPT
+-- operator's whole shed list silently emptied. Tenant scope is the fixture's intent:
+-- one QA protocol covering every park it seeds work into.
+UPDATE protocol_versions
+SET scope_type = 'tenant',
+    scope_id = NULL,
+    updated_at = now()
+WHERE tenant_id = '${tenant_id}'::uuid
+  AND protocol_version_id = '91000000-0000-4000-8000-000000000502';
 
 UPDATE goats
 SET park_id = CASE WHEN goat_id IN ('91000000-0000-4000-8000-000000001004', '91000000-0000-4000-8000-000000001005')
@@ -1063,3 +1074,67 @@ The five physical tags are 901007000504418, 901007000504332, 901007000504407,
 901007000504419 and 901007000504392. Vaccination applies the shed prefix in the
 dev build; weighing is free-flow and takes the raw tag in any shed.
 EOF
+
+# ---------------------------------------------------------------------------
+# THROWAWAY DATA CONTRACT (maintainer rule, 2026-08-04)
+#
+# The phone-QA throwaway database must contain EXACTLY:
+#     2 parks (CBE, CPT)  x  4 sheds each  x  5 RFID-tagged goats  =  40 goats
+# and NOTHING else. If a screen shows a shed or an animal outside that set, the
+# test is no longer testing what we think it is.
+#
+# Why this prune exists: migration 000001_goatos_clean_slate_baseline.sql is NOT
+# a clean slate -- it embeds a production-shaped location dump (158 rows:
+# Coimbatore 78 sheds, Channapatna 76, plus parks/farms) with hardcoded
+# 2026-07-16 timestamps. Every migrated database inherits them, throwaway
+# included. They are inert (no goats, tasks or campaigns attach to them) but
+# they leak into any screen that lists locations without a scope filter.
+#
+# The prune keeps only what the E2E actually uses: every location that owns a
+# goat, an SOP task or a weighing campaign, plus their ancestors. Deleting a
+# seeded CBE/CPT/HF scope row trips location_seeded_scope_guard(), so the
+# session declares an approved plan -- legitimate here because this database is
+# disposable by definition and the port guard above already refused anything
+# that is not :15546.
+# ---------------------------------------------------------------------------
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'PRUNE'
+BEGIN;
+SET LOCAL goatos.approved_location_migration_plan = 'throwaway-e2e-prune';
+
+CREATE TEMP TABLE keep_locations AS
+SELECT l.location_id FROM locations l
+WHERE EXISTS (SELECT 1 FROM goats g WHERE g.shed_id = l.location_id)
+   OR EXISTS (SELECT 1 FROM sop_tasks t WHERE t.scope_id = l.location_id)
+   OR EXISTS (SELECT 1 FROM weighing_campaign_sheds cs
+               WHERE cs.location_id = l.location_id OR cs.park_id = l.location_id)
+   OR EXISTS (SELECT 1 FROM weighing_campaigns wc WHERE wc.park_id = l.location_id);
+
+-- Ancestors of anything kept, so a shed never loses its park.
+INSERT INTO keep_locations
+SELECT DISTINCT p.location_id FROM locations p
+JOIN locations c ON c.parent_location_id = p.location_id
+WHERE c.location_id IN (SELECT location_id FROM keep_locations)
+  AND p.location_id NOT IN (SELECT location_id FROM keep_locations);
+
+DELETE FROM location_aliases              WHERE canonical_location_id NOT IN (SELECT location_id FROM keep_locations);
+DELETE FROM location_operational_attributes WHERE location_id        NOT IN (SELECT location_id FROM keep_locations);
+DELETE FROM farm_profiles                 WHERE location_id          NOT IN (SELECT location_id FROM keep_locations);
+DELETE FROM locations                     WHERE location_id          NOT IN (SELECT location_id FROM keep_locations);
+COMMIT;
+PRUNE
+
+# ---------------------------------------------------------------------------
+# ASSERT the contract. A silent drift here means every later "the app shows the
+# wrong sheds" investigation starts from a false premise, so fail loudly.
+# ---------------------------------------------------------------------------
+shape="$(psql "$DATABASE_URL" -tAqc "
+  SELECT (SELECT count(*) FROM locations WHERE location_type='park')
+      || '/' || (SELECT count(*) FROM locations WHERE location_type='shed')
+      || '/' || (SELECT count(*) FROM goats)
+      || '/' || (SELECT count(DISTINCT shed_id) FROM goats)
+      || '/' || (SELECT coalesce(min(c),0) FROM (SELECT count(*) c FROM goats GROUP BY shed_id) x)
+      || '/' || (SELECT coalesce(max(c),0) FROM (SELECT count(*) c FROM goats GROUP BY shed_id) x)")"
+if [ "$shape" != "2/8/40/8/5/5" ]; then
+  die "throwaway data contract violated: parks/sheds/goats/sheds-with-goats/min-per-shed/max-per-shed = $shape (expected 2/8/40/8/5/5)"
+fi
+echo "throwaway data contract OK: 2 parks x 4 sheds x 5 goats = 40"

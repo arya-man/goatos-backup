@@ -121,6 +121,82 @@ also exercise the real route on a physical device and retain the evidence.
 Context7 may retrieve version-specific AndroidX/Material/CameraX snippets, but these Google pages
 and the corresponding AndroidX source remain authoritative.
 
+## Phone-scale UI rules (machine: `make android-compose-lists-guard`)
+
+A park holds ~100 sheds x ~70-90 animals; a full task export is ~8,000 rows. A phone screen shows
+~10, never more than ~20, and every drill level paginates ~20 at a time (see
+[`mobile-data-fetch-anti-patterns.md`](../decisions/mobile-data-fetch-anti-patterns.md)). These
+three shapes have each shipped at least once and are now guarded/reviewed against before a screen
+is written:
+
+**1. Chips are for a small FIXED set only.** A chip row is one pill per element — correct for 2-3
+literal values (an individual/lump-sum toggle), wrong for anything that grows with farm size
+(sheds, animals, operators, dates, parks). The guard's `chip-row-unbounded-dimension` rule flags a
+`<state-chain>.forEach { FilterChip(...) }` shape; a directly-chained `listOf(...)` literal or
+`.entries`/`.values()` is exempt.
+
+```kotlin
+// WRONG — a park has ~100 sheds; five chips already wrap and push content off-screen
+Row {
+    state.sheds.forEach { shed -> FilterChip(selected = false, onClick = { onSelectShed(shed.id) }, label = { Text(shed.name) }) }
+}
+
+// CORRECT — one-line selector -> searchable bottom sheet (FilterSelectorRow +
+// SearchablePickerDialog, feature-weighing/WeightHistoryChartScreen.kt)
+FilterSelectorRow(label = state.shedSelectorLabel, options = state.shedChips, allLabel = state.allShedsLabel, onSelect = onSelectShed)
+
+// FINE — a small fixed set (2-3 literal values)
+Row {
+    listOf("Individual", "Lump-sum").forEach { mode -> FilterChip(selected = mode == state.mode, onClick = { onSelectMode(mode) }, label = { Text(mode) }) }
+}
+```
+
+**2. Render everything up front (no windowing).** A `forEach` that emits composables inside a
+scrollable `Column`/`Row`, or a `Lazy*` list nested inside another list's `items()` row, inflates
+and measures every row at once — fine for a handful of fixed rows, silently unbounded once fed
+state/domain data at real park scale. Guarded by `column-foreach-unbounded` and
+`nested-scroll-in-lazy-items`.
+
+```kotlin
+// WRONG — state.tasks can be ~8,000 rows; forEach inflates all of them
+Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+    state.tasks.forEach { task -> TaskRow(task) }
+}
+
+// CORRECT — lazy + keyset pagination (~20/page)
+LazyColumn {
+    items(state.tasks, key = { it.id }) { task -> TaskRow(task) }
+}
+```
+
+**3. A full-screen spinner must not tear down content the screen already has cached.** Guard by
+`spinner-replaces-cached-content`: a `when { }` branch guarded by a bare loading flag (not
+compounded with a cache-emptiness check) whose only content is `CircularProgressIndicator`, next
+to a sibling branch that renders non-empty cached state, replaces rendered rows with a spinner on
+every refresh instead of overlaying/annotating them.
+
+```kotlin
+// WRONG — refresh discards the already-rendered gallery
+when {
+    state.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    state.sheds.isNotEmpty() -> Gallery(state.sheds)
+    else -> EmptyMessage()
+}
+
+// CORRECT — WeighingLeadershipVideosScreen.kt: spinner only when there is nothing cached to read
+when {
+    state.loading && state.sheds.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+    state.sheds.isNotEmpty() -> Gallery(state.sheds)
+    else -> EmptyMessage()
+}
+```
+
+All three are deliberately conservative — see the header comment in
+`tools/agent-hooks/check-android-compose-lists.mjs` for the exact allowlists and by-design false
+negatives (indirection through a variable, non-`when` if/else chains, first-load-only screens with
+no cache concept, etc.). A genuinely-bounded case may append `compose-guard:ignore: <reason>` on
+the line.
+
 ## Compose lazy-list keys (machine: `make android-compose-lists-guard`)
 
 Every `LazyColumn`/`LazyRow`/`LazyVerticalGrid` item needs a stable key that is

@@ -323,8 +323,89 @@ function writePathBodies(source) {
   return bodies;
 }
 
+// Failure mode 16: WHOLE-FILE TABLE ALLOWLIST — every SQL statement in the weighing package,
+// READ PATHS INCLUDED.
+//
+// Mode 7 only inspects functions reachable from the known write/submit entry points. A READ
+// model is reachable from none of them, so a leadership/report query could join any herd table
+// and this guard would pass. That is not hypothetical: a weight-history/ADG read model shipped a
+// `LEFT JOIN goat_identifiers` to resolve a scanned tag to a goat_id, and every one of the 15
+// existing modes stayed green because the join lived on a read path.
+//
+// Weighing is ISOLATED. Not "isolated on writes" — isolated. It owns its tables and reads
+// NOTHING from the herd, vaccination, protocol, or any other module's schema, in any direction,
+// on any path. If weighing needs a fact, weighing must have captured it.
+// Tables weighing may read on ANY path besides its own. Deliberately SHORT and explicit.
+//
+// These are ORG tables — where a park is, who an operator is, what they may see. They are NOT
+// animal data. Weighing on main already reads them, because a weighing task belongs to a park
+// and is assigned to a person; removing them would break existing behaviour, not isolate it.
+//
+// What is banned outright, on every path: goats, goat_identifiers, herd_*, vaccination_*, sop_*,
+// protocol_*, obligation_* — anything describing an ANIMAL or another module's rules. Weighing
+// knows a scanned string and a weight. It does not know what animal that is, and must not ask.
+//
+// Adding to this set is a maintainer decision, not a developer convenience.
+const NON_WEIGHING_TABLES_ALLOWED_ON_READ = new Set([
+  "locations",
+  "workforce_members",
+  "user_scope_grants",
+  // Weighing's OWN lifecycle notifications (assigned/submitted/reopened/rework/closed). Shared
+  // delivery plumbing, not another module's animal data.
+  "notification_requests",
+  // Weighing-owned kernel table; belongs with the weighing_* family.
+  "weighing_work_items",
+]);
+
+export function anyPathTableFindings(rel, source) {
+  const findings = [];
+  // Tests are excluded: a fake repository's PROSE ("reads from an oversight view") is not SQL,
+  // and scanning it produced phantom tables named `the`, `an` and `oversight`.
+  if (rel.endsWith("_test.go")) return findings;
+  // Only real SQL is scanned: Go backtick raw-string literals. Scanning the whole file matched
+  // English sentences in comments, which is how the first cut of this rule cried wolf.
+  const sql = [...stripComments(source).matchAll(/`([^`]*)`/g)]
+    .map((m) => m[1])
+    .filter((lit) => /\b(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/i.test(lit))
+    .join("\n");
+  if (!sql.trim()) return findings;
+  const body = sql;
+  const { names: ctes } = cteNames(body);
+  // Supplementary CTE sweep: cteNames() parses a single statement's WITH clause, but this rule
+  // concatenates every SQL literal in the file, and a query can be assembled from several
+  // literals (a shared base CTE in one const, the SELECT that uses it in another). Any
+  // `name AS (` in the scanned text is a local CTE, not a table.
+  for (const m of body.matchAll(/\b([a-z_][a-z0-9_]*)\s+AS\s*\(/gi)) {
+    ctes.add(m[1].toLowerCase());
+  }
+  const re = /(?<!\bDISTINCT\s)\b(?:FROM|JOIN|INTO|UPDATE)\s+(?:public\.)?([a-z_][a-z0-9_]*)/gi;
+  let m;
+  const seen = new Set();
+  while ((m = re.exec(body)) !== null) {
+    const table = m[1].toLowerCase();
+    if (seen.has(table)) continue;
+    seen.add(table);
+    if (WRITE_PATH_ALLOWED_TABLES.has(table) || ctes.has(table)) continue;
+    if (NON_WEIGHING_TABLES_ALLOWED_ON_READ.has(table)) continue;
+    // SQL keywords that legitimately follow FROM/JOIN/INTO/UPDATE in the shapes we scan.
+    // Beyond mode 7's list: "with" (FROM ... UPDATE ... WITH), "update" (FOR UPDATE / DO UPDATE),
+    // "skip" (FOR UPDATE SKIP LOCKED), "nothing" (ON CONFLICT DO NOTHING). Each of these was a
+    // real phantom-table report on correct code before being listed.
+    if ([
+      "set", "select", "only", "unnest", "lateral", "values", "of",
+      "with", "update", "skip", "nothing", "conflict", "returning", "where",
+    ].includes(table)) continue;
+    findings.push({
+      rule: "weighing-reads-non-weighing-table",
+      message: `${rel}: reads \`${table}\` — weighing is ISOLATED and may touch ONLY weighing-owned tables (plus proof/idempotency/audit/outbox), on READ paths as well as writes. Joining goats/goat_identifiers/vaccination/herd tables is banned outright, including from a report or read model (maintainer decision 2026-08-04). If weighing needs this fact, weighing must capture it itself.`,
+    });
+  }
+  return findings;
+}
+
 export function findingsForGoSource(rel, source) {
   const findings = [];
+  findings.push(...anyPathTableFindings(rel, source));
   for (const [fn, rawBody] of writePathBodies(source)) {
     const body = stripComments(rawBody);
     if (FORBIDDEN_TABLE_RE.test(body)) {

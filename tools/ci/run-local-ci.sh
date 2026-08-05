@@ -194,6 +194,29 @@ run_common() {
   step "large-file guard self-test" node tools/ci/check-large-files.mjs --self-test
   step "large-file guard"         node tools/ci/check-large-files.mjs
   step "git diff --check"         git diff --check
+  # exception-guard: diff-scoped (Kotlin + Go together in one pass — see
+  # tools/exception-guard/exception_guard.py:run). Previously this diff-scoped
+  # invocation was ONLY reachable via `make guardrails`, never via
+  # run-local-ci.sh, so `make ci-local` never caught a new swallowed-exception
+  # on a diff line. telemetry-guard's diff-scoped counterpart already runs
+  # per-component below (run_admin_web / run_android_guards); exception-guard
+  # is not component-split, so it runs once here for every job.
+  step "exception-guard"          make exception-guard
+  # Whole-tree shrink-only debt ratchets — see docs/observability/GUARDRAIL_RATCHET.md.
+  # exception-guard/telemetry-guard themselves are diff-scoped (run per-component
+  # below/elsewhere); these two catch NEW violations anywhere in the tree (not just
+  # on diff-touched lines) against a committed baseline, and fail if the baseline
+  # goes stale. Cheap (well under 1s combined) so they always run here regardless
+  # of which component jobs are selected.
+  step "exception-guard (whole-tree ratchet)" make exception-guard-ratchet
+  step "telemetry-guard (whole-tree ratchet)" make telemetry-guard-ratchet
+  # v2 ratchets: separate shrink-only baselines for the newer rule kinds
+  # (cancellation_swallowed/bare_exempt_marker on the exception side;
+  # screen_view/reserved_names on the telemetry side) — see the Makefile
+  # target comments and docs/TELEMETRY.md for why these are split from the
+  # original two ratchets instead of folded into the same baseline.
+  step "exception-guard (whole-tree ratchet v2)" make exception-guard-ratchet-v2
+  step "telemetry-guard (whole-tree ratchet v2)" make telemetry-guard-ratchet-v2
 }
 
 run_backend() {

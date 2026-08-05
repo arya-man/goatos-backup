@@ -253,6 +253,32 @@ Rule of thumb: **the key is the unique identity of the RENDERED ROW, not of the
 domain object it happens to show.** When a list can hold more than one row per
 entity, the entity id is not a valid key.
 
+## Phone-scale UI: chips, render-everything, and spinner-over-cache (machine: `make android-compose-lists-guard`)
+
+Three more shapes of the same "fetch/render less than the whole cohort" discipline, all enforced
+by the same guard (`tools/agent-hooks/check-android-compose-lists.mjs`) that owns the lazy-list key
+rules above. A real park is ~100 sheds x ~70-90 animals — a task export is ~8,000 rows; a phone
+list shows ~10, never more than ~20, and every drill level paginates ~20 (rule 2 above). Full
+rulebook + before/after examples: [`apps/goatos-android/docs/phone-scale-ui.md`](../../apps/goatos-android/docs/phone-scale-ui.md).
+
+- **`chip-row-unbounded-dimension`.** Chips are one pill per element — correct only for a small
+  FIXED set (2-3 values, e.g. an individual/lump-sum toggle). Never chip sheds, animals, operators,
+  dates, or parks; use the `FilterSelectorRow` + `SearchablePickerDialog` searchable-selector
+  pattern in `WeightHistoryChartScreen.kt` instead.
+- **`column-foreach-unbounded` / `nested-scroll-in-lazy-items`.** A `<state>.forEach { }` inside a
+  scrollable `Column`/`Row`, or a `Lazy*`/scrollable container nested inside another list's
+  `items()` row, inflates and measures every row up front instead of windowing. Use
+  `LazyColumn`/`LazyRow` with `items(list, key = ...)` and keep lists out of other lists' rows.
+- **`spinner-replaces-cached-content`.** A full-screen `CircularProgressIndicator` guarded by a
+  bare loading flag (not compounded with a cache-emptiness check) next to a sibling branch that
+  renders cached content tears that content down on every refresh. Compound the condition
+  (`state.loading && state.items.isEmpty() -> ...`, the pattern in
+  `WeighingLeadershipVideosScreen.kt`) or annotate/overlay instead.
+
+All three are deliberately conservative (narrow allowlists, by-design false negatives over false
+positives) — see the header comment in `check-android-compose-lists.mjs` for the exact scope. A
+genuinely-bounded case may append `compose-guard:ignore: <reason>` on the line.
+
 ## Android row-action scope (machine: `make android-row-action-scope-guard`)
 
 Repeated mobile cards must not share a screen-wide in-flight gate for row-level

@@ -1,0 +1,8 @@
+{
+  "_comment": "Shrink-only ratchet baseline for telemetry-guard-ratchet-v2. Each entry is a COUNT of violations for that file+rule, so adding one to an already-listed file still fails. Regenerate with `python3 tools/ci/ratchet-guard.py --config <this-config> --regenerate` after genuinely fixing violations. Never hand-edit to add a new entry or raise a count to land new code \u2014 that defeats the ratchet.",
+  "key_fields": "see the ratchet config's key_fields \u2014 stable file+rule identity, never line number",
+  "total": 1,
+  "entries": {
+    "apps/goatos-android/core/core-analytics/src/main/kotlin/sg/mesha/goatos/core/analytics/AnalyticsEvents.kt|reserved_param_prefix": 1
+  }
+}

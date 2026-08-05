@@ -127,6 +127,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/campaigns/{campaign_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export one Weighing campaign's observations as CSV.
+         * @description Streams a CSV attachment (one row per shed/observation) for the campaign, requiring WeighingMonitor and enforcing the same park scoping as every other leadership-tier weighing read. The response is NOT JSON: once the first row has been written the status is already 200 and a mid-stream failure truncates the body rather than appending an error envelope, so a client must treat a short/invalid CSV as a failed export.
+         */
+        get: operations["exportWeighingCampaignCsv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/campaigns": {
         parameters: {
             query?: never;
@@ -319,6 +339,46 @@ export interface paths {
          *     title and empty_message are BACKEND-OWNED copy. Clients render them and hardcode no weighing strings of their own.
          */
         get: operations["appListWeighingAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/weight-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get CEO-tier per-tag/per-shed weight history across weigh days.
+         * @description Requires WeighingMonitor. Park-scoped exactly like the leadership growth read: a park-scoped monitor may only request a park inside their own grant (404 otherwise), and a tenant-wide monitor may request any park in the tenant. Both query parameters are optional filters, not a required pair. The response also returns the parks and sheds that are actually represented in the result, so a client can render filter chips with backend-owned vocabulary instead of a separately-fetched list.
+         */
+        get: operations["appGetWeighingWeightHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app/weighing/leadership/growth": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
+         * @description Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional; when omitted, the response aggregates across every park the caller is authorized to monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh.
+         */
+        get: operations["appGetWeighingLeadershipGrowth"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4346,6 +4406,8 @@ export interface components {
             overdue_count: number;
             /** @description Deferred obligations */
             deferred_count: number;
+            /** @description INFORMATIONAL ONLY subset already counted inside due_count/overdue_count above -- never an additional partition on top of the five-bucket total. Obligations whose most recent verification verdict for this drive is a rejection that has not since been superseded by an accepted (or newly recorded) completion for the same obligation. Explains why the completed/progress numerator dropped after a verifier rejects proof: the obligation leaves completed/submitted and reopens as due/overdue work. Clears to 0 for an obligation the moment it is rescanned and accepted -- this is CURRENT rejected state, not lifetime rejection history. */
+            rejected_count: number;
             /** @description Total distinct animals in the drive */
             total_animals: number;
             /** @description Distinct animals where all drive obligations are completed */
@@ -6227,6 +6289,172 @@ export interface components {
             observation: components["schemas"]["WeighingObservation"];
             trace_id?: string;
         };
+        /** @description A shed within a park, for the weight-history filter vocabulary. */
+        WeighingParkShed: {
+            /** Format: uuid */
+            campaign_shed_id: string;
+            display_name: string;
+            /** Format: uuid */
+            park_id: string;
+            /** Format: uuid */
+            location_id: string;
+        };
+        /** @description One observation: (scanned_identifier, weigh_date, weight_kg or shed totals). The individual-only fields (`scanned_identifier`, `weight_kg`) and the lump-sum-only fields (`total_weight_kg`, `average_weight_kg`, `animal_count`) are mutually exclusive per `capture_kind` and are omitted (not zero) on the side that does not apply. */
+        WeighingWeightHistoryPoint: {
+            /** @enum {string} */
+            capture_kind: "individual" | "lump_sum";
+            /** @description RFID/tag read by the scanner. Individual only; absent for lump_sum. */
+            scanned_identifier?: string;
+            /**
+             * Format: date
+             * @description Asia/Kolkata business date the observation was accepted.
+             */
+            weigh_date: string;
+            /** @description Recorded weight. Individual only; absent for lump_sum. */
+            weight_kg?: number;
+            /** @description Total weight of the shed. Lump-sum only. */
+            total_weight_kg?: number;
+            /** @description Average weight per animal. Lump-sum only. */
+            average_weight_kg?: number;
+            /** @description Number of animals in the lump-sum measurement. Lump-sum only. */
+            animal_count?: number;
+            /** @description pending, verified, or rework. */
+            verification_status?: string;
+            /** Format: uuid */
+            campaign_shed_id: string;
+            shed_display_name: string;
+        };
+        /** @description The time series for one RFID tag (individual) or shed (lump_sum) across multiple weigh days. */
+        WeighingWeightHistorySeries: {
+            /** @description The series key for individual captures. Absent for lump_sum. */
+            scanned_identifier?: string;
+            /**
+             * Format: uuid
+             * @description The shed id, for lump_sum series.
+             */
+            campaign_shed_id?: string;
+            /** @description For lump_sum series. */
+            shed_display_name?: string;
+            /** @enum {string} */
+            capture_kind: "individual" | "lump_sum";
+            /** @description Ordered by weigh_date, oldest first. */
+            points: components["schemas"]["WeighingWeightHistoryPoint"][];
+        };
+        /** @description CEO-tier weight history for a park and optional shed scope. Parks and sheds are only those actually represented in the result, so the client can render filter chips with backend-owned vocabulary. */
+        WeighingWeightHistoryResponse: {
+            parks: components["schemas"]["WeighingPark"][];
+            sheds: components["schemas"]["WeighingParkShed"][];
+            series: components["schemas"]["WeighingWeightHistorySeries"][];
+            /** @description True if the result was capped (too many unique tags, too many weigh days, or too many points). When true, `capped_at` names which limit was hit. */
+            truncated: boolean;
+            /** @enum {string} */
+            capped_at?: "max_unique_tags" | "max_weigh_days" | "max_points";
+        };
+        /** @description Herd-level ADG (Average Daily Gain) summary for the requested period, scoped to a park. `status: "insufficient_data"` means no animal was weighed twice in the period, and every nullable field below is null rather than a fabricated 0. */
+        WeighingGrowthHeadline: {
+            /** @enum {string} */
+            status: "ok" | "insufficient_data";
+            median_adg_g_per_day?: number | null;
+            previous_median_adg_g_per_day?: number | null;
+            /** @enum {string} */
+            previous_status: "ok" | "insufficient_data";
+            /** @description median_adg_g_per_day - previous_median_adg_g_per_day. Null whenever either side is null. */
+            delta_g_per_day?: number | null;
+            positive_adg_percent?: number | null;
+            /** @description Count of qualifying PAIRS with ADG < 0 across the whole period. */
+            negative_adg_count: number;
+            /** @description Count of ANIMALS whose most recent pair is negative. */
+            losing_animal_count: number;
+            pair_count: number;
+            rejected_observation_count: number;
+            unverified_observation_count: number;
+        };
+        WeighingGrowthEligibility: {
+            animals_with_two_plus_weighs: number;
+            total_animals_weighed: number;
+        };
+        WeighingGrowthTrendPoint: {
+            /** Format: date */
+            week_start: string;
+            median_adg_g_per_day: number;
+            pair_count: number;
+        };
+        WeighingGrowthShedLeaderboardRow: {
+            /** Format: uuid */
+            location_id: string;
+            display_name: string;
+            /** @description Animal count. */
+            n: number;
+            median_weight_kg: number;
+            median_adg_g_per_day: number;
+            /** @description Can be less than `n` -- a shed can have animals weighed once (no pair yet). */
+            adg_pair_count: number;
+        };
+        /** @description One bin of the ADG histogram. Bins are fixed at 25 g/day width, plus one explicit negative bucket. */
+        WeighingGrowthDistributionBucket: {
+            /** @description Human-readable bucket name, e.g. "negative", "0-25", "300+". */
+            label: string;
+            /** @description Inclusive lower edge. Absent for the negative bucket, which has no floor. */
+            min_g_per_day?: number;
+            /** @description Exclusive upper edge. Absent for the top overflow bucket. */
+            max_g_per_day?: number;
+            count: number;
+        };
+        /** @description Counts animals against fixed weight thresholds using each animal's latest weight ever recorded (not bounded to the requested period). */
+        WeighingGrowthSaleReadiness: {
+            at_or_above_30kg: number;
+            at_or_above_35kg: number;
+            /** @description Distinct resolved animals with at least one accepted weigh ever recorded. */
+            animals_considered: number;
+        };
+        /** @description One shed's one week of population-level (not per-animal) average weight. Kept entirely separate from the individual ADG numbers: shed population changes between weighs. */
+        WeighingGrowthLumpSumShedTrendPoint: {
+            /** Format: uuid */
+            location_id: string;
+            display_name: string;
+            /** Format: date */
+            week_start: string;
+            average_weight_kg: number;
+            head_count: number;
+        };
+        WeighingGrowthLumpSum: {
+            shed_week_trend: components["schemas"]["WeighingGrowthLumpSumShedTrendPoint"][];
+        };
+        /** @description An animal that lost weight between its two most recent weighs, identified by its raw scanned tag only -- weighing never resolves a tag to a goat. */
+        WeighingGrowthLosingAnimal: {
+            scanned_identifier: string;
+            shed_display_name: string;
+            previous_weight_kg: number;
+            latest_weight_kg: number;
+            adg_g_per_day: number;
+            days_between: number;
+            /** Format: date */
+            latest_weigh_date: string;
+        };
+        /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
+        WeighingGrowthADGResponse: {
+            /**
+             * Format: uuid
+             * @description The single requested park. Absent when the caller omitted park_id -- this response then aggregates across every park in `park_ids`.
+             */
+            park_id?: string;
+            /** @description Every park this response aggregates across. */
+            park_ids: string[];
+            /** @description Names the ids in park_ids so a client can offer a park selector. */
+            parks: components["schemas"]["WeighingPark"][];
+            losing_animals: components["schemas"]["WeighingGrowthLosingAnimal"][];
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+            headline: components["schemas"]["WeighingGrowthHeadline"];
+            eligibility: components["schemas"]["WeighingGrowthEligibility"];
+            trend: components["schemas"]["WeighingGrowthTrendPoint"][];
+            shed_leaderboard: components["schemas"]["WeighingGrowthShedLeaderboardRow"][];
+            distribution: components["schemas"]["WeighingGrowthDistributionBucket"][];
+            sale_readiness: components["schemas"]["WeighingGrowthSaleReadiness"];
+            lump_sum: components["schemas"]["WeighingGrowthLumpSum"];
+        };
         VaccinationShedVaccineRow: {
             protocolId: string;
             name: string;
@@ -8010,6 +8238,32 @@ export interface operations {
             500: components["responses"]["ServerError"];
         };
     };
+    exportWeighingCampaignCsv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: components["parameters"]["WeighingCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export of the campaign's shed/observation rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
     appListWeighingCampaigns: {
         parameters: {
             query?: {
@@ -8311,6 +8565,66 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingWeightHistory: {
+        parameters: {
+            query?: {
+                /** @description Restrict to one park. Must be a park the caller is authorized to monitor. */
+                park_id?: string;
+                /** @description Restrict to one shed. */
+                campaign_shed_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weight history series for the requested scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingWeightHistoryResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingLeadershipGrowth: {
+        parameters: {
+            query?: {
+                /** @description The park to report on. When omitted, aggregates across the caller's own authorized-park scope. */
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Growth/ADG read model for the requested park or herd-wide scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingGrowthADGResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

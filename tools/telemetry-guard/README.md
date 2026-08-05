@@ -90,7 +90,25 @@ external dependencies.
 - `telemetry-guard.py` — CLI entrypoint (invocation name used by `make
   telemetry-guard` and CI).
 - `telemetry_guard.py` — the actual logic (underscore, so it is importable by
-  the test module).
+  the test module). Surfaces: `android`, `admin_web` (original marker-presence
+  checks), `screen_view` (block), `primary_action`/`failure_outcome` (warn,
+  best-effort), plus a standalone `reserved_names` hard-fail check that is not
+  part of the `surfaces` marker-presence engine and is never exemptable.
 - `config.json` — markers, path globs, block-vs-warn per surface, exempt
-  marker.
+  marker, plus `reserved_event_names`/`reserved_param_prefixes` for the
+  Firebase reserved-name check.
 - `test_telemetry_guard.py` — stdlib `unittest` suite.
+- `baseline.json` — shrink-only ratchet baseline for the original `android`/
+  `admin_web` surfaces (`telemetry-guard-ratchet`).
+- `baseline-v2.json` — SEPARATE shrink-only ratchet baseline for the newer
+  `screen_view`/`reserved_names` FAIL rules (`telemetry-guard-ratchet-v2`),
+  kept apart so the original baseline is never touched by the new rules.
+
+Use `--only-surfaces a,b,c` to scope a run to specific surfaces (used by the
+two ratchet configs in `tools/ci/` to keep their baselines independent — see
+`../ci/ratchet-guard.telemetry.json` vs `../ci/ratchet-guard.telemetry-v2.json`).
+
+See `docs/TELEMETRY.md` for the full repo-wide standard (naming convention,
+required params, the LaunchedEffect-keying rule, the PII rule, the
+reserved-name trap, and a copy-paste new-screen example) and
+`docs/observability/GUARDRAIL_RATCHET.md` for why the ratchet pattern exists.

@@ -93,6 +93,10 @@
           },
           {
             "type": "command",
+            "command": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh"
+          },
+          {
+            "type": "command",
             "command": "repo=\"${CLAUDE_PROJECT_DIR:-${CODEX_PROJECT_DIR:-}}\"; [ -n \"$repo\" ] || repo=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; code-review-graph update \"$repo\" >/dev/null 2>&1 &"
           },
           {

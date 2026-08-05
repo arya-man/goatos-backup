@@ -64,6 +64,45 @@ The fixture intentionally maps five physical vaccination RFIDs into ten goat
 identities across CBE and CPT while preserving the production uniqueness rule on
 `goat_identifiers`; Weighing remains free-flow and must keep raw RFID input.
 
+## Weighing Is ISOLATED — No Herd, No Vaccination, No Exceptions (Claude AND Codex)
+
+Weighing owns its own tables and reads NOTHING from another module's schema, in
+either direction, on ANY path — writes, reads, reports, read models, exports,
+analytics. It is not "free-flow on the write path". It is isolated.
+
+BANNED on every path: `goats`, `goat_identifiers`, `herd_*`, `vaccination_*`,
+`sop_*`, `protocol_*`, `obligation_*` — anything describing an ANIMAL or another
+module's rules. Weighing knows a scanned string and a weight. It does not know
+what animal that is and must never ask.
+
+ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
+exactly three ORG tables — `locations`, `workforce_members`, `user_scope_grants`
+(a task belongs to a park and a person). Adding to that list is a MAINTAINER
+decision, never a developer convenience.
+
+Also banned, because they are invented rules on a path that has none: any
+weighing CADENCE ("weekly", "monthly on the 15th", a minimum interval between
+weighs), any "overdue"/"missed weigh"/"expected next weigh" concept, and any
+roster/ownership/clinical gate before accepting a scan.
+
+Why this is here and not only in the ledger: on 2026-08-04 an ADG read model
+shipped a `LEFT JOIN goat_identifiers` to resolve a scanned tag to a goat_id.
+The rule already existed in
+`context/repo-audits/weighing-implementation-do-not-reopen-ledger.md` (A-6, B-4,
+C-3) and in `docs/features/weighing/TRD.md`, and a dedicated guard with 15
+failure modes was already wired into `ci-local` — but every mode was scoped to
+the WRITE path, the guard only ran at CI time, and the constraint was never
+passed into the subagent brief that proposed the join. Three ways to miss one
+rule. It is now: (1) stated here, in always-loaded context; (2) enforced on
+READ paths too by `check-weighing-free-flow-guard.mjs` (mode 16,
+`weighing-reads-non-weighing-table`); (3) run on EVERY weighing file edit by
+`tools/agent-hooks/check-weighing-isolation-on-edit.sh`, wired into PostToolUse
+for BOTH `.claude/settings.json` and `.codex/hooks.json`.
+
+If you delegate weighing work to a subagent, the isolation rule goes in the
+brief. An agent that was never told the boundary will propose crossing it, and
+it will sound reasonable.
+
 ## Never Kill Another Agent's Build — and Never Wait For One (Claude AND Codex)
 
 Gradle is NOT a lock. Separate worktrees run separate daemons and build concurrently.
@@ -2005,3 +2044,24 @@ Full rule, rationale, required symbol names (including what is wired today vs
 TODO), compliant/non-compliant examples, and how the guard works:
 `docs/observability/TELEMETRY_GUARDRAILS.md`.
 <!-- END TELEMETRY GUARDRAIL -->
+
+**Whole-tree enforcement note (not part of the generated block above — do not
+let a regen strip this):** `telemetry-guard` and its sibling `exception-guard`
+("never swallow an exception" — same doc, §8) are diff-scoped by design, but
+that is NOT the whole enforcement story. Pre-existing whole-tree debt is
+enforced separately by a shrink-only ratchet — `make exception-guard-ratchet`
+and `make telemetry-guard-ratchet`, both wired into `make ci-local` via
+`guardrails` — that fails if a NEW violation appears anywhere in the tree
+(not just on diff-touched lines) or if the checked-in baseline
+(`tools/exception-guard/baseline.json`, `tools/telemetry-guard/baseline.json`)
+goes stale relative to fixes. **Adding an entry to a baseline file to make a
+new change stop failing the ratchet is not an accepted way to land code** —
+fix the violation or add a genuine `exception:exempt`/`telemetry:exempt`
+marker instead. Full mechanism, the reason baselines are keyed by
+file+rule-kind and never by line number, and how to add a ratchet for a
+future guard: `docs/observability/GUARDRAIL_RATCHET.md`. The lesson recorded
+there: **a diff-scoped guard, by construction, silently permits unlimited
+pre-existing debt unless it is paired with a whole-tree ratchet like this
+one** — an adversarial audit found ~150 `exception-guard` FAILs and 51
+`telemetry-guard` FAILs sitting in this tree with a permanently green
+`ci-local` before this ratchet existed.

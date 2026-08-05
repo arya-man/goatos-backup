@@ -1,0 +1,46 @@
+{
+  "exempt_marker": "exception:exempt",
+  "recording_markers": [
+    "recordException",
+    "logException",
+    "Firebase",
+    "Crashlytics",
+    "CrashReporter",
+    "non-fatal",
+    "nonFatal",
+    "reportError",
+    "logger.error",
+    "logger.Error",
+    "log.Error",
+    "slog.Error",
+    "sentry",
+    "Sentry"
+  ],
+  "kotlin": {
+    "path_globs": [
+      "apps/goatos-android/**/*.kt",
+      "*.kt"
+    ],
+    "exclude_globs": [
+      "**/*Test.kt",
+      "**/src/test/**",
+      "**/src/androidTest/**",
+      "**/test/**"
+    ]
+  },
+  "go": {
+    "path_globs": [
+      "backend/**/*.go"
+    ],
+    "exclude_globs": [
+      "**/*_test.go",
+      "**/testdata/**"
+    ],
+    "safe_discard_receivers": [
+      "Close(",
+      "Rollback(",
+      "CloseRow(",
+      "CloseRows("
+    ]
+  }
+}
