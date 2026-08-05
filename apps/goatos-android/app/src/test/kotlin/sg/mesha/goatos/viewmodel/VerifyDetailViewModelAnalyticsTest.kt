@@ -20,6 +20,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsVerification
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -178,7 +179,7 @@ class VerifyDetailViewModelAnalyticsTest {
             ),
         )
 
-        vm.onEvent(VerifyDetailEvent.Approve)
+        vm.onEvent(VerifyDetailEvent.Approve())
         advanceUntilIdle()
 
         val attempted = analytics.events.single { it.first == AnalyticsFunnels.Events.VERIFY_VERDICT_ATTEMPTED }
@@ -210,11 +211,84 @@ class VerifyDetailViewModelAnalyticsTest {
                     percentWatched = 10,
                 ),
             )
-            vm.onEvent(VerifyDetailEvent.Approve)
+            vm.onEvent(VerifyDetailEvent.Approve())
             advanceUntilIdle()
         } catch (error: RuntimeException) {
             fail("analytics exceptions must never escape verifier playback/verdict flow: ${error.message}")
         }
+    }
+
+    @Test
+    fun `approve success fires verify_verdict_succeeded with the decision`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = analytics,
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyDetailEvent.Approve())
+        advanceUntilIdle()
+
+        val succeeded = analytics.events.first { it.first == AnalyticsFunnels.Events.VERIFY_VERDICT_SUCCEEDED }
+        assertEquals("item-1", succeeded.second[AnalyticsFunnels.Params.ITEM_ID])
+        assertEquals(VerificationDecision.APPROVED, succeeded.second[AnalyticsFunnels.Params.DECISION])
+    }
+
+    @Test
+    fun `a verdict enqueue failure fires verify_verdict_failed with the decision and a reason`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FailingVerifyDetailSyncRepository("local storage error"),
+            analytics = analytics,
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(VerifyDetailEvent.Reject("proof video will not play, please record it again"))
+        advanceUntilIdle()
+
+        val failed = analytics.events.first { it.first == AnalyticsFunnels.Events.VERIFY_VERDICT_FAILED }
+        assertEquals("item-1", failed.second[AnalyticsFunnels.Params.ITEM_ID])
+        assertEquals(VerificationDecision.REJECTED, failed.second[AnalyticsFunnels.Params.DECISION])
+        assertEquals("local storage error", failed.second[AnalyticsFunnels.Params.REASON])
+    }
+
+    @Test
+    fun `evidence going unwatchable fires verify_decision_unavailable exactly once`() = runTest(dispatcher) {
+        val analytics = RecordingAnalytics()
+        val vm = VerifyDetailViewModel(
+            repo = FakeVerifyDetailRepository(),
+            syncRepo = FakeVerifyDetailSyncRepository(),
+            analytics = analytics,
+            crashReporter = RecordingCrashReporter(),
+            savedStateHandle = SavedStateHandle(mapOf("itemId" to "item-1", "category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        vm.onEvent(
+            VerifyDetailEvent.VideoPlayback(
+                proofSubject = "proof-1",
+                mimeType = "video/mp4",
+                action = VideoPlaybackAction.PLAYBACK_ERROR,
+                reason = "source error",
+            ),
+        )
+        advanceUntilIdle()
+        advanceUntilIdle()
+
+        val unavailable = analytics.events.filter { it.first == AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE }
+        assertEquals(1, unavailable.size)
+        assertEquals("item-1", unavailable.first().second[AnalyticsFunnels.Params.ITEM_ID])
+        assertEquals("EVIDENCE_UNAVAILABLE", unavailable.first().second[AnalyticsEventsVerification.Params.REASON])
     }
 }
 
@@ -313,5 +387,26 @@ private class FakeVerifyDetailSyncRepository : SyncRepository {
             ),
         )
 
+    override suspend fun triggerDrain() = Unit
+}
+
+/** Sync repo whose verdict enqueue always fails, for [VerifyDetailViewModelAnalyticsTest]'s
+ *  `verify_verdict_failed` coverage. */
+private class FailingVerifyDetailSyncRepository(private val message: String) : SyncRepository {
+    private val status = MutableStateFlow(SyncStatus.empty(online = true))
+
+    override fun observeStatus(): StateFlow<SyncStatus> = status
+    override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf()
+    override suspend fun enqueueShedSubmit(taskId: String, groupKey: String, idempotencyKey: String, request: SubmitTaskRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueReschedule(obligationId: String, groupKey: String, idempotencyKey: String, request: RescheduleObligationRequestDto): AppResult<String> = error("unused")
+    override suspend fun enqueueProofUpload(groupKey: String, idempotencyKey: String, request: ProofUploadRequestDto, localFilePath: String, durationMs: Long?): AppResult<String> = error("unused")
+    override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+    override suspend fun enqueueVerificationVerdict(itemId: String, decision: String, reason: String?, rowVersion: Int): AppResult<String> =
+        AppResult.Err(message)
+
+    override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+    override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+    override suspend fun findOutboxItem(itemId: String): AppResult<SyncQueueItem?> = AppResult.Ok(null)
     override suspend fun triggerDrain() = Unit
 }

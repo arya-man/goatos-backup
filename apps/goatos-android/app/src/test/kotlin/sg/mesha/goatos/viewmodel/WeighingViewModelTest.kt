@@ -29,6 +29,7 @@ import sg.mesha.goatos.capture.CapturedVideo
 import sg.mesha.goatos.capture.ChannelBackedProofCaptureSource
 import sg.mesha.goatos.capture.FakeProofCaptureSource
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
@@ -43,6 +44,7 @@ import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
 import sg.mesha.goatos.core.data.weighing.ShedWeighingDraft
 import sg.mesha.goatos.core.data.weighing.WeighingAssignment
 import sg.mesha.goatos.core.data.weighing.WeighingCapabilities
+import sg.mesha.goatos.core.data.weighing.WeighingCsvExport
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
 import sg.mesha.goatos.core.data.weighing.WeighingOperatorSummary
@@ -73,6 +75,8 @@ import sg.mesha.goatos.feature.scan.ProofUploadStatus
 import sg.mesha.goatos.feature.weighing.WeighingRosterUiRow
 import sg.mesha.goatos.feature.weighing.WeighingUiState
 import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
+import sg.mesha.goatos.feature.weighing.plan.WeighingWizardStep
+import sg.mesha.goatos.ui.Routes
 import sg.mesha.goatos.rfid.RfidRead
 import sg.mesha.goatos.rfid.RfidReaderDevice
 import sg.mesha.goatos.rfid.RfidReaderPort
@@ -80,6 +84,20 @@ import sg.mesha.goatos.rfid.RfidReaderStatus
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class WeighingViewModelTest {
+
+    // The dev flavour namespaces every scan with its shed so a tester's 5 physical tags behave
+    // like 5 animals per shed. Unit tests run on that same variant, so without pinning it off
+    // they assert "SHED1-9010..." instead of the identifier the app really stores.
+    @Before
+    fun disableDevScanNamespacing() {
+        WeighingViewModel.scanScopePrefixOverride = false
+    }
+
+    @After
+    fun restoreDevScanNamespacing() {
+        WeighingViewModel.scanScopePrefixOverride = null
+    }
+
     private val dispatcher = UnconfinedTestDispatcher()
 
     @Before
@@ -635,18 +653,21 @@ class WeighingViewModelTest {
     }
 
     /**
-     * Free-flow weighing has the SAME wrong-animal capture window vaccination had (fixed in
-     * 2db1eb207): scanning animal A opened the camera bound to A, and a scan of animal B while A's
-     * recording was still in progress was dropped on the floor with no camera, no message and no
-     * retarget — so footage actually shot at B was saved under A's tag, and the weight typed next
-     * landed on A too. Free-flow does not make this safe: it just means the wrong SCANNED TAG is
-     * written instead of the wrong animal id.
+     * CONFIRMED SHED DEFECT (maintainer, real shed use): "When I'm on camera recording and I use
+     * the RFID reader to scan, it suddenly stops recording and comes out." Free-flow weighing had
+     * the SAME cancel-on-scan behaviour vaccination had: scanning animal A opened the camera bound
+     * to A, and a scan of animal B while A's recording was still in progress cancelled A's
+     * unfinished recording and reopened the camera for B, destroying A's in-progress footage. This
+     * is the invariant that replaces it: a scan for a different animal while a capture is in
+     * flight must NEVER stop or cancel that capture. The new animal is queued instead and its
+     * camera opens automatically once the in-flight capture's job completes.
      */
     @Test
-    fun `scanning a second animal while the first video is recording never saves that video under the first animal`() = runTest(dispatcher) {
+    fun `scanning a second animal while the first video is recording must NOT stop or cancel the first camera -- it queues the second animal instead`() = runTest(dispatcher) {
         val proofSource = FakeProofCaptureSource()
         val proofs = FakeProofCaptureRepository()
         val scans = FakeScanCaptureRepository()
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
         val vm = weighingViewModel(
             repository = FakeWeighingRepository(),
             scoped = true,
@@ -654,12 +675,13 @@ class WeighingViewModelTest {
             proofCaptureRepository = proofs,
             proofCaptureSource = proofSource,
             bootstrapRepository = OperatorBootstrapRepository,
+            analytics = analytics,
         )
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
         advanceUntilIdle()
 
         // Animal A is scanned; its camera opens and is still recording (captureVideo() has not
-        // returned — nothing written yet) when the operator walks to animal B and scans it.
+        // returned -- nothing written yet) when the operator walks to animal B and scans it.
         val gateA = proofSource.queueGate()
         vm.onScanInputChange(TEST_TAG)
         vm.submitTypedScan()
@@ -667,45 +689,46 @@ class WeighingViewModelTest {
         assertEquals("animal A's camera opened", 1, proofSource.captureCount)
         assertEquals(0, proofs.captureCalls.size)
 
-        val gateB = proofSource.queueGate()
         vm.onScanInputChange(SECOND_TAG)
         vm.submitTypedScan()
         advanceUntilIdle()
 
-        assertEquals(
-            "scanning animal B must cancel A's unfinished recording and reopen the camera for B",
-            2,
-            proofSource.captureCount,
-        )
-        assertEquals("no video may be saved until a recording actually finishes", 0, proofs.captureCalls.size)
+        // THE INVARIANT: animal A's still-recording camera session is untouched -- no second
+        // camera opens, nothing is stopped or cancelled. Animal B is queued, and the operator is
+        // told so instead of the queued scan silently vanishing.
+        assertEquals("a scan mid-recording must never open a second camera or disturb the first", 1, proofSource.captureCount)
+        assertEquals(0, proofs.captureCalls.size)
         assertTrue(
-            "the operator must be told animal A was left without its video, not silently ignored",
-            vm.state.value.message.orEmpty().contains(TEST_TAG),
+            "the operator must be told animal B is queued behind A's still-recording video",
+            vm.state.value.message.orEmpty().contains(SECOND_TAG) && vm.state.value.message.orEmpty().contains("queued"),
+        )
+        assertTrue(
+            "a deferred scan must be recorded in analytics, not silently swallowed",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEvents.PROOF_CAPTURE_SCAN_DEFERRED),
         )
 
-        // A's cancelled recording finishing late must never be saved under anyone.
+        // Animal A's recording finishes normally and saves under A's own tag -- the in-flight
+        // capture was never touched by B's scan.
         gateA.complete(CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2))
         advanceUntilIdle()
-        assertEquals("a cancelled recording's late result must never be saved", 0, proofs.captureCalls.size)
-
-        gateB.complete(CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4))
-        advanceUntilIdle()
-
         assertEquals(1, proofs.captureCalls.size)
-        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
-        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+        assertEquals(TEST_TAG, proofs.captureCalls[0].caption)
+        assertEquals("file://animal-a.mp4", proofs.captureCalls[0].localUri)
+
+        // The queued animal B's camera opens automatically the instant A's camera frees up.
+        assertEquals("animal B's camera must open automatically once A's capture completed", 2, proofSource.captureCount)
     }
 
     /**
      * The same defect one layer down, on the shared singleton `DelegatingProofCaptureSource`.
      * [FakeProofCaptureSource]'s per-call gates cannot express it; production shares ONE buffered
-     * result channel across every capture request (`VideoCaptureLauncher.kt:38/52/87`), so animal
-     * A's clip -- finalized by CameraX only after the operator turned to animal B -- is left in
-     * that buffer and handed to B's capture, and saved as B's weighing proof. Weighing has no
-     * roster to falsify the binding: `service.go` takes the client binding verbatim.
+     * result channel across every capture request (`VideoCaptureLauncher.kt`/`ProofCaptureRelay`).
+     * Because a scan for a different animal no longer cancels the in-flight capture, animal B's
+     * camera never opens while A's is still recording, so there is no way for A's
+     * eventually-finalized clip to be misdelivered to B's request.
      */
     @Test
-    fun `a cancelled recording finalized late is never handed to the animal scanned next`() = runTest(dispatcher) {
+    fun `a scan for a different animal never stops the in-flight recording, and its own finalized clip still lands under its own tag`() = runTest(dispatcher) {
         val proofs = FakeProofCaptureRepository()
         val proofSource = ChannelBackedProofCaptureSource()
         val vm = weighingViewModel(
@@ -724,31 +747,35 @@ class WeighingViewModelTest {
         advanceUntilIdle()
         assertEquals("animal A's camera opened", 1, proofSource.captureCount)
 
+        // THE INVARIANT: this scan must not stop A's camera -- no second request is opened; B is
+        // queued instead.
         vm.onScanInputChange(SECOND_TAG)
         vm.submitTypedScan()
         advanceUntilIdle()
-        assertEquals("a fresh camera must open for animal B", 2, proofSource.captureCount)
+        assertEquals("animal B's scan must not open a second camera while A is still recording", 1, proofSource.captureCount)
 
-        // A's recording finalizes now -- it belongs to the cancelled request #1.
+        // A's recording finalizes for request #1 -- the only request that exists -- and lands
+        // under A's own tag.
         proofSource.deliverRecorderResult(
             requestOrdinal = 1,
             video = CapturedVideo(localUri = "file://animal-a.mp4", startedAtMs = 1, endedAtMs = 2),
         )
         advanceUntilIdle()
-        assertEquals(
-            "animal A's clip must never become animal B's weighing proof",
-            0,
-            proofs.captureCalls.size,
-        )
+        assertEquals(1, proofs.captureCalls.size)
+        assertEquals(TEST_TAG, proofs.captureCalls.single().caption)
+        assertEquals("file://animal-a.mp4", proofs.captureCalls.single().localUri)
 
+        // B's camera now opens automatically (queued animal), and its own recording lands under
+        // B's own tag.
+        assertEquals("animal B's camera opens once A's capture is done", 2, proofSource.captureCount)
         proofSource.deliverRecorderResult(
             requestOrdinal = 2,
             video = CapturedVideo(localUri = "file://animal-b.mp4", startedAtMs = 3, endedAtMs = 4),
         )
         advanceUntilIdle()
-        assertEquals(1, proofs.captureCalls.size)
-        assertEquals(SECOND_TAG, proofs.captureCalls.single().caption)
-        assertEquals("file://animal-b.mp4", proofs.captureCalls.single().localUri)
+        assertEquals(2, proofs.captureCalls.size)
+        assertEquals(SECOND_TAG, proofs.captureCalls[1].caption)
+        assertEquals("file://animal-b.mp4", proofs.captureCalls[1].localUri)
     }
 
     /**
@@ -1056,6 +1083,425 @@ class WeighingViewModelTest {
         )
     }
 
+    // The regression this covers: the planner could create and publish a weighing task but had no
+    // way to CHANGE one afterward. WeighingViewModel.stageEditOfTask hands the campaign's park,
+    // weigh date and shed buckets to the SAME authoring wizard "+ New task" uses, and the wizard's
+    // commit() must write back through WeighingRepository.updatePlan(campaignId, ...) -- never
+    // repository.createPlan, which would silently fabricate a second task.
+    @Test
+    fun `editing a task hydrates the wizard from that campaign and saves via updatePlan, not createPlan`() =
+        runTest(dispatcher) {
+            val sharedSeedStore = WeighingRepeatSeedStore()
+            val listRepository = FakeWeighingRepository(taskListCache = splitTaskCache())
+            val listVm = weighingViewModel(
+                listRepository,
+                surface = WEIGHING_SCOPE_ALL,
+                repeatSeedStore = sharedSeedStore,
+            )
+            backgroundScope.launch(dispatcher) { listVm.taskDetailState.collect {} }
+            listVm.selectTask("campaign-cbe")
+            advanceUntilIdle()
+
+            // The task-detail action hands the seed to the wizard exactly like Repeat does, except
+            // the seed now carries the campaign id it was edited FROM.
+            val stagedId = listVm.stageEditOfTask("campaign-cbe")
+            assertEquals("campaign-cbe", stagedId)
+
+            // The wizard reads the seed back through the SAME store, keyed on the campaign id the
+            // route carries -- exactly how AppNavHost wires WEIGHING_TASK_NEW.
+            val wizardRepository = FakeWeighingRepository(
+                plannerCatalogResult = AppResult.Ok(
+                    WeighingPlannerCatalog(
+                        parks = listOf(
+                            WeighingPlannerPark(
+                                parkId = "park-cbe",
+                                name = "CBE",
+                                kidCount = 0,
+                                shedCount = 4,
+                                existingCampaign = null,
+                            ),
+                        ),
+                        operators = listOf(
+                            WeighingPlannerOperator("user-dinakar", "Dinakar", "DIN"),
+                            WeighingPlannerOperator("user-pramod", "Pramod", "PRA"),
+                        ),
+                    ),
+                ),
+                plannerParkBuckets = WeighingPlannerParkBucketsCache(
+                    parkId = "park-cbe",
+                    hasCache = true,
+                    sheds = listOf(
+                        WeighingPlannerShed(
+                            locationId = "loc-gandhi-1",
+                            name = "Gandhi 1",
+                            kidCount = 0,
+                            category = "individual_animal",
+                            operatorUserId = "user-dinakar",
+                        ),
+                        WeighingPlannerShed(
+                            locationId = "loc-gandhi-2",
+                            name = "Gandhi 2",
+                            kidCount = 0,
+                            category = "individual_animal",
+                            operatorUserId = "user-dinakar",
+                        ),
+                        WeighingPlannerShed(
+                            locationId = "loc-godel-1",
+                            name = "Godel 1",
+                            kidCount = 0,
+                            category = "individual_animal",
+                            operatorUserId = "user-pramod",
+                        ),
+                        WeighingPlannerShed(
+                            locationId = "loc-yashoda-1",
+                            name = "Yashoda 1",
+                            kidCount = 0,
+                            category = "individual_animal",
+                            operatorUserId = "user-pramod",
+                        ),
+                    ),
+                ),
+            )
+            val wizardVm = WeighingPlanWizardViewModel(
+                repository = wizardRepository,
+                repeatSeedStore = sharedSeedStore,
+                analytics = NoopAnalytics(),
+                crashReporter = NoopCrashReporter(),
+                savedStateHandle = SavedStateHandle(
+                    mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
+                ),
+            )
+            // `state` is WhileSubscribed(5_000): reading `.value` with nobody collecting would
+            // observe only the pre-init default, never what [WeighingPlanWizardViewModel] actually
+            // computed. A real collector is what the composable would be.
+            backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+            advanceUntilIdle()
+            val hydrated = wizardVm.state.value
+
+            // Pre-hydrated: the edit did not land on the empty DATE step, it opened straight on
+            // this campaign's own date, park and all four of its shed buckets.
+            assertTrue(hydrated.isEditing)
+            assertEquals("2026-08-03", hydrated.selectedDate)
+            assertEquals("park-cbe", hydrated.selectedParkId)
+            assertEquals(4, hydrated.addedCount)
+
+            // The real regression Finding 1/2 caught: hydrating the right ANSWERS is not the same
+            // as landing on the right STEP. An edit must open on BUCKETS -- MAINTAINER DECISION:
+            // editing may only add/remove buckets, change an operator, or change a bucket's mode,
+            // so DATE and PARK are not just pre-filled, they must never be a step the planner can
+            // land on, land back on via Back, or advertise in the stepper.
+            assertEquals(WeighingWizardStep.BUCKETS, hydrated.step)
+            assertEquals(3, hydrated.stepCount)
+            assertEquals(0, hydrated.stepDisplayIndex)
+            assertTrue(hydrated.isFirstStep)
+
+            // Back from the wizard's first reachable step must leave the screen (false), exactly
+            // like Back from DATE does in create mode -- it must NEVER quietly reveal PARK or DATE.
+            assertFalse(wizardVm.back())
+            assertEquals(WeighingWizardStep.BUCKETS, wizardVm.state.value.step)
+
+            // selectDate() and selectPark() must be refusals in edit mode, not validated writes --
+            // even a superficially legal in-range date, or a real park id from the catalog, must
+            // never move an edit off the campaign's own date/park. Real navigation (next()) drives
+            // this to CONFIGURE first so the refusal is proven against a step the planner is
+            // actually standing on, not just the initial hydrated state.
+            wizardVm.next()
+            assertEquals(WeighingWizardStep.CONFIGURE, wizardVm.state.value.step)
+            wizardVm.selectDate("2026-08-10")
+            assertEquals("2026-08-03", wizardVm.state.value.selectedDate)
+            assertEquals(WeighingWizardStep.CONFIGURE, wizardVm.state.value.step)
+            wizardVm.selectPark("park-cbe")
+            assertEquals("park-cbe", wizardVm.state.value.selectedParkId)
+            assertEquals(WeighingWizardStep.CONFIGURE, wizardVm.state.value.step)
+            // Back off CONFIGURE must land on BUCKETS -- the wizard's real first step in edit mode
+            // -- never PARK.
+            assertTrue(wizardVm.back())
+            assertEquals(WeighingWizardStep.BUCKETS, wizardVm.state.value.step)
+
+            // Point 6: this campaign's OWN sheds must never read back as "already scheduled"
+            // against themselves, so every bucket-availability read excludes it.
+            assertTrue(
+                "expected the wizard to exclude its own campaign id from every bucket read, got: " +
+                    wizardRepository.plannerParkBucketExcludeCalls,
+                wizardRepository.plannerParkBucketExcludeCalls.isNotEmpty() &&
+                    wizardRepository.plannerParkBucketExcludeCalls.all { it == "campaign-cbe" },
+            )
+
+            wizardVm.commit(publish = true)
+            advanceUntilIdle()
+
+            // The real branch under test: saving from edit mode calls updatePlan against the
+            // SAME campaign id, never createPlan -- a second task must never be fabricated.
+            assertEquals("campaign-cbe", wizardVm.state.value.savedCampaignId)
+            assertNull(wizardRepository.createdDraft)
+            val saved = wizardRepository.updatedDraft
+            requireNotNull(saved) { "expected commit(edit mode) to call updatePlan" }
+            assertEquals("park-cbe", saved.parkId)
+            assertEquals("2026-08-03", saved.periodStartDate)
+            assertEquals(
+                setOf("loc-gandhi-1", "loc-gandhi-2", "loc-godel-1", "loc-yashoda-1"),
+                saved.sheds.map { it.locationId }.toSet(),
+            )
+        }
+
+    // The regression this covers: WeighingRepeatSeedStore is a ONE-SHOT, in-memory map (see its own
+    // doc) that does not survive process death, while the route's WEIGHING_REPEAT_OF_ARG does, via
+    // SavedStateHandle. A process death between WeighingViewModel.stageEditOfTask and this
+    // ViewModel's construction used to leave editCampaignId null with no sign anything was lost --
+    // the wizard silently reopened as an ordinary, unrelated CREATE wizard. It must instead detect
+    // the mismatch (route arg present, seed missing) and refuse to continue rather than fabricate a
+    // task the planner never asked to create.
+    @Test
+    fun `a lost seed after process death blocks the wizard instead of silently becoming a create`() =
+        runTest(dispatcher) {
+            // A FRESH store: nothing was ever staged into it, exactly as it looks after process
+            // death re-creates every Hilt singleton.
+            val freshSeedStore = WeighingRepeatSeedStore()
+            val wizardVm = WeighingPlanWizardViewModel(
+                repository = FakeWeighingRepository(),
+                repeatSeedStore = freshSeedStore,
+                analytics = NoopAnalytics(),
+                crashReporter = NoopCrashReporter(),
+                savedStateHandle = SavedStateHandle(
+                    // The route arg SURVIVES process death; the seed it should have paired with does
+                    // not.
+                    mapOf(Routes.WEIGHING_REPEAT_OF_ARG to "campaign-cbe"),
+                ),
+            )
+            backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+            advanceUntilIdle()
+            val state = wizardVm.state.value
+
+            // Explicit recoverable state, not a blank create: a message is shown, and the wizard
+            // was NOT quietly wired up as an edit either (there is nothing to edit).
+            assertFalse(state.isEditing)
+            requireNotNull(state.message) { "expected a recovery message when the seed is lost" }
+
+            // The blank-create downgrade this guards against: even a fully legal date pick must not
+            // be able to carry the wizard forward past the loss.
+            wizardVm.selectDate("2026-08-10")
+            assertFalse(wizardVm.state.value.canContinue)
+            wizardVm.next()
+            assertEquals(WeighingWizardStep.DATE, wizardVm.state.value.step)
+
+            wizardVm.commit(publish = true)
+            advanceUntilIdle()
+            assertNull(wizardVm.state.value.savedCampaignId)
+        }
+
+    // ---- weighing analytics coverage -------------------------------------------------------
+
+    @Test
+    fun `confirming the scope-level submit tracks a submit-succeeded event`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val scans = FakeScanCaptureRepository()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = scans,
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        var submitted = false
+        vm.submitIndividualScope { submitted = true }
+        advanceUntilIdle()
+        assertTrue("the confirm sheet must be showing before it can be confirmed", vm.state.value.showSubmitConfirmation)
+
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        assertTrue(submitted)
+        assertEquals(listOf(TEST_TAG), repository.submitIndividualScopeCalls.single())
+        assertTrue(
+            "a successful scope submit must be tracked",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_SUCCEEDED),
+        )
+        assertTrue(
+            "the attempt must be tracked before the outcome",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_ATTEMPTED),
+        )
+    }
+
+    @Test
+    fun `a rejected scope-level submit tracks a submit-failed event carrying the real reason`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val scans = FakeScanCaptureRepository()
+        val repository = FakeWeighingRepository(
+            scopeState = WeighingScopeState(
+                rosterWindow = emptyList(),
+                individualDrafts = listOf(acceptedDraft(animalId = TEST_TAG, weightKg = 12.5)),
+                shedDrafts = emptyList(),
+                totalExpected = 1,
+            ),
+        )
+        repository.submitIndividualScopeResult = AppResult.Err("verification_pending")
+        val vm = weighingViewModel(
+            repository = repository,
+            scoped = true,
+            scanCaptureRepository = scans,
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+        scans.recordScan(
+            taskId = "campaign-1:group-1:campaign-shed-1",
+            fieldKey = "weighing_free_flow_scan",
+            tag = TEST_TAG,
+        )
+        advanceUntilIdle()
+
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+        vm.confirmSubmitIndividualScope()
+        advanceUntilIdle()
+
+        val failure = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_SUBMIT_FAILED
+        }
+        assertEquals(
+            "the failure event must carry the repository's REAL message, never a fabricated code",
+            "verification_pending",
+            failure.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.REASON],
+        )
+    }
+
+    @Test
+    fun `the client-side submit gate tracks submit_blocked when the scope is incomplete`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val vm = weighingViewModel(
+            repository = FakeWeighingRepository(),
+            scoped = true,
+            analytics = analytics,
+        )
+        backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // Nothing scanned yet, so the gate must refuse before anything is enqueued.
+        vm.submitIndividualScope {}
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.showSubmitConfirmation)
+        val blocked = analytics.events.single { it.name == sg.mesha.goatos.core.analytics.AnalyticsEvents.SUBMIT_BLOCKED }
+        assertEquals("scope_incomplete", blocked.props[sg.mesha.goatos.core.analytics.AnalyticsEvents.Params.REASON])
+    }
+
+    @Test
+    fun `the plan wizard tracks a step-reached event each time the step actually changes`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val wizardVm = WeighingPlanWizardViewModel(
+            repository = FakeWeighingRepository(),
+            repeatSeedStore = WeighingRepeatSeedStore(),
+            analytics = analytics,
+            crashReporter = NoopCrashReporter(),
+            savedStateHandle = SavedStateHandle(emptyMap()),
+        )
+        backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+        advanceUntilIdle()
+
+        // The opening step is tracked on init, before any tap.
+        assertEquals(listOf("date"), analytics.events.map { it.props["wizard_step"] }.filterNotNull())
+
+        wizardVm.selectDate("2026-08-10")
+        wizardVm.next()
+        advanceUntilIdle()
+        assertEquals(WeighingWizardStep.PARK, wizardVm.state.value.step)
+
+        wizardVm.selectPark("park-1")
+        wizardVm.next()
+        advanceUntilIdle()
+        assertEquals(WeighingWizardStep.BUCKETS, wizardVm.state.value.step)
+
+        wizardVm.back()
+        advanceUntilIdle()
+        assertEquals(WeighingWizardStep.PARK, wizardVm.state.value.step)
+
+        val stepsTracked = analytics.events
+            .filter { it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_STEP_REACHED }
+            .map { it.props["wizard_step"] }
+        // date (init) -> park (next) -> buckets (next) -> park (back). Re-entering the SAME step
+        // is never re-tracked, but leaving and coming back to one already visited is a real step
+        // transition and must be.
+        assertEquals(listOf("date", "park", "buckets", "park"), stepsTracked)
+    }
+
+    @Test
+    fun `leaving the wizard mid-flow without saving tracks an abandonment event, but saving does not`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val store = androidx.lifecycle.ViewModelStore()
+        val factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return WeighingPlanWizardViewModel(
+                    repository = FakeWeighingRepository(),
+                    repeatSeedStore = WeighingRepeatSeedStore(),
+                    analytics = analytics,
+                    crashReporter = NoopCrashReporter(),
+                    savedStateHandle = SavedStateHandle(emptyMap()),
+                ) as T
+            }
+        }
+        val wizardVm = androidx.lifecycle.ViewModelProvider(store, factory)[WeighingPlanWizardViewModel::class.java]
+        backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+        advanceUntilIdle()
+
+        wizardVm.selectDate("2026-08-10")
+        wizardVm.next()
+        advanceUntilIdle()
+        assertEquals(WeighingWizardStep.PARK, wizardVm.state.value.step)
+
+        // The planner backs out here -- real progress (moved off DATE), never saved.
+        store.clear()
+
+        val abandoned = analytics.events.single {
+            it.name == sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_ABANDONED
+        }
+        assertEquals("park", abandoned.props["wizard_step"])
+    }
+
+    @Test
+    fun `a wizard that never leaves its opening step reports no abandonment`() = runTest(dispatcher) {
+        val analytics = sg.mesha.goatos.boot.RecordingAnalytics()
+        val store = androidx.lifecycle.ViewModelStore()
+        val factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return WeighingPlanWizardViewModel(
+                    repository = FakeWeighingRepository(),
+                    repeatSeedStore = WeighingRepeatSeedStore(),
+                    analytics = analytics,
+                    crashReporter = NoopCrashReporter(),
+                    savedStateHandle = SavedStateHandle(emptyMap()),
+                ) as T
+            }
+        }
+        val wizardVm = androidx.lifecycle.ViewModelProvider(store, factory)[WeighingPlanWizardViewModel::class.java]
+        backgroundScope.launch(dispatcher) { wizardVm.state.collect {} }
+        advanceUntilIdle()
+
+        store.clear()
+
+        assertFalse(
+            "nothing was started, so nothing was abandoned",
+            analytics.names().contains(sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_ABANDONED),
+        )
+    }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
@@ -1067,6 +1513,10 @@ class WeighingViewModelTest {
         proofCaptureSource: ProofCaptureSource = FakeProofCaptureSource(),
         bootstrapRepository: BootstrapRepository = LeadershipBootstrapRepository,
         weighingCategory: String = "individual_animal",
+        analytics: AnalyticsPort = NoopAnalytics(),
+        // Shared with a WeighingPlanWizardViewModel in a test that exercises the repeat/edit
+        // handoff -- the two ViewModels only agree on a seed if they hold the SAME store instance.
+        repeatSeedStore: WeighingRepeatSeedStore = WeighingRepeatSeedStore(),
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
@@ -1075,9 +1525,10 @@ class WeighingViewModelTest {
             scanCaptureRepository = scanCaptureRepository,
             proofCaptureRepository = proofCaptureRepository,
             proofCaptureSource = proofCaptureSource,
-            analytics = NoopAnalytics(),
+            analytics = analytics,
             crashReporter = NoopCrashReporter(),
-            repeatSeedStore = WeighingRepeatSeedStore(),
+            repeatSeedStore = repeatSeedStore,
+            exportFileWriter = FakeWeighingExportFileWriter(),
             savedStateHandle = SavedStateHandle(
                 if (scoped) {
                     mapOf(
@@ -1175,6 +1626,15 @@ class WeighingViewModelTest {
             BootstrapOperatorProfileDto(operatorId = "operator-1", displayName = "Operator 1", primaryRoleHint = "operator")
     }
 
+    /** Records writes instead of touching disk/FileProvider, mirroring [FakeWeighingRepository]'s style. */
+    private class FakeWeighingExportFileWriter : sg.mesha.goatos.export.WeighingExportFileWriter {
+        val writes = mutableListOf<Pair<ByteArray, String>>()
+        override fun write(bytes: ByteArray, fileName: String): android.net.Uri {
+            writes += bytes to fileName
+            return android.net.Uri.EMPTY
+        }
+    }
+
     private class FakeRfidReaderPort : RfidReaderPort {
         private val readsFlow = MutableSharedFlow<RfidRead>()
         override val status: StateFlow<RfidReaderStatus> = MutableStateFlow(RfidReaderStatus.READY)
@@ -1212,7 +1672,15 @@ class WeighingViewModelTest {
         // default to "the backend has nothing to say", so a test that wants them says so.
         private val taskLookups: Map<String, WeighingTaskLookup> = emptyMap(),
         private val parks: List<WeighingParkRef> = emptyList(),
+        private val exportResult: AppResult<WeighingCsvExport> = AppResult.Err("Export not configured in this fake."),
+        // The wizard's bucket step reads this. Real callers page per park/date; this fake answers
+        // every (park, date) with the SAME fixed page, which is enough for a test that only cares
+        // about one park on one date.
+        private val plannerParkBuckets: WeighingPlannerParkBucketsCache = WeighingPlannerParkBucketsCache(),
     ) : WeighingRepository {
+
+        /** Every campaign id this fake was asked to export, in order. */
+        val exportCalls = mutableListOf<String>()
 
         /** Every single-task read this fake was asked for, in order. */
         val taskLookupCalls = mutableListOf<String>()
@@ -1276,6 +1744,11 @@ class WeighingViewModelTest {
             return AppResult.Ok(parks)
         }
 
+        override suspend fun exportCampaignCsv(campaignId: String): AppResult<WeighingCsvExport> {
+            exportCalls += campaignId
+            return exportResult
+        }
+
         override fun observeTaskBuckets(campaignId: String, windowSize: Int): Flow<WeighingTaskBucketCache> =
             MutableStateFlow(WeighingTaskBucketCache())
 
@@ -1335,17 +1808,25 @@ class WeighingViewModelTest {
                 ).takeIf { plannerCatalogResult == null } ?: WeighingPlannerCatalog(emptyList(), emptyList())
             )
 
+        /** The `excludeCampaignId` passed on every bucket-page refresh, most recent last. */
+        val plannerParkBucketExcludeCalls: MutableList<String?> = mutableListOf()
+
         override fun observePlannerParkBuckets(
             periodStartDate: String,
             parkId: String,
             windowSize: Int,
-        ): Flow<WeighingPlannerParkBucketsCache> = MutableStateFlow(WeighingPlannerParkBucketsCache())
+            excludeCampaignId: String?,
+        ): Flow<WeighingPlannerParkBucketsCache> = MutableStateFlow(plannerParkBuckets)
 
         override suspend fun refreshPlannerParkBuckets(
             periodStartDate: String,
             parkId: String,
             reset: Boolean,
-        ): AppResult<Int> = AppResult.Ok(0)
+            excludeCampaignId: String?,
+        ): AppResult<Int> {
+            plannerParkBucketExcludeCalls += excludeCampaignId
+            return AppResult.Ok(0)
+        }
 
         /** Records the in-place availability re-reads the wizard asks for. */
         var availabilityRefreshes: MutableList<Triple<String, String, Int>> = mutableListOf()
@@ -1354,8 +1835,10 @@ class WeighingViewModelTest {
             periodStartDate: String,
             parkId: String,
             pages: Int,
+            excludeCampaignId: String?,
         ): AppResult<Int> {
             availabilityRefreshes.add(Triple(periodStartDate, parkId, pages))
+            plannerParkBucketExcludeCalls += excludeCampaignId
             return AppResult.Ok(0)
         }
 
@@ -1410,12 +1893,19 @@ class WeighingViewModelTest {
             serverProofIds: List<String>,
         ) {}
 
+        /** Submit calls this fake received, and how it should answer them -- default success, so
+         *  only a test asserting the failure path has to say otherwise. */
+        val submitIndividualScopeCalls = mutableListOf<List<String>>()
+        var submitIndividualScopeResult: AppResult<Unit> = AppResult.Ok(Unit)
+
         override suspend fun submitIndividualScope(
             campaignId: String,
             campaignShedId: String,
             scannedIdentifiers: List<String>,
-        ): AppResult<Unit> =
-            AppResult.Ok(Unit)
+        ): AppResult<Unit> {
+            submitIndividualScopeCalls += scannedIdentifiers
+            return submitIndividualScopeResult
+        }
 
         override suspend fun reopenScope(
             campaignId: String,
@@ -1436,6 +1926,22 @@ class WeighingViewModelTest {
         ): AppResult<Unit> = AppResult.Ok(Unit)
 
         override suspend fun discardEditableIndividual(scopeKey: String, scannedIdentifier: String) {}
+
+        // The weight-history read is not exercised by these tests; the fake answers empty so the
+        // interface stays satisfied without inventing chart data these assertions would then
+        // silently depend on.
+        override suspend fun fetchGrowthSummary(
+            parkId: String?,
+            from: String?,
+            to: String?,
+        ): AppResult<sg.mesha.goatos.core.network.GrowthSummaryDto> =
+            AppResult.Ok(sg.mesha.goatos.core.network.GrowthSummaryDto())
+
+        override suspend fun fetchWeightHistory(
+            parkId: String?,
+            campaignShedId: String?,
+        ): AppResult<sg.mesha.goatos.core.network.WeightHistoryResponseDto> =
+            AppResult.Ok(sg.mesha.goatos.core.network.WeightHistoryResponseDto())
     }
 
     private companion object {

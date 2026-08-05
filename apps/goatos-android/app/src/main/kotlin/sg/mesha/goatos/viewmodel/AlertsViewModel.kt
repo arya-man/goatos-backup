@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEventsVerification
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ControlTowerRepository
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
@@ -48,6 +51,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AlertsViewModel @Inject constructor(
     private val repo: ControlTowerRepository,
+    private val analytics: AnalyticsPort = NoopAnalytics(),
 ) : ViewModel() {
 
     // NO copy here. The screen is titled just "Alerts" and the reader reached it from
@@ -66,6 +70,19 @@ class AlertsViewModel @Inject constructor(
     private val _isOffline = MutableStateFlow(false)
     private val _localReadState = MutableStateFlow<Set<String>>(emptySet())
 
+    // Fires once for this ViewModel's lifetime — the FIRST time the screen settles out of its
+    // initial loading placeholder, whether that lands on real rows or an honest empty state.
+    // Before this, Alerts had zero analytics: a CEO/operator could sit on this screen reading
+    // vaccination alerts and nothing beyond `bootstrap_loaded` recorded she was ever here.
+    //
+    // Deliberately fired FROM the [combine] transform below rather than a separate
+    // `state.collect` in init: [state] is WhileSubscribed(5_000) (MOB-010) — a standing collector
+    // here would keep [observedResource] (and the underlying Room flow) permanently warm even
+    // with no UI subscriber, defeating the whole point of WhileSubscribed. The transform below
+    // only RUNS while something is actually collecting [state], so the side effect inherits the
+    // same lifecycle-aware guarantee for free.
+    private var trackedScreenViewed = false
+
     // Combines observed resource with transient flags; lifecycle-aware
     val state: StateFlow<AlertsUiState> = combine(
         observedResource,
@@ -80,12 +97,22 @@ class AlertsViewModel @Inject constructor(
             } else {
                 vaccinationAlertsPlaceholder("Loading…")
             }
-        base.copy(
+        val next = base.copy(
             rows = base.rows.map { it.copy(unread = it.id !in readSet) },
             isRefreshing = isRefreshing,
             lastSyncedAt = resource.lastSyncedAt ?: base.lastSyncedAt,
             isOffline = isOffline,
         )
+        if (!trackedScreenViewed && !isRefreshing) {
+            trackedScreenViewed = true
+            runCatching {
+                analytics.track(
+                    AnalyticsEventsVerification.ALERTS_VIEWED,
+                    mapOf(AnalyticsEventsVerification.Params.ROW_COUNT to next.rows.size.toString()),
+                )
+            }
+        }
+        next
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
@@ -101,22 +128,47 @@ class AlertsViewModel @Inject constructor(
      *  cached content, if any, stays on screen. */
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
+        runCatching { analytics.track(AnalyticsEventsVerification.ALERTS_REFRESH_ATTEMPTED) }
         val result = repo.refreshSummary()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
+        runCatching {
+            if (result.isSuccess) {
+                analytics.track(AnalyticsEventsVerification.ALERTS_REFRESH_SUCCEEDED)
+            } else {
+                analytics.track(
+                    AnalyticsEventsVerification.ALERTS_REFRESH_FAILED,
+                    mapOf(
+                        AnalyticsEventsVerification.Params.REASON to
+                            (result.exceptionOrNull()?.let { it::class.simpleName } ?: "unknown"),
+                    ),
+                )
+            }
+        }
     }
 
     fun onEvent(event: AlertsEvent) {
         when (event) {
             AlertsEvent.MarkAllRead -> {
                 // Mark all rows as read in local state (not persisted to backend)
-                _localReadState.value = state.value.rows.mapNotNull {
-                    if (it.unread) it.id else null
-                }.toSet()
+                val unreadIds = state.value.rows.mapNotNull { if (it.unread) it.id else null }.toSet()
+                _localReadState.value = unreadIds
+                runCatching {
+                    analytics.track(
+                        AnalyticsEventsVerification.ALERT_MARK_ALL_READ,
+                        mapOf(AnalyticsEventsVerification.Params.UNREAD_COUNT to unreadIds.size.toString()),
+                    )
+                }
             }
             is AlertsEvent.OpenAlert -> {
                 // Mark tapped row as read in local state
                 _localReadState.value = _localReadState.value + event.id
+                runCatching {
+                    analytics.track(
+                        AnalyticsEventsVerification.ALERT_TAPPED,
+                        mapOf(AnalyticsEventsVerification.Params.ALERT_ID to event.id),
+                    )
+                }
             }
             AlertsEvent.Refresh -> refresh()
         }

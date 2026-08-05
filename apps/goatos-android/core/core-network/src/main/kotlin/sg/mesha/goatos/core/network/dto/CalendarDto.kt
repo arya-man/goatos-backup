@@ -110,6 +110,11 @@ data class DriveSummaryDto(
     @SerialName("due_count") val dueCount: Int = 0,
     @SerialName("overdue_count") val overdueCount: Int = 0,
     @SerialName("deferred_count") val deferredCount: Int = 0,
+    // Informational subset of dueCount/overdueCount (a rejected obligation is one of the statuses
+    // those buckets already include) — names WHY the progress numerator dropped after a verifier
+    // rejects proof, instead of the drop reading as an unexplained mystery. Absent/0 on a cache row
+    // written before this field shipped, which is the correct "nothing to explain" default.
+    @SerialName("rejected_count") val rejectedCount: Int = 0,
     // Backend-owned cross-surface progress. Nullable, NOT defaulted: a cache row / older backend
     // predating these fields decodes as null so the card can fall back to the legacy client-side
     // derivation; when present these MUST be rendered verbatim (see DriveCardMetrics).

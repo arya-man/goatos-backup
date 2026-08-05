@@ -60,6 +60,7 @@ class ShedsOverdueChipSubmittedTest {
             VaccinationExecutionResponseDto(rows = rows.toList(), totalCount = rows.size),
         ),
         NoopCrashReporter(),
+        sg.mesha.goatos.core.analytics.NoopAnalytics(),
         ChipTestBootstrapRepository(),
         SavedStateHandle(),
     )

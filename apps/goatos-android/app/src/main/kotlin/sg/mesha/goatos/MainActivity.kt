@@ -42,6 +42,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.first
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.datastore.SessionStore
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.locale.ProvideAppLocale
@@ -83,6 +86,12 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var proofPlayerFactory: ProofPlayerFactory
 
+    /** Session-boundary + force-update-gate analytics owned directly by this Activity (app
+     *  open/backgrounded and the force-update gate both render here, above any ViewModel that
+     *  already holds an [AnalyticsPort]). */
+    @Inject
+    lateinit var analytics: AnalyticsPort
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -104,12 +113,24 @@ class MainActivity : ComponentActivity() {
                 when (val gate = updateGate) {
                     UpdateGateUiState.Checking -> BootstrapLoading()
 
-                    is UpdateGateUiState.Blocked ->
+                    is UpdateGateUiState.Blocked -> {
+                        // Fires once per distinct block this process sees (a later refresh that
+                        // re-confirms the SAME block must not re-fire "shown" — see
+                        // FORCE_UPDATE_GATE_BLOCKING for the "still blocked" signal, driven from
+                        // onResume() instead). This gate sits above auth, so this LaunchedEffect
+                        // is the only place its state is ever visible in analytics at all.
+                        LaunchedEffect(gate.updateUrl) {
+                            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_SHOWN)
+                        }
                         ForceUpdateScreen(
                             updateUrl = gate.updateUrl,
                             installedVersionName = BuildConfig.VERSION_NAME,
-                            onUpdate = ::openExternalUrl,
+                            onUpdate = { url ->
+                                analytics.track(AnalyticsEventsSession.FORCE_UPDATE_TAPPED)
+                                openExternalUrl(url)
+                            },
                         )
+                    }
 
                     UpdateGateUiState.Allowed -> {
                 val authed by sessionViewModel.isAuthed.collectAsStateWithLifecycle()
@@ -146,6 +167,23 @@ class MainActivity : ComponentActivity() {
                         errorReason = uiState.errorReason,
                         errorDetail = uiState.errorDetail,
                         resetEmailSent = uiState.resetEmailSent,
+                        onPermissionGateShown = { missingPermissions ->
+                            missingPermissions.forEach { permission ->
+                                analytics.track(
+                                    AnalyticsEventsSession.PERMISSION_GATE_SHOWN,
+                                    mapOf(AnalyticsEventsSession.Params.PERMISSION to permission),
+                                )
+                            }
+                        },
+                        onPermissionAnswered = { permission, granted ->
+                            analytics.track(
+                                AnalyticsEventsSession.PERMISSION_GATE_RESULT,
+                                mapOf(
+                                    AnalyticsEventsSession.Params.PERMISSION to permission,
+                                    AnalyticsEvents.Params.REASON to if (granted) "granted" else "denied",
+                                ),
+                            )
+                        },
                     )
                 } else {
                     val bootstrap by bootstrapViewModel.state.collectAsStateWithLifecycle()
@@ -155,7 +193,14 @@ class MainActivity : ComponentActivity() {
                         is BootstrapUiState.Error -> {
                             when (s.errorType) {
                                 BootstrapErrorType.AUTH_SESSION_EXPIRED -> {
-                                    // Auth failure: sign out and return to login screen.
+                                    // Auth failure: sign out and return to login screen. This is
+                                    // the user-visible boundary of a forced re-auth — the moment
+                                    // a still-open app becomes a login gate again, not merely the
+                                    // underlying bootstrap_failed(reason=AuthSessionExpired) which
+                                    // fired before any UI reflected it.
+                                    LaunchedEffect(Unit) {
+                                        analytics.track(AnalyticsEventsSession.SESSION_TOKEN_EXPIRED)
+                                    }
                                     BootstrapError(
                                         message = stringResource(R.string.bootstrap_error_auth_session_expired),
                                         actionLabel = stringResource(R.string.bootstrap_action_sign_in_again),
@@ -204,6 +249,22 @@ class MainActivity : ComponentActivity() {
         // Re-check the update floor on every foreground: a minimum raised while the app
         // was backgrounded blocks the build the next time it comes forward.
         updateGateViewModel.refresh()
+        // A resume that finds the gate ALREADY blocked (not a fresh block first seen this
+        // launch — that is FORCE_UPDATE_GATE_SHOWN, fired from the Compose branch below) means
+        // the operator came back to the app without updating. Read synchronously off the
+        // StateFlow's current value rather than a coroutine collector, so this never races the
+        // Compose recomposition that renders the same state.
+        if (updateGateViewModel.state.value is UpdateGateUiState.Blocked) {
+            analytics.track(AnalyticsEventsSession.FORCE_UPDATE_GATE_BLOCKING)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Session-boundary: the app left the foreground. Pairs with APP_OPEN/SESSION_START
+        // (GoatOsApplication.onCreate) so a session's visible span is reconstructible even when
+        // it ends by backgrounding rather than an explicit sign-out.
+        analytics.track(AnalyticsEventsSession.APP_BACKGROUNDED)
     }
 
     /**

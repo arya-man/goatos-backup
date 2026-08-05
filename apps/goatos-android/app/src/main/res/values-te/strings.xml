@@ -41,8 +41,6 @@
     <string name="proof_photo_take">ఫోటో తీయండి</string>
     <string name="proof_photo_cancel">ఫోటో క్యాప్చర్‌ను రద్దు చేయండి</string>
     <string name="submit_shed_success_toast">షెడ్ రుజువు సమీక్ష కోసం సమర్పించబడింది</string>
-    <string name="weighing_assignment_summary_lumpsum">%1$d పిల్లలు పరిధిలో · ఒక షెడ్ వీడియో</string>
-    <string name="weighing_assignment_summary_individual">%1$d పిల్లలు పరిధిలో · జంతు వీడియోలు</string>
     <string name="weighing_action_view_result">ఫలితం చూడండి →</string>
     <string name="weighing_action_record_shed">షెడ్ ఫలితం రికార్డ్ చేయండి →</string>
     <string name="bootstrap_error_auth_session_expired">మీ సెషన్ ముగిసిపోయింది. కొనసాగించడానికి మళ్లీ సైన్ ఇన్ చేయండి.</string>
@@ -50,4 +48,5 @@
     <string name="bootstrap_action_sign_in_again">మళ్లీ సైన్ ఇన్ చేయండి</string>
     <string name="bootstrap_action_retry">మళ్లీ ప్రయత్నించండి</string>
     <string name="bootstrap_error_access_not_provisioned">మీ యాక్సెస్ ఇంకా సెట్ కాలేదు. మిమ్మల్ని చేర్చమని మీ మేనేజర్‌ను అడిగి, మళ్లీ ప్రయత్నించండి.</string>
+    <string name="sheds_toast_already_submitted_fmt">%1$s ఇప్పటికే ధృవీకరణ కోసం సమర్పించబడింది</string>
 </resources>

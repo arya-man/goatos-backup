@@ -41,6 +41,10 @@ dependencies {
     implementation(project(":core:core-media"))
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
+
+    // Plain-JUnit coverage for the pure viewport-visibility gate (isRowVisibleInViewport):
+    // whether a proof-video row should keep playing is decidable off two Rects alone.
+    testImplementation("junit:junit:4.13.2")
 }
 
 // Compose compiler stability/metrics reports (item 6: perf/stability audit). Written under

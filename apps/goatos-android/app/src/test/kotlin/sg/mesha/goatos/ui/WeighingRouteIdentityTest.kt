@@ -156,7 +156,15 @@ class WeighingRouteIdentityTest {
         // real action off the fold. A control that can never be pressed is decoration, not a
         // disabled control. Reopening still lives on each shed's own card, which is where its
         // grain is. Reinstate either one only WITH the screen that performs it.
-        assertFalse("Edit must not return without a screen behind it", screen.contains("key = \"task-edit\""))
+        // Edit is BACK, and legitimately: the 2026-08-03 removal was conditional -- "reinstate
+        // either one only WITH the screen that performs it". On 2026-08-05 it got that screen:
+        // "Edit task" opens the existing plan wizard pre-hydrated from this campaign (date and
+        // park locked, buckets/mode/operator editable) and saves through
+        // WeighingRepository.updatePlan. It is a live control, not prose, so the ban no longer
+        // applies to it -- but the ORDERING rule still does, and Reopen is still banned because
+        // it still has no screen.
+        assertTrue("Edit is reinstated with its wizard, so it must be rendered", screen.contains("key = \"task-edit\""))
+        assertTrue("Edit must come after the shed list", screen.indexOf("key = \"task-edit\"") > shedList)
         assertFalse("Reopen must not return without a screen behind it", screen.contains("key = \"task-reopen\""))
         // The filter chips still belong ABOVE the list they filter.
         assertTrue("operator chips must stay above the shed list", screen.indexOf("key = \"operator-filters\"") < shedList)

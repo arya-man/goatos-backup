@@ -17,6 +17,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.NoopAnalytics
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.Resource
@@ -238,6 +240,44 @@ class CalendarViewModelTest {
     }
 
     @Test
+    fun `CALENDAR_VIEWED fires exactly once on init`() = runTest(dispatcher) {
+        val analytics = CalendarRecordingAnalytics()
+        val repo = StaticCalendarRepository(CalendarEventListResponseDto())
+        val vm = CalendarViewModel(repo = repo, analytics = analytics, crashReporter = NoopCrashReporter())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(1, analytics.events.count { it.first == AnalyticsEvents.CALENDAR_VIEWED })
+        assertEquals(
+            "week",
+            analytics.events.first { it.first == AnalyticsEvents.CALENDAR_VIEWED }.second[AnalyticsEvents.Params.KIND],
+        )
+    }
+
+    @Test
+    fun `CALENDAR_VIEWED does not re-fire on segment change, day selection, or refresh`() = runTest(dispatcher) {
+        val analytics = CalendarRecordingAnalytics()
+        val repo = StaticCalendarRepository(CalendarEventListResponseDto())
+        val vm = CalendarViewModel(repo = repo, analytics = analytics, crashReporter = NoopCrashReporter())
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+        fun viewedCount() = analytics.events.count { it.first == AnalyticsEvents.CALENDAR_VIEWED }
+        assertEquals(1, viewedCount())
+
+        vm.onEvent(sg.mesha.goatos.feature.calendar.CalendarEvent.SelectSegment("month"))
+        advanceUntilIdle()
+        assertEquals(1, viewedCount())
+
+        vm.onEvent(sg.mesha.goatos.feature.calendar.CalendarEvent.TapDay(LocalDate.now().plusDays(1).toString()))
+        advanceUntilIdle()
+        assertEquals(1, viewedCount())
+
+        vm.refresh()
+        advanceUntilIdle()
+        assertEquals(1, viewedCount())
+    }
+
+    @Test
     fun `calendar lands on week when backend tabs have no active segment`() = runTest(dispatcher) {
         val repo = StaticCalendarRepository(
             CalendarEventListResponseDto(
@@ -380,6 +420,18 @@ private class FailingColdCalendarRepository(
 
     override fun observeScheduleMetadata(query: CalendarScheduleQuery): Flow<Resource<CalendarEventListResponseDto>> =
         flowOf(Resource(data = null))
+}
+
+private class CalendarRecordingAnalytics : AnalyticsPort {
+    val events = mutableListOf<Pair<String, Map<String, String>>>()
+
+    override fun track(event: String, props: Map<String, String>) {
+        events.add(event to props)
+    }
+
+    override fun setUserProperty(name: String, value: String?) {}
+
+    override fun setUserId(id: String?) {}
 }
 
 private class StaticCalendarRepository(

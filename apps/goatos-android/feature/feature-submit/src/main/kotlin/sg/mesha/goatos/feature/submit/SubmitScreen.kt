@@ -19,11 +19,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.res.stringResource
@@ -118,6 +120,11 @@ data class SubmitUiState(
     val lastError: String? = null,
     /** True when the initial task load is in progress (DRAFT state). */
     val isLoadingTask: Boolean = false,
+    /**
+     * Raised when the operator taps Finalize: submitting hands the shed to the video check and
+     * the operator cannot reopen it himself, so he is asked once before it goes.
+     */
+    val showSubmitConfirmation: Boolean = false,
     /** True when the task was not found / no task assigned to this operator (DRAFT state). */
     val isNoTaskAssigned: Boolean = false,
     /** True when the task load failed (DEAD_LETTER state). */
@@ -159,6 +166,9 @@ data class ShedCompletionSummary(
 /** User intents. The ViewModel layer maps these to sync-engine commands. */
 sealed interface SubmitEvent {
     data object Submit : SubmitEvent
+    /** Operator answered the "are you sure" gate raised by [SubmitUiState.showSubmitConfirmation]. */
+    data object ConfirmSubmit : SubmitEvent
+    data object DismissSubmitConfirmation : SubmitEvent
     data object Retry : SubmitEvent
     /** Operator answered a boolean recording-form field (e.g. cold-chain verified). */
     data class FormToggle(val key: String, val checked: Boolean) : SubmitEvent
@@ -259,6 +269,18 @@ fun SubmitScreen(
     onEvent: (SubmitEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // Asked once, before the shed leaves the operator's hands. Rendered here rather than at the
+    // footer so it covers every path that raises it, and dismissing it changes nothing.
+    if (state.showSubmitConfirmation) {
+        SubmitConfirmGate(
+            title = stringResource(R.string.submit_confirm_title),
+            body = stringResource(R.string.submit_confirm_body),
+            cancelLabel = stringResource(R.string.submit_confirm_cancel),
+            confirmLabel = stringResource(R.string.submit_confirm_confirm),
+            onConfirm = { onEvent(SubmitEvent.ConfirmSubmit) },
+            onDismiss = { onEvent(SubmitEvent.DismissSubmitConfirmation) },
+        )
+    }
     val proofFields = state.formRunner?.fields.orEmpty().filter { it.kind == FieldKindUi.VIDEO_PROOF }
     val recordingFields = state.formRunner?.fields.orEmpty()
         .filterNot { it.kind == FieldKindUi.VIDEO_PROOF }
@@ -816,4 +838,43 @@ private fun SubmitScreenConflictPreview() {
             onEvent = {},
         )
     }
+}
+
+
+/**
+ * The "are you sure" gate before a shed is finalized.
+ *
+ * Deliberately plain: it collects no input, it just makes the operator pause. The confirm action
+ * sits on the right and the safe one on the left, matching the reject-with-reason dialog the
+ * verifier already uses, so the muscle memory is the same across the app.
+ *
+ * The copy tells the truth about who can undo it: the operator cannot reopen his own shed, but a
+ * manager or director can — saying "cannot be undone" would be a lie the first time leadership
+ * reopens one.
+ */
+@Composable
+private fun SubmitConfirmGate(
+    title: String,
+    body: String,
+    cancelLabel: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = T.surf2,
+        title = { Text(text = title, color = T.ink, style = MeshaType.cardTitle) },
+        text = { Text(text = body, color = T.muted, style = MeshaType.cardSubtitle) },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = cancelLabel, color = T.muted, style = MeshaType.button)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(text = confirmLabel, color = T.brand, style = MeshaType.button)
+            }
+        },
+    )
 }

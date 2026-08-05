@@ -76,6 +76,8 @@ class SubmitViewModelSubmitDeduplicationTest {
         scanSource = FakeScanSource(),
         proofCaptureSource = FakeProofCaptureSource(),
         bootstrapRepository = FakeCaptureBootstrapRepository(),
+        analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+        crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
         savedStateHandle = SavedStateHandle(
             buildMap {
                 put("taskId", taskId)
@@ -106,6 +108,8 @@ class SubmitViewModelSubmitDeduplicationTest {
 
         // First submit
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val firstEnqueueCount = sync.enqueueCalls.size
@@ -113,6 +117,8 @@ class SubmitViewModelSubmitDeduplicationTest {
 
         // Second rapid submit (should be ignored by the submitInFlight guard)
         viewModel.onEvent(SubmitEvent.Submit)
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         val secondEnqueueCount = sync.enqueueCalls.size
@@ -138,6 +144,10 @@ class SubmitViewModelSubmitDeduplicationTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         assertEquals(
@@ -166,6 +176,10 @@ class SubmitViewModelSubmitDeduplicationTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         // Simulate outbox item reaching SUCCEEDED state
@@ -199,6 +213,10 @@ class SubmitViewModelSubmitDeduplicationTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         // Simulate outbox item reaching CONFLICT state
@@ -232,6 +250,10 @@ class SubmitViewModelSubmitDeduplicationTest {
         advanceUntilIdle()
 
         viewModel.onEvent(SubmitEvent.Submit)
+
+        // Confirmation gate: answer it to reach the submit these assertions cover.
+
+        viewModel.onEvent(SubmitEvent.ConfirmSubmit)
         advanceUntilIdle()
 
         // Simulate outbox item reaching DEAD_LETTER state

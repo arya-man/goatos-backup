@@ -126,6 +126,14 @@ android {
             dimension = "env"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
+            // Test affordance ONLY. A tester holds a handful of physical RFID tags but has to
+            // exercise many sheds, so the same tag is re-read in every one of them. Weighing
+            // scopes its duplicate rule per shed on purpose, so those reads are all accepted --
+            // and downstream they look like ONE animal weighed repeatedly, which is what fed
+            // growth a 15 kg and an 11 kg reading of "the same goat" minutes apart. Namespacing
+            // the scan per shed in dev builds makes 5 tags behave like 5 distinct animals in
+            // each shed. It is a FLAVOUR field, so stg/prod cannot compile it in.
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "true")
             buildConfigField("String", "API_BASE_URL", "\"${devApiBaseUrl.replace("\"", "\\\"")}\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"http://localhost:3311/login\"")
             // Telemetry (docs/TELEMETRY.md): ON for dev. The dev Android client is registered in
@@ -147,6 +155,7 @@ android {
         }
         create("stg") {
             dimension = "env"
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             applicationIdSuffix = ".stg"
             versionNameSuffix = "-stg"
             signingConfig = signingConfigs.getByName("stgRelease")
@@ -171,6 +180,7 @@ android {
         }
         create("prod") {
             dimension = "env"
+            buildConfigField("boolean", "SCAN_SCOPE_PREFIX", "false")
             buildConfigField("String", "API_BASE_URL", "\"https://api.goatos.mesha.sg/\"")
             buildConfigField("String", "AUTH_ACTION_CONTINUE_URL", "\"https://dashboard.mesha.sg/login\"")
             // Telemetry (docs/TELEMETRY.md): OFF until prod's real Firebase project is confirmed

@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="scan_back_cd">వెనుక</string>
     <string name="scan_header_eyebrow">వ్యాక్సినేషన్</string>

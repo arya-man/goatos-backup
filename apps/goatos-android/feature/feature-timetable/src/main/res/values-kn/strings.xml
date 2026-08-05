@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="timetable_title">ವೇಳಾಪಟ್ಟಿ</string>
     <string name="timetable_subtitle">ಶಿಫ್ಟ್ ರೋಸ್ಟರ್ — ಯಾರು ಪ್ರತಿದಿನ ಕಾರ್ಯನಿರ್ವಹಣ ಮಾಡುತ್ತಾರೆ ಎಂಬುದರ ಆಪರೇಶನಲ್ ಮೂಲ।</string>

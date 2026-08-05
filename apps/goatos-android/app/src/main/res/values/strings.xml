@@ -41,8 +41,6 @@
     <string name="submit_shed_success_toast">Shed proof submitted for review</string>
     <string name="proof_camera_feed_transport_title">Feed transport video</string>
     <string name="proof_camera_feed_transport_instruction">Record the feed being transported to this shed in real time.</string>
-    <string name="weighing_assignment_summary_lumpsum">%1$d kids in scope · one shed video</string>
-    <string name="weighing_assignment_summary_individual">%1$d kids in scope · animal videos</string>
     <string name="weighing_action_view_result">View result →</string>
     <string name="weighing_action_record_shed">Record shed result →</string>
     <string name="bootstrap_error_auth_session_expired">Your session ended. Please sign in again to continue.</string>
@@ -50,4 +48,8 @@
     <string name="bootstrap_action_sign_in_again">Sign in again</string>
     <string name="bootstrap_action_retry">Retry</string>
     <string name="bootstrap_error_access_not_provisioned">Your access is not set up yet. Ask your manager to add you, then try again.</string>
+    <!-- Shown when an operator taps a shed whose work is already submitted (still awaiting
+         verification, or already accepted/closed): the shed stays visible until its drive
+         closes, but must not re-open the scan screen. See ShedRow.opensRecordOnly. -->
+    <string name="sheds_toast_already_submitted_fmt">%1$s is already submitted for verification</string>
 </resources>

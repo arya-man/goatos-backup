@@ -30,6 +30,13 @@ import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
 private val SERVER_DONE_ROSTER_STATUSES = setOf("done", "completed")
 
 /**
+ * Roster statuses that mean the server considers this animal OUTSTANDING, whatever local scan
+ * evidence exists. A sent-back animal WAS scanned -- that is why it has a capture and a
+ * scannedAt -- but the verifier refused its proof, so it is work again.
+ */
+private val SERVER_OUTSTANDING_ROSTER_STATUSES = setOf("rejected", "due", "pending")
+
+/**
  * Vaccination execution screen area: the execution row list, the per-shed
  * drilldown, and the per-animal scan roster. Offline-first
  * (docs/decisions/android-offline-first.md): Room is the UI's single source of truth.
@@ -371,12 +378,44 @@ class DefaultExecutionRepository(
             database.withTransaction {
                 scanRosterRowDao.deleteForScope(rowScope)
                 scanRosterRowDao.upsertAll(rows)
-                taskId?.takeIf { authoritativeForTask && it.isNotBlank() }?.let { id ->
-                    database.scannedGoatDao().pruneSyncedFieldToServerDone(
-                        taskId = id,
-                        fieldKey = ROSTER_SCAN_FIELD_KEY,
-                        serverDoneObligationIds = serverDoneObligationIds,
-                    )
+                // Cleanup stale scan records when proofs are rejected.
+                // When the server no longer reports an animal as done (vaccination_completions deleted),
+                // remove its SYNCED scan record so it doesn't persist as a false "scanned" marker.
+                //
+                // Which branch runs is decided from the ORIGINAL caller intent (the `taskId`
+                // function parameter), never from `fetchTaskId`/`authoritativeForTask` alone:
+                // - taskId != null AND authoritativeForTask: a genuine task-scoped roster fetch.
+                //   Safe to prune by task id against the server's per-task view.
+                // - taskId == null: a deliberate shed-wide roster fetch. The walk covers every
+                //   obligation in the shed, so pruning by obligation id is authoritative.
+                // - taskId != null AND NOT authoritativeForTask: the task-scoped endpoint 404'd
+                //   and we fell back to the shed-wide endpoint ONLY to have something to show.
+                //   That response was never requested as "the complete outstanding set" for this
+                //   task — deciding authority from the data shape (a full shed page) while keying
+                //   the delete on a different scope (obligation id, no task filter) is exactly the
+                //   bug this comment used to invite: it deletes another task's/animal's synced
+                //   evidence just because this task's endpoint was unavailable. Do nothing here;
+                //   the next successful task-scoped or shed-wide refresh will prune correctly.
+                when {
+                    !taskId.isNullOrBlank() && authoritativeForTask ->
+                        database.scannedGoatDao().pruneSyncedFieldToServerDone(
+                            taskId = taskId,
+                            fieldKey = ROSTER_SCAN_FIELD_KEY,
+                            serverDoneObligationIds = serverDoneObligationIds,
+                        )
+                    taskId.isNullOrBlank() ->
+                        database.scannedGoatDao().pruneSyncedByRejectedObligations(
+                            fieldKey = ROSTER_SCAN_FIELD_KEY,
+                            rejectedObligationIds = rows
+                                .mapNotNull { it.obligationId.takeIf { id -> id.isNotBlank() } }
+                                .distinct()
+                                .toMutableList()
+                                .apply {
+                                    // Keep obligations that are still done on the server
+                                    removeAll(serverDoneObligationIds.toSet())
+                                },
+                        )
+                    else -> Unit // task-scoped fallback to shed-wide: not authoritative, prune nothing
                 }
             }
         }
@@ -448,9 +487,16 @@ private fun sg.mesha.goatos.core.network.dto.ScanRosterRowDto.toRowEntity(
     updatedAt = now,
 )
 
-private fun ScanRosterRowEntity.isServerDone(): Boolean =
-    scannedAtMs != null ||
-        status.lowercase(Locale.US) in SERVER_DONE_ROSTER_STATUSES
+private fun ScanRosterRowEntity.isServerDone(): Boolean {
+    val serverStatus = status.lowercase(Locale.US)
+    // The STATUS decides, not the scan timestamp. A rejected animal keeps its scannedAt forever
+    // (it really was scanned), so treating any timestamp as "done" marked a sent-back animal as
+    // finished on the server, excluded it from the rejection prune, and left its local capture in
+    // place -- the operator saw a green tick and "Proof synced" on the very animal he was supposed
+    // to redo, and a re-scan was refused as "Already scanned".
+    if (serverStatus in SERVER_OUTSTANDING_ROSTER_STATUSES) return false
+    return scannedAtMs != null || serverStatus in SERVER_DONE_ROSTER_STATUSES
+}
 
 private fun humanizeVaccineLabel(raw: String): String {
     val trimmed = raw.trim()
@@ -484,7 +530,9 @@ private fun humanizeVaccineLabel(raw: String): String {
 
 private fun Throwable.isHttpNotFound(): Boolean =
     javaClass.name == "retrofit2.HttpException" &&
-        runCatching { javaClass.getMethod("code").invoke(this) as? Int }.getOrNull() == 404
+        runCatching { javaClass.getMethod("code").invoke(this) as? Int }
+            .onFailure { android.util.Log.d("ExecutionRepository", "isHttpNotFound: reflection failed", it) }
+            .getOrNull() == 404
 
 private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
     cacheKey(shedId, taskId ?: "shed-wide")
@@ -492,7 +540,9 @@ private fun scanRosterRowScopeKey(shedId: String, taskId: String?): String =
 internal fun canonicalRosterTag(tag: String): String = tag.filter(Char::isLetterOrDigit).lowercase()
 
 private fun parseServerInstantMs(raw: String): Long? =
-    runCatching { java.time.Instant.parse(raw).toEpochMilli() }.getOrNull()
+    runCatching { java.time.Instant.parse(raw).toEpochMilli() }
+        .onFailure { android.util.Log.d("ExecutionRepository", "parseServerInstantMs: parse failed for '$raw'", it) }
+        .getOrNull()
 
 class ScanRosterCursorException(message: String) : IllegalStateException(message)
 class ExecutionRowsCursorException(message: String) : IllegalStateException(message)

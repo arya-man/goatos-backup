@@ -1186,6 +1186,25 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         }
     }
 
+    /**
+     * Mirrors the DAO query exactly: SYNCED rows for the NAMED obligations only.
+     *
+     * A row with a null obligationId is deliberately left alone — it is a capture that was never
+     * linked to an obligation, not a rejected animal, and deleting it here would let this fake
+     * pass while the real query wiped other sheds' scan evidence.
+     */
+    override suspend fun deleteSyncedByRejectedObligations(
+        fieldKey: String,
+        rejectedObligationIds: List<String>,
+    ) {
+        rows.removeAll {
+            it.fieldKey == fieldKey &&
+                it.syncStatus == CaptureSyncStatus.SYNCED.name &&
+                it.obligationId != null &&
+                it.obligationId in rejectedObligationIds
+        }
+    }
+
     override suspend fun clearAll() {
         rows.clear()
     }

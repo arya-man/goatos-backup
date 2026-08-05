@@ -39,11 +39,20 @@ import java.time.ZoneId
  * instead of `dueDate.isBefore(today)`. Since Saturday == firstDay (yesterday), the
  * condition was false, and Saturday's rows fell through to the `else` branch.
  *
- * The fix: change the predicate to fold in-week overdue work:
- *   (dueDate.isBefore(workWindow.today) && row.hasOpenOrReviewWork())
+ * The fix: fold in ALL backlog work (open, review, or already completed) whose due date is
+ * on or before today:
+ *   !dueDate.isAfter(workWindow.today)
  *
- * This correctly shows overdue work with open/review status on today's list while keeping
- * completed rows on their original due date.
+ * Completed backlog rows now ALSO stay on today's list, not just their original due date --
+ * a maintainer-specified product decision (2026-08-05): a shed the operator finished must
+ * stay visible until its DRIVE closes, and the drive closing is exactly the moment the
+ * backend stops returning the row at all (it falls outside workWindow.asOf/dueBefore).
+ * As long as the API still sends it, the card stays. This superseded an earlier version of
+ * this same test file that asserted completed backlog rows should NOT appear on today --
+ * that assertion encoded the defect this rule now fixes (a completed shed silently
+ * vanishing from the operator's list mid-drive). See ShedsViewModelTest's
+ * "a completed backlog shed stays on today's list and is marked non-openable" for the
+ * pinning test on the fixed behaviour.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShedsOverdueWorkVisibilityTest {
@@ -84,6 +93,7 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -97,7 +107,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `completed work due yesterday stays on yesterday's tab`() = runTest(dispatcher) {
+    fun `completed work due yesterday also stays visible on today's tab until its drive closes`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val yesterday = today.minusDays(1).toString()
 
@@ -105,7 +115,8 @@ class ShedsOverdueWorkVisibilityTest {
             OverdueTestExecutionRepository(
                 VaccinationExecutionResponseDto(
                     rows = listOf(
-                        // Saturday work that is completed — should NOT appear on Sunday
+                        // Saturday work that is completed — the backend is still returning it
+                        // (its drive has not closed), so it must stay visible on Sunday too.
                         VaccinationExecutionRowDto(
                             shedId = "gandhi-2",
                             shedName = "Gandhi 2",
@@ -124,6 +135,7 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -131,7 +143,8 @@ class ShedsOverdueWorkVisibilityTest {
         advanceUntilIdle()
 
         val state = vm.state.value
-        assertEquals("completed work should not appear on today's list", 0, state.rows.size)
+        assertEquals("completed work must stay visible on today's list while its drive is active", 1, state.rows.size)
+        assertEquals("Gandhi 2", state.rows[0].name)
     }
 
     @Test
@@ -162,6 +175,7 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -213,6 +227,7 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -229,7 +244,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `mixing yesterday open and completed shows only open on today, all on yesterday`() = runTest(dispatcher) {
+    fun `mixing yesterday open and completed shows both on today, and both on yesterday`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val yesterday = today.minusDays(1).toString()
 
@@ -268,16 +283,18 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
         backgroundScope.launch { vm.state.collect {} }
         advanceUntilIdle()
 
-        // Verify today shows only the open work
+        // Verify today shows both the open AND the completed work from yesterday — the
+        // completed shed stays visible until its drive closes, not just on its own due date.
         val stateToday = vm.state.value
-        assertEquals("today should show only open work from yesterday", 1, stateToday.rows.size)
-        assertEquals("Gandhi 1", stateToday.rows[0].name)
+        assertEquals("today should show both open and completed work from yesterday", 2, stateToday.rows.size)
+        assertEquals(listOf("Gandhi 1", "Gandhi 2"), stateToday.rows.map { it.name })
 
         // Now select yesterday to verify both appear there
         vm.onEvent(sg.mesha.goatos.feature.sheds.ShedsEvent.SelectDay(yesterday))
@@ -289,7 +306,7 @@ class ShedsOverdueWorkVisibilityTest {
     }
 
     @Test
-    fun `deep backlog completed work stays off today`() = runTest(dispatcher) {
+    fun `deep backlog completed work stays visible on today while its drive is still active`() = runTest(dispatcher) {
         val today = LocalDate.now(ZoneId.of("Asia/Kolkata"))
         val deepBacklog = today.minusDays(7).toString()
 
@@ -297,7 +314,8 @@ class ShedsOverdueWorkVisibilityTest {
             OverdueTestExecutionRepository(
                 VaccinationExecutionResponseDto(
                     rows = listOf(
-                        // Deep backlog completed work — should NOT appear on today
+                        // Deep backlog completed work — the backend is still returning this row
+                        // (its drive has not closed), so the operator must still see it today.
                         VaccinationExecutionRowDto(
                             shedId = "godel-1",
                             shedName = "Godel 1",
@@ -316,6 +334,7 @@ class ShedsOverdueWorkVisibilityTest {
                 ),
             ),
             NoopCrashReporter(),
+            sg.mesha.goatos.core.analytics.NoopAnalytics(),
             OverdueFakeBootstrapRepository(),
             SavedStateHandle(),
         )
@@ -323,7 +342,8 @@ class ShedsOverdueWorkVisibilityTest {
         advanceUntilIdle()
 
         val state = vm.state.value
-        assertEquals("completed deep backlog should not appear on today", 0, state.rows.size)
+        assertEquals("completed deep backlog should stay visible while its drive is active", 1, state.rows.size)
+        assertEquals("Godel 1", state.rows[0].name)
     }
 }
 

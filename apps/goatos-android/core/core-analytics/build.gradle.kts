@@ -16,6 +16,9 @@ android {
 
 dependencies {
     implementation(project(":core:core-model"))
+    // DeadControlWatchdog (TelemetryWatchdog.kt) times out pending user intents — needs a
+    // CoroutineScope, not tied to any Android/vendor SDK, safe in this module.
+    implementation(libs.kotlinx.coroutines.core)
     // FirebasePerfNetworkTelemetryReporter implements core-network's NetworkTelemetryReporter
     // port (docs/TELEMETRY.md) — every Firebase-vendor adapter lives in this module.
     implementation(project(":core:core-network"))
@@ -34,4 +37,7 @@ dependencies {
     implementation(libs.firebase.perf)
 
     testImplementation(libs.junit)
+    // DeadControlWatchdog tests need virtual-time control (StandardTestDispatcher/advanceTimeBy)
+    // over its internal delay(timeoutMs) — no real sleeps in the suite.
+    testImplementation(libs.kotlinx.coroutines.test)
 }

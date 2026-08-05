@@ -1,6 +1,7 @@
 package sg.mesha.goatos.boot
 
 import android.content.Context
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -64,7 +65,8 @@ class SessionViewModelAnalyticsTest {
         var idToken: String? = null
         var email: String? = null
         var firebaseUid: String? = null
-        override suspend fun signInWithEmailPassword(email: String, password: String): Result<Unit> = Result.success(Unit)
+        var signInResult: Result<Unit> = Result.success(Unit)
+        override suspend fun signInWithEmailPassword(email: String, password: String): Result<Unit> = signInResult
         override suspend fun signInWithGoogle(activityContext: Context): Result<Unit> = Result.success(Unit)
         override suspend fun sendPasswordReset(email: String): Result<Unit> = Result.success(Unit)
         override suspend fun currentIdToken(forceRefresh: Boolean): String? = idToken
@@ -175,5 +177,46 @@ class SessionViewModelAnalyticsTest {
         assertEquals("manju@mesha.sg", success.props[AnalyticsEvents.Params.EMAIL])
         assertEquals("firebase-uid-123", success.props[AnalyticsEvents.Params.FIREBASE_UID])
         assertEquals("email user property stamped immediately after Firebase sign-in", "manju@mesha.sg", analytics.userProps[AnalyticsEvents.UserProps.EMAIL])
+    }
+
+    @Test
+    fun `email login failure records login_attempt then login_failure with a coarse reason, never the password`() = runTest {
+        assumeTrue("Firebase login telemetry is only active outside the dev-bearer flavor", BuildConfig.FLAVOR != "dev")
+        val analytics = RecordingAnalytics()
+        val store = FakeSessionStore().apply { tokenFlow.value = null }
+        val auth = FakeAuthRepository().apply {
+            signInResult = Result.failure(FirebaseAuthInvalidCredentialsException("ERROR_WRONG_PASSWORD", "password is invalid"))
+        }
+        val api = RecordingAppApi()
+        val deviceStore = FakeDeviceStore()
+        val vm = SessionViewModel(
+            store,
+            auth,
+            analytics,
+            buildLogoutCoordinator(api, deviceStore, store),
+            SyncJobsScheduler { },
+            api,
+            SessionRelauncher { },
+        )
+
+        vm.signInWithEmail("manju@mesha.sg", "hunter2")
+        advanceUntilIdle()
+
+        assertNull("a failed sign-in never opens a session", store.tokenFlow.value)
+        // LOGIN_ATTEMPT fires up front (before the outcome is known); the eventual failure is a
+        // SEPARATE event so a funnel can see both "tried" and "did not succeed" independently.
+        val attempt = analytics.events.single { it.name == AnalyticsEvents.LOGIN_ATTEMPT }
+        assertEquals("email", attempt.props[AnalyticsEvents.Params.METHOD])
+        val failure = analytics.events.single { it.name == AnalyticsEvents.LOGIN_FAILURE }
+        assertEquals("invalid_credentials", failure.props[AnalyticsEvents.Params.REASON])
+        // Never the raw password, and never a full provider error string as the reason.
+        assertTrue(
+            "no event param ever carries the password",
+            analytics.events.none { event -> event.props.values.any { it.contains("hunter2") } },
+        )
+        assertTrue(
+            "LOGIN_SUCCESS must not fire for a failed sign-in",
+            analytics.events.none { it.name == AnalyticsEvents.LOGIN_SUCCESS },
+        )
     }
 }

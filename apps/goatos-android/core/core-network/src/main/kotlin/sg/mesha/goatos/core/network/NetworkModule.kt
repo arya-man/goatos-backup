@@ -7,6 +7,7 @@ import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import okhttp3.ResponseBody
 import retrofit2.HttpException
 import retrofit2.Response as RetrofitResponse
 import retrofit2.Retrofit
@@ -20,6 +21,7 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.PUT
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 import sg.mesha.goatos.core.network.dto.CalendarEventListResponseDto
 import sg.mesha.goatos.core.network.dto.ControlTowerResponseDto
 import sg.mesha.goatos.core.network.dto.HealthCompleteRequestDto
@@ -276,6 +278,7 @@ interface AppApiService {
         @Query("period_start_date") periodStartDate: String,
         @Query("cursor") cursor: String?,
         @Query("limit") limit: Int,
+        @Query("exclude_campaign_id") excludeCampaignId: String? = null,
     ): WeighingPlannerParkBucketsResponseDto
 
     @POST("weighing/campaigns")
@@ -390,6 +393,15 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: WeighingScopeCloseRequestDto,
     )
+
+    // @Streaming: this is a FILE download (text/csv), not a JSON body -- without it Retrofit
+    // would buffer the whole response into memory before handing back the ResponseBody, which
+    // defeats the point of streaming the body straight through without a second in-memory copy.
+    // Path is the PLANNER route -- NOT under `/app` like the rest of this interface -- registered
+    // in backend/internal/permissions/routes.go as exportWeighingCampaignCSV.
+    @Streaming
+    @GET("weighing/campaigns/{campaign_id}/export")
+    suspend fun exportWeighingCampaignCsv(@Path("campaign_id") campaignId: String): ResponseBody
 
     @POST("admin/tasks/{task_id}/verify")
     suspend fun verifyAppTask(
@@ -753,6 +765,20 @@ interface AppApiService {
         @Header("Idempotency-Key") idempotencyKey: String,
         @Body request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto
+
+    @GET("app/weighing/weight-history")
+    suspend fun getWeightHistory(
+        @Query("park_id") parkId: String?,
+        @Query("campaign_shed_id") campaignShedId: String?,
+    ): WeightHistoryResponseDto
+
+    // park_id omitted = every park the caller may see.
+    @GET("app/weighing/leadership/growth")
+    suspend fun getWeighingGrowth(
+        @Query("park_id") parkId: String?,
+        @Query("from") from: String?,
+        @Query("to") to: String?,
+    ): GrowthSummaryDto
 }
 
 /** Adapts the Retrofit service to the [AppApi] port so callers stay Retrofit-agnostic.
@@ -892,8 +918,9 @@ class RetrofitAppApi(
         periodStartDate: String,
         cursor: String?,
         limit: Int,
+        excludeCampaignId: String?,
     ): WeighingPlannerParkBucketsResponseDto =
-        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit)
+        service.getWeighingPlannerParkBuckets(parkId, periodStartDate, cursor, limit, excludeCampaignId)
 
     override suspend fun createWeighingCampaign(
         idempotencyKey: String,
@@ -992,6 +1019,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: WeighingScopeCloseRequestDto,
     ) = service.closeWeighingCampaign(campaignId, idempotencyKey, request)
+
+    // .use { } closes the response body's underlying source once read, so the connection is
+    // released even if `.bytes()` throws -- same discipline as every other network read here,
+    // just with a raw byte body instead of a decoded DTO.
+    override suspend fun exportWeighingCampaignCsv(campaignId: String): ByteArray =
+        service.exportWeighingCampaignCsv(campaignId).use { it.bytes() }
 
     override suspend fun verifyAppTask(
         taskId: String,
@@ -1380,6 +1413,12 @@ class RetrofitAppApi(
         idempotencyKey: String,
         request: CountsApprovalDecisionRequestDto,
     ): CountsApprovalDecisionResponseDto = service.rejectCountsApproval(requestId, idempotencyKey, request)
+
+    override suspend fun getWeightHistory(parkId: String?, campaignShedId: String?): WeightHistoryResponseDto =
+        service.getWeightHistory(parkId, campaignShedId)
+
+    override suspend fun getWeighingGrowth(parkId: String?, from: String?, to: String?): GrowthSummaryDto =
+        service.getWeighingGrowth(parkId, from, to)
 }
 
 /**

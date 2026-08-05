@@ -196,6 +196,47 @@ class WeighingLeadershipCacheTest {
         assertEquals(76, second.totalCount)
     }
 
+    /**
+     * DEFECT (2026-08-04). Removing a shed from a campaign leaves its row behind with
+     * status="canceled" rather than deleting it -- it is dead weight the backend still reports in
+     * [WeighingCampaignShedPageResponseDto.totalCount]. The task-detail HEADER read this raw total
+     * as-is ("4 shed buckets"), while the task card and the close-task action line both derive from
+     * [WeighingTask.sheds], which already drops canceled rows ("3 shed buckets" / "3 not submitted").
+     * One screen must not carry two different bucket counts: the cache the header reads must drop
+     * canceled buckets the same way the task-record path already does.
+     */
+    @Test
+    fun `a canceled bucket does not count toward the task's whole-task total`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaignSheds(
+                campaignId: String,
+                cursor: String?,
+                limit: Int,
+            ) = WeighingCampaignShedPageResponseDto(
+                campaignId = campaignId,
+                items = listOf(
+                    bucket("bucket-1"),
+                    bucket("bucket-2"),
+                    bucket("bucket-3"),
+                    bucket("bucket-canceled").copy(status = "canceled"),
+                ),
+                nextCursor = null,
+                // The raw backend total still counts the canceled row -- 4, not 3.
+                totalCount = 4,
+            )
+        }
+        val repository = repository(api)
+        repository.refreshTaskBuckets("task-1")
+
+        val cached = repository.observeTaskBuckets("task-1").first()
+        // Card and action line agree on 3; the header-feeding cache must say the same.
+        assertEquals(3, cached.totalCount)
+        assertTrue(
+            "a canceled bucket must never render as a live shed row",
+            cached.items.none { it.campaignShedId == "bucket-canceled" },
+        )
+    }
+
     // --- L2 shed detail -----------------------------------------------------------------
 
     @Test

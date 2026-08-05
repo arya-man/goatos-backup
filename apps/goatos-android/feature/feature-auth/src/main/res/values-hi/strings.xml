@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <string name="login_brand_name">Mesha</string>
     <string name="login_tagline">फ़ील्ड ऑपरेशंस</string>

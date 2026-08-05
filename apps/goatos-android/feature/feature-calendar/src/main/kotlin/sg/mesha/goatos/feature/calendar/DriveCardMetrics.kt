@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.calendar
 
+// telemetry:exempt Pure utility functions (metrics/calculations); no UI or telemetry side effects
 // Pure, unit-tested metrics for the park-level vaccination drive card. Extracted from
 // CalendarScreen.kt so the coverage-percentage rounding and the drive-summary visibility
 // rules are testable on the JVM (DriveCardMetricsTest) and cannot silently regress (CDR-005).
@@ -84,4 +85,9 @@ internal fun driveStatusChips(summary: CalendarDriveSummary): List<StatusChip> =
         if (summary.dueCount > 0) StatusChip("due", summary.dueCount, "Due") else null,
         if (summary.overdueCount > 0) StatusChip("overdue", summary.overdueCount, "Overdue") else null,
         if (summary.deferredCount > 0) StatusChip("deferred", summary.deferredCount, "Deferred") else null,
+        // rejectedCount is a SUBSET already inside dueCount/overdueCount above (never additive to
+        // the total), shown as its own chip so a drop in the completed/progress ring reads as
+        // "N rejected — resubmit" instead of an unexplained mystery (maintainer-reported defect:
+        // ring dropped 10 -> 7 across three rejections with nothing on screen explaining why).
+        if (summary.rejectedCount > 0) StatusChip("rejected", summary.rejectedCount, "Rejected") else null,
     )

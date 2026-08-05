@@ -10,6 +10,9 @@
     <string name="weighing_category_lumpsum">ಒಟ್ಟು ತೂಕ</string>
     <string name="weighing_category_individual">ಪ್ರತ್ಯೇಕ</string>
     <string name="weighing_action_scan_animals">ಪ್ರಾಣಿಗಳನ್ನು ಸ್ಕ್ಯಾನ್ ಮಾಡಿ →</string>
+    <string name="weighing_assignment_summary_individual">ಮುಕ್ತ RFID, ತೂಕ ಮತ್ತು ವೀಡಿಯೊ ಸೆರೆ</string>
+    <string name="weighing_assignment_summary_lumpsum">ಶೆಡ್ ವೀಡಿಯೊ ಮತ್ತು ಒಟ್ಟು ತೂಕ</string>
+    <string name="weighing_action_record_lumpsum">ಶೆಡ್ ದಾಖಲಿಸಿ →</string>
     <string name="weighing_category_individual_title">ಪ್ರತ್ಯೇಕ</string>
     <string name="weighing_category_lump_sum_title">ಒಟ್ಟು ತೂಕ</string>
     <string name="weighing_status_scheduled">ನಿಗದಿತ</string>
@@ -35,7 +38,6 @@
     <string name="weighing_all_parks">ಎಲ್ಲಾ ಪಾರ್ಕ್‌ಗಳು</string>
     <string name="weighing_reopen">ಮತ್ತೆ ತೆರೆಯಿರಿ</string>
     <string name="weighing_pending_verification">ಪರಿಶೀಲನೆ ಬಾಕಿ</string>
-    <string name="weighing_assignment_summary">ಮುಕ್ತ RFID, ತೂಕ ಮತ್ತು ವೀಡಿಯೊ ಸೆರೆ</string>
     <string name="weighing_pull_to_refresh_hint">ನಾಯಕತ್ವ ವಾರದ ಯೋಜನೆ ಪ್ರಕಟಿಸಿದ ನಂತರ ಎಳೆದು ರಿಫ್ರೆಶ್ ಮಾಡಿ.</string>
     <string name="weighing_icon_kg">ಕೆಜಿ</string>
     <string name="weighing_icon_rfid">RFID</string>
@@ -156,6 +158,7 @@
     <string name="weighing_task_close_dismiss_label">ಈ ಕೆಲಸವನ್ನು ತೆರೆದೇ ಇಡಿ</string>
     <string name="weighing_task_fallback_title">ಕೆಲಸ</string>
     <string name="weighing_task_refresh">ಈ ಕೆಲಸವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="weighing_task_export_csv">ಈ ಕೆಲಸದ CSV ಎಕ್ಸ್‌ಪೋರ್ಟ್ ಮಾಡಿ</string>
     <string name="weighing_task_missing_title">ಈ ಕೆಲಸ ಇನ್ನು ಪಟ್ಟಿಯಲ್ಲಿಲ್ಲ</string>
     <string name="weighing_task_draft_banner">ಆಪರೇಟರ್‌ಗಳಿಗೆ ಇನ್ನೂ ಕಾಣಿಸುತ್ತಿಲ್ಲ</string>
     <string name="weighing_task_closed">ಮುಚ್ಚಲಾಗಿದೆ</string>
@@ -203,11 +206,12 @@
     <string name="weighing_wizard_save_draft">ಕರಡು ಉಳಿಸಿ</string>
     <string name="weighing_wizard_publish">ಪ್ರಕಟಿಸಿ</string>
     <string name="weighing_wizard_continue">ಮುಂದುವರಿಸಿ</string>
-    <string name="weighing_wizard_step_date">ಹಂತ 1 / 5 · ದಿನಾಂಕ</string>
-    <string name="weighing_wizard_step_park">ಹಂತ 2 / 5 · ಪಾರ್ಕ್</string>
-    <string name="weighing_wizard_step_buckets">ಹಂತ 3 / 5 · ಶೆಡ್ ಗುಂಪುಗಳು</string>
-    <string name="weighing_wizard_step_configure">ಹಂತ 4 / 5 · ಹೊಂದಿಸಿ</string>
-    <string name="weighing_wizard_step_review">ಹಂತ 5 / 5 · ಪರಿಶೀಲನೆ</string>
+    <string name="weighing_wizard_step_fmt">ಹಂತ %1$d / %2$d · %3$s</string>
+    <string name="weighing_wizard_step_name_date">ದಿನಾಂಕ</string>
+    <string name="weighing_wizard_step_name_park">ಪಾರ್ಕ್</string>
+    <string name="weighing_wizard_step_name_buckets">ಶೆಡ್ ಗುಂಪುಗಳು</string>
+    <string name="weighing_wizard_step_name_configure">ಹೊಂದಿಸಿ</string>
+    <string name="weighing_wizard_step_name_review">ಪರಿಶೀಲನೆ</string>
     <string name="weighing_wizard_title_date">ದಿನಾಂಕ ಆಯ್ಕೆ ಮಾಡಿ</string>
     <string name="weighing_wizard_title_park">ಪಾರ್ಕ್ ಆಯ್ಕೆ ಮಾಡಿ</string>
     <string name="weighing_wizard_title_buckets">ಶೆಡ್ ಗುಂಪುಗಳನ್ನು ಆಯ್ಕೆ ಮಾಡಿ</string>
@@ -349,4 +353,107 @@
     <string name="weighing_wizard_summary_modes_fmt">%1$d ಪ್ರತ್ಯೇಕ · %2$d ಒಟ್ಟುಗೂಡಿಸಿದ</string>
     <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
     <string name="weighing_wizard_add_remaining_fmt">ಉಳಿದ %1$d ಸೇರಿಸಿ</string>
+
+    <!-- Submit confirmation dialog -->
+    <string name="weighing_submit_confirm_title">ಈ ಶೆಡ್ ಸಲ್ಲಿಸಬೇಕೆ?</string>
+    <string name="weighing_submit_confirm_body">ಸಲ್ಲಿಸಿದ ನಂತರ, ಈ ಶೆಡ್ ಕೆಲಸ ವಿಡಿಯೋ ಪರೀಕ್ಷೆಗೆ ಹೋಗುತ್ತದೆ. ನೀವು ಅದನ್ನು ಮಾತ್ರೆ ತೆರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ — ನಿರ್ವಾಹಕ ಅಥವಾ ನಿರ್ದೇಶಕ ಮಾತ್ರ ಮಾಡಬಹುದು.</string>
+    <string name="weighing_submit_confirm_dismiss">ರದ್ದುಮಾಡಿ</string>
+    <string name="weighing_submit_confirm_action">ಸಲ್ಲಿಸಿ</string>
+
+    <!-- Vaccination submit confirmation dialog -->
+    <string name="vaccination_submit_confirm_title">ಈ ಶೆಡ್ ಅಂತಿಮಗೊಳಿಸಬೇಕೆ?</string>
+    <string name="vaccination_submit_confirm_body">ಅಂತಿಮಗೊಳಿಸಿದ ನಂತರ, ಈ ಶೆಡ್ ಕೆಲಸ ಲಾಕ್ ಆಗುತ್ತದೆ. ನೀವು ಅದನ್ನು ಮಾತ್ರೆ ತೆರೆಯಲು ಸಾಧ್ಯವಿಲ್ಲ — ನಿರ್ವಾಹಕ ಅಥವಾ ನಿರ್ದೇಶಕ ಮಾತ್ರ ಮಾಡಬಹುದು.</string>
+    <string name="vaccination_submit_confirm_dismiss">ರದ್ದುಮಾಡಿ</string>
+    <string name="vaccination_submit_confirm_action">ಅಂತಿಮಗೊಳಿಸಿ</string>
+
+    <!-- Weight history chart (leadership monitoring) -->
+    <string name="weighing_history_title">ತೂಕದ ಇತಿಹಾಸ</string>
+    <string name="weighing_history_refresh_cd">ತೂಕದ ಇತಿಹಾಸ ರಿಫ್ರೆಶ್ ಮಾಡಿ</string>
+    <string name="weighing_history_all_weights">ಎಲ್ಲಾ ತೂಕಗಳು</string>
+    <string name="weighing_history_all_sheds">ಎಲ್ಲಾ ಶೆಡ್‌ಗಳು</string>
+    <string name="weighing_history_kind_individual">ಪ್ರತ್ಯೇಕ</string>
+    <string name="weighing_history_kind_lump_sum">ಲಂಪ್‌ಸಮ್</string>
+    <string name="weighing_history_empty_no_data">ಇನ್ನೂ ಯಾವುದೇ ತೂಕ ದಾಖಲಾಗಿಲ್ಲ.</string>
+    <string name="weighing_history_empty_filtered">ಈ ಫಿಲ್ಟರ್‌ಗಳಿಗೆ ಯಾವುದೇ ತೂಕ ಹೊಂದಿಕೆಯಾಗುವುದಿಲ್ಲ.</string>
+    <string name="weighing_history_search_hint">ಟ್ಯಾಗ್ ಅಥವಾ ಶೆಡ್ ಹುಡುಕಿ</string>
+    <string name="weighing_history_picker_search">ಹುಡುಕಿ</string>
+    <string name="weighing_history_axis_individual">ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ತೂಕ (ಕೆಜಿ)</string>
+    <string name="weighing_history_axis_lump_sum">ಶೆಡ್‌ನ ಒಟ್ಟು ತೂಕ (ಕೆಜಿ)</string>
+    <string name="weighing_history_axis_mixed">ಪ್ರತ್ಯೇಕ ತೂಕಗಳು ಕೆಜಿಯಲ್ಲಿ; ಒಟ್ಟು ತೂಕ ಕಾರ್ಡ್‌ಗಳು ಶೆಡ್‌ನ ಒಟ್ಟು ತೋರಿಸುತ್ತವೆ</string>
+    <string name="weighing_history_truncation_both_fmt">ಇತ್ತೀಚಿನ ತೂಕಗಳನ್ನು ಮಾತ್ರ ತೋರಿಸಲಾಗುತ್ತಿದೆ, ಮತ್ತು ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ಇತ್ತೀಚಿನ %1$d ತೂಕದ ದಿನಗಳು.</string>
+    <string name="weighing_history_truncation_payload">ಇತ್ತೀಚಿನ ತೂಕಗಳನ್ನು ಮಾತ್ರ ತೋರಿಸಲಾಗುತ್ತಿದೆ.</string>
+    <string name="weighing_history_truncation_per_series_fmt">ಪ್ರತಿ ಪ್ರಾಣಿಗೆ ಇತ್ತೀಚಿನ %1$d ತೂಕದ ದಿನಗಳನ್ನು ತೋರಿಸಲಾಗುತ್ತಿದೆ.</string>
+    <string name="weighing_history_narrow_first_fmt">%1$d ಪ್ರಾಣಿಗಳು ಹೊಂದಿಕೆಯಾಗುತ್ತವೆ. ಅವುಗಳ ತೂಕ ನೋಡಲು ಶೆಡ್ ಆಯ್ಕೆಮಾಡಿ ಅಥವಾ ಟ್ಯಾಗ್ ಹುಡುಕಿ.</string>
+    <string name="weighing_history_park_selector_fmt">ಪಾರ್ಕ್: %1$s</string>
+    <string name="weighing_history_shed_selector_fmt">ಶೆಡ್: %1$s</string>
+    <string name="weighing_history_nothing_matches_fmt">\"%1$s\" ಗೆ ಏನೂ ಹೊಂದಿಕೆಯಾಗುವುದಿಲ್ಲ.</string>
+    <plurals name="weighing_history_animal_count">
+        <item quantity="one">%1$d ಪ್ರಾಣಿ</item>
+        <item quantity="other">%1$d ಪ್ರಾಣಿಗಳು</item>
+    </plurals>
+
+    <!-- Weighing export preview -->
+    <string name="weighing_export_preview_title">ರಫ್ತು ಪೂರ್ವವೀಕ್ಷಣೆ</string>
+    <string name="weighing_export_preview_share">ಹಂಚಿಕೊಳ್ಳಿ / CSV ರಫ್ತು ಮಾಡಿ</string>
+    <string name="weighing_export_preview_loading">ರಫ್ತು ಲೋಡ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="weighing_export_preview_retry">ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ</string>
+    <string name="weighing_export_preview_empty_title">ಪೂರ್ವವೀಕ್ಷಿಸಲು ಇನ್ನೂ ಏನೂ ಇಲ್ಲ</string>
+    <string name="weighing_export_preview_shed_fallback">ಶೆಡ್</string>
+    <string name="weighing_export_preview_not_weighed">ತೂಕ ಮಾಡಿಲ್ಲ</string>
+    <string name="weighing_export_preview_row_count_fmt">%2$d ಶೆಡ್‌ಗಳಲ್ಲಿ %1$d ಸಾಲುಗಳು</string>
+    <string name="weighing_export_preview_lump_sum">ಲಂಪ್‌ಸಮ್</string>
+    <string name="weighing_export_preview_unknown_identifier">ಅಜ್ಞಾತ</string>
+    <string name="weighing_export_col_type">ಪ್ರಕಾರ</string>
+    <string name="weighing_export_col_average_weight">ಸರಾಸರಿ ತೂಕ (ಕೆಜಿ)</string>
+    <string name="weighing_export_col_animal_count">ಪ್ರಾಣಿಗಳ ಸಂಖ್ಯೆ</string>
+    <string name="weighing_export_col_proof_type">ಪ್ರೂಫ್ ಉಲ್ಲೇಖ ಪ್ರಕಾರ</string>
+    <string name="weighing_export_col_proof_reference">ಪ್ರೂಫ್ ಉಲ್ಲೇಖ</string>
+    <string name="weighing_export_col_recorded_at">ದಾಖಲಿಸಿದ ಸಮಯ</string>
+    <string name="weighing_export_col_date_ist">ದಿನಾಂಕ (IST)</string>
+    <string name="weighing_export_col_time_ist">ಸಮಯ (IST)</string>
+    <string name="weighing_export_verification_accepted">ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_export_verification_pending">ಬಾಕಿ ಇದೆ</string>
+    <string name="weighing_export_verification_rejected">ತಿರಸ್ಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_growth_title">ಬೆಳವಣಿಗೆ</string>
+    <string name="weighing_growth_refresh_cd">ಬೆಳವಣಿಗೆ ರಿಫ್ರೆಶ್</string>
+    <string name="weighing_growth_unknown_value">—</string>
+    <string name="weighing_growth_tile_herd">ಹಿಂಡಿನ ಬೆಳವಣಿಗೆ</string>
+    <string name="weighing_growth_tile_gaining">ಹೆಚ್ಚುತ್ತಿವೆ</string>
+    <string name="weighing_growth_tile_measured">ಅಳೆದವು</string>
+    <string name="weighing_growth_tile_losing">ತೂಕ ಕಳೆದುಕೊಳ್ಳುತ್ತಿವೆ</string>
+    <string name="weighing_growth_no_previous">ಹೋಲಿಸಲು ಹಿಂದಿನ ಅವಧಿ ಇಲ್ಲ</string>
+    <string name="weighing_growth_of_measurable">ಬೆಳವಣಿಗೆ ಇರುವ ಪ್ರಾಣಿಗಳಲ್ಲಿ</string>
+    <string name="weighing_growth_needs_two">ಬೆಳವಣಿಗೆಗೆ 2 ತೂಕ ಬೇಕು</string>
+    <string name="weighing_growth_losing_meta">ನೋಡಲು ಟ್ಯಾಪ್ ಮಾಡಿ</string>
+    <string name="weighing_growth_sheds_title">ಶೆಡ್‌ಗಳು — ಉತ್ತಮದಿಂದ ಕಡಿಮೆಗೆ</string>
+    <string name="weighing_growth_trend_title">ಬೆಳವಣಿಗೆ ಪ್ರವೃತ್ತಿ</string>
+    <string name="weighing_growth_trend_caption">ಗ್ರಾಂ/ದಿನ · ತೂಕ ಮಾಡಿದ ದಿನಗಳು ಮಾತ್ರ</string>
+    <string name="weighing_growth_shed_meta">%1$d ಪ್ರಾಣಿಗಳು</string>
+    <string name="weighing_growth_empty">ಇನ್ನೂ ಬೆಳವಣಿಗೆ ಇಲ್ಲ. ಬೆಳವಣಿಗೆ ತಿಳಿಯಲು ಪ್ರಾಣಿಯನ್ನು ಎರಡು ಬಾರಿ ತೂಕ ಮಾಡಬೇಕು.</string>
+    <plurals name="weighing_growth_quality_unverified">
+        <item quantity="one">%1$d ಓದು ಇನ್ನೂ ಪರಿಶೀಲಿಸಿಲ್ಲ.</item>
+        <item quantity="other">%1$d ಓದುಗಳು ಇನ್ನೂ ಪರಿಶೀಲಿಸಿಲ್ಲ.</item>
+    </plurals>
+    <plurals name="weighing_growth_quality_rejected">
+        <item quantity="one">%1$d ಓದನ್ನು ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ.</item>
+        <item quantity="other">%1$d ಓದುಗಳನ್ನು ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ.</item>
+    </plurals>
+    <string name="weighing_growth_scope_all">ಎಲ್ಲಾ ಪಾರ್ಕ್‌ಗಳು</string>
+    <string name="weighing_growth_park_selector">ಪಾರ್ಕ್: %1$s</string>
+    <string name="weighing_growth_lumpsum_title">ಲಂಪ್‌ಸಮ್ ಶೆಡ್‌ಗಳು</string>
+    <string name="weighing_growth_lumpsum_caption">ಒಂದೇ ಗುಂಪಾಗಿ ತೂಕ — ಇವುಗಳಿಂದ ಪ್ರತಿ ಪ್ರಾಣಿಯ ಬೆಳವಣಿಗೆ ಸಿಗದು.</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d ಪ್ರಾಣಿಗಳು · %2$s</string>
+    <string name="weighing_growth_lumpsum_avg">%1$.1f ಕೆಜಿ ಸರಾಸರಿ</string>
+    <string name="weighing_growth_needs_two_with_lumpsum">ಬೆಳವಣಿಗೆಗೆ 2 ತೂಕ · %1$d ಹೆಚ್ಚು ಲಂಪ್‌ಸಮ್‌ನಲ್ಲಿ</string>
+    <string name="weighing_export_preview_search_hint">ಶೆಡ್‌ಗಳನ್ನು ಹುಡುಕಿ</string>
+    <string name="weighing_export_preview_no_matches">ನಿಮ್ಮ ಹುಡುಕಾಟಕ್ಕೆ ಯಾವ ಶೆಡ್ ಹೊಂದಿಕೆಯಾಗಿಲ್ಲ</string>
+    <string name="weighing_export_preview_refreshing">ರಿಫ್ರೆಶ್ ಆಗುತ್ತಿದೆ…</string>
+    <string name="weighing_export_preview_weighed_count_fmt">%1$d ತೂಕ ಮಾಡಲಾಗಿದೆ</string>
+    <string name="weighing_export_preview_lump_sum_count_fmt">%1$d ಪ್ರಾಣಿಗಳು</string>
+    <string name="weighing_export_preview_shed_summary_fmt">%1$.1f ಕೆಜಿ ಒಟ್ಟು · %2$.1f ಕೆಜಿ ಸರಾಸರಿ</string>
+    <string name="weighing_history_point_sent_back">%1$s, %2$s ಕೆಜಿ, ಹಿಂತಿರುಗಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_history_point_awaiting">%1$s, %2$s ಕೆಜಿ, ಇನ್ನೂ ಪರಿಶೀಲಿಸಿಲ್ಲ</string>
+    <string name="weighing_history_point_accepted">%1$s, %2$s ಕೆಜಿ, ಸ್ವೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="weighing_growth_losing_title">ತೂಕ ಕಳೆದುಕೊಳ್ಳುತ್ತಿವೆ</string>
+    <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f ಕೆಜಿ</string>
 </resources>

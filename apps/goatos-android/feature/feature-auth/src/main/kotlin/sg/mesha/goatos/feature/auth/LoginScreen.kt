@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.auth
 
+// telemetry: analytics tracked in boot/SessionViewModel.kt (LOGIN_ATTEMPT, LOGIN_SUCCESS, LOGIN_FAILURE)
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -84,6 +85,10 @@ fun LoginScreen(
     errorReason: LoginError? = null,
     errorDetail: String? = null,
     resetEmailSent: String? = null,
+    // telemetry: forwarded to PermissionGateCard, which owns no analytics client itself (no
+    // Hilt in this module) — MainActivity wires these to the injected AnalyticsPort.
+    onPermissionGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -99,6 +104,8 @@ fun LoginScreen(
         isLoading = isLoading,
         errorText = resolveErrorText(errorReason, errorDetail),
         resetEmailSent = resetEmailSent,
+        onPermissionGateShown = onPermissionGateShown,
+        onPermissionAnswered = onPermissionAnswered,
         modifier = modifier,
     )
 }
@@ -134,6 +141,8 @@ private fun LoginContent(
     isLoading: Boolean = false,
     errorText: String? = null,
     resetEmailSent: String? = null,
+    onPermissionGateShown: (missingPermissions: List<String>) -> Unit = {},
+    onPermissionAnswered: (permission: String, granted: Boolean) -> Unit = { _, _ -> },
 ) {
     val canSignIn = isValidEmail(email) && password.isNotBlank() && !isLoading
     val currentTag = LocalAppLanguage.current
@@ -215,6 +224,14 @@ private fun LoginContent(
             Spacer(Modifier.height(MeshaDimens.space3))
             Centered(stringResource(R.string.login_use_email_password))
         }
+
+        // Optional login-time device-permission readiness card (camera/BLE/notifications) —
+        // renders nothing once every OS-required permission is already granted.
+        Spacer(Modifier.height(MeshaDimens.space6))
+        PermissionGateCard(
+            onGateShown = onPermissionGateShown,
+            onPermissionAnswered = onPermissionAnswered,
+        )
 
         Spacer(Modifier.height(MeshaDimens.space6))
         FieldLabel(stringResource(R.string.login_app_language))

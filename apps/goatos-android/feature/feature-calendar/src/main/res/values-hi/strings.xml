@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Screen chrome -->
     <string name="calendar_eyebrow">टीकाकरण</string>
@@ -62,4 +65,5 @@
     <string name="calendar_drive_due">%1$d देय</string>
     <string name="calendar_drive_overdue">%1$d अतिदेय</string>
     <string name="calendar_drive_deferred">%1$d टाला गया</string>
+    <string name="calendar_drive_rejected">%1$d अस्वीकृत</string>
 </resources>

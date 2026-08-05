@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.auth.AuthRepository
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsSession
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.data.LogoutCoordinator
 import sg.mesha.goatos.core.data.sync.SyncJobsScheduler
@@ -126,6 +127,13 @@ class SessionViewModel @Inject constructor(
                 // Do not let bootstrap/network requests race ahead with the previous APK's
                 // persisted principal. A blank baked token deliberately leaves the login gate.
                 devSessionReady.value = true
+                // A non-blank token surviving this process's cold start (whether it was already
+                // there or just replaced above) opened the session WITHOUT a fresh sign-in
+                // attempt this run — the token-restore path, distinct from LOGIN_SUCCESS which
+                // only ever follows an explicit signIn* call.
+                if (!sessionStore.currentToken().isNullOrBlank()) {
+                    analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
+                }
             }
         } else {
             viewModelScope.launch {
@@ -133,6 +141,10 @@ class SessionViewModel @Inject constructor(
                 if (!persisted.isNullOrBlank() && persisted != FIREBASE_SESSION_MARKER) {
                     logWarning("Clearing stale non-Firebase session marker for flavor=${BuildConfig.FLAVOR}")
                     logoutCoordinator.logout(signOutVendorAuth = authRepository::signOut)
+                } else if (persisted == FIREBASE_SESSION_MARKER) {
+                    // A still-valid Firebase-session marker from a previous run: the session
+                    // gate opens on this cached marker, not a fresh sign-in this process.
+                    analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
                 }
             }
         }

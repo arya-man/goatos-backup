@@ -62,13 +62,17 @@ class DefaultBootstrapRepository(
     override suspend fun operatorProfile(): BootstrapOperatorProfileDto? =
         (
             cache?.load()
-                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }
+                    .onFailure { android.util.Log.e("DefaultBootstrapRepository", "fetch bootstrap for operatorProfile failed", it) }
+                    .getOrNull()
         )?.operatorProfile
 
     override suspend fun actorTenantId(): String? =
         (
             cache?.load()
-                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }.getOrNull()
+                ?: runCatching { api.bootstrap(deviceStore?.deviceId()).also { cache?.save(it) } }
+                    .onFailure { android.util.Log.e("DefaultBootstrapRepository", "fetch bootstrap for actorTenantId failed", it) }
+                    .getOrNull()
         )?.actor?.tenantId?.ifBlank { null }
 
     /** Remember a known device id, or register this install when the backend needs it. */

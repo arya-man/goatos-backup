@@ -10,6 +10,9 @@
     <string name="weighing_category_lumpsum">कुल वज़न</string>
     <string name="weighing_category_individual">व्यक्तिगत</string>
     <string name="weighing_action_scan_animals">पशु स्कैन करें →</string>
+    <string name="weighing_assignment_summary_individual">मुक्त RFID, वज़न और वीडियो कैप्चर</string>
+    <string name="weighing_assignment_summary_lumpsum">शेड वीडियो और कुल वज़न</string>
+    <string name="weighing_action_record_lumpsum">शेड दर्ज करें →</string>
     <string name="weighing_category_individual_title">व्यक्तिगत</string>
     <string name="weighing_category_lump_sum_title">कुल वज़न</string>
     <string name="weighing_status_scheduled">निर्धारित</string>
@@ -35,7 +38,6 @@
     <string name="weighing_all_parks">सभी पार्क</string>
     <string name="weighing_reopen">फिर खोलें</string>
     <string name="weighing_pending_verification">जाँच बाकी है</string>
-    <string name="weighing_assignment_summary">मुक्त RFID, वज़न और वीडियो कैप्चर</string>
     <string name="weighing_pull_to_refresh_hint">नेतृत्व द्वारा साप्ताहिक योजना प्रकाशित करने के बाद खींचकर रीफ़्रेश करें।</string>
     <string name="weighing_icon_kg">किग्रा</string>
     <string name="weighing_icon_rfid">RFID</string>
@@ -156,6 +158,7 @@
     <string name="weighing_task_close_dismiss_label">इस काम को खुला रखें</string>
     <string name="weighing_task_fallback_title">काम</string>
     <string name="weighing_task_refresh">यह काम रीफ़्रेश करें</string>
+    <string name="weighing_task_export_csv">इस कार्य का CSV निर्यात करें</string>
     <string name="weighing_task_missing_title">यह काम अब सूची में नहीं है</string>
     <string name="weighing_task_draft_banner">ऑपरेटरों को अभी नहीं दिख रहा</string>
     <string name="weighing_task_closed">बंद</string>
@@ -203,11 +206,12 @@
     <string name="weighing_wizard_save_draft">मसौदा सहेजें</string>
     <string name="weighing_wizard_publish">प्रकाशित करें</string>
     <string name="weighing_wizard_continue">आगे बढ़ें</string>
-    <string name="weighing_wizard_step_date">चरण 1 / 5 · तारीख़</string>
-    <string name="weighing_wizard_step_park">चरण 2 / 5 · पार्क</string>
-    <string name="weighing_wizard_step_buckets">चरण 3 / 5 · शेड समूह</string>
-    <string name="weighing_wizard_step_configure">चरण 4 / 5 · सेट करें</string>
-    <string name="weighing_wizard_step_review">चरण 5 / 5 · समीक्षा</string>
+    <string name="weighing_wizard_step_fmt">चरण %1$d / %2$d · %3$s</string>
+    <string name="weighing_wizard_step_name_date">तारीख़</string>
+    <string name="weighing_wizard_step_name_park">पार्क</string>
+    <string name="weighing_wizard_step_name_buckets">शेड समूह</string>
+    <string name="weighing_wizard_step_name_configure">सेट करें</string>
+    <string name="weighing_wizard_step_name_review">समीक्षा</string>
     <string name="weighing_wizard_title_date">तारीख़ चुनें</string>
     <string name="weighing_wizard_title_park">पार्क चुनें</string>
     <string name="weighing_wizard_title_buckets">शेड समूह चुनें</string>
@@ -349,4 +353,107 @@
     <string name="weighing_wizard_summary_modes_fmt">%1$d अलग-अलग · %2$d सामूहिक</string>
     <string name="weighing_wizard_summary_operator_fmt">%1$s · %2$s</string>
     <string name="weighing_wizard_add_remaining_fmt">बाकी %1$d जोड़ें</string>
+
+    <!-- Submit confirmation dialog -->
+    <string name="weighing_submit_confirm_title">क्या यह शेड भेजें?</string>
+    <string name="weighing_submit_confirm_body">एक बार भेजने के बाद, यह शेड का काम वीडियो जाँच के लिए जाता है। आप इसे फिर से नहीं खोल सकते — केवल एक प्रबंधक या निदेशक ही कर सकते हैं।</string>
+    <string name="weighing_submit_confirm_dismiss">रद्द करें</string>
+    <string name="weighing_submit_confirm_action">भेजें</string>
+
+    <!-- Vaccination submit confirmation dialog -->
+    <string name="vaccination_submit_confirm_title">क्या यह शेड अंतिम करें?</string>
+    <string name="vaccination_submit_confirm_body">एक बार अंतिम करने के बाद, यह शेड का काम लॉक हो जाता है। आप इसे फिर से नहीं खोल सकते — केवल एक प्रबंधक या निदेशक ही कर सकते हैं।</string>
+    <string name="vaccination_submit_confirm_dismiss">रद्द करें</string>
+    <string name="vaccination_submit_confirm_action">अंतिम करें</string>
+
+    <!-- Weight history chart (leadership monitoring) -->
+    <string name="weighing_history_title">वज़न का इतिहास</string>
+    <string name="weighing_history_refresh_cd">वज़न का इतिहास ताज़ा करें</string>
+    <string name="weighing_history_all_weights">सभी वज़न</string>
+    <string name="weighing_history_all_sheds">सभी शेड</string>
+    <string name="weighing_history_kind_individual">व्यक्तिगत</string>
+    <string name="weighing_history_kind_lump_sum">लंपसम</string>
+    <string name="weighing_history_empty_no_data">अभी तक कोई वज़न दर्ज नहीं किया गया।</string>
+    <string name="weighing_history_empty_filtered">इन फ़िल्टर से कोई वज़न मेल नहीं खाता।</string>
+    <string name="weighing_history_search_hint">टैग या शेड खोजें</string>
+    <string name="weighing_history_picker_search">खोजें</string>
+    <string name="weighing_history_axis_individual">प्रति पशु वज़न (किग्रा)</string>
+    <string name="weighing_history_axis_lump_sum">शेड का कुल वज़न (किग्रा)</string>
+    <string name="weighing_history_axis_mixed">व्यक्तिगत वज़न किग्रा में; कुल वज़न कार्ड शेड का कुल दिखाते हैं</string>
+    <string name="weighing_history_truncation_both_fmt">केवल हाल के वज़न दिखाए जा रहे हैं, और प्रति पशु अंतिम %1$d वज़न दिन।</string>
+    <string name="weighing_history_truncation_payload">केवल हाल के वज़न दिखाए जा रहे हैं।</string>
+    <string name="weighing_history_truncation_per_series_fmt">प्रति पशु अंतिम %1$d वज़न दिन दिखाए जा रहे हैं।</string>
+    <string name="weighing_history_narrow_first_fmt">%1$d पशु मेल खाते हैं। उनके वज़न देखने के लिए एक शेड चुनें या टैग खोजें।</string>
+    <string name="weighing_history_park_selector_fmt">पार्क: %1$s</string>
+    <string name="weighing_history_shed_selector_fmt">शेड: %1$s</string>
+    <string name="weighing_history_nothing_matches_fmt">\"%1$s\" से कुछ मेल नहीं खाता।</string>
+    <plurals name="weighing_history_animal_count">
+        <item quantity="one">%1$d पशु</item>
+        <item quantity="other">%1$d पशु</item>
+    </plurals>
+
+    <!-- Weighing export preview -->
+    <string name="weighing_export_preview_title">निर्यात पूर्वावलोकन</string>
+    <string name="weighing_export_preview_share">साझा करें / CSV निर्यात करें</string>
+    <string name="weighing_export_preview_loading">निर्यात लोड हो रहा है…</string>
+    <string name="weighing_export_preview_retry">फिर से प्रयास करें</string>
+    <string name="weighing_export_preview_empty_title">अभी पूर्वावलोकन के लिए कुछ नहीं</string>
+    <string name="weighing_export_preview_shed_fallback">शेड</string>
+    <string name="weighing_export_preview_not_weighed">वज़न नहीं किया गया</string>
+    <string name="weighing_export_preview_row_count_fmt">%2$d शेड में %1$d पंक्तियाँ</string>
+    <string name="weighing_export_preview_lump_sum">लंपसम</string>
+    <string name="weighing_export_preview_unknown_identifier">अज्ञात</string>
+    <string name="weighing_export_col_type">प्रकार</string>
+    <string name="weighing_export_col_average_weight">औसत वज़न (किग्रा)</string>
+    <string name="weighing_export_col_animal_count">पशु गिनती</string>
+    <string name="weighing_export_col_proof_type">प्रूफ़ संदर्भ प्रकार</string>
+    <string name="weighing_export_col_proof_reference">प्रूफ़ संदर्भ</string>
+    <string name="weighing_export_col_recorded_at">दर्ज किया गया</string>
+    <string name="weighing_export_col_date_ist">तारीख़ (IST)</string>
+    <string name="weighing_export_col_time_ist">समय (IST)</string>
+    <string name="weighing_export_verification_accepted">स्वीकृत</string>
+    <string name="weighing_export_verification_pending">लंबित</string>
+    <string name="weighing_export_verification_rejected">अस्वीकृत</string>
+    <string name="weighing_growth_title">वृद्धि</string>
+    <string name="weighing_growth_refresh_cd">वृद्धि ताज़ा करें</string>
+    <string name="weighing_growth_unknown_value">—</string>
+    <string name="weighing_growth_tile_herd">झुंड वृद्धि</string>
+    <string name="weighing_growth_tile_gaining">बढ़ रहे</string>
+    <string name="weighing_growth_tile_measured">मापे गए</string>
+    <string name="weighing_growth_tile_losing">वज़न घट रहा</string>
+    <string name="weighing_growth_no_previous">तुलना के लिए पिछली अवधि नहीं</string>
+    <string name="weighing_growth_of_measurable">वृद्धि वाले पशुओं में से</string>
+    <string name="weighing_growth_needs_two">वृद्धि हेतु 2 बार वज़न</string>
+    <string name="weighing_growth_losing_meta">देखने के लिए टैप करें</string>
+    <string name="weighing_growth_sheds_title">शेड — सर्वोत्तम से न्यूनतम</string>
+    <string name="weighing_growth_trend_title">वृद्धि रुझान</string>
+    <string name="weighing_growth_trend_caption">ग्राम/दिन · केवल उन दिनों का जब वज़न हुआ</string>
+    <string name="weighing_growth_shed_meta">%1$d पशु</string>
+    <string name="weighing_growth_empty">अभी वृद्धि नहीं। वृद्धि जानने के लिए पशु का वज़न दो बार होना ज़रूरी है।</string>
+    <plurals name="weighing_growth_quality_unverified">
+        <item quantity="one">%1$d रीडिंग अभी जाँची नहीं गई।</item>
+        <item quantity="other">%1$d रीडिंग अभी जाँची नहीं गईं।</item>
+    </plurals>
+    <plurals name="weighing_growth_quality_rejected">
+        <item quantity="one">%1$d रीडिंग वापस भेजी गई।</item>
+        <item quantity="other">%1$d रीडिंग वापस भेजी गईं।</item>
+    </plurals>
+    <string name="weighing_growth_scope_all">सभी पार्क</string>
+    <string name="weighing_growth_park_selector">पार्क: %1$s</string>
+    <string name="weighing_growth_lumpsum_title">लंपसम शेड</string>
+    <string name="weighing_growth_lumpsum_caption">एक समूह में तौला गया — इनसे प्रति पशु वृद्धि नहीं निकलती।</string>
+    <string name="weighing_growth_lumpsum_meta">%1$d पशु · %2$s</string>
+    <string name="weighing_growth_lumpsum_avg">%1$.1f किग्रा औसत</string>
+    <string name="weighing_growth_needs_two_with_lumpsum">वृद्धि हेतु 2 बार वज़न · %1$d और लंपसम में तौले गए</string>
+    <string name="weighing_export_preview_search_hint">शेड खोजें</string>
+    <string name="weighing_export_preview_no_matches">आपकी खोज से कोई शेड मेल नहीं खाता</string>
+    <string name="weighing_export_preview_refreshing">ताज़ा हो रहा है…</string>
+    <string name="weighing_export_preview_weighed_count_fmt">%1$d तौले गए</string>
+    <string name="weighing_export_preview_lump_sum_count_fmt">%1$d पशु</string>
+    <string name="weighing_export_preview_shed_summary_fmt">%1$.1f किग्रा कुल · %2$.1f किग्रा औसत</string>
+    <string name="weighing_history_point_sent_back">%1$s, %2$s किग्रा, वापस भेजा गया</string>
+    <string name="weighing_history_point_awaiting">%1$s, %2$s किग्रा, अभी जाँचा नहीं</string>
+    <string name="weighing_history_point_accepted">%1$s, %2$s किग्रा, स्वीकृत</string>
+    <string name="weighing_growth_losing_title">वज़न घट रहा</string>
+    <string name="weighing_growth_losing_meta_fmt">%1$s · %2$.1f → %3$.1f किग्रा</string>
 </resources>

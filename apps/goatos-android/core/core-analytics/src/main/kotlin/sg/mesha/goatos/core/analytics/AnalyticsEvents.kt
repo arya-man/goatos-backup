@@ -12,7 +12,10 @@ object AnalyticsEvents {
     const val APP_OPEN = "app_open"
 
     /** A new logical session began (emitted alongside [APP_OPEN] on launch). */
-    const val SESSION_START = "session_start"
+    // NOT "session_start": that name is RESERVED by Firebase, which rejects it outright --
+    // "Invalid public event name. Event will not be logged (FE): session_start". The app looked
+    // instrumented and the very first event of every journey was being dropped on the floor.
+    const val SESSION_START = "app_session_start"
 
     /** Backend-driven bootstrap resolved; carries the [Params.CHROME] the shell will render. */
     const val BOOTSTRAP_LOADED = "bootstrap_loaded"
@@ -49,6 +52,30 @@ object AnalyticsEvents {
 
     /** A read-only vaccination shed record was opened. */
     const val VACCINATION_RECORD_OPENED = "vaccination_record_opened"
+
+    /**
+     * A tap on a shed card was blocked before it could open the scan/execute or record screen.
+     * [Params.REASON] is one of `permission_denied`, `not_assigned`, `scheduled_later`,
+     * `already_submitted`, `read_only_oversight`. Previously every one of these gates only ever
+     * showed a Toast — the operator saw a dead end and nothing recorded which gate it was.
+     */
+    const val VACCINATION_OPEN_BLOCKED = "vaccination_open_blocked"
+
+    /**
+     * The sheds work list rendered with zero rows for an operator/viewer who is past the initial
+     * loading state and not offline — a genuinely empty roster, not a load-in-progress or
+     * connectivity gap. [Params.KIND] distinguishes the `/vaccination` route from the
+     * `/calendar/drive`-hosted one. Previously this silently rendered an empty-state card with no
+     * telemetry at all, indistinguishable from "operator never opened the screen".
+     */
+    const val SHEDS_EMPTY_ROSTER = "sheds_empty_roster"
+
+    /**
+     * A submit attempt was rejected by the client-side readiness gate before anything was
+     * enqueued — the exact moment the operator sees a disabled Submit button and nothing else.
+     * [Params.REASON] carries the coarse blocking cause (form field / proof requirement).
+     */
+    const val SUBMIT_BLOCKED = "submit_blocked"
 
     /**
      * The operator switched to a different module from the nav drawer; [Params.MODULE_KEY]
@@ -155,8 +182,84 @@ object AnalyticsEvents {
      *  non-fatal — this is the state that silently disables Submit. */
     const val WEIGHING_PROOF_UPLOAD_FAILED = "weighing_proof_upload_failed"
 
+    /** Leadership opened the weighing plan wizard to create or edit a weighing task. */
+    const val WEIGHING_PLAN_VIEWED = "weighing_plan_viewed"
+
+    /** Leadership attempted to save a weighing plan (before outbox enqueue). */
+    const val WEIGHING_PLAN_SAVE_ATTEMPTED = "weighing_plan_save_attempted"
+
+    /** A weighing plan was durably queued to save. */
+    const val WEIGHING_PLAN_SAVE_SUCCEEDED = "weighing_plan_save_succeeded"
+
+    /** A weighing plan save could not be queued or enqueue failed. */
+    const val WEIGHING_PLAN_SAVE_FAILED = "weighing_plan_save_failed"
+
+    /** Leadership opened the weighing alerts history screen. */
+    const val WEIGHING_ALERTS_VIEWED = "weighing_alerts_viewed"
+
+    /** Leadership attempted to refresh the weighing alerts. */
+    const val WEIGHING_ALERTS_REFRESH_ATTEMPTED = "weighing_alerts_refresh_attempted"
+
+    /** Weighing alerts refresh succeeded. */
+    const val WEIGHING_ALERTS_REFRESH_SUCCEEDED = "weighing_alerts_refresh_succeeded"
+
+    /** Weighing alerts refresh failed. */
+    const val WEIGHING_ALERTS_REFRESH_FAILED = "weighing_alerts_refresh_failed"
+
+    /** Leadership opened a weighing shed detail screen. */
+    const val WEIGHING_SHED_DETAIL_VIEWED = "weighing_shed_detail_viewed"
+
+    /** A weighing shed detail load failed to refresh. */
+    const val WEIGHING_SHED_DETAIL_LOAD_FAILED = "weighing_shed_detail_load_failed"
+
+    /** Leadership attempted to reopen a weighing shed. */
+    const val WEIGHING_SHED_DETAIL_REOPEN_ATTEMPTED = "weighing_shed_detail_reopen_attempted"
+
+    /** A weighing shed reopen was durably queued. */
+    const val WEIGHING_SHED_DETAIL_REOPEN_SUCCEEDED = "weighing_shed_detail_reopen_succeeded"
+
+    /** A weighing shed reopen could not be queued. */
+    const val WEIGHING_SHED_DETAIL_REOPEN_FAILED = "weighing_shed_detail_reopen_failed"
+
+    /** Leadership opened the weighing leadership videos gallery. */
+    const val WEIGHING_LEADERSHIP_VIDEO_VIEWED = "weighing_leadership_video_viewed"
+
+    /** Leadership started playing one weighing proof video. */
+    const val WEIGHING_LEADERSHIP_VIDEO_PLAY_STARTED = "weighing_leadership_video_play_started"
+
+    /** Leadership ended a bounded playback session for one weighing proof video. */
+    const val WEIGHING_LEADERSHIP_VIDEO_WATCH_SUMMARY = "weighing_leadership_video_watch_summary"
+
+    /** Leadership video playback failed before a usable review could continue. */
+    const val WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "weighing_leadership_video_playback_error"
+
+    /** Leadership opened the weight history chart screen. */
+    const val WEIGHT_HISTORY_VIEWED = "weight_history_viewed"
+
+    /** A weight history read failed to refresh. */
+    const val WEIGHT_HISTORY_LOAD_FAILED = "weight_history_load_failed"
+
+    /** Leadership opened the weighing growth (ADG) summary screen. */
+    const val WEIGHING_GROWTH_VIEWED = "weighing_growth_viewed"
+
+    /** A weighing growth read failed to refresh. */
+    const val WEIGHING_GROWTH_LOAD_FAILED = "weighing_growth_load_failed"
+
     /** Verifier opened a proof item detail screen that can stream evidence media. */
     const val VERIFY_ITEM_OPENED = "verify_item_opened"
+
+    /** Verifier tapped the play/pause control on a proof video — recorded at the TAP, before the
+     *  player callback that proves playback actually started ([VERIFY_VIDEO_PLAY_STARTED]). A
+     *  finished/idle ExoPlayer can silently no-op on play(), which is otherwise indistinguishable
+     *  from "the operator never tapped it" — see [VERIFY_VIDEO_PLAY_DEAD] and
+     *  `docs/observability/TELEMETRY_GUARDRAILS.md`. */
+    const val VERIFY_VIDEO_PLAY_INTENT = "verify_video_play_intent"
+
+    /** [VERIFY_VIDEO_PLAY_INTENT] fired but no [VERIFY_VIDEO_PLAY_STARTED] /
+     *  onIsPlayingChanged(false-to-true after a pause tap) callback landed within the watchdog
+     *  window — a dead play/pause control. Always paired with a [CrashReporter.recordException]
+     *  non-fatal carrying the same context. */
+    const val VERIFY_VIDEO_PLAY_DEAD = "verify_video_play_dead"
 
     /** Verifier started playing one proof video. */
     const val VERIFY_VIDEO_PLAY_STARTED = "verify_video_play_started"
@@ -166,6 +269,62 @@ object AnalyticsEvents {
 
     /** Verifier video playback failed before a usable review could continue. */
     const val VERIFY_VIDEO_PLAYBACK_ERROR = "verify_video_playback_error"
+
+    /** Verifier tapped the fullscreen button on a proof video. */
+    const val VERIFY_VIDEO_FULLSCREEN_OPENED = "verify_video_fullscreen_opened"
+
+    /** Verifier dismissed the fullscreen proof-video dialog (X button, back gesture, or scrim
+     *  dismiss) — pairs with [VERIFY_VIDEO_FULLSCREEN_OPENED] so a fullscreen session that never
+     *  closes (crash, ANR) is distinguishable from one the verifier deliberately exited. */
+    const val VERIFY_VIDEO_FULLSCREEN_EXITED = "verify_video_fullscreen_exited"
+
+    /** The verifier changed a queue filter/scope. [Params.DIMENSION] is `park`/`shed`/`module`/
+     *  `category`; [Params.ACTION] is `set`/`cleared`, mirroring [COUNTS_FILTER_APPLIED]. */
+    const val VERIFY_QUEUE_FILTER_APPLIED = "verify_queue_filter_applied"
+
+    /** The verifier scrolled near the end of the queue and the next keyset page was requested. */
+    const val VERIFY_QUEUE_LOAD_MORE = "verify_queue_load_more"
+
+    /**
+     * ONE summary per queue-screen exit — never per scroll frame, which would drown the funnel
+     * and cost battery. Carries the max row index reached ([Params.MAX_SCROLL_INDEX]) and how
+     * many rows were on screen ([Params.ROW_COUNT]) so "did she actually scroll through the
+     * list" is answerable without a per-frame event.
+     */
+    const val VERIFY_QUEUE_SCROLL_SUMMARY = "verify_queue_scroll_summary"
+
+    /** A verifier/authority tapped "Close drive" on a ready batch — before the outbox enqueue. */
+    const val VERIFY_DRIVE_CLOSE_ATTEMPTED = "verify_drive_close_attempted"
+
+    /** A drive-close was durably queued and confirmed by the backend. */
+    const val VERIFY_DRIVE_CLOSE_SUCCEEDED = "verify_drive_close_succeeded"
+
+    /** A drive-close could not be queued or was rejected by the backend. */
+    const val VERIFY_DRIVE_CLOSE_FAILED = "verify_drive_close_failed"
+
+    /**
+     * The verifier left the detail screen (back navigation / close button). [Params.REASON] is
+     * `fully_decided` when every entry in the shed group reached a terminal verdict, or
+     * `abandoned` when at least one entry was still PENDING — the signal that distinguishes a
+     * shed the verifier finished from one she walked away from mid-review.
+     */
+    const val VERIFY_ITEM_CLOSED = "verify_item_closed"
+
+    /** The mandatory-reason reject dialog was opened for one animal's verdict. */
+    const val VERIFY_REJECT_DIALOG_OPENED = "verify_reject_dialog_opened"
+
+    /** The reject dialog was dismissed without confirming (Cancel, scrim, back). */
+    const val VERIFY_REJECT_DIALOG_CANCELLED = "verify_reject_dialog_cancelled"
+
+    /** Reject was tapped with a blank reason — the client-side mandatory-reason gate refused
+     *  before anything was enqueued (mirrors [SUBMIT_BLOCKED] for this screen's own gate). */
+    const val VERIFY_REJECT_BLOCKED_EMPTY_REASON = "verify_reject_blocked_empty_reason"
+
+    /** The irreversible-approve confirmation dialog was opened for one animal's verdict. */
+    const val VERIFY_APPROVE_DIALOG_OPENED = "verify_approve_dialog_opened"
+
+    /** The approve confirmation dialog was dismissed without confirming. */
+    const val VERIFY_APPROVE_DIALOG_CANCELLED = "verify_approve_dialog_cancelled"
 
     /**
      * The operator changed a census filter on the Counts screen. [Params.DIMENSION] is which
@@ -250,6 +409,79 @@ object AnalyticsEvents {
     /** A mandatory video was recorded/picked for a requires_video workflow action. */
     const val WORKFLOW_VIDEO_CAPTURED = "workflow_video_captured"
 
+    /**
+     * The vaccination sheds/overview screen rendered its first non-loading state — the operator's
+     * shed-first work queue AND the leadership (CEO/CXO/Director) read-only oversight card share
+     * this one screen ([Params.KIND] = `leadership`/`operator`). Previously nothing at all was
+     * emitted for this screen: a CEO could sit on the Vaccination Overview looking at park
+     * filters, a protocol-adherence card, and shed cards with real counts, and the only signal in
+     * analytics was `bootstrap_loaded` — indistinguishable from the CEO never opening the screen.
+     */
+    const val VACCINATION_SHEDS_VIEWED = "vaccination_sheds_viewed"
+
+    /** The operator/leadership principal changed the selected day tab on the sheds/overview
+     *  screen. [Params.DIMENSION] is always `day`; carried for symmetry with other filter events. */
+    const val VACCINATION_DAY_SELECTED = "vaccination_day_selected"
+
+    /** A park filter on the sheds/overview screen was set or cleared. [Params.DIMENSION] is
+     *  `park`; [Params.ACTION] is `set`/`cleared`, mirroring [COUNTS_FILTER_APPLIED]. */
+    const val VACCINATION_PARK_FILTER_APPLIED = "vaccination_park_filter_applied"
+
+    /** A sheds/overview refresh (pull-to-refresh or park-filter-triggered) was attempted. */
+    const val VACCINATION_REFRESH_ATTEMPTED = "vaccination_refresh_attempted"
+
+    /** A sheds/overview refresh landed successfully. */
+    const val VACCINATION_REFRESH_SUCCEEDED = "vaccination_refresh_succeeded"
+
+    /** A sheds/overview refresh failed; cached Room data remains visible when present. */
+    const val VACCINATION_REFRESH_FAILED = "vaccination_refresh_failed"
+
+    /** The sheds/overview screen requested the next keyset page (scrolled near the end). */
+    const val VACCINATION_LOAD_MORE_ATTEMPTED = "vaccination_load_more_attempted"
+
+    /** A sheds/overview "load more" page append succeeded. */
+    const val VACCINATION_LOAD_MORE_SUCCEEDED = "vaccination_load_more_succeeded"
+
+    /** A sheds/overview "load more" page append failed. */
+    const val VACCINATION_LOAD_MORE_FAILED = "vaccination_load_more_failed"
+
+    /**
+     * The Calendar screen rendered its first non-loading state for a role (leadership week/month
+     * history, or the calendar-hosted drive list). [Params.KIND] carries the active segment
+     * (`week`/`month`). Previously a Director could sit on the Calendar looking at a week strip
+     * and drive cards with nothing emitted beyond `bootstrap_loaded`.
+     */
+    const val CALENDAR_VIEWED = "calendar_viewed"
+
+    /** The Calendar week-strip day selection changed. [Params.DIMENSION] is `day`. */
+    const val CALENDAR_DAY_SELECTED = "calendar_day_selected"
+
+    /** The Calendar week/month segment tab changed (`week`/`month`). [Params.DIMENSION] is
+     *  `segment`. */
+    const val CALENDAR_SEGMENT_SELECTED = "calendar_segment_selected"
+
+    /** A Calendar month filter (park/shed/vaccine/status) was applied or cleared. [Params.DIMENSION]
+     *  names the filter; [Params.ACTION] is `set`/`cleared`. */
+    const val CALENDAR_FILTER_APPLIED = "calendar_filter_applied"
+
+    /** A Calendar refresh (initial load, day change, or filter change) was attempted. */
+    const val CALENDAR_REFRESH_ATTEMPTED = "calendar_refresh_attempted"
+
+    /** A Calendar refresh landed successfully (no request in the batch failed). */
+    const val CALENDAR_REFRESH_SUCCEEDED = "calendar_refresh_succeeded"
+
+    /** A Calendar refresh failed (at least one request in the batch failed). */
+    const val CALENDAR_REFRESH_FAILED = "calendar_refresh_failed"
+
+    /** The Calendar selected-day list requested the next keyset page. */
+    const val CALENDAR_LOAD_MORE_ATTEMPTED = "calendar_load_more_attempted"
+
+    /** A Calendar "load more" page append succeeded. */
+    const val CALENDAR_LOAD_MORE_SUCCEEDED = "calendar_load_more_succeeded"
+
+    /** A Calendar "load more" page append failed. */
+    const val CALENDAR_LOAD_MORE_FAILED = "calendar_load_more_failed"
+
     /** The Counts approver's pending-decision queue was opened. */
     const val COUNTS_APPROVAL_QUEUE_VIEWED = "counts_approval_queue_viewed"
 
@@ -280,6 +512,25 @@ object AnalyticsEvents {
      * never synced".
      */
     const val SYNC_FOREGROUND_START_BLOCKED = "sync_foreground_start_blocked"
+
+    /**
+     * A scan arrived for a DIFFERENT subject (goat/animal) while a proof-video capture was still
+     * in flight for another one — the camera is a single physical device, so it cannot be
+     * cancelled without destroying an unrecoverable in-progress recording (the confirmed shed
+     * defect: an RFID scan mid-recording silently killed the clip). Instead of cancelling, the
+     * new scan is QUEUED and its camera opens automatically once the in-flight capture's job
+     * completes. [Params.KIND] is `vaccination`/`weighing`; [Params.REASON] is always
+     * `recording_in_progress`.
+     */
+    const val PROOF_CAPTURE_SCAN_DEFERRED = "proof_capture_scan_deferred"
+
+    /**
+     * A previously-queued deferred scan (see [PROOF_CAPTURE_SCAN_DEFERRED]) was itself overtaken
+     * by a NEWER scan before its camera ever opened — only the last queued scan survives, so the
+     * earlier one's camera will never open and the operator must rescan that subject. This is a
+     * genuine drop and must be visible, never silent. [Params.KIND] is `vaccination`/`weighing`.
+     */
+    const val PROOF_CAPTURE_SCAN_DROPPED = "proof_capture_scan_dropped"
 
     /** Standard event parameter keys. */
     /**
@@ -393,6 +644,16 @@ object AnalyticsEvents {
         const val REPLAY_COUNT = "replay_count"
         const val BUFFERING_TIME_MS = "buffering_time_ms"
 
+        /** Deepest row index a queue LazyColumn scrolled to during one screen visit. */
+        const val MAX_SCROLL_INDEX = "max_scroll_index"
+
+        /** How many rows were loaded in the queue at the moment of a scroll/load-more summary. */
+        const val ROW_COUNT = "row_count"
+
+        /** A drive-close batch id (`VerifyDriveClosure.batchId`) — bounded-cardinality within one
+         *  drive, never a goat/shed id. */
+        const val BATCH_ID = "batch_id"
+
         /**
          * Which dimension a filter/grouping event refers to (`park`/`shed`/`breed`/`all`).
          *
@@ -410,7 +671,26 @@ object AnalyticsEvents {
          */
         const val DEVICE_ID = "device_id"
         const val EMAIL = "email"
-        const val FIREBASE_UID = "firebase_uid"
+
+        /**
+         * Value is `auth_uid`, NOT `firebase_uid` — Firebase RESERVES the `firebase_` param
+         * prefix and silently drops any param whose name starts with it (the same failure mode
+         * as the [SESSION_START] reserved-event-name incident this project already had; see the
+         * telemetry guard's `reserved_names` check). The Kotlin constant keeps its old name so
+         * every call site below is untouched; only the wire value changed.
+         */
+        const val FIREBASE_UID = "auth_uid"
+
+        /**
+         * This work session's stable journey id (`DeviceStore.journeyId()`), stamped onto every
+         * event by [FirebaseAnalyticsAdapter.track] from [AnalyticsContext.journeyId] — mirrors
+         * [DEVICE_ID]'s stamping mechanism exactly. Unlike Firebase's built-in 30-minute
+         * auto-session, this survives process death and spans a whole login-to-logout work
+         * session (a vaccination or weighing drive can run for hours), so a single operator's
+         * continuous work is reconstructible end-to-end instead of fragmenting into unrelated
+         * auto-sessions.
+         */
+        const val JOURNEY_ID = "journey_id"
     }
 
     /** Durable user-property keys (set via [AnalyticsPort.setUserProperty]). */

@@ -1,5 +1,6 @@
 package sg.mesha.goatos.feature.auth
 
+// telemetry:exempt data-only enum; telemetry tracked at LoginScreen level, not here
 /**
  * Sign-in failure reasons [LoginScreen] can render as localized messages. This lives in
  * feature-auth so the enum and strings stay in the same module.

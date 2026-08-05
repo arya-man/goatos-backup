@@ -93,6 +93,25 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  */
 enum class ScanStatus { DONE, PENDING, SKIPPED }
 
+/**
+ * Roster animals that have not yet been scanned (backend status "due"/"in_progress" etc.,
+ * mapped to [ScanStatus.PENDING] by [sg.mesha.goatos.viewmodel.ScanViewModel]). The scan screen's
+ * main body must render one visible row per outstanding animal here, not just a bare count —
+ * a "1 PENDING" tile with zero corresponding rows leaves the operator with nothing to tap after
+ * a verifier sends an animal back for rework (confirmed live UI defect: 4/5 done rendered only
+ * the 4 done rows, the 1 due animal had no row at all).
+ *
+ * NOTE ON REWORK: the per-animal scan roster (`GET /app/vaccination/execution/sheds/{shed_id}/roster`,
+ * [sg.mesha.goatos.core.network.dto.ScanRosterRowDto]) does not carry a rework/rejected indicator
+ * distinct from never-scanned — the backend intentionally maps a rejected completion back to
+ * status="due" with scannedAt=null (see repository.go's scanRosterSQL CASE, "SENT BACK" comment)
+ * so the animal re-enters the same PENDING vocabulary as a never-scanned animal. This screen
+ * therefore cannot and must not invent a "sent back" badge from this payload — it renders the
+ * animal as due, same as any other outstanding row, until the backend exposes a distinct signal.
+ */
+fun ScanUiState.rosterRowsAwaitingScan(): List<RosterRow> =
+    roster.filter { it.status == ScanStatus.PENDING }
+
 /** Per-animal Room/outbox state for camera evidence. */
 enum class ProofUploadStatus { MISSING, UPLOADING, SYNCED, FAILED }
 
@@ -249,6 +268,7 @@ data class ScanUiState(
     val shedSwitcherRefreshing: Boolean = false,
     val shedSwitcherOffline: Boolean = false,
     val proofReplacementGoatId: String? = null,
+    val showSubmitConfirmation: Boolean = false,
 )
 
 /** User intents the screen emits; the app/viewmodel layer handles them. */
@@ -311,6 +331,8 @@ private object ScanTokens {
 fun ScanScreen(
     state: ScanUiState,
     onEvent: (ScanEvent) -> Unit = {},
+    onConfirmSubmit: () -> Unit = {},
+    onDismissSubmitConfirmation: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -467,6 +489,17 @@ fun ScanScreen(
                 onSubmit = { onEvent(ScanEvent.Submit) },
             )
         }
+    }
+
+    if (state.showSubmitConfirmation) {
+        SubmitConfirmationDialog(
+            title = stringResource(R.string.scan_submit_confirmation_title),
+            subtitle = stringResource(R.string.scan_submit_confirmation_subtitle),
+            dismissLabel = stringResource(R.string.scan_submit_confirmation_dismiss),
+            confirmLabel = stringResource(R.string.scan_submit_confirmation_confirm),
+            onConfirm = onConfirmSubmit,
+            onDismiss = onDismissSubmitConfirmation,
+        )
     }
 
     // Roster overlay (mock ovl-scanlist): opened by a count tile (filtered to that status)

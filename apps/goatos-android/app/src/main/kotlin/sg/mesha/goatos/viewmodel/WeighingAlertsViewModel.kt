@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.WeighingAlertsRepository
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
@@ -51,6 +54,8 @@ import javax.inject.Inject
 @HiltViewModel
 class WeighingAlertsViewModel @Inject constructor(
     private val repo: WeighingAlertsRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
 ) : ViewModel() {
 
     /**
@@ -87,14 +92,27 @@ class WeighingAlertsViewModel @Inject constructor(
     )
 
     init {
+        analytics.track(AnalyticsEvents.WEIGHING_ALERTS_VIEWED)
         refresh()
     }
 
     fun refresh() = viewModelScope.launch {
         _isRefreshing.value = true
+        analytics.track(AnalyticsEvents.WEIGHING_ALERTS_REFRESH_ATTEMPTED)
         val result = repo.refreshAlerts()
         _isRefreshing.value = false
         _isOffline.value = result.isFailure
+        if (result.isSuccess) {
+            analytics.track(AnalyticsEvents.WEIGHING_ALERTS_REFRESH_SUCCEEDED)
+        } else {
+            analytics.track(
+                AnalyticsEvents.WEIGHING_ALERTS_REFRESH_FAILED,
+                mapOf(AnalyticsEvents.Params.REASON to (result.exceptionOrNull()?.message ?: "unknown"))
+            )
+            result.exceptionOrNull()?.let {
+                crashReporter.recordException(it, "weighing alerts refresh failed")
+            }
+        }
     }
 
     fun onEvent(event: AlertsEvent) {

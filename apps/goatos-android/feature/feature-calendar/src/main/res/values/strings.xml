@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
+<!--
   Calendar (v-calendar) chrome strings. Segment labels, empty states, hints, and
   accessibility descriptions for the Calendar screen (universal landing for all roles).
   Most labels (title, eyebrow, segment labels, counts, status/category pills) come from
@@ -78,4 +81,5 @@
     <string name="calendar_drive_due">%1$d due</string>
     <string name="calendar_drive_overdue">%1$d overdue</string>
     <string name="calendar_drive_deferred">%1$d deferred</string>
+    <string name="calendar_drive_rejected">%1$d rejected</string>
 </resources>

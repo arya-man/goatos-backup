@@ -155,6 +155,38 @@ interface ScannedGoatDao {
     @Query("DELETE FROM scanned_goat_capture")
     suspend fun clearAll()
 
+    /**
+     * Clears the local "already scanned" evidence for animals the server has sent back, so a
+     * rejected animal stops rendering as done on the scan screen and can be redone.
+     *
+     * Scoped to the NAMED obligations only. An earlier form also deleted rows with
+     * `obligationId IS NULL`, which is not a rejected animal at all — it is a capture that was
+     * never linked to an obligation, and those belong to other sheds as often as this one. That
+     * wiped unrelated sheds' scan evidence on every refresh.
+     *
+     * SYNCED only: a PENDING row is work that has not reached the server yet, and dropping it
+     * would destroy the operator's unsynced capture.
+     */
+    @Query(
+        "DELETE FROM scanned_goat_capture " +
+            "WHERE fieldKey = :fieldKey AND syncStatus = 'SYNCED' " +
+            "AND obligationId IN (:rejectedObligationIds)",
+    )
+    suspend fun deleteSyncedByRejectedObligations(
+        fieldKey: String,
+        rejectedObligationIds: List<String>,
+    )
+
+    @Transaction
+    suspend fun pruneSyncedByRejectedObligations(
+        fieldKey: String,
+        rejectedObligationIds: List<String>,
+    ) {
+        if (rejectedObligationIds.isNotEmpty()) {
+            deleteSyncedByRejectedObligations(fieldKey, rejectedObligationIds)
+        }
+    }
+
     companion object {
         /** Safety cap, not a real page size — a shed's roster is capacity-bounded, this just
          *  keeps a single Room read from ever materializing an unbounded table. */

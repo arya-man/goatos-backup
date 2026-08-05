@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+// telemetry:exempt Unit test; not a user-facing screen
 // CDR-005 regression coverage for the park-level drive card metrics extracted from
 // CalendarScreen.kt (DriveCardMetrics.kt).
 class DriveCardMetricsTest {

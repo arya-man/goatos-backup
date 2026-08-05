@@ -41,8 +41,6 @@
     <string name="proof_photo_take">फ़ोटो लें</string>
     <string name="proof_photo_cancel">फ़ोटो कैप्चर रद्द करें</string>
     <string name="submit_shed_success_toast">शेड प्रमाण समीक्षा के लिए जमा हुआ</string>
-    <string name="weighing_assignment_summary_lumpsum">%1$d बच्चे दायरे में · एक शेड वीडियो</string>
-    <string name="weighing_assignment_summary_individual">%1$d बच्चे दायरे में · पशु वीडियो</string>
     <string name="weighing_action_view_result">नतीजा देखें →</string>
     <string name="weighing_action_record_shed">शेड नतीजा रिकॉर्ड करें →</string>
     <string name="bootstrap_error_auth_session_expired">आपका सेशन समाप्त हुआ। जारी रखने के लिए फिर से साइन इन करें।</string>
@@ -50,4 +48,5 @@
     <string name="bootstrap_action_sign_in_again">फिर से साइन इन करें</string>
     <string name="bootstrap_action_retry">फिर से कोशिश करें</string>
     <string name="bootstrap_error_access_not_provisioned">आपकी पहुँच अभी सेट नहीं हुई है। अपने मैनेजर से जुड़वाने को कहें, फिर दोबारा कोशिश करें।</string>
+    <string name="sheds_toast_already_submitted_fmt">%1$s पहले ही सत्यापन के लिए सबमिट किया जा चुका है</string>
 </resources>

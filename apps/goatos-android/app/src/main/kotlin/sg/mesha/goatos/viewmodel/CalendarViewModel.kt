@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -181,6 +183,14 @@ class CalendarViewModel @Inject constructor(
     )
 
     init {
+        // Fires unconditionally on open — mirrors AnalyticsEvents.WEIGHING_VIEWED /
+        // COUNTS_APPROVAL_QUEUE_VIEWED. Previously the Calendar screen emitted nothing at all
+        // beyond `bootstrap_loaded`: a Director could sit on the week strip with drive cards
+        // rendered and analytics had no signal the screen was ever reached.
+        analytics.track(
+            AnalyticsEvents.CALENDAR_VIEWED,
+            mapOf(AnalyticsEvents.Params.KIND to (_selectedSegmentId.value ?: WEEK_SEGMENT)),
+        )
         refresh()
     }
 
@@ -188,6 +198,7 @@ class CalendarViewModel @Inject constructor(
         _selectedDayLoadingMore.value = false
         _refreshInFlight.value = true
         _refreshError.value = null
+        analytics.track(AnalyticsEvents.CALENDAR_REFRESH_ATTEMPTED)
         val filters = _monthFilters.value
 
         val requests = listOf(
@@ -232,8 +243,16 @@ class CalendarViewModel @Inject constructor(
         val results = requests.awaitAll()
 
         _refreshInFlight.value = false
-        _offline.value = results.any { it.isFailure }
+        val anyFailed = results.any { it.isFailure }
+        _offline.value = anyFailed
         _refreshError.value = results.firstNotNullOfOrNull { it.exceptionOrNull()?.message }
+        if (anyFailed) {
+            val reason = results.firstNotNullOfOrNull { it.exceptionOrNull()?.let { e -> e::class.simpleName } }
+                ?: "unknown"
+            analytics.track(AnalyticsEvents.CALENDAR_REFRESH_FAILED, mapOf(AnalyticsEvents.Params.REASON to reason))
+        } else {
+            analytics.track(AnalyticsEvents.CALENDAR_REFRESH_SUCCEEDED)
+        }
         results.forEach { reportFailure(it, "calendar refresh failed") }
     }
 
@@ -241,6 +260,10 @@ class CalendarViewModel @Inject constructor(
         when (event) {
             is CalendarEvent.SelectSegment -> {
                 _selectedSegmentId.value = event.segmentId
+                analytics.track(
+                    AnalyticsEvents.CALENDAR_SEGMENT_SELECTED,
+                    mapOf(AnalyticsEvents.Params.DIMENSION to "segment", AnalyticsEvents.Params.KIND to event.segmentId),
+                )
                 when (event.segmentId) {
                     MONTH_SEGMENT -> activateMonth()
                 }
@@ -275,14 +298,32 @@ class CalendarViewModel @Inject constructor(
 
     private fun applyMonthFilters(filters: CalendarMonthFilters) {
         if (filters.month !in 1..12 || filters.year !in 2000..2200) return
+        val previous = _monthFilters.value
         _monthFilters.value = filters.copy(
             parkId = filters.parkId?.takeIf(String::isNotBlank),
             shedId = filters.shedId?.takeIf(String::isNotBlank),
             vaccine = filters.vaccine?.takeIf(String::isNotBlank),
             status = filters.status?.takeIf(String::isNotBlank),
         )
+        trackFilterChange("park", previous.parkId, filters.parkId)
+        trackFilterChange("shed", previous.shedId, filters.shedId)
+        trackFilterChange("vaccine", previous.vaccine, filters.vaccine)
+        trackFilterChange("status", previous.status, filters.status)
         activateMonth()
         refresh()
+    }
+
+    private fun trackFilterChange(dimension: String, previous: String?, next: String?) {
+        val normalizedPrevious = previous?.takeIf { it.isNotBlank() }
+        val normalizedNext = next?.takeIf { it.isNotBlank() }
+        if (normalizedPrevious == normalizedNext) return
+        analytics.track(
+            AnalyticsEvents.CALENDAR_FILTER_APPLIED,
+            mapOf(
+                AnalyticsEvents.Params.DIMENSION to dimension,
+                AnalyticsEvents.Params.ACTION to if (normalizedNext != null) "set" else "cleared",
+            ),
+        )
     }
 
     private fun selectDay(dateKey: String) {
@@ -290,8 +331,13 @@ class CalendarViewModel @Inject constructor(
         if (date == _selectedDay.value) return
         _selectedDay.value = date
         _selectedDayLoadingMore.value = false
+        analytics.track(
+            AnalyticsEvents.CALENDAR_DAY_SELECTED,
+            mapOf(AnalyticsEvents.Params.DIMENSION to "day"),
+        )
         val filters = _monthFilters.value
         viewModelScope.launch {
+            analytics.track(AnalyticsEvents.CALENDAR_REFRESH_ATTEMPTED)
             val result = repo.refreshEvents(
                 parkId = filters.parkId,
                 shedId = filters.shedId,
@@ -302,6 +348,14 @@ class CalendarViewModel @Inject constructor(
                 limit = CALENDAR_PAGE_SIZE,
             )
             _offline.value = result.isFailure
+            if (result.isSuccess) {
+                analytics.track(AnalyticsEvents.CALENDAR_REFRESH_SUCCEEDED)
+            } else {
+                analytics.track(
+                    AnalyticsEvents.CALENDAR_REFRESH_FAILED,
+                    mapOf(AnalyticsEvents.Params.REASON to (result.exceptionOrNull()?.let { it::class.simpleName } ?: "unknown")),
+                )
+            }
             reportFailure(result, "calendar day refresh failed")
         }
     }
@@ -309,6 +363,7 @@ class CalendarViewModel @Inject constructor(
     private fun loadMoreSelectedDay() = viewModelScope.launch {
         val cursor = selectedDayResource.value.data?.nextCursor ?: return@launch
         _selectedDayLoadingMore.value = true
+        analytics.track(AnalyticsEvents.CALENDAR_LOAD_MORE_ATTEMPTED)
         val filters = _monthFilters.value
         // MOB-004: append the next page INTO Room; the observed flow re-emits the merged window.
         val result = repo.appendEvents(
@@ -322,6 +377,14 @@ class CalendarViewModel @Inject constructor(
             limit = CALENDAR_PAGE_SIZE,
         )
         _offline.value = result.isFailure
+        if (result.isSuccess) {
+            analytics.track(AnalyticsEvents.CALENDAR_LOAD_MORE_SUCCEEDED)
+        } else {
+            analytics.track(
+                AnalyticsEvents.CALENDAR_LOAD_MORE_FAILED,
+                mapOf(AnalyticsEvents.Params.REASON to (result.exceptionOrNull()?.let { it::class.simpleName } ?: "unknown")),
+            )
+        }
         reportFailure(result, "calendar day append failed")
         _selectedDayLoadingMore.value = false
     }
@@ -689,6 +752,7 @@ internal fun DriveSummaryDto.toCalendarDriveSummary(): CalendarDriveSummary = Ca
     dueCount = dueCount,
     overdueCount = overdueCount,
     deferredCount = deferredCount,
+    rejectedCount = rejectedCount,
     progressBasis = progressBasis,
     progressCompleted = progressCompleted,
     progressTotal = progressTotal,

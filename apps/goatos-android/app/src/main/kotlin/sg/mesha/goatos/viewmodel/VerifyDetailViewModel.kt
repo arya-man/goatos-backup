@@ -14,9 +14,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEventsVerification
 import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
+import sg.mesha.goatos.core.analytics.DeadControlWatchdog
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
@@ -30,9 +32,11 @@ import sg.mesha.goatos.BuildConfig
 import sg.mesha.goatos.feature.verify.VerifyContextKind
 import sg.mesha.goatos.feature.verify.VerifyContextRow
 import sg.mesha.goatos.feature.verify.VerifyDecisionUnavailableReason
+import sg.mesha.goatos.feature.verify.VerifyDetailEntryUiState
 import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailUiState
 import sg.mesha.goatos.feature.verify.VerifyMediaItem
+import sg.mesha.goatos.feature.verify.VerifyTone
 import sg.mesha.goatos.feature.verify.VideoPlaybackAction
 import javax.inject.Inject
 
@@ -88,6 +92,23 @@ class VerifyDetailViewModel @Inject constructor(
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
     private var trackedItemOpened = false
+
+    // Item ids for which [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] has already
+    // fired with EVIDENCE_UNAVAILABLE this screen visit — the entry map is recomputed on every
+    // Room emission, so without this the event would fire once per recomposition/emission
+    // instead of once per genuine transition into "stuck" state.
+    private val trackedEvidenceUnavailableItemIds = mutableSetOf<String>()
+
+    // Dead-control watchdog for the play/pause control (docs/observability/
+    // TELEMETRY_GUARDRAILS.md): one per proof id so two clips in the same shed group never share
+    // (and falsely clear) each other's pending watchdog. Cancelled in [onCleared] so a screen exit
+    // never fires a report against a torn-down ViewModel.
+    private val playWatchdogs = mutableMapOf<String, DeadControlWatchdog>()
+
+    private fun playWatchdogFor(proofId: String): DeadControlWatchdog =
+        playWatchdogs.getOrPut(proofId) {
+            AnalyticsFunnels.newVerifyVideoPlayWatchdog(analytics, crashReporter, viewModelScope)
+        }
     private val observedQueue: Flow<Resource<VerificationQueueResponseDto>> =
         if (isActionMode) {
             repo.observeActionQueue(category = category, parkId = parkId, shedId = shedId, limit = VERIFY_DETAIL_PAGE_SIZE)
@@ -103,45 +124,104 @@ class VerifyDetailViewModel @Inject constructor(
             )
         }
 
-    // Cache-first: the tapped row's category scope Room cache already holds this item's full
+    // Cache-first: the tapped row's category scope Room cache already holds this GROUP's full
     // media + context (docs/decisions/android-offline-first.md), lifecycle-aware via
     // WhileSubscribed(5_000) like every other observed-Room StateFlow in this app.
-    private val observedItem: StateFlow<VerificationQueueItem?> =
+    //
+    // The route's `itemId` arg is really a GROUP key: the backend now emits one
+    // verification_item PER GOAT (source_ref_type=vaccination_goat), and every per-goat item
+    // produced from one shed submission shares one `source.submissionId`. That is the grouping
+    // key here — with the item's OWN itemId as the fallback for a legacy bundled item
+    // (ref_type=sop_submission, several clips under one verdict) or any item with no siblings,
+    // so a lone item still resolves to a group of exactly itself.
+    private val observedGroup: StateFlow<List<VerificationQueueItem>> =
         observedQueue
-            .map { resource -> resource.data?.items?.firstOrNull { it.itemId == itemId } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .map { resource -> resource.data?.items?.filter { it.verificationGroupKey() == itemId }.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<VerifyDetailUiState> = combine(
-        observedItem,
+        observedGroup,
         _flags,
-    ) { item, flags ->
-        item.toUiState(flags = flags)
+    ) { items, flags ->
+        items.toUiState(flags = flags)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
         viewModelScope.launch {
-            observedItem.collect { item ->
-                if (!trackedItemOpened && item != null) {
+            observedGroup.collect { items ->
+                val first = items.firstOrNull()
+                if (!trackedItemOpened && first != null) {
                     trackedItemOpened = true
                     AnalyticsFunnels.trackVerifyItemOpened(
                         analytics = analytics,
                         itemId = itemId,
-                        category = item.category.ifBlank { category.orEmpty() },
+                        category = first.category.ifBlank { category.orEmpty() },
                     )
                 }
             }
         }
+        viewModelScope.launch {
+            state.collect { current -> trackDecisionUnavailable(current.entries) }
+        }
         refresh()
+    }
+
+    /**
+     * Emits [AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE] the FIRST time each entry
+     * in this group is observed with [VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE] —
+     * i.e. Approve is rendered disabled because the evidence could not be confirmed watchable.
+     * This is a real operator-facing dead end (see [VerifyDetailViewModel] class doc / R50-017),
+     * not merely a loading placeholder, so it must be visible in analytics.
+     */
+    private fun trackDecisionUnavailable(entries: List<VerifyDetailEntryUiState>) {
+        entries
+            .filter { it.decisionUnavailableReason == VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE }
+            .forEach { entry ->
+                if (trackedEvidenceUnavailableItemIds.add(entry.itemId)) {
+                    runCatching {
+                        analytics.track(
+                            AnalyticsEventsVerification.VERIFY_DECISION_UNAVAILABLE,
+                            mapOf(
+                                AnalyticsFunnels.Params.ITEM_ID to entry.itemId,
+                                AnalyticsEventsVerification.Params.REASON to
+                                    VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE.name,
+                            ),
+                        )
+                    }
+                }
+            }
     }
 
     fun onEvent(event: VerifyDetailEvent) {
         when (event) {
-            VerifyDetailEvent.Close -> Unit // navigation — handled by the nav host.
+            VerifyDetailEvent.Close -> trackClosed()
             VerifyDetailEvent.Refresh -> refresh()
-            VerifyDetailEvent.Approve -> submitVerdict(VerificationDecision.APPROVED, reason = null)
-            is VerifyDetailEvent.Reject -> submitVerdict(VerificationDecision.REJECTED, reason = event.reason)
+            is VerifyDetailEvent.Approve ->
+                submitVerdict(event.itemId ?: itemId, VerificationDecision.APPROVED, reason = null)
+            is VerifyDetailEvent.Reject ->
+                submitVerdict(event.itemId ?: itemId, VerificationDecision.REJECTED, reason = event.reason)
             is VerifyDetailEvent.VideoPlayback -> trackVideoPlayback(event)
+            is VerifyDetailEvent.RejectDialogOpened -> AnalyticsFunnels.trackVerifyRejectDialogOpened(analytics, event.itemId)
+            is VerifyDetailEvent.RejectDialogCancelled -> AnalyticsFunnels.trackVerifyRejectDialogCancelled(analytics, event.itemId)
+            is VerifyDetailEvent.RejectBlockedEmptyReason ->
+                AnalyticsFunnels.trackVerifyRejectBlockedEmptyReason(analytics, event.itemId)
+            is VerifyDetailEvent.ApproveDialogOpened -> AnalyticsFunnels.trackVerifyApproveDialogOpened(analytics, event.itemId)
+            is VerifyDetailEvent.ApproveDialogCancelled -> AnalyticsFunnels.trackVerifyApproveDialogCancelled(analytics, event.itemId)
         }
+    }
+
+    /** Fires once per screen exit (nav host calls this before popping back). [reason] is
+     *  `fully_decided` when every entry in this group is terminal, `abandoned` otherwise — the
+     *  signal that distinguishes a shed the verifier finished from one she walked away from
+     *  mid-review. */
+    private fun trackClosed() {
+        val entries = state.value.entries
+        val reason = if (entries.isNotEmpty() && entries.none { it.statusTone == VerifyTone.PENDING }) {
+            "fully_decided"
+        } else {
+            "abandoned"
+        }
+        AnalyticsFunnels.trackVerifyItemClosed(analytics, itemId, reason)
     }
 
     private fun refresh() = viewModelScope.launch {
@@ -162,19 +242,26 @@ class VerifyDetailViewModel @Inject constructor(
         _flags.update { it.copy(isRefreshing = false, isOffline = result.isFailure) }
     }
 
-    private fun submitVerdict(decision: String, reason: String?) = viewModelScope.launch {
+    /**
+     * [targetItemId] is the ONE animal's item this verdict decides. Every other item sharing
+     * this shed's group stays exactly as it was — no shared verdict, no shared enable/disable
+     * state, matching [SyncRepository.enqueueVerificationVerdict]'s own per-item_id outbox key.
+     */
+    private fun submitVerdict(targetItemId: String, decision: String, reason: String?) = viewModelScope.launch {
         // Belt-and-braces guard mirroring the reject dialog's own mandatory-reason validation —
         // a malformed event can never enqueue a reason-less reject.
         if (decision == VerificationDecision.REJECTED && reason.isNullOrBlank()) return@launch
+        val targetEntry = state.value.entries.firstOrNull { it.itemId == targetItemId }
         // Same belt-and-braces shape for the irreversible side: an approve can never be enqueued
-        // from a screen state where the evidence is not watchable, whatever produced the event.
-        if (decision == VerificationDecision.APPROVED && !state.value.isApproveEnabled) return@launch
+        // from a screen state where THIS animal's evidence is not watchable, whatever produced
+        // the event — a sibling animal's healthy evidence must never let this one through.
+        if (decision == VerificationDecision.APPROVED && targetEntry?.isApproveEnabled != true) return@launch
 
-        val rowVersion = observedItem.value?.rowVersion ?: 1
+        val rowVersion = observedGroup.value.firstOrNull { it.itemId == targetItemId }?.rowVersion ?: 1
         _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
-        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, itemId, decision, totalWatchTimeMs())
+        AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, targetItemId, decision, totalWatchTimeMs())
         val result = syncRepo.enqueueVerificationVerdict(
-            itemId = itemId,
+            itemId = targetItemId,
             decision = decision,
             reason = reason,
             rowVersion = rowVersion,
@@ -182,10 +269,18 @@ class VerifyDetailViewModel @Inject constructor(
         when (result) {
             is AppResult.Ok -> {
                 _flags.update { it.copy(awaitingBackendDecision = true) }
-                val waitError = waitForBackendDecision(result.value)
+                val waitError = waitForBackendDecision(targetItemId, result.value)
                 if (waitError == null) {
-                    _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = true) }
-                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, itemId, decision, totalWatchTimeMs())
+                    // Auto-close the SCREEN only once every animal in this group has a terminal
+                    // verdict — a single legacy/bundled item (group of one) closes immediately,
+                    // same as before; a multi-animal shed keeps the verifier here to work through
+                    // the rest, exactly the fix this task exists for (one reject must not evict
+                    // her from the shed's other, still-pending, animals).
+                    val stillPending = observedGroup.value.any { it.status == VerificationStatus.PENDING }
+                    _flags.update {
+                        it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = !stillPending)
+                    }
+                    AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
                     watchTimeByProof.clear()
                 } else {
                     _flags.update {
@@ -202,7 +297,7 @@ class VerifyDetailViewModel @Inject constructor(
                 result.cause?.let { error ->
                     runCatching { crashReporter.recordException(error, "verification verdict enqueue failed") }
                 }
-                AnalyticsFunnels.trackVerifyVerdictFailed(analytics, itemId, decision, result.message)
+                AnalyticsFunnels.trackVerifyVerdictFailed(analytics, targetItemId, decision, result.message)
                 watchTimeByProof.clear()
             }
         }
@@ -210,6 +305,18 @@ class VerifyDetailViewModel @Inject constructor(
 
     private fun trackVideoPlayback(event: VerifyDetailEvent.VideoPlayback) {
         when (event.action) {
+            VideoPlaybackAction.PLAY_INTENT -> {
+                val props = mapOf(
+                    AnalyticsFunnels.Params.ITEM_ID to itemId,
+                    AnalyticsFunnels.Params.PROOF_ID to event.proofSubject,
+                    AnalyticsFunnels.Params.PLAYER_STATE to (event.playerState ?: "unknown"),
+                    AnalyticsFunnels.Params.ARMED to (event.armed?.toString() ?: "unknown"),
+                    AnalyticsFunnels.Params.TARGET_ACTION to (event.targetAction ?: "unknown"),
+                )
+                playWatchdogFor(event.proofSubject)
+                    .armIntent(props, AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS)
+            }
+            VideoPlaybackAction.PLAY_OUTCOME -> playWatchdogFor(event.proofSubject).disarm()
             VideoPlaybackAction.PLAY_STARTED ->
                 AnalyticsFunnels.trackVerifyVideoPlayStarted(
                     analytics = analytics,
@@ -242,13 +349,24 @@ class VerifyDetailViewModel @Inject constructor(
                 runCatching { crashReporter.recordException(IllegalStateException(reason), "verification video playback failed") }
                 AnalyticsFunnels.trackVerifyVideoPlaybackError(analytics, itemId, event.proofSubject, reason)
             }
-            VideoPlaybackAction.FULLSCREEN_OPENED -> Unit
+            VideoPlaybackAction.FULLSCREEN_OPENED ->
+                AnalyticsFunnels.trackVerifyVideoFullscreenOpened(analytics, itemId, event.proofSubject)
+            VideoPlaybackAction.FULLSCREEN_EXITED ->
+                AnalyticsFunnels.trackVerifyVideoFullscreenExited(analytics, itemId, event.proofSubject)
         }
     }
 
     private fun totalWatchTimeMs(): Long = watchTimeByProof.values.sum()
 
-    private suspend fun waitForBackendDecision(outboxItemId: String): String? {
+    override fun onCleared() {
+        super.onCleared()
+        // Screen exit is not a dead control — cancel every pending watchdog so leaving mid-play
+        // never fires a false-positive report against this now-cleared ViewModel.
+        playWatchdogs.values.forEach { it.cancel() }
+        playWatchdogs.clear()
+    }
+
+    private suspend fun waitForBackendDecision(targetItemId: String, outboxItemId: String): String? {
         repeat(30) {
             syncRepo.triggerDrain()
             delay(250)
@@ -258,7 +376,7 @@ class VerifyDetailViewModel @Inject constructor(
                     when {
                         item?.status == SyncItemStatus.SUCCEEDED -> {
                             if (!isActionMode) {
-                                repo.markVerificationItemDecidedLocally(itemId)
+                                repo.markVerificationItemDecidedLocally(targetItemId)
                             }
                             refresh()
                             return null
@@ -271,10 +389,10 @@ class VerifyDetailViewModel @Inject constructor(
             }
             val result = if (isActionMode) repo.refreshActionQueue(category = category) else repo.refreshQueue(category = category)
             _flags.update { flags -> flags.copy(isOffline = result.isFailure) }
-            val current = observedItem.value
+            val current = observedGroup.value.firstOrNull { it.itemId == targetItemId }
             if (current == null || current.status != VerificationStatus.PENDING) {
                 if (!isActionMode) {
-                    repo.markVerificationItemDecidedLocally(itemId)
+                    repo.markVerificationItemDecidedLocally(targetItemId)
                 }
                 return null
             }
@@ -283,20 +401,7 @@ class VerifyDetailViewModel @Inject constructor(
         return "Decision saved locally; waiting for backend sync."
     }
 
-    private fun VerificationQueueItem?.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
-        if (this == null) {
-            return VerifyDetailUiState(
-                itemId = itemId,
-                isCloseMode = isActionMode,
-                isRefreshing = flags.isRefreshing,
-                isOffline = flags.isOffline,
-                isSubmitting = flags.isSubmitting,
-                errorMessage = flags.errorMessage,
-                isApproveEnabled = false,
-                isRejectEnabled = false,
-                autoCloseAfterDecision = flags.autoCloseAfterDecision,
-            )
-        }
+    private fun VerificationQueueItem.toEntry(flags: VerifyDetailFlags): VerifyDetailEntryUiState {
         val effectiveStatus = status
         // What "evidence available" honestly means on this screen:
         //  - the server resolved a link for EVERY media_ref (any() would have passed an item whose
@@ -307,6 +412,8 @@ class VerifyDetailViewModel @Inject constructor(
         // existed. The backend runs the authoritative existence check at verdict time; this is the
         // honest client half of it.
         val everyProofLinked = media.isNotEmpty() && media.all { it.downloadUrl.isNotBlank() }
+        // Scoped to THIS animal's own proof ids only — a sibling animal's playback failure must
+        // never gate this one's Approve.
         val nothingFailedToPlay = media.none { flags.unplayableProofIds.contains(it.proofId) }
         val evidenceIsWatchable = evidenceAvailable && everyProofLinked && nothingFailedToPlay
         val isOpen = !isActionMode && effectiveStatus == VerificationStatus.PENDING
@@ -315,10 +422,8 @@ class VerifyDetailViewModel @Inject constructor(
         // strand the verifier.
         val canApprove = isOpen && evidenceIsWatchable
         val canReject = isOpen
-        return VerifyDetailUiState(
+        return VerifyDetailEntryUiState(
             itemId = itemId,
-            category = category,
-            categoryLabel = humanizeCategory(category),
             subjectLabel = subjectLabel?.takeIf { it.isNotBlank() },
             media = media.map {
                 VerifyMediaItem(
@@ -329,11 +434,8 @@ class VerifyDetailViewModel @Inject constructor(
                     answer = it.answer?.takeIf(String::isNotBlank),
                 )
             },
-            context = buildContext(this),
             statusTone = statusTone(effectiveStatus),
             rowVersion = rowVersion,
-            isCloseMode = isActionMode,
-            isCloseEnabled = false,
             verdictReason = verdictReason,
             // R50-017: the backend now fails evidence resolution closed instead of silently
             // omitting media, so a verdict with no resolvable evidence must stay disabled even
@@ -345,12 +447,58 @@ class VerifyDetailViewModel @Inject constructor(
                 isOpen -> VerifyDecisionUnavailableReason.EVIDENCE_UNAVAILABLE
                 else -> VerifyDecisionUnavailableReason.ALREADY_DECIDED
             },
+            isSubmitting = false,
+        )
+    }
+
+    private fun List<VerificationQueueItem>.toUiState(flags: VerifyDetailFlags): VerifyDetailUiState {
+        val first = firstOrNull()
+        if (first == null) {
+            return VerifyDetailUiState(
+                itemId = itemId,
+                isCloseMode = isActionMode,
+                isRefreshing = flags.isRefreshing,
+                isOffline = flags.isOffline,
+                isSubmitting = flags.isSubmitting,
+                errorMessage = flags.errorMessage,
+                isApproveEnabled = false,
+                isRejectEnabled = false,
+                autoCloseAfterDecision = flags.autoCloseAfterDecision,
+                entries = emptyList(),
+                isGroupFullyDecided = false,
+            )
+        }
+        // rowVersion order is stable regardless of refresh re-ordering, matching the queue's own
+        // shed-card ordering: subject label (falls back to the item's own display order otherwise).
+        val entries = sortedBy { it.subjectLabel ?: it.itemId }.map { it.toEntry(flags) }
+        // Server-confirmed only: every entry in this group carries a status that is no longer
+        // PENDING in the Room-observed queue snapshot — never a locally-guessed "must be done"
+        // before the backend's own read confirms it.
+        val isGroupFullyDecided = entries.isNotEmpty() && entries.none { it.statusTone == VerifyTone.PENDING }
+        val singleEntry = entries.singleOrNull()
+        return VerifyDetailUiState(
+            itemId = itemId,
+            category = first.category,
+            categoryLabel = humanizeCategory(first.category),
+            subjectLabel = first.subjectLabel?.takeIf { it.isNotBlank() },
+            media = singleEntry?.media.orEmpty(),
+            context = buildContext(first),
+            statusTone = singleEntry?.statusTone ?: statusTone(first.status),
+            rowVersion = singleEntry?.rowVersion ?: first.rowVersion,
+            isCloseMode = isActionMode,
+            isCloseEnabled = false,
+            verdictReason = singleEntry?.verdictReason,
+            isApproveEnabled = singleEntry?.isApproveEnabled ?: false,
+            isRejectEnabled = singleEntry?.isRejectEnabled ?: false,
+            decisionUnavailableReason = singleEntry?.decisionUnavailableReason ?: VerifyDecisionUnavailableReason.NONE,
             isSubmitting = flags.isSubmitting,
             isRefreshing = flags.isRefreshing,
             lastSyncedAt = null,
             isOffline = flags.isOffline,
             errorMessage = flags.errorMessage,
             autoCloseAfterDecision = flags.autoCloseAfterDecision,
+            entries = entries,
+            isGroupFullyDecided = isGroupFullyDecided,
         )
     }
 

@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -29,10 +29,13 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,6 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -51,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -68,8 +76,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-// telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring lives in
-// VerifyDetailViewModel (:app), which owns every side effect this screen triggers.
+// telemetry:exempt: pure stateless renderer — AnalyticsPort/funnel wiring (including the
+// PLAY_INTENT/PLAY_OUTCOME dead-control watchdog) lives in VerifyDetailViewModel (:app), which
+// owns every side effect this screen triggers. This screen only forwards synchronous events
+// (VerifyDetailEvent.VideoPlayback) at the exact tap/callback moments the ViewModel needs.
 /**
  * The standalone Verifier section's detail screen (context/architecture/verifier-app-and-flow.md):
  * play the video(s) + context (shed/park/operator/timestamp from the capture metadata), then
@@ -95,6 +105,28 @@ enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT, RAISED_NOTE }
 /** One context line: [kind] picks the localized label, [value] is the backend-composed
  *  display string (shed/park/operator name, or a formatted capture timestamp). */
 data class VerifyContextRow(val kind: VerifyContextKind, val value: String)
+
+/**
+ * ONE animal's proof clip and ITS OWN verdict, inside a shed-level detail screen.
+ *
+ * The backend now emits one verification_item PER GOAT (`source_ref_type=vaccination_goat`),
+ * grouped by a shared `source_submission_id` per shed. A legacy bundled item
+ * (`ref_type=sop_submission`, several clips under one verdict) still renders here as a
+ * single-entry group — see [VerifyDetailViewModel] grouping.
+ */
+@Immutable
+data class VerifyDetailEntryUiState(
+    val itemId: String,
+    val subjectLabel: String? = null,
+    val media: List<VerifyMediaItem> = emptyList(),
+    val statusTone: VerifyTone = VerifyTone.PENDING,
+    val rowVersion: Int = 1,
+    val verdictReason: String? = null,
+    val isApproveEnabled: Boolean = false,
+    val isRejectEnabled: Boolean = false,
+    val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
+    val isSubmitting: Boolean = false,
+)
 
 @Immutable
 data class VerifyDetailUiState(
@@ -131,6 +163,17 @@ data class VerifyDetailUiState(
     val isOffline: Boolean = false,
     val errorMessage: String? = null,
     val autoCloseAfterDecision: Boolean = false,
+    /**
+     * ONE entry per animal video sharing this shed's `source_submission_id` — always non-empty
+     * once the item(s) are loaded, and length 1 for a legacy bundled item or a lone item with no
+     * siblings. This is what the screen renders; the flat fields above mirror `entries.first()`
+     * for a single-entry group so existing single-item call sites keep working unchanged.
+     */
+    val entries: List<VerifyDetailEntryUiState> = emptyList(),
+    /** True once every entry in this group carries a terminal (non-pending) status AND that is
+     *  server-confirmed (the group was reloaded from the queue/outbox, never guessed locally).
+     *  Drives the "shed accepted" banner — no separate manual close action exists for this. */
+    val isGroupFullyDecided: Boolean = false,
 )
 
 enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNAVAILABLE }
@@ -139,14 +182,42 @@ enum class VerifyDecisionUnavailableReason { NONE, ALREADY_DECIDED, EVIDENCE_UNA
  *  mandatory-reason dialog, so this keeps the two decisions symmetric. */
 private const val APPROVE_NEEDS_CONFIRMATION = true
 
-enum class VideoPlaybackAction { PLAY_STARTED, WATCH_SUMMARY, PLAYBACK_ERROR, FULLSCREEN_OPENED }
+enum class VideoPlaybackAction {
+    /** Fired synchronously at the play/pause TAP, before player.play()/pause() is even called —
+     *  see [VerifyDetailScreen] play/pause click handlers. This is the INTENT half of the
+     *  intent/outcome pair; [PLAY_OUTCOME] is the matching outcome the ViewModel's dead-control
+     *  watchdog waits for. */
+    PLAY_INTENT,
+    /** Fired synchronously from the player listener's onIsPlayingChanged — proves the tap above
+     *  actually changed player state (either direction), disarming the watchdog armed by the
+     *  matching [PLAY_INTENT]. */
+    PLAY_OUTCOME,
+    PLAY_STARTED,
+    WATCH_SUMMARY,
+    PLAYBACK_ERROR,
+    FULLSCREEN_OPENED,
+    FULLSCREEN_EXITED,
+}
 
 sealed interface VerifyDetailEvent {
     data object Close : VerifyDetailEvent
-    data object Approve : VerifyDetailEvent
-    /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise. */
-    data class Reject(val reason: String) : VerifyDetailEvent
+    /** [itemId] null targets the legacy single-entry group (`entries.first()`); a grouped shed
+     *  screen always passes the tapped entry's own item id, so one animal's verdict never
+     *  touches its shed-mates. */
+    data class Approve(val itemId: String? = null) : VerifyDetailEvent
+    /** [reason] is always non-blank — the reject dialog below refuses to emit this otherwise.
+     *  [itemId] follows the same null-means-legacy-single-entry contract as [Approve]. */
+    data class Reject(val reason: String, val itemId: String? = null) : VerifyDetailEvent
     data object Refresh : VerifyDetailEvent
+    /** Dialog-lifecycle telemetry: the Compose dialogs below own their own open/dismiss state
+     *  (a screen-recomposition concern), but every open/cancel is still a real verifier action
+     *  the analytics funnel needs to see. */
+    data class RejectDialogOpened(val itemId: String) : VerifyDetailEvent
+    data class RejectDialogCancelled(val itemId: String) : VerifyDetailEvent
+    /** The reject dialog's own mandatory-reason gate refused a blank submit. */
+    data class RejectBlockedEmptyReason(val itemId: String) : VerifyDetailEvent
+    data class ApproveDialogOpened(val itemId: String) : VerifyDetailEvent
+    data class ApproveDialogCancelled(val itemId: String) : VerifyDetailEvent
     data class VideoPlayback(
         val proofSubject: String,
         val mimeType: String,
@@ -159,6 +230,14 @@ sealed interface VerifyDetailEvent {
         val seekCount: Int = 0,
         val replayCount: Int = 0,
         val bufferingTimeMs: Long = 0,
+        /** [PLAY_INTENT]/[PLAY_OUTCOME] context: the ExoPlayer playback-state name at tap time
+         *  (`STATE_IDLE`/`STATE_ENDED`/...) — the exact condition that used to make play() a
+         *  silent no-op. Null for every other action. */
+        val playerState: String? = null,
+        /** [PLAY_INTENT] only: whether the decoder was already armed/prepared at tap time. */
+        val armed: Boolean? = null,
+        /** [PLAY_INTENT] only: `"play"` or `"pause"`, whichever the tap requested. */
+        val targetAction: String? = null,
     ) : VerifyDetailEvent
 }
 
@@ -169,9 +248,44 @@ fun VerifyDetailScreen(
     modifier: Modifier = Modifier,
     videoControlsEnabled: Boolean = false,
 ) {
-    var showRejectDialog by remember { mutableStateOf(false) }
-    var showApproveDialog by remember { mutableStateOf(false) }
+    // Scoped per animal: which entry's dialog is open, keyed by that entry's OWN item id — never
+    // a single screen-wide flag, or one animal's tap would surface a dialog whose confirm posts
+    // the wrong verdict once entries re-sort after a refresh.
+    var rejectDialogForItemId by remember { mutableStateOf<String?>(null) }
+    var approveDialogForItemId by remember { mutableStateOf<String?>(null) }
     RefreshOnResume { onEvent(VerifyDetailEvent.Refresh) }
+
+    // The scrollable viewport's own bounds, in window coordinates. Each row's [VerifyVideoPlayer]
+    // compares its own bounds against this to decide whether it is still visible — see
+    // [isRowVisibleInViewport] below for the threshold and rationale.
+    var viewportBounds by remember { mutableStateOf<Rect?>(null) }
+
+    // entries is always populated once the group has loaded; a single legacy/bundled item is an
+    // entries list of length 1, so the "one card, one verdict" layout below is also the correct
+    // (and only) rendering for that case — no separate legacy code path needed.
+    val entries = state.entries
+
+    // Auto-close once the last item in this group is decided: the item leaves the queue,
+    // entries becomes empty, and we have nothing left to show. This happens AFTER the
+    // backend confirms the decision (waitForBackendDecision succeeds), at which point the
+    // ViewModel sets autoCloseAfterDecision = true. A single legacy/bundled item (entries
+    // of length 1) closes immediately; a multi-animal shed waits until all are decided.
+    // Distinction: an entry with NO media (genuinely missing evidence) is still an entry —
+    // it renders the "No video attached" warning inside VerifyEntryCard. An item with NO
+    // entries means the queue no longer knows about this group at all — that is the signal
+    // to close.
+    // Keyed on the FLAG ALONE. It was `autoCloseAfterDecision && entries.isEmpty()`, which
+    // never fires: the ViewModel does not drain `entries` on a verdict -- decided animals stay
+    // rendered -- it sets autoCloseAfterDecision = !stillPending once every animal in the group
+    // holds a terminal verdict (see its own comment). Requiring an empty list on top of that
+    // meant the screen sat on a decided item showing "No video attached to this item" instead
+    // of returning to the queue. An item with genuinely no media never sets the flag (no verdict
+    // was submitted), so its EmptyState is untouched by this.
+    LaunchedEffect(state.autoCloseAfterDecision) {
+        if (state.autoCloseAfterDecision) {
+            onEvent(VerifyDetailEvent.Close)
+        }
+    }
 
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.Bg)) {
         Column(
@@ -180,8 +294,14 @@ fun VerifyDetailScreen(
                 .background(MeshaColors.Surf, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)),
         ) {
             DetailHeader(state = state, onClose = { onEvent(VerifyDetailEvent.Close) })
-            LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(bottom = 20.dp)) {
-                if (state.media.isEmpty()) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .onGloballyPositioned { viewportBounds = it.boundsInWindow() },
+                contentPadding = PaddingValues(bottom = 20.dp),
+            ) {
+                if (entries.isEmpty()) {
                     item {
                         EmptyState(
                             title = stringResource(R.string.verify_detail_no_media),
@@ -191,64 +311,35 @@ fun VerifyDetailScreen(
                         )
                     }
                 } else {
-                    itemsIndexed(
-                        items = state.media,
-                        key = { _, media -> media.signedUrl },
-                        contentType = { _, _ -> "verification_media" },
-                    ) { _, media ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            val recordedAnswer = media.answer?.takeIf { it.isNotBlank() }
-                            media.taskTitle?.takeIf { it.isNotBlank() }?.let { taskTitle ->
-                                Text(
-                                    text = taskTitle,
-                                    color = MeshaColors.Ink,
-                                    style = MeshaType.cardTitle,
-                                    modifier = Modifier.padding(bottom = if (recordedAnswer == null) 8.dp else 3.dp),
-                                )
-                            }
-                            recordedAnswer?.let { answer ->
-                                Text(
-                                    text = stringResource(R.string.verify_detail_recorded_answer, answer),
-                                    color = MeshaColors.Muted,
-                                    style = MeshaType.body,
-                                    modifier = Modifier.padding(bottom = 8.dp),
-                                )
-                            }
-                            VerifyVideoPlayer(
-                                media = media,
-                                onPlayback = { onEvent(it) },
-                                controlsEnabled = videoControlsEnabled,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
+                    items(
+                        items = entries,
+                        key = { entry -> entry.itemId },
+                        contentType = { "verification_entry" },
+                    ) { entry ->
+                        VerifyEntryCard(
+                            entry = entry,
+                            isCloseMode = state.isCloseMode,
+                            videoControlsEnabled = videoControlsEnabled,
+                            viewportBounds = viewportBounds,
+                            onPlayback = { onEvent(it) },
+                            onApprove = {
+                                if (APPROVE_NEEDS_CONFIRMATION) {
+                                    approveDialogForItemId = entry.itemId
+                                    onEvent(VerifyDetailEvent.ApproveDialogOpened(entry.itemId))
+                                } else {
+                                    onEvent(VerifyDetailEvent.Approve(entry.itemId))
+                                }
+                            },
+                            onReject = {
+                                rejectDialogForItemId = entry.itemId
+                                onEvent(VerifyDetailEvent.RejectDialogOpened(entry.itemId))
+                            },
+                        )
                     }
                 }
                 item { ContextCard(state.context) }
-                item {
-                    Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
-                        StatusPill(tone = state.statusTone)
-                    }
-                }
-                state.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
-                    item { RejectionReasonCard(reason = reason) }
-                }
-                item {
-                    if (!state.isCloseMode) {
-                        DecisionRow(
-                            approveEnabled = state.isApproveEnabled && !state.isSubmitting,
-                            rejectEnabled = state.isRejectEnabled && !state.isSubmitting,
-                            unavailableReason = state.decisionUnavailableReason,
-                            isSubmitting = state.isSubmitting,
-                            onApprove = {
-                                if (APPROVE_NEEDS_CONFIRMATION) showApproveDialog = true else onEvent(VerifyDetailEvent.Approve)
-                            },
-                            onReject = { showRejectDialog = true },
-                        )
-                    }
+                if (entries.size > 1 && state.isGroupFullyDecided) {
+                    item { GroupAcceptedBanner() }
                 }
                 state.errorMessage?.let { message ->
                     item {
@@ -264,23 +355,131 @@ fun VerifyDetailScreen(
         }
     }
 
-    if (showRejectDialog) {
+    rejectDialogForItemId?.let { targetItemId ->
         RejectReasonDialog(
             onConfirm = { reason ->
-                showRejectDialog = false
-                onEvent(VerifyDetailEvent.Reject(reason))
+                rejectDialogForItemId = null
+                onEvent(VerifyDetailEvent.Reject(reason = reason, itemId = targetItemId))
             },
-            onDismiss = { showRejectDialog = false },
+            onDismiss = {
+                rejectDialogForItemId = null
+                onEvent(VerifyDetailEvent.RejectDialogCancelled(targetItemId))
+            },
+            onBlockedEmptyReason = { onEvent(VerifyDetailEvent.RejectBlockedEmptyReason(targetItemId)) },
         )
     }
 
-    if (showApproveDialog) {
+    approveDialogForItemId?.let { targetItemId ->
         ApproveConfirmDialog(
             onConfirm = {
-                showApproveDialog = false
-                onEvent(VerifyDetailEvent.Approve)
+                approveDialogForItemId = null
+                onEvent(VerifyDetailEvent.Approve(targetItemId))
             },
-            onDismiss = { showApproveDialog = false },
+            onDismiss = {
+                approveDialogForItemId = null
+                onEvent(VerifyDetailEvent.ApproveDialogCancelled(targetItemId))
+            },
+        )
+    }
+}
+
+/** One animal's clip(s) + its OWN status pill, rejection reason, and Approve/Reject pair. */
+@Composable
+private fun VerifyEntryCard(
+    entry: VerifyDetailEntryUiState,
+    isCloseMode: Boolean,
+    videoControlsEnabled: Boolean,
+    viewportBounds: Rect?,
+    onPlayback: (VerifyDetailEvent) -> Unit,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        entry.subjectLabel?.takeIf { it.isNotBlank() }?.let { subject ->
+            Text(
+                text = subject,
+                color = MeshaColors.Ink,
+                style = MeshaType.cardTitle,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp),
+            )
+        }
+        if (entry.media.isEmpty()) {
+            EmptyState(
+                title = stringResource(R.string.verify_detail_no_media),
+                icon = MeshaIcons.Video,
+                tone = EmptyTone.Warn,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        entry.media.forEach { media ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                val recordedAnswer = media.answer?.takeIf { it.isNotBlank() }
+                media.taskTitle?.takeIf { it.isNotBlank() }?.let { taskTitle ->
+                    Text(
+                        text = taskTitle,
+                        color = MeshaColors.Ink,
+                        style = MeshaType.cardTitle,
+                        modifier = Modifier.padding(bottom = if (recordedAnswer == null) 8.dp else 3.dp),
+                    )
+                }
+                recordedAnswer?.let { answer ->
+                    Text(
+                        text = stringResource(R.string.verify_detail_recorded_answer, answer),
+                        color = MeshaColors.Muted,
+                        style = MeshaType.body,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                }
+                VerifyVideoPlayer(
+                    media = media,
+                    onPlayback = onPlayback,
+                    controlsEnabled = videoControlsEnabled,
+                    viewportBounds = viewportBounds,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) {
+            StatusPill(tone = entry.statusTone)
+        }
+        entry.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
+            RejectionReasonCard(reason = reason)
+        }
+        if (!isCloseMode) {
+            DecisionRow(
+                approveEnabled = entry.isApproveEnabled && !entry.isSubmitting,
+                rejectEnabled = entry.isRejectEnabled && !entry.isSubmitting,
+                unavailableReason = entry.decisionUnavailableReason,
+                isSubmitting = entry.isSubmitting,
+                onApprove = onApprove,
+                onReject = onReject,
+            )
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 14.dp),
+            thickness = 1.dp,
+            color = MeshaColors.Surf2,
+        )
+    }
+}
+
+@Composable
+private fun GroupAcceptedBanner() {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .fillMaxWidth()
+            .background(MeshaColors.OkX, shape = RoundedCornerShape(16.dp))
+            .padding(14.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.verify_detail_group_accepted),
+            color = MeshaColors.Ok,
+            style = MeshaType.listTitle,
         )
     }
 }
@@ -343,6 +542,7 @@ private fun VerifyVideoPlayer(
     onPlayback: (VerifyDetailEvent.VideoPlayback) -> Unit,
     modifier: Modifier = Modifier,
     controlsEnabled: Boolean = false,
+    viewportBounds: Rect? = null,
 ) {
     val context = LocalContext.current
     // Telemetry-instrumented player (W-22): media3 must fetch over the app's OkHttp client, or a
@@ -352,13 +552,34 @@ private fun VerifyVideoPlayer(
     var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
+    // ONE video is prepared at a time, and only after the reader asks for it.
+    //
+    // Every row used to build AND prepare() its own ExoPlayer as soon as it composed. A shed with
+    // five animals therefore held five hardware video decoders at once; devices cap concurrent
+    // MediaCodec instances, so the first clip played and every later one failed SILENTLY — the
+    // play button did nothing and no error surfaced. That is exactly the "I tapped it and nothing
+    // happened" class of bug this app is supposed to eliminate.
+    //
+    // `armed` flips on the first play tap. Until then the row shows its poster and costs no
+    // decoder. Reader-facing behaviour is unchanged: tap play, it plays.
+    var armed by remember(media.signedUrl) { mutableStateOf(false) }
+    // This row's own bounds in window coordinates, refreshed on every layout pass (scroll included)
+    // — compared against [viewportBounds] to decide whether this player should keep running.
+    var rowBounds by remember { mutableStateOf<Rect?>(null) }
     val player = remember(media.signedUrl) {
         playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
-            prepare()
             playWhenReady = false
         }
     }
+    // prepare() (the call that allocates the hardware decoder) is fired synchronously from the
+    // play/pause click handler's STATE_IDLE branch below, in the same tap that flips `armed` to
+    // true — there is no other path that sets `armed`, so a LaunchedEffect(armed, ...) mirroring
+    // that call would only ever re-run one composition AFTER the click handler already prepared
+    // the player; it was pure dead weight and has been removed. Do not reintroduce it: the whole
+    // point of the click-handler prepare() is to avoid depending on effect ordering (see the
+    // click handler's own comment for why a LaunchedEffect-only path silently drops the 2nd/3rd
+    // video on some devices).
     DisposableEffect(view) {
         val previous = view.keepScreenOn
         view.keepScreenOn = true
@@ -370,6 +591,17 @@ private fun VerifyVideoPlayer(
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
                 isPlaying = isPlayingNow
                 tracker.onPlayingChanged(isPlayingNow, player.duration, player.currentPosition)
+                // Outcome half of the intent/outcome pair below: the player told us it actually
+                // changed state, so the watchdog armed by the matching PLAY_INTENT tap can stand
+                // down. Fires on every transition (not just start), so a tap that only pauses
+                // (which never produces a tracker PLAY_STARTED) is still provably not dead.
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_OUTCOME,
+                    ),
+                )
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -395,11 +627,52 @@ private fun VerifyVideoPlayer(
             player.release()
         }
     }
+    // Pause + free the decoder once this row is no longer (mostly) visible in the shed list.
+    //
+    // Every row used to keep playing forever once tapped: composition never tears the player down
+    // until the row leaves COMPOSITION (LazyColumn recycling), which is later than leaving the
+    // VIEWPORT, and never happens at all for a row merely scrolled half off-screen. With several
+    // animals per shed and several sheds per park, that meant several hardware decoders running
+    // (and audio playing) off-screen at once — the exact condition that silently starved the
+    // 2nd/3rd decoder and made play() a no-op elsewhere in this screen.
+    //
+    // This is PAUSE, never auto-resume: scrolling a paused/playing row back into view must not
+    // restart it on its own (a verifier must not have clips playing at her as she scrolls) — she
+    // taps play again, which re-enters the STATE_IDLE/STATE_ENDED branches below exactly as if she
+    // had never scrolled.
+    //
+    // Deliberately NOT routed through the play/pause click handler: this must never emit
+    // PLAY_INTENT (that event means "the verifier tapped"), or a scroll would be misrecorded as a
+    // deliberate pause and could spuriously arm/disarm the dead-control watchdog. The player's own
+    // listener still fires PLAY_OUTCOME (proof the state changed) and stops accruing watch time —
+    // both correct, since the clip truly did stop playing. Because this never reaches
+    // STATE_ENDED, [VideoPlaybackTracker.flush] never fires here, so no premature WATCH_SUMMARY is
+    // sent and the accrued totals are untouched; they keep accumulating from where they left off
+    // if she scrolls back and taps play again.
+    LaunchedEffect(rowBounds, viewportBounds) {
+        val row = rowBounds ?: return@LaunchedEffect
+        val viewport = viewportBounds ?: return@LaunchedEffect
+        if (armed && player.isPlaying && !isRowVisibleInViewport(row, viewport)) {
+            player.playWhenReady = false
+            player.stop()
+        }
+    }
+    // Backgrounding the app (lock screen, home button, task switch) is its own case: nothing
+    // above fires because the row's bounds never change. ON_STOP (not ON_PAUSE, which also fires
+    // for transient overlays like a permission dialog) matches the ExoPlayer-recommended pause
+    // point and keeps a proof clip from playing audio behind a locked screen.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (armed && player.isPlaying) {
+            player.playWhenReady = false
+            player.stop()
+        }
+    }
     Box(
         modifier = modifier
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(14.dp))
-            .background(MeshaColors.Bg),
+            .background(MeshaColors.Bg)
+            .onGloballyPositioned { rowBounds = it.boundsInWindow() },
     ) {
         AndroidView(
             factory = { ctx ->
@@ -419,22 +692,65 @@ private fun VerifyVideoPlayer(
             update = { view -> view.useController = controlsEnabled },
             modifier = Modifier.fillMaxSize(),
         )
+        // READ-ONLY time readout. Deliberately NOT the media3 controller: turning that on would
+        // hand the verifier a seek bar. This is a label, so she can see how long the clip is and
+        // how far in she is, and still cannot skip through it.
+        VideoTimeReadout(player = player, modifier = Modifier.align(Alignment.BottomStart))
         PlayPauseButton(
             isPlaying = isPlaying,
             onClick = {
+                // INTENT half of the intent/outcome pair (docs/observability/
+                // TELEMETRY_GUARDRAILS.md): recorded BEFORE pause()/play() is even called, so a
+                // tap is proven to have happened whether or not the player responds. The matching
+                // PLAY_OUTCOME above disarms the ViewModel's watchdog; if it never arrives within
+                // AnalyticsFunnels.VERIFY_VIDEO_PLAY_WATCHDOG_TIMEOUT_MS the tap is reported as a
+                // dead control instead of vanishing silently.
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_INTENT,
+                        playerState = player.playbackState.toPlayerStateLabel(),
+                        armed = armed,
+                        targetAction = if (player.isPlaying) "pause" else "play",
+                    ),
+                )
                 if (player.isPlaying) {
                     player.pause()
                 } else {
+                    // Arm the decoder (see `armed` above) AND drive the player straight from
+                    // this click. Both steps have to happen here, synchronously:
+                    //
+                    //  - prepare() used to be left to a LaunchedEffect keyed on `armed`. That
+                    //    effect runs on the next composition, so play() could fire against a
+                    //    still-IDLE player, where it is a silent no-op.
+                    //  - a clip that ran to the end leaves the playhead AT the end, where play()
+                    //    is likewise a no-op.
+                    //
+                    // Either one on its own makes the button look dead: the verifier taps, and
+                    // nothing whatsoever happens. Re-watching a 3-second proof is the core of the
+                    // job, so this path must never depend on effect ordering.
+                    armed = true
+                    when (player.playbackState) {
+                        Player.STATE_IDLE -> player.prepare()
+                        Player.STATE_ENDED -> player.seekTo(0)
+                        else -> Unit
+                    }
                     player.play()
                 }
             },
             modifier = Modifier.align(Alignment.Center),
         )
-        // Maintainer decision 2026-08-02: a verifier gets PLAY/PAUSE ONLY. They must watch the
-        // proof as recorded — no scrubbing (useController stays false for them) and no fullscreen
-        // re-frame. Everyone else who may see the video keeps both. `controlsEnabled` is the same
-        // bootstrap-driven flag that governs the seek controller, so the two can never disagree.
-        if (controlsEnabled) {
+        // Maintainer decision 2026-08-04 SUPERSEDES 2026-08-02: the verifier keeps NO SCRUBBING
+        // (useController stays false, so there is no seek bar) but now gets FULLSCREEN and a
+        // read-only elapsed/total readout.
+        //
+        // Why the change: judging a proof means judging what is in it, and "the clip is too short"
+        // is a real verdict a verifier must be able to justify. Without a duration on screen she
+        // was rejecting blind — a 1.9s and a 20.4s recording looked identical. Fullscreen is
+        // needed for the same reason: an ear tag is unreadable in a 16:9 thumbnail.
+        // Scrubbing stays disabled: she must still WATCH the proof rather than skim it.
+        run {
             VideoFullscreenButton(
                 onClick = {
                     currentOnPlayback(
@@ -446,7 +762,15 @@ private fun VerifyVideoPlayer(
                         positionMs = player.currentPosition.coerceAtLeast(0L),
                     ),
                 )
+                    // stop(), not just pause. The fullscreen dialog builds its OWN ExoPlayer and
+                    // prepares it immediately, so a merely-paused inline player would still be
+                    // holding its hardware decoder and the two would be allocated at once -- on a
+                    // device with a tight decoder budget the fullscreen video then fails to open
+                    // with no error at all. stop() releases the codec and drops this player to
+                    // STATE_IDLE; the play handler above re-prepares from IDLE on the next tap, so
+                    // closing fullscreen and pressing play still works.
                     player.playWhenReady = false
+                    player.stop()
                     isFullscreen = true
                 },
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
@@ -459,7 +783,16 @@ private fun VerifyVideoPlayer(
             media = media,
             onPlayback = onPlayback,
             controlsEnabled = controlsEnabled,
-            onDismiss = { isFullscreen = false },
+            onDismiss = {
+                isFullscreen = false
+                onPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.FULLSCREEN_EXITED,
+                    ),
+                )
+            },
         )
     }
 }
@@ -489,6 +822,78 @@ private fun RejectionReasonCard(reason: String) {
             modifier = Modifier.padding(top = 4.dp),
         )
     }
+}
+
+/**
+ * Elapsed / total for a proof video, updated once a second while it plays.
+ *
+ * Exists because the verifier has no media3 controller (that would allow scrubbing) and was
+ * therefore judging a clip with no idea of its length — yet "too short" is one of the verdicts
+ * she is expected to give.
+ */
+@Composable
+private fun VideoTimeReadout(player: ExoPlayer, modifier: Modifier = Modifier) {
+    var positionMs by remember { mutableLongStateOf(0L) }
+    var durationMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(player) {
+        while (true) {
+            positionMs = player.currentPosition.coerceAtLeast(0L)
+            // duration is C.TIME_UNSET until the media is prepared; show 0 rather than a negative.
+            durationMs = player.duration.coerceAtLeast(0L)
+            kotlinx.coroutines.delay(500)
+        }
+    }
+    Text(
+        text = formatClock(positionMs) + " / " + formatClock(durationMs),
+        style = MeshaType.caption,
+        color = MeshaColors.Ink,
+        modifier = modifier
+            .padding(8.dp)
+            .background(MeshaColors.Bg.copy(alpha = 0.72f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+/** m:ss. Proof clips are seconds long, so hours would be noise. */
+private fun formatClock(ms: Long): String {
+    val total = ms / 1000
+    return "%d:%02d".format(total / 60, total % 60)
+}
+
+/**
+ * Whether a video row is still "visible enough" in the list's scrollable viewport to keep
+ * playing, given both rects in the SAME coordinate space (window coordinates in production —
+ * see the `onGloballyPositioned` call sites above).
+ *
+ * Threshold: at least [minVisibleFraction] (50%) of the row's height must overlap the viewport.
+ * Chosen because the maintainer-confirmed gap was explicitly a row "merely scrolled half-off" —
+ * a 0% ("fully off-screen only") threshold would leave that exact case still playing (and its
+ * decoder still held) while the row is mostly unreadable and its audio is already disorienting.
+ * A stricter threshold (e.g. 90%) would instead pause during ordinary small scroll jitter, which
+ * is needlessly aggressive for a hardware-decoder / battery concern. 50% is the smallest
+ * threshold that actually closes the reported gap.
+ */
+internal fun isRowVisibleInViewport(
+    row: Rect,
+    viewport: Rect,
+    minVisibleFraction: Float = 0.5f,
+): Boolean {
+    val rowHeight = (row.bottom - row.top).coerceAtLeast(1f)
+    val overlapTop = maxOf(row.top, viewport.top)
+    val overlapBottom = minOf(row.bottom, viewport.bottom)
+    val overlapHeight = (overlapBottom - overlapTop).coerceAtLeast(0f)
+    return (overlapHeight / rowHeight) >= minVisibleFraction
+}
+
+/** Human-readable ExoPlayer state name for [VerifyDetailEvent.VideoPlayback.playerState] — the
+ *  exact condition (STATE_IDLE/STATE_ENDED) that used to make play() a silent no-op, so a dead
+ *  control report is actionable without re-deriving it from a raw int. */
+private fun Int.toPlayerStateLabel(): String = when (this) {
+    Player.STATE_IDLE -> "STATE_IDLE"
+    Player.STATE_BUFFERING -> "STATE_BUFFERING"
+    Player.STATE_READY -> "STATE_READY"
+    Player.STATE_ENDED -> "STATE_ENDED"
+    else -> "STATE_UNKNOWN($this)"
 }
 
 @Composable
@@ -552,6 +957,15 @@ private fun FullscreenVideoDialog(
             override fun onIsPlayingChanged(isPlayingNow: Boolean) {
                 isPlaying = isPlayingNow
                 tracker.onPlayingChanged(isPlayingNow, player.duration, player.currentPosition)
+                // Outcome half of the intent/outcome pair — see the inline player's identical
+                // listener above for the full rationale.
+                currentOnPlayback(
+                    VerifyDetailEvent.VideoPlayback(
+                        proofSubject = media.proofSubject,
+                        mimeType = media.mimeType,
+                        action = VideoPlaybackAction.PLAY_OUTCOME,
+                    ),
+                )
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -575,6 +989,14 @@ private fun FullscreenVideoDialog(
             tracker.flush(player.duration, player.currentPosition)
             player.removeListener(listener)
             player.release()
+        }
+    }
+    // Same background-pause rule as the inline player above — a fullscreen proof clip must not
+    // keep playing (with audio) behind a locked screen or after a task switch.
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        if (player.isPlaying) {
+            player.playWhenReady = false
+            player.pause()
         }
     }
 
@@ -601,9 +1023,30 @@ private fun FullscreenVideoDialog(
             PlayPauseButton(
                 isPlaying = isPlaying,
                 onClick = {
+                    // INTENT half — see the inline player's identical click handler above for the
+                    // full rationale. The fullscreen player is always prepared eagerly on
+                    // creation, so `armed` is always true here.
+                    currentOnPlayback(
+                        VerifyDetailEvent.VideoPlayback(
+                            proofSubject = media.proofSubject,
+                            mimeType = media.mimeType,
+                            action = VideoPlaybackAction.PLAY_INTENT,
+                            playerState = player.playbackState.toPlayerStateLabel(),
+                            armed = true,
+                            targetAction = if (player.isPlaying) "pause" else "play",
+                        ),
+                    )
                     if (player.isPlaying) {
                         player.pause()
                     } else {
+                        // Same rule as the inline player above: an IDLE player needs prepare()
+                        // and a finished one needs rewinding, or play() does nothing at all and
+                        // the control looks broken.
+                        when (player.playbackState) {
+                            Player.STATE_IDLE -> player.prepare()
+                            Player.STATE_ENDED -> player.seekTo(0)
+                            else -> Unit
+                        }
                         player.play()
                     }
                 },
@@ -783,6 +1226,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
 
 internal fun formatCapturedAt(raw: String, locale: java.util.Locale, zoneId: ZoneId): String =
     runCatching {
+        // exception:exempt timestamp display; unparseable instant shows raw ISO string
         DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
             .withLocale(locale)
             .withZone(zoneId)
@@ -911,6 +1355,7 @@ private fun DecisionButton(
 private fun RejectReasonDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit,
+    onBlockedEmptyReason: () -> Unit = {},
 ) {
     var reason by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
@@ -963,6 +1408,7 @@ private fun RejectReasonDialog(
                 val trimmed = latestReason.trim()
                 if (trimmed.isBlank()) {
                     showError = true
+                    onBlockedEmptyReason()
                 } else {
                     onConfirm(trimmed)
                 }

@@ -79,7 +79,18 @@ data class WeighingWizardReviewRow(
  */
 data class WeighingWizardUiState(
     val step: WeighingWizardStep = WeighingWizardStep.DATE,
+    /**
+     * How many steps the STEPPER shows. 5 in create mode; 3 in edit mode, which can only ever be
+     * on Buckets/Configure/Review -- Date and Park are never advertised as steps to visit.
+     */
     val stepCount: Int = WeighingWizardStep.entries.size,
+    /**
+     * Which of [stepCount] positions [step] is currently on, zero-based. NOT [step]'s raw ordinal
+     * in the 5-entry [WeighingWizardStep] enum: in edit mode BUCKETS is display position 0, not 2.
+     */
+    val stepDisplayIndex: Int = 0,
+    /** True on the first step THIS instance can ever be on -- DATE in create mode, BUCKETS in edit mode. */
+    val isFirstStep: Boolean = true,
     val loading: Boolean = false,
     val busy: Boolean = false,
     val message: String? = null,
@@ -144,4 +155,11 @@ data class WeighingWizardUiState(
     val reviewRows: List<WeighingWizardReviewRow> = emptyList(),
     val reviewOperatorLabel: String = "",
     val lopsidedOperatorLabel: String? = null,
+
+    /**
+     * True when this wizard instance is CHANGING an existing task rather than authoring a new
+     * one. The screen uses it to show one "Save changes" action instead of the draft/publish pair
+     * a brand-new task offers -- an edit writes straight back to the campaign it opened from.
+     */
+    val isEditing: Boolean = false,
 )

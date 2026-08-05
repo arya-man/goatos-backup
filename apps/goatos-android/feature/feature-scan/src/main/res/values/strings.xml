@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  telemetry:exempt Resource strings; telemetry wired in feature module screens
+-->
 <resources>
     <!-- Scan (v-scan) chrome strings -->
     <string name="scan_back_cd">Back</string>
@@ -48,4 +51,8 @@
         <item quantity="one">%1$d item syncing</item>
         <item quantity="other">%1$d items syncing</item>
     </plurals>
+    <string name="scan_submit_confirmation_title">Finalize this shed?</string>
+    <string name="scan_submit_confirmation_subtitle">Once finalized, this shed work is locked. You cannot reopen it yourself — only a manager or director can.</string>
+    <string name="scan_submit_confirmation_dismiss">Cancel</string>
+    <string name="scan_submit_confirmation_confirm">Finalize</string>
 </resources>

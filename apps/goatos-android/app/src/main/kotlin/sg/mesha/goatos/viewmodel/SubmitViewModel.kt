@@ -25,6 +25,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import sg.mesha.goatos.capture.ProofCaptureSource
+import sg.mesha.goatos.core.analytics.AnalyticsFunnels
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.BootstrapRepository
@@ -110,6 +113,8 @@ class SubmitViewModel @Inject constructor(
     private val scanSource: ScanSource,
     private val proofCaptureSource: ProofCaptureSource,
     private val bootstrapRepository: BootstrapRepository,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -153,6 +158,9 @@ class SubmitViewModel @Inject constructor(
     // Guards concurrent submit() invocations — true while a submission is in flight.
     // Prevents multi-tap duplicate submissions by returning early on concurrent calls.
     private var submitInFlight = false
+
+    // Show confirmation dialog before submitting
+    private var showSubmitConfirmation = false
 
     // Role gate (§5): null = not yet resolved; true = has an operator profile (ground
     // ground operator, capture allowed); false = viewer/verifier/leadership.
@@ -362,6 +370,13 @@ class SubmitViewModel @Inject constructor(
                         }
                     }
                     is AppResult.Err -> {
+                        // Answers: did outbox-row recovery after a process recreation actually
+                        // fail, vs. simply finding no row — needed to diagnose a stuck submit
+                        // banner that never resumes after a kill.
+                        crashReporter.recordException(
+                            recovered.cause ?: IllegalStateException(recovered.message),
+                            "SubmitViewModel.applyTaskResource outbox recovery lookup failed",
+                        )
                         if (queuedItemId != null) observeOutboxItem(queuedItemId) else renderDraft()
                     }
                 }
@@ -394,6 +409,8 @@ class SubmitViewModel @Inject constructor(
         when (event) {
             SubmitEvent.Submit -> submit()
             SubmitEvent.Retry -> retry()
+            SubmitEvent.ConfirmSubmit -> confirmSubmit()
+            SubmitEvent.DismissSubmitConfirmation -> dismissSubmitConfirmation()
             is SubmitEvent.FormToggle -> updateAnswer(event.key, JsonPrimitive(event.checked))
             is SubmitEvent.FormText -> updateAnswer(event.key, JsonPrimitive(event.value))
             is SubmitEvent.FormPick -> updateAnswer(event.key, JsonPrimitive(event.value))
@@ -512,8 +529,16 @@ class SubmitViewModel @Inject constructor(
                     _state.update { it.copy(lastError = null) }
                     repo.refreshShedCompletionSummary(task.taskId, selectedShedId.value)
                 }
-                is AppResult.Err -> _state.update {
-                    it.copy(lastError = result.message.ifBlank { "Could not remove proof video. Try again." })
+                is AppResult.Err -> {
+                    // Answers: did a proof-removal request actually fail (vs. the operator just
+                    // never tapping remove) — otherwise a stuck "remove" affordance is invisible.
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException(result.message),
+                        "SubmitViewModel.removeProof failed",
+                    )
+                    _state.update {
+                        it.copy(lastError = result.message.ifBlank { "Could not remove proof video. Try again." })
+                    }
                 }
             }
         }
@@ -573,9 +598,20 @@ class SubmitViewModel @Inject constructor(
             } else {
                 currentShedCompletionSummary?.submitEnabled == true && formBlock == null
             }
-            if (!ready) return
-        } else if (buildFormRunnerState(currentForm, current)?.blockedReason != null) {
-            return
+            if (!ready) {
+                // Distinguishes "operator tapped a blocked submit" from "never tried" — the
+                // disabled-button dead end previously recorded nothing at all.
+                val reason = proofReadiness.blockingReason ?: formBlock ?: "shed_not_ready"
+                AnalyticsFunnels.trackSubmitBlocked(analytics, current.taskId, reason)
+                return
+            }
+        } else {
+            val blockedReason = buildFormRunnerState(currentForm, current)?.blockedReason
+            if (blockedReason != null) {
+                // Distinguishes "operator tapped a blocked submit" from "never tried".
+                AnalyticsFunnels.trackSubmitBlocked(analytics, current.taskId, blockedReason)
+                return
+            }
         }
         stopScanning()
         val sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() }
@@ -592,9 +628,31 @@ class SubmitViewModel @Inject constructor(
             }
             return
         }
+        // Raise the gate. The flag must reach the EMITTED state, not just this field: a private
+        // var the screen never observes is invisible, which is exactly why the dialog never
+        // appeared the first time this was wired.
+        showSubmitConfirmation = true
+        _state.value = _state.value.copy(showSubmitConfirmation = true)
+    }
+
+    fun confirmSubmit() {
+        // ONLY proceeds when the gate is actually open. submit() runs every validation first and
+        // raises the gate only if the shed may really be submitted; without this check, confirming
+        // would skip straight past those guards -- a pending proof, a read-only task or a
+        // not-ready shed would submit anyway. The gate must be a pause in front of the checks,
+        // never a way around them.
+        if (!showSubmitConfirmation) return
+        val current = currentTask ?: return
+        if (captureAllowed == false) return
+        if (submitInFlight) return
+        showSubmitConfirmation = false
+        _state.value = _state.value.copy(showSubmitConfirmation = false)
         submitInFlight = true
         val activeShedId = activeShedScopeId(current)
         val key = idempotencyKey ?: stableSubmissionKey(current, activeShedId).also { idempotencyKey = it }
+        // Answers: did the operator actually attempt the final submit (vs. leaving the shed
+        // with a fully-scanned roster but never confirming) — the funnel's last-mile event.
+        AnalyticsFunnels.trackSubmitAttempted(analytics, current.taskId)
         statusJob?.cancel()
         viewModelScope.launch {
             // State update clears snackbar before enqueuing; snackbar will be shown when
@@ -617,7 +675,7 @@ class SubmitViewModel @Inject constructor(
             // of a shed's writes in order (TRD: outbox is "ordered per shed").
             val groupKey = activeShedId ?: current.scopeId.ifBlank { current.taskId }
             val request = SubmitTaskRequestDto(
-                sopVersionId = sopVersionId,
+                sopVersionId = current.sopVersionId.ifBlank { routeSopVersionId.orEmpty() },
                 idempotencyKey = key,
                 answers = answersForSubmission(currentForm, formAnswers, currentScans),
                 proofRefs = proofRefsForSubmission(currentProofs),
@@ -637,6 +695,17 @@ class SubmitViewModel @Inject constructor(
                 is AppResult.Err -> {
                     // Keep it honest: a write that can't even be queued is a visible error,
                     // never a silent drop.
+                    // Answers: did the submit fail to even reach the offline outbox (the biggest
+                    // gap before this pass — this reached neither GA4 nor Crashlytics).
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException(result.message),
+                        "SubmitViewModel.confirmSubmit enqueue failed",
+                    )
+                    AnalyticsFunnels.trackSubmitFailed(
+                        analytics,
+                        current.taskId,
+                        result.message.ifBlank { "enqueue_failed" },
+                    )
                     _state.update {
                         it.copy(
                             syncState = SyncState.DEAD_LETTER,
@@ -652,14 +721,36 @@ class SubmitViewModel @Inject constructor(
         }
     }
 
+    fun dismissSubmitConfirmation() {
+        // Cancel changes nothing else: no outbox row, no submit, no navigation.
+        showSubmitConfirmation = false
+        _state.value = _state.value.copy(showSubmitConfirmation = false)
+    }
+
     private fun retry() {
         val itemId = outboxItemId
         when {
             itemId != null -> viewModelScope.launch {
-                when (syncRepository.retry(itemId)) {
+                when (val retryResult = syncRepository.retry(itemId)) {
                     is AppResult.Ok -> Unit
-                    is AppResult.Err -> _state.update {
-                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                    is AppResult.Err -> {
+                        // Answers: did an operator-initiated retry of a dead-lettered submit
+                        // itself fail to re-enqueue — a second, silent failure on top of the
+                        // first would otherwise never surface.
+                        crashReporter.recordException(
+                            retryResult.cause ?: IllegalStateException(retryResult.message),
+                            "SubmitViewModel.retry re-enqueue failed",
+                        )
+                        currentTask?.let {
+                            AnalyticsFunnels.trackSubmitFailed(
+                                analytics,
+                                it.taskId,
+                                retryResult.message.ifBlank { "retry_failed" },
+                            )
+                        }
+                        _state.update {
+                            it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                        }
                     }
                 }
             }
@@ -672,10 +763,25 @@ class SubmitViewModel @Inject constructor(
                     submit()
                     return@launch
                 }
-                when (syncRepository.deleteFailedOutboxItemByIdempotencyKey(key)) {
+                when (val deleteResult = syncRepository.deleteFailedOutboxItemByIdempotencyKey(key)) {
                     is AppResult.Ok -> submit()
-                    is AppResult.Err -> _state.update {
-                        it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                    is AppResult.Err -> {
+                        // Answers: did the recovery-path cleanup of a failed outbox row block a
+                        // retry attempt (the operator taps Retry and nothing visibly happens).
+                        crashReporter.recordException(
+                            deleteResult.cause ?: IllegalStateException(deleteResult.message),
+                            "SubmitViewModel.retry cleanup-before-resubmit failed",
+                        )
+                        currentTask?.let {
+                            AnalyticsFunnels.trackSubmitFailed(
+                                analytics,
+                                it.taskId,
+                                deleteResult.message.ifBlank { "retry_cleanup_failed" },
+                            )
+                        }
+                        _state.update {
+                            it.copy(syncLabel = "", syncState = SyncState.DEAD_LETTER, attemptCount = 0, maxAttempts = 0, isRetryFailed = true)
+                        }
                     }
                 }
             }
@@ -743,6 +849,9 @@ class SubmitViewModel @Inject constructor(
             item.status == SyncItemStatus.SUCCEEDED -> {
                 val task = currentTask
                 submitInFlight = false
+                // Answers: did the enqueued submit actually reach and get accepted by the
+                // backend — closes the funnel's last stage, previously invisible.
+                AnalyticsFunnels.trackSubmitSucceeded(analytics, (currentTask?.taskId ?: item.groupKey))
                 if (task != null) {
                     _state.value = terminalAckState(task, currentForm).copy(snackbarMessage = SubmitSnackbarMessage.SUCCEEDED)
                 } else {
@@ -752,12 +861,26 @@ class SubmitViewModel @Inject constructor(
             }
             item.conflict -> {
                 submitInFlight = false
+                // Answers: did the backend reject the submission (missing answers/proof) — a
+                // failure mode this pass previously reported to neither GA4 nor Crashlytics.
+                crashReporter.recordException(
+                    IllegalStateException(item.lastError ?: "conflict"),
+                    "SubmitViewModel submit rejected (conflict)",
+                )
+                AnalyticsFunnels.trackSubmitFailed(analytics, (currentTask?.taskId ?: item.groupKey), item.lastError?.ifBlank { "conflict" } ?: "conflict")
                 _state.update {
                     it.copy(syncState = SyncState.CONFLICT, syncLabel = "", canSubmit = false, lastError = item.lastError, attemptCount = 0, maxAttempts = 0, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.CONFLICT)
                 }
             }
             item.isDeadLetter -> {
                 submitInFlight = false
+                // Answers: did the submit exhaust its transport retries without ever reaching
+                // the backend — the other half of the "submit failure reaches nobody" gap.
+                crashReporter.recordException(
+                    IllegalStateException(item.lastError ?: "dead_letter"),
+                    "SubmitViewModel submit dead-lettered",
+                )
+                AnalyticsFunnels.trackSubmitFailed(analytics, (currentTask?.taskId ?: item.groupKey), item.lastError?.ifBlank { "dead_letter" } ?: "dead_letter")
                 _state.update {
                     it.copy(
                         syncState = SyncState.DEAD_LETTER,
@@ -949,17 +1072,37 @@ class SubmitViewModel @Inject constructor(
     }
 
     private fun shouldRenderTerminalAck(task: TaskSummaryDto): Boolean {
-        if (!task.state.isSubmissionTerminal()) return false
         val summary = currentShedCompletionSummary
         if (summary != null) {
+            // The backend's readiness gate is authoritative and reflects the CURRENT round
+            // (e.g. a rescan after a per-goat rejection reopens obligations for a fresh
+            // submission). `submit_state` is a coarse, terminal-sounding word derived from the
+            // whole task's historical state (see ShedCompletionSummary docs) and can still read
+            // "verified"/"submitted" from an EARLIER round even while THIS round's readiness is
+            // submit_enabled=true with no blocking reason. Never let that stale wording render a
+            // "Submitted" screen over work that was never actually sent — submit_enabled=true
+            // means the operator must be able to submit, full stop.
+            // Scoped deliberately to a CLOSED-OUT round. "needs_review"/"submitted" mean a
+            // submission for this round is already with the verifier -- that screen must stay
+            // acknowledged even though submit_enabled can still be true (e.g. an optional extra
+            // shed video is uploading). Only "verified"/"closed" mean the previous round is
+            // finished, so submit_enabled there is the signal that a NEW round (a rescan after a
+            // rejection) is ready and must be sendable. That is the live defect: Gandhi 1 read
+            // task.state="accepted" + submit_state="verified" + submit_enabled=true, and the
+            // screen rendered "Submitted / Synced - record on file" over three rescanned animals
+            // whose proof videos were already uploaded. Finalize never reached submit(), no
+            // SHED_SUBMIT was ever enqueued, and the operator was told the job was done.
+            if (summary.submitEnabled && summary.submitState.isRoundClosedOut()) return false
+            if (!task.state.isSubmissionTerminal()) return false
             if (!summary.submitState.isSubmissionTerminal()) return false
             if (currentProofPolicy.isShedLevelVideo) {
                 val readiness = currentShedProofReadiness()
                 if (readiness.uploading > 0 || readiness.failed > 0) return false
                 return readiness.blockingReason == null
             }
+            return true
         }
-        return true
+        return task.state.isSubmissionTerminal()
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
@@ -1345,6 +1488,20 @@ class SubmitViewModel @Inject constructor(
 
         fun String.isSubmissionTerminal(): Boolean = when (lowercase()) {
             "submitted", "needs_review", "accepted", "verified", "closed", "completed" -> true
+            else -> false
+        }
+
+        /**
+         * A round that is FINISHED, as opposed to one still with the verifier.
+         *
+         * "submitted"/"needs_review" mean this round's work is already sent and awaiting a
+         * verdict — the acknowledged screen is correct there. "verified"/"closed"/"accepted"
+         * mean the previous round is done, so a backend `submit_enabled=true` alongside one of
+         * these is the signal that a NEW round exists (a rescan after a rejection) and must be
+         * sendable rather than hidden behind a "Submitted" screen.
+         */
+        fun String.isRoundClosedOut(): Boolean = when (lowercase()) {
+            "verified", "closed", "completed", "accepted" -> true
             else -> false
         }
 

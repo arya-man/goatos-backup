@@ -551,6 +551,61 @@ class WeighingRepositoryTest {
         assertEquals(listOf("Castro 1"), result.value.items.map { it.label })
     }
 
+    /**
+     * DEFECT. A removed shed is not deleted server-side -- its `weighing_campaign_sheds` row
+     * survives with status="canceled", and the backend's `total_count` on the task-detail bucket
+     * page still counts it. The task CARD and the close-task action line both derive from
+     * [WeighingTask.sheds] ([WeighingCampaignDto.toTask]), which already drops canceled rows, so
+     * they read "3". The task DETAIL header must read the same "3", not "4" -- [observeTaskBuckets]
+     * must drop canceled rows from both [WeighingTaskBucketCache.items] and
+     * [WeighingTaskBucketCache.totalCount], exactly like [WeighingCampaignDto.toTask] already does.
+     */
+    @Test
+    fun `task detail bucket cache excludes canceled buckets from both items and total count`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun listWeighingCampaignSheds(
+                campaignId: String,
+                cursor: String?,
+                limit: Int,
+            ): sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto =
+                sg.mesha.goatos.core.network.dto.WeighingCampaignShedPageResponseDto(
+                    campaignId = campaignId,
+                    items = listOf(
+                        weighingShed("task-1", "shed-gandhi-1", "Gandhi 1", "pending"),
+                        weighingShed("task-1", "shed-gandhi-2", "Gandhi 2", "in_progress"),
+                        weighingShed("task-1", "shed-godel-1", "Godel 1", "completed"),
+                        weighingShed("task-1", "shed-castro-1", "Castro 1", "canceled"),
+                    ),
+                    nextCursor = null,
+                    // The backend's WHOLE-TASK total, over EVERY row including the canceled one --
+                    // exactly the raw count the card and close-action line must never see.
+                    totalCount = 4,
+                )
+        }
+        repository = DefaultWeighingRepository(
+            api = api,
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            database = db,
+        )
+
+        repository.refreshTaskBuckets("task-1", reset = true)
+        val cache = repository.observeTaskBuckets("task-1", windowSize = 20).first()
+
+        assertEquals(
+            "a canceled bucket must never reach the task-detail bucket list",
+            listOf("Gandhi 1", "Gandhi 2", "Godel 1"),
+            cache.items.map { it.displayName },
+        )
+        assertEquals(
+            "the header's whole-task count must agree with the card and the close-action line, " +
+                "which both already drop canceled buckets",
+            3,
+            cache.totalCount,
+        )
+    }
+
     @Test
     fun `leadership oversight surface receives closed sheds so history and reopen are reachable`() = runTest {
         // A23: toAssignments() used to drop status == "closed" unconditionally, which fed BOTH the

@@ -114,7 +114,7 @@ class VerifyDetailEvidenceGateTest {
             ),
         )
         advanceUntilIdle()
-        vm.onEvent(VerifyDetailEvent.Approve)
+        vm.onEvent(VerifyDetailEvent.Approve())
         advanceUntilIdle()
 
         assertEquals("no approve may reach the outbox", emptyList<String>(), sync.enqueued)

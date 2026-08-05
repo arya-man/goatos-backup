@@ -3,6 +3,7 @@ package sg.mesha.goatos.feature.calendar
 import androidx.compose.runtime.Immutable
 import sg.mesha.goatos.core.ui.CoverageBannerUiState
 
+// telemetry:exempt State data classes; telemetry tracked in CalendarViewModel and screens
 /**
  * Calendar screen state (TRD §14 dumb-renderer). Every visible label, status,
  * count, action, and drill target is a backend-provided FIELD — the screen never
@@ -69,6 +70,9 @@ data class CalendarDriveSummary(
     val dueCount: Int = 0,
     val overdueCount: Int = 0,
     val deferredCount: Int = 0,
+    // Informational subset of dueCount/overdueCount (see DriveSummaryDto) — names WHY the
+    // progress numerator dropped after a verifier rejects proof, instead of an unexplained gap.
+    val rejectedCount: Int = 0,
     // Backend-owned cross-surface progress (numerator + denominator + its grain + the rounded
     // percentage). Rendered VERBATIM; the client must not compute its own numerator. Null only on
     // legacy cache / older-backend responses, where the card falls back to the local derivation.

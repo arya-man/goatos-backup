@@ -52,6 +52,8 @@ class SubmitViewModelIdentityTest {
             scanSource = sg.mesha.goatos.rfid.FakeScanSource(),
             proofCaptureSource = sg.mesha.goatos.capture.FakeProofCaptureSource(),
             bootstrapRepository = FakeCaptureBootstrapRepository(),
+        analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+        crashReporter = sg.mesha.goatos.core.analytics.NoopCrashReporter(),
             savedStateHandle = SavedStateHandle(mapOf("taskId" to "task-selected")),
         )
         // MOB-010: the Room task-detail observer is now gated on `state` having a subscriber —

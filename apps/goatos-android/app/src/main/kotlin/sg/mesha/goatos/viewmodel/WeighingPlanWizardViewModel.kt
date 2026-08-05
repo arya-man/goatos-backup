@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.analytics.AnalyticsEvents
+import sg.mesha.goatos.core.analytics.AnalyticsEventsWeighing
+import sg.mesha.goatos.core.analytics.AnalyticsPort
+import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.data.weighing.WeighingPlanDraft
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
@@ -24,6 +28,7 @@ import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE
 import sg.mesha.goatos.feature.weighing.plan.WeighingBucketFilter
+import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatBucket
 import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeed
 import sg.mesha.goatos.feature.weighing.plan.WeighingRepeatSeedStore
 import sg.mesha.goatos.feature.weighing.plan.WeighingWizardBucketRow
@@ -57,22 +62,64 @@ import javax.inject.Inject
 class WeighingPlanWizardViewModel @Inject constructor(
     private val repository: WeighingRepository,
     repeatSeedStore: WeighingRepeatSeedStore,
+    private val analytics: AnalyticsPort,
+    private val crashReporter: CrashReporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     /**
-     * The answers carried over when the planner started this task from an existing one.
-     *
-     * Consumed ONCE, at construction. The wizard still opens on the DATE step with no date chosen:
-     * a repeat is a NEW task on a new day, and its buckets are re-checked for availability against
-     * whichever date is picked. Nothing is copied from the source campaign row.
+     * The route argument naming the task this wizard was started FROM -- a repeat OR an edit; the
+     * two are told apart only by the SEED's own [WeighingRepeatSeed.editCampaignId], which arrives
+     * separately, in-process, through [repeatSeedStore]. The route arg alone cannot say which.
      */
-    private val repeatSeed: WeighingRepeatSeed? =
-        savedStateHandle.get<String>(Routes.WEIGHING_REPEAT_OF_ARG)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { repeatSeedStore.take(it) }
+    private val repeatOfArg: String? =
+        savedStateHandle.get<String>(Routes.WEIGHING_REPEAT_OF_ARG)?.takeIf { it.isNotBlank() }
 
-    private val raw = MutableStateFlow(WizardRaw(repeat = repeatSeed))
+    private val repeatSeed: WeighingRepeatSeed? = repeatOfArg?.let { repeatSeedStore.take(it) }
+
+    /**
+     * Set when this wizard instance is EDITING an existing task rather than authoring a new one.
+     *
+     * Carried on [WizardRaw] (not just read once here) so every place that reads or writes the
+     * campaign -- the bucket-availability calls that must exclude it, and [commit] -- reaches it
+     * off the same state the screen renders.
+     */
+    private val editCampaignId: String? = repeatSeed?.editCampaignId
+
+    /**
+     * True when the route says this wizard was opened FROM another task (repeat or edit) but the
+     * in-process handoff that would say which is gone.
+     *
+     * [WeighingRepeatSeedStore] is a one-shot, in-memory map by design (see its own doc) -- it does
+     * NOT survive process death, while the route argument does, via [SavedStateHandle]. Without this
+     * flag, a process death between staging an edit and this ViewModel's construction left
+     * [editCampaignId] null and the wizard silently reopened as a brand-new, empty CREATE wizard --
+     * the planner's edit intent (and the fact they were changing an EXISTING task) vanished with no
+     * sign anything had gone wrong. This is not recoverable from disk, so instead of guessing, the
+     * wizard opens refusing to continue at all and says why, so the planner goes back and reopens
+     * the task instead of unknowingly authoring a second one.
+     */
+    private val seedLost: Boolean = repeatOfArg != null && repeatSeed == null
+
+    private val raw = MutableStateFlow(
+        WizardRaw(
+            repeat = repeatSeed,
+            editCampaignId = editCampaignId,
+            seedLost = seedLost,
+            // An edit cannot change which day OR which park the task runs on -- only its shed
+            // buckets, their operators and their mode -- so both the date and the park are
+            // pre-selected, never chosen, and the catalog for it starts loading immediately
+            // rather than waiting for taps this flow never asks for.
+            date = repeatSeed?.editWeighDate?.takeIf { editCampaignId != null },
+            // The MAINTAINER DECISION: an edit must never be able to change the task's date or
+            // park, so neither step is just pre-filled -- both are UNREACHABLE. An edit opens
+            // straight on BUCKETS -- the first step that can still change -- and [back] refuses to
+            // walk past it into PARK or DATE. To move a task to another day, or another park, the
+            // planner closes it and starts a new one.
+            step = if (editCampaignId != null) WeighingWizardStep.BUCKETS else WeighingWizardStep.DATE,
+            message = if (seedLost) SEED_LOST_MESSAGE else null,
+        ),
+    )
 
     /**
      * How many cached SHED rows of the CHOSEN park the bucket step observes. Sheds, not parks: the
@@ -86,9 +133,76 @@ class WeighingPlanWizardViewModel @Inject constructor(
     /** The chosen park's cached cursor state. Stops the scroll prefetch at the end of that park. */
     private var bucketsEndReached = false
 
+    /**
+     * IN-FLIGHT guards for the two network calls that both surface through [WizardRaw.loading].
+     *
+     * Kept SEPARATE from that shared UI flag on purpose. The edit wizard pre-hydrates its date and
+     * fires the catalog refresh and the first park-bucket refresh back to back, before either
+     * network call has returned -- so a single shared "is anything loading" boolean made the
+     * bucket refresh see the catalog refresh's in-flight flag and silently bail out via its own
+     * dedupe guard, permanently leaving the bucket step empty (nothing re-triggers it afterward).
+     * Each call now dedupes against its OWN flag; [WizardRaw.loading] keeps driving the UI text
+     * for whichever fetch is actually running.
+     */
+    private var catalogRefreshInFlight = false
+    private var bucketsRefreshInFlight = false
+
     val state: StateFlow<WeighingWizardUiState> = raw
         .map { it.toUiState() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WizardRaw().toUiState())
+
+    /**
+     * Step this wizard instance has already emitted a [AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_STEP_REACHED]
+     * for, so a re-render or a re-pick of the SAME step (e.g. re-selecting the already-chosen park
+     * in [selectPark]) never double-logs. Also doubles as the LAST step reached, which
+     * [onCleared] reports if the wizard is abandoned without saving.
+     */
+    private var lastTrackedStep: WeighingWizardStep? = null
+
+    /** The step this instance opened on — DATE for a create, BUCKETS for an edit (see [raw]'s
+     *  init). An abandonment that never leaves this step is nothing started, not something given
+     *  up on, so [onCleared] only reports past it. */
+    private val openingStep: WeighingWizardStep = raw.value.step
+
+    init {
+        analytics.track(AnalyticsEvents.WEIGHING_PLAN_VIEWED)
+        trackStepReached(raw.value.step)
+        // Editing pre-selects its date (see [raw]'s init above), so the catalog for it starts
+        // loading now rather than waiting for a DATE-step tap this flow never asks for.
+        raw.value.date?.takeIf { editCampaignId != null }?.let { loadCatalog(it) }
+    }
+
+    /** Emits the step-reached event ONCE per distinct step this wizard instance visits. */
+    private fun trackStepReached(step: WeighingWizardStep) {
+        if (lastTrackedStep == step) return
+        lastTrackedStep = step
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_STEP_REACHED,
+            mapOf(
+                AnalyticsEventsWeighing.Params.WIZARD_STEP to step.name.lowercase(),
+                AnalyticsEvents.Params.CATEGORY to if (raw.value.editCampaignId != null) "edit" else "create",
+            ),
+        )
+    }
+
+    /**
+     * The wizard's ViewModel is gone — the planner left mid-flow (back, app switch, process
+     * death). Real, unsaved progress (past the OPENING step, and never saved) is reported so a
+     * funnel can tell where planners actually give up; a wizard nobody touched, or one that
+     * already saved, reports nothing.
+     */
+    override fun onCleared() {
+        val step = lastTrackedStep ?: return
+        if (raw.value.savedCampaignId != null) return
+        if (step == openingStep) return
+        analytics.track(
+            AnalyticsEventsWeighing.WEIGHING_PLAN_WIZARD_ABANDONED,
+            mapOf(
+                AnalyticsEventsWeighing.Params.WIZARD_STEP to step.name.lowercase(),
+                AnalyticsEvents.Params.CATEGORY to if (raw.value.editCampaignId != null) "edit" else "create",
+            ),
+        )
+    }
 
     // ---- step movement -------------------------------------------------------------------
 
@@ -104,16 +218,28 @@ class WeighingPlanWizardViewModel @Inject constructor(
             WeighingWizardStep.CONFIGURE -> current.copy(step = nextStep, configCap = WEIGHING_PAGE_SIZE, configQuery = "")
             else -> current.copy(step = nextStep)
         }
+        trackStepReached(nextStep)
     }
 
     /**
      * Steps backwards inside the wizard. Returns false only on the first step, where the caller
      * leaves the screen — so Back never drops a half-built task by accident mid-flow.
+     *
+     * An edit's first step is BUCKETS, not DATE (see [raw]): both DATE and PARK are locked, so
+     * Back from BUCKETS in edit mode must leave the screen exactly like Back from DATE does in
+     * create mode -- never quietly land on a step editing can never use.
      */
     fun back(): Boolean {
         val current = raw.value
+        if (current.editCampaignId != null && current.step == WeighingWizardStep.BUCKETS) return false
         val previous = current.step.previous() ?: return false
+        if (current.editCampaignId != null &&
+            (previous == WeighingWizardStep.DATE || previous == WeighingWizardStep.PARK)
+        ) {
+            return false
+        }
         raw.value = current.copy(step = previous)
+        trackStepReached(previous)
         return true
     }
 
@@ -128,10 +254,17 @@ class WeighingPlanWizardViewModel @Inject constructor(
      * offset, and the past is not offerable: work cannot be planned into a day already spent.
      */
     fun selectDate(isoDate: String) {
-        val today = LocalDate.now(ZoneId.of(WEIGHING_WIZARD_ZONE))
-        val parsed = runCatching { LocalDate.parse(isoDate, ISO_DATE) }.getOrNull() ?: return
-        if (parsed.isBefore(today)) return
         val current = raw.value
+        // MAINTAINER DECISION: an edit locks its date. This is a refusal, not a validation --
+        // the DATE step is unreachable in edit mode (see [raw]), so this only guards a caller
+        // that reaches straight into the ViewModel bypassing the screen.
+        if (current.editCampaignId != null) return
+        val today = LocalDate.now(ZoneId.of(WEIGHING_WIZARD_ZONE))
+        val parsed = runCatching {
+            // exception:exempt date validation; unparseable date rejects state change
+            LocalDate.parse(isoDate, ISO_DATE)
+        }.getOrNull() ?: return
+        if (parsed.isBefore(today)) return
         if (current.date == isoDate) return
         // Changing the date invalidates every downstream answer: availability, and with it the
         // bucket set, is date-scoped.
@@ -160,6 +293,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     fun selectPark(parkId: String) {
         val current = raw.value
+        // MAINTAINER DECISION: a campaign belongs to ONE park; an edit locks it just like it
+        // locks the date. The PARK step is unreachable in edit mode (see [raw]), so this only
+        // guards a caller that reaches straight into the ViewModel bypassing the screen.
+        if (current.editCampaignId != null) return
         val date = current.date ?: return
         // Re-picking the SAME park is not a no-op. Availability is a live, date-scoped fact
         // owned by other people's tasks: a shed can be taken, or finish and become free
@@ -232,10 +369,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
         if (shed.scheduled) return
         val selections = current.selections.toMutableMap()
         if (selections.remove(locationId) == null) {
-            selections[locationId] = WizardSelection(
-                category = PER_SHED_PARTITION_CATEGORY,
-                operatorUserId = current.defaultOperatorId(),
-            )
+            selections[locationId] = current.seededSelection(locationId)
         }
         raw.value = current.copy(selections = selections, picked = current.picked - locationId)
     }
@@ -246,10 +380,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
         current.filteredBuckets()
             .filterNot { it.scheduled || selections.containsKey(it.locationId) }
             .forEach { shed ->
-                selections[shed.locationId] = WizardSelection(
-                    category = PER_SHED_PARTITION_CATEGORY,
-                    operatorUserId = current.defaultOperatorId(),
-                )
+                selections[shed.locationId] = current.seededSelection(shed.locationId)
             }
         raw.value = current.copy(selections = selections)
     }
@@ -357,15 +488,22 @@ class WeighingPlanWizardViewModel @Inject constructor(
     fun commit(publish: Boolean) {
         val current = raw.value
         if (current.busy || current.savedCampaignId != null) return
+        // A lost seed (see [seedLost]) must never fall through into an ordinary create -- that is
+        // exactly the silent-downgrade bug this guards against.
+        if (current.seedLost) return
         val date = current.date ?: return
         val park = current.park() ?: return
         val rows = current.orderedSelections()
-        if (rows.isEmpty()) return
+        if (rows.isEmpty()) {
+            raw.value = current.copy(message = "Add at least one shed bucket before saving this task.")
+            return
+        }
         if (rows.any { it.second.operatorUserId.isBlank() }) {
             raw.value = current.copy(message = "Every shed bucket needs one operator before this task can be saved.")
             return
         }
         raw.value = current.copy(busy = true, message = null)
+        analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_ATTEMPTED)
         viewModelScope.launch {
             // A weighing task is ONE park on ONE weigh date, so the period start, period end and
             // weigh date are the same business day. They are not a range.
@@ -387,9 +525,46 @@ class WeighingPlanWizardViewModel @Inject constructor(
                     )
                 },
             )
+            val editCampaignId = current.editCampaignId
+            if (editCampaignId != null) {
+                // Editing writes to the SAME campaign through the existing update call, which
+                // republishes on its own when the task is still a draft -- the create-then-publish
+                // path never runs, so an edit can never fabricate a second task.
+                when (val result = repository.updatePlan(editCampaignId, draft)) {
+                    is AppResult.Ok -> {
+                        raw.value = raw.value.copy(busy = false, savedCampaignId = editCampaignId)
+                        analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
+                    }
+                    is AppResult.Err -> {
+                        raw.value = raw.value.copy(busy = false, message = result.message)
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
+                            mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                        )
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing plan edit save failed"
+                        )
+                    }
+                }
+                return@launch
+            }
             when (val result = repository.createPlan(draft, publish)) {
-                is AppResult.Ok -> raw.value = raw.value.copy(busy = false, savedCampaignId = result.value)
-                is AppResult.Err -> raw.value = raw.value.copy(busy = false, message = result.message)
+                is AppResult.Ok -> {
+                    raw.value = raw.value.copy(busy = false, savedCampaignId = result.value)
+                    analytics.track(AnalyticsEvents.WEIGHING_PLAN_SAVE_SUCCEEDED)
+                }
+                is AppResult.Err -> {
+                    raw.value = raw.value.copy(busy = false, message = result.message)
+                    analytics.track(
+                        AnalyticsEvents.WEIGHING_PLAN_SAVE_FAILED,
+                        mapOf(AnalyticsEvents.Params.REASON to (result.message ?: "unknown"))
+                    )
+                    crashReporter.recordException(
+                        result.cause ?: IllegalStateException(result.message),
+                        "weighing plan save failed"
+                    )
+                }
             }
         }
     }
@@ -426,14 +601,27 @@ class WeighingPlanWizardViewModel @Inject constructor(
     }
 
     private fun refreshCatalog(isoDate: String) {
-        if (raw.value.loading) return
+        // Deduped against its OWN in-flight flag, not [WizardRaw.loading] -- see
+        // [catalogRefreshInFlight]'s doc for why the two must never share one guard.
+        if (catalogRefreshInFlight) return
+        catalogRefreshInFlight = true
         raw.value = raw.value.copy(loading = true)
         viewModelScope.launch {
-            when (val result = repository.refreshPlannerCatalog(isoDate)) {
-                is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
-                // The cached park list stays on screen; the wizard says what did not land rather
-                // than dropping the planner back to an empty picker.
-                is AppResult.Err -> raw.value = raw.value.copy(loading = false, message = result.message)
+            try {
+                when (val result = repository.refreshPlannerCatalog(isoDate)) {
+                    is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
+                    // The cached park list stays on screen; the wizard says what did not land rather
+                    // than dropping the planner back to an empty picker.
+                    is AppResult.Err -> {
+                        raw.value = raw.value.copy(loading = false, message = result.message)
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing planner catalog load failed"
+                        )
+                    }
+                }
+            } finally {
+                catalogRefreshInFlight = false
             }
         }
     }
@@ -451,9 +639,10 @@ class WeighingPlanWizardViewModel @Inject constructor(
         bucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         bucketsEndReached = false
         observeBucketsJob?.cancel()
+        val excludeCampaignId = raw.value.editCampaignId
         observeBucketsJob = viewModelScope.launch {
             bucketWindow.flatMapLatest { window ->
-                repository.observePlannerParkBuckets(isoDate, parkId, window)
+                repository.observePlannerParkBuckets(isoDate, parkId, window, excludeCampaignId)
             }.collect { cached ->
                 // A stale emission for a park the planner has already moved off must not repopulate
                 // the list under the new park.
@@ -477,8 +666,16 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     private fun refreshBucketAvailability(isoDate: String, parkId: String) {
         val pages = (bucketWindow.value / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
+        val excludeCampaignId = raw.value.editCampaignId
         viewModelScope.launch {
-            when (val result = repository.refreshPlannerParkBucketAvailability(isoDate, parkId, pages)) {
+            when (
+                val result = repository.refreshPlannerParkBucketAvailability(
+                    isoDate,
+                    parkId,
+                    pages,
+                    excludeCampaignId,
+                )
+            ) {
                 is AppResult.Ok -> Unit
                 is AppResult.Err -> raw.value = raw.value.copy(message = result.message)
             }
@@ -486,12 +683,35 @@ class WeighingPlanWizardViewModel @Inject constructor(
     }
 
     private fun refreshParkBuckets(isoDate: String, parkId: String, reset: Boolean) {
-        if (raw.value.loading) return
+        // Deduped against its OWN in-flight flag, not [WizardRaw.loading]. The edit wizard fires
+        // this right after the catalog refresh, before either network call has returned; sharing
+        // one flag meant this call saw the catalog refresh's flag still up and bailed out for
+        // good, since nothing else ever re-triggers the first park-bucket load.
+        if (bucketsRefreshInFlight) return
+        bucketsRefreshInFlight = true
         raw.value = raw.value.copy(loading = true)
+        val excludeCampaignId = raw.value.editCampaignId
         viewModelScope.launch {
-            when (val result = repository.refreshPlannerParkBuckets(isoDate, parkId, reset = reset)) {
-                is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
-                is AppResult.Err -> raw.value = raw.value.copy(loading = false, message = result.message)
+            try {
+                when (
+                    val result = repository.refreshPlannerParkBuckets(
+                        isoDate,
+                        parkId,
+                        reset = reset,
+                        excludeCampaignId = excludeCampaignId,
+                    )
+                ) {
+                    is AppResult.Ok -> raw.value = raw.value.copy(loading = false)
+                    is AppResult.Err -> {
+                        raw.value = raw.value.copy(loading = false, message = result.message)
+                        crashReporter.recordException(
+                            result.cause ?: IllegalStateException(result.message),
+                            "weighing planner park buckets load failed"
+                        )
+                    }
+                }
+            } finally {
+                bucketsRefreshInFlight = false
             }
         }
     }
@@ -505,6 +725,8 @@ private const val PER_SHED_PARTITION_CATEGORY = "per_shed_partition"
 private const val DEFAULT_PLANNED_CAP_PER_DAY = 100
 private const val WEIGHING_WIZARD_DATE_OPTIONS = 14
 private const val WEIGHING_WIZARD_TRAY_CAP = 12
+private const val SEED_LOST_MESSAGE =
+    "This task's details were lost when the app restarted. Go back and open it again."
 
 private val ISO_DATE: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 private val WIZARD_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("EEE d MMM yyyy", Locale.ENGLISH)
@@ -544,6 +766,22 @@ private data class WizardRaw(
     val repeatDropped: Int = 0,
     /** Carried-over buckets are applied ONCE, so a later page never overwrites the planner's edits. */
     val repeatApplied: Boolean = false,
+    /**
+     * Set when this wizard is EDITING that exact campaign rather than authoring a new one.
+     *
+     * Threaded through every bucket-availability read so this task's OWN sheds are excluded from
+     * the server's "already scheduled" check -- otherwise every bucket this task already holds
+     * would read back as taken against itself. [commit] branches on this to call the update write
+     * instead of create.
+     */
+    val editCampaignId: String? = null,
+    /**
+     * True when the route named a task this wizard should have opened FROM, but the in-process
+     * seed that would say what it was is gone (process death). See [WeighingPlanWizardViewModel.seedLost].
+     * Blocks [canContinue] and [WeighingPlanWizardViewModel.commit] outright rather than letting
+     * the wizard fall through to an ordinary, unrelated create.
+     */
+    val seedLost: Boolean = false,
 )
 
 /**
@@ -581,23 +819,10 @@ private fun WizardRaw.withRepeatBucketsApplied(): WizardRaw {
     if (parkId != seed.parkId || bucketsParkId != seed.parkId) return this
     if (buckets.isEmpty()) return this
     val shedsById = buckets.associateBy { it.locationId }
-    val operatorIds = operatorsForPark().map { it.userId }.toSet()
     val carried = seed.buckets.mapNotNull { bucket ->
         val shed = shedsById[bucket.locationId] ?: return@mapNotNull null
         if (shed.scheduled) return@mapNotNull null
-        val category = when (bucket.category.trim().lowercase()) {
-            INDIVIDUAL_ANIMAL_CATEGORY -> INDIVIDUAL_ANIMAL_CATEGORY
-            else -> PER_SHED_PARTITION_CATEGORY
-        }
-        bucket.locationId to WizardSelection(
-            category = category,
-            // An operator the catalog no longer offers for this date is not carried over, and no
-            // stand-in is invented either: the catalog's operator list is tenant-wide, so "the
-            // first one" could be someone who does not work this park. The bucket comes across
-            // UNASSIGNED, which the configure step shows and the save gate refuses until the
-            // planner picks somebody.
-            operatorUserId = bucket.operatorUserId.takeIf { it in operatorIds }.orEmpty(),
-        )
+        bucket.locationId to selectionFor(shed, bucket)
     }
     return copy(
         selections = carried.toMap(),
@@ -639,12 +864,83 @@ private fun WizardRaw.operatorsForPark(): List<WeighingPlannerOperator> {
 private fun WizardRaw.defaultOperatorId(): String =
     operatorsForPark().firstOrNull()?.userId.orEmpty()
 
-private fun WizardRaw.canContinue(): Boolean = when (step) {
-    WeighingWizardStep.DATE -> date != null
-    WeighingWizardStep.PARK -> parkId != null
-    WeighingWizardStep.BUCKETS -> selections.isNotEmpty()
-    WeighingWizardStep.CONFIGURE -> selections.isNotEmpty()
-    WeighingWizardStep.REVIEW -> false
+/**
+ * The mode/operator a bucket comes back with when it is (re-)added on the BUCKETS step.
+ *
+ * A bucket already on this campaign keeps the mode and operator it currently has, even after being
+ * removed and re-added within the same edit session -- silently defaulting it back to lump-sum
+ * would flip a live individual-mode assignment out from under its operator with no prompt. A
+ * bucket neither the catalog nor the seed has ever heard of (a genuinely new addition, or an
+ * ordinary create-mode wizard with no seed at all) falls back to the existing default: lump-sum,
+ * with this park's default operator. See [selectionFor] for which of the two sources wins when a
+ * shed IS found in the catalog.
+ */
+private fun WizardRaw.seededSelection(locationId: String): WizardSelection {
+    val shed = shedsInPark().firstOrNull { it.locationId == locationId }
+    val seeded = repeat?.buckets?.firstOrNull { it.locationId == locationId }
+    if (shed == null && seeded == null) {
+        return WizardSelection(category = PER_SHED_PARTITION_CATEGORY, operatorUserId = defaultOperatorId())
+    }
+    return selectionFor(shed, seeded)
+}
+
+/**
+ * Resolves the mode/operator a bucket already on this campaign should carry, preferring the LIVE
+ * catalog read over the wizard's own carried seed.
+ *
+ * [WeighingRepeatSeed.buckets] is captured ONCE, the moment this wizard was staged from the task
+ * list's then-cached state -- a snapshot that goes stale the instant anything on the live campaign
+ * changes afterward (another edit, a re-assignment from the operator app, or simply the planner's
+ * own earlier answer on THIS wizard's Configure step, which the seed never learns about). The park
+ * bucket catalog, by contrast, is re-read from the server on every refresh and carries this exact
+ * bucket's CURRENT category/operator on [WeighingPlannerShed.scheduledCategory] /
+ * [WeighingPlannerShed.scheduledOperatorUserId] even when [WeighingPlannerShed.scheduled] itself
+ * reads false because this wizard's own campaign is excluded from the "already taken" check. The
+ * seed is used only as a fallback -- e.g. before the catalog page carrying this shed has loaded --
+ * so a bucket is never silently dropped to defaults while the network is still in flight.
+ */
+private fun WizardRaw.selectionFor(
+    shed: WeighingPlannerShed?,
+    seeded: WeighingRepeatBucket?,
+): WizardSelection {
+    val operatorIds = operatorsForPark().map { it.userId }.toSet()
+    val liveCategory = shed?.scheduledCategory.orEmpty()
+    val liveOperatorId = shed?.scheduledOperatorUserId.orEmpty()
+    if (liveCategory.isNotBlank() || liveOperatorId.isNotBlank()) {
+        return WizardSelection(
+            category = when (liveCategory.trim().lowercase()) {
+                INDIVIDUAL_ANIMAL_CATEGORY -> INDIVIDUAL_ANIMAL_CATEGORY
+                else -> PER_SHED_PARTITION_CATEGORY
+            },
+            operatorUserId = liveOperatorId.takeIf { it in operatorIds }.orEmpty(),
+        )
+    }
+    if (seeded != null) {
+        return WizardSelection(
+            category = when (seeded.category.trim().lowercase()) {
+                INDIVIDUAL_ANIMAL_CATEGORY -> INDIVIDUAL_ANIMAL_CATEGORY
+                else -> PER_SHED_PARTITION_CATEGORY
+            },
+            // An operator the catalog no longer offers for this date is not carried over, and no
+            // stand-in is invented either: the catalog's operator list is tenant-wide, so "the
+            // first one" could be someone who does not work this park. The bucket comes across
+            // UNASSIGNED, which the configure step shows and the save gate refuses until the
+            // planner picks somebody.
+            operatorUserId = seeded.operatorUserId.takeIf { it in operatorIds }.orEmpty(),
+        )
+    }
+    return WizardSelection(category = PER_SHED_PARTITION_CATEGORY, operatorUserId = defaultOperatorId())
+}
+
+private fun WizardRaw.canContinue(): Boolean {
+    if (seedLost) return false
+    return when (step) {
+        WeighingWizardStep.DATE -> date != null
+        WeighingWizardStep.PARK -> parkId != null
+        WeighingWizardStep.BUCKETS -> selections.isNotEmpty()
+        WeighingWizardStep.CONFIGURE -> selections.isNotEmpty()
+        WeighingWizardStep.REVIEW -> false
+    }
 }
 
 /** The park's buckets under the current search and filter, before paging. */
@@ -687,12 +983,38 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
     val perOperator = ordered.groupingBy { it.second.operatorUserId }.eachCount()
     val individualCount = ordered.count { it.second.category == INDIVIDUAL_ANIMAL_CATEGORY }
     val dateLabel = date?.let { iso ->
-        runCatching { LocalDate.parse(iso, ISO_DATE).format(WIZARD_DAY) }.getOrDefault(iso)
+        runCatching {
+            // exception:exempt date display fallback; unparseable date shows raw ISO string
+            LocalDate.parse(iso, ISO_DATE).format(WIZARD_DAY)
+        }.getOrDefault(iso)
     }.orEmpty()
+
+    // MAINTAINER DECISION: an edit can only add/remove buckets, change a bucket's operator, and
+    // change a bucket's mode -- it can never touch date or park, so those two steps are not just
+    // locked, they are never advertised. Create mode is 5 steps (Date, Park, Buckets, Configure,
+    // Review); edit mode is effectively 3 (Buckets, Configure, Review), and the stepper/eyebrow
+    // must count and index against THAT, never the full 5-step enum's raw ordinal.
+    val editing = editCampaignId != null
+    val effectiveStepCount = if (editing) 3 else WeighingWizardStep.entries.size
+    val effectiveStepIndex = if (!editing) {
+        step.ordinal
+    } else {
+        when (step) {
+            WeighingWizardStep.BUCKETS -> 0
+            WeighingWizardStep.CONFIGURE -> 1
+            WeighingWizardStep.REVIEW -> 2
+            // Unreachable in edit mode; kept exhaustive rather than throwing on a step this flow
+            // can never actually be on.
+            WeighingWizardStep.DATE, WeighingWizardStep.PARK -> 0
+        }
+    }
+    val firstStep = if (editing) WeighingWizardStep.BUCKETS else WeighingWizardStep.DATE
 
     return WeighingWizardUiState(
         step = step,
-        stepCount = WeighingWizardStep.entries.size,
+        stepCount = effectiveStepCount,
+        stepDisplayIndex = effectiveStepIndex,
+        isFirstStep = step == firstStep,
         loading = loading,
         busy = busy,
         message = message,
@@ -819,6 +1141,7 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         lopsidedOperatorLabel = perOperator.entries
             .firstOrNull { it.value == ordered.size && ordered.size > 1 }
             ?.let { operatorNames[it.key] ?: "Operator" },
+        isEditing = editCampaignId != null,
     )
 }
 

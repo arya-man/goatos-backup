@@ -157,6 +157,14 @@ object AppModule {
         buildGoatDatabase(context)
 
     @Provides
+    @Singleton
+    fun provideWeighingExportFileWriter(
+        @ApplicationContext context: Context,
+        crashReporter: sg.mesha.goatos.core.analytics.CrashReporter,
+    ): sg.mesha.goatos.export.WeighingExportFileWriter =
+        sg.mesha.goatos.export.AndroidWeighingExportFileWriter(context, crashReporter)
+
+    @Provides
     fun provideBootstrapCacheDao(db: GoatDatabase): BootstrapCacheDao = db.bootstrapCacheDao()
 
     @Provides
