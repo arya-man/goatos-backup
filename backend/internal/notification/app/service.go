@@ -139,6 +139,28 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	// queued push for that role across the tenant, permanently.
 	invalidRecipient := errors.Is(err, ports.ErrInvalidRecipient)
 	unusableRecipient := errors.Is(err, ports.ErrRecipientUnusable)
+	// ErrChannelNotConfigured stays excluded from the backoff/retry schedule -- deliberately, and
+	// reconsidered for this fix, not just carried forward. The case against scheduling backoff
+	// retries for it: a missing channel config is TENANT-WIDE and STATIC until an operator changes
+	// it. Every queued/failed row on that channel fails identically on every retry until the fix
+	// ships, so scheduling exponential backoff burns MaxAttempts (and the worker's time budget)
+	// re-discovering the same static fact 5 times per message, for every message, at increasing
+	// delay -- pure waste, and it also DELAYS the terminal "this needs a human" signal by however
+	// long the backoff schedule takes to exhaust, which is exactly backwards: a config gap should
+	// surface FAST, not slowly.
+	//
+	// The case against fast-exhaust (recorded so the tradeoff is visible, not silently assumed):
+	// fast-exhaust means a config fix does nothing on its own -- every row already parked at
+	// 'exhausted' needs a second, distinct signal to move again. That gap is real and is exactly
+	// why this fix exists: cmd/notification-requeue (backed by
+	// ports.RequeueRepository.RequeueExhausted) is the explicit, operator-driven remedy. An
+	// automatic self-heal (e.g. "un-exhaust everything the instant the config check passes") was
+	// considered and rejected: it would silently resurrect rows whose subject may no longer be
+	// relevant (see RequeueExhausted's verification_item relevance check) with no human in the
+	// loop and no scoping, which is worse than the current silent death this fix is closing.
+	// Fast-exhaust + a mandatory, scoped, human-run requeue keeps a person in the loop for the one
+	// step (deciding a fixed channel + a bounded time window is safe to resurrect) that a machine
+	// should not decide alone.
 	if !invalidRecipient && !unusableRecipient && !errors.Is(err, ports.ErrChannelNotConfigured) && request.DeliveryAttempts < s.config.MaxAttempts {
 		next := now.Add(s.backoff(request.DeliveryAttempts))
 		nextAttempt = &next
@@ -152,6 +174,22 @@ func (s *Service) dispatchOne(ctx context.Context, request domain.Request, resul
 	if nextAttempt == nil {
 		result.ExhaustedCount++
 		kmetrics.RecordNotifyExhausted(ctx, request.Channel)
+		// EXHAUSTED must be loud, not swallowed: a config gap (ErrChannelNotConfigured) exhausts on
+		// the FIRST attempt with no retry scheduled (see the guard above), so this is often the ONLY
+		// place this failure is ever surfaced outside the notification_requests row itself. Without
+		// this line, an operator/park-head/verifier notification can silently vanish with nothing in
+		// the logs beyond a metric counter -- exactly the "operator says nothing happened" failure
+		// this system exists to prevent.
+		s.log.WarnContext(ctx, "notification_exhausted",
+			slog.String("notification_request_id", request.NotificationRequestID),
+			slog.String("tenant_id", request.TenantID),
+			slog.String("calendar_event_id", request.CalendarEventID),
+			slog.String("channel", request.Channel),
+			slog.String("notification_type", request.NotificationType),
+			slog.String("recipient_ref", request.RecipientRef),
+			slog.Int("delivery_attempts", request.DeliveryAttempts+1),
+			slog.String("error", sanitizeError(err)),
+		)
 	} else {
 		result.FailedCount++
 		kmetrics.RecordNotifyFailure(ctx, request.Channel)

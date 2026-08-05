@@ -65,7 +65,11 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 	}
 	appCheckMode, err := normalizeAppCheckMode(cfg.AppCheckMode)
 	if err != nil {
-		return nil, err
+		log.Error("auth_middleware_config_invalid",
+			slog.String("field", "app_check_mode"),
+			slog.String("value", cfg.AppCheckMode),
+			slog.Any("error", err))
+		return nil, fmt.Errorf("auth middleware config: %w", err)
 	}
 	if appCheckMode != AppCheckModeOff && cfg.AppCheckVerifier == nil {
 		return nil, fmt.Errorf("%w: app check verifier is required", ErrInvalidAuthConfig)
@@ -75,7 +79,10 @@ func NewAuthMiddleware(cfg AuthConfig, verifier TokenVerifier, grants permission
 	}
 	allowedEmails, err := authallow.NewEmailSet(cfg.AllowedEmails)
 	if err != nil {
-		return nil, fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain valid email addresses", ErrInvalidAuthConfig)
+		log.Error("auth_middleware_config_invalid",
+			slog.String("field", "allowed_emails"),
+			slog.Any("error", err))
+		return nil, fmt.Errorf("%w: GOATOS_AUTH_ALLOWED_EMAILS must contain valid email addresses: %v", ErrInvalidAuthConfig, err)
 	}
 	switch mode {
 	case AuthModeBearer:
@@ -207,7 +214,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_tenant_context", "tenant context is required")
 			return r.Context(), "", "", false
 		}
-		ctx := WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject)
+		ctx := WithDeviceID(WithActorID(WithTenantID(r.Context(), tenantID), claims.Subject), strings.TrimSpace(r.Header.Get(DeviceContextHeader)))
 		if shouldLogAuthSuccess(r.Method, r.URL.Path) {
 			a.log.InfoContext(ctx, "auth_succeeded",
 				slog.String("request_id", RequestIDFromContext(ctx)),
@@ -229,7 +236,7 @@ func (a *AuthMiddleware) authenticate(w http.ResponseWriter, r *http.Request) (c
 			writeAuthError(w, r, http.StatusUnauthorized, "missing_dev_auth_headers", "local development auth headers are required")
 			return r.Context(), "", "", false
 		}
-		ctx := WithActorID(WithTenantID(r.Context(), tenantID), actorID)
+		ctx := WithDeviceID(WithActorID(WithTenantID(r.Context(), tenantID), actorID), strings.TrimSpace(r.Header.Get(DeviceContextHeader)))
 		return ctx, actorID, tenantID, true
 	default:
 		a.logAuthFailure(r, http.StatusUnauthorized, "invalid_auth_mode")
@@ -396,7 +403,22 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		// assignment or handler scope. Requiring a tenant-wide grant here made a
 		// genuinely park-scoped operator or park head unable to start the app.
 		strings.HasPrefix(route.Pattern, "/app/") ||
-		strings.HasPrefix(route.Pattern, "/verification/")
+		strings.HasPrefix(route.Pattern, "/verification/") ||
+		// Bug found on-device 2026-08-04: GET /control-tower/vaccination is the ONLY
+		// route registered under this prefix (permissions/routes.go), it backs the
+		// mobile Alerts tab (AlertsViewModel -> ControlTowerRepository), and its
+		// handler (processintegrity/adapters/http/handler.go, buildQuery) already
+		// self-narrows every request to the caller's OWN park via
+		// ResolveAuthorizedParkScope -- an explicit other-park park_id 403s
+		// (park_scope_test.go). A park-scoped operator's grant was being dropped by
+		// THIS function before permissions.AuthorizeRoute ever ran (roles resolved to
+		// ""), so no amount of granting operator a permission in permissions.go could
+		// ever authorize it -- the same "mobile surface needs its scoped grant seen"
+		// rationale documented for /app/ above. If a SECOND route is ever registered
+		// under /control-tower/ that is NOT proven park-scoped in its own handler the
+		// way this one is, it must not rely on this prefix match without an equivalent
+		// scope-narrowing guard -- re-audit this comment at that time.
+		strings.HasPrefix(route.Pattern, "/control-tower/")
 }
 
 // DevHeadersEnvironmentAllowed is the exact allowlist for the local/dev header

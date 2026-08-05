@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
@@ -14,10 +16,11 @@ import (
 // handler applies the SM-5 outcome. Same code path for the in-process bus and a future Pub/Sub
 // consumer.
 const (
-	EventVaccinationVerifyAccepted = "vaccination.verify.accepted"
-	EventVaccinationVerifyRejected = "vaccination.verify.rejected"
-	EventGenericVerificationRework = "verification.verdict.rework"
-	EventGenericVerificationClosed = "verification.item.closed"
+	EventVaccinationVerifyAccepted   = "vaccination.verify.accepted"
+	EventVaccinationVerifyRejected   = "vaccination.verify.rejected"
+	EventGenericVerificationApproved = "verification.verdict.approved"
+	EventGenericVerificationRework   = "verification.verdict.rework"
+	EventGenericVerificationClosed   = "verification.item.closed"
 )
 
 // VerificationEvent is the payload for the verify events. CompletionID is required; booster work is
@@ -69,6 +72,12 @@ type verificationCompletionService interface {
 // supplies the implementation, keeping this module free of SOP storage details.
 type VerificationClosureProjector interface {
 	AcceptSubmissionItemVerification(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
+	// ReopenTaskForRework mirrors the above for a REJECTED verdict: the vaccination completion
+	// has already been rejected and its obligation reopened (h.completion.ApplyGoatVerification,
+	// called just above every call site of this method), so the parent SOP task must come out of
+	// its terminal 'accepted' state or SubmitTask will refuse the rework resubmission that must
+	// follow (write_conflict). See sop/adapters/postgres/repository.go's ReopenTaskForRework.
+	ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error
 }
 
 // NewVerificationHandler constructs the handler over a CompletionService.
@@ -88,13 +97,14 @@ var _ eventbus.Handler = (*VerificationHandler)(nil)
 func (h *VerificationHandler) Register(bus eventbus.Bus) {
 	bus.Subscribe(EventVaccinationVerifyAccepted, h)
 	bus.Subscribe(EventVaccinationVerifyRejected, h)
+	bus.Subscribe(EventGenericVerificationApproved, h)
 	bus.Subscribe(EventGenericVerificationRework, h)
 	bus.Subscribe(EventGenericVerificationClosed, h)
 }
 
 // HandleEvent routes the event by type to the matching SM-5 verification outcome.
 func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event) error {
-	if e.Type == EventGenericVerificationRework || e.Type == EventGenericVerificationClosed {
+	if e.Type == EventGenericVerificationApproved || e.Type == EventGenericVerificationRework || e.Type == EventGenericVerificationClosed {
 		return h.handleGenericEvent(ctx, e)
 	}
 	var p VerificationEvent
@@ -117,12 +127,32 @@ func (h *VerificationHandler) HandleEvent(ctx context.Context, e eventbus.Event)
 			CompletionID: p.CompletionID,
 			VerifiedBy:   verifiedBy,
 		})
-		return err
+		return classifyVerificationErr(err)
 	case EventVaccinationVerifyRejected:
 		_, err := h.completion.RejectExisting(ctx, e.TenantID, p.CompletionID, p.Reason, verifiedBy)
-		return err
+		return classifyVerificationErr(err)
 	}
 	return nil
+}
+
+// classifyVerificationErr marks deterministic, never-succeeding domain rejections as permanent so
+// the durable dispatcher DLQs the event with a loud log instead of retrying it forever. A verifier
+// decision that hits one of these will NEVER become deliverable by redelivery alone: the completion
+// has no reservation to consume against (ErrStockGateBlocked), a consume movement already landed
+// with a different fingerprint (ErrStockMovementConflict), or there is no open completion/obligation
+// left to apply the verdict to (ErrCompletionNotOpen). All three require a human/operational fix
+// (reserve stock, reconcile the ledger, re-open the obligation), not another delivery attempt.
+// Anything else (transient DB errors, context deadlines, etc.) stays retryable.
+func classifyVerificationErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, domain.ErrStockGateBlocked) ||
+		errors.Is(err, domain.ErrStockMovementConflict) ||
+		errors.Is(err, domain.ErrCompletionNotOpen) {
+		return eventbus.PermanentError(err)
+	}
+	return err
 }
 
 func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus.Event) error {
@@ -144,10 +174,22 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 	if strings.TrimSpace(p.Status) == verificationdomain.StatusWithdrawn {
 		return nil
 	}
+	// verification.verdict.approved is the per-animal verifier decision, applied here IMMEDIATELY
+	// (maintainer state-model: "Approval marks the completion accepted") rather than waiting for a
+	// separate leadership verification.item.closed action on the whole shed/submission. This is
+	// what makes acceptedCount climb as each animal is approved instead of staying at zero until
+	// every animal in a partially-reviewed shed happens to be approved. The SOP aggregate roll-up
+	// (h.closure) is deliberately NOT invoked here -- it stays reserved for the actual
+	// verification.item.closed leadership action below, so per-animal approval and SOP-task
+	// closure remain two independently observable events, matching CloseItem's own doc comment
+	// ("the leadership action AFTER independent verifier approval").
 	outcome := "rejected"
 	actor := p.VerifiedBy
-	if e.Type == EventGenericVerificationClosed {
+	switch e.Type {
+	case EventGenericVerificationApproved, EventGenericVerificationClosed:
 		outcome = "closed"
+	}
+	if e.Type == EventGenericVerificationClosed {
 		actor = p.ClosedBy
 	}
 	var actorID *string
@@ -168,10 +210,17 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 			p.Reason,
 			actorID,
 		); err != nil {
-			return err
+			return classifyVerificationErr(err)
 		}
 		if e.Type == EventGenericVerificationClosed && h.closure != nil {
 			return h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, p.Source.RefID, actor)
+		}
+		// A REJECTED verdict (verification.verdict.rework, outcome == "rejected" above) already
+		// reopened this goat's obligation via ApplyGoatVerification. Reopen the parent SOP task
+		// too, in the same handler step, so the rework the operator is about to redo does not hit
+		// SubmitTask's terminal-'accepted' guard (see ReopenTaskForRework's doc comment).
+		if outcome == "rejected" && h.closure != nil {
+			return h.closure.ReopenTaskForRework(ctx, e.TenantID, p.Source.SubmissionID, p.Source.RefID, actor)
 		}
 	case "sop_submission":
 		goatIDs, err := h.completion.ApplySubmissionVerification(
@@ -183,11 +232,20 @@ func (h *VerificationHandler) handleGenericEvent(ctx context.Context, e eventbus
 			actorID,
 		)
 		if err != nil {
-			return err
+			return classifyVerificationErr(err)
 		}
 		if e.Type == EventGenericVerificationClosed && h.closure != nil {
 			for _, goatID := range goatIDs {
 				if err := h.closure.AcceptSubmissionItemVerification(ctx, e.TenantID, p.Source.SubmissionID, goatID, actor); err != nil {
+					return err
+				}
+			}
+		}
+		// Same rework-reopen as the vaccination_goat branch above, for the shed-level
+		// (proof_mode = shed_level_video) submission-wide rejection path.
+		if outcome == "rejected" && h.closure != nil {
+			for _, goatID := range goatIDs {
+				if err := h.closure.ReopenTaskForRework(ctx, e.TenantID, p.Source.SubmissionID, goatID, actor); err != nil {
 					return err
 				}
 			}

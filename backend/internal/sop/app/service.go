@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -85,6 +86,28 @@ func (s *Service) AcceptSubmissionItemVerification(ctx context.Context, tenantID
 		return BadRequest("invalid_goat_id", "goat_id must be a UUID")
 	}
 	return mapRepoErr(s.repo.AcceptSubmissionItemVerification(ctx, tenantID, submissionID, goatID, actorID))
+}
+
+// ReopenTaskForRework mirrors AcceptSubmissionItemVerification's roll-up for the opposite verdict:
+// a verifier REJECTION reopens the per-goat/per-animal obligation (owning vertical's job), but the
+// parent sop_tasks row was left permanently stuck in the terminal 'accepted' state -- SubmitTask's
+// write path hard-refuses any submission against an 'accepted' task (write_conflict), so a shed
+// with genuinely outstanding rework became permanently unsubmittable. sop_tasks_state_check has
+// always allowed 'rework_requested' as an explicit pre-submit state (see the SubmitTask UPDATE's
+// WHERE state IN (...) list), but nothing ever transitioned a task into it. The repository owns the
+// atomic, idempotent, only-from-'accepted' guard; the composition-layer event bridge calls this
+// only after the owning vertical has applied its canonical rejection.
+func (s *Service) ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	if err := validateTenantAndActor(tenantID, actorID); err != nil {
+		return err
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(submissionID)) {
+		return BadRequest("invalid_submission_id", "submission_id must be a UUID")
+	}
+	if !uuidutil.IsUUIDString(strings.TrimSpace(goatID)) {
+		return BadRequest("invalid_goat_id", "goat_id must be a UUID")
+	}
+	return mapRepoErr(s.repo.ReopenTaskForRework(ctx, tenantID, submissionID, goatID, actorID))
 }
 
 func (s *Service) ListSOPs(ctx context.Context, params ports.ListSOPsParams, traceID string) (*domain.SOPListResponse, error) {
@@ -535,6 +558,7 @@ func (s *Service) SubmitTask(ctx context.Context, cmd ports.SubmitTaskCommand, t
 	if s.proofs != nil && len(cmd.Body.ProofRefs) > 0 {
 		proofRefs, err := s.proofs.ResolveProofRefs(ctx, cmd.TenantID, proofBindingForSubmission(task, cmd.Body.ProofRefs), cmd.Body.ProofRefs)
 		if err != nil {
+			slog.ErrorContext(ctx, "submit task: proof refs resolution failed", slog.String("tenant_id", cmd.TenantID), slog.String("task_id", cmd.TaskID), slog.Any("error", err))
 			return nil, BadRequest("invalid_proof_refs", "proof_refs must reference server-issued proof records for this tenant")
 		}
 		cmd.Body.ProofRefs = proofRefs
@@ -2507,7 +2531,7 @@ func mapRepoErr(err error) error {
 	case errors.Is(err, ports.ErrNotFound):
 		return NotFound("not_found", "resource not found")
 	case errors.Is(err, ports.ErrConflict):
-		return Conflict("write_conflict", "resource changed or violates constraints")
+		return RetryableConflict("write_conflict", "resource changed or violates constraints")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
 		return Conflict("idempotency_conflict", "idempotency key was reused for a different submission")
 	case errors.Is(err, ports.ErrDenied):

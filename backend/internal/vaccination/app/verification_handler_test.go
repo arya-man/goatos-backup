@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
+	"github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
 type verificationCompletionFake struct {
@@ -55,6 +56,11 @@ type verificationClosureFake struct {
 	submissionID string
 	goatID       string
 	actorID      string
+
+	reopenCalls        int
+	reopenSubmissionID string
+	reopenGoatID       string
+	reopenActorID      string
 }
 
 func (f *verificationClosureFake) AcceptSubmissionItemVerification(_ context.Context, _, submissionID, goatID, actorID string) error {
@@ -62,6 +68,14 @@ func (f *verificationClosureFake) AcceptSubmissionItemVerification(_ context.Con
 	f.submissionID = submissionID
 	f.goatID = goatID
 	f.actorID = actorID
+	return nil
+}
+
+func (f *verificationClosureFake) ReopenTaskForRework(_ context.Context, _, submissionID, goatID, actorID string) error {
+	f.reopenCalls++
+	f.reopenSubmissionID = submissionID
+	f.reopenGoatID = goatID
+	f.reopenActorID = actorID
 	return nil
 }
 
@@ -116,6 +130,51 @@ func TestGenericVerificationCloseProjectsSOPOnlyAfterVaccinationAcceptance(t *te
 	}
 	if closure.calls != 1 {
 		t.Fatalf("SOP projected despite vaccination failure: calls=%d", closure.calls)
+	}
+}
+
+// A verifier approving evidence for a completion that has nothing to consume against (no
+// reservation ledgered, or a movement already landed under a conflicting fingerprint) will NEVER
+// succeed on redelivery -- only an operational fix (reserve stock, reconcile the ledger) changes
+// the outcome. The durable dispatcher relies on eventbus.IsPermanentError to route exactly these
+// cases to a terminal/DLQ state instead of retrying forever (see the 3056-retry incident this
+// guards against); this proves the handler actually marks them permanent instead of leaving them
+// bare/retryable.
+func TestGenericVerificationApprovalMarksStockGateBlockedPermanent(t *testing.T) {
+	completion := &verificationCompletionFake{applyErr: domain.ErrStockGateBlocked}
+	handler := NewVerificationHandler(completion)
+	payload := genericVerificationPayload(t)
+
+	err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:     EventGenericVerificationApproved,
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Payload:  payload,
+	})
+	if err == nil {
+		t.Fatal("HandleEvent error = nil, want permanent stock-gate failure")
+	}
+	if !eventbus.IsPermanentError(err) {
+		t.Fatalf("HandleEvent error = %v, want a permanent (DLQ) error, got a retryable one", err)
+	}
+}
+
+// A generic Go/DB error (context deadline, connection reset, etc.) must stay retryable: it might
+// succeed on the next delivery, so it must NOT be classified permanent.
+func TestGenericVerificationApprovalKeepsTransientErrorsRetryable(t *testing.T) {
+	completion := &verificationCompletionFake{applyErr: errors.New("transient: connection reset")}
+	handler := NewVerificationHandler(completion)
+	payload := genericVerificationPayload(t)
+
+	err := handler.HandleEvent(context.Background(), eventbus.Event{
+		Type:     EventGenericVerificationApproved,
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		Payload:  payload,
+	})
+	if err == nil {
+		t.Fatal("HandleEvent error = nil, want transient failure surfaced")
+	}
+	if eventbus.IsPermanentError(err) {
+		t.Fatalf("HandleEvent error = %v, want retryable, got permanent", err)
 	}
 }
 

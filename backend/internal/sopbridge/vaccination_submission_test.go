@@ -74,19 +74,28 @@ func TestVaccinationSubmissionBridgeFailsZeroMaterializedCompletions(t *testing.
 type captureVerificationProducer struct {
 	calls int
 	last  verificationdomain.CreateItem
+	// items keeps EVERY create, not just the newest: proof is per animal, so one submission now
+	// raises one item per goat and a test that only inspects `last` cannot see the fan-out.
+	items []verificationdomain.CreateItem
 	err   error
 }
 
 func (p *captureVerificationProducer) CreateItem(_ context.Context, in verificationdomain.CreateItem) (verificationdomain.CreateItemResult, error) {
 	p.calls++
 	p.last = in
+	p.items = append(p.items, in)
 	if p.err != nil {
 		return verificationdomain.CreateItemResult{}, p.err
 	}
 	return verificationdomain.CreateItemResult{Item: verificationdomain.Item{ItemID: "item-1", TenantID: in.TenantID}, Created: true}, nil
 }
 
-func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerShedSubmissionWithAllClips(t *testing.T) {
+// TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsClips is the per-animal
+// fan-out contract: proof is captured one clip per goat, so ONE goat's multiple clips still land in
+// ONE verification item -- but that item is now keyed to the ANIMAL (ref_type vaccination_goat), not
+// the whole shed submission, so a verifier's decision on this goat never touches any other goat's
+// evidence or obligation.
+func TestVaccinationSubmissionBridgeEmitsOnePerAnimalVerificationItemWithAllItsClips(t *testing.T) {
 	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
 	rec := &captureVaccinationRecorder{
 		count: 2,
@@ -127,13 +136,16 @@ func TestVaccinationSubmissionBridgeEmitsOneVerificationItemPerShedSubmissionWit
 	if producer.last.ParkID == nil || *producer.last.ParkID != "park-1" {
 		t.Fatalf("park id = %v, want park-1", producer.last.ParkID)
 	}
-	if producer.last.Source.RefType != "sop_submission" || producer.last.Source.RefID != "sub-1" {
-		t.Fatalf("source = %+v, want sop_submission/sub-1", producer.last.Source)
+	if producer.last.Source.RefType != "vaccination_goat" || producer.last.Source.RefID != "goat-1" {
+		t.Fatalf("source = %+v, want vaccination_goat/goat-1", producer.last.Source)
+	}
+	if producer.last.Source.SubmissionID == nil || *producer.last.Source.SubmissionID != "sub-1" {
+		t.Fatalf("source submission id = %v, want sub-1 (grouping key)", producer.last.Source.SubmissionID)
 	}
 	if !producer.last.CapturedAt.Equal(administeredAt) {
 		t.Fatalf("captured at = %s, want operator administered_at %s", producer.last.CapturedAt, administeredAt)
 	}
-	if producer.last.IdempotencyKey != "vaccination:submission:sub-1" {
+	if producer.last.IdempotencyKey != "vaccination:submission:sub-1:goat:goat-1" {
 		t.Fatalf("idempotency key = %q", producer.last.IdempotencyKey)
 	}
 }
@@ -393,25 +405,33 @@ func TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePaylo
 	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", task, submission); err != nil {
 		t.Fatalf("vaccination submit: %v", err)
 	}
-	if producer.calls != 1 {
-		t.Fatalf("verification producer calls = %d, want 1", producer.calls)
+	// Per-animal fan-out: shed B's two goats each raise their own item, and shed B's own group
+	// clip raises one shed-grain item. The leak assertions below are what actually matter and are
+	// unchanged in substance -- no foreign proof may appear on ANY of them.
+	if producer.calls != 3 {
+		t.Fatalf("verification producer calls = %d, want 3 (one per shed-B goat plus shed B's group clip)", producer.calls)
 	}
 	got := map[string]bool{}
-	for _, ref := range producer.last.MediaRefs {
-		got[ref] = true
+	for _, item := range producer.items {
+		for _, ref := range item.MediaRefs {
+			got[ref] = true
+		}
+		if item.Source.RefType == "vaccination_goat" && item.Source.RefID != goatB1 && item.Source.RefID != goatB2 {
+			t.Fatalf("raised a per-animal item for %q, which is not a member of this submission", item.Source.RefID)
+		}
 	}
 	for _, foreign := range []string{"proof-a1", "proof-a2", "shed-video-a"} {
 		if got[foreign] {
-			t.Fatalf("media_refs leaked foreign-shed proof %q: %v", foreign, producer.last.MediaRefs)
+			t.Fatalf("media_refs leaked foreign-shed proof %q across items %+v", foreign, producer.items)
 		}
 	}
 	for _, own := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
 		if !got[own] {
-			t.Fatalf("media_refs dropped own-shed proof %q: %v", own, producer.last.MediaRefs)
+			t.Fatalf("media_refs dropped own-shed proof %q across items %+v", own, producer.items)
 		}
 	}
-	if len(producer.last.MediaRefs) != 3 {
-		t.Fatalf("media refs = %v, want exactly shed B's 3 proofs", producer.last.MediaRefs)
+	if len(got) != 3 {
+		t.Fatalf("media refs across items = %v, want exactly shed B's 3 proofs", got)
 	}
 
 	// Mirror image: the shed A submission must carry ONLY shed A's proofs.
@@ -430,15 +450,20 @@ func TestVaccinationSubmissionBridgeDropsForeignShedProofRefsFromCumulativePaylo
 		t.Fatalf("shed A submit: %v", err)
 	}
 	gotA := map[string]bool{}
-	for _, ref := range producerA.last.MediaRefs {
-		gotA[ref] = true
+	for _, item := range producerA.items {
+		for _, ref := range item.MediaRefs {
+			gotA[ref] = true
+		}
+		if item.Source.RefType == "vaccination_goat" && item.Source.RefID != goatA1 && item.Source.RefID != goatA2 {
+			t.Fatalf("shed A raised a per-animal item for %q, which belongs to another shed", item.Source.RefID)
+		}
 	}
 	for _, foreign := range []string{"proof-b1", "proof-b2", "shed-video-b"} {
 		if gotA[foreign] {
-			t.Fatalf("shed A media_refs leaked shed B proof %q: %v", foreign, producerA.last.MediaRefs)
+			t.Fatalf("shed A media_refs leaked shed B proof %q across items %+v", foreign, producerA.items)
 		}
 	}
-	if len(producerA.last.MediaRefs) != 3 {
-		t.Fatalf("shed A media refs = %v, want exactly shed A's 3 proofs", producerA.last.MediaRefs)
+	if len(gotA) != 3 {
+		t.Fatalf("shed A media refs across items = %v, want exactly shed A's 3 proofs", gotA)
 	}
 }

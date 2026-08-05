@@ -31,6 +31,11 @@ const (
 	// overwrites actor context from the verified token subject.
 	headerTenantID = TenantContextHeader
 	headerActorID  = "X-GoatOS-Actor-ID"
+	// DeviceContextHeader lets a client identify which physical device made a
+	// request, so the same operator signed in on multiple phones can be told
+	// apart in logs/audit rows. Optional: older clients that omit it simply
+	// get an empty device_id, never an error.
+	DeviceContextHeader = "X-Device-Id"
 )
 
 // LocaleTagFromRequest resolves the normalized locale from request context or headers.

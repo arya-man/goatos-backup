@@ -480,6 +480,14 @@ func (o *obligationCompleterFake) IsCompleted(_ context.Context, _, obligationID
 	return o.completed[obligationID], nil
 }
 
+func (o *obligationCompleterFake) ReopenObligation(_ context.Context, _, obligationID string) (bool, error) {
+	if !o.completed[obligationID] {
+		return false, nil
+	}
+	o.completed[obligationID] = false
+	return true, nil
+}
+
 type stockConsumerFake struct {
 	seen         map[string]bool
 	consumeCalls int

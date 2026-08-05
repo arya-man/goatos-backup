@@ -526,6 +526,26 @@ WITH completions AS (
     WHERE tenant_id = $1::uuid
       AND status <> 'reversed'
       AND COALESCE(administered_at, created_at) <= $10::timestamptz
+    UNION ALL
+    -- Rejected completions no longer live in vaccination_completions: they are MOVED to the
+    -- rejection archive (migration 000093) so a sent-back animal becomes outstanding work again
+    -- on every read by default. Process integrity MUST still see them, or the surface that exists
+    -- to answer "who is sending animals back, and why" reports zero rejections forever -- exactly
+    -- as this feature made rejection tracking per-animal instead of per-shed.
+    --
+    -- Same as-of downgrade shape as the live branch above: a rejection PROVEN to have happened
+    -- after as_of was only 'recorded' at as_of, and its verifier/reason are stripped for that
+    -- snapshot. Ranked below live recorded/accepted by the ORDER BY, so a redone-and-accepted
+    -- animal stops reading as rejected.
+    SELECT
+      obligation_id, completion_id, verified_by, verified_at, rejection_reason,
+      original_updated_at AS completion_updated_at, administered_at,
+      original_created_at AS created_at,
+      (rejected_at > $10::timestamptz) AS downgrade,
+      CASE WHEN rejected_at > $10::timestamptz THEN 'recorded' ELSE 'rejected' END AS asof_status
+    FROM vaccination_completion_rejections
+    WHERE tenant_id = $1::uuid
+      AND COALESCE(administered_at, original_created_at) <= $10::timestamptz
   ) c
   ORDER BY obligation_id,
     CASE WHEN asof_status IN ('recorded', 'accepted') THEN 0 ELSE 1 END,

@@ -86,7 +86,10 @@ func buildDomainBusOn(bus eventbus.Bus, pool *pgxpool.Pool, queryTimeout time.Du
 	vaccinationapp.NewProtocolPublishedHandler(vaccinationGeneration).Register(bus)
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).Register(bus)
+	// C-defect-B (2026-08-04): mirrors the identical fix in internal/kernelstages/bus.go -- this
+	// consumer was never given a location/vaccine-label resolver, so a rework/approved push
+	// produced through cmd/domain-event-consumer's bus degraded to generic no-park copy.
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(notificationbridge.NewVaccineLabelResolver(pool, logger)).WithLocationNames(notificationbridge.NewLocationNameResolver(pool)).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 	// Verifier-verdict appliers: the ONE shared registration (internal/eventwiring), the same call

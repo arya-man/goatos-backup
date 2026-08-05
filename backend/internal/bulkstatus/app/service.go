@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"regexp"
 	"strings"
 )
@@ -155,6 +156,7 @@ func (s *Service) Preview(ctx context.Context, input PreviewInput) (*PreviewResp
 	fingerprint := rowsFingerprint(input.TenantID, axis, toEnqueueRows(rows))
 	token, err := s.signPreviewToken(input.TenantID, axis, fingerprint, len(rows))
 	if err != nil {
+		slog.ErrorContext(ctx, "bulk status preview: token generation failed", slog.String("tenant_id", input.TenantID), slog.String("axis", axis), slog.Any("error", err))
 		return nil, Internal("bulk status preview token generation failed")
 	}
 	resp.PreviewToken = token

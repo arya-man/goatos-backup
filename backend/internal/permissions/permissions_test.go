@@ -351,6 +351,45 @@ func TestAppVaccinationExecutionRoutesAuthorizeOperator(t *testing.T) {
 	}
 }
 
+// TestOperatorAuthorizesVaccinationControlTowerAlertsRoute is a regression test for a
+// defect found on a real device 2026-08-04: an operator's Alerts tab calls
+// GET /control-tower/vaccination (AlertsViewModel -> ControlTowerRepository), but that
+// route required BOTH ObligationRead and VaccinationRead (ANDed), and RoleOperator held
+// neither -- so the Alerts tab always 403'd and the mobile client rendered a friendly
+// "No alerts yet" empty state instead of a visible error. The fix adds a route-scoped
+// VaccinationAlertsRead capability via AnyPermissions, granted only to RoleOperator,
+// without widening the operator's base grant set (which would have exposed the OTHER
+// ~15 vaccination admin/oversight routes that share the ObligationRead/VaccinationRead
+// ANDed pair and are not all proven park-scoped).
+func TestOperatorAuthorizesVaccinationControlTowerAlertsRoute(t *testing.T) {
+	route, ok := Match("GET", "/control-tower/vaccination")
+	if !ok {
+		t.Fatal("vaccination control-tower route is not registered")
+	}
+	if route.OperationID != "getVaccinationControlTower" {
+		t.Fatalf("operation_id=%q, want getVaccinationControlTower", route.OperationID)
+	}
+	if !AuthorizeRoute(route, []string{RoleOperator}) {
+		t.Fatal("operator must authorize the vaccination control-tower route that backs their Alerts tab")
+	}
+
+	// Every other role whose nav includes Vaccination and therefore also hits this
+	// route (per the shared ObligationRead+VaccinationRead pair) must remain authorized --
+	// this fix is additive (AnyPermissions), never a narrowing.
+	for _, role := range []string{RoleVerifier, RolePCDirector, RoleParkHead, RoleCEOInternal} {
+		if !AuthorizeRoute(route, []string{role}) {
+			t.Fatalf("role %q must still authorize the vaccination control-tower route (no regression)", role)
+		}
+	}
+
+	// A role with no vaccination-related grant at all (e.g. growth_director, whose
+	// module is Weighing, not Vaccination) must still be denied: this fix must not
+	// become a blanket "any authenticated app user" grant.
+	if AuthorizeRoute(route, []string{RoleGrowthDirector}) {
+		t.Fatal("growth_director must NOT authorize the vaccination control-tower route -- vaccination is not their module")
+	}
+}
+
 func TestFeedDirectionBackendRouteSmokeAvoidsRouteNotRegistered(t *testing.T) {
 	for _, item := range []struct {
 		path        string

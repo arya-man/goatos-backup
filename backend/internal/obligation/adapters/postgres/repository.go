@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,11 @@ const (
 	// recomputeObligationBatchStatusOnComplete) mirrors this same producer for its bypass-obligation-
 	// repository completion route; see that function's doc comment.
 	obligationInProgressEventType = "obligation.in_progress"
+	// obligationReopenedEventType is emitted by ReopenObligation when a verification rejection
+	// reopens a previously-completed obligation back to outstanding work (maintainer state-model:
+	// obligation axis reopens on rejection). Reuses the generic obligation lifecycle envelope shape
+	// via insertObligationLifecycleOutbox, same as obligation.in_progress/obligation.missed.
+	obligationReopenedEventType = "obligation.reopened"
 )
 
 // Repository is the Postgres-backed obligation repository.
@@ -1891,7 +1897,8 @@ WHERE ob.tenant_id = $1
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 	) SELECT $1, obligation_id, $2, $3, $4, idempotency_key
-	FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
+	FROM UNNEST($5::uuid[], $6::text[]) AS t(obligation_id, idempotency_key)
+	ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`, tenant, "canceled", pgconv.Timestamptz(occurredAt), payload, obligationIDs, idempotencyKeys); err != nil {
 			return 0, fmt.Errorf("obligation: bulk insert cancel events: %w", err)
 		}
 	}
@@ -4873,8 +4880,9 @@ func (r *Repository) MarkCompleted(ctx context.Context, tenantID, obligationID s
 	// no sibling obligation on the batch remains open; otherwise planned -> in_progress. Already-
 	// terminal batches (completed/canceled/superseded) are left untouched by the WHERE guard below.
 	var batchID pgtype.UUID
+	var rowVersion int64
 	if err := tx.QueryRow(ctx, `
-SELECT batch_id FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID); err != nil {
+SELECT batch_id, row_version FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID, &rowVersion); err != nil {
 		return false, fmt.Errorf("obligation: completed batch lookup: %w", err)
 	}
 	if batchID.Valid {
@@ -4972,7 +4980,15 @@ RETURNING obligation_id::text`, tenant, batchID, obl)
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 ) SELECT $1, obligation_id, 'in_progress', $2, $3, idempotency_key
-FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
+FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)
+-- Idempotent by design. The key is (obligation_id + ':in_progress'), so a SECOND submission
+-- touching the same obligation -- i.e. every rework rescan of a rejected animal -- replays the
+-- identical key. Without this the insert raised a duplicate-key error that aborted the WHOLE
+-- submission fanout, so the operator's redo recorded completions and proofs but produced no
+-- verification item at all: the work vanished before it ever reached the verifier, with a
+-- success screen on the phone. The status event is a fact ("this obligation went in_progress"),
+-- not a counter, so re-asserting it must be a no-op rather than a failure.
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 				tenant, pgconv.Timestamptz(siblingNow), siblingPayload, siblingUUIDs, siblingKeys); err != nil {
 				return false, fmt.Errorf("obligation: bulk insert sibling in_progress events: %w", err)
 			}
@@ -5007,7 +5023,17 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 		}
 	}
 
-	idempotencyKey := obligationID + ":completed"
+	// Versioned by row_version (freshly incremented by the MarkObligationCompleted UPDATE above,
+	// n>0 already proved this is a genuine transition, never a replay -- a replay would have
+	// matched 0 rows and returned earlier): an obligation that completes, gets REOPENED by a
+	// verifier rejection (ReopenObligation bumps row_version too), and completes again on rework is
+	// a SECOND, real, distinct "completed" occurrence -- not a duplicate of the first. Before this
+	// fix the key was the bare obligation id ("<id>:completed"), permanently reserved on the FIRST
+	// completion and never released by ReopenObligation: every subsequent genuine re-completion of
+	// a reworked obligation hit ReserveIdempotencyKey's ON CONFLICT DO NOTHING, got pgx.ErrNoRows,
+	// and returned a hard error here -- aborting the WHOLE submission fanout and silently losing the
+	// operator's rework (the exact defect class this repository has been bitten by three times).
+	idempotencyKey := obligationID + ":completed:" + strconv.FormatInt(rowVersion, 10)
 	if _, err := qtx.ReserveIdempotencyKey(ctx, obligationdb.ReserveIdempotencyKeyParams{
 		IdempotencyKey: idempotencyKey,
 		TenantID:       tenant,
@@ -5043,7 +5069,7 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 	}); err != nil {
 		return false, fmt.Errorf("obligation: complete completed idempotency key: %w", err)
 	}
-	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID); err != nil {
+	if err := insertVaccinationCompletedOutbox(ctx, tx, tenantID, obligationID, rowVersion); err != nil {
 		return false, err
 	}
 	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
@@ -5067,6 +5093,104 @@ FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return false, fmt.Errorf("obligation: commit complete: %w", err)
+	}
+	return true, nil
+}
+
+// ReopenObligation reverses MarkCompleted: a verification rejection sends the animal's work back
+// to the operator's due list (maintainer state-model -- obligation reopens on rejection, closes on
+// record). Idempotent and terminal-safe: only a row currently 'completed' is touched, so a stale
+// replay, a rejection racing a second completion, or an obligation that moved on to some other
+// terminal status (waived/canceled/superseded) in the meantime is left alone.
+//
+// Deliberately narrower than MarkCompleted's batch/sibling recompute: reopening one obligation does
+// not need to walk the whole batch's other obligations back out of 'completed' -- those obligations
+// were closed by their OWN completions, which are still valid. Only the owning batch's own status is
+// recomputed here (a batch marked 'completed' because this was its last open obligation must go back
+// to 'in_progress' now that this one is due again); sibling obligation rows are untouched.
+func (r *Repository) ReopenObligation(ctx context.Context, tenantID, obligationID string) (bool, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	obl, err := pgconv.UUID(obligationID)
+	if err != nil {
+		return false, fmt.Errorf("obligation: obligation id: %w", err)
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("obligation: begin reopen tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.queries.WithTx(tx)
+
+	n, err := qtx.ReopenObligation(ctx, obligationdb.ReopenObligationParams{TenantID: tenant, ObligationID: obl})
+	if err != nil {
+		return false, fmt.Errorf("obligation: reopen: %w", err)
+	}
+	if n == 0 {
+		if cerr := tx.Commit(ctx); cerr != nil {
+			return false, fmt.Errorf("obligation: commit noop reopen: %w", cerr)
+		}
+		return false, nil
+	}
+
+	var batchID pgtype.UUID
+	if err := tx.QueryRow(ctx, `
+SELECT batch_id FROM obligation_instances WHERE tenant_id = $1 AND obligation_id = $2`, tenant, obl).Scan(&batchID); err != nil {
+		return false, fmt.Errorf("obligation: reopened batch lookup: %w", err)
+	}
+	if batchID.Valid {
+		if _, err := tx.Exec(ctx, `
+UPDATE obligation_batches
+SET status = 'in_progress', row_version = row_version + 1, updated_at = now()
+WHERE tenant_id = $1 AND batch_id = $2 AND status = 'completed'`, tenant, batchID); err != nil {
+			return false, fmt.Errorf("obligation: reopen batch recompute: %w", err)
+		}
+	}
+
+	now := time.Now().UTC()
+	idempotencyKey := obligationID + ":reopened:" + strconv.FormatInt(now.UnixNano(), 10)
+	// obligation_status_events_type_check does not include a "due"/"reopened" value -- the closest
+	// existing vocabulary entry for "this obligation is due again" is 'became_due' (used elsewhere
+	// for the scheduled->due transition), so reuse it rather than widen the CHECK constraint for a
+	// rejection-triggered reopen.
+	if _, err := qtx.InsertObligationStatusEvent(ctx, obligationdb.InsertObligationStatusEventParams{
+		TenantID:       tenant,
+		ObligationID:   obl,
+		EventType:      "became_due",
+		OccurredAt:     pgconv.Timestamptz(now),
+		Payload:        []byte(`{"event":"reopened"}`),
+		IdempotencyKey: idempotencyKey,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: reopened event: %w", err)
+	}
+	if err := insertObligationLifecycleOutbox(ctx, tx, tenantID, obligationID, obligationReopenedEventType, "due", now, nil, "obligation.ReopenObligation"); err != nil {
+		return false, err
+	}
+	if err := audit.NewTxRecorder(tx).Record(ctx, audit.Event{
+		TenantID:     tenantID,
+		ActorType:    "system",
+		Action:       obligationReopenedEventType,
+		ResourceType: "obligation_instance",
+		ResourceID:   obligationID,
+		ScopeType:    "obligation.status_event",
+		ScopeID:      obligationID,
+		AfterState: map[string]any{
+			"status":      "due",
+			"occurred_at": now.Format(time.RFC3339Nano),
+		},
+		Metadata: map[string]any{
+			"source": "obligation_reopen_on_verification_reject",
+		},
+		TraceID: obligationReopenedEventType + ":" + obligationID,
+	}); err != nil {
+		return false, fmt.Errorf("obligation: reopened audit: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("obligation: commit reopen: %w", err)
 	}
 	return true, nil
 }
@@ -5180,9 +5304,14 @@ ON CONFLICT DO NOTHING`,
 	return nil
 }
 
-func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string) error {
-	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID)
-	idempotencyKey := "vaccination.completed:" + obligationID
+// rowVersion mirrors the versioned key MarkCompleted now uses for its own "completed" idempotency
+// reservation: a bare obligationID key would ON CONFLICT DO NOTHING away every completed-outbox
+// event after the FIRST for an obligation that is later reopened and re-completed (rework), so
+// downstream consumers (booster scheduling, notifications) would never learn the rework finished.
+func insertVaccinationCompletedOutbox(ctx context.Context, tx pgx.Tx, tenantID, obligationID string, rowVersion int64) error {
+	versionSuffix := ":" + strconv.FormatInt(rowVersion, 10)
+	eventID := platformoutbox.DeterministicUUID("vaccination.completed:" + tenantID + ":" + obligationID + versionSuffix)
+	idempotencyKey := "vaccination.completed:" + obligationID + versionSuffix
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	payload := map[string]any{
 		"tenant_id":     tenantID,
@@ -5343,7 +5472,11 @@ func (r *Repository) MarkMissedBefore(ctx context.Context, tenantID string, miss
 	reapBefore := time.Now().UTC().Add(-graceWindow)
 	if err := r.reapStrandedInProgress(ctx, tenantID, reapBefore, limit); err != nil {
 		// Log but don't fail: reaping is best-effort. Missing one sweep is recoverable.
-		_ = err
+		slog.ErrorContext(ctx, "obligation_reap_stranded_in_progress_failed",
+			slog.String("tenant_id", tenantID),
+			slog.Time("reap_before", reapBefore),
+			slog.Int("limit", int(limit)),
+			slog.Any("error", err))
 	}
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()

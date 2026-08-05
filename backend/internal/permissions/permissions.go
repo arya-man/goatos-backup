@@ -81,6 +81,38 @@ const (
 	ObligationRead            = "obligation.read"
 	VaccinationRead           = "vaccination.read"
 	VaccinationOverviewRead   = "vaccination.overview_read"
+	// VaccinationAlertsRead gates the app-tier Alerts tab's backing feed
+	// (GET /control-tower/vaccination), decoupled from the shared leadership
+	// oversight bundle {ObligationRead, VaccinationRead} that the other ~15
+	// vaccination admin/oversight routes use as an ANDed Permissions pair.
+	//
+	// Bug found on-device 2026-08-04: RoleOperator held neither ObligationRead
+	// nor VaccinationRead, so its Alerts tab's ONLY backing request always 403'd
+	// and the mobile client silently rendered a friendly-looking "No alerts yet"
+	// empty state instead of a visible error (same defect shape 9e0cf5bbf fixed
+	// for the counts verification tab: "a tab that looks permanently empty
+	// rather than broken").
+	//
+	// The handler (processintegrity/adapters/http/handler.go, buildQuery) already
+	// resolves park scope for this exact route via ResolveAuthorizedParkScope --
+	// an operator's request auto-narrows to their OWN park and an explicit
+	// other-park park_id 403s (park_scope_test.go) -- so granting operator this
+	// route is safe: they get park-of-the-day vaccination alerts, nothing more.
+	//
+	// This is added as its own AnyPermissions option on the route (see routes.go)
+	// rather than adding ObligationRead/VaccinationRead to RoleOperator's grant
+	// set, precisely because that pair is ANDed across ~15 OTHER admin routes
+	// (action-center, adherence, workflows, operations, schedule,
+	// drive-assignments, execution, command, sheds, capacity-config) that are
+	// NOT all proven park-scoped the way this one is -- widening the operator's
+	// base grant set would have handed them tenant-wide leadership oversight
+	// surfaces the Alerts tab never asked for. Mirrors the weighing precedent at
+	// appListWeighingAlerts: "gated on WEIGHING capabilities ONLY... pointing the
+	// weighing bar at [the vaccination feed] is exactly what made the previous
+	// weighing alerts tab 403 for weighing operators and got it deleted" --
+	// applied here in the opposite direction, a dedicated capability rather than
+	// borrowing someone else's.
+	VaccinationAlertsRead = "vaccination.alerts_read"
 	VaccinationVerify         = "vaccination.verify"
 	VaccinationCampaign       = "vaccination.campaign"
 	// VaccinationOverseeExecution gates the READ-ONLY, park-scoped OVERSIGHT view of vaccination
@@ -544,6 +576,9 @@ var rolePermissions = map[string]map[string]struct{}{
 		FeedDirectionComplete: {},
 		FeedTransportRead:     {},
 		HealthRead:            {}, HealthReport: {}, HealthExecute: {},
+		// See VaccinationAlertsRead doc comment above: this is the operator's Alerts
+		// tab feed only, NOT the shared ObligationRead/VaccinationRead admin bundle.
+		VaccinationAlertsRead: {},
 	},
 	RoleCEOInternal: {
 		GoatRead: {}, GoatWriteIdentity: {}, GoatWriteHealth: {},

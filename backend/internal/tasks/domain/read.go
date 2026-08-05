@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -50,7 +51,7 @@ func DecodeWorkflowCursor(raw string) (*WorkflowCursor, error) {
 	}
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, ErrInvalidCursor
+		return nil, fmt.Errorf("%w: base64 decode failed", err)
 	}
 	parts := strings.SplitN(string(decoded), "|", 2)
 	if len(parts) != 2 || strings.TrimSpace(parts[1]) == "" {
@@ -63,7 +64,7 @@ func DecodeWorkflowCursor(raw string) (*WorkflowCursor, error) {
 	}
 	due, err := time.Parse(time.RFC3339Nano, parts[0])
 	if err != nil {
-		return nil, ErrInvalidCursor
+		return nil, fmt.Errorf("%w: timestamp parse failed", err)
 	}
 	cursor.NextDueAt = due
 	return &cursor, nil

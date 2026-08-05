@@ -199,7 +199,14 @@ ON CONFLICT (protocol_id) DO UPDATE SET code = EXCLUDED.code, name = EXCLUDED.na
 
 INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, scope_id, version, version_label, status, effective_from, effective_to, rule_dsl, proof_policy, sop_version_id, published_at)
 VALUES (
-  '` + qaVersionID + `', $1::uuid, '` + qaProtocolID + `', 'park', '` + qaParkID + `', 1, 'Per animal proof QA', 'draft',
+  -- TENANT scope, not the CBE park. The phone-QA fixture seeds vaccination work in BOTH
+  -- parks (CBE Godel/Yashoda/Gandhi and CPT Mandela/Castro), so a park-scoped version made
+  -- every CPT obligation ineligible: generateForGoat resolves versions through
+  -- ListEffectiveVaccinationVersionsForGoat(tenant, goat.park_id), a CPT goat matched
+  -- neither the CBE park version nor any tenant default, and the first sweeper tick
+  -- cancelled all 20 CPT obligations with reason "version_no_longer_effective_after_recheck".
+  -- The CPT operator's shed list silently emptied a minute after seeding.
+  '` + qaVersionID + `', $1::uuid, '` + qaProtocolID + `', 'tenant', NULL, 1, 'Per animal proof QA', 'draft',
   DATE '2026-01-01', DATE '2028-01-01',
   '{"vaccine":{"code":"ET+TT","name":"ET+TT","inventory_item_id":"` + qaItemID + `"},"schedule":[{"dose_code":"ET_TT_QA","sequence":1,"trigger_type":"manual_campaign","proof_policy":` + perGoatProofPolicy + `}]}'::jsonb,
   '` + perGoatProofPolicy + `'::jsonb,

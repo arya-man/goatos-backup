@@ -215,6 +215,73 @@ type gcsServiceAccount struct {
 	PrivateKey  string `json:"private_key"`
 }
 
+// weighingExportProofDownloader is the subset of proofapp.Service the weighing CSV export needs:
+// the SAME signed-URL path (backend/internal/proof/app.Service.DownloadURL) the mobile app uses
+// to open proof media. GCS storage already returns an absolute signed HTTPS URL from this call;
+// local storage returns a signed but host-relative path (e.g. "/app/proofs/<id>/download/signed?
+// ..."), because the local storage adapter has no notion of which host is serving it.
+type weighingExportProofDownloader interface {
+	DownloadURL(ctx context.Context, tenantID, proofID string) (string, error)
+}
+
+// weighingExportProofURLResolver adapts the proof service's DownloadURL into
+// weighingpg.ProofURLResolver for the campaign CSV export, making local storage's host-relative
+// signed path absolute (and thus clickable from a sheet opened outside the API host) by
+// prepending the API's own public base URL. GCS's already-absolute signed URL passes through
+// unchanged.
+type weighingExportProofURLResolver struct {
+	downloader weighingExportProofDownloader
+	baseURL    string
+}
+
+func newWeighingExportProofURLResolver(downloader weighingExportProofDownloader, httpAddr string) weighingExportProofURLResolver {
+	return weighingExportProofURLResolver{downloader: downloader, baseURL: weighingExportPublicBaseURL(httpAddr)}
+}
+
+func (w weighingExportProofURLResolver) ResolveProofDownloadURL(ctx context.Context, tenantID, proofID string) (string, error) {
+	url, err := w.downloader.DownloadURL(ctx, tenantID, proofID)
+	if err != nil {
+		return "", err
+	}
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
+		return url, nil
+	}
+	// Host-relative local-storage signed path: make it absolute against the API's own public
+	// base URL so the cell is clickable from wherever the sheet is opened, not just from a
+	// browser already pointed at this host.
+	if !strings.HasPrefix(url, "/") {
+		url = "/" + url
+	}
+	return w.baseURL + url, nil
+}
+
+// weighingExportPublicBaseURL resolves the host+scheme the API is reachable at for turning a
+// local-storage signed path into an absolute, clickable URL.
+//
+// GOATOS_API_PUBLIC_BASE_URL is the explicit override for stg/prod (or any deployment behind a
+// load balancer/proxy, where the bind address is not the public address) and takes precedence
+// when set. With no override, this falls back to http://127.0.0.1<GOATOS_HTTP_ADDR> for the
+// local/E2E stack, where the API's bind address IS the reachable address -- the same assumption
+// the local proof-storage signing secret already makes (GOATOS_LOCAL_MEDIA_SIGNING_SECRET is
+// local/test-only, see localProofStorageAllowed).
+func weighingExportPublicBaseURL(httpAddr string) string {
+	if base := strings.TrimSpace(os.Getenv("GOATOS_API_PUBLIC_BASE_URL")); base != "" {
+		return strings.TrimRight(base, "/")
+	}
+	addr := strings.TrimSpace(httpAddr)
+	if addr == "" {
+		addr = ":8080"
+	}
+	if strings.HasPrefix(addr, ":") {
+		return "http://127.0.0.1" + addr
+	}
+	return "http://" + addr
+}
+
 func buildProofStorage() (proofports.Storage, error) {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_MEDIA_STORAGE")))
 	env := strings.ToLower(strings.TrimSpace(os.Getenv("GOATOS_ENV")))
@@ -383,7 +450,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	vaccExecHandler := vaccexechttp.NewHandler(vaccExecService, obligationRepo, log).
 		WithOperatorAssignmentConfigWriter(vaccExecService).
 		WithCapacityConfigWriter(vaccExecService)
-	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
+	weighingRepo := weighingpg.NewRepository(pool, cfg.Postgres.QueryTimeout).
+		WithProofURLResolver(newWeighingExportProofURLResolver(proofService, cfg.HTTPAddr))
 	// PHASE 2: the same repository also serves the Calendar / Control Tower
 	// weighing process-state read model (declared `weighing_work_item` grain).
 	weighingService := weighingapp.NewService(weighingRepo).WithProcessStateReader(weighingRepo)
@@ -765,19 +833,26 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	// events published by sopbridge. They resolve each completion to its obligation context, then
 	// route pending/rework/close notifications to the correct park, verifier, and leadership audience.
 	vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, log)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithVaccineLabels(vaccineLabels).Register(bus)
+	// Push copy needs a human park name, not a bare UUID (confirmed maintainer defect: pushes are
+	// too abstract to act on). locationNames is a tiny, dependency-free lookup owned entirely by
+	// notificationbridge (see location_names.go) -- no other module's port changes. Declared here
+	// (moved up from below VerificationEventConsumer's registration) because C-defect-B
+	// (2026-08-04) found it was built but only ever chained onto VerificationNotifier, never onto
+	// VerificationEventConsumer -- so every pending/rework/approved/closed push this bus produced
+	// (the ones that actually enrich with park/shed/vaccine names) silently degraded to generic
+	// copy. See the identical fix in internal/kernelstages/bus.go, the durable bus that is the
+	// one actually delivering pushes in production/E2E.
+	locationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, log).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, log).Register(bus)
 	// Weighing publish/verdict/close pushes. Registered next to the submission
 	// consumer so no weighing state change is push-silent.
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, log).Register(bus)
-	// Push copy needs a human park name, not a bare UUID (confirmed maintainer defect: pushes are
-	// too abstract to act on). locationNames is a tiny, dependency-free lookup owned entirely by
-	// notificationbridge (see location_names.go) -- no other module's port changes.
-	locationNames := notificationbridge.NewLocationNameResolver(pool)
 	notificationbridge.NewVerificationNotifier(calendarService, rosterService, calendarService, log).WithLocationNames(locationNames).Register(bus)
 	sopService.
 		WithSubmissionHook(sopbridge.NewVaccinationSubmissionBridge(vaccinationService).
-			WithVerificationProducer(verificationService)).
+			WithVerificationProducer(verificationService).
+			WithObligationCompleter(obligationRepo)).
 		WithTaskReviewFanout(sopbridge.NewVerifyFanout(vaccinationService, bus))
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).

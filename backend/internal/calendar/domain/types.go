@@ -83,6 +83,12 @@ type DriveSummary struct {
 	DueCount         int `json:"due_count"`
 	OverdueCount     int `json:"overdue_count"`
 	DeferredCount    int `json:"deferred_count"`
+	// RejectedCount is INFORMATIONAL ONLY -- a subset already counted inside DueCount/OverdueCount
+	// above (status='rejected' is one of the statuses those buckets allow), never an additional
+	// partition; it does not change the five-bucket total invariant. It exists so the card can
+	// name WHY the completed/progress numerator dropped after a verifier rejects proof, instead of
+	// the drop reading as an unexplained mystery.
+	RejectedCount    int `json:"rejected_count"`
 	TotalAnimals     int `json:"total_animals"`
 	CompletedAnimals int `json:"completed_animals"`
 	SubmittedAnimals int `json:"submitted_animals"`

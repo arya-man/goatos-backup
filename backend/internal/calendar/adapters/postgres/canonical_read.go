@@ -922,7 +922,35 @@ obligation_drive_membership AS (
       WHERE vc.tenant_id = oi.tenant_id
         AND vc.obligation_id = oi.obligation_id
         AND vc.status = 'recorded'
-    ) AS submitted_for_verification
+    ) AS submitted_for_verification,
+    -- CURRENTLY rejected, not EVER rejected. A verifier's rejection moves the completion out of
+    -- vaccination_completions into the archive table (migration 000093); if the animal is then
+    -- rescanned and accepted, a NEW live vaccination_completions row is written for the SAME
+    -- obligation_id while the old archive row is left in place as history. Reading the archive
+    -- alone would keep counting that obligation as rejected forever, exactly the reviewCount bug
+    -- already fixed for the scan roster (vaccinationexecution/adapters/postgres/repository.go
+    -- scanRosterSQL "vc" lateral): a live recorded/accepted completion for this obligation
+    -- outranks an older rejection archive row, so the flag clears itself the moment the animal is
+    -- redone and accepted. Collapsed through the same live_rank/updated_at/completion_id
+    -- tie-break as scanRosterSQL so the two reads can never disagree about which verdict is
+    -- current for a given obligation.
+    COALESCE((
+      SELECT verdicts.completion_status = 'rejected'
+      FROM (
+        SELECT vcc.status AS completion_status, vcc.updated_at, vcc.completion_id,
+               CASE WHEN vcc.status IN ('recorded', 'accepted') THEN 0 ELSE 1 END AS live_rank
+        FROM vaccination_completions vcc
+        WHERE vcc.tenant_id = oi.tenant_id
+          AND vcc.obligation_id = oi.obligation_id
+        UNION ALL
+        SELECT 'rejected', vcr.rejected_at, vcr.completion_id, 1
+        FROM vaccination_completion_rejections vcr
+        WHERE vcr.tenant_id = oi.tenant_id
+          AND vcr.obligation_id = oi.obligation_id
+      ) verdicts
+      ORDER BY verdicts.live_rank ASC, verdicts.updated_at DESC, verdicts.completion_id DESC
+      FETCH FIRST 1 ROW ONLY
+    ), false) AS currently_rejected
     -- Stock/execution "blocked" visibility is deliberately out of scope -- stock is not a built
     -- product feature yet (owner decision 2026-07-14); revisit when the stock module ships.
   FROM obligation_membership_rows oi
@@ -1241,6 +1269,7 @@ obligation_drive_summary AS (
     g.due_count,
     g.overdue_count,
     g.deferred_count,
+    g.rejected_count,
     g.shed_count,
     COALESCE(sc.sheds_completed, 0)::int AS sheds_completed,
     COALESCE(ac.total_animals, 0)::int AS total_animals,
@@ -1304,6 +1333,27 @@ obligation_drive_summary AS (
         WHERE m.status = 'deferred'
           AND NOT m.submitted_for_verification
       )::int AS deferred_count,
+      -- rejected_count is INFORMATIONAL ONLY -- a subset already counted inside due_count/
+      -- overdue_count above, never an additional partition. obligation_instances.status has NO
+      -- 'rejected' value (the baseline CHECK does not permit it, and
+      -- vaccinationexecution/adapters/postgres/repository.go RecordVerdict-adjacent read maps a
+      -- rejected verdict back to effective status 'due' -- the obligation genuinely reopens as
+      -- due/overdue work, matching m.status here). "Rejected" is therefore a SEPARATE dimension
+      -- from status, exactly like submitted_for_verification above: m.currently_rejected (see the
+      -- obligation_drive_membership CTE) reads the live vaccination_completions row for this
+      -- obligation over the vaccination_completion_rejections archive row, so an animal that was
+      -- rejected and then rescanned-and-accepted stops counting the moment the new completion is
+      -- accepted -- current state, not lifetime history. It exists so the card can explain WHY the
+      -- completed/progress numerator dropped after a verifier rejects proof, instead of the drop
+      -- reading as an unexplained mystery. Adding it does NOT change the five-bucket disjoint
+      -- total invariant above: total_count still equals completed+submitted+due+overdue+deferred
+      -- exactly -- currently_rejected obligations already carry status IN ('due','overdue') (or
+      -- occasionally 'scheduled'/'in_progress' before the rollover catches up) and were already
+      -- counted in exactly one of those buckets before this column existed.
+      count(DISTINCT m.obligation_id) FILTER (
+        WHERE m.currently_rejected
+          AND m.status <> 'completed'
+      )::int AS rejected_count,
       count(DISTINCT m.shed_id) FILTER (WHERE m.shed_id IS NOT NULL)::int AS shed_count,
       max(m.park_code) AS park_code
     FROM obligation_drive_membership m
@@ -1567,6 +1617,9 @@ park_drive_events AS (
         'due_count', obl_summary.due_count,
         'overdue_count', obl_summary.overdue_count,
         'deferred_count', obl_summary.deferred_count,
+        -- Informational subset of due_count/overdue_count (see obligation_drive_summary CTE) so
+        -- the card can name why the progress numerator dropped, instead of leaving a silent gap.
+        'rejected_count', obl_summary.rejected_count,
         'total_animals', obl_summary.total_animals,
         'completed_animals', obl_summary.completed_animals,
         'submitted_animals', obl_summary.submitted_animals,

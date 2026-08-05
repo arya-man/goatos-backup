@@ -184,7 +184,13 @@ func buildPublisher(ctx context.Context, kind string, pool *pgxpool.Pool, pgCfg 
 		vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 		vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 		vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
-		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).Register(bus)
+		// locationNames enriches rework/approval push copy with the park/shed's human name (see
+		// kernelstages/bus.go C-defect-B): WithVaccineLabels alone was chained here but NOT
+		// WithLocationNames, so every push this relay's eventbus dispatcher produced degraded to
+		// the generic, unactionable "The proof is ready for operational closure" copy with no
+		// park/shed named.
+		locationNames := notificationbridge.NewLocationNameResolver(pool)
+		notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 		notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 		notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 		countsapp.NewProjectionInputHandler(countsService).Register(bus)

@@ -154,14 +154,20 @@ func buildDomainBus(pool *pgxpool.Pool, pgCfg platformpg.Config, logger *slog.Lo
 	vaccinationapp.NewVerificationHandler(vaccinationCompletion).WithClosureProjector(sopService).Register(bus)
 	vaccinationapp.NewVaccinationCompletedHandler(vaccinationService, obligationRepo, vaccinationBooster).Register(bus)
 	vaccineLabels := notificationbridge.NewVaccineLabelResolver(pool, logger)
-	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).Register(bus)
+	// locationNames enriches rework/approval push copy with the park/shed's human name (see
+	// kernelstages/bus.go C-defect-B): WithVaccineLabels alone was chained here but NOT
+	// WithLocationNames, so every push this durable consumer produced -- the path that actually
+	// delivers a rework/approved push in production, since the outbox only reaches this consumer,
+	// never the API's in-process bus -- degraded straight to the generic, unactionable "The proof
+	// is ready for operational closure" copy with no park/shed named.
+	locationNames := notificationbridge.NewLocationNameResolver(pool)
+	notificationbridge.NewVerificationEventConsumer(rosterService, calendarService, logger).WithVaccineLabels(vaccineLabels).WithLocationNames(locationNames).Register(bus)
 	notificationbridge.NewWeighingSubmissionEventConsumer(rosterService, calendarService, logger).Register(bus)
 	notificationbridge.NewWeighingLifecycleEventConsumer(rosterService, calendarService, logger).Register(bus)
 	// A missed obligation must reach people, not just open an escalation row: DOWN to the assigned
 	// operator, UP to the park head and the owning module's director. locationNames enriches the
 	// push with the park's human name (confirmed maintainer defect: pushes were too abstract to
 	// act on) -- a tiny, dependency-free lookup owned entirely by notificationbridge.
-	locationNames := notificationbridge.NewLocationNameResolver(pool)
 	calendarapp.NewObligationMissedHandler(calendarService).WithNotifier(notificationbridge.NewObligationMissedNotifier(calendarService, rosterService, calendarService, logger).WithLocationNames(locationNames)).Register(bus)
 	countsapp.NewProjectionInputHandler(countsService).Register(bus)
 	// Keep every durable handler explicit in this production bus builder. The cascade-event-wiring

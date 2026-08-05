@@ -78,17 +78,24 @@ type Owner struct {
 }
 
 type ExecutionRow struct {
-	ParkID             string             `json:"parkId"`
-	ParkName           string             `json:"parkName"`
-	ShedID             string             `json:"shedId"`
-	ShedName           string             `json:"shedName"`
-	PhysicalShed       string             `json:"physicalShed,omitempty"`
-	Partition          string             `json:"partition,omitempty"`
-	AnimalStage        string             `json:"animalStage"`
-	TargetCount        int                `json:"targetCount"`
-	OpenCount          int                `json:"openCount"`
-	DoneCount          int                `json:"doneCount"`
-	AcceptedCount      int                `json:"acceptedCount"`
+	ParkID        string `json:"parkId"`
+	ParkName      string `json:"parkName"`
+	ShedID        string `json:"shedId"`
+	ShedName      string `json:"shedName"`
+	PhysicalShed  string `json:"physicalShed,omitempty"`
+	Partition     string `json:"partition,omitempty"`
+	AnimalStage   string `json:"animalStage"`
+	TargetCount   int    `json:"targetCount"`
+	OpenCount     int    `json:"openCount"`
+	DoneCount     int    `json:"doneCount"`
+	AcceptedCount int    `json:"acceptedCount"`
+	// ReviewCount is the number of items currently AWAITING A VERDICT (completion recorded but
+	// not yet accepted or rejected) -- it must always match what the verifier's own
+	// /verification/queue returns for the same scope. It EXCLUDES rejected items: a rejection is
+	// a resolved verdict, not open review work, and it reopens the underlying obligation as
+	// outstanding execution work again. Do not fold rejected items back into this number; if a
+	// caller needs the lifetime total of items ever raised for review (pending + rejected), that
+	// must be a separate, explicitly named field.
 	ReviewCount        int                `json:"reviewCount"`
 	DriveID            *string            `json:"driveId,omitempty"`
 	DriveName          *string            `json:"driveName,omitempty"`

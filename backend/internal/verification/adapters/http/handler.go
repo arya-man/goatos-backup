@@ -479,7 +479,15 @@ func (h *Handler) CloseVaccinationBatch(w nethttp.ResponseWriter, r *nethttp.Req
 			break
 		}
 	}
-	if !allowed {
+	// A restricted (park-scoped) verifier is authorized only for batches inside their own park
+	// scope -- ListReadyVaccinationBatchClosures is the sole source of that scoping today, so an
+	// unlisted batch for a restricted caller stays a 404 (never leak batches outside scope).
+	// An UNRESTRICTED caller (CEO/director) is authorized tenant-wide, so an unlisted batch here
+	// means only ONE thing: it is not yet fully verified. Falling straight through to
+	// CloseVaccinationBatch below (instead of a bare "not found") lets its named refusal --
+	// "N animals still awaiting verification: G-00X, ..." -- reach the caller, which is what makes
+	// leadership sign-off actionable instead of a dead end that looks like a missing batch.
+	if !allowed && restricted {
 		h.respondError(w, r, app.NotFound("batch_not_found", "vaccination batch not found"))
 		return
 	}

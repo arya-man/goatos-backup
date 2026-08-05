@@ -1418,7 +1418,15 @@ ON CONFLICT (tenant_id, submission_id, command_type) DO NOTHING`, cmd.TenantID, 
 			return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 		}
 	}
-	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.submission.create", "sop_submission", submissionID, map[string]any{"task_id": cmd.TaskID, "state": cmd.TaskState}); err != nil {
+	// Mirrors weighing's auditAnimalObservation pattern: real ActorID always, plus
+	// device_id (when the client sent one) so the same operator submitting from
+	// multiple phones can be told apart when reconstructing "I submitted and
+	// nothing happened" reports.
+	submitAuditMetadata := map[string]any{"task_id": cmd.TaskID, "state": cmd.TaskState}
+	if strings.TrimSpace(cmd.DeviceID) != "" {
+		submitAuditMetadata["device_id"] = cmd.DeviceID
+	}
+	if err := insertAudit(ctx, tx, cmd.TenantID, cmd.ActorID, "sop.submission.create", "sop_submission", submissionID, submitAuditMetadata); err != nil {
 		return domain.SubmissionSummary{}, domain.TaskSummary{}, false, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -1583,6 +1591,76 @@ RETURNING st.task_id::text`, tenantID, taskID, actorID, submissionID).Scan(&acce
 	}
 	if acceptedTaskID != "" {
 		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.accepted", "sop_task", acceptedTaskID, map[string]any{"submission_id": submissionID}); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+// ReopenTaskForRework is AcceptSubmissionItemVerification's mirror for a REJECTED verdict: the
+// owning vertical (e.g. vaccination's RejectExisting) has already reopened the per-goat obligation
+// in its own transaction; this compensates the SOP aggregate so the write path stops refusing the
+// rework submission that must follow. SubmitTask's terminal-state guard
+// (`if currentState == "accepted" { return ports.ErrConflict }`, this file) only ever lets a
+// submission through when sop_tasks.state is one of queued/assigned/in_progress/
+// rework_requested/needs_review -- a task parked in 'accepted' forever refuses every future
+// submission, even when a verifier rejection has put real, scanned, proof-attached work back on
+// the operator's list. 'rework_requested' has been a valid sop_tasks_state_check value since the
+// baseline schema; nothing ever transitioned a task into it until now.
+//
+// Deliberately unconditional on submission/item counts (unlike AcceptSubmissionItemVerification's
+// roll-up, which waits for every item to close): ONE rejected goat is sufficient reason to reopen
+// the whole shed task for resubmission, because SubmitTask's own shed-completion proof gate
+// (ShedCompletionReadiness) is what decides whether a given resubmission is actually complete, not
+// this state flip. This method only removes the terminal-state trap; it never fabricates
+// completeness.
+//
+// Idempotent and safe against races: the UPDATE only fires from state = 'accepted'. A replayed
+// event, a task already reopened by a sibling rejection, or a task that moved on to some other
+// state in the meantime, is a no-op success -- never an error.
+func (r *Repository) ReopenTaskForRework(ctx context.Context, tenantID, submissionID, goatID, actorID string) error {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+
+	var taskID string
+	err = tx.QueryRow(ctx, `
+SELECT ss.task_id::text
+FROM sop_submissions ss
+WHERE ss.tenant_id = $1::uuid
+  AND ss.submission_id = $2::uuid
+FOR UPDATE OF ss`, tenantID, submissionID).Scan(&taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ports.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	var reopenedTaskID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_tasks
+SET state = 'rework_requested',
+    updated_at = now(),
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND task_id = $2::uuid
+  AND state = 'accepted'
+RETURNING task_id::text`, tenantID, taskID).Scan(&reopenedTaskID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if reopenedTaskID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.task.reopened_for_rework", "sop_task", reopenedTaskID, map[string]any{
+			"submission_id": submissionID,
+			"goat_id":       goatID,
+			"reason":        "verification_rejected",
+		}); err != nil {
 			return err
 		}
 	}

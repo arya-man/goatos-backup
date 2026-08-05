@@ -15,6 +15,19 @@ var (
 	ErrIdempotencyConflict = errors.New("verification: idempotency key reused with different payload")
 )
 
+// ErrBatchNotFullyVerified is CloseVaccinationBatch's specific refusal when at least one animal in
+// the drive is still pending or was rejected: leadership cannot sign off on a drive with unverified
+// work. Blocking names the animals still standing between the batch and closure (verification_items
+// subject_label, falling back to the ref_id when no label was captured) so the caller can render
+// "N animals still awaiting verification: G-00X, G-00Y..." instead of a bare conflict.
+type ErrBatchNotFullyVerified struct {
+	Blocking []string
+}
+
+func (e *ErrBatchNotFullyVerified) Error() string {
+	return "verification: batch has unverified or rejected animals"
+}
+
 // ListQueueParams filters + keysets one page of the verifier queue.
 type ListQueueParams struct {
 	TenantID string

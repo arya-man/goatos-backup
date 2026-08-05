@@ -40,16 +40,17 @@ import (
 
 // Distinct verification_item ids (the consumer targets these; the sibling test uses completion ids).
 const (
-	vecItemPending  = "fa000000-0000-4000-8000-0000000000a1"
-	vecItemRework   = "fa000000-0000-4000-8000-0000000000a2"
-	vecItemApproved = "fa000000-0000-4000-8000-0000000000a3"
-	vecItemLegacy   = "fa000000-0000-4000-8000-0000000000a4"
-	vecItemIdem     = "fa000000-0000-4000-8000-0000000000a5"
-	vecItemReplay   = "fa000000-0000-4000-8000-0000000000a6"
-	vecItemClosed   = "fa000000-0000-4000-8000-0000000000a7"
-	vecBatchReady   = "fa000000-0000-4000-8000-0000000000a8"
-	vecBatchClosed  = "fa000000-0000-4000-8000-0000000000a9"
-	vecOperatorUser = "fa000000-0000-4000-8000-0000000000b1"
+	vecItemPending    = "fa000000-0000-4000-8000-0000000000a1"
+	vecItemRework     = "fa000000-0000-4000-8000-0000000000a2"
+	vecItemApproved   = "fa000000-0000-4000-8000-0000000000a3"
+	vecItemLegacy     = "fa000000-0000-4000-8000-0000000000a4"
+	vecItemIdem       = "fa000000-0000-4000-8000-0000000000a5"
+	vecItemReplay     = "fa000000-0000-4000-8000-0000000000a6"
+	vecItemClosed     = "fa000000-0000-4000-8000-0000000000a7"
+	vecBatchReady     = "fa000000-0000-4000-8000-0000000000a8"
+	vecItemLegacyGoat = "fa000000-0000-4000-8000-0000000000a9"
+	vecBatchClosed    = "fa000000-0000-4000-8000-0000000000a9"
+	vecOperatorUser   = "fa000000-0000-4000-8000-0000000000b1"
 )
 
 // vecSetup stands up a fresh Postgres, the roster + calendar services, the consumer, and seeds the
@@ -137,6 +138,24 @@ func vecPayload(itemID, operatorID, decision, reason string, legacy bool) []byte
 			"submission_id": itemID,
 		}
 	}
+	return vecPayloadWithSource(itemID, operatorID, decision, reason, source)
+}
+
+// vecPayloadGoat builds the same payload shape as vecPayload(legacy=true), but for the
+// per-animal producer grain (source.ref_type = "vaccination_goat") that the fan-out fix emits
+// instead of one "sop_submission" item per shed. It exists so legacyHandledVaccination's dedup
+// scope can be proven: "sop_submission" IS legacy-covered and suppressed, "vaccination_goat" is
+// NOT (see TestVerificationEventConsumer_LegacyDedup and C-defect-A).
+func vecPayloadGoat(itemID, goatID, operatorID, decision, reason string) []byte {
+	source := map[string]any{
+		"module": "vaccination", "ref_type": "vaccination_goat",
+		"ref_id": goatID, "task_id": "fa000000-0000-4000-8000-0000000000f1",
+		"submission_id": itemID,
+	}
+	return vecPayloadWithSource(itemID, operatorID, decision, reason, source)
+}
+
+func vecPayloadWithSource(itemID, operatorID, decision, reason string, source map[string]any) []byte {
 	m := map[string]any{
 		"tenant_id": vnTenant, "item_id": itemID, "vertical": "preventive_care",
 		"module": "vaccination", "category": "vaccination_proof",
@@ -375,6 +394,23 @@ func TestVerificationEventConsumer_LegacyDedup(t *testing.T) {
 	}
 	if legacyRefs[vnOperatorToken] || legacyRefs[vnParkHeadToken] {
 		t.Fatalf("legacy vaccination rework must not duplicate operator/park-head pushes: %v", legacyRefs)
+	}
+
+	// Per-animal producer grain: source.ref_type = "vaccination_goat" is NOT covered by the legacy
+	// vaccination.verify.rejected fan-out (sopbridge.VerifyFanout.OnTaskReworked is invoked only
+	// from the SOP task-level rework command, i.e. the "sop_submission" grain -- a per-animal
+	// verdict never reaches it), so it must NOT be suppressed: operator + park head must be
+	// notified here or nobody ever tells them (C-defect-A, confirmed live 2026-08-04).
+	if err := consumer.HandleEvent(ctx, vecEvent(notificationbridge.EventVerificationVerdictRework,
+		vecItemLegacyGoat, vecPayloadGoat(vecItemLegacyGoat, "goat-1", vnOperatorMember, "rejected", "legacy dup goat"))); err != nil {
+		t.Fatalf("legacy goat rework handle: %v", err)
+	}
+	legacyGoatRefs := vecRecipientRefs(t, ctx, pool, vecItemLegacyGoat)
+	if len(legacyGoatRefs) != 4 ||
+		!legacyGoatRefs[vnOperatorToken] || !legacyGoatRefs[vnParkHeadToken] ||
+		!legacyGoatRefs[vnLeadershipToken] || !legacyGoatRefs[vnCEOToken] {
+		t.Fatalf("vaccination_goat rework recipients = %v, want operator/park-head/PC director/CEO (per-animal items are never legacy-covered)",
+			legacyGoatRefs)
 	}
 
 	// Control: a NON-legacy (generic) rework on the same park is NOT suppressed.

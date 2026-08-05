@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -629,9 +630,18 @@ func (r *Repository) acceptCompletionInTx(ctx context.Context, tx pgx.Tx, in dom
 		if row.status == "accepted" {
 			return result, nil
 		}
-		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
-	}
-	if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" {
+		// Maintainer state-model: the obligation closes the moment its completion is RECORDED
+		// (sopbridge.closeObligationsForCompletions / obligation.Repository.MarkCompleted at
+		// record time), not on verification. So by the time a verifier approves, this obligation
+		// is routinely ALREADY 'completed' -- that is the expected, common case now, not a stale
+		// or conflicting state. Only refuse when there is genuinely nothing left to accept (the
+		// completion itself is not 'recorded' -- e.g. it was rejected/archived out from under this
+		// call). The completed-obligation branch below (`if obligationStatus != "completed"`)
+		// already knows to skip re-completing an obligation that is completed for this reason.
+		if row.status != "recorded" {
+			return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
+		}
+	} else if obligationStatus != "scheduled" && obligationStatus != "due" && obligationStatus != "in_progress" && obligationStatus != "missed" {
 		return domain.AcceptCompletionAtomicResult{}, domain.ErrCompletionNotOpen
 	}
 	consumed, err := r.consumeAcceptedCompletionStock(ctx, tx, in.TenantID, row)
@@ -839,7 +849,12 @@ RETURNING obligation_id::text`, tenantID, batchID, completedObligationID)
 INSERT INTO obligation_status_events (
   tenant_id, obligation_id, event_type, occurred_at, payload, idempotency_key
 ) SELECT $1::uuid, obligation_id::uuid, 'in_progress', $2, $3, idempotency_key
-FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)`,
+FROM UNNEST($4::uuid[], $5::text[]) AS t(obligation_id, idempotency_key)
+-- Same idempotency rule as the obligation repository's twin of this insert: the key replays on
+-- any second submission for the same obligation (every rework rescan), and a duplicate-key error
+-- here aborts the entire submission, silently losing the operator's redo. Re-asserting the fact
+-- must be a no-op.
+ON CONFLICT (tenant_id, idempotency_key) DO NOTHING`,
 		tenantID, siblingNow, siblingPayload, siblingUUIDs, siblingKeys); err != nil {
 		return fmt.Errorf("vaccination: bulk insert sibling in_progress events: %w", err)
 	}
@@ -1010,8 +1025,35 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 	if row.batchID == "" {
 		return false, nil
 	}
-	if row.lotID == "" || !row.coldChain {
-		return false, domain.ErrStockGateBlocked
+	// lotID is required here as an OPERATIONAL fact (which stock row to decrement), not a
+	// re-validation of the record-time business rule -- that policy check (lot + cold-chain
+	// required whenever a batch is present) belongs ONLY at record time
+	// (CompletionService.validateStockGate). A verifier approving evidence hours/days later
+	// must never be re-blocked by inventory state, and cold-chain confirmation happens once
+	// at the drive/lot reservation, not per verifier decision -- so coldChain is intentionally
+	// NOT re-checked here. A missing lotID at this point means the completion was recorded
+	// without ever going through a batch context and there is nothing to consume against; it
+	// is a data-shape guard, not a stock-gate re-check.
+	if row.lotID == "" {
+		// Nothing to decrement against -- but this must NOT fail the accept. Returning an error
+		// here contradicted this function's own comment above ("a verifier approving evidence
+		// hours/days later must never be re-blocked by inventory state") and did exactly that:
+		// a rework rescan records its completion with a batch but no lot, so every approval of a
+		// redone animal died with "stock gate blocked", the verdict saved but the completion
+		// never flipped to accepted, acceptedCount stayed frozen, and the event retried
+		// thousands of times because the failure is deterministic. Observed live 2026-08-05.
+		//
+		// Skipped consumption is an inventory ANOMALY, not a verification failure: the dose was
+		// physically given at record time. So the accept proceeds and the gap is recorded loudly
+		// rather than silently swallowed -- an under-decremented lot is a reconciliation problem
+		// for whoever owns stock, never a reason to block the verifier.
+		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "completion has a batch but no vaccine_inventory_lot_id"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("batch_id", row.batchID),
+		)
+		return false, nil
 	}
 	var itemID, locationID, unit string
 	if err := tx.QueryRow(ctx, `
@@ -1023,7 +1065,16 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 	  AND (expiry_date IS NULL OR expiry_date >= $3::date)
 	FOR UPDATE`, tenantID, row.lotID, row.administeredAt).Scan(&itemID, &locationID, &unit); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return false, domain.ErrStockGateBlocked
+			// No active, unexpired stock row for this lot. Same rule as the missing-lot branch
+			// above: an inventory bookkeeping gap must NOT veto the verifier. Skip the decrement,
+			// record the anomaly loudly, let the accept proceed.
+			slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+				slog.String("reason", "no active unexpired stock row for lot"),
+				slog.String("tenant_id", tenantID),
+				slog.String("completion_id", row.completionID),
+				slog.String("lot_id", row.lotID),
+			)
+			return false, nil
 		}
 		return false, fmt.Errorf("vaccination: lock completion stock: %w", err)
 	}
@@ -1079,7 +1130,17 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		return false, fmt.Errorf("vaccination: check batch reservation ledger: %w", err)
 	}
 	if batchReserved < qty {
-		return false, domain.ErrStockGateBlocked
+		// The batch/lot reservation ledger does not cover this dose. That is an inventory
+		// reconciliation problem (under-reserved drive, manual lot edit, seed gap) and is NOT a
+		// reason to refuse the verifier's verdict -- the animal was already vaccinated.
+		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "batch reservation ledger below dose quantity"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("batch_id", row.batchID),
+			slog.String("lot_id", row.lotID),
+		)
+		return false, nil
 	}
 	var movementID string
 	err := tx.QueryRow(ctx, `
@@ -1118,7 +1179,15 @@ func (r *Repository) consumeAcceptedCompletionStock(ctx context.Context, tx pgx.
 		return false, fmt.Errorf("vaccination: adjust consume balances: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return false, domain.ErrStockGateBlocked
+		// Reserved balance no longer covers this dose (already released, adjusted, or never
+		// reserved). Consuming is impossible, but the verdict still stands: skip and record.
+		slog.ErrorContext(ctx, "vaccination_accept_stock_not_consumed",
+			slog.String("reason", "reserved balance below dose quantity at consume time"),
+			slog.String("tenant_id", tenantID),
+			slog.String("completion_id", row.completionID),
+			slog.String("lot_id", row.lotID),
+		)
+		return false, nil
 	}
 	return true, nil
 }
@@ -1440,16 +1509,86 @@ func (r *Repository) RejectCompletion(ctx context.Context, tenantID, completionI
 	if err != nil {
 		return false, fmt.Errorf("vaccination: completion id: %w", err)
 	}
-	n, err := r.queries.RejectVaccinationCompletion(ctx, vaccinationdb.RejectVaccinationCompletionParams{
-		VerifiedBy:      pgconv.NullableUUID(verifiedBy),
-		RejectionReason: pgconv.Text(reason),
-		TenantID:        tenant,
-		CompletionID:    cid,
-	})
+	// A rejected completion MOVES out of vaccination_completions into the rejection archive
+	// (migration 000093), rather than staying behind with status='rejected'.
+	//
+	// The animal has to become outstanding work again -- the operator must see it on the scan
+	// screen as something to redo. While a rejected row remained, every read that asks "is there
+	// a completion for this obligation" still answered yes, which is precisely why a rejected
+	// animal stayed green on the scan screen while its four accepted shed-mates looked identical.
+	// Removing the row makes the animal outstanding BY DEFAULT on every one of those reads,
+	// instead of each of them having to remember to special-case a rejected status.
+	//
+	// Nothing is lost: the row is copied whole, in this same transaction, with the verdict that
+	// caused it. "We injected this animal and the proof was refused" stays on the record and is a
+	// different fact from "this never happened".
+	//
+	// Idempotent by construction: the archive INSERT is driven by the SELECT of the completion
+	// row, so a replayed verdict finds nothing to move and reports applied=false, exactly as the
+	// previous single-statement UPDATE did when the row was already rejected.
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("vaccination: reject completion: %w", err)
+		return false, fmt.Errorf("vaccination: begin reject completion tx: %w", err)
 	}
-	return n == 1, nil
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var moved int64
+	tag, err := tx.Exec(ctx, `
+INSERT INTO vaccination_completion_rejections (
+  completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id,
+  vaccine_inventory_lot_id, doses, dose_ml_given, route_site, adverse_reaction,
+  adverse_reaction_problem_id, cold_chain_verified, administered_at, original_status,
+  verified_by, verified_at, rejection_reason, withdrawal_until_date, recorded_by,
+  original_idempotency_key, original_row_version, original_created_at, original_updated_at,
+  rejected_by
+)
+SELECT
+  vc.completion_id, vc.tenant_id, vc.obligation_id, vc.batch_id, vc.goat_id,
+  vc.sop_submission_item_id, vc.vaccine_inventory_lot_id, vc.doses, vc.dose_ml_given,
+  vc.route_site, vc.adverse_reaction, vc.adverse_reaction_problem_id, vc.cold_chain_verified,
+  vc.administered_at, vc.status,
+  $1::uuid, now(), NULLIF($2::text, ''), vc.withdrawal_until_date, vc.recorded_by,
+  vc.idempotency_key, vc.row_version, vc.created_at, vc.updated_at,
+  $1::uuid
+FROM vaccination_completions vc
+WHERE vc.tenant_id = $3::uuid
+  AND vc.completion_id = $4::uuid
+  -- Only work that is still standing can be sent back. An already-accepted animal is terminal
+  -- (maintainer ruling): it is never re-judged, and must never be pulled back out of the record.
+  AND vc.status = 'recorded'
+ON CONFLICT (tenant_id, completion_id) DO NOTHING`,
+		pgconv.NullableUUID(verifiedBy), reason, tenant, cid)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: archive rejected completion: %w", err)
+	}
+	moved = tag.RowsAffected()
+	if moved == 0 {
+		// Nothing eligible to move: already rejected (replay), already accepted (terminal), or
+		// no such completion. Not an error, and not applied.
+		return false, nil
+	}
+	del, err := tx.Exec(ctx, `
+DELETE FROM vaccination_completions
+WHERE tenant_id = $1::uuid
+  AND completion_id = $2::uuid
+  AND status = 'recorded'`, tenant, cid)
+	if err != nil {
+		return false, fmt.Errorf("vaccination: remove rejected completion: %w", err)
+	}
+	// The archive INSERT and this DELETE must move exactly one row together. If the row were
+	// archived but survived here, the animal would exist in BOTH tables: counted as rejected AND
+	// still holding a live completion, so it would read as handled on every completion check while
+	// also reading as sent back. Rolling back is the only safe answer -- a half-move of a clinical
+	// record is worse than no move at all.
+	if del.RowsAffected() != moved {
+		return false, fmt.Errorf(
+			"vaccination: rejected completion half-moved (archived %d, removed %d): completion_id=%s",
+			moved, del.RowsAffected(), completionID)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("vaccination: commit reject completion: %w", err)
+	}
+	return true, nil
 }
 
 // ListRecordedCompletionsByTask returns the still-recorded completion ids captured under a SOP
@@ -1540,7 +1679,14 @@ SELECT
   NULL::numeric,
   NULL::text,
   false,
-  false,
+  -- Cold chain is verified once at the DRIVE/BATCH reservation (same trust boundary as the
+  -- lot COALESCE above), not re-collected per shed. Hardcoding this to false made every
+  -- drive-recorded dose permanently unapprovable: consumeAcceptedCompletionStock's stock gate
+  -- (repository.go, consume path) requires cold_chain_verified=true whenever a lot is present,
+  -- and this bulk insert is the ONLY writer for the SOP shed-submission proof path, so the flag
+  -- could never become true downstream. True here matches the trust already extended to the
+  -- lot id on the line above.
+  true,
   COALESCE(nullif(si.result ->> 'administered_at', '')::timestamptz, ss.submitted_at),
   'recorded',
   COALESCE(
@@ -2168,14 +2314,67 @@ LIMIT 5000`, tenant, task)
 	return out, nil
 }
 
+// submissionFanoutCounts compares how many submission items are expected to end up backed by an
+// ACTIVE vaccination_completions row against how many actually are, so RecordCompletionsFromSubmission
+// can fail closed on a genuine short-materialization instead of silently dropping goats.
+//
+// Root cause of the false "materialized N of M eligible submission items" failure this replaces:
+// the INSERT above uses a BARE `ON CONFLICT DO NOTHING` (no conflict target), so it silently no-ops
+// on ANY unique-constraint hit for a row -- not just the idempotency_key one it names in comments.
+// vaccination_completions also carries a second, partial unique index,
+// vaccination_completions_obligation_goat_active_unique_idx on (tenant_id, obligation_id, goat_id)
+// WHERE status IN ('recorded','accepted'), which allows at most one ACTIVE completion per
+// obligation+goat at a time. The Android client posts a CUMULATIVE proof/answer payload per shed
+// (see the P0 shed-leak comment in sopbridge/vaccination_submission.go), so a REWORK submission for
+// 2 rejected goats still carries sop_submission_items for the whole shed -- including goats whose
+// ORIGINAL completion is still 'recorded' and pending verification (never rejected, never
+// reworked). For those goats the INSERT's attempt correctly collides with the active-completion
+// index and is swallowed by the bare ON CONFLICT: nothing new needs to be recorded, the existing
+// active completion already stands. That is correct, not a bug -- but the old eligibleItems count
+// (every accepted/needs_review submission item) did not know that, so it counted those goats as
+// "should have materialized" too, eligibleItems (5) outran materializedItems (2 -- only the truly
+// reworked goats), and the whole submission's fanout was marked failed. That abort ran BEFORE
+// emitVerificationItems, so NEITHER a new verification_items row NOR the
+// verification.item.pending outbox event was ever produced for the two goats that legitimately DID
+// get reworked -- the rework loop dead-ended even though the completions themselves were recorded.
+//
+// The fix: an item counts as "materialized" when its goat has ANY active completion (status
+// recorded/accepted) for its resolved obligation -- whether that completion was just inserted by
+// this submission or already existed from an earlier one. That mirrors exactly what the partial
+// unique index (and therefore the swallowed ON CONFLICT) considers "already satisfied," so a
+// legitimate no-op is no longer misreported as a failure, while a goat that ends up with NO active
+// completion at all (a genuine insert failure -- e.g. a missing protocol_rules row) still fails the
+// count and is reported.
 func (r *Repository) submissionFanoutCounts(ctx context.Context, tenant, task, submission pgtype.UUID) (eligibleItems, materializedItems int, err error) {
 	err = r.pool.QueryRow(ctx, `
-	SELECT count(si.item_id)::int,
-	       count(DISTINCT vc.sop_submission_item_id)::int
+	SELECT count(*)::int,
+	       count(*) FILTER (
+	         WHERE EXISTS (
+	           SELECT 1
+	           FROM vaccination_completions vc2
+	           WHERE vc2.tenant_id = si.tenant_id
+	             AND vc2.goat_id = si.goat_id
+	             AND vc2.status IN ('recorded', 'accepted')
+	             AND vc2.obligation_id IN (
+	               SELECT oi.obligation_id
+	               FROM obligation_instances oi
+	               WHERE oi.tenant_id = si.tenant_id
+	                 AND oi.target_type = 'goat'
+	                 AND oi.target_id = si.goat_id
+	                 AND (
+	                      oi.sop_task_id = st.task_id
+	                      OR (ob.batch_id IS NOT NULL AND oi.batch_id = ob.batch_id)
+	                 )
+	             )
+	         )
+	       )::int
 	FROM sop_submission_items si
-	LEFT JOIN vaccination_completions vc
-	  ON vc.tenant_id = si.tenant_id
-	 AND vc.sop_submission_item_id = si.item_id
+	JOIN sop_tasks st
+	  ON st.tenant_id = si.tenant_id
+	 AND st.task_id = si.task_id
+	LEFT JOIN obligation_batches ob
+	  ON ob.tenant_id = st.tenant_id
+	 AND ob.sop_task_id = st.task_id
 	WHERE si.tenant_id = $1
 	  AND si.task_id = $2
 	  AND si.submission_id = $3

@@ -1853,6 +1853,10 @@ func (f *fakeRepo) AcceptSubmissionItemVerification(context.Context, string, str
 	return nil
 }
 
+func (f *fakeRepo) ReopenTaskForRework(context.Context, string, string, string, string) error {
+	return nil
+}
+
 func shiftingDSL() map[string]any {
 	return map[string]any{
 		"schema_version": "goatos.sop-form.v1",

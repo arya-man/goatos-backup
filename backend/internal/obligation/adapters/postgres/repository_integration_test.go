@@ -744,14 +744,19 @@ FROM obligation_status_events
 WHERE tenant_id=$1::uuid AND obligation_id=$2::uuid AND event_type='completed'`, tenantID, obligationID); got != 1 {
 		t.Fatalf("completed status event count = %d, want 1", got)
 	}
+	// Versioned by row_version (see MarkCompleted's rework-resubmit fix): a bare "<id>:completed"
+	// key is permanently reserved on the first completion and never released on reopen, so any
+	// later genuine re-completion of a reworked obligation would hit ReserveIdempotencyKey's ON
+	// CONFLICT DO NOTHING and hard-fail. LIKE-matching the versioned prefix keeps this assertion
+	// honest without hardcoding the row_version suffix.
 	if got := countRows(t, ctx, pool, `
 SELECT count(*)
 FROM idempotency_keys
 WHERE tenant_id=$1::uuid
-  AND idempotency_key=$2
+  AND idempotency_key LIKE $2
   AND scope='obligation.mark_completed'
   AND status='completed'
-  AND result_type='obligation_status_event'`, tenantID, obligationID+":completed"); got != 1 {
+  AND result_type='obligation_status_event'`, tenantID, obligationID+":completed:%"); got != 1 {
 		t.Fatalf("completed idempotency key count = %d, want 1", got)
 	}
 
