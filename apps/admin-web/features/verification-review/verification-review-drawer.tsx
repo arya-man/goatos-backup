@@ -6,7 +6,7 @@ import {
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
 import { Maximize, Minimize, PlayCircle } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
@@ -14,6 +14,9 @@ import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
+import { ReviewVideoPlayer } from "./review-video-player";
+import { ReviewEventBuffer } from "./review-events";
+import { submitVerificationReviewEvents } from "./review-events-server";
 
 const PATHNAME = "/actions";
 
@@ -217,11 +220,69 @@ function VerificationReviewDrawerPanel({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const playerRef = useRef<HTMLDivElement>(null);
 
+  // Initialize the event buffer with the server action for posting events
+  const eventBuffer = useMemo(() => {
+    return new ReviewEventBuffer((events) => submitVerificationReviewEvents(events));
+  }, []);
+
+  // Emit item_opened when the drawer opens
   useEffect(() => {
-    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === playerRef.current);
+    if (open) {
+      eventBuffer.recordEvent(
+        item.item_id,
+        "item_opened",
+        {
+          category: item.category,
+          // park_id/shed_id, not the display labels: these are attribution dimensions the CEO
+          // aggregate groups by, and a label is not a stable key.
+          park_id: item.park_id ?? undefined,
+          shed_id: item.shed_id ?? undefined,
+          status: item.status,
+        },
+        item.media[0]?.proof_id,
+      );
+    }
+  }, [open, item.item_id, item.category, item.park_label, item.shed_label, item.status, item.media, eventBuffer]);
+
+  // Emit proof_switched when media changes
+  useEffect(() => {
+    if (item.media[mediaIndex]) {
+      eventBuffer.recordEvent(
+        item.item_id,
+        "proof_switched",
+        {},
+        item.media[mediaIndex].proof_id,
+      );
+    }
+  }, [mediaIndex, item.item_id, item.media, eventBuffer]);
+
+  // Flush on close
+  useEffect(() => {
+    return () => {
+      if (!open) {
+        void eventBuffer.forceFlush();
+      }
+    };
+  }, [open, eventBuffer]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const newFullscreen = document.fullscreenElement === playerRef.current;
+      setIsFullscreen(newFullscreen);
+      // Emit fullscreen_toggled event
+      const activeMedia = item.media[mediaIndex];
+      if (activeMedia) {
+        eventBuffer.recordEvent(
+          item.item_id,
+          "fullscreen_toggled",
+          { video_position_ms: 0 },
+          activeMedia.proof_id,
+        );
+      }
+    };
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
-  }, []);
+  }, [item.item_id, item.media, mediaIndex, eventBuffer]);
 
   const toggleFullscreen = useCallback((): void => {
     if (document.fullscreenElement) {
@@ -232,6 +293,17 @@ function VerificationReviewDrawerPanel({
       /* full screen unsupported/blocked — the player still shows the video inline */
     });
   }, []);
+
+  // Handle verdict form submission to emit verdict_recorded event
+  const handleVerdictSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+    const form = e.currentTarget;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const decision = (submitter?.value ?? form.querySelector('button[type="submit"]')?.getAttribute('value')) as "approved" | "rejected";
+
+    if (decision) {
+      void eventBuffer.recordVerdict(item.item_id, decision);
+    }
+  }, [item.item_id, eventBuffer]);
 
   const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
   const hasTask = Boolean(item.source.task_id);
@@ -285,9 +357,14 @@ function VerificationReviewDrawerPanel({
           ) : (
             <div className="vr-player" ref={playerRef}>
               {activeMedia?.mime_type?.startsWith("video/") ? (
-                <video key={activeMedia.proof_id} controls preload="metadata">
-                  <source src={activeMedia.download_url} type={activeMedia.mime_type} />
-                </video>
+                <ReviewVideoPlayer
+                  key={activeMedia.proof_id}
+                  src={activeMedia.download_url}
+                  mimeType={activeMedia.mime_type}
+                  proofId={activeMedia.proof_id}
+                  itemId={item.item_id}
+                  eventBuffer={eventBuffer}
+                />
               ) : (
                 <div className="vr-player-empty">{text("drawer.media.empty")}</div>
               )}
@@ -363,7 +440,7 @@ function VerificationReviewDrawerPanel({
           </div>
 
           {mayReview ? (
-            <form id="verdict-form" action={recordVerificationVerdictAction} style={{ display: "grid", gap: 8 }}>
+            <form id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} style={{ display: "grid", gap: 8 }}>
                   <input type="hidden" name="item_id" value={item.item_id} />
                   {/* Guards THIS item's row: a verdict recorded elsewhere since render makes the
                       submit 409 instead of silently overwriting the other reviewer's decision. */}

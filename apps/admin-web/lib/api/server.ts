@@ -173,6 +173,9 @@ export type VerificationQueueResponse = AppApiComponents["schemas"]["Verificatio
 export type VerificationDecision = AppApiComponents["schemas"]["VerificationDecision"];
 export type VerificationVerdictRequest = AppApiComponents["schemas"]["VerificationVerdictRequest"];
 export type VerificationVerdictResponse = AppApiComponents["schemas"]["VerificationVerdictResponse"];
+export type VerificationReviewEvent = AppApiComponents["schemas"]["VerificationReviewEvent"];
+export type VerificationReviewEventBatchRequest = AppApiComponents["schemas"]["VerificationReviewEventBatchRequest"];
+export type VerificationReviewEventBatchResponse = AppApiComponents["schemas"]["VerificationReviewEventBatchResponse"];
 
 export type ApiErrorKind =
   | "missing_config"
@@ -2568,6 +2571,30 @@ export async function decideAdminWebApproval(args: {
       cache: "no-store",
       headers: { "Idempotency-Key": args.idempotencyKey },
       body: { reason: args.reason },
+    }),
+  );
+}
+
+/**
+ * Post a batch of verification review events to the backend for proof-of-watching.
+ * (POST /verification/review-events, gated on verification.review)
+ *
+ * Events are buffered client-side and submitted in batches (max 200 per batch).
+ * The client_event_id is the idempotency key: a replay of the same batch with
+ * the same client_event_ids inserts nothing new.
+ */
+export async function postVerificationReviewEvents(
+  events: VerificationReviewEvent[],
+): Promise<ApiResult<VerificationReviewEventBatchResponse>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = "/verification/review-events" as keyof AppApiPaths & string;
+  return request(() =>
+    client.request<VerificationReviewEventBatchResponse>(path, {
+      method: "POST",
+      cache: "no-store",
+      body: { events },
     }),
   );
 }

@@ -23,11 +23,12 @@ test("Actions filters and video links are backend-contract driven", () => {
   assert.match(pageSource, /filter_options\.statuses/);
   assert.match(pageSource, /businessDate: scope\.asOf/);
   assert.match(pageSource, /parkId: scope\.parkId/);
-  // The mock has no "Open video" link and no verdict explainer card: the proof is the <video> the
-  // verifier watches, sourced from the backend-signed media URL, plus the two-step reject that
+  // The mock has no "Open video" link and no verdict explainer card: the proof is the video player the
+  // verifier watches, sourced from the backend-signed media URL via ReviewVideoPlayer component
+  // (which emits telemetry events and blocks forward seeking), plus the two-step reject that
   // cannot record a rejection without asking for a reason.
   assert.match(drawerSource, /src=\{activeMedia\.download_url\}/);
-  assert.match(drawerSource, /<video/);
+  assert.match(drawerSource, /<ReviewVideoPlayer/);
   assert.doesNotMatch(drawerSource, /drawer\.media\.open/);
   assert.match(drawerSource, /setRejecting\(true\)/);
   assert.match(drawerSource, /renderLabelOrFallback\(item\.verified_by_name\)/);
