@@ -29,7 +29,15 @@ fixture() {
 
 expect() { # <case> <expected rc> <substring> <repo>
   local name="$1" want="$2" needle="$3" target="$4" out got
-  out="$(bash "$GUARD" "$target" 2>&1)"; got=$?
+  # Run each fixture in a SANITIZED environment. These cases assert what the guard
+  # decides from a checkout's own Makefile, so an ambient
+  # GOATOS_RUN_ANDROID_SCREENSHOTS must not reach it. Without this the self-test is
+  # not hermetic: `make ci-local-screenshots` exports that variable, case (d) --
+  # "a complete gate WITHOUT the screenshot opt-in must be REJECTED" -- inherited
+  # it, and the run it was supposed to reject was accepted instead. The self-test
+  # then passed standalone and failed only inside the screenshots target, which is
+  # exactly the shape that makes a guard look flaky rather than wrong.
+  out="$(env -u GOATOS_RUN_ANDROID_SCREENSHOTS bash "$GUARD" "$target" 2>&1)"; got=$?
   if [ "$got" -ne "$want" ]; then
     echo "!! $name: expected exit $want, got $got" >&2
     printf '%s\n' "$out" >&2
