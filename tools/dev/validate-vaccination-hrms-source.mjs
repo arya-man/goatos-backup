@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 // Validates vaccination HRMS source data before seeding.
+// Coupling review 2026-08-05: migration 000109 adds animal_stage_lookup.age_band
+// ('kid'/'adult'/NULL) so a shifting stamps the destination cohort's kid/adult band onto the
+// animals it moves. NO CHANGE to this file's contract: age_band lives on the stage VOCABULARY,
+// not on the HRMS roster or vaccination source rows validated here, and the fixture ships no
+// stage-catalog rows. Deliberately NOT derived from source DOB or from min_age_days/max_age_days
+// -- F2 fattening cohorts stay kid to 67 weeks -- so do not add a source-date-derived age band.
 // 2026-08-05: unchanged by the SOP rework-reopen work. Source validation covers the
 // IMPORT contract; task state transitions after import are the SOP module's own.
 // Used by seed scripts and referenced by ceo_ai reporting views (migrations 000024-000027).

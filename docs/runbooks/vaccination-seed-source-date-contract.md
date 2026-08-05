@@ -751,3 +751,21 @@ the redone work was lost while the phone reported success.
 Seeding impact: none on source data or its date contract. A seeded task that has
 already been accepted can now be reopened by a verdict, so a fixture asserting a
 task is terminal-forever is asserting behaviour that no longer exists.
+
+## 2026-08-05: source dates never imply a kid/adult band
+
+Migration `000109` adds `animal_stage_lookup.age_band` (`kid` / `adult` / NULL). It does not
+change this contract, and the reason matters more than the fact.
+
+This contract governs how a trusted source DATE becomes a vaccination history anchor and how the
+kernel then generates future obligations. The kid/adult BAND is a different axis and must not be
+folded into it:
+
+- The vaccination **schedule path** (`SchedulePathForGoat`: kid course ≤16w, continuation to 20w,
+  adult thereafter) is age-derived and stays exactly as documented here. It is unaffected.
+- `goats.age_band` is **cohort-derived** — it follows `management_stage` via the stage
+  vocabulary, and a shifting is what changes it.
+
+These two deliberately disagree, and that is correct: a 30-week F2 fattening animal is on the
+ADULT vaccination path while the farm still counts it as a kid. Do not "reconcile" them by
+deriving one from the other, and do not let a seeded source date write `age_band`.

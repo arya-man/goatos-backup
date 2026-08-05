@@ -500,8 +500,12 @@ type GoatSpec struct {
 	OriginType         string
 	EntryDate          *time.Time
 	DOB                *time.Time
-	NoDOB              bool // when true, dob is stored NULL (missing-DOB defer stories)
-	NoEntryDate        bool // when true, entry_date is NULL (missing-entry-date defer stories; use procured origin)
+	// AgeBand is the animal's kid/adult classification at INTAKE ('kid'/'adult'; empty stores NULL).
+	// It belongs on the initial insert, not a later UPDATE: a story that changes a goat's band must
+	// do it through the production identity path, and e2e-kernel-integrity enforces that.
+	AgeBand     string
+	NoDOB       bool // when true, dob is stored NULL (missing-DOB defer stories)
+	NoEntryDate bool // when true, entry_date is NULL (missing-entry-date defer stories; use procured origin)
 }
 
 // SeedGoat inserts one goat row directly (goats are owned by the identity module, exactly like the
@@ -533,13 +537,14 @@ func (f *Fixture) SeedGoat(spec GoatSpec) {
 	if spec.ReproductiveStatus != "" {
 		repro = &spec.ReproductiveStatus
 	}
+	ageBand := nullIfEmpty(spec.AgeBand)
 	if spec.NoDOB {
 		f.exec("goat "+spec.GoatID,
 			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, NULL, $10, $11::date, $12, $13::date)`,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, NULL, $10, $11::date, $12, $13::date, $14)`,
 			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage,
-			repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+			repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate, ageBand)
 		return
 	}
 	if spec.NoEntryDate {
@@ -549,18 +554,18 @@ func (f *Fixture) SeedGoat(spec GoatSpec) {
 		}
 		f.exec("goat "+spec.GoatID,
 			`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, NULL)`,
+			    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, NULL, $14)`,
 			spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
-			repro, spec.BreedingDate, origin)
+			repro, spec.BreedingDate, origin, ageBand)
 		return
 	}
 	f.exec("goat "+spec.GoatID,
 		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, health_status, species, custodian_party_id, sex,
-		    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date)
-		 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, $14::date)`,
+		    current_location_id, park_id, shed_id, management_stage, dob, reproductive_status, breeding_date, origin_type, entry_date, age_band)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'female', COALESCE($7::uuid, $8::uuid), $8, $7, $9, $10::date, $11, $12::date, $13, $14::date, $15)`,
 		spec.GoatID, fxTenant, lifecycle, health, species, fxParty, shedID, fxPark, stage, spec.DOB,
-		repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate)
+		repro, spec.BreedingDate, nullIfEmpty(spec.OriginType), spec.EntryDate, ageBand)
 }
 
 func nullIfEmpty(s string) *string {
