@@ -4,7 +4,7 @@
   "conventions": {
     "requiredInCI": "true => the guard's ciStep MUST appear in tools/ci/run-local-ci.sh AND (when makeTarget is set) the makeTarget MUST appear in the Makefile `guardrails:` target body.",
     "selfTest": "Every guard MUST declare a selfTest command OR a selfTestExemptReason. A guard with neither fails registration.",
-    "autoEnumerationScope": "check-guardrail-registration.mjs enumerates every check-*.mjs under tools/agent-hooks/ and tools/ci/ and fails if any is absent from `guards[].script`. Shell/Go/Python guards are listed for CI-wiring checks but are not part of the orphan scan."
+    "autoEnumerationScope": "check-guardrail-registration.mjs enumerates every check-*.mjs AND check-*.sh (excluding *.test.sh) under tools/agent-hooks/ and tools/ci/ and fails if any is absent from `guards[].script`. Guards outside those two directories, and non-mjs/non-sh guards, are registered by hand and are NOT auto-enumerated."
   },
   "guards": [
     {
@@ -814,6 +814,143 @@
       "owningDoc": "docs/TELEMETRY.md",
       "requiredInCI": true,
       "ciStep": "admin-web-local-overlay-guard"
+    },
+    {
+      "id": "android-screenshot-proof",
+      "script": "tools/ci/check-android-screenshot-proof.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/ci/check-android-screenshot-proof.sh tools/ci/run-local-ci.sh",
+      "selfTest": "bash tools/ci/check-android-screenshot-proof.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "android_screenshot_proof_coverage_guard"
+    },
+    {
+      "id": "screenshot-remediation",
+      "script": "tools/ci/check-screenshot-remediation.sh",
+      "makeTarget": "screenshot-remediation-guard",
+      "realCheck": "bash tools/ci/check-screenshot-remediation.sh",
+      "selfTest": "bash tools/ci/check-screenshot-remediation.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "check-screenshot-remediation.sh"
+    },
+    {
+      "id": "push-hook-freshness",
+      "script": "tools/ci/check-push-hook-freshness.sh",
+      "makeTarget": "push-hook-freshness-guard",
+      "realCheck": "bash tools/ci/check-push-hook-freshness.sh",
+      "selfTest": "bash tools/ci/check-push-hook-freshness.test.sh",
+      "owningDoc": "docs/runbooks/local-release-evidence.md",
+      "requiredInCI": true,
+      "ciStep": "check-push-hook-freshness.sh"
+    },
+    {
+      "id": "parallel-dispatch-cleanup",
+      "script": "tools/ci/check-parallel-dispatch-cleanup.sh",
+      "makeTarget": "parallel-dispatch-cleanup-guard",
+      "realCheck": "bash tools/ci/check-parallel-dispatch-cleanup.sh",
+      "selfTest": "bash tools/ci/check-parallel-dispatch-cleanup.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "check-parallel-dispatch-cleanup.sh"
+    },
+    {
+      "id": "admin-web-and-backend-boundaries",
+      "script": "tools/agent-hooks/check-boundaries.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-boundaries.sh",
+      "selfTest": "bash tools/agent-hooks/check-boundaries.sh --self-test",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "check-boundaries.sh",
+      "notes": "No dedicated Make target: `guardrails:` invokes the script (and its --self-test) directly, and run_common runs both. The self-test builds synthetic admin-web/Go fixtures in a tmpdir and asserts the guard REJECTS them (direct BigQuery/Sheets access, cross-feature deep imports, silent recover())."
+    },
+    {
+      "id": "contract-drift",
+      "script": "tools/agent-hooks/check-contract-drift.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-contract-drift.sh",
+      "selfTestExemptReason": "No self-test: this guard owns no predicate of its own to attack. It is a 30-line executor that asserts the contract directories exist and then delegates the entire check to `npm --prefix tools/contract-validation run validate` and `make api-client-check`, which carry their own fixtures and failure modes. An adversarial fixture here would only prove that `npm run validate` was spawned.",
+      "owningDoc": "docs/runbooks/local-ci.md",
+      "requiredInCI": true,
+      "ciStep": "check-contract-drift.sh",
+      "notes": "No dedicated Make target: `guardrails:` invokes the script directly; run_common runs it as `agent: contract-drift`."
+    },
+    {
+      "id": "e2e-kernel-integrity",
+      "script": "tools/agent-hooks/check-e2e-kernel-integrity.sh",
+      "makeTarget": "e2e-integrity-guard",
+      "realCheck": "bash tools/agent-hooks/check-e2e-kernel-integrity.sh",
+      "selfTest": "bash tools/agent-hooks/check-e2e-kernel-integrity.test.sh",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "check-e2e-kernel-integrity.sh",
+      "notes": "Enforces the AGENTS.md rule that an E2E may seed source/input facts but never the derived kernel result it claims to prove. run_backend runs it as `agent: e2e-kernel-integrity`."
+    },
+    {
+      "id": "local-gcp-kernel-parity",
+      "script": "tools/agent-hooks/check-local-gcp-kernel-parity.sh",
+      "makeTarget": "local-gcp-kernel-parity-guard",
+      "realCheck": "bash tools/agent-hooks/check-local-gcp-kernel-parity.sh",
+      "selfTest": "bash tools/agent-hooks/check-local-gcp-kernel-parity.test.sh",
+      "owningDoc": "docs/runbooks/local-gcp-kernel-parity.md",
+      "requiredInCI": false,
+      "ciStep": "local-gcp-kernel-parity-guard",
+      "notes": "requiredInCI=false is a statement of fact, not an aspiration: `local-gcp-kernel-parity-guard` appears in the Makefile only, and in no job of tools/ci/run-local-ci.sh nor in the `guardrails:` target. It lints the rendered compose.local-kernel.yml topology for the opt-in local GCP parity stack. Its Make target runs the .test.sh self-test before the real check."
+    },
+    {
+      "id": "local-single-db",
+      "script": "tools/agent-hooks/check-local-single-db.sh",
+      "makeTarget": "local-single-db-guard",
+      "realCheck": "bash tools/agent-hooks/check-local-single-db.sh",
+      "selfTestExemptReason": "No self-test: the guard has no injectable input - it asserts required literal lines in a hardcoded list of committed runtime/rule files resolved from its own repo root, so the only fixture it can be fed is the repo itself (delete the single-DB resolution line from tools/dev/run-local-stack.sh and it fails). Recorded blind spot: it proves the text is present, not that a launcher resolves exactly one Goat OS database at runtime; the runtime behaviour is proven by local-stack-service-guard.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": true,
+      "ciStep": "local-single-db-guard",
+      "notes": "Already wired before this registration: run_backend of tools/ci/run-local-ci.sh runs `local-single-db-guard`, and the Makefile `guardrails:` target already invoked it. Only the manifest entry was missing."
+    },
+    {
+      "id": "agent-write-scope",
+      "script": "tools/agent-hooks/check-write-scope.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-write-scope.sh",
+      "selfTestExemptReason": "No self-test: this is an agent PreToolUse hook, not a CI lint. It exits 0 unless the operator has placed a .agent/scope.json in the worktree, and it is driven end-to-end by every agent file write through .claude/settings.json and .codex/hooks.json - that live wiring, not a fixture, is what exercises it. It has no CI step to attach a fixture to.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": false,
+      "ciStep": null,
+      "notes": "Not in the Makefile, not in `guardrails:`, and not in tools/ci/run-local-ci.sh. Exposed as `npm run check:scope` and wired as an agent PreToolUse hook only."
+    },
+    {
+      "id": "mock-integrity",
+      "script": "tools/agent-hooks/check-mock.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-mock.sh",
+      "selfTestExemptReason": "No self-test: it has no injectable input and no predicate of its own beyond `new Function(src)`. It parses every inline <script> of the one committed file mock/goatos-dashboard-mock.html (the fixture IS the repo file: introduce a syntax error there and Tier 1 fails), then delegates Tier 2 to tools/agent-hooks/check-mock-clicks.mjs, which is registered separately with its own entry.",
+      "owningDoc": "AGENTS.md",
+      "requiredInCI": false,
+      "ciStep": null,
+      "notes": "Not in the Makefile, `guardrails:`, or tools/ci/run-local-ci.sh. It is the pre-push hard gate inside tools/agent-hooks/push-mock.sh (AGENTS.md mock auto-push standing order) and is listed by tools/agent-hooks/ai-doctor.sh."
+    },
+    {
+      "id": "gradle-config-cache",
+      "script": "tools/ci/check-gradle-config-cache.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/ci/check-gradle-config-cache.sh",
+      "selfTest": "bash tools/ci/check-gradle-config-cache.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-and-landing.md",
+      "requiredInCI": true,
+      "ciStep": "check-gradle-config-cache.sh"
+    },
+    {
+      "id": "weighing-isolation-on-edit",
+      "script": "tools/agent-hooks/check-weighing-isolation-on-edit.sh",
+      "makeTarget": null,
+      "realCheck": "bash tools/agent-hooks/check-weighing-isolation-on-edit.sh",
+      "selfTestExemptReason": "Editor-hook wrapper (PostToolUse in .claude/settings.json), not a CI gate: it re-runs the already-registered weighing isolation guard at edit time so the failure surfaces at the decision point instead of hours later in the matrix. The underlying guard carries the real check and its own coverage; a self-test here would only assert that a hook shells out.",
+      "owningDoc": "docs/decisions/weighing-free-flow.md",
+      "requiredInCI": false,
+      "ciStep": "check-weighing-isolation-on-edit.sh"
     }
   ]
 }

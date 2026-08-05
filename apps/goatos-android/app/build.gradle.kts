@@ -27,16 +27,25 @@ val needsFirebaseSourceMetadata = gradle.startParameter.taskNames.any {
         it.contains("validateFirebaseDistributionSource", ignoreCase = true)
 }
 
+// Configuration-cache safe git access.
+//
+// A bare ProcessBuilder here runs during the CONFIGURATION phase, which Gradle
+// rejects outright when org.gradle.configuration-cache=true (gradle.properties
+// sets it): "Starting an external process ... during configuration time is
+// unsupported". That made :benchmark:compileDevNonMinifiedBenchmarkKotlin fail
+// 15/15 runs. providers.exec(...) is the sanctioned escape hatch: Gradle owns the
+// execution, records it as a build input, and re-obtains it when reusing a cached
+// entry, so the provenance values stay correct instead of being frozen into the
+// cache. Guarded by tools/ci/check-gradle-config-cache.sh, which runs a real
+// configuration-cache build rather than grepping for ProcessBuilder.
 fun gitOutput(vararg args: String): String {
     if (!needsFirebaseSourceMetadata) return ""
     return runCatching {
-        val stdout = ByteArrayOutputStream()
-        val process = ProcessBuilder(listOf("git", *args))
-            .directory(rootProject.projectDir)
-            .redirectError(ProcessBuilder.Redirect.DISCARD)
-            .start()
-        process.inputStream.use { it.copyTo(stdout) }
-        if (process.waitFor() == 0) stdout.toString().trim() else ""
+        providers.exec {
+            commandLine("git", *args)
+            workingDir = rootProject.projectDir
+            isIgnoreExitValue = true
+        }.standardOutput.asText.get().trim()
     }.getOrDefault("")
 }
 
@@ -395,20 +404,30 @@ val validateStgReleaseInputs = tasks.register("validateStgReleaseInputs") {
     group = "verification"
     description = "Fails fast when the stg release signing inputs have not been restored."
 
-    doLast {
-        fun signingProperty(name: String): String? =
-            (project.findProperty(name) as String?)
-                ?: System.getenv(name)
+    // Configuration-cache safe: a task ACTION may not hold a reference to the
+    // Gradle script/Project. `project.findProperty(...)` and `file(...)` inside
+    // doLast did exactly that, and the cache refused to serialise the task
+    // ("cannot serialize Gradle script object references"). Resolve every
+    // Project-dependent value HERE, at configuration time, and let doLast close
+    // over plain data. Guarded by tools/ci/check-gradle-config-cache.sh.
+    val required = listOf(
+        "GOATOS_ANDROID_STG_KEYSTORE",
+        "GOATOS_ANDROID_STG_KEYSTORE_PASSWORD",
+        "GOATOS_ANDROID_STG_KEY_ALIAS",
+        "GOATOS_ANDROID_STG_KEY_PASSWORD",
+    )
+    val resolvedSigning: Map<String, String?> = required.associateWith { name ->
+        providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orNull
+    }
+    val keystoreValue = resolvedSigning["GOATOS_ANDROID_STG_KEYSTORE"]
+    val keystoreFile = keystoreValue
+        ?.takeIf { it.isNotBlank() }
+        ?.let { rootProject.layout.projectDirectory.file(it).asFile }
 
-        val required = listOf(
-            "GOATOS_ANDROID_STG_KEYSTORE",
-            "GOATOS_ANDROID_STG_KEYSTORE_PASSWORD",
-            "GOATOS_ANDROID_STG_KEY_ALIAS",
-            "GOATOS_ANDROID_STG_KEY_PASSWORD",
-        )
-        val missing = required.filter { signingProperty(it).isNullOrBlank() }
-        val keystore = signingProperty("GOATOS_ANDROID_STG_KEYSTORE")
-        val missingKeystoreFile = !keystore.isNullOrBlank() && !file(keystore).isFile
+    doLast {
+        val missing = required.filter { resolvedSigning[it].isNullOrBlank() }
+        val keystore = keystoreValue
+        val missingKeystoreFile = keystoreFile != null && !keystoreFile.isFile
 
         if (missing.isNotEmpty() || missingKeystoreFile) {
             val missingText = if (missing.isEmpty()) {

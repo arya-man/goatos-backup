@@ -7,7 +7,7 @@ GOATOS_STG_DASHBOARD_ADMIN_EMAILS ?= $(GOATOS_DEV_DASHBOARD_ADMIN_EMAILS)
 REPO_ROOT ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
 AI_BACKEND ?= auto
 
-.PHONY: seed-state-guard check guardrails exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
+.PHONY: seed-state-guard check guardrails exception-guard-ratchet telemetry-guard-ratchet exception-guard-ratchet-regenerate telemetry-guard-ratchet-regenerate exception-guard-ratchet-v2 telemetry-guard-ratchet-v2 exception-guard-ratchet-v2-regenerate telemetry-guard-ratchet-v2-regenerate git-identity-guard guardrail-registration-guard backend-foundations-guard test-execution-integrity-guard operator-cap-fail-closed-guard stg-operator-scope-guard cascade-event-wiring-guard frontend-foundations-guard domain-event-architecture-guard operational-read-model-contract-guard critical-animal-action-availability-guard leadership-assistant-coverage-guard assistant-route-closure-guard local-ci-evidence-guard kernel-worker-retirement-gate-guard stg-disposable-topology-guard stg-promotion-guard stg-promotion-guard-install e2e-integrity-guard aggregate-projection-guard vaccination-schedule-canonical-guard vaccination-shared-source-sync-guard calendar-endpoint-grain-guard goat-shed-scope-guard goat-shed-integrity-db-proof scale-certification-docs-guard scale-guard clinical-defer-guard ceo-ai-boundary-guard vaccination-drive-clubbing-guard vaccination-adult-drive-contract-guard vaccination-drive-clubbing-db-proof vaccination-shed-ack-guard vaccination-hrms-seed-fixture-guard vaccination-hrms-source-audit fcm-recipient-routing-guard sweeper-deployment-guard deployed-job-flags-guard secret-accessors-guard worker-stage-budgets-guard idempotency-writes-guard atomic-readmodel-sync-guard config-validate-guard ui-vaccine-labels-guard notification-specificity-guard review-lens-ledger-guard seed-migration-guard india-date-guard offline-first-guard local-single-db-guard local-gcp-kernel-parity-guard ci-local ci-local-screenshots screenshot-remediation-guard push-hook-freshness-guard parallel-dispatch-cleanup-guard land-main land-main-self-test mobile-guard mobile-guard-audit android-row-action-scope-guard android-vaccination-submit-gate-guard android-navigation-stack-guard nav-entry-point-placement-guard nav-entry-point-placement-guard-audit telemetry-guard telemetry-guard-audit admin-web-request-reads-guard admin-web-request-reads-guard-audit admin-web-prefetch-guard android-bounded-memory-guard android-bounded-memory-guard-audit android-compose-lists-guard android-compose-lists-guard-audit nav-composition-guard nav-composition-guard-audit mobile-contract-ownership-guard mobile-contract-ownership-guard-audit exception-guard exception-guard-audit test api-client-generate api-client-check sqlc-generate sqlc-check validate-hot-index-migrations validate-migrations validate-sqlc-plans pre-google-readiness seed-calendar-vaccination-dev seed-dev-email-grants seed-stg-email-grants seed-stg-firebase-password-users seed-stg-9-person-login seed-stg-postflight verify-stg-9-person-login seed-closeout seed-closeout-dry-run seed-vaccination-source-full seed-checkout-staleness-gate seed-vaccination-cpt-operator-drive legacy-god-sheet-sync-dry-run legacy-god-sheet-sync-apply verify-google-dev-seed-fixtures api-latency-policy-test api-latency-gate high-scale-kernel-e2e-all high-scale-kernel-e2e-data high-scale-kernel-e2e-certification bulk-status-kernel-it scale-kernel-gate scale-kernel-gate-smoke admin-web-e2e-smoke docker-storage-report docker-cleanup-goatos-dry-run docker-cleanup-goatos-execute docker-storage-scripts-test db-mutation-guard-test local-stack-service-guard dev-local dev-local-kernel-up dev-local-kernel-status dev-local-kernel-logs dev-local-kernel-smoke dev-local-service-install dev-local-service-start dev-local-service-stop dev-local-service-restart dev-local-service-status dev-local-service-logs dev-local-service-uninstall setup-crg update-docs-graph kernel-worker-cutover-guard seed-feed-ration ceo-ai-eval ceo-ai-eval-selftest grant-assistant-public-read
 .PHONY: ai-setup ai-doctor ai-rebuild ai-rebuild-code ai-rebuild-docs ai-rebuild-repowise ai-repowise-coverage docs-graph-open ai-telemetry ai-telemetry-ui
 .PHONY: e2e-image-build e2e-parity e2e-smoke e2e-business-chain scale-cert
 setup-crg: ai-setup
@@ -96,6 +96,9 @@ guardrails:
 	$(MAKE) domain-event-envelope-enum-guard
 	$(MAKE) design-system-guard
 	$(MAKE) git-identity-guard
+	$(MAKE) screenshot-remediation-guard
+	$(MAKE) push-hook-freshness-guard
+	$(MAKE) parallel-dispatch-cleanup-guard
 	$(MAKE) guardrail-registration-guard
 	$(MAKE) local-stack-service-guard
 	$(MAKE) backend-foundations-guard
@@ -131,7 +134,7 @@ guardrails:
 	$(MAKE) weighing-kernel-phase2-guard
 	$(MAKE) migration-duplicate-versions-guard
 	$(MAKE) scale-certification-docs-guard
-	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
+	$(MAKE) e2e-integrity-guard
 	$(MAKE) api-latency-policy-test
 	$(MAKE) scale-guard
 	$(MAKE) clinical-defer-guard
@@ -637,17 +640,65 @@ local-single-db-guard:
 # blocker — a green `make ci-local` on the pushed SHA is the authoritative gate.
 # Default auto-scopes against origin/main. MODE=all forces the full suite.
 # JOB=common|backend|guardrails|admin-web|android is partial and writes no receipt.
+# Runbook: docs/runbooks/local-ci-and-landing.md
 ci-local:
 	bash tools/ci/run-local-ci.sh $(if $(JOB),$(JOB),$(MODE))
+
+# screenshot-remediation-guard: proves, by execution, that the command the
+# screenshot block message names is the command that actually clears the block.
+# Self-test: bash tools/ci/check-screenshot-remediation.test.sh
+screenshot-remediation-guard:
+	bash tools/ci/check-screenshot-remediation.sh
+
+# push-hook-freshness-guard: the installed pre-push hook runs a COPY of
+# tools/ci/check-local-ci-evidence.mjs. Improvements to the repo file are inert
+# for `git push` / `git mesha-push` until `make ai-setup` refreshes that copy —
+# measured drift once left two closed gate holes closed only for `make land-main`
+# users. This refuses to go green while the copy differs from its source.
+# Self-test: bash tools/ci/check-push-hook-freshness.test.sh
+push-hook-freshness-guard:
+	bash tools/ci/check-push-hook-freshness.sh
+
+# parallel-dispatch-cleanup-guard: Ctrl-C during a parallel ci-local run must not
+# orphan children (in a real run: Gradle workers holding build locks) or leak
+# $$TMPDIR run dirs. BEHAVIOURAL — it signals a real dispatch and inspects real
+# process/fs state, so deleting the traps makes it red.
+# Self-test: bash tools/ci/check-parallel-dispatch-cleanup.test.sh
+parallel-dispatch-cleanup-guard:
+	bash tools/ci/check-parallel-dispatch-cleanup.sh
+
+# ci-local-screenshots: the full, unnarrowed Android Paparazzi screenshot proof,
+# run as a COMPLETE auto-scoped `ci-local` with screenshots ON — so it writes a
+# real push receipt carrying screenshots="yes".
+#
+# It used to pass the explicit `android` job. That made it a PARTIAL run, which
+# by design writes NO receipt (see run-local-ci.sh's receipt_mode) — so the
+# command the block message told you to run could never clear the block, and the
+# only working exits were an undocumented env var or the bypass. A remediation
+# that cannot remediate trains bypass habits; this target is now the command the
+# messages name AND the command that clears the gate.
+#
+# MODE=all forces the full suite. Deliberately no JOB= hook: a per-job run here
+# would silently reopen the same receipt hole.
+# Enforced end-to-end by tools/ci/check-screenshot-remediation.sh.
+# MODE is deliberately CLAMPED to the two receipt-writing modes. Passing $(MODE)
+# through raw reopened the hole this target exists to close: `MODE=android
+# make ci-local-screenshots` resolved to an explicit-job PARTIAL run, which writes
+# NO receipt — so the command the block message names could once again fail to
+# clear the block. Anything that is not `all` becomes `auto`.
+ci-local-screenshots:
+	GOATOS_RUN_ANDROID_SCREENSHOTS=1 bash tools/ci/run-local-ci.sh $(if $(filter all,$(MODE)),all,auto)
 
 # land-main is the Codex/Claude landing entry point. It refuses dirty worktrees,
 # rebases onto fresh origin/main before CI, reruns CI if main moves, and pushes
 # only the exact certified SHA through the Mesha credential path.
+# Runbook: docs/runbooks/local-ci-and-landing.md
 land-main:
 	bash tools/ci/land-main.sh
 
 land-main-self-test:
 	bash tools/ci/land-main.test.sh
+	bash tools/ci/check-android-screenshot-proof.test.sh
 
 e2e-integrity-guard:
 	bash tools/agent-hooks/check-e2e-kernel-integrity.sh
