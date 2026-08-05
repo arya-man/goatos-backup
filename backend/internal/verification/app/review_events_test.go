@@ -67,7 +67,7 @@ func validBatchInput(itemID string) ReviewEventBatchInput {
 	}
 }
 
-func TestRecordReviewEventsRejectsItemOutsideAuthorizedCategories(t *testing.T) {
+func TestReviewEventsIngestRejectsItemOutsideAuthorizedCategories(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 
@@ -87,7 +87,7 @@ func TestRecordReviewEventsRejectsItemOutsideAuthorizedCategories(t *testing.T) 
 	}
 }
 
-func TestRecordReviewEventsAllowsItemInAuthorizedCategory(t *testing.T) {
+func TestReviewEventsIngestAllowsItemInAuthorizedCategory(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 
@@ -102,7 +102,7 @@ func TestRecordReviewEventsAllowsItemInAuthorizedCategory(t *testing.T) {
 	}
 }
 
-func TestRecordReviewEventsIdempotentReplayInsertsNothingNew(t *testing.T) {
+func TestReviewEventsIngestIdempotentReplayInsertsNothingNew(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 	input := []ReviewEventBatchInput{validBatchInput(item.ItemID)}
@@ -120,7 +120,7 @@ func TestRecordReviewEventsIdempotentReplayInsertsNothingNew(t *testing.T) {
 	}
 }
 
-func TestRecordReviewEventsRejectsBatchOverCap(t *testing.T) {
+func TestReviewEventsIngestRejectsBatchOverCap(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 	inputs := make([]ReviewEventBatchInput, MaxReviewEventBatch+1)
@@ -136,7 +136,7 @@ func TestRecordReviewEventsRejectsBatchOverCap(t *testing.T) {
 	}
 }
 
-func TestRecordReviewEventsRejectsFutureOccurredAt(t *testing.T) {
+func TestReviewEventsIngestRejectsFutureOccurredAt(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 	in := validBatchInput(item.ItemID)
@@ -148,7 +148,7 @@ func TestRecordReviewEventsRejectsFutureOccurredAt(t *testing.T) {
 	}
 }
 
-func TestRecordReviewEventsRejectsUnknownEventType(t *testing.T) {
+func TestReviewEventsIngestRejectsUnknownEventType(t *testing.T) {
 	svc, _, item := newServiceWithItem(t, "vaccination_proof")
 	reviewRepo := &fakeReviewEventRepo{}
 	in := validBatchInput(item.ItemID)
@@ -163,4 +163,128 @@ func TestRecordReviewEventsRejectsUnknownEventType(t *testing.T) {
 // uuidutilNth mints a deterministic, distinct UUID-shaped string for cap-test fan-out.
 func uuidutilNth(i int) string {
 	return fmt.Sprintf("00000000-0000-4000-c000-%012d", i)
+}
+
+func strPtr(s string) *string { return &s }
+
+// TestRecordReviewEventsMixedBatchInsertsQueueAndItemScopedEvents is the real bug report
+// (2026-08-06): a queue_opened event fires before any item exists and must NOT carry an item_id.
+// A batch mixing one null-item queue_opened with an item-scoped video_play must insert BOTH.
+func TestReviewEventsIngestMixedBatchInsertsQueueAndItemScopedEvents(t *testing.T) {
+	svc, _, item := newServiceWithItem(t, "vaccination_proof")
+	reviewRepo := &fakeReviewEventRepo{}
+
+	queueOpened := ReviewEventBatchInput{
+		// ItemID intentionally empty -- this is the exact shape the browser sends for
+		// queue_opened, and the exact shape that used to 400 invalid_json.
+		SessionID:     "sess-1",
+		EventType:     string(domain.ReviewEventQueueOpened),
+		OccurredAt:    time.Now().Format(time.RFC3339),
+		ClientEventID: "00000000-0000-4000-a000-000000000010",
+		Payload:       domain.ReviewEventPayload{Category: strPtr("vaccination_proof"), Status: strPtr("pending")},
+	}
+	itemScoped := validBatchInput(item.ItemID)
+	itemScoped.EventType = string(domain.ReviewEventVideoPlay)
+	itemScoped.ClientEventID = "00000000-0000-4000-a000-000000000011"
+
+	inserted, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant, "00000000-0000-4000-b000-000000000001",
+		nil, []ReviewEventBatchInput{queueOpened, itemScoped})
+	if err != nil {
+		t.Fatalf("mixed batch: unexpected error: %v", err)
+	}
+	if inserted != 2 {
+		t.Fatalf("inserted = %d, want 2 (queue-scoped + item-scoped both land)", inserted)
+	}
+	if len(reviewRepo.inserted) != 2 {
+		t.Fatalf("stored events = %d, want 2", len(reviewRepo.inserted))
+	}
+	var sawQueueScoped, sawItemScoped bool
+	for _, e := range reviewRepo.inserted {
+		if e.EventType == domain.ReviewEventQueueOpened {
+			if e.ItemID != nil {
+				t.Fatalf("queue_opened event stored with non-nil item_id: %v", *e.ItemID)
+			}
+			sawQueueScoped = true
+		}
+		if e.EventType == domain.ReviewEventVideoPlay {
+			if e.ItemID == nil || *e.ItemID != item.ItemID {
+				t.Fatalf("video_play event stored with wrong/nil item_id: %v", e.ItemID)
+			}
+			sawItemScoped = true
+		}
+	}
+	if !sawQueueScoped || !sawItemScoped {
+		t.Fatalf("expected both a queue-scoped and an item-scoped row, got queue=%v item=%v", sawQueueScoped, sawItemScoped)
+	}
+}
+
+// TestRecordReviewEventsRejectsItemScopedEventWithNullItemID is the item-scoped half of the
+// nullability rule: item_opened/video_play/etc MUST carry an item_id; a missing one is a precise
+// field error, not a silent acceptance and not invalid_json.
+func TestReviewEventsIngestRejectsItemScopedEventWithNullItemID(t *testing.T) {
+	svc, _, _ := newServiceWithItem(t, "vaccination_proof")
+	reviewRepo := &fakeReviewEventRepo{}
+	in := ReviewEventBatchInput{
+		SessionID: "sess-1", EventType: string(domain.ReviewEventVideoPlay),
+		OccurredAt: time.Now().Format(time.RFC3339), ClientEventID: "00000000-0000-4000-a000-000000000020",
+		// ItemID intentionally empty.
+	}
+	_, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant, "00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in})
+	appErr, ok := err.(*Error)
+	if !ok || appErr.Code != "invalid_item_id" {
+		t.Fatalf("expected invalid_item_id error, got %v", err)
+	}
+	if len(appErr.FieldErrors) != 1 || appErr.FieldErrors[0].Field != "item_id" {
+		t.Fatalf("expected a field_errors entry naming item_id, got %+v", appErr.FieldErrors)
+	}
+	if len(reviewRepo.inserted) != 0 {
+		t.Fatal("no events should be persisted when validation fails")
+	}
+}
+
+// TestRecordReviewEventsRejectsQueueOpenedWithBogusItemID is the exact reported failure mode: a
+// queue_opened event carrying the literal placeholder string "queue" as item_id must be rejected
+// with a precise field error naming item_id -- never the generic invalid_json the coordinator
+// found costing real debugging time.
+func TestReviewEventsIngestRejectsQueueOpenedWithBogusItemID(t *testing.T) {
+	svc, _, _ := newServiceWithItem(t, "vaccination_proof")
+	reviewRepo := &fakeReviewEventRepo{}
+	in := ReviewEventBatchInput{
+		ItemID: "queue", SessionID: "sess-1", EventType: string(domain.ReviewEventQueueOpened),
+		OccurredAt: time.Now().Format(time.RFC3339), ClientEventID: "00000000-0000-4000-a000-000000000021",
+		Payload: domain.ReviewEventPayload{Category: strPtr("vaccination_proof")},
+	}
+	_, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant, "00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in})
+	appErr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *Error, got %T (%v)", err, err)
+	}
+	if appErr.Code == "invalid_json" {
+		t.Fatalf("must not answer invalid_json for a well-formed body with a bad item_id, got %v", appErr)
+	}
+	if appErr.Code != "invalid_item_id" {
+		t.Fatalf("expected invalid_item_id error, got %v", appErr)
+	}
+	if len(appErr.FieldErrors) != 1 || appErr.FieldErrors[0].Field != "item_id" {
+		t.Fatalf("expected a field_errors entry naming item_id, got %+v", appErr.FieldErrors)
+	}
+	if len(reviewRepo.inserted) != 0 {
+		t.Fatal("no events should be persisted when validation fails")
+	}
+}
+
+// TestRecordReviewEventsRejectsQueueOpenedMissingCategory ensures the funnel-attribution
+// requirement (payload.category) is actually enforced, not merely documented.
+func TestReviewEventsIngestRejectsQueueOpenedMissingCategory(t *testing.T) {
+	svc, _, _ := newServiceWithItem(t, "vaccination_proof")
+	reviewRepo := &fakeReviewEventRepo{}
+	in := ReviewEventBatchInput{
+		SessionID: "sess-1", EventType: string(domain.ReviewEventQueueOpened),
+		OccurredAt: time.Now().Format(time.RFC3339), ClientEventID: "00000000-0000-4000-a000-000000000022",
+	}
+	_, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant, "00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in})
+	appErr, ok := err.(*Error)
+	if !ok || appErr.Code != "invalid_payload" {
+		t.Fatalf("expected invalid_payload error, got %v", err)
+	}
 }

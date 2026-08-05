@@ -45,13 +45,29 @@ type ReviewEventPayload struct {
 	SeekFromMs      *int64  `json:"seek_from_ms,omitempty"`
 	SeekToMs        *int64  `json:"seek_to_ms,omitempty"`
 	Verdict         *string `json:"verdict,omitempty"`
+	// Category/ParkID/ShedID are the QUEUE-SCOPED attribution fields. A queue_opened event fires
+	// before any item exists (landing on the queue screen), so it has no item_id to hang scope on
+	// -- see migration 000118. Category is REQUIRED on a queue_opened event so a CEO-facing
+	// "queue opened -> item opened -> verdict recorded" funnel can still attribute it to a
+	// category/park/shed dimension without a fake item_id. ParkID/ShedID are optional (the queue
+	// view may not be park/shed-scoped).
+	Category *string `json:"category,omitempty"`
+	ParkID   *string `json:"park_id,omitempty"`
+	ShedID   *string `json:"shed_id,omitempty"`
+	// Status is informational client-declared queue-state context (e.g. "pending"); it carries no
+	// server-side meaning and is not validated -- kept only so a queue_opened payload naming it
+	// does not need special-case stripping.
+	Status *string `json:"status,omitempty"`
 }
 
 // ReviewEvent is one client-emitted review-analytics event, as ingested by
 // POST /verification/review-events.
 type ReviewEvent struct {
-	TenantID      string
-	ItemID        string
+	TenantID string
+	// ItemID is nil for queue-scoped events (event_type = queue_opened, migration 000118) and
+	// required/non-nil for every item-scoped event type. See review_events.go's validation for
+	// the enforcement and the DB CHECK constraint for the belt-and-suspenders half.
+	ItemID        *string
 	ProofID       *string
 	ActorID       string
 	SessionID     string

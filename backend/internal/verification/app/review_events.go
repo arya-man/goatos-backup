@@ -61,22 +61,29 @@ func (s *Service) RecordReviewEvents(
 
 	now := s.now()
 
-	// Batch-resolve every distinct item's category in ONE query (scale-guard: n-plus-one-fanout) --
-	// a single flush batch can legitimately span more than one item (e.g. a verifier who watched
-	// two videos before the periodic flush fired), so looping GetItem per event/per item would be
-	// exactly the cross-boundary fan-out docs/decisions/scale-anti-patterns.md bans.
+	// Classify each input FIRST: queue-scoped (queue_opened, no item_id -- migration 000118) vs
+	// item-scoped (every other type, item_id required). This must happen before any item_id
+	// UUID-format check, or a queue-scoped event with an empty item_id would wrongly fail the
+	// item-scoped "must be a UUID" rule instead of its own queue-scoped rule.
 	distinctItemIDs := make([]string, 0, len(inputs))
 	seenItemID := map[string]bool{}
 	for _, in := range inputs {
-		itemID := strings.TrimSpace(in.ItemID)
-		if !uuidutil.IsUUIDString(itemID) {
-			return 0, BadRequest("invalid_item", "item_id must be a UUID")
+		eventType := domain.ReviewEventType(strings.TrimSpace(in.EventType))
+		if eventType == domain.ReviewEventQueueOpened {
+			continue
 		}
-		if !seenItemID[itemID] {
+		itemID := strings.TrimSpace(in.ItemID)
+		// A non-UUID item_id on an item-scoped event is reported per-event below (with the exact
+		// field error), not here -- this pre-pass only needs to know which VALID ids to batch-fetch.
+		if uuidutil.IsUUIDString(itemID) && !seenItemID[itemID] {
 			seenItemID[itemID] = true
 			distinctItemIDs = append(distinctItemIDs, itemID)
 		}
 	}
+	// Batch-resolve every distinct item's category in ONE query (scale-guard: n-plus-one-fanout) --
+	// a single flush batch can legitimately span more than one item (e.g. a verifier who watched
+	// two videos before the periodic flush fired), so looping GetItem per event/per item would be
+	// exactly the cross-boundary fan-out docs/decisions/scale-anti-patterns.md bans.
 	itemCategoryCache, err := s.repo.GetItemCategories(ctx, tenantID, distinctItemIDs)
 	if err != nil {
 		return 0, err
@@ -84,41 +91,82 @@ func (s *Service) RecordReviewEvents(
 
 	events := make([]domain.ReviewEvent, 0, len(inputs))
 	for _, in := range inputs {
-		itemID := strings.TrimSpace(in.ItemID)
 		clientEventID := strings.TrimSpace(in.ClientEventID)
 		if !uuidutil.IsUUIDString(clientEventID) {
-			return 0, BadRequest("invalid_client_event_id", "client_event_id must be a client-minted UUID")
+			return 0, BadRequestField("invalid_client_event_id", "client_event_id must be a client-minted UUID",
+				"client_event_id", "invalid_client_event_id", "must be a client-minted UUID")
 		}
 		eventType := domain.ReviewEventType(strings.TrimSpace(in.EventType))
 		if !domain.ReviewEventTypes[eventType] {
-			return 0, BadRequest("invalid_event_type", "event_type is not in the registered set")
+			return 0, BadRequestField("invalid_event_type", "event_type is not in the registered set",
+				"event_type", "invalid_event_type", "must be one of the registered review event types")
 		}
 		sessionID := strings.TrimSpace(in.SessionID)
 		if sessionID == "" {
-			return 0, BadRequest("invalid_session", "session_id is required")
+			return 0, BadRequestField("invalid_session", "session_id is required",
+				"session_id", "required", "session_id is required")
 		}
 		occurredAt, err := time.Parse(time.RFC3339, strings.TrimSpace(in.OccurredAt))
 		if err != nil {
-			return 0, BadRequest("invalid_occurred_at", "occurred_at must be RFC3339")
+			return 0, BadRequestField("invalid_occurred_at", "occurred_at must be RFC3339",
+				"occurred_at", "invalid_occurred_at", "must be an RFC3339 timestamp")
 		}
 		// Reject future timestamps with a small clock-skew allowance rather than a hard >now check,
 		// since the client clock is untrusted but ordinary NTP drift should not 400 a legitimate event.
 		if occurredAt.After(now.Add(2 * time.Minute)) {
-			return 0, BadRequest("occurred_at_in_future", "occurred_at cannot be in the future")
+			return 0, BadRequestField("occurred_at_in_future", "occurred_at cannot be in the future",
+				"occurred_at", "occurred_at_in_future", "cannot be in the future")
 		}
 
-		category, ok := itemCategoryCache[itemID]
-		if !ok {
-			return 0, NotFound("item_not_found", "verification item not found")
-		}
-		if authorizedCategories != nil && !allowed[category] {
-			return 0, Forbidden("module_scope_forbidden", "item does not belong to an authorized category")
+		rawItemID := strings.TrimSpace(in.ItemID)
+		var itemID *string
+
+		if eventType == domain.ReviewEventQueueOpened {
+			// Queue-scoped: item_id must be ABSENT, never a placeholder string like "queue" (the
+			// exact bug reported 2026-08-06 -- the old NOT NULL contract forced the client to send
+			// something, and that something failed UUID parsing and took the whole batch down).
+			if rawItemID != "" {
+				return 0, UnprocessableField("invalid_item_id", "queue_opened events must not carry an item_id",
+					"item_id", "queue_scoped_item_id_forbidden", "queue_opened has no item yet; omit item_id or send null")
+			}
+			category := ""
+			if in.Payload.Category != nil {
+				category = strings.TrimSpace(*in.Payload.Category)
+			}
+			if category == "" {
+				return 0, BadRequestField("invalid_payload", "queue_opened requires payload.category for funnel attribution",
+					"payload.category", "required", "category is required on a queue_opened event")
+			}
+			if authorizedCategories != nil && !allowed[category] {
+				return 0, Forbidden("module_scope_forbidden", "category does not belong to an authorized module")
+			}
+		} else {
+			// Item-scoped: item_id is required and must resolve to a real item in an authorized
+			// category. A malformed value comes back naming the field precisely -- never the
+			// generic decodeJSON invalid_json the coordinator flagged.
+			if rawItemID == "" {
+				return 0, BadRequestField("invalid_item_id", "item_id is required for this event type",
+					"item_id", "required", "item_id is required for an item-scoped event")
+			}
+			if !uuidutil.IsUUIDString(rawItemID) {
+				return 0, BadRequestField("invalid_item_id", "item_id must be a UUID",
+					"item_id", "invalid_item_id", "must be a UUID")
+			}
+			category, ok := itemCategoryCache[rawItemID]
+			if !ok {
+				return 0, NotFound("item_not_found", "verification item not found")
+			}
+			if authorizedCategories != nil && !allowed[category] {
+				return 0, Forbidden("module_scope_forbidden", "item does not belong to an authorized category")
+			}
+			itemID = &rawItemID
 		}
 
 		var proofID *string
 		if p := strings.TrimSpace(in.ProofID); p != "" {
 			if !uuidutil.IsUUIDString(p) {
-				return 0, BadRequest("invalid_proof", "proof_id must be a UUID")
+				return 0, BadRequestField("invalid_proof", "proof_id must be a UUID",
+					"proof_id", "invalid_proof_id", "must be a UUID")
 			}
 			proofID = &p
 		}

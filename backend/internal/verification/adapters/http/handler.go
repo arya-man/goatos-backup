@@ -691,6 +691,12 @@ func (h *Handler) respondError(w nethttp.ResponseWriter, r *nethttp.Request, err
 		envelope.Code = appErr.Code
 		envelope.Message = appErr.Message
 		envelope.Retryable = appErr.Retryable
+		if len(appErr.FieldErrors) > 0 {
+			envelope.FieldErrors = make([]domain.FieldError, len(appErr.FieldErrors))
+			for i, fe := range appErr.FieldErrors {
+				envelope.FieldErrors[i] = domain.FieldError{Field: fe.Field, Code: fe.Code, Message: fe.Message}
+			}
+		}
 	}
 	httpresponse.WriteError(w, r, h.log, status, envelope, err)
 }
