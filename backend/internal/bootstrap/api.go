@@ -728,8 +728,13 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	tasksWorkflowService := tasksapp.NewService(tasksWorkflowRepo, log).
 		WithVerificationEnqueuer(tasksverificationbridge.New(verificationService))
 	tasksWorkflowHandler := taskshttp.NewHandler(tasksWorkflowService, log)
+	// Verifier video-review analytics (CEO integrity signal): shares the same pool/timeout as the
+	// verdict/queue repository above but is a distinct bounded concern, see
+	// verification/adapters/postgres/review_events.go.
+	verificationReviewEventRepo := verificationpg.NewReviewEventRepository(pool, cfg.Postgres.QueryTimeout)
 	verificationHandler := verificationhttp.NewHandler(verificationService, log).
-		WithModuleDutyReader(workforceRepo)
+		WithModuleDutyReader(workforceRepo).
+		WithReviewEventRepository(verificationReviewEventRepo)
 	// The verifier-only admin-web workspace composes its sidebar from the registry above, so this
 	// must be wired AFTER every RegisterCategory call — a module registered later would otherwise
 	// be missing from the verifier's evidence groups.

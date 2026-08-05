@@ -145,6 +145,35 @@ func (r *Repository) GetItem(ctx context.Context, tenantID, itemID string) (doma
 	return item, nil
 }
 
+// GetItemCategories batch-resolves item_id -> category for every id in itemIDs in ONE query
+// (= ANY($1)) -- see ports.Repository for why this exists instead of GetItem-in-a-loop.
+func (r *Repository) GetItemCategories(ctx context.Context, tenantID string, itemIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(itemIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx,
+		`SELECT item_id::text, category FROM verification_items WHERE tenant_id = $1::uuid AND item_id = ANY($2::uuid[])`,
+		tenantID, itemIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemID, category string
+		if err := rows.Scan(&itemID, &category); err != nil {
+			return nil, err
+		}
+		out[itemID] = category
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *Repository) GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

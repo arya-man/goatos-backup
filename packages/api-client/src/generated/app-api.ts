@@ -2216,6 +2216,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/verification/review-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest one batch of verifier video-review telemetry events.
+         * @description CEO integrity signal: proves (or disproves) that a verifier actually WATCHED a proof video rather than rubber-stamping the verdict. The browser flushes a small batch periodically and on unload. Gated on verification.review -- the same permission that already gates seeing the queue/evidence at all.
+         *
+         *     Idempotent per event: client_event_id is a client-minted UUID and is the idempotency key for that one event -- a replayed batch (retry after a network blip) inserts nothing new and `inserted` reports 0 on an exact replay.
+         *
+         *     Every event's item_id is authorized against the caller's authorized categories (the SAME rule GET /verification/queue applies): an item outside those categories answers 403.
+         */
+        post: operations["recordVerificationReviewEvents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/verification/items/{item_id}/review-facts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Derived per-actor watch/timing integrity facts for one verification item.
+         * @description Computed read-time from the raw verification_review_events stream for this one item (bounded by that item's own event count, not a whole-table scan): total distinct-covered watch time, watch fraction against the proof's duration, play/pause/seek counts, time from item_opened to verdict_recorded, and whether the watch fraction cleared the configured watched_full threshold.
+         */
+        get: operations["getVerificationItemReviewFacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/counts/shifting/destinations": {
         parameters: {
             query?: never;
@@ -7288,6 +7332,59 @@ export interface components {
         VerificationCloseRequest: {
             row_version: number;
         };
+        /** @enum {string} */
+        VerificationReviewEventType: "queue_opened" | "item_opened" | "video_play" | "video_pause" | "video_seek_attempt" | "video_ended" | "proof_switched" | "fullscreen_toggled" | "verdict_recorded";
+        VerificationReviewEventPayload: {
+            video_position_ms?: number;
+            video_duration_ms?: number;
+            seek_from_ms?: number;
+            seek_to_ms?: number;
+            verdict?: string;
+        };
+        VerificationReviewEvent: {
+            /** Format: uuid */
+            item_id: string;
+            /** Format: uuid */
+            proof_id?: string;
+            session_id: string;
+            event_type: components["schemas"]["VerificationReviewEventType"];
+            /** Format: date-time */
+            occurred_at: string;
+            payload?: components["schemas"]["VerificationReviewEventPayload"];
+            /**
+             * Format: uuid
+             * @description Client-minted UUID. This is the idempotency key for THIS event -- a replayed batch (retry after a network blip) that repeats the same client_event_id inserts nothing new.
+             */
+            client_event_id: string;
+        };
+        VerificationReviewEventBatchRequest: {
+            events: components["schemas"]["VerificationReviewEvent"][];
+        };
+        VerificationReviewEventBatchResponse: {
+            /** @description Count of ACTUALLY new rows persisted (excludes rows skipped as exact replays). */
+            inserted: number;
+            trace_id: string;
+        };
+        VerificationItemReviewFactsEntry: {
+            /** Format: uuid */
+            actor_id: string;
+            proof_duration_ms: number;
+            /** @description Union of distinct-covered played spans (overlapping replays merge, never sum) -- see verification/adapters/postgres/review_events.go mergeIntervalsDistinctMs. */
+            watched_distinct_ms: number;
+            /** Format: double */
+            watch_fraction: number;
+            play_count: number;
+            pause_count: number;
+            seek_attempt_count: number;
+            /** Format: double */
+            time_to_verdict_seconds?: number;
+            /** @description watch_fraction >= the configured threshold (0.9). */
+            watched_full: boolean;
+        };
+        VerificationItemReviewFactsResponse: {
+            facts: components["schemas"]["VerificationItemReviewFactsEntry"][];
+            trace_id: string;
+        };
         VerificationCloseSubmissionResponse: {
             items: components["schemas"]["VerificationQueueItem"][];
             trace_id: string;
@@ -12185,6 +12282,61 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFoundOrNotAllowed"];
             409: components["responses"]["WriteConflict"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    recordVerificationReviewEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerificationReviewEventBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Batch accepted (idempotent count of newly-inserted rows). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationReviewEventBatchResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getVerificationItemReviewFacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Derived review facts, one entry per actor who reviewed this item. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VerificationItemReviewFactsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
             500: components["responses"]["ServerError"];
         };
     };

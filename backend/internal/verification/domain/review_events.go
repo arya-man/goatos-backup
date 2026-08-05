@@ -1,0 +1,87 @@
+package domain
+
+import "time"
+
+// ReviewEventType is a fixed, closed vocabulary of client telemetry events proving (or disproving)
+// that a verifier actually watched a proof video rather than rubber-stamping the verdict. Scope is
+// the verifier role ONLY -- this is not a generic activity log for every role in the product.
+type ReviewEventType string
+
+const (
+	ReviewEventQueueOpened       ReviewEventType = "queue_opened"
+	ReviewEventItemOpened        ReviewEventType = "item_opened"
+	ReviewEventVideoPlay         ReviewEventType = "video_play"
+	ReviewEventVideoPause        ReviewEventType = "video_pause"
+	ReviewEventVideoSeekAttempt  ReviewEventType = "video_seek_attempt"
+	ReviewEventVideoEnded        ReviewEventType = "video_ended"
+	ReviewEventProofSwitched     ReviewEventType = "proof_switched"
+	ReviewEventFullscreenToggled ReviewEventType = "fullscreen_toggled"
+	ReviewEventVerdictRecorded   ReviewEventType = "verdict_recorded"
+)
+
+// ReviewEventTypes is the closed set the write path validates against. Keep in sync with the
+// migration 000112 CHECK constraint -- both exist because Postgres is the last line of defense
+// against a bypassed app layer, not because the list is meant to drift between them.
+var ReviewEventTypes = map[ReviewEventType]bool{
+	ReviewEventQueueOpened:       true,
+	ReviewEventItemOpened:        true,
+	ReviewEventVideoPlay:         true,
+	ReviewEventVideoPause:        true,
+	ReviewEventVideoSeekAttempt:  true,
+	ReviewEventVideoEnded:        true,
+	ReviewEventProofSwitched:     true,
+	ReviewEventFullscreenToggled: true,
+	ReviewEventVerdictRecorded:   true,
+}
+
+// ReviewEventPayload is the client-declared numeric detail for one event. Fields are optional and
+// event-type-specific (e.g. VideoPositionMs/VideoDurationMs on play/pause/seek/ended). Everything
+// here is untrusted client input -- the derived facts computation treats it as a hint, never as the
+// sole source of watch-time truth (see review_facts.go: watch time is derived from the SEQUENCE of
+// play/pause/ended events' occurred_at, not from a client-reported duration).
+type ReviewEventPayload struct {
+	VideoPositionMs *int64  `json:"video_position_ms,omitempty"`
+	VideoDurationMs *int64  `json:"video_duration_ms,omitempty"`
+	SeekFromMs      *int64  `json:"seek_from_ms,omitempty"`
+	SeekToMs        *int64  `json:"seek_to_ms,omitempty"`
+	Verdict         *string `json:"verdict,omitempty"`
+}
+
+// ReviewEvent is one client-emitted review-analytics event, as ingested by
+// POST /verification/review-events.
+type ReviewEvent struct {
+	TenantID      string
+	ItemID        string
+	ProofID       *string
+	ActorID       string
+	SessionID     string
+	EventType     ReviewEventType
+	OccurredAt    time.Time
+	Payload       ReviewEventPayload
+	ClientEventID string // client-minted UUID; the idempotency key for this one event.
+}
+
+// ReviewEventBatch is one flush from the browser.
+type ReviewEventBatch struct {
+	TenantID string
+	ActorID  string
+	Events   []ReviewEvent
+}
+
+// ItemReviewFacts is the derived per-(item,actor) integrity signal computed from the raw event
+// stream -- see review_facts.go for the computation and why it is read-time (bounded by one item's
+// event count, not a whole-table scan).
+type ItemReviewFacts struct {
+	ItemID               string
+	ActorID              string
+	ProofDurationMs      int64
+	WatchedDistinctMs    int64
+	WatchFraction        float64 // WatchedDistinctMs / ProofDurationMs, clamped to [0,1]; 0 when duration is unknown.
+	PlayCount            int
+	PauseCount           int
+	SeekAttemptCount     int
+	ItemOpenedAt         *time.Time
+	VerdictRecordedAt    *time.Time
+	TimeToVerdictSeconds *float64
+	WatchedFull          bool // WatchFraction >= the configured threshold (see review_facts.go WatchedFullThreshold).
+}

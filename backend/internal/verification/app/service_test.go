@@ -64,6 +64,16 @@ func (r *fakeRepo) GetItem(_ context.Context, _ string, itemID string) (domain.I
 	return item, nil
 }
 
+func (r *fakeRepo) GetItemCategories(_ context.Context, _ string, itemIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range itemIDs {
+		if item, ok := r.items[id]; ok {
+			out[id] = item.Category
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeRepo) GetSubmissionItems(_ context.Context, tenantID, submissionID string) ([]domain.Item, error) {
 	items := make([]domain.Item, 0)
 	for _, item := range r.items {

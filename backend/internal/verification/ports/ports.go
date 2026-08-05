@@ -84,6 +84,11 @@ type Repository interface {
 	// is a no-op that returns the original row (Created=false).
 	CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error)
 	GetItem(ctx context.Context, tenantID, itemID string) (domain.Item, error)
+	// GetItemCategories batch-resolves item_id -> category for every id in itemIDs in ONE query
+	// (= ANY($1)), never one GetItem per id in a loop -- see the review-event batch validator,
+	// which authorizes every event's item against the caller's categories and would otherwise be
+	// an n-plus-one-fanout over a batch that can legitimately span many items.
+	GetItemCategories(ctx context.Context, tenantID string, itemIDs []string) (map[string]string, error)
 	GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error)
 	// ListQueue returns Limit+1 rows (the app layer trims to Limit and derives next_cursor) ordered
 	// by (captured_at, item_id) ascending — keyset, never OFFSET.
@@ -113,6 +118,20 @@ type Repository interface {
 	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
 	// so the verdict's submission and its application are different moments).
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+}
+
+// ReviewEventRepository is the video-review-analytics ingest + read boundary
+// (verification_review_events, migration 000112). Kept as its own interface rather than folded into
+// Repository so a category producer package cannot accidentally depend on write-side verdict
+// methods it has no business calling.
+type ReviewEventRepository interface {
+	// InsertReviewEvents appends one batch of client review-telemetry events. Idempotent per event:
+	// a row whose (tenant_id, client_event_id) already exists is skipped, so a replayed batch (retry
+	// after a network blip) inserts nothing new and returns the count of ACTUALLY new rows.
+	InsertReviewEvents(ctx context.Context, batch domain.ReviewEventBatch) (inserted int, err error)
+	// ItemReviewFacts computes the derived per-actor watch/timing facts for one item from its raw
+	// event stream (bounded by that item's event count; see review_facts.go for the computation).
+	ItemReviewFacts(ctx context.Context, tenantID, itemID string) ([]domain.ItemReviewFacts, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage
