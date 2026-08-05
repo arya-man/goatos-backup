@@ -1,165 +1,222 @@
-# OperationalLocation repair — findings and validation (2026-08-05)
+# GoatOS STG Vaccination Repair Findings - 2026-08-05
 
-Branch `fix/operational-location-partition`, worktree off fetched `origin/main`
-`205d7a63d`.
+## Boundary
 
-## 1. Verdict: no database repair required
+- No STG database writes have been done.
+- This note documents the current forensic findings and the local repaired comparison only.
+- Secrets, DB passwords, signed URLs, and auth tokens are intentionally not included.
 
-The reported symptom looked like missing partition data. It is not. Every alive
-animal already carries a partition row; the defect is entirely in read models,
-contracts, and UI collapsing back to the parent shed.
+## Local Comparison Databases
 
-Proof, against the local clubbed DB
-(`127.0.0.1:15635`, `goatos_stg_latest_clubbed_20260805`):
+- Local Postgres port used for isolated comparison: `127.0.0.1:15635`.
+- Raw current STG clone: `goatos_stg_latest_raw_20260805`.
+- Clubbed repaired local clone: `goatos_stg_latest_clubbed_20260805`.
+- Frontend/API validation was against the clubbed local clone, not by mutating STG.
 
-```sql
-select count(*) from goats g
-left join goat_shed_partitions gsp
-  on gsp.tenant_id = g.tenant_id and gsp.goat_id = g.goat_id
-where g.lifecycle_status = 'alive' and gsp.goat_id is null;
--- 0
-```
+## Live STG CPT Adult ET+TT Problem
 
-| Measure | Value |
-| --- | --- |
-| Alive goats | 1670 |
-| Alive goats with a `goat_shed_partitions` row | 1670 |
-| Alive goats missing a partition row | **0** |
+Current STG still has the collapsed CPT true-adult ET+TT history:
 
-No partition backfill, no reseed, no data movement. The fix is read-model,
-contract, and UI only.
+- `et_tt_adult_w1`: `84` on `2026-06-30` + `237` on `2026-07-01` = `321`.
+- `et_tt_adult_w2`: `324` all on `2026-07-24`.
 
-## 2. Ground truth confirmed, including the park collision
+This is not the expected history for the CPT adult work.
 
-Per-park partition counts reproduce the maintainer's stated numbers exactly:
+## Clubbed Repaired Local Facts
 
-| Park | Shed | Partition | Alive |
-| --- | --- | --- | --- |
-| Channapatna | Castro | 1 | 33 |
-| Channapatna | Castro | 2 | 31 |
-| Coimbatore | Castro | 1 | 63 |
-| Coimbatore | Castro | 2 | 74 |
-| Coimbatore | Castro | 3 | 65 |
+The local clubbed DB reconstructs CPT true-adult ET+TT as:
 
-**Shed names are not unique across parks.** `Castro`, `Gandhi`, `Godel 1`,
-`Godel 2`, `Mandela 1`, `Mandela 2` and `Yashoda` each exist once per park with
-distinct `location_id`s. A park-blind rollup silently merges them — grouping by
-`Castro` alone yields 96/105/65 instead of the two parks' real splits above.
+- `et_tt_adult_w1`: `85` on `2026-06-30` + `239` on `2026-07-01` = `324`.
+- `et_tt_adult_w2`: `114` on `2026-07-24` + `163` on `2026-07-25` + `47` on `2026-07-26` = `324`.
 
-Consequence, now enforced in code: **every grouping, filter, and cache key uses
-`shed_id` (uuid) plus park — never `shed_name`.**
+The three W1 animals restored from pre-collapse are:
 
-## 3. Two label conventions, three "no partition" encodings
+- `G-000106`
+- `G-000254`
+- `G-000255`
 
-Live partition labels use two conventions simultaneously:
+Proof/closure data for the repaired CPT adult W2 history is preserved locally:
 
-- bare numeric — `Castro 1/2/3`, `Gandhi 1/2/3`, `Yashoda 1..10`,
-  `Ho Chi Minh 1`, `Old Yashoda 1..5`
-- `Part N` prefixed — `Godel 1 - Part 3`, `Mandela 1 - Part 10`,
-  `Sumathi 2 - Part 8`
+- `4` SOP submissions.
+- `6` proof refs.
+- Accepted by verifier flow.
+- Closure/verification remains associated with the repaired history instead of being replaced by fake per-animal proof.
 
-and the codebase encodes "not partitioned" three different ways: SQL `NULL`,
-empty string, and a literal `'whole'` sentinel.
+## Aug 5 And Future Preservation Checks
 
-The shared primitive collapses all three to one key and bridges both
-conventions. Verified against the SQL normalizer already used by operator
-execution reads — all 20 distinct live labels agree:
+Current STG was pulled again after the latest Aug 5 work. Raw current STG and the clubbed local DB matched for the post-collapse/current data checks:
 
-```
-regexp_replace(lower(btrim(COALESCE(partition_label,'whole'))), '^part[[:space:]]+', '')
-```
+- Vaccination completions administered on or after `2026-08-05`: `137`, matching raw and clubbed.
+- Future obligations due on or after `2026-08-05`: matching raw and clubbed.
+- SOP submissions submitted on or after `2026-08-05`: `15`, matching raw and clubbed.
+- SOP submission items for Aug 5 submissions: `137`, matching raw and clubbed.
+- SOP tasks for Aug 5 submissions: `15`, matching raw and clubbed.
+- Proof refs for Aug 5 submissions: `15` submissions with `36` proof refs, matching raw and clubbed.
+- Weighing rows are preserved:
+  - `weighing_observations`: `317`.
+  - `weighing_shed_observations`: `11`.
 
-`'Part 3'` and `'3'` both key to `3`; `NULL`, `''`, `'whole'` all key to
-`whole`. Display keeps the label as stored, so the screen matches the shed.
+Live STG Aug 5 vaccination summary observed during the read-only check:
 
-## 4. Inactive alias locations are real, and are the phantom dropdown rows
+- `CBE / Sumathi 1 / et_tt_adult_w2 / recorded / 2026-08-05`: `76`.
+- `CBE / Sumathi 2 / et_tt_adult_w2 / recorded / 2026-08-05`: `58`.
+- `CBE / Yashoda / et_tt_kid_7w / recorded / 2026-08-05`: `3`.
 
-`locations` contains rows named `Castro 1`, `Gandhi 1 - Part 1`,
-`Godel 1 - Part 3`, `Mandela 1 - Part 10` … with `location_type='shed'`,
-`status='inactive'`, and **0 animals**. These are the "Castro 1 = 0 animals"
-entries that make it look like animals do not live in partitions.
+## Validation Pass Summary
 
-Rules applied:
+The local clubbed DB passed the repair validation script:
 
-- partitions are derived from `DISTINCT goat_shed_partitions.partition_label`
-  for a shed, **never** from `locations` rows;
-- inactive locations are excluded from every selectable-location catalog;
-- no goat is ever written to an alias `location_id`.
+- CPT adult W2 split restored.
+- CPT adult W1 restored to `324`.
+- Pre-only goats restored.
+- Video task/proof closure preserved.
+- SOP submission items accepted.
+- Future CPT adult obligation hash matched current STG.
+- Weighing observation hashes matched current STG.
+- Foreign-key integrity passed.
 
-## 5. Preserved data
+Validation script:
 
-The repaired clubbed vaccination history is untouched by this change (no
-migration alters `vaccination_*` rows, no reseed was run):
+`docs/runbooks/cpt-adult-vaccination-history-repair-2026-08-05/validate.sql`
 
-- CPT adult ET+TT W1 — 85 on 2026-06-30 + 239 on 2026-07-01 = **324**
-- CPT adult ET+TT W2 — 114 on 2026-07-24 + 163 on 2026-07-25 + 47 on
-  2026-07-26 = **324**
+## Repair SQL
 
-Aug 5 and future vaccination/weighing data are likewise untouched. No writes
-were made to STG.
+Repair SQL path:
 
-## 6. Shared primitive
+`docs/runbooks/cpt-adult-vaccination-history-repair-2026-08-05/repair.sql`
 
-`backend/internal/platform/oploc` is the single definition of
-OperationalLocation:
+Guardrails:
 
-```
-OperationalLocation = park + physical_shed + optional partition_label
-```
+- Requires staging tables under `forensic_repair`.
+- Requires explicit `-v apply_repair=yes`.
+- Should be run only after a fresh STG backup and final sign-off.
+- Does not directly mutate Pub/Sub or sweeper state. It repairs the DB rows those systems read from.
 
-- `NormalizePartition` — mirrors the SQL normalizer exactly
-- `SamePartition` — convention-tolerant comparison
-- `Display()` — `Yashoda` / `Castro 2` / `Godel 1 - Part 3`, and **never**
-  `Yashoda whole`
-- `Key()` — `shed_id` + normalized partition, so two parks' `Castro 1` stay
-  distinct
+## UI Changes Summary
 
-Tests cover all three non-partitioned encodings, both label conventions, the
-cross-park collision, and the "never show whole" rule.
+Local UI/backend changes prepared so the repaired data is understandable:
 
-## 7. Prevention
+- Cohort matrix separates true Adults from F2/Fattening.
+- Adults means true adult cohorts only, such as Non-Pregnant and Buck.
+- F2 is not treated as Adults.
+- Cell details open in a right-side drawer using the existing drawer pattern.
+- Proof/closure details show accepted task, verifier/closure facts, and shed-level videos when available.
+- Historical rows without proof show a no-proof state instead of inventing evidence.
+- Deferred/canceled summary card remains simple and opens details in the drawer.
+- Raw dose codes are mapped to readable labels for CEO-facing UI.
 
-New guard `operational-location-guard`
-(`tools/agent-hooks/check-operational-location.mjs`), registered in
-`tools/ci/guardrail-manifest.json`, `Makefile:guardrails`, and
-`tools/ci/run-local-ci.sh` (92 guards; `guardrail-registration-guard` green).
+## Shed Partition Finding
 
-Checks, each with an adversarial self-test fixture:
+The partition data is not absent, but it is stored differently from what the UI makes obvious.
 
-| Check | Blocks |
-| --- | --- |
-| `whole-leak` | the `'whole'` sentinel concatenated into a user-facing label |
-| `shifting-contract` | shifting submit lacking `destination_partition_label` |
-| `location-type-as-partition` | `location_type` (an enum) used as a partition label |
-| `counts-grain` | counts aggregation grouping by shed with no partition dimension |
-| `alias-locations` | selectable-location query reading `locations` without excluding inactive rows |
+Animals stay attached to the parent physical shed in `goats.shed_id`. Partition membership lives in `goat_shed_partitions`.
 
-The guard deliberately does **not** flag comparisons (`= 'whole'`) or
-`COALESCE(..., 'whole')` — that is the matching key working correctly, and an
-earlier draft that flagged it would have punished the code that already gets
-this right.
+Example evidence from the local clubbed DB:
 
-### Surfaces the guard found that no manual audit did
+- `CBE / Castro`: `202` animals on parent shed, with `202` partition rows labelled `1`, `2`, `3`.
+- `CBE / Castro 1`, `Castro 2`, `Castro 3`: inactive child location rows with `0` animals directly attached.
+- `CPT / Castro`: `64` animals on parent shed, with `64` partition rows labelled `1`, `2`.
+- `CPT / Castro 1`, `Castro 2`: inactive child location rows with `0` animals directly attached.
 
-Running it against the tree surfaced three files missed by all six audits:
+Layman meaning:
 
-- `backend/internal/counts/adapters/postgres/feed_projected_counts.go:100,160`
-- `backend/internal/counts/adapters/postgres/shifting_feed_requirement.go:61`
-- `backend/internal/counts/adapters/postgres/shifting_execution.go:843,844`
+- The system did not put goats inside separate child shed records like `Castro 1`.
+- It put goats inside parent `Castro`, then stored each goat's partition separately.
+- Vaccination and weighing can still work if their queries read `goat_shed_partitions`.
+- The confusing part is that UI dropdowns show shed names, while partitions are not exposed as first-class shed choices.
 
-The last is the shifting **execution** (write) path reading `locations` without
-excluding inactive rows — the path that could place an animal onto a dead alias
-id. This is the strongest argument for the guard: hand audits missed it, the
-machine check did not.
+Risk:
 
-## 8. Verification boundary
+- If any workflow only reads `goats.shed_id`, it sees all Castro goats under `Castro`.
+- If a workflow also reads `goat_shed_partitions`, it can correctly split Castro into partition `1`, `2`, `3`.
+- The DB is not proven globally broken from this finding alone, but the UI/model distinction must be documented and tested for every partitioned shed.
 
-State honestly what has and has not been proven at the time of writing.
+## Next Repair Decision
 
-- Proven: DB partition completeness; per-park ground-truth counts; Go/SQL
-  normalizer parity across all live labels; `oploc` unit tests; guard self-test
-  and real-tree scan; guardrail registration.
-- Not yet proven at this point in the change: full backend test suite, OpenAPI
-  validation, generated TS client check, admin-web typecheck, Android compile,
-  and Chrome browser proof. Browser proof is **not** claimed until the pages are
-  actually opened and inspected.
+Before writing to STG:
+
+1. Take a fresh STG backup.
+2. Re-run the raw current STG pull.
+3. Re-run the clubbed repair locally.
+4. Re-run validation hashes for Aug 5 and future rows.
+5. Confirm partitioned-shed workflows use `goat_shed_partitions` where needed.
+6. Apply guarded repair SQL only after explicit approval.
+
+## 2026-08-06 Recheck After Partition PR Review
+
+PR 27 was reviewed against the clubbed repair concern. The polluted local proof
+database `goatos_partition_proof` must not be used as preservation evidence,
+because local startup/seed-closeout changed future CPT adult obligations there.
+
+The untouched clubbed baseline remains:
+
+- Database: `goatos_stg_latest_clubbed_20260805` on local port `15635`.
+- Alive goats: `1670`.
+- Alive goats missing `goat_shed_partitions`: `0`.
+- Aug 5+ vaccination completions: `137`.
+- Weighing observations: `317`.
+- Weighing shed observations: `11`.
+
+The full repair validator still passes on `goatos_stg_latest_clubbed_20260805`:
+
+- CPT adult ET+TT W1 remains `85` on `2026-06-30` plus `239` on `2026-07-01`.
+- CPT adult ET+TT W2 remains `114` on `2026-07-24`, `163` on `2026-07-25`,
+  and `47` on `2026-07-26`.
+- Video proof closure remains `4` accepted submissions and `6` proof refs.
+- Future CPT adult obligation hash remains unchanged.
+- Weighing hashes remain unchanged.
+- FK integrity passes.
+
+Clean migration-only check:
+
+- A fresh DB was cloned from `goatos_stg_latest_clubbed_20260805`.
+- Only PR 27 migrations `000110`, `000111`, and `000112` were applied.
+- The full repair validator passed.
+- The partition catalog seeded `130` rows, including empty partition
+  `Coimbatore / Yashoda 5` from the location alias evidence.
+
+Conclusion: PR 27 migrations do not inherently damage the clubbed CPT adult
+repair. Any future STG repair must still start from a fresh backup and must not
+use the polluted `goatos_partition_proof` clone as the baseline.
+
+## 2026-08-06 Recheck After PR Merge To Main
+
+Latest fetched `origin/main`: `514db6825c8c78cbf4368d029936cb41f173559a`.
+
+Clean latest-main migration check:
+
+- Fresh DB cloned from untouched repaired baseline:
+  `goatos_stg_latest_clubbed_20260805`.
+- Clone name: `goatos_main_cleancheck_025019` on local port `15635`.
+- Applied current main migrations `000108` through `000113`.
+- Full CPT adult repair validator passed on the migrated clone.
+
+Preserved historical CPT adult rows on latest-main migrated clone:
+
+- ET+TT adult W1: `85` on `2026-06-30`, `239` on `2026-07-01`.
+- ET+TT adult W2: `114` on `2026-07-24`, `163` on `2026-07-25`,
+  `47` on `2026-07-26`.
+- Video proof closure: accepted task, `4` accepted submissions, `6` proof refs.
+
+Raw/current STG clone vs repaired baseline vs latest-main migrated clone:
+
+- Aug 5+ vaccination completions: `137` in all three DBs.
+- Future CPT obligation instances: `1539` in all three DBs.
+- Weighing observations: `317` in all three DBs.
+- Weighing shed observations: `11` in all three DBs.
+
+Merged code recheck:
+
+- `source_partition_label` is now carried through the shifting write path on
+  latest `main`; the pre-merge review gap is closed in code.
+- `shed_partitions` catalog exists after `000112` and has `130` rows.
+
+Deployment/repair conclusion from local evidence:
+
+- Current `main` code and migrations are compatible with the repaired clubbed
+  data.
+- The manual STG repair is eligible only after a fresh live STG backup and fresh
+  live STG pull immediately before the write.
+- The intended repair remains narrowly scoped to historical CPT adult ET+TT
+  rows/proof closure and should not touch Aug 5+ vaccination rows, future
+  obligations, weighing observations, or shed weighing observations.
