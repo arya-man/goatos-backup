@@ -3022,6 +3022,12 @@ completions AS (
     FROM vaccination_completions
     WHERE tenant_id = $1::uuid
       AND COALESCE(administered_at, created_at) <= $2::timestamptz
+    -- projection-review: membership=accepted completions UNION the rejection archive, so an
+    -- animal whose clip was sent back is outstanding work again instead of vanishing;
+    -- group_key=obligation_id at this grain; join_cardinality=each branch yields at most one
+    -- row per obligation and the archive branch is ranked BELOW accepted, so the union cannot
+    -- multiply obligation membership; pagination=none here, the caller's keyset pages the
+    -- outer projection; scope=tenant plus the caller's as_of instant.
     UNION ALL
     -- Rejected completions are MOVED to the rejection archive (migration 000093) so the animal
     -- becomes outstanding work again by default on every read. This reads them back so a
