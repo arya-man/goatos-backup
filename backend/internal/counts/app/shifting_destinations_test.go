@@ -298,7 +298,7 @@ func TestDeriveShiftingSourceReadsTheAnimalsCurrentPlacement(t *testing.T) {
 	}}}
 	svc := NewService(repo)
 
-	parkID, shedID, err := svc.DeriveShiftingSource(context.Background(), destTenantID, []string{destGoatID})
+	parkID, shedID, _, err := svc.DeriveShiftingSource(context.Background(), destTenantID, []string{destGoatID})
 	if err != nil {
 		t.Fatalf("DeriveShiftingSource: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{{
 			GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer",
 		}}}
-		parkID, shedID, err := NewService(repo).DeriveShiftingSource(
+		parkID, shedID, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID})
 		if err != nil {
 			t.Fatalf("DeriveShiftingSource: %v", err)
@@ -333,7 +333,7 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 			GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer",
 			ParkID: strPtr("   "), ShedID: strPtr(""),
 		}}}
-		parkID, shedID, err := NewService(repo).DeriveShiftingSource(
+		parkID, shedID, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID})
 		if err != nil {
 			t.Fatalf("DeriveShiftingSource: %v", err)
@@ -350,7 +350,7 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 			{GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr(p), ShedID: strPtr(s)},
 			{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr(p), ShedID: strPtr(s)},
 		}}
-		parkID, shedID, err := NewService(repo).DeriveShiftingSource(
+		parkID, shedID, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
 		if err != nil {
 			t.Fatalf("DeriveShiftingSource: %v", err)
@@ -365,7 +365,7 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 			{GoatID: destGoatID, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s1")},
 			{GoatID: destGoatIDB, BreedKey: "boer", BreedLabel: "Boer", ParkID: strPtr("p1"), ShedID: strPtr("s2")},
 		}}
-		if _, _, err := NewService(repo).DeriveShiftingSource(
+		if _, _, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, []string{destGoatID, destGoatIDB}); !errors.Is(err, ErrImpactNotDerivable) {
 			t.Fatalf("err=%v, want ErrImpactNotDerivable (mismatched origins have no single source)", err)
 		}
@@ -373,7 +373,7 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 
 	t.Run("empty input rejects before the database", func(t *testing.T) {
 		repo := &fakeRepo{}
-		if _, _, err := NewService(repo).DeriveShiftingSource(
+		if _, _, _, err := NewService(repo).DeriveShiftingSource(
 			context.Background(), destTenantID, nil); !errors.Is(err, ErrImpactNotDerivable) {
 			t.Fatalf("err=%v, want ErrImpactNotDerivable", err)
 		}
@@ -387,8 +387,82 @@ func TestDeriveShiftingSourceDegradesInsteadOfInventing(t *testing.T) {
 // animal nobody can read must not silently yield a source.
 func TestDeriveShiftingSourceFailsClosedWhenTheAnimalDoesNotResolve(t *testing.T) {
 	svc := NewService(&fakeRepo{})
-	if _, _, err := svc.DeriveShiftingSource(
+	if _, _, _, err := svc.DeriveShiftingSource(
 		context.Background(), destTenantID, []string{destGoatID}); !errors.Is(err, ports.ErrGoatNotFound) {
 		t.Fatalf("err = %v, want ports.ErrGoatNotFound", err)
 	}
+}
+
+// TestDeriveShiftingSourceCarriesTheOriginPartition pins the FROM half of an OPERATIONAL location.
+//
+// The origin is park + shed + optional partition. An earlier revision accepted
+// source_partition_label on the request, trimmed it, carried it on the domain struct -- and then
+// hardcoded nil at the write, so a movement out of "Castro 2" was stored as leaving "Castro". The
+// move still applied correctly; only the audit trail lost which pen the animals actually left,
+// which is exactly the kind of silently-wrong history nobody notices until they need it.
+func TestDeriveShiftingSourceCarriesTheOriginPartition(t *testing.T) {
+	const srcParkID = "88888888-8888-4888-8888-888888888888"
+	const srcShedID = "99999999-9999-4999-8999-999999999999"
+	fact := func(goatID, partition string) domain.GoatShiftingFact {
+		f := domain.GoatShiftingFact{
+			GoatID: goatID, BreedKey: "boer", BreedLabel: "Boer",
+			ParkID: strPtr(srcParkID), ShedID: strPtr(srcShedID),
+		}
+		if partition != "" {
+			f.ShedPartitionLabel = strPtr(partition)
+		}
+		return f
+	}
+
+	t.Run("shared partition is the source partition", func(t *testing.T) {
+		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, "2"), fact(destGoatIDB, "2")}}
+		_, _, partition, err := NewService(repo).DeriveShiftingSource(
+			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
+		if err != nil {
+			t.Fatalf("DeriveShiftingSource: %v", err)
+		}
+		if partition == nil || *partition != "2" {
+			t.Fatalf("partition = %v, want %q", partition, "2")
+		}
+	})
+
+	t.Run("both label conventions are one partition", func(t *testing.T) {
+		// 'Part 3' and '3' name the same pen; treating them as different origins would wrongly
+		// drop the partition from a group that in fact shares one.
+		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, "Part 3"), fact(destGoatIDB, "3")}}
+		_, _, partition, err := NewService(repo).DeriveShiftingSource(
+			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
+		if err != nil {
+			t.Fatalf("DeriveShiftingSource: %v", err)
+		}
+		if partition == nil {
+			t.Fatal("partition = nil, want the shared partition ('Part 3' and '3' are the same pen)")
+		}
+	})
+
+	t.Run("mixed partitions yield no source partition, not a guess", func(t *testing.T) {
+		repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, "1"), fact(destGoatIDB, "2")}}
+		_, _, partition, err := NewService(repo).DeriveShiftingSource(
+			context.Background(), destTenantID, []string{destGoatID, destGoatIDB})
+		if err != nil {
+			t.Fatalf("DeriveShiftingSource: %v", err)
+		}
+		if partition != nil {
+			t.Fatalf("partition = %q, want nil (Castro 1 + Castro 2 have no single origin partition)", *partition)
+		}
+	})
+
+	t.Run("non-partitioned shed never yields the whole sentinel", func(t *testing.T) {
+		for _, raw := range []string{"", "whole", "  "} {
+			repo := &fakeRepo{goatFacts: []domain.GoatShiftingFact{fact(destGoatID, raw)}}
+			_, _, partition, err := NewService(repo).DeriveShiftingSource(
+				context.Background(), destTenantID, []string{destGoatID})
+			if err != nil {
+				t.Fatalf("DeriveShiftingSource(%q): %v", raw, err)
+			}
+			if partition != nil {
+				t.Fatalf("partition = %q for raw %q, want nil", *partition, raw)
+			}
+		}
+	})
 }

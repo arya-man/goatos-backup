@@ -7,6 +7,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Operator-facing support for the simplified single-animal shifting flow.
@@ -55,27 +56,34 @@ func (s *Service) ActiveBreeds(ctx context.Context, tenantID string) ([]domain.C
 // DEGRADES, DOES NOT INVENT. An animal with no recorded placement yields (nil, nil): the caller
 // leaves the source absent, exactly as it is today. Writing an empty string instead would turn
 // "unknown origin" into a stored fact, and it would violate the non-blank CHECKs on the column.
+// PARTITION. The origin is an OPERATIONAL location, so the source is park + shed + optional
+// partition. The partition is derived under exactly the same "one truthful origin" rule as the
+// shed: it is returned only when every named animal shares it. A group drawn from Castro 1 AND
+// Castro 2 has no single source partition, so the partition comes back nil rather than naming one
+// of them and mislabelling the rest -- the per-animal "from" still survives on each animal's
+// location history. Comparison goes through oploc.SamePartition so 'Part 3' and '3' are one
+// partition, and a non-partitioned shed (NULL/''/'whole') yields nil, never the 'whole' sentinel.
 func (s *Service) DeriveShiftingSource(
 	ctx context.Context,
 	tenantID string,
 	goatIDs []string,
-) (parkID *string, shedID *string, err error) {
+) (parkID *string, shedID *string, partitionLabel *string, err error) {
 	if strings.TrimSpace(tenantID) == "" {
-		return nil, nil, ErrMissingRequiredField
+		return nil, nil, nil, ErrMissingRequiredField
 	}
 	if len(goatIDs) == 0 {
-		return nil, nil, ErrImpactNotDerivable
+		return nil, nil, nil, ErrImpactNotDerivable
 	}
 
 	facts, err := s.repo.GoatShiftingFacts(ctx, tenantID, goatIDs)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(facts) != len(goatIDs) {
-		return nil, nil, fmt.Errorf("%w: %d of %d goat ids resolved", ports.ErrGoatNotFound, len(facts), len(goatIDs))
+		return nil, nil, nil, fmt.Errorf("%w: %d of %d goat ids resolved", ports.ErrGoatNotFound, len(facts), len(goatIDs))
 	}
 	if err := validateShiftableGoatFacts(facts); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// All animals must share one origin park AND shed for it to be a truthful single source.
@@ -83,10 +91,35 @@ func (s *Service) DeriveShiftingSource(
 	shed := nonBlank(facts[0].ShedID)
 	for _, fact := range facts[1:] {
 		if !eqOptional(park, nonBlank(fact.ParkID)) || !eqOptional(shed, nonBlank(fact.ShedID)) {
-			return nil, nil, ErrImpactNotDerivable
+			return nil, nil, nil, ErrImpactNotDerivable
 		}
 	}
-	return park, shed, nil
+
+	partition := partitionOrNil(facts[0].ShedPartitionLabel)
+	for _, fact := range facts[1:] {
+		if !oploc.SamePartition(derefOrBlank(partition), derefOrBlank(partitionOrNil(fact.ShedPartitionLabel))) {
+			partition = nil
+			break
+		}
+	}
+	return park, shed, partition, nil
+}
+
+// partitionOrNil collapses every "not partitioned" encoding (NULL, "", and the 'whole' matching
+// sentinel) to nil, so a non-partitioned shed never stores 'whole' as if it were a place.
+func partitionOrNil(v *string) *string {
+	trimmed := nonBlank(v)
+	if trimmed == nil || !oploc.IsPartitioned(*trimmed) {
+		return nil
+	}
+	return trimmed
+}
+
+func derefOrBlank(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 // nonBlank collapses a present-but-empty/whitespace value to nil, so a source that cannot be

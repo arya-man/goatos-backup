@@ -109,9 +109,9 @@ type ShiftingEventRecorder interface {
 	// DeriveShiftingImpacts builds the impact rows for a single-animal movement that supplied none.
 	DeriveShiftingImpacts(ctx context.Context, tenantID, destinationShedID string, goatIDs []string) ([]domain.ShiftingEventImpact, error)
 
-	// DeriveShiftingSource reads a single named animal's current park/shed so a movement submitted
+	// DeriveShiftingSource reads a single named animal's current park/shed/PARTITION so a movement submitted
 	// without an explicit source still records where it started.
-	DeriveShiftingSource(ctx context.Context, tenantID string, goatIDs []string) (parkID *string, shedID *string, err error)
+	DeriveShiftingSource(ctx context.Context, tenantID string, goatIDs []string) (parkID *string, shedID *string, partitionLabel *string, err error)
 }
 
 // NOTE: the handler prepares each birth child through identity validation, but the approval service
@@ -489,7 +489,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 	// does not read the animal at all, and would reject writes that are valid today.
 	sourceParkID, sourceShedID := normalized.SourceParkID, normalized.SourceShedID
 	if sourceParkID == nil && sourceShedID == nil {
-		derivedPark, derivedShed, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
+		derivedPark, derivedShed, derivedPartition, err := h.shifting.DeriveShiftingSource(r.Context(), tenantID, normalized.GoatIDs)
 		switch {
 		case errors.Is(err, countsapp.ErrImpactNotDerivable):
 			// Multi-animal movement: no single truthful origin. Leave the source absent rather than
@@ -502,6 +502,13 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 			return
 		default:
 			sourceParkID, sourceShedID = derivedPark, derivedShed
+			// The FROM partition is part of the origin. Without it the stored event says the
+			// animals left "Castro" when they actually left "Castro 2", and the movement can no
+			// longer be read backwards -- the same audit hole the source shed/park derivation
+			// above exists to close. An explicit client value still wins over the derived one.
+			if normalized.SourcePartitionLabel == nil {
+				normalized.SourcePartitionLabel = derivedPartition
+			}
 			// CR-02: cross-park validation must ALSO run on the DERIVED source, not only on an
 			// explicit one. normalizeShiftingEventRequest rejects an explicit source_park_id that
 			// disagrees with the destination, but the simplified submit omits source_park_id entirely,
@@ -528,7 +535,7 @@ func (h *AppWriteHandler) RecordShiftingEvent(w http.ResponseWriter, r *http.Req
 		Category:                normalized.Category,
 		SourceParkID:            sourceParkID,
 		SourceShedID:            sourceShedID,
-		SourcePartitionLabel:    nil, // Source partition is not yet populated from derivation
+		SourcePartitionLabel:    normalized.SourcePartitionLabel,
 		DestinationParkID:       normalized.DestinationParkID,
 		DestinationShedID:       normalized.DestinationShedID,
 		DestinationPartitionLabel: normalized.DestinationPartitionLabel,
