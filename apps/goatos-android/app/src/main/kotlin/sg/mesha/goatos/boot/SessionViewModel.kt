@@ -106,7 +106,10 @@ class SessionViewModel @Inject constructor(
      * null as "not known yet" and render neither the app nor the login gate.
      */
     val isAuthed: StateFlow<Boolean?> = combine(sessionStore.bearerToken, devSessionReady) { token, ready ->
-        ready && sessionIsAuthedForMode(authMode, token)
+        // Not-ready is UNKNOWN, not "signed out". Returning false here published a confident
+        // "show the login card" before the dev session had been read, so a dev build flashed a
+        // sign-in screen at an already-signed-in operator -- the same defect one layer down.
+        if (!ready) null else sessionIsAuthedForMode(authMode, token)
     }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -116,6 +119,10 @@ class SessionViewModel @Inject constructor(
     init {
         if (authMode == AuthMode.DEV_BEARER) {
             viewModelScope.launch {
+                // The whole dev-session bring-up is wrapped so devSessionReady ALWAYS resolves.
+                // A throw in here (logout, token store, scheduler) would otherwise leave isAuthed
+                // null forever: a permanent loading screen with no way to reach the login gate.
+                try {
                 val baked = BuildConfig.DEV_BEARER_TOKEN
                 val persisted = sessionStore.currentToken()
                 if (devSessionNeedsRefresh(authMode, persisted, baked)) {
@@ -139,6 +146,10 @@ class SessionViewModel @Inject constructor(
                 // only ever follows an explicit signIn* call.
                 if (!sessionStore.currentToken().isNullOrBlank()) {
                     analytics.track(AnalyticsEventsSession.SESSION_RESTORED)
+                }
+                } finally {
+                    // Resolve no matter what: unknown-forever is a locked-out app.
+                    devSessionReady.value = true
                 }
             }
         } else {
