@@ -861,6 +861,7 @@ WITH page AS (
        coalesce(preview.animals, '[]'::jsonb) AS animals
 FROM page p
 LEFT JOIN req r ON r.shifting_event_id = p.shifting_event_id
+-- projection-review: membership=the pending shifting events this operator may execute, one row per event (the aggregate below counts each event's animals, never the events themselves); group_key=shifting_event_id, so the four locations joins added here are label lookups on an already-unique row and change no grain; join_cardinality=each locations join is 1:{0,1} on (tenant_id, location_id) -- the added status='active' predicate only NARROWS a label lookup, and it is load-bearing: without it a source or destination could resolve to an inactive partition-alias location row and a movement would name a place no animal can live; pagination=keyset over the event list, and the per-event animal counts are computed per row rather than summed across the page; scope=tenant plus the operator's park scope
 LEFT JOIN locations src_park ON src_park.location_id = p.source_park_id AND src_park.status = 'active'
 LEFT JOIN locations src_shed ON src_shed.location_id = p.source_shed_id AND src_shed.status = 'active'
 LEFT JOIN locations dst_park ON dst_park.location_id = p.destination_park_id AND dst_park.status = 'active'
