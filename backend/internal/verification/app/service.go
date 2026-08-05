@@ -620,6 +620,9 @@ func mapRepoErr(err error) error {
 		return NotFound("item_not_found", "verification item not found")
 	case errors.As(err, &notVerified):
 		return Conflict("batch_not_fully_verified", batchNotFullyVerifiedMessage(notVerified.Blocking))
+	case isAlreadyDecided(err):
+		// Terminal, not contended: retrying cannot help, so say the decision is final.
+		return Conflict("already_decided", "This proof already has a verdict and cannot be changed.")
 	case errors.Is(err, ports.ErrConflict):
 		return Conflict("write_conflict", "verification item was modified by someone else")
 	case errors.Is(err, ports.ErrIdempotencyConflict):
@@ -725,4 +728,12 @@ func (s *Service) MarkVerdictApplied(
 		return 0, mapRepoErr(err)
 	}
 	return applied, nil
+}
+
+
+// isAlreadyDecided keeps mapRepoErr readable; AlreadyDecidedError carries the current status
+// rather than being a bare sentinel, so errors.Is has nothing to match against.
+func isAlreadyDecided(err error) bool {
+	decided := &ports.AlreadyDecidedError{}
+	return errors.As(err, &decided)
 }
