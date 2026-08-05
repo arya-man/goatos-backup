@@ -6849,6 +6849,8 @@ export interface components {
         };
         /** @description One shed filter option. Carries park_id as its own field because SHED NAMES ARE NOT UNIQUE ACROSS PARKS — in real data 66 of 154 shed names exist in both parks, so a client cascading Park -> Shed must filter this list by park_id. key stays the shed UUID so an entry is unambiguous on its own, and the park is never encoded into label. When a shed has partitions, one row per partition is returned, each with its partition_label, count for that partition, and operational_location_display for the partition label. */
         CountsBreakdownShedFacet: {
+            /** @description The PARENT physical shed uuid. Handed over explicitly so a client never parses it back out of the composite `key` — doing so once made the parent-aggregate option carry a partition key and silently broke partition filtering. */
+            shed_id: string;
             /** @description Shed UUID; empty for the bucket of animals with no shed assigned. */
             key: string;
             /** @description Shed name or code; for partitioned sheds, this is the shed name (without the partition suffix). */

@@ -493,6 +493,14 @@ type CountsBreakdownShedFacet struct {
 	Count int64  `json:"count"`
 	// ParkID is the park these animals are in, empty only for animals with no park assigned.
 	ParkID string `json:"park_id"`
+	// ShedID is the PARENT physical shed uuid, handed over explicitly so a client never has to
+	// parse it back out of the composite Key.
+	ShedID string `json:"shed_id"`
+	// PartitionLabel is the raw partition label ("2", "Part 3") for a specific-partition option,
+	// and "" for the parent-shed aggregate option. Never the 'whole' sentinel.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the user-facing label for this option.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 // CountsBreakdownFacets reports the values actually present in the unfiltered tenant herd so a
@@ -536,6 +544,9 @@ type CountsBreakdownQuery struct {
 	LifecycleStatus *string
 	ParkID          *string
 	ShedID          *string
+	// PartitionLabel narrows to ONE partition of ShedID. Empty/nil means the whole shed (the parent
+	// aggregate), never "the non-partitioned animals".
+	PartitionLabel  *string
 	ManagementStage *string
 	Breed           *string
 	Sex             *string

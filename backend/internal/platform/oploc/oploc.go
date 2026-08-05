@@ -97,6 +97,12 @@ func (l OperationalLocation) Display() string {
 	shed := strings.TrimSpace(l.ShedName)
 	label := strings.TrimSpace(l.PartitionLabel)
 	if shed == "" {
+		// A missing shed name must still never surface the matching sentinel. Falling through with
+		// the raw label here would print "whole" to a user -- the one string this type exists to
+		// keep off screen. Matches the admin-web and Android helpers.
+		if !IsPartitioned(label) {
+			return ""
+		}
 		return label
 	}
 	if !IsPartitioned(label) {

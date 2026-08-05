@@ -301,6 +301,7 @@ func (h *Handler) GetBreakdown(w http.ResponseWriter, r *http.Request) {
 		LifecycleStatus: nullableString(query.Get("lifecycle_status")),
 		ParkID:          nullableString(query.Get("park_id")),
 		ShedID:          nullableString(query.Get("shed_id")),
+		PartitionLabel:  nullableString(query.Get("partition_label")),
 		ManagementStage: nullableString(query.Get("management_stage")),
 		Breed:           nullableString(query.Get("breed")),
 		Sex:             nullableString(query.Get("sex")),

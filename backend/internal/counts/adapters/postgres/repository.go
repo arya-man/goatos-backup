@@ -2639,6 +2639,10 @@ WITH grouped AS MATERIALIZED (
     AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
     AND ($6 = '' OR COALESCE(g.breed, '') = $6)
     AND ($7 = '' OR g.sex = $7)
+    -- Partition filter. Compared on the NORMALIZED key so a caller passing 'Part 3' or '3' selects
+    -- the same pen, matching oploc.SamePartition. Empty means "no partition filter" (the parent
+    -- shed aggregate), NOT "the non-partitioned bucket".
+    AND ($8 = '' OR ` + partitionKeyExpr + ` = regexp_replace(lower(btrim($8)), '^part[[:space:]]+', ''))
   GROUP BY g.park_id, g.shed_id, COALESCE(g.management_stage, ''), COALESCE(g.breed, ''), g.sex,
            ` + partitionKeyExpr + `
 )`
@@ -2704,7 +2708,7 @@ ORDER BY
   gr.management_stage,
   gr.breed,
   gr.sex
-LIMIT $8 OFFSET $9`
+LIMIT $9 OFFSET $10`
 
 // scale-guard:ignore: 5k-50k-envelope — same canonical read as countsBreakdownPageSQL.
 //
@@ -2803,7 +2807,7 @@ SELECT 'lifecycle' AS dimension, g.lifecycle_status AS series_key,
          ELSE initcap(g.lifecycle_status)
        END AS series_label,
        count(*) AS series_count,
-       ''::text AS park_key
+       ''::text AS park_key, ''::text AS partition_key
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
@@ -2811,14 +2815,14 @@ GROUP BY g.lifecycle_status
 UNION ALL
 SELECT 'stage' AS dimension, COALESCE(g.management_stage, '') AS series_key,
        COALESCE(g.management_stage, '') AS series_label, count(*) AS series_count,
-       ''::text AS park_key
+       ''::text AS park_key, ''::text AS partition_key
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
   AND ($2 = '' OR g.lifecycle_status = $2)
 GROUP BY COALESCE(g.management_stage, '')
 UNION ALL
-SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text
+SELECT 'breed', COALESCE(g.breed, ''), COALESCE(g.breed, ''), count(*), ''::text, ''::text
 FROM goats g
 WHERE g.tenant_id = $1::uuid
   AND g.merged_into_goat_id IS NULL
@@ -2827,7 +2831,7 @@ GROUP BY COALESCE(g.breed, '')
 UNION ALL
 SELECT 'park', COALESCE(g.park_id::text, ''),
        COALESCE(NULLIF(park.location_code, ''), park.name, ''),
-       count(*), ''::text
+       count(*), ''::text, ''::text
 FROM goats g
 LEFT JOIN locations park ON park.tenant_id = $1::uuid AND park.location_id = g.park_id
 WHERE g.tenant_id = $1::uuid
@@ -2841,7 +2845,7 @@ UNION ALL
 -- locations by name).
 SELECT 'shed', COALESCE(g.shed_id::text, ''),
        COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
-       count(*), COALESCE(g.park_id::text, '')
+       count(*), COALESCE(g.park_id::text, ''), ''
 FROM goats g
 LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
 WHERE g.tenant_id = $1::uuid
@@ -2859,7 +2863,7 @@ SELECT 'shed',
          CASE WHEN gsp.partition_label ~* '^part[[:space:]]+'
               THEN ' - ' || gsp.partition_label
               ELSE ' ' || gsp.partition_label END,
-       count(*), COALESCE(g.park_id::text, '')
+       count(*), COALESCE(g.park_id::text, ''), btrim(gsp.partition_label)
 FROM goats g
 JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
 LEFT JOIN locations shed ON shed.tenant_id = $1::uuid AND shed.location_id = g.shed_id
@@ -2870,6 +2874,7 @@ WHERE g.tenant_id = $1::uuid
 GROUP BY g.shed_id, COALESCE(g.park_id::text, ''), shed.name, shed.location_code,
          ` + partitionKeyExpr + `, gsp.partition_label
 UNION ALL
+-- projection-review: membership=shed_partitions catalog rows (status='active') for the tenant, which is the AUTHORITATIVE list of partitions that physically exist, restricted by NOT EXISTS to those holding no live animal; group_key=(shed_id, normalized_label) which is the catalog's own primary key so each partition can appear at most once; join_cardinality=locations joined once on (tenant_id, location_id), that table's primary key, so 1:{0,1} label lookup with no fan-out, and the NOT EXISTS is a semi-join that cannot duplicate a catalog row; pagination=whole-result rollup, never paged and never capped, exactly like the sibling facet branches; scope=tenant_id plus the same optional lifecycle predicate the occupied branches apply, and the park key is taken from the same denormalized goats.park_id the occupied branches use so an empty partition keys to the same park as its shed's occupied ones
 -- EMPTY partitions. The two branches above are derived from goats, so a partition that currently
 -- holds ZERO animals is invisible to them -- and a partition can be genuinely empty (CBE
 -- "Yashoda 5" is a real pen with no animals in it right now). Leaving it out of the facet means a
@@ -2886,6 +2891,7 @@ SELECT 'shed',
               THEN ' - ' || sp.partition_label
               ELSE ' ' || sp.partition_label END,
        0,
+       -- park, then the raw partition label (last column)
        -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands
        -- under a different park key than its own shed's occupied partitions and the option
        -- disappears when that park is selected. Those branches read the DENORMALIZED goats.park_id,
@@ -2901,7 +2907,8 @@ SELECT 'shed',
            LIMIT 1),
          shed.parent_location_id::text,
          ''
-       )
+       ),
+       btrim(sp.partition_label)
 FROM shed_partitions sp
 JOIN locations shed ON shed.tenant_id = sp.tenant_id AND shed.location_id = sp.shed_id
 WHERE sp.tenant_id = $1::uuid
@@ -2964,6 +2971,7 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		ptrValue(req.ManagementStage),
 		ptrValue(req.Breed),
 		ptrValue(req.Sex),
+		ptrValue(req.PartitionLabel),
 	}
 
 	batch := &pgx.Batch{}
@@ -3060,9 +3068,10 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 	for facetRows.Next() {
 		var dimension, key, label string
 		var count int64
-		// parkKey is populated only by the shed branch; every other dimension selects ''.
-		var parkKey string
-		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey); err != nil {
+		// parkKey and partitionLabel are populated only by the shed branches; every other
+		// dimension selects ''.
+		var parkKey, partitionLabel string
+		if err := facetRows.Scan(&dimension, &key, &label, &count, &parkKey, &partitionLabel); err != nil {
 			facetRows.Close()
 			return domain.CountsBreakdown{}, fmt.Errorf("counts breakdown: facets scan: %w", err)
 		}
@@ -3077,8 +3086,17 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 		case "park":
 			out.Facets.Parks = append(out.Facets.Parks, point)
 		case "shed":
+			// ShedID is handed over EXPLICITLY rather than leaving the client to parse it back out
+			// of the composite Key. The frontend previously split that string itself, which made the
+			// parent-aggregate option carry a partition key and silently broke partition filtering.
+			shedID := key
+			if idx := strings.Index(shedID, "#"); idx >= 0 {
+				shedID = shedID[:idx]
+			}
 			out.Facets.Sheds = append(out.Facets.Sheds, domain.CountsBreakdownShedFacet{
 				Key: key, Label: label, Count: count, ParkID: parkKey,
+				ShedID: shedID, PartitionLabel: partitionLabel,
+				OperationalLocationDisplay: label,
 			})
 		}
 	}

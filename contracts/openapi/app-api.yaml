@@ -18079,7 +18079,14 @@ components:
         - label
         - count
         - park_id
+        - shed_id
       properties:
+        shed_id:
+          type: string
+          description: >-
+            The PARENT physical shed uuid. Handed over explicitly so a client never parses it back
+            out of the composite `key` — doing so once made the parent-aggregate option carry a
+            partition key and silently broke partition filtering.
         key:
           type: string
           description: Shed UUID; empty for the bucket of animals with no shed assigned.
