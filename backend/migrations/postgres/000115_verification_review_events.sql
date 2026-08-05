@@ -1,3 +1,12 @@
+-- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
+-- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
+--
+-- Why both directives: this table is NOT the banned runtime review/reconcile queue (VACC-REV-10).
+-- It stores the verifier's own video-watch telemetry (play/pause/seek/verdict), an append-only
+-- audit stream used to prove a proof video was actually watched. It creates no work items, holds no
+-- mismatched/dirty ingested rows, and nothing reads it to decide operator work. It also has no seed
+-- companion by design: rows accrue only from live verifier activity, so seeding them would
+-- fabricate evidence that somebody watched a video.
 -- +goose Up
 -- Verifier video-review analytics (CEO-visible integrity signal): can we prove a verifier
 -- actually WATCHED a proof video rather than rubber-stamping it. Scope is the verifier role

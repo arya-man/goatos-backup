@@ -43,7 +43,10 @@ func (r *ReviewEventRepository) InsertReviewEvents(ctx context.Context, batch do
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
-	itemIDs := make([]string, len(batch.Events))
+	// itemIDs is nullable per event (queue-scoped queue_opened rows carry no item -- migration
+	// 000118); pgx encodes a []*string bound against a ::uuid[] parameter correctly, turning nil
+	// pointers into SQL NULL entries in the array.
+	itemIDs := make([]*string, len(batch.Events))
 	proofIDs := make([]*string, len(batch.Events))
 	actorIDs := make([]string, len(batch.Events))
 	sessionIDs := make([]string, len(batch.Events))

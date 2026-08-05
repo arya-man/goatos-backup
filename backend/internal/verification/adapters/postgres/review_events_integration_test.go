@@ -44,11 +44,11 @@ func TestInsertReviewEventsIsIdempotentOnReplay_RealPostgres(t *testing.T) {
 		ActorID:  actorID,
 		Events: []domain.ReviewEvent{
 			{
-				TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1",
+				TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1",
 				EventType: domain.ReviewEventItemOpened, OccurredAt: time.Now(), ClientEventID: uuid.NewString(),
 			},
 			{
-				TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1",
+				TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1",
 				EventType: domain.ReviewEventVideoPlay, OccurredAt: time.Now(), ClientEventID: uuid.NewString(),
 			},
 		},
@@ -99,14 +99,14 @@ func TestItemReviewFactsWatchFractionCountsDistinctCoveredRanges_RealPostgres(t 
 
 	pos := func(ms int64) *int64 { return &ms }
 	events := []domain.ReviewEvent{
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventItemOpened, OccurredAt: base, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventItemOpened, OccurredAt: base, ClientEventID: uuid.NewString()},
 		// First play: watches [0,5000) of the video.
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(1 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(0), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(2 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(5000)}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(1 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(0), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(2 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(5000)}, ClientEventID: uuid.NewString()},
 		// Replay: watches [2000,7000) -- overlaps the first span by 3000ms.
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(3 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(2000), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(4 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(7000)}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVerdictRecorded, OccurredAt: base.Add(5 * time.Second), ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(3 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(2000), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(4 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(7000)}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVerdictRecorded, OccurredAt: base.Add(5 * time.Second), ClientEventID: uuid.NewString()},
 	}
 	if _, err := reviewRepo.InsertReviewEvents(ctx, domain.ReviewEventBatch{TenantID: tenantID, ActorID: actorID, Events: events}); err != nil {
 		t.Fatalf("insert events: %v", err)
@@ -141,5 +141,107 @@ func TestItemReviewFactsWatchFractionCountsDistinctCoveredRanges_RealPostgres(t 
 	} else if *f.TimeToVerdictSeconds < 4.9 || *f.TimeToVerdictSeconds > 5.1 {
 		// item_opened is at base, verdict_recorded at base+5s.
 		t.Fatalf("time_to_verdict_seconds = %f, want ~5", *f.TimeToVerdictSeconds)
+	}
+}
+
+// TestInsertReviewEventsAcceptsNullItemIDForQueueScopedEvent is the real-bug regression
+// (2026-08-06): a queue_opened event has no item yet and its item_id column must accept NULL --
+// migration 000118 dropped the NOT NULL and added the scope CHECK. A batch mixing a null-item
+// queue_opened row with a real item-scoped row must insert BOTH.
+func TestInsertReviewEventsAcceptsNullItemIDForQueueScopedEvent_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	itemRepo := NewRepository(pool, 5*time.Second)
+	reviewRepo := NewReviewEventRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	item := newTestItem(t, ctx, itemRepo, tenantID, "vaccination:submission:review-null-item")
+	actorID := uuid.NewString()
+
+	batch := domain.ReviewEventBatch{
+		TenantID: tenantID,
+		ActorID:  actorID,
+		Events: []domain.ReviewEvent{
+			{
+				TenantID: tenantID, ItemID: nil, ActorID: actorID, SessionID: "sess-queue",
+				EventType: domain.ReviewEventQueueOpened, OccurredAt: time.Now(),
+				Payload:       domain.ReviewEventPayload{Category: func() *string { s := "vaccination_proof"; return &s }()},
+				ClientEventID: uuid.NewString(),
+			},
+			{
+				TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-queue",
+				EventType: domain.ReviewEventVideoPlay, OccurredAt: time.Now(), ClientEventID: uuid.NewString(),
+			},
+		},
+	}
+
+	inserted, err := reviewRepo.InsertReviewEvents(ctx, batch)
+	if err != nil {
+		t.Fatalf("insert mixed batch: %v", err)
+	}
+	if inserted != 2 {
+		t.Fatalf("inserted = %d, want 2 (null-item queue row + item-scoped row both land)", inserted)
+	}
+
+	var nullItemRows, realItemRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM verification_review_events WHERE tenant_id = $1::uuid AND item_id IS NULL AND event_type = 'queue_opened'`, tenantID).Scan(&nullItemRows); err != nil {
+		t.Fatalf("count null-item rows: %v", err)
+	}
+	if nullItemRows != 1 {
+		t.Fatalf("null-item queue_opened rows = %d, want 1", nullItemRows)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM verification_review_events WHERE tenant_id = $1::uuid AND item_id = $2::uuid`, tenantID, item.ItemID).Scan(&realItemRows); err != nil {
+		t.Fatalf("count item-scoped rows: %v", err)
+	}
+	if realItemRows != 1 {
+		t.Fatalf("item-scoped rows = %d, want 1", realItemRows)
+	}
+}
+
+// TestItemReviewFactsUnaffectedByQueueScopedRows proves the per-item facts read path never sees
+// (and cannot be skewed by) a queue-scoped row: ItemReviewFacts is always queried with a real
+// item_id, and a NULL item_id row can never equal that filter.
+func TestItemReviewFactsUnaffectedByQueueScopedRows_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	itemRepo := NewRepository(pool, 5*time.Second)
+	reviewRepo := NewReviewEventRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	item := newTestItem(t, ctx, itemRepo, tenantID, "vaccination:submission:review-queue-noise")
+	actorID := uuid.NewString()
+	durationMs := int64(3000)
+	pos := func(ms int64) *int64 { return &ms }
+	category := "vaccination_proof"
+
+	// A pile of queue-scoped noise for the SAME tenant/actor, before the real item facts.
+	events := []domain.ReviewEvent{
+		{TenantID: tenantID, ItemID: nil, ActorID: actorID, SessionID: "sess-queue", EventType: domain.ReviewEventQueueOpened, OccurredAt: time.Now(), Payload: domain.ReviewEventPayload{Category: &category}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: nil, ActorID: actorID, SessionID: "sess-queue", EventType: domain.ReviewEventQueueOpened, OccurredAt: time.Now(), Payload: domain.ReviewEventPayload{Category: &category}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventItemOpened, OccurredAt: time.Now(), ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: time.Now(), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(0), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoEnded, OccurredAt: time.Now().Add(3 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(3000)}, ClientEventID: uuid.NewString()},
+	}
+	if _, err := reviewRepo.InsertReviewEvents(ctx, domain.ReviewEventBatch{TenantID: tenantID, ActorID: actorID, Events: events}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	facts, err := reviewRepo.ItemReviewFacts(ctx, tenantID, item.ItemID)
+	if err != nil {
+		t.Fatalf("item review facts: %v", err)
+	}
+	if len(facts) != 1 {
+		t.Fatalf("facts count = %d, want exactly 1 actor (queue-scoped rows must not appear)", len(facts))
+	}
+	f := facts[0]
+	if f.WatchedDistinctMs != 3000 || f.ProofDurationMs != 3000 || f.WatchFraction != 1 {
+		t.Fatalf("facts skewed by queue-scoped noise: watched=%d duration=%d fraction=%f", f.WatchedDistinctMs, f.ProofDurationMs, f.WatchFraction)
+	}
+	if f.PlayCount != 1 {
+		t.Fatalf("play_count = %d, want 1 (queue_opened rows must not be counted as plays)", f.PlayCount)
 	}
 }
