@@ -101,6 +101,7 @@ type reviewEventRow struct {
 	occurredAt time.Time
 	positionMs *int64
 	durationMs *int64
+	proofID    *string
 }
 
 // ItemReviewFacts fetches every event for one item (bounded by verification_review_events_item_
@@ -121,7 +122,8 @@ func (r *ReviewEventRepository) ItemReviewFacts(ctx context.Context, tenantID, i
 	rows, err := r.pool.Query(ctx, `
 SELECT actor_id, event_type, occurred_at,
        (payload->>'video_position_ms')::bigint,
-       (payload->>'video_duration_ms')::bigint
+       (payload->>'video_duration_ms')::bigint,
+       proof_id::text
 FROM verification_review_events
 WHERE tenant_id = $1::uuid AND item_id = $2::uuid
 ORDER BY actor_id, occurred_at`, tenantID, itemID)
@@ -133,7 +135,7 @@ ORDER BY actor_id, occurred_at`, tenantID, itemID)
 	order := []string{}
 	for rows.Next() {
 		var row reviewEventRow
-		if err := rows.Scan(&row.actorID, &row.eventType, &row.occurredAt, &row.positionMs, &row.durationMs); err != nil {
+		if err := rows.Scan(&row.actorID, &row.eventType, &row.occurredAt, &row.positionMs, &row.durationMs, &row.proofID); err != nil {
 			return nil, err
 		}
 		if _, ok := byActor[row.actorID]; !ok {
@@ -157,17 +159,47 @@ ORDER BY actor_id, occurred_at`, tenantID, itemID)
 // without letting a rubber-stamped 10%-watched approval count as full.
 const WatchedFullThreshold = 0.9
 
+// MaxPlausiblePlaybackRate bounds how much VIDEO a claimed play span may cover per second of REAL
+// time. Positions and durations are reported by the browser, so without this bound a verifier could
+// post video_play{position 0} and video_ended{position = duration} one second apart and read as
+// having fully watched a ten-minute proof. 2.0 leaves room for a legitimate 2x-speed review while
+// making the one-second full-watch claim impossible.
+const MaxPlausiblePlaybackRate = 2.0
+
+// plausibleSpanSlackMs absorbs event-batching and clock jitter on a short, honest span.
+const plausibleSpanSlackMs = 500
+
+// clampSpanToElapsed caps a claimed [start,end) play span at what could physically have played in the
+// wall-clock time between the two events.
+func clampSpanToElapsed(startMs, endMs int64, elapsed time.Duration) int64 {
+	maxCovered := int64(float64(elapsed.Milliseconds())*MaxPlausiblePlaybackRate) + plausibleSpanSlackMs
+	if endMs-startMs > maxCovered {
+		return startMs + maxCovered
+	}
+	return endMs
+}
+
 type interval struct{ startMs, endMs int64 }
 
 func computeActorFacts(itemID, actorID string, rows []reviewEventRow) domain.ItemReviewFacts {
 	facts := domain.ItemReviewFacts{ItemID: itemID, ActorID: actorID}
-	var intervals []interval
+	// Intervals and durations are kept PER PROOF. An item can carry several proof videos, and every
+	// video's positions start at 0, so pooling them onto one millisecond timeline merged unrelated
+	// footage: proof A watched 0-30s and proof B watched 0-40s collapsed into a single 40s island and
+	// reported a watch fraction neither video had. Coverage is the sum over proofs.
+	intervalsByProof := map[string][]interval{}
+	durationByProof := map[string]int64{}
 	var playStart *int64
 	var playStartAt time.Time
+	var playProof string
 
 	for _, row := range rows {
-		if row.durationMs != nil && *row.durationMs > facts.ProofDurationMs {
-			facts.ProofDurationMs = *row.durationMs
+		proofKey := ""
+		if row.proofID != nil {
+			proofKey = *row.proofID
+		}
+		if row.durationMs != nil && *row.durationMs > durationByProof[proofKey] {
+			durationByProof[proofKey] = *row.durationMs
 		}
 		switch domain.ReviewEventType(row.eventType) {
 		case domain.ReviewEventItemOpened:
@@ -181,23 +213,24 @@ func computeActorFacts(itemID, actorID string, rows []reviewEventRow) domain.Ite
 			if row.positionMs != nil {
 				pos := *row.positionMs
 				playStart = &pos
-				playStartAt = row.occurredAt
 			} else {
 				zero := int64(0)
 				playStart = &zero
-				playStartAt = row.occurredAt
 			}
+			playStartAt = row.occurredAt
+			playProof = proofKey
 		case domain.ReviewEventVideoPause, domain.ReviewEventVideoEnded:
 			if domain.ReviewEventType(row.eventType) == domain.ReviewEventVideoPause {
 				facts.PauseCount++
 			}
 			if playStart != nil {
-				end := *playStart + row.occurredAt.Sub(playStartAt).Milliseconds()
+				elapsed := row.occurredAt.Sub(playStartAt)
+				end := *playStart + elapsed.Milliseconds()
 				if row.positionMs != nil {
-					end = *row.positionMs
+					end = clampSpanToElapsed(*playStart, *row.positionMs, elapsed)
 				}
 				if end > *playStart {
-					intervals = append(intervals, interval{startMs: *playStart, endMs: end})
+					intervalsByProof[playProof] = append(intervalsByProof[playProof], interval{startMs: *playStart, endMs: end})
 				}
 				playStart = nil
 			}
@@ -205,9 +238,9 @@ func computeActorFacts(itemID, actorID string, rows []reviewEventRow) domain.Ite
 			facts.SeekAttemptCount++
 			if playStart != nil {
 				// A seek interrupts the current play span at the point it happened.
-				elapsed := *playStart + row.occurredAt.Sub(playStartAt).Milliseconds()
-				if elapsed > *playStart {
-					intervals = append(intervals, interval{startMs: *playStart, endMs: elapsed})
+				end := *playStart + row.occurredAt.Sub(playStartAt).Milliseconds()
+				if end > *playStart {
+					intervalsByProof[playProof] = append(intervalsByProof[playProof], interval{startMs: *playStart, endMs: end})
 				}
 				if row.positionMs != nil {
 					pos := *row.positionMs
@@ -216,10 +249,17 @@ func computeActorFacts(itemID, actorID string, rows []reviewEventRow) domain.Ite
 					playStart = nil
 				}
 				playStartAt = row.occurredAt
+				playProof = proofKey
 			}
 		}
 	}
-	facts.WatchedDistinctMs = mergeIntervalsDistinctMs(intervals)
+	for proofKey, spans := range intervalsByProof {
+		facts.WatchedDistinctMs += mergeIntervalsDistinctMs(spans)
+		_ = proofKey
+	}
+	for _, d := range durationByProof {
+		facts.ProofDurationMs += d
+	}
 	if facts.ProofDurationMs > 0 {
 		frac := float64(facts.WatchedDistinctMs) / float64(facts.ProofDurationMs)
 		if frac > 1 {

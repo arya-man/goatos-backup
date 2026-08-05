@@ -56,7 +56,13 @@ SET LOCAL statement_timeout = '30s';
 -- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE OR REPLACE VIEW ceo_ai.verifier_review_integrity AS
 WITH ordered_video_events AS (
-    SELECT tenant_id, item_id, actor_id, event_type, occurred_at,
+    -- proof_id is carried and partitioned on throughout: an item can hold several proof videos and
+    -- every video's positions start at 0, so pooling them onto one timeline merged unrelated footage
+    -- (proof A watched 0-30s and proof B watched 0-40s collapsed into a single 40s island and
+    -- reported a fraction neither video had). COALESCE so a null proof_id is its own stable bucket.
+    SELECT tenant_id, item_id, actor_id,
+           COALESCE(proof_id::text, '') AS proof_key,
+           event_type, occurred_at,
            (payload->>'video_position_ms')::bigint AS position_ms,
            (payload->>'video_duration_ms')::bigint AS duration_ms
     FROM verification_review_events
@@ -68,16 +74,27 @@ next_event AS (
            LEAD(occurred_at) OVER w  AS next_at,
            LEAD(position_ms) OVER w  AS next_position_ms
     FROM ordered_video_events
-    WINDOW w AS (PARTITION BY tenant_id, item_id, actor_id ORDER BY occurred_at)
+    WINDOW w AS (PARTITION BY tenant_id, item_id, actor_id, proof_key ORDER BY occurred_at)
 ),
 -- One row per video_play that is immediately followed by a stop-type event: the played span
 -- [start_ms, end_ms) that play resumed. See header for the seek-without-preceding-play limitation.
+-- The span is CLAMPED to what could physically have played in the wall-clock time between the two
+-- events (2x speed plus 500ms of batching slack). Positions and durations are reported by the
+-- browser, so without this a verifier could post video_play{position 0} and video_ended{position =
+-- duration} one second apart and read as having fully watched a ten-minute proof. Mirrors
+-- MaxPlausiblePlaybackRate in verification/adapters/postgres/review_events.go -- the two must move
+-- together, and TestWatchFactsRejectAnImpossibleWatchClaim pins the Go side.
 play_spans AS (
-    SELECT tenant_id, item_id, actor_id,
+    SELECT tenant_id, item_id, actor_id, proof_key,
            COALESCE(position_ms, 0) AS start_ms,
-           COALESCE(
-               next_position_ms,
-               COALESCE(position_ms, 0) + GREATEST(EXTRACT(EPOCH FROM (next_at - occurred_at)) * 1000, 0)
+           LEAST(
+               COALESCE(
+                   next_position_ms,
+                   COALESCE(position_ms, 0) + GREATEST(EXTRACT(EPOCH FROM (next_at - occurred_at)) * 1000, 0)
+               ),
+               COALESCE(position_ms, 0)
+                   + GREATEST(EXTRACT(EPOCH FROM (next_at - occurred_at)) * 1000, 0) * 2.0
+                   + 500
            )::bigint AS end_ms
     FROM next_event
     WHERE event_type = 'video_play'
@@ -91,7 +108,7 @@ valid_spans AS (
 spans_with_prev_end AS (
     SELECT *,
            MAX(end_ms) OVER (
-               PARTITION BY tenant_id, item_id, actor_id ORDER BY start_ms
+               PARTITION BY tenant_id, item_id, actor_id, proof_key ORDER BY start_ms
                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
            ) AS prev_max_end
     FROM valid_spans
@@ -99,22 +116,37 @@ spans_with_prev_end AS (
 spans_grouped AS (
     SELECT *,
            SUM(CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END)
-               OVER (PARTITION BY tenant_id, item_id, actor_id ORDER BY start_ms) AS island
+               OVER (PARTITION BY tenant_id, item_id, actor_id, proof_key ORDER BY start_ms) AS island
     FROM spans_with_prev_end
 ),
 merged_spans AS (
-    SELECT tenant_id, item_id, actor_id, island, MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
+    SELECT tenant_id, item_id, actor_id, proof_key, island,
+           MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
     FROM spans_grouped
-    GROUP BY tenant_id, item_id, actor_id, island
+    GROUP BY tenant_id, item_id, actor_id, proof_key, island
 ),
+-- Coverage is the SUM over proofs of each proof's own distinct covered length.
 watch_distinct AS (
     SELECT tenant_id, item_id, actor_id, SUM(island_end - island_start)::bigint AS watched_distinct_ms
     FROM merged_spans
     GROUP BY tenant_id, item_id, actor_id
 ),
+-- Denominator matches that grain: the total duration of ALL the item's evidence, i.e. the sum of each
+-- proof's own duration, never max() across different videos.
+proof_durations AS (
+    SELECT tenant_id, item_id, actor_id,
+           SUM(proof_duration_ms)::bigint AS proof_duration_ms
+    FROM (
+        SELECT tenant_id, item_id, actor_id,
+               COALESCE(proof_id::text, '') AS proof_key,
+               MAX((payload->>'video_duration_ms')::bigint) AS proof_duration_ms
+        FROM verification_review_events
+        GROUP BY tenant_id, item_id, actor_id, COALESCE(proof_id::text, '')
+    ) per_proof
+    GROUP BY tenant_id, item_id, actor_id
+),
 event_stats AS (
     SELECT tenant_id, item_id, actor_id,
-           MAX((payload->>'video_duration_ms')::bigint) AS proof_duration_ms,
            COUNT(*) FILTER (WHERE event_type = 'video_play')          AS play_count,
            COUNT(*) FILTER (WHERE event_type = 'video_pause')         AS pause_count,
            COUNT(*) FILTER (WHERE event_type = 'video_seek_attempt')  AS seek_attempt_count,
@@ -123,15 +155,17 @@ event_stats AS (
     GROUP BY tenant_id, item_id, actor_id
 ),
 item_facts AS (
-    SELECT es.tenant_id, es.item_id, es.actor_id, es.proof_duration_ms, es.play_count,
+    SELECT es.tenant_id, es.item_id, es.actor_id, pd.proof_duration_ms, es.play_count,
            es.pause_count, es.seek_attempt_count, es.item_opened_at,
            COALESCE(wd.watched_distinct_ms, 0) AS watched_distinct_ms,
-           CASE WHEN es.proof_duration_ms > 0
-                THEN LEAST(COALESCE(wd.watched_distinct_ms, 0)::numeric / es.proof_duration_ms, 1)
+           CASE WHEN pd.proof_duration_ms > 0
+                THEN LEAST(COALESCE(wd.watched_distinct_ms, 0)::numeric / pd.proof_duration_ms, 1)
            END AS watch_fraction
     FROM event_stats es
     LEFT JOIN watch_distinct wd
         ON wd.tenant_id = es.tenant_id AND wd.item_id = es.item_id AND wd.actor_id = es.actor_id
+    LEFT JOIN proof_durations pd
+        ON pd.tenant_id = es.tenant_id AND pd.item_id = es.item_id AND pd.actor_id = es.actor_id
 ),
 -- projection-review: membership=every verification_items row with a recorded verdict (verified_by IS NOT NULL AND status IN ('approved','rejected')); group_key=(tenant_id, item_id) implicitly, one verification_items row per item_id, its own PK; join_cardinality=item_facts 0..1 per (tenant_id,item_id,actor_id) matched on actor_id=vi.verified_by (item_facts is itself GROUP BY (tenant_id,item_id,actor_id), so at most one row can match the single verified_by value on this vi row), locations pk 0..1 per park_id (PK join) -- neither joined side can multiply a verification_items row, so reviewed_items stays at exactly one row per decided item; pagination=NONE, this is a view and every consumer paginates over it; scope=tenant_id, exposed as vi.tenant_id and carried through every downstream CTE and the outer GROUP BY
 reviewed_items AS (

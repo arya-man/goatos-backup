@@ -48,8 +48,14 @@ export interface PendingEvent {
  * ReviewEventBuffer manages buffering, flushing, and retry logic for review events.
  * - Mints client_event_id once per event and reuses it on retry
  * - Flushes on timer (~10s), modal close, verdict submit, and visibility change
- * - Uses navigator.sendBeacon when available for unload safety
  * - Never exposes bearer token; posts through authenticated Server Action
+ *
+ * DELIVERY BOUNDARY, stated because a docstring here once claimed a guarantee the code did not
+ * implement: there is no navigator.sendBeacon path. Beacon needs a plain URL and this posts through a
+ * Server Action, so the last buffered batch can be lost if the window is closed outright rather than
+ * hidden. The `visibilitychange` -> hidden flush covers tab switches and most closes, forceFlush()
+ * covers modal close and verdict submit, and every event carries a stable client_event_id, so a retry
+ * can never double-count. What is at risk is at most the trailing batch of a hard window close.
  */
 export class ReviewEventBuffer {
   private sessionId = typeof window !== "undefined" && crypto ? crypto.randomUUID() : "";
@@ -137,9 +143,9 @@ export class ReviewEventBuffer {
   }
 
   /**
-   * Flush pending events to the server. Uses navigator.sendBeacon when available
-   * so a closing tab still delivers. Never throws; failures are silent and will
-   * be retried with the same client_event_id on the next flush.
+   * Flush pending events to the server. Never throws; failures are silent and are retried with the
+   * same client_event_id on the next flush, which the server treats as an idempotent replay. See the
+   * class docstring for the hard-window-close delivery boundary.
    */
   private async flush(): Promise<void> {
     if (this.events.length === 0) return;
