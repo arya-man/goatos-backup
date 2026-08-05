@@ -7,10 +7,11 @@ import { Tag } from "@/components/ui-primitives";
 import { copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listStaffPositions, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
-import { fmtDateTime, shortId } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 import { parseScope } from "@/lib/scope";
 import { VerificationReviewDrawer } from "./verification-review-drawer";
+import { VerificationQueueTelemetry } from "./verification-queue-telemetry";
 
 const PATHNAME = "/actions";
 
@@ -98,7 +99,8 @@ export async function VerificationReviewPage({
         </div>
       )}
 
-      <section className="card vr-board" style={{ minWidth: 0 }}>
+      <VerificationQueueTelemetry category={category} parkId={scope.parkId} shedId={shedId} status={status}>
+        <section className="card vr-board" style={{ minWidth: 0 }}>
         <div className="bt">{copy(pageContract, "board.title")}</div>
 
         <div className="vr-frow">
@@ -199,15 +201,16 @@ export async function VerificationReviewPage({
             </tbody>
           </table>
         </div>
-      </section>
 
-      {queue.ok && queue.data.next_cursor ? (
-        <div className="pager" style={{ marginTop: 12 }}>
-          <Link href={hrefWith(sp, { vi_cursor: queue.data.next_cursor, vi_row: null, va_status: null, va_code: null })} className="btn sm" replace scroll={false}>
-            {copy(pageContract, "pagination.next")}
-          </Link>
-        </div>
-      ) : null}
+        {queue.ok && queue.data.next_cursor ? (
+          <div className="pager" style={{ marginTop: 12 }}>
+            <Link href={hrefWith(sp, { vi_cursor: queue.data.next_cursor, vi_row: null, va_status: null, va_code: null })} className="btn sm" replace scroll={false}>
+              {copy(pageContract, "pagination.next")}
+            </Link>
+          </div>
+        ) : null}
+        </section>
+      </VerificationQueueTelemetry>
 
       <VerificationReviewDrawer
         items={items}
