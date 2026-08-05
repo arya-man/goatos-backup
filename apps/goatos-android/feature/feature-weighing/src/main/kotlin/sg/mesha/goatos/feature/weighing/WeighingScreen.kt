@@ -64,7 +64,6 @@ import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
-import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.feature.scan.ProofUploadStatus
@@ -155,6 +154,7 @@ data class WeighingUiState(
     val readerConnection: ScanReaderConnection? = null,
     val shedProofs: List<WeighingProofUiRow> = emptyList(),
     val showSubmitConfirmation: Boolean = false,
+    val hasLoadedOnce: Boolean = false,
 ) {
     val isShedPartition: Boolean get() = category.trim().equals("per_shed_partition", ignoreCase = true)
     val individualCompleted: Int get() = individualDrafts.count { it.readyToSubmit }
@@ -508,8 +508,21 @@ fun WeighingScreen(
                             onOpenRoster = { rosterSheetOpen = true },
                         )
                     } else {
-                        if (state.loading && state.assignments.isEmpty()) {
-                            LoadingWorkSkeleton()
+                        // NOTHING READ YET is not the same as NOTHING TO DO. A freshly navigated screen
+                        // starts with an empty state flow and its refresh has not necessarily begun, so
+                        // showing a skeleton before a single page load would be a loading wall that then
+                        // flips to content or an empty state. That flip is the flicker being removed.
+                        // Loading is already told by the screen's own refresh/action choreography, never
+                        // by a shimmer that flashes in and out on every navigation.
+                        // Renders nothing while the first read is in flight -- no shimmer, and no
+                        // empty state either, which would be a wrong answer that then flips.
+                        // Gated on `loading` as well as the marker: WeighingViewModel does not
+                        // publish hasLoadedOnce, so the marker alone would stick false and leave
+                        // this screen permanently blank.
+                        if (state.assignments.isEmpty() && state.loading && !state.hasLoadedOnce) {
+                            // NOTHING is drawn here. The absence of content is not known until the first
+                            // read completes, so rendering a skeleton before that read is a confident
+                            // wrong answer that then flips to a correct one.
                         } else if (state.assignments.isEmpty()) {
                             EmptyWorkCard(
                                 title = stringResource(R.string.weighing_empty_title),
@@ -885,14 +898,6 @@ private fun EmptyWorkCard(title: String, body: String, showRefreshHint: Boolean 
             )
         }
     }
-}
-
-@Composable
-private fun LoadingWorkSkeleton() {
-    LoadingSkeletonList(
-        rows = 2,
-        contentPadding = PaddingValues(0.dp),
-    )
 }
 
 @Composable

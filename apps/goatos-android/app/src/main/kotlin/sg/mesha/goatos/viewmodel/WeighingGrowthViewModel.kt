@@ -45,9 +45,16 @@ class WeighingGrowthViewModel @Inject constructor(
     /** Park id -> display name, learned from the shed leaderboard as answers arrive. */
     private val parkNames = MutableStateFlow<Map<String, String>>(emptyMap())
     private val showLosing = MutableStateFlow(false)
+    // Set the first time a fetch COMPLETES, whatever it returned. isLoading flips on every
+    // later refresh, so both made the screen wedge on a spinner or yank already-drawn content
+    // away mid-refresh. A throw before finally leaves this false forever and wedges the screen
+    // on a spinner over a blank list.
+    private val _hasLoadedOnce = MutableStateFlow(false)
+    /** Which query the marker belongs to; a different scope has not been read yet. */
+    private var loadedScopeKey: String? = null
 
     val state: StateFlow<WeighingGrowthUiState> = combine(
-        loading, error, data, selectedParkId, parkNames, showLosing,
+        loading, error, data, selectedParkId, parkNames, showLosing, _hasLoadedOnce,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         buildState(
@@ -57,6 +64,7 @@ class WeighingGrowthViewModel @Inject constructor(
             parkId = values[3] as String?,
             names = values[4] as Map<String, String>,
             expandLosing = values[5] as Boolean,
+            hasLoadedOnce = values[6] as Boolean,
         )
     }.stateIn(
         viewModelScope,
@@ -73,6 +81,13 @@ class WeighingGrowthViewModel @Inject constructor(
         if (loading.value) return
         loading.value = true
         error.value = null
+        // The marker belongs to the QUERY, not the screen. Changing park starts a brand-new
+        // read, and leaving it true let the previous scope's answer stand in for the new one --
+        // "No data" rendered over a scope nothing had been read for yet. Keyed rather than
+        // blindly reset: a pull-to-refresh on the SAME scope must not blank a legitimately
+        // empty graph while it re-reads.
+        val scopeKey = selectedParkId.value.toString()
+        if (loadedScopeKey != scopeKey) _hasLoadedOnce.value = false
         viewModelScope.launch {
             try {
                 // parkId null = every park this person may see; the backend applies their scope.
@@ -112,6 +127,10 @@ class WeighingGrowthViewModel @Inject constructor(
                 }
             } finally {
                 loading.value = false
+                // In FINALLY, not after the result: a throw on the way here would leave this false
+                // forever and wedge the screen on a spinner over a blank list.
+                _hasLoadedOnce.value = true
+                loadedScopeKey = scopeKey
             }
         }
     }
@@ -134,12 +153,14 @@ class WeighingGrowthViewModel @Inject constructor(
         parkId: String?,
         names: Map<String, String>,
         expandLosing: Boolean,
+        hasLoadedOnce: Boolean,
     ): WeighingGrowthUiState {
         if (dto == null) {
             return WeighingGrowthUiState(
                 isLoading = isLoading,
                 hasError = err != null,
                 errorText = err.orEmpty(),
+                hasLoadedOnce = hasLoadedOnce,
             )
         }
         val h = dto.headline
@@ -213,6 +234,7 @@ class WeighingGrowthViewModel @Inject constructor(
             isLoading = isLoading,
             hasError = err != null,
             errorText = err.orEmpty(),
+            hasLoadedOnce = hasLoadedOnce,
         )
     }
 
