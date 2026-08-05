@@ -2639,6 +2639,7 @@ WITH grouped AS MATERIALIZED (
     AND ($5 = '' OR COALESCE(g.management_stage, '') = $5)
     AND ($6 = '' OR COALESCE(g.breed, '') = $6)
     AND ($7 = '' OR g.sex = $7)
+    -- projection-review: membership=unchanged (canonical live goats for the tenant); group_key=unchanged (park, shed, stage, breed, sex, partition key) -- this hunk adds a PREDICATE, not a grouping column, so the grain is untouched; join_cardinality=unchanged, the goat_shed_partitions join is still 1:{0,1} on its (tenant_id, goat_id) primary key; pagination=unchanged, totals remain window functions over the whole grouped set and are invariant to limit/offset; scope=tenant plus the existing park/shed/stage/breed/sex predicates, NARROWED by one optional partition equality
     -- Partition filter. Compared on the NORMALIZED key so a caller passing 'Part 3' or '3' selects
     -- the same pen, matching oploc.SamePartition. Empty means "no partition filter" (the parent
     -- shed aggregate), NOT "the non-partitioned bucket".
@@ -2739,6 +2740,7 @@ SELECT * FROM (
   FROM grouped gr
   LEFT JOIN locations shed
          ON shed.tenant_id = $1::uuid AND shed.location_id = gr.shed_id
+  -- projection-review: membership=the same grouped CTE the page query uses, re-rolled to parent-shed grain; group_key=(shed_id, park_id) DELIBERATELY without the partition, because this series is the chart's parent-shed aggregate and partition drill-down lives in the page rows and facets; join_cardinality=locations joined once on its (tenant_id, location_id) primary key, 1:{0,1}, no fan-out; pagination=whole-result rollup capped to the top 12 sheds for display only, never the source of a business total; scope=identical tenant/park/shed/stage/breed/sex predicates as the page query
   GROUP BY gr.shed_id, gr.park_id, shed.name, shed.location_code -- partition-grain-guard:ignore: parent aggregate — rolled up ACROSS partitions for chart display (partition drill-down lives in page rows and facets)
   ORDER BY series_count DESC, series_key
   LIMIT 12

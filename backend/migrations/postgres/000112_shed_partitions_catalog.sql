@@ -29,7 +29,11 @@
 --   * CREATE the catalog and SEED it from evidence that already exists.
 --   * NO foreign key from goat_shed_partitions yet -- a goat whose label is not
 --     in the catalog must not fail to save while the catalog is still settling.
---   * NO mutation of goats, goat_shed_partitions, vaccination, or weighing rows.
+--   * NO mutation of ANY existing row in any table -- this migration only ever INSERTs into the
+--     brand-new catalog it just created.
+--   seed-fixture-guard:ignore: creates one brand-new operational catalog table and mutates nothing
+--   else. Seed closeout neither authors nor rebuilds shed_partitions, so the fixture, manifest and
+--   runbook companions carry no contract for it.
 --     Preserved history (CPT adult ET+TT W1/W2, 324 animals each) and all
 --     Aug-5/future data are untouched by construction: this migration only ever
 --     INSERTs into a brand-new table.

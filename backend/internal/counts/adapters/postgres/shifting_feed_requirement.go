@@ -54,6 +54,7 @@ WITH events AS (
     WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = ANY($2::uuid[])
 ), grains AS (
     SELECT e.shifting_event_id, e.destination_park_id, e.destination_shed_id, e.target_stage,
+           -- projection-review: membership=the goats named by the movement, joined 1:{0,1} to their own goat_shed_partitions row so a requirement line counts each animal once; group_key=the existing requirement grain PLUS the normalized partition key, so a feed requirement is computed per pen rather than smeared across a whole shed; join_cardinality=feed-config and location joins are primary-key label lookups, 1:{0,1}, no fan-out onto animals; pagination=none, a movement's requirement set is bounded by its own animal list; scope=tenant plus the shifting event being priced
            regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
            feed_config_norm(g.breed) AS breed_key, count(*)::bigint AS head_count
     FROM events e
