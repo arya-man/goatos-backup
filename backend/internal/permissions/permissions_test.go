@@ -513,6 +513,14 @@ func TestVerificationQueueAndVerdictRoutesAreRegistered(t *testing.T) {
 		// evidence queue, only the Verifier records the verdict on it.
 		{"GET", "/verification/queue", "listVerificationQueue", VerificationReview},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/verdict", "recordVerificationVerdict", VerificationVerdict},
+		// Telemetry INGEST carries the verifier's own verdict authority, NOT the leadership-visible
+		// read: this stream measures whether the person signing the second check actually watched the
+		// evidence, so a principal who cannot record a verdict must not be able to write rows into it
+		// under their own actor id. Reading the derived facts stays on VerificationReview so
+		// leadership can SEE the signal it cannot write. Asserted here so a drift back to
+		// VerificationReview fails a test instead of shipping.
+		{"POST", "/verification/review-events", "recordVerificationReviewEvents", VerificationVerdict},
+		{"GET", "/verification/items/98000000-0000-4000-8000-000000000001/review-facts", "getVerificationItemReviewFacts", VerificationReview},
 		{"GET", "/verification/action-queue", "listVerificationActionQueue", VerificationAct},
 		{"POST", "/verification/items/98000000-0000-4000-8000-000000000001/close", "closeVerificationItem", VerificationAct},
 		{"POST", "/verification/submissions/98000000-0000-4000-8000-000000000001/close", "closeVerificationSubmission", VerificationAct},

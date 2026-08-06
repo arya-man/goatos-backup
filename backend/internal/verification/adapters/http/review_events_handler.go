@@ -32,8 +32,11 @@ type reviewEventBatchResponse struct {
 
 // RecordReviewEvents is the browser's periodic/on-unload flush of verifier video-review telemetry
 // (queue_opened, item_opened, video_play/pause/seek_attempt/ended, proof_switched,
-// fullscreen_toggled, verdict_recorded). Gated on verification.review -- the same permission that
-// gates seeing the queue at all, since this is metadata ABOUT that same review activity.
+// fullscreen_toggled, verdict_recorded). Gated on verification.verdict -- the VERIFIER's own
+// authority, not the leadership-visible verification.review that gates seeing the queue. Leadership
+// (CEO/CxO) deliberately holds review and never verdict, so gating ingest on review would let a
+// read-only principal write rows into the very stream that audits the verifier. Reading the derived
+// facts (GET .../review-facts) stays on verification.review.
 func (h *Handler) RecordReviewEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if h.reviewEvent == nil {
 		h.respondError(w, r, app.NotFound("review_events_not_configured", "review-event ingest is not wired"))
