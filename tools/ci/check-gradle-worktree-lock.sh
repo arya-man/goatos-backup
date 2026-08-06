@@ -116,6 +116,14 @@ gradle_lock_acquire "${1:-holder}"
 gradle_lock_install_trap
 : >"$2"
 sleep 600 & wait $!
+# THE discriminator for "the handler released and RETURNED". Sabotaging the
+# TERM/EXIT trap line alone is NOT observable — bash runs the EXIT trap when a
+# caught signal terminates the shell, and a holder with no TERM handler dies on
+# the default disposition with the same 143, so an rc check alone cannot tell a
+# fatal handler from a non-fatal one. What IS observable is that the run CARRIES
+# ON past the interrupt: in production that is `android benchmark compile`
+# starting, unlocked, after a Ctrl-C the maintainer believes they issued.
+: >"$2.survived"
 HOLDER
 
 # dispatchholder.sh mirrors dispatch_jobs' shape exactly: a parent with an
@@ -221,6 +229,7 @@ else
   wait "$d_pid" 2>/dev/null; d_rc=$?
   kill -0 "$d_pid" 2>/dev/null && fail "(d) the holder SURVIVED SIGTERM. A handler that releases and RETURNS makes the signal non-fatal: the run drops the mutex and then launches the next Gradle step the maintainer believes they cancelled"
   [ "$d_rc" -eq 143 ] || fail "(d) the holder exited ${d_rc}, not 143 — the handler must re-raise with the default disposition so the caller sees a real 128+n"
+  [ -e "$SB/d.ready.survived" ] && fail "(d) the interrupted run CONTINUED past SIGTERM — a handler that releases and RETURNS makes the signal non-fatal, so the mutex is dropped and the NEXT Gradle step starts unlocked"
 fi
 reset_lock
 
@@ -355,6 +364,7 @@ if command -v perl >/dev/null 2>&1; then
     wait "$i_pid" 2>/dev/null; i_rc=$?
     kill -0 "$i_pid" 2>/dev/null && fail "(i) the holder SURVIVED Ctrl-C. A handler that releases and RETURNS means the run keeps building after the abort, unlocked"
     [ "$i_rc" -eq 130 ] || fail "(i) the holder exited ${i_rc}, not 130 — the INT handler must re-raise with the default disposition"
+    [ -e "$SB/i.ready.survived" ] && fail "(i) the interrupted run CONTINUED past Ctrl-C — it drops the mutex and keeps building, and a queued second worktree starts compiling alongside it"
   fi
 else
   fail "(i) perl is unavailable, so the SIGINT case cannot run — treating an unrunnable case as red rather than as a pass"
