@@ -1733,7 +1733,12 @@ INSERT INTO shifting_events (
   destination_park_id, destination_shed_id, raised_at, effective_at, authorized_at, authorized_by,
   authorization_state, verification_state, event_status, source_system, source_ref, proof_ref,
   payload_hash, idempotency_key, request_fingerprint, applied_at,
-  management_stage_mode, target_management_stage, raise_comment
+  management_stage_mode, target_management_stage, raise_comment,
+  -- The PENS this movement runs between. Columns have existed since migration 000113 and the
+  -- handler already parses+validates destination_partition_label, but this INSERT never named
+  -- them -- so every raise silently discarded the pen and a Castro 1 -> Castro 2 move was stored
+  -- as Castro -> Castro. Found by an end-to-end run on 2026-08-06.
+  source_partition_label, destination_partition_label
 ) VALUES (
   $1::uuid, $2, $3, $4, nullif($5::text, '')::uuid, nullif($6::text, '')::uuid,
   $7::uuid, $8::uuid, $9, $10, $11, nullif($12::text, '')::uuid,
@@ -1752,14 +1757,16 @@ INSERT INTO shifting_events (
   -- Left as a bare nullable bind, NOT nullif($24, ''): the handler already normalizes a blank
   -- comment to absent, so an empty string reaching here would be a real (if odd) operator value
   -- rather than "unset", and collapsing it would hide that.
-  $24
+  $24,
+  nullif($25, ''), nullif($26, '')
 )
 RETURNING shifting_event_id::text`,
 		in.TenantID, in.LogicalShiftingEventKey, in.Priority, in.Category, ptrValue(in.SourceParkID), ptrValue(in.SourceShedID),
 		in.DestinationParkID, in.DestinationShedID, in.RaisedAt, in.EffectiveAt, nullableTime(in.AuthorizedAt), ptrValue(in.AuthorizedBy),
 		in.AuthorizationState, in.VerificationState, in.EventStatus, in.SourceSystem, in.SourceRef, ptrValue(in.ProofRef),
 		in.PayloadHash, in.IdempotencyKey, in.RequestFingerprint,
-		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment).Scan(&id)
+		in.ManagementStageMode, in.TargetManagementStage, in.RaiseComment,
+		ptrValue(in.SourcePartitionLabel), ptrValue(in.DestinationPartitionLabel)).Scan(&id)
 	if err == nil {
 		return id, false, nil
 	}

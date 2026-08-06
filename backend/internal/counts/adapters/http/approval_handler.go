@@ -428,6 +428,15 @@ func (h *AppWriteHandler) writeApprovalError(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, ports.ErrDeathEvidenceIncomplete):
 		h.writeError(w, r, http.StatusConflict, "death_evidence_incomplete",
 			"both death videos must be uploaded before approval", err)
+	// A birth names its destination PEN, and the identity create validates it against
+	// shed_partitions inside the create transaction -- so this identity sentinel surfaces on the
+	// APPROVAL submit path, not on identity's own error path. Mapped here because that is where the
+	// birth route actually reports: a live run on 2026-08-06 correctly refused a bad pen and
+	// correctly rolled back, but the operator saw "internal server error" instead of being told
+	// which field was wrong. Bad operator input is a 400, never a 5xx.
+	case errors.Is(err, identityports.ErrPartitionNotInShed):
+		h.writeError(w, r, http.StatusBadRequest, "invalid_partition_label",
+			"that partition does not exist in the selected shed", err)
 	case errors.Is(err, countsapp.ErrApprovalInvalidStoredPayload):
 		h.writeError(w, r, http.StatusConflict, "approval_payload_not_applicable",
 			"the stored request can no longer be applied", err)
