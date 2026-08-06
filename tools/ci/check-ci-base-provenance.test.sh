@@ -195,9 +195,9 @@ out="$g_out"
 if [ "$status" -ne 4 ]; then
   fail "(d) expected exit 4 on the HEAD~1 fallback, got ${status}"
   printf '%s\n' "$out" | head -20
-# Pure-shell match, NOT `printf ... | grep -q`: grep -q exits on first match and closes the pipe, so
-# printf takes EPIPE mid-write ("printf: write error: Broken pipe") and this case failed under a
-# loaded parallel ci-local run while passing standalone. No pipe, no SIGPIPE, same assertion.
+# Pure-shell match, NOT `printf ... | grep -q`: under `set -o pipefail`, grep -q exits on first match
+# and closes the pipe, so printf takes EPIPE mid-write and the pipeline reports failure. Case (e) hit
+# exactly that under a loaded parallel run; this case shares the shape, so both are pipe-free.
 elif case "$out" in *UNRESOLVABLE*) false ;; *) true ;; esac; then
   fail "(d) exited 4 but never said the base was unresolvable"
 elif ! printf '%s' "$out" | grep -q "REFUSING to run the receipt-writing gate"; then
@@ -217,7 +217,10 @@ status=$g_status
 out="$g_out"
 if [ "$status" -eq 4 ]; then
   fail "(e) the fast/non-certifying lane was made fatal; offline dev loop is broken"
-elif ! printf '%s' "$out" | grep -q "UNRESOLVABLE"; then
+# Pipe-free for the same reason as (d) above. THIS is the case that went RED in ci-local with
+# "printf: write error: Broken pipe" while passing standalone; the first fix attempt landed on (d)
+# instead, leaving the failing case untouched.
+elif case "$out" in *UNRESOLVABLE*) false ;; *) true ;; esac; then
   fail "(e) the fast lane fell back to HEAD~1 SILENTLY"
 else
   pass "(e) fast lane still runs, still loud, writes no receipt (exit ${status})"
