@@ -146,7 +146,7 @@ mutate ix   "an INT handler that releases and RETURNS instead of dying" \
   's{trap \x27_gradle_lock_on_signal INT\x27  INT}{trap \x27gradle_lock_release\x27 INT}'
 
 mutate x    "a stale break that does not RE-VALIDATE the owner" \
-  's{if \[ ! -d "\$lockdir" \] \|\| \[ -z "\$cur_ino" \] \|\| \[ "\$\{cur_ino\}" != "\$\{expect_ino\}" \] \\\n     \|\| \[ "\$\{cur_pid\}" != "\$\{expect\}" \]; then}{if false; then}'
+  's{if \[ ! -d "\$lockdir" \] \|\| \[ -z "\$cur_ino" \] \|\| \[ "\$\{cur_ino\}" != "\$\{expect_ino\}" \] \\\n     \|\| \{ \[ -n "\$expect_mtime" \] && \[ "\$cur_mtime" != "\$expect_mtime" \]; \} \\\n     \|\| \[ "\$\{cur_pid\}" != "\$\{expect\}" \]; then}{if false; then}'
 
 mutate xi   "kill -0 treated as proof of identity" \
   's{\[ -n "\$oident" \]}{[ -z "\$oident" ]}'

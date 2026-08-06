@@ -281,7 +281,15 @@ gradle_lock_acquire() {
     # IMMEDIATELY rather than polling for the full timeout: EEXIST means held,
     # but ENOENT/EACCES/parent-is-a-file means the path can NEVER become
     # acquirable, so a 30-minute silent stall is worse than a missing lock.
-    if ! mkdir "$lockdir" 2>/dev/null && _gradle_lock_path_unusable "$lockdir"; then
+    #
+    # Probe the PATH, never re-attempt the mkdir. A second `mkdir` here is not a
+    # harmless retry: if the holder released between the attempt above and this
+    # one, it SUCCEEDS, and because that success is consumed by `!` we neither
+    # write an owner file nor return — we fall through and read our own empty
+    # lockdir as somebody else's malformed lock. That is a phantom lock
+    # manufactured by the acquire path itself. It also made this site invisible
+    # to mutant (xx), whose whole job is to prove this branch is load-bearing.
+    if _gradle_lock_path_unusable "$lockdir"; then
       echo "ci-local: Gradle lock path ${lockdir} is unusable — PROCEEDING WITHOUT THE LOCK (this run is slower, not weaker)" >&2
       return 0
     fi
