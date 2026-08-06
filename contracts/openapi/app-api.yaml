@@ -13823,6 +13823,10 @@ components:
         - pendingCount
         - submittedCount
         - verifiedCount
+        # Always emitted by the server (no omitempty on the Go field): zero exceptions is the
+        # answer "this cohort is clean", not "the server did not say". Optional here would make
+        # the generated client type it `number | undefined` and invite a client-side default.
+        - missingPriorDoseCount
       properties:
         cohort:
           $ref: "#/components/schemas/VaccinationCommandBoardCohort"

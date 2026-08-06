@@ -658,50 +658,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           );
         })()}
 
-        {futureCampaigns.length > 0 && (
-          <div className="cbm-future-section">
-            <div className="cbm-section-head">
-              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
-              <span className="cbm-meta">
-                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
-              </span>
-            </div>
-            <div className="cbm-future-table-wrap">
-              <table className="cbm-future-table">
-                <thead>
-                  <tr>
-                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
-                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
-                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
-                      {index === 0 && (
-                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
-                          <strong>{campaign.name}</strong>
-                          <small>
-                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
-                          </small>
-                        </td>
-                      )}
-                      <td><strong>{drive.driveName}</strong></td>
-                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
-                      <td>{drive.shedNames.join(", ") || "—"}</td>
-                      <td><strong>{drive.targetCount}</strong></td>
-                      <td><strong>{drive.doseCount}</strong></td>
-                    </tr>
-                  )))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
         {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
             across the top, pending count in the cell (red when > 0) with the verified count
             beneath it so closure is readable without subtracting from the head count. */}
@@ -721,12 +677,11 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           }));
           return (
             <div className="cbm-cohort-section">
+              {/* Header carries the title only. The matrix explains itself through the cells and
+                  the drilldown; the CEO does not read a paragraph of legend first. */}
               <div className="cbm-section-head">
                 <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
-                <span className="cbm-meta">{copy(pageContract, "command_board.cohort_matrix.meta")}</span>
-                <span className="cbm-meta cbm-cohort-hint">{copy(pageContract, "command_board.cohort_matrix.row_hint")}</span>
               </div>
-              <div className="cbm-cohort-note">{copy(pageContract, "command_board.cohort_matrix.note")}</div>
               {farms.length === 0 ? (
                 <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
               ) : (
@@ -1009,6 +964,50 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             </div>
           );
         })()}
+        {futureCampaigns.length > 0 && (
+          <div className="cbm-future-section">
+            <div className="cbm-section-head">
+              <h3>{copy(pageContract, "command_board.future_drives.title")}</h3>
+              <span className="cbm-meta">
+                {futureCampaigns.length} {copy(pageContract, "command_board.future_drives.count_suffix")} · {futureDrives.length} {copy(pageContract, "command_board.future_drives.lines_suffix")}
+              </span>
+            </div>
+            <div className="cbm-future-table-wrap">
+              <table className="cbm-future-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.future_drives.column.campaign")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.drive")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.dates")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.sheds")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.animals")}</th>
+                    <th>{copy(pageContract, "command_board.future_drives.column.doses")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {futureCampaigns.flatMap((campaign) => campaign.treatments.map((drive, index) => (
+                    <tr key={drive.key} className={driveBatchId && drive.batchIds.includes(driveBatchId) ? "is-selected" : undefined}>
+                      {index === 0 && (
+                        <td rowSpan={campaign.treatments.length} className="cbm-campaign-cell">
+                          <strong>{campaign.name}</strong>
+                          <small>
+                            {campaign.targetCount} {copy(pageContract, "command_board.future_drives.campaign_animals")} · {campaign.doseCount} {copy(pageContract, "command_board.future_drives.campaign_doses")}
+                          </small>
+                        </td>
+                      )}
+                      <td><strong>{drive.driveName}</strong></td>
+                      <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
+                      <td>{drive.shedNames.join(", ") || "—"}</td>
+                      <td><strong>{drive.targetCount}</strong></td>
+                      <td><strong>{drive.doseCount}</strong></td>
+                    </tr>
+                  )))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* The verification queue used to render here as its own table, but every count in it
             (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
             queue age was unique, so it now rides along in that cell and the duplicate table is
