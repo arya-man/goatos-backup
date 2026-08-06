@@ -167,6 +167,15 @@ references/exclusions.md       # what is legitimately NOT leadership-relevant + 
   config tokens.
 - Step traces / chain-of-thought are internal (audit + admin debug), never in
   the user answer.
+- **Operational location is `park + physical_shed + partition_label`**: every
+  location-bearing response must carry all three and render the partition when
+  one exists. Display: no partition → `Yashoda`; numeric → `Castro 2`;
+  prefixed → `Godel 1 - Part 3` (space-dash-space). `NULL` / `''` / `'whole'`
+  all mean non-partitioned — render the bare shed name, never
+  `Yashoda whole`. Backend owns the composed display; the assistant renders it
+  verbatim and never recomposes. When the assistant answers "animals at shed X"
+  for a subdivided shed, it must name the partition. Canonical source:
+  `docs/decisions/operational-location-convention.md`.
 
 ## ROUTE-CLOSURE Enforcement Rules
 

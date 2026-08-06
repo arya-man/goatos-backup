@@ -3255,7 +3255,8 @@ private const val CLOSE_REASON_OPEN_BUCKETS = "open_buckets_closed"
 private fun List<WeighingCsvExportRow>.toExportPreviewSheds(): List<WeighingExportPreviewShedUi> {
     val order = LinkedHashMap<String, MutableList<WeighingCsvExportRow>>() // mobile-guard:ignore: function-local, bounded by the CSV row list passed into this call and discarded on return
     for (row in this) {
-        val key = "${row.park} ${row.shedName}"
+        // Key by (park, shedId) — shedId is globally unique; shedName repeats across parks.
+        val key = "${row.park}|${row.shedId}"
         order.getOrPut(key) { mutableListOf() }.add(row)
     }
     return order.entries.map { (key, rows) ->

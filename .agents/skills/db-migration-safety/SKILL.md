@@ -32,6 +32,7 @@ chapters below for the live detail; do not review from the summary.
 - **Restructure/drop migrations under the envelope:** [`docs/decisions/operational-kernel-5k-50k-scale-envelope.md`](../../../docs/decisions/operational-kernel-5k-50k-scale-envelope.md).
 - **Android Room upgrade contract (sibling):** [`docs/decisions/room-migration-safety.md`](../../../docs/decisions/room-migration-safety.md).
 - **Binary-vs-DB drift:** [`docs/decisions/stale-binary-migration-drift-guard.md`](../../../docs/decisions/stale-binary-migration-drift-guard.md).
+- **Location-bearing schema (MANDATORY for location tables):** [`docs/decisions/operational-location-convention.md`](../../../docs/decisions/operational-location-convention.md) — when adding a new table that records location (shed, partition, region, etc.), this ADR specifies the required schema columns, composition rules, and worked examples of bugs to avoid.
 
 ## Machine gates
 - `make validate-migrations` — applies 000001→HEAD on a throwaway Postgres.

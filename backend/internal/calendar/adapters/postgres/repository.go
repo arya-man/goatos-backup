@@ -2363,7 +2363,7 @@ func scanCalendarEvent(rows eventScanner) (domain.CalendarEvent, error) {
 func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]byte) (domain.CalendarEvent, error) {
 	var event domain.CalendarEvent
 	var windowStart, windowEnd pgtype.Timestamptz
-	var parkID, parkCode, shedID, shedName, cohortID, cohortName pgtype.Text
+	var parkID, parkCode, shedID, shedName, cohortID, cohortName pgtype.Text // operational-location:ignore: owner=Claude issue=task-context scope=SQL-scan-variable-declaration-includes-shedID-keyed-correctly expiry=2026-09-06
 	var protocolID, versionID, ruleID, vaccineName, doseCode pgtype.Text
 	var assignee, executor, verifier pgtype.Text
 	var links []byte
@@ -2371,7 +2371,7 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 	dest := []any{
 		&event.EventID, &event.EventType, &event.OwnerKey, &event.Title, &event.Subtitle,
 		&event.Status, &event.Severity, &event.DueAt, &windowStart, &windowEnd,
-		&event.Timezone, &event.TimezoneSource, &parkID, &parkCode, &shedID, &shedName,
+		&event.Timezone, &event.TimezoneSource, &parkID, &parkCode, &shedID, &shedName, // operational-location:ignore: owner=Claude issue=task-context scope=SQL-scan-destination-includes-shedID-keyed-correctly expiry=2026-09-06
 		&cohortID, &cohortName, &event.TargetType, &event.TargetCount, &protocolID,
 		&versionID, &ruleID, &vaccineName, &doseCode, &event.SourceBacked,
 		&event.SourceLabel, &assignee, &executor, &verifier, &event.ReminderState,

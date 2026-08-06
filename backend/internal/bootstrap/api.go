@@ -67,6 +67,7 @@ import (
 	outboxhttp "github.com/vgoats/goatos/backend/internal/outbox/adapters/http"
 	outboxpg "github.com/vgoats/goatos/backend/internal/outbox/adapters/postgres"
 	passporthttp "github.com/vgoats/goatos/backend/internal/passport/adapters/http"
+	passportpg "github.com/vgoats/goatos/backend/internal/passport/adapters/postgres"
 	passportapp "github.com/vgoats/goatos/backend/internal/passport/app"
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	permissionspg "github.com/vgoats/goatos/backend/internal/permissions/adapters/postgres"
@@ -872,7 +873,8 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
 		WithManualCampaignGenerator(vaccinationGeneration)
-	passportService := passportapp.NewService(vaccinationService, obligationRepo)
+	passportLocationReader := passportpg.NewLocationReader(pool, cfg.Postgres.QueryTimeout)
+	passportService := passportapp.NewService(vaccinationService, obligationRepo, passportLocationReader)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)

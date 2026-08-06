@@ -280,6 +280,13 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			continue
 		}
 		animalLabel := vaccinationAnimalSubjectLabel(completion, shedLabels)
+		// PartitionLabel comes from the goat's current shed partition at submission time.
+		// This is the authoritative source: the same partition information the query uses to
+		// build shed_label and every other shed-aware read model.
+		partitionLabel := completion.PartitionLabel
+		if partitionLabel != "" {
+			partitionLabel = strings.TrimSpace(partitionLabel)
+		}
 		if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 			TenantID:     tenantID,
 			Vertical:     "preventive_care",
@@ -293,10 +300,11 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 				RefType:      "vaccination_goat",
 				RefID:        goatID,
 			},
-			MediaRefs:  animalMedia,
-			OperatorID: operatorID,
-			ShedID:     shedID,
-			ParkID:     parkID,
+			MediaRefs:      animalMedia,
+			OperatorID:     operatorID,
+			ShedID:         shedID,
+			PartitionLabel: stringPtr(partitionLabel),
+			ParkID:         parkID,
 			// This animal's own capture time, not the submission-wide earliest: the queue sorts
 			// on it, and a shared timestamp would collapse the ordering of a shed's animals.
 			CapturedAt:     completion.AdministeredAt,
