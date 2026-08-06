@@ -38,8 +38,8 @@
 # check-guardrail-registration.mjs's auto-enumeration of check-*.sh does not
 # claim this library file as a guard.
 #
-# Guarded behaviourally by tools/ci/check-gradle-worktree-lock.sh (19 cases) and
-# its mutation self-test tools/ci/check-gradle-worktree-lock.test.sh (22
+# Guarded behaviourally by tools/ci/check-gradle-worktree-lock.sh (21 cases) and
+# its mutation self-test tools/ci/check-gradle-worktree-lock.test.sh (23
 # mutants). Every property below names the case that proves it.
 
 _GRADLE_LOCK_SELF="${_GRADLE_LOCK_SELF:-}"

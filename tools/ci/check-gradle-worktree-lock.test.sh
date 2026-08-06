@@ -4,8 +4,8 @@
 # The only thing that makes that guard worth having is that it goes RED when the
 # lock stops behaving. The lock is FAIL-OPEN, so a broken lock fails nothing on
 # its own — it silently restores the measured ~3x cross-worktree Gradle penalty.
-# So this harness builds TWENTY-TWO mutated copies of tools/ci/gradle-worktree-lock.sh
-# (ids i..xxii), points the guard at each via GOATOS_GRADLE_LOCK_UNDER_TEST, and
+# So this harness builds TWENTY-THREE mutated copies of tools/ci/gradle-worktree-lock.sh
+# (ids i..xxiii), points the guard at each via GOATOS_GRADLE_LOCK_UNDER_TEST, and
 # requires a non-zero exit for every one — plus a zero exit for the pristine
 # library, so the harness cannot pass by rejecting everything.
 #
@@ -185,6 +185,9 @@ mutate xxi  "a release that demands an exact hostname and leaks on a flap" \
 
 mutate xxii "a stale break that re-validates on a pid that can be EMPTY, not the inode" \
   's{ \|\| \[ -z "\$cur_ino" \] \|\| \[ "\$\{cur_ino\}" != "\$\{expect_ino\}" \]}{}'
+
+mutate xxiii "a hostname-flap allowance that degenerates into release-on-pid-alone" \
+  's{    \[ "\$oident" = "\$\(_gradle_lock_pid_identity "\$self"\)" \] \|\| return 0\n}{}'
 
 [ "$fails" -eq 0 ] || { echo "check-gradle-worktree-lock.test.sh: ${fails} case(s) FAILED" >&2; exit 1; }
 echo "check-gradle-worktree-lock.test.sh: all cases ok"

@@ -695,7 +695,7 @@ parallel-dispatch-cleanup-guard:
 # drives run-local-ci.sh android under trace (which no longer reaps).
 # In run-local-ci.sh it is diff-scoped to a tools/ci/gradle-worktree-lock.sh
 # diff; this target and `make guardrails` always run it.
-# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (22 mutants, ~17min)
+# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (23 mutants, ~18min)
 gradle-worktree-lock-guard:
 	bash tools/ci/check-gradle-worktree-lock.sh
 
