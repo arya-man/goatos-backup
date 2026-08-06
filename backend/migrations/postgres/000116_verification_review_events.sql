@@ -79,10 +79,17 @@ CREATE INDEX verification_review_events_actor_time_idx
     ON public.verification_review_events USING btree (tenant_id, actor_id, occurred_at);
 
 -- +goose Down
+-- ORDER MATTERS: verification_review_events carries an FK on (tenant_id, item_id) REFERENCING the
+-- verification_items_tenant_item_unique key added above, so Postgres refuses to drop that constraint
+-- while the referencing table still exists ("cannot drop constraint ... because other objects depend
+-- on it"). Drop the dependent TABLE first, then its indexes are gone with it, then the referenced
+-- key. An earlier version dropped the constraint before the table and could never roll back.
+DROP TABLE IF EXISTS public.verification_review_events;
+-- Defensive: these live on the table above and disappear with it. Kept for a partially-applied
+-- state where the table was created but a later index statement failed.
 DROP INDEX IF EXISTS public.verification_review_events_actor_time_idx;
 DROP INDEX IF EXISTS public.verification_review_events_item_actor_time_idx;
 DROP INDEX IF EXISTS public.verification_review_events_tenant_client_event_unique_idx;
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
 -- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 ALTER TABLE public.verification_items DROP CONSTRAINT IF EXISTS verification_items_tenant_item_unique;
-DROP TABLE IF EXISTS public.verification_review_events;
