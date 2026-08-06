@@ -21,6 +21,16 @@
 // rfid2 column for real double-tag aliases, and the seed publication may exclude
 // named vaccines for stock/defer decisions. These are importer/publication
 // controls, not committed full-fixture source bytes.
+// Coupling review 2026-08-06: migrations 000120/000121/000123 add partition_label
+// columns to verification_items, weighing_campaign_sheds, and health_cases with backfill from
+// goat_shed_partitions (canonical per-animal partition assignment seeded at animal placement).
+// NO CHANGE to fixture bytes/hashes/counts: partition resolution is a seed DATA contract
+// (every animal in a partitioned shed must have a goat_shed_partitions row at seed time), not
+// a source-file schema change. Source shed labels like "Godel 1 - Part 3" are parsed by the
+// seeder into physical shed + partition at animal write time; goat_shed_partitions rows are
+// seeded from that parsed label, and later migrations backfill partition_label on location-bearing
+// output tables from that seeded data. The fixture's source validation adds a partition-resolution
+// contract check (pass/warning); it does not change validation logic or impact fixture loading.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
