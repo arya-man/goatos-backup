@@ -324,14 +324,28 @@ class ScanViewModel @Inject constructor(
         // keep showing DONE through process death (see the process-recreation tests); dropping
         // those would break offline scanning to fix staleness. A SYNCED capture the server still
         // reports open has been overruled by the domain, and the server wins.
-        val syncedCaptureObligations = persistedScans.asSequence()
+        // FRESHNESS GATE. `syncStatus` flips to SYNCED the moment the capture reaches the server,
+        // but the roster cache only reloads on screen entry, pull-to-refresh or navigate-back --
+        // the two are not coordinated. Without this gate, the window between "capture acked" and
+        // "roster refetched" reads as "server says still open", and a FRESHLY SCANNED, never
+        // rejected animal loses its tick in front of the operator with no recovery but a manual
+        // refresh. That is the same lie this fix exists to remove, just from the other side.
+        //
+        // So a capture may only be overruled by a roster row FETCHED AFTER the scan was taken
+        // (`updatedAt > capturedAtMs`). A row older than the capture cannot have an opinion about
+        // it yet, so the local evidence stands.
+        val syncedCaptureAtMsByObligation = persistedScans.asSequence()
             .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
-            .mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }
-            .toSet()
+            .mapNotNull { scan -> scan.obligationId?.takeIf(String::isNotBlank)?.let { it to scan.capturedAtMs } }
+            .toMap()
         val serverReopenedObligations = fullRows.asSequence()
             .filter { statusOf(it.status) != ScanStatus.DONE }
-            .mapNotNull { it.obligationId.takeIf(String::isNotBlank) }
-            .filterTo(mutableSetOf()) { it in syncedCaptureObligations }
+            .mapNotNull { row ->
+                val obligationId = row.obligationId.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val capturedAtMs = syncedCaptureAtMsByObligation[obligationId] ?: return@mapNotNull null
+                obligationId.takeIf { row.updatedAt > capturedAtMs }
+            }
+            .toMutableSet()
         val reconciledLocalDone = localDone - serverReopenedObligations
         val base = applyRows(
             rows = fullRows,
