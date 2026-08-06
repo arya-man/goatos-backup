@@ -37,7 +37,7 @@ var ReviewEventTypes = map[ReviewEventType]bool{
 // ReviewEventPayload is the client-declared numeric detail for one event. Fields are optional and
 // event-type-specific (e.g. VideoPositionMs/VideoDurationMs on play/pause/seek/ended). Everything
 // here is untrusted client input -- the derived facts computation treats it as a hint, never as the
-// sole source of watch-time truth (see review_facts.go: watch time is derived from the SEQUENCE of
+// sole source of watch-time truth (see adapters/postgres/review_events.go: watch time is derived from the SEQUENCE of
 // play/pause/ended events' occurred_at, not from a client-reported duration).
 type ReviewEventPayload struct {
 	VideoPositionMs *int64  `json:"video_position_ms,omitempty"`
@@ -85,7 +85,7 @@ type ReviewEventBatch struct {
 }
 
 // ItemReviewFacts is the derived per-(item,actor) integrity signal computed from the raw event
-// stream -- see review_facts.go for the computation and why it is read-time (bounded by one item's
+// stream -- see adapters/postgres/review_events.go for the computation and why it is read-time (bounded by one item's
 // event count, not a whole-table scan).
 type ItemReviewFacts struct {
 	ItemID               string
@@ -99,5 +99,5 @@ type ItemReviewFacts struct {
 	ItemOpenedAt         *time.Time
 	VerdictRecordedAt    *time.Time
 	TimeToVerdictSeconds *float64
-	WatchedFull          bool // WatchFraction >= the configured threshold (see review_facts.go WatchedFullThreshold).
+	WatchedFull          bool // WatchFraction >= the configured threshold (see adapters/postgres/review_events.go WatchedFullThreshold).
 }
