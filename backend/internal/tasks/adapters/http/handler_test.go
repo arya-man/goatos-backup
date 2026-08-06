@@ -16,18 +16,28 @@ import (
 
 // stubService records calls and returns canned results/errors.
 type stubService struct {
-	listErr     error
-	answerErr   error
-	completeErr error
-	listCalls   int
-	writeCalls  int
-	lastAnswer  tasksapp.AnswerActionInput
-	detail      domain.WorkflowDetail
-	detailErr   error
+	listErr         error
+	answerErr       error
+	completeErr     error
+	listCalls       int
+	colostrumCalls  int
+	lastColostrum   tasksapp.ListColostrumDayInput
+	writeCalls      int
+	lastAnswer      tasksapp.AnswerActionInput
+	detail          domain.WorkflowDetail
+	detailErr       error
+	colostrumDetail tasksapp.ColostrumDetail
+	lastDetailDate  string
 }
 
 func (s *stubService) ListWorkflows(_ context.Context, _ tasksapp.ListWorkflowsInput) (domain.WorkflowListPage, error) {
 	s.listCalls++
+	return domain.WorkflowListPage{Items: []domain.WorkflowCard{}}, s.listErr
+}
+
+func (s *stubService) ListColostrumDay(_ context.Context, in tasksapp.ListColostrumDayInput) (domain.WorkflowListPage, error) {
+	s.colostrumCalls++
+	s.lastColostrum = in
 	return domain.WorkflowListPage{Items: []domain.WorkflowCard{}}, s.listErr
 }
 
@@ -36,6 +46,14 @@ func (s *stubService) GetWorkflow(_ context.Context, _, _ string) (domain.Workfl
 		return domain.WorkflowDetail{}, s.detailErr
 	}
 	return s.detail, nil
+}
+
+func (s *stubService) GetColostrumDay(_ context.Context, _, _, date string) (tasksapp.ColostrumDetail, error) {
+	s.lastDetailDate = date
+	if s.detailErr != nil {
+		return tasksapp.ColostrumDetail{}, s.detailErr
+	}
+	return s.colostrumDetail, nil
 }
 
 func TestGetWorkflowHidesInternalApprovalAndBlocksLaterOperatorAction(t *testing.T) {

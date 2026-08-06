@@ -1,0 +1,51 @@
+-- +goose Up
+-- +goose NO TRANSACTION
+-- projection-review: membership=workflow_actions rows that are colostrum feeds (section='colostrum_session' OR action_key='first_colostrum') on birth_kid workflows; group_key=(workflow_id) within one Asia/Kolkata business-day due_at range, i.e. the consumer card key is (workflow_id, colostrum_business_date) = one card per kid per date; join_cardinality=the reader joins workflow_instances on its primary key workflow_id (1:1) plus the existing 1:{0,1} goat/tag/park/shed display enrichments, so no join can multiply a card; pagination=chips aggregate the whole day while cards keyset on (next_due_at ASC NULLS LAST, workflow_id ASC); scope=tenant_id + due_at half-open day range + colostrum action predicate, identical for the chips numerator and denominator
+--
+-- The Colostrum page in the Milk module (docs/decisions/colostrum-milk-module.md).
+--
+-- This migration adds an INDEX and nothing else. There is no colostrum table, no
+-- colostrum column, and no new state: a colostrum feed IS an existing
+-- workflow_actions row on a birth_kid workflow (the immediate 1st Colostrum plus
+-- the birth-time-derived 07:00/11:00/15:00/18:30/22:00 series created by
+-- TemplateBirthKidAt). Completing a feed from the Colostrum page writes the same
+-- row as completing it from Birth -- one state, two entry points.
+--
+-- What the new page needs that Birth's indexes cannot serve: Birth lists by
+-- workflow_instances.event_date, but a kid born on 5 Aug has feeds due on 6 Aug,
+-- so the colostrum lens selects by the date each FEED is due. That is a range
+-- scan on workflow_actions.due_at, restricted to colostrum rows.
+--
+-- Shape notes, because both are easy to get wrong:
+--
+--  * The reader's predicate is a HALF-OPEN RANGE on due_at
+--    (due_at >= day_start AND due_at < day_start + 1 day), with both bounds
+--    computed in Go from biztime.BusinessDayStart. It is deliberately NOT
+--    `(due_at AT TIME ZONE 'Asia/Kolkata')::date = $1`: that expression is
+--    STABLE rather than IMMUTABLE, so it cannot be indexed at all, and it puts a
+--    function on the indexed column (the column-side-cast anti-pattern in
+--    docs/decisions/scale-anti-patterns.md). The index below therefore stores the
+--    bare timestamptz and the query stays SARGable.
+--
+--  * The leading tenant_id matches the reader's own `wa.tenant_id = $1` filter.
+--    The reader could have scoped by tenant through workflow_instances alone, but
+--    then this index could only be entered by due_at and every tenant's feeds for
+--    that day would be scanned before the join discarded them.
+--
+--  * The trailing workflow_id lets the per-card GROUP BY read the index directly.
+--
+-- Cardinality this serves: one IST day of colostrum feeds is
+-- (kids born in a 2-day window) x <= 11 rows -- low thousands at the 50k-animal
+-- release envelope (docs/decisions/operational-kernel-5k-50k-scale-envelope.md),
+-- which is why the lens reads canonical SQL and adds no projection table.
+--
+-- CONCURRENTLY (hence NO TRANSACTION): workflow_actions carries live operator
+-- work, and a plain CREATE INDEX holds a SHARE lock that blocks every colostrum
+-- and birth completion for its duration.
+CREATE INDEX CONCURRENTLY IF NOT EXISTS workflow_actions_colostrum_day_idx
+    ON public.workflow_actions (tenant_id, due_at, workflow_id)
+    WHERE section = 'colostrum_session' OR action_key = 'first_colostrum';
+
+-- +goose Down
+-- +goose NO TRANSACTION
+DROP INDEX CONCURRENTLY IF EXISTS public.workflow_actions_colostrum_day_idx;

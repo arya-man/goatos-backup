@@ -639,12 +639,17 @@ func TestVisibleNavigationFor(t *testing.T) {
 			// (maintainer decision 2026-07-31). The routes are unchanged; only the grouping
 			// moved, so a department granted counts is also granted milk (migration 000064)
 			// and the operator still reaches both pages.
-			name:    "milk operator gets the two daily milk pages",
+			// Colostrum joined the bar on 2026-08-06 (docs/decisions/colostrum-milk-module.md) as the
+			// newborn end of the same daily milk round. It carries the SAME CountsWrite grant as its
+			// siblings — it renders existing birth-workflow feed tasks under a day-scoped lens, so it
+			// widens no authority — and Milk Prep keeps the landing slot (priority 1).
+			name:    "milk operator gets the three daily milk pages",
 			grants:  []domain.GrantSummary{grantWithRole(permissions.RoleOperator)},
 			modules: []string{"milk"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "milk_preparation", Label: "Milk Prep", Href: "/counts/milk-preparation"},
 				{Key: "milk_feeding", Label: "Milk Feeding", Href: "/counts/milk-feeding"},
+				{Key: "colostrum", Label: "Colostrum", Href: "/counts/colostrum"},
 			},
 		},
 		{
