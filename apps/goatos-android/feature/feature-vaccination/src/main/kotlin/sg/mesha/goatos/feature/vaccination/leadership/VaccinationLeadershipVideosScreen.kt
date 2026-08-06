@@ -227,7 +227,10 @@ fun VaccinationLeadershipVideoItemCard(
         )
 
         // Summary (user-facing, no technical vocabulary)
-        if (item.summary.isNotEmpty()) {
+        // Backend sends the same subject label as both title and summary, so rendering both
+        // printed every row twice ("Gandhi 1 · G-003002" over "Gandhi 1 · G-003002"). Show the
+        // summary only when it actually adds information.
+        if (item.summary.isNotEmpty() && item.summary != item.title) {
             Text(
                 text = item.summary,
                 style = MaterialTheme.typography.bodySmall,

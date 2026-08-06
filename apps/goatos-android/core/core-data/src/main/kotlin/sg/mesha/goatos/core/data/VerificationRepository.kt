@@ -335,7 +335,8 @@ class DefaultVerificationRepository(
                         "closed" -> "neutral"
                         else -> "neutral"
                     },
-                    timestamp = item.capturedAt?.ifEmpty { "Unknown time" } ?: "Unknown time",
+                    timestamp = item.capturedAt?.takeIf { it.isNotEmpty() }
+                        ?.let { formatCapturedAt(it) } ?: "Unknown time",
                     proofCount = (item.media.size).coerceAtLeast(1),
                     videoUrls = item.media.map { it.downloadUrl },
                     summary = item.subjectLabel.orEmpty(), // Use backend copy, no composition
@@ -364,10 +365,23 @@ class DefaultVerificationRepository(
     private fun formatStatus(status: String): String = when (status.lowercase()) {
         "pending_verification", "pending" -> "Pending Review"
         "approved" -> "Approved"
+        "rejected" -> "Sent back"
         "rework" -> "Needs Rework"
         "closed" -> "Closed"
         else -> status
     }
+
+    /**
+     * Farm-readable capture time in IST. A raw ISO instant ("2026-08-05T22:09:49.971Z") is
+     * machine copy and reached a leadership screen; Goat OS business meaning is always
+     * Asia/Kolkata, never UTC. Unparseable input falls back to the original string rather than
+     * blanking the row.
+     */
+    private fun formatCapturedAt(raw: String): String = runCatching {
+        java.time.Instant.parse(raw)
+            .atZone(java.time.ZoneId.of("Asia/Kolkata"))
+            .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a"))
+    }.getOrElse { raw }
 }
 
 class VerificationQueueCursorException(message: String) : IllegalStateException(message)
