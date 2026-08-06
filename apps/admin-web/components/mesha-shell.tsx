@@ -19,9 +19,11 @@ import {
   Menu,
   MapPin,
   Moon,
+  Stethoscope,
   Sun,
   TowerControl,
   Truck,
+  Wheat,
   Workflow,
   Zap,
 } from "lucide-react";
@@ -41,8 +43,15 @@ const iconByToken: Record<string, ElementType> = {
   "clipboard-check": ClipboardCheck,
   "edit-3": Edit3,
   "heart-pulse": HeartPulse,
+  // Health is a DISTINCT vertical from Preventive Care, so it gets its own icon rather than
+  // sharing heart-pulse. It must never use the syringe/injection token, which belongs to the
+  // Vaccination module under Preventive Care.
+  stethoscope: Stethoscope,
   "tower-control": TowerControl,
   truck: Truck,
+  // `wheat` is the Feed vertical's declared icon in the backend nav contract and was missing
+  // here, so Feed silently fell back to the Control Tower icon.
+  wheat: Wheat,
   workflow: Workflow,
   zap: Zap,
 };

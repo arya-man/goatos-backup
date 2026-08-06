@@ -310,6 +310,19 @@ var protectedRoutes = []Route{
 	{OperationID: "listAppHealthWorkItems", Method: "GET", Pattern: "/app/health/work-items", Permissions: []string{HealthRead}},
 	{OperationID: "getAppHealthWorkItem", Method: "GET", Pattern: "/app/health/work-items/{health_session_id}", Permissions: []string{HealthRead}},
 	{OperationID: "completeAppHealthWorkItem", Method: "POST", Pattern: "/app/health/work-items/{health_session_id}/complete", Permissions: []string{HealthExecute}},
+	// Authored treatment protocols (/health-config/*), the surface behind the Health Config screen.
+	//
+	// The read/write split is the whole point: a principal may be allowed to INSPECT the standing
+	// dosages without being allowed to change them. Note that opening a draft is a WRITE
+	// (/health-config/drafts creates a draft row when none is open), so it carries the write
+	// permission despite reading like a read.
+	{OperationID: "listHealthConfigProtocols", Method: "GET", Pattern: "/health-config/protocols", Permissions: []string{HealthConfigRead}},
+	{OperationID: "getHealthConfigProtocol", Method: "GET", Pattern: "/health-config/protocols/{protocol_version_id}", Permissions: []string{HealthConfigRead}},
+	{OperationID: "createHealthConfigDisease", Method: "POST", Pattern: "/health-config/diseases", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "openHealthConfigDraft", Method: "POST", Pattern: "/health-config/drafts", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "saveHealthConfigDraft", Method: "POST", Pattern: "/health-config/drafts/save", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "publishHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/publish", Permissions: []string{HealthConfigWrite}},
+	{OperationID: "discardHealthConfigDraft", Method: "POST", Pattern: "/health-config/protocols/{protocol_version_id}/discard", Permissions: []string{HealthConfigWrite}},
 	{OperationID: "getFeedDirectionGenerationPreview", Method: "GET", Pattern: "/feed-direction/generation-preview", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "listFeedDirectionCountsProjectionExceptions", Method: "GET", Pattern: "/feed-direction/counts-projection/exceptions", Permissions: []string{FeedDirectionRead}},
 	{OperationID: "resolveFeedDirectionCountsProjectionException", Method: "POST", Pattern: "/feed-direction/counts-projection/exceptions/{exception_id}/resolve", Permissions: []string{FeedDirectionOversee}},

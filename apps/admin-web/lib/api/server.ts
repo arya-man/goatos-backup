@@ -583,6 +583,20 @@ export type UpsertFeedConfigExperimentRequest = AppApiComponents["schemas"]["Ups
 export type SetFeedConfigExperimentShedStatusRequest =
   AppApiComponents["schemas"]["SetFeedConfigExperimentShedStatusRequest"];
 
+export type HealthConfigProtocolPage = AppApiComponents["schemas"]["HealthConfigProtocolPage"];
+export type HealthConfigProtocolRow = AppApiComponents["schemas"]["HealthConfigProtocolRow"];
+export type HealthConfigProtocolDetail = AppApiComponents["schemas"]["HealthConfigProtocolDetail"];
+export type HealthConfigStep = AppApiComponents["schemas"]["HealthConfigStep"];
+export type HealthConfigVersionSummary = AppApiComponents["schemas"]["HealthConfigVersionSummary"];
+export type HealthConfigWriteResult = AppApiComponents["schemas"]["HealthConfigWriteResult"];
+export type HealthConfigFieldError = AppApiComponents["schemas"]["HealthConfigFieldError"];
+export type CreateHealthConfigDiseaseRequest =
+  AppApiComponents["schemas"]["CreateHealthConfigDiseaseRequest"];
+export type OpenHealthConfigDraftRequest =
+  AppApiComponents["schemas"]["OpenHealthConfigDraftRequest"];
+export type SaveHealthConfigDraftRequest =
+  AppApiComponents["schemas"]["SaveHealthConfigDraftRequest"];
+
 export type FeedDirectionPreviewParams = {
   /** Required: the ration grid, the session split and the dispatch clock are all park-scoped. */
   park_id: string;
@@ -822,6 +836,146 @@ export async function upsertFeedConfigExperiment(
  * This changes WHAT THE ANIMALS ARE FED, not what is displayed: active feeds the shed its authored
  * absolute kg, retired returns it to projected head count x grams per head x shed factor.
  */
+/**
+ * One bounded page of the authored treatment rulebook: one row per disease per age band, each
+ * carrying the LIVE published version and the OPEN DRAFT side by side.
+ *
+ * There is no total and no page-count, and that is deliberate rather than an omission: the backend
+ * returns a keyset `next_cursor` because counting the filtered catalog on every request is
+ * compute-on-read. A "N protocols" headline computed from the visible page would be a false
+ * statement about the catalog.
+ */
+export async function listHealthConfigProtocols(params: {
+  age_band?: "adult" | "kid";
+  search?: string;
+  draft_only?: boolean;
+  cursor?: string;
+  limit?: number;
+}): Promise<ApiResult<HealthConfigProtocolPage>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigProtocolPage>("/health-config/protocols", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+/** One protocol version with its ordered steps, version history and open-case count. */
+export async function getHealthConfigProtocol(
+  protocolVersionId: string,
+): Promise<ApiResult<HealthConfigProtocolDetail>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}` as keyof AppApiPaths &
+    string;
+  return request(() => client.request<HealthConfigProtocolDetail>(path, { cache: "no-store" }));
+}
+
+/**
+ * Add a disease. Opens a draft for BOTH age bands; nothing is live until each is published.
+ *
+ * `duration_days` is optional here on purpose, and the optionality carries meaning: OMITTED takes
+ * the backend's declared default, while a present out-of-range value is forwarded verbatim so the
+ * backend rejects it. Nothing in this layer clamps, rounds, or turns a cleared input into 0.
+ */
+export async function createHealthConfigDisease(
+  body: CreateHealthConfigDiseaseRequest,
+  idempotencyKey = `health-disease-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigWriteResult>("/health-config/diseases", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/**
+ * Open the draft for a protocol, copying the published version if none is open.
+ *
+ * No idempotency key: at most one draft can exist per protocol, so the uniqueness constraint IS the
+ * idempotency and a repeated call returns the same draft.
+ */
+export async function openHealthConfigDraft(
+  body: OpenHealthConfigDraftRequest,
+): Promise<ApiResult<HealthConfigProtocolDetail>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigProtocolDetail>("/health-config/drafts", {
+      method: "POST",
+      cache: "no-store",
+      body,
+    }),
+  );
+}
+
+/** Replace a draft's whole content. Steps carry no seq — order is positional. */
+export async function saveHealthConfigDraft(
+  body: SaveHealthConfigDraftRequest,
+  idempotencyKey = `health-draft-save-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<HealthConfigWriteResult>("/health-config/drafts/save", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    }),
+  );
+}
+
+/** Publish a draft, retiring the version it replaces. Open cases keep their pinned version. */
+export async function publishHealthConfigDraft(
+  protocolVersionId: string,
+  idempotencyKey = `health-draft-publish-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}/publish` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<HealthConfigWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
+/** Discard a draft without publishing it. */
+export async function discardHealthConfigDraft(
+  protocolVersionId: string,
+  idempotencyKey = `health-draft-discard-${randomUUID()}`,
+): Promise<ApiResult<HealthConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  const path = `/health-config/protocols/${encodeURIComponent(protocolVersionId)}/discard` as keyof AppApiPaths &
+    string;
+  return request(() =>
+    client.request<HealthConfigWriteResult>(path, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+  );
+}
+
 export async function setFeedConfigExperimentShedStatus(
   body: SetFeedConfigExperimentShedStatusRequest,
   idempotencyKey = `feed-experiment-status-${randomUUID()}`,

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/health/domain"
+	"github.com/vgoats/goatos/backend/internal/health/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
@@ -21,7 +22,36 @@ const (
 
 // ReplacePublishedProtocols publishes one immutable version of every supplied disease/age
 // protocol in one transaction. It is intentionally a deployment/import seam, not a request path.
+//
+// # IT IS ALSO A BOOTSTRAP, NOT AN ONGOING SYNC
+//
+// Maintainer decision 2026-08-06 moved AUTHORSHIP of treatment protocols from the Google Sheet to
+// `/health/config`. This function retires EVERY published protocol and republishes the supplied
+// set, so running it after an author has edited a dosage in the app would silently discard that
+// edit -- and, because it publishes a new version rather than mutating one, it would do so without
+// any constraint violation to notice.
+//
+// So it now fails closed once the app has taken authorship: any version carrying the authored
+// source ref means the web owns these protocols, and the import returns ErrImportAfterAuthoring.
+// `allowOverwriteAuthored` is the deliberate break-glass for a maintainer re-bootstrapping from a
+// corrected sheet; it is a parameter rather than an env var so the caller has to say it in code
+// that gets reviewed.
+//
+// The check reads AUTHORED SOURCE REF rather than "any version > 1" because the importer itself
+// legitimately produces version 2, 3, ... on repeated pre-authoring imports; the question is not
+// how many versions exist but whether a human authored one in the app.
 func (r *Repository) ReplacePublishedProtocols(ctx context.Context, tenantID, actorID, sourceRef, contentHash string, protocols []domain.SourceProtocol) error {
+	return r.replacePublishedProtocols(ctx, tenantID, actorID, sourceRef, contentHash, protocols, false)
+}
+
+// ReplacePublishedProtocolsOverwritingAuthored is the break-glass form. It discards app-authored
+// protocol versions in favour of the supplied sheet snapshot. Reserved for a maintainer
+// re-bootstrap; never wire it to a request path or a scheduled job.
+func (r *Repository) ReplacePublishedProtocolsOverwritingAuthored(ctx context.Context, tenantID, actorID, sourceRef, contentHash string, protocols []domain.SourceProtocol) error {
+	return r.replacePublishedProtocols(ctx, tenantID, actorID, sourceRef, contentHash, protocols, true)
+}
+
+func (r *Repository) replacePublishedProtocols(ctx context.Context, tenantID, actorID, sourceRef, contentHash string, protocols []domain.SourceProtocol, allowOverwriteAuthored bool) error {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if len(protocols) == 0 {
@@ -40,6 +70,21 @@ func (r *Repository) ReplacePublishedProtocols(ctx context.Context, tenantID, ac
 			_ = tx.Rollback(ctx)
 		}
 	}()
+	if !allowOverwriteAuthored {
+		// One indexed count, inside the same transaction as the import it guards, so an author who
+		// publishes while an import is running is still caught rather than raced past.
+		var authored int
+		if err := tx.QueryRow(ctx, `
+SELECT count(*)::int FROM health_protocol_versions
+WHERE tenant_id=$1::uuid AND source_ref=$2 AND status IN ('published','draft')`,
+			tenantID, sourceRefAuthored).Scan(&authored); err != nil {
+			return fmt.Errorf("health: check authored protocols: %w", err)
+		}
+		if authored > 0 {
+			return fmt.Errorf("%w (%d app-authored protocol version(s) present)", ports.ErrImportAfterAuthoring, authored)
+		}
+	}
+
 	seen := map[string]bool{}
 	for _, p := range protocols {
 		p.DiseaseKey = strings.TrimSpace(p.DiseaseKey)

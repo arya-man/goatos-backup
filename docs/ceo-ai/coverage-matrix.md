@@ -957,3 +957,70 @@ pure string translation from a position_module_duties module_code
 ("pc.vaccination") to the NavigationModule key the category registry uses
 ("vaccination"). The two vocabularies had drifted, which refused verifiers the
 vaccination queue outright. It reads nothing and returns no data.
+
+## Explicit exclusion: Health Config protocol authoring (2026-08-06)
+
+`/health/config` and its `/health-config/*` API let the CEO tier and the Health
+Director AUTHOR treatment protocols: per disease, per age band, the day-by-day
+course of medicines, dosages, routes, actions and critical handoffs (maintainer
+decision 2026-08-06, `docs/decisions/health-config-authoring.md`).
+
+This is **admin config authoring**, the same class as the already-excluded
+`vaccination_operator_assignment_config` surface above. It defines the STANDARD a
+treatment is carried out against; it records no clinical event, no animal, and no
+outcome. Every read it serves is the authored document itself, addressed by
+disease — a rulebook lookup, not a metric. There is no aggregate here a CEO would
+ask for: "how many protocols exist" is a count of config rows, and the numbers
+that would matter to leadership (how many animals are under treatment, for what,
+with what recovery rate) come from the Health module's CASE surfaces, not from
+this one.
+
+**EXCLUDED — `table:health_config_write_log`** — the idempotency + audit ledger
+for authored edits (one row per accepted write, carrying the key, the fingerprint,
+the outcome, and which version each publish retired). It exists so an authored
+dosage change is answerable afterwards, and that question is a business AUDIT
+question, which `/operations/audit` already owns as the leadership-facing surface
+(this ledger's sibling `audit_log` rows are written in the same transaction). It
+is not a reporting table: it has no animal, no park, no date grain a metric could
+roll up, and one row per click.
+
+**EXCLUDED — the authoring API and its plumbing** — `func:RegisterConfig`,
+`func:NewConfigHandler`, `func:NewConfigService`, `func:ListProtocolCatalog`,
+`func:GetProtocolDetail`, `func:GetDraftForEdit`, `func:CreateDisease`,
+`func:SaveDraft`, `func:PublishDraft`, `func:DiscardDraft`, `func:OpenDraft`.
+These are the seven `/health-config/*` routes and their handler/service
+constructors. Two reads (catalog, detail) serve the authoring screen a bounded
+page of config rows; the rest are writes. No leadership KPI, Cube metric,
+`ceo_ai.*` view, or Toolbox tool.
+
+**EXCLUDED — the pure validation/normalisation helpers** —
+`func:ValidateAuthoredProtocol`, `func:NormalizeAuthoredProtocol`,
+`func:NormalizeDiseaseKey`, `func:ValidDiseaseKey`, `func:ContentHash`,
+`func:SortAuthoredSteps`, `func:ToProtocolSteps`, `func:FromProtocolSteps`,
+`func:Error` (on the validation error type). Pure functions over an authored
+document in `health/domain`. They read nothing and return no data.
+
+**EXCLUDED — `func:ReplacePublishedProtocolsOverwritingAuthored`** — the reviewed
+break-glass form of the Google Sheet importer, for a maintainer re-bootstrapping
+from a corrected sheet after the app has taken authorship. A deployment/import
+seam, never a request path.
+
+| health_protocol_versions, health_protocol_steps, health_config_write_log | EXCLUDED | Authored treatment rulebook + its write ledger. Config authoring, not a reporting surface; the leadership audit question is served by `/operations/audit`. |
+
+### OPEN GAP (pre-existing, NOT closed by this change)
+
+The Health module's CLINICAL surfaces have never had a coverage row: `health_cases`,
+`health_treatment_sessions`, `health_session_steps`,
+`health_medicine_administrations`, and the `GET /app/health/work-items` read API
+(migration `000098`, shipped before this matrix's Health section existed). Those
+are the leadership-relevant ones — how many animals are under treatment, for which
+diseases, in which parks, how long courses run, and how much medicine is being
+administered. They are genuinely uncovered today: there is no Cube metric, no
+`ceo_ai.*` view, and no Toolbox tool over any of them, and the tables are empty in
+every environment because the module has not been switched on.
+
+This change deliberately does NOT close that gap — it adds the authoring surface
+only, and closing it would mean designing a clinical reporting view that nothing
+currently populates. Recorded here so the gap is visible rather than silently
+inherited: when the Health module is switched on, its case/session/administration
+grain needs a real coverage decision, not an exclusion.
