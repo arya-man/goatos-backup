@@ -474,6 +474,16 @@ const CHECKS = [
     // renders "Castro 2", causing display-label mismatches across surfaces.
     test: (line, file, lines, lineIndex) => {
       if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
+      // Bare concatenation, no CASE. The first draft only fired INSIDE a CASE, so the
+      // simplest possible drift -- `shed.name || ' - ' || gsp.partition_label` -- walked
+      // straight through. That form is the likeliest one a future author reaches for, so
+      // it is checked before the CASE path rather than left as the rule's blind spot.
+      const bareConcat =
+        /\|\||CONCAT\s*\(/i.test(line) &&
+        /partition_label|normalized_label/i.test(line) &&
+        /\b(?:shed|location)?[._]?name\b/i.test(line) &&
+        !/Display\s*\(|render\s*\(|operational_location_display/i.test(line);
+      if (bareConcat) return true;
       if (!/CASE\s+WHEN|WHEN\s+|THEN\s+/.test(line)) return false;
       // Scan a bounded window to find CASE...WHEN...partition...THEN pattern
       const window = lines
