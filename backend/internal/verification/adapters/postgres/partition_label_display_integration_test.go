@@ -810,3 +810,77 @@ VALUES ($1::uuid, gen_random_uuid(), 'shed', 'Godel 1', 'active') RETURNING loca
 		t.Fatalf("drive closures with composite shed key: %v", err)
 	}
 }
+
+// REGRESSION (found on a physical phone, 2026-08-07): the shed filter options query
+// grouped on the RAW partition_label, so a shed with one item where partition_label IS
+// NULL and another where it is ” produced TWO group rows that COALESCE then collapsed
+// onto the SAME option id. The operator saw "Godel 1" listed twice, two entries that
+// filter identically. Grouping must use the same normalization the filter predicate uses.
+func TestVerificationFilterOptionsDoNotDuplicateOnNullVersusEmptyPartition(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+
+	var parkID, shedID string
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, gen_random_uuid(), 'park', 'CBE', 'active') RETURNING location_id::text`, tenantID).Scan(&parkID); err != nil {
+		t.Fatalf("insert park: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, gen_random_uuid(), 'shed', 'Godel 1', 'active') RETURNING location_id::text`, tenantID).Scan(&shedID); err != nil {
+		t.Fatalf("insert shed: %v", err)
+	}
+
+	add := func(partition *string, key string) {
+		if _, err := repo.CreateItem(ctx, domain.CreateItem{
+			TenantID: tenantID,
+			Vertical: "preventive_care",
+			Module:   "vaccination",
+			Category: "vaccination_proof",
+			Source: domain.SourceRef{
+				Module:  "vaccination",
+				RefType: "vaccination_goat",
+				RefID:   tenantID,
+			},
+			MediaRefs:      []string{"proof-" + key},
+			ShedID:         &shedID,
+			ParkID:         &parkID,
+			PartitionLabel: partition,
+			CapturedAt:     time.Now().In(biztime.DefaultLocation()),
+			IdempotencyKey: "dupe:" + key,
+		}); err != nil {
+			t.Fatalf("create item %s: %v", key, err)
+		}
+	}
+
+	// The exact mix that produced the duplicate: one NULL, one empty string.
+	empty := ""
+	add(nil, "null-partition")
+	add(&empty, "empty-partition")
+
+	opts, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{
+		TenantID: tenantID,
+		Category: "vaccination_proof",
+	})
+	if err != nil {
+		t.Fatalf("filter options: %v", err)
+	}
+	seen := map[string]int{}
+	for _, s := range opts.Sheds {
+		seen[s.ID]++
+	}
+	for id, n := range seen {
+		if n > 1 {
+			t.Fatalf("shed option %q appeared %d times -- the operator sees the same shed listed twice: %+v", id, n, opts.Sheds)
+		}
+	}
+	if len(opts.Sheds) != 1 {
+		t.Fatalf("got %d shed options for ONE shed with no real partitions: %+v", len(opts.Sheds), opts.Sheds)
+	}
+}
