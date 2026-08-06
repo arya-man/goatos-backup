@@ -14,7 +14,7 @@
 // Yashoda 1/2/3/10. That silently produces wrong destinations, wrong expected
 // animal counts, and wrong proof labels on the ground.
 //
-// Checks:
+// Checks (ENFORCED):
 //   whole-leak      user-facing label built from the 'whole' matching sentinel.
 //                   'whole' is a comparison key only; a CEO must never read
 //                   "Yashoda whole". Non-partitioned sheds render bare.
@@ -34,6 +34,44 @@
 //                   named "Castro 1"/"Godel 1 - Part 3" exist there with
 //                   status='inactive' and 0 animals; surfacing them shows fake
 //                   empty sheds and lets an operator move goats onto a dead id.
+//   missing-partition-column
+//                   a user-facing/read-model table with shed_id MUST carry
+//                   partition_label when partitions exist. Allowlist legitimate
+//                   shed-grain-only tables in SHED_GRAIN_ONLY_TABLES with WHY.
+//   sql-display-drift
+//                   CASE statements that compose display strings must use or
+//                   reference oploc.Display() / PartitionLabel.render() /
+//                   operational_location_display(). Hand-rolled CASE duplicates
+//                   risk display-logic divergence: "Castro - Part 2" vs "Castro 2".
+//   shed-name-keying
+//                   GROUP BY / map-key / list-key expressions must use shed_id,
+//                   never shed NAME. Names repeat across parks (two Castro, two
+//                   Gandhi, two Yashoda); name-keyed grouping merges parks.
+//   go-display-drift
+//                   Go string concatenation of shed names with partition labels
+//                   outside oploc.Display(). Six SQL CASE statements were converted
+//                   to Go composition; without this check, N+6 call sites can drift.
+//                   Example defect: `display := shedName + " " + partitionLabel`
+//                   (produces "Godel 1 1" instead of "Godel 1").
+//                   Approved forms: oploc.OperationalLocation{}.Display() or
+//                   a matching approved composition helper in backend/internal/platform/oploc/*.
+//   ts-display-drift
+//                   TypeScript string concatenation of shed names with partition
+//                   labels outside lib/operational-location.ts. Same defect shape
+//                   and approved form.
+//   kt-display-drift
+//                   Kotlin string concatenation of shed names with partition labels
+//                   outside PartitionLabel.kt. Same defect shape and approved form.
+//   duplicate-options
+//                   RUNTIME-ONLY: dropdowns rendering duplicate/ambiguous text
+//                   when the same partition label appears in multiple parks or
+//                   rows from different parks have identical names. Caught only
+//                   by integration tests; documented here.
+// REMAINING BLIND SPOTS (documented, cannot be caught):
+//   - composition split across helper functions (requires dataflow analysis).
+//   - composition via template strings with complex expressions.
+// See docs/decisions/operational-location-display-composition.md (ADR)
+// for the canonical rule — all composition must use the shared primitives.
 //
 // Modes:
 //   (default)     scan the tree, fail on any violation.
@@ -318,6 +356,178 @@ const CHECKS = [
     },
     msg: "a *Request schema targets shed_id but declares no partition; with additionalProperties:false a move/create into Castro 2 is unexpressible (RecordShiftingEventRequest is the correct template)",
   },
+  {
+    id: "shed-name-keying",
+    // Detect GROUP BY or map-key expressions using shed NAME instead of shed_id.
+    // Names repeat across parks (two Castro, two Gandhi, two Yashoda); name-keyed
+    // grouping silently merges rows from different parks.
+    // Precision: look for patterns like `GROUP BY shed_name` or `key: shed.name`
+    // or `parkId.*physicalShedName` (TypeScript, in template literals) that DON'T use shed_id.
+    test: (line) => {
+      if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
+
+      // Defect 1: GROUP BY shed_name (not shed_id)
+      if (/GROUP\s+BY[^;]*\bshed_?[nN]ame\b/i.test(line)) {
+        if (!/shed_?[iI]d/.test(line)) return true; // only flag if no shed_id in same line
+      }
+
+      // Defect 2: map-key or groupKey combining park and shed NAME (not id).
+      // The park+shedName pair ALONE is not a defect: it also appears in ordinary
+      // argument lists (`Scan(&parkOptionName, ..., &shedNames)`) and in the regex
+      // source of sibling guards, neither of which keys anything. Require a real
+      // keying construct on the same line -- a composite key/groupKey assignment, a
+      // map index, or a `+`/template concatenation of the two -- so the rule fires on
+      // the construction that actually merges rows, not on co-occurrence.
+      const pairsParkAndShedName =
+        /parkId.*physicalShedName|park[a-zA-Z_]*.*[sS]hed[nN]ame/.test(line);
+      const keysSomething =
+        /\b(group_?[kK]ey|map_?[kK]ey|cache_?[kK]ey|[kK]ey)\s*(:|=|:=)/.test(line) ||
+        /\[[^\]]*[sS]hed[nN]ame[^\]]*\]\s*=/.test(line) ||
+        /[sS]hed[nN]ame\s*(\+|\}\$\{|`)/.test(line) ||
+        /\+\s*["'`][^"'`]*["'`]\s*\+\s*[a-zA-Z_.]*[sS]hed[nN]ame/.test(line) ||
+        // Template-literal composite key: `${item.parkId}|${item.physicalShedName}`.
+        // This is the original admin-web execution-board defect and has no `key =`
+        // on the line -- the composite IS the value returned to groupBy.
+        (/`[^`]*\$\{[^}]*[sS]hed[nN]ame[^}]*\}/.test(line) &&
+          /`[^`]*\$\{[^}]*[pP]ark[^}]*\}/.test(line));
+      if (pairsParkAndShedName && keysSomething) {
+        if (!/shedId|shed_id/.test(line)) return true; // only flag if not using shedId instead
+      }
+
+      return false;
+    },
+    msg: "shed name-keyed grouping or map key; shed names repeat across parks (two Castro, two Gandhi); use shed_id + park instead",
+  },
+  {
+    id: "go-display-drift",
+    // Detect Go string concatenation of shed names with partition labels outside
+    // the approved helper (oploc.OperationalLocation{}.Display() or a matching
+    // wrapper). Six SQL CASE statements were converted to Go composition; each
+    // new hand-rolled composition is a drift risk.
+    // PRECISION: match variable names actually used in this repo:
+    // (shedName|ShedName|shedLabel|ShedLabel) combined with
+    // (partitionLabel|PartitionLabel|partition|Partition).
+    test: (line, file) => {
+      // Only check backend Go code
+      if (!/backend\/.*\.go$/.test(file)) return false;
+      if (/_test\.go$|^\s*\/\//.test(file) || /^\s*\/\//.test(line)) return false; // test files + comments
+      // Must mention a shed-name-like AND partition-label-like variable/field
+      const shedNameMatch = /\b(?:shedName|ShedName|shedLabel|ShedLabel)\b/.test(line);
+      const partitionMatch = /\b(?:partitionLabel|PartitionLabel|partition|Partition)\b/.test(line);
+      if (!shedNameMatch || !partitionMatch) return false;
+      // Must be a string concatenation: + or fmt.Sprintf
+      if (!/\+\s*["']|fmt\.Sprintf/.test(line)) return false;
+      // OK if it's calling the approved Display method or using oploc package
+      if (/\.Display\(\)|oploc\.OperationalLocation/.test(line)) return false;
+      return true;
+    },
+    msg: "Go string concatenation of shed name with partition label; use oploc.OperationalLocation{}.Display() instead to prevent drift from the shared primitive",
+  },
+  {
+    id: "ts-display-drift",
+    // Detect TypeScript string concatenation of shed names with partition labels
+    // outside lib/operational-location.ts. Same defect shape as go-display-drift.
+    test: (line, file) => {
+      // Only check admin-web TypeScript outside the approved location module
+      if (!/apps\/admin-web\/.*\.(ts|tsx)$/.test(file)) return false;
+      if (file.includes("lib/operational-location.ts")) return false; // the approved home
+      if (/^\s*(\/\/|\/\*)/.test(line)) return false; // comments
+      // Must mention shed-name-like AND partition-label-like identifiers
+      const shedNameMatch = /\b(?:shedName|ShedName|shedLabel|ShedLabel|physicalShedName)\b/.test(line);
+      const partitionMatch = /\b(?:partitionLabel|PartitionLabel|partition|Partition)\b/.test(line);
+      if (!shedNameMatch || !partitionMatch) return false;
+      // Must be string concatenation: + operator
+      if (!(/\+\s+["']|const\s+\w+\s*=\s*\w+\s*\+/.test(line))) return false;
+      // OK if calling the approved helper
+      if (/\.format\(|OperationalLocation\.|operational.*location/i.test(line)) return false;
+      return true;
+    },
+    msg: "TypeScript string concatenation of shed name with partition label; use lib/operational-location.ts helpers instead",
+  },
+  {
+    id: "kt-display-drift",
+    // Detect Kotlin string concatenation of shed names with partition labels
+    // outside PartitionLabel.kt. Same defect shape as go-display-drift.
+    test: (line, file) => {
+      // Only check Android Kotlin outside the approved location module
+      if (!/apps\/goatos-android\/.*\.kt$/.test(file)) return false;
+      if (file.includes("PartitionLabel.kt")) return false; // the approved home
+      if (/^\s*(\/\/)/.test(line)) return false; // comments
+      // Must mention shed-name-like AND partition-label-like identifiers
+      const shedNameMatch = /\b(?:shedName|ShedName|shedLabel|ShedLabel|physicalShedName)\b/.test(line);
+      const partitionMatch = /\b(?:partitionLabel|PartitionLabel|partition|Partition)\b/.test(line);
+      if (!shedNameMatch || !partitionMatch) return false;
+      // Must be string concatenation: + operator
+      if (!(/\+\s*["']|val\s+\w+\s*=\s*\w+\s*\+/.test(line))) return false;
+      // OK if calling the approved helper
+      if (/\.render\(|PartitionLabel\./i.test(line)) return false;
+      return true;
+    },
+    msg: "Kotlin string concatenation of shed name with partition label; use PartitionLabel.render() instead",
+  },
+  {
+    id: "sql-display-drift",
+    // Detect CASE statements composing display strings that duplicate partition-label
+    // rendering logic instead of calling the shared primitive (oploc.Display() in Go,
+    // PartitionLabel.render() in Kotlin, operational_location_display() in SQL).
+    // This catches hand-rolled CASE that renders "Castro - Part 2" while the primitive
+    // renders "Castro 2", causing display-label mismatches across surfaces.
+    test: (line, file, lines, lineIndex) => {
+      if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
+      if (!/CASE\s+WHEN|WHEN\s+|THEN\s+/.test(line)) return false;
+      // Scan a bounded window to find CASE...WHEN...partition...THEN pattern
+      const window = lines
+        .slice(Math.max(0, lineIndex - 1), Math.min(lines.length, lineIndex + 6))
+        .join(" ");
+      // Must have both CASE/WHEN and partition_label mention
+      if (!/CASE[^;]*WHEN[^;]*partition_label/i.test(window)) return false;
+      // Must show string concatenation (||, +, CONCAT) in the THEN clause
+      if (!/(THEN[^;]{0,150}(?:\|\||[\+]|CONCAT))/i.test(window)) return false;
+      // OK if it uses the shared primitive instead of hand-rolling
+      if (/Display\s*\(|render\s*\(|operational_location_display/i.test(window)) return false;
+      return true;
+    },
+    msg: "CASE statement composes a display string from partition_label instead of calling the shared primitive (backend/internal/platform/oploc.Display, PartitionLabel.render, operational_location_display)",
+  },
+  {
+    id: "missing-partition-column",
+    // Detect user-facing/read-model tables that carry shed_id but lack partition_label.
+    // Tables bearing location-related data (verification, weighing, counts) must carry
+    // both when partitions exist, or the surface loses partition context.
+    // This check scans CREATE TABLE / migration statements.
+    test: (line, file, lines, lineIndex) => {
+      // Only check migration files
+      if (!/migrations.*\.sql$/.test(file)) return false;
+      if (!/CREATE\s+TABLE/i.test(line)) return false;
+      if (/^\s*--/.test(line)) return false; // allow comment lines
+      // Scan a bounded window (next ~20 lines) for the table definition
+      const window = lines.slice(lineIndex, Math.min(lineIndex + 25)).join("\n");
+      // Check if it defines shed_id...
+      if (!/shed_id/.test(window)) return false;
+      // ...but lacks partition_label
+      if (/partition_label/.test(window)) return false;
+      // Additional signal: it's a user-facing table name (verify, weigh, count, batch, etc.)
+      const tableName = window.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i);
+      const tblName = (tableName ? tableName[1] : "").toLowerCase();
+      return /verif|weigh|count|batch|assignment|items|campaign/.test(tblName);
+    },
+    msg: "table carries shed_id but lacks partition_label; user-facing/read-model tables must carry partition context when partitions exist",
+  },
+];
+
+// Tables that legitimately read/group by shed_id alone (no partition_label required).
+// Each entry must include an explicit WHY, not a dumping ground.
+const SHED_GRAIN_ONLY_TABLES = [
+  // Structural / configuration tables; never surface to users as location.
+  "locations", // shed directory; has location_type ENUM, not partition granularity
+  "shed_partitions", // the PARTITION catalog itself, keyed by shed_id
+  "goat_shed_partitions", // per-goat partition mapping; read to find one goat's partition
+  "locations_resource_attributes", // shed-level attributes; no partition aspect
+  "location_resource_tags", // shed-level tags; no partition aspect
+  // Operational plumbing (audit, identity, not user-facing read models)
+  "audit_log", // identity audit only; sheds appear as context, not as operational location
+  "proof_artifacts", // content store; identity reference only
+  "outbox", // transactional outbox; events carry full location in payload
 ];
 
 // Files that must CONTAIN a token (absence is the violation).
@@ -353,6 +563,11 @@ function scanContent(file, content) {
     if (isComment(line) || IGNORE_RE.test(line)) return;
     for (const check of CHECKS) {
       if (check.id === "whole-leak" && owned) continue;
+      // missing-partition-column check: skip allowlisted tables
+      if (check.id === "missing-partition-column") {
+        const inAllowlist = SHED_GRAIN_ONLY_TABLES.some((tbl) => file.includes(`/${tbl}`) || line.toLowerCase().includes(`table ${tbl}`) || line.toLowerCase().includes(`entity ${tbl}`));
+        if (inAllowlist) continue;
+      }
       if (check.test(line, file, lines, i)) {
         problems.push(`${file}:${i + 1}: [${check.id}] ${check.msg}`);
       }
@@ -595,6 +810,139 @@ function selfTest() {
       `const catalogSQL = "SELECT DISTINCT partition FROM shed_partitions"`,
       null,
     ],
+    // NEW CHECK FIXTURES: shed-name-keying (Defect #3 from 2026-08-06 partition sweep)
+    // Real defect: admin-web execution-board.tsx grouped by parkId|physicalShedName
+    [
+      "apps/admin-web/pages/execution-board.tsx",
+      `  const grouped = groupBy(items, (item) => \`\${item.parkId}|\${item.physicalShedName}\`);`,
+      "shed-name-keying",
+    ],
+    // Correct form: keying by shed_id
+    [
+      "apps/admin-web/pages/execution-board-fixed.tsx",
+      `  const grouped = groupBy(items, (item) => \`\${item.parkId}|\${item.shedId}\`);`,
+      null,
+    ],
+    // Defect: GROUP BY shed_name without shed_id
+    [
+      "backend/internal/counts/q_bad.go",
+      `q := "SELECT COUNT(*) FROM goats g GROUP BY g.shed_name"`,
+      "shed-name-keying",
+    ],
+    // OK: GROUP BY shed_id and partition_label
+    [
+      "backend/internal/counts/q_ok.go",
+      `q := "SELECT COUNT(*) FROM goats g GROUP BY g.shed_id, gsp.partition_label, g.park_id"`,
+      null,
+    ],
+
+    // NEW CHECK FIXTURES: sql-display-drift (Defect #2 from 2026-08-06 partition sweep)
+    // Real defect: SIX copies of hand-rolled CASE over partition_label, one renders
+    // "Castro - Part 2" while oploc.Display() renders "Castro 2"
+    [
+      "backend/internal/obligation/queries.sql",
+      `  CASE WHEN gsp.partition_label IS NOT NULL
+         THEN shed.name || ' - Part ' || gsp.partition_label
+         ELSE shed.name END AS label`,
+      "sql-display-drift",
+    ],
+    // Correct form: using the shared primitive
+    [
+      "backend/internal/obligation/queries-fixed.sql",
+      `  oploc.Display(shed.name, gsp.partition_label) AS label`,
+      null,
+    ],
+    // Also ok: referencing the primitive via alias
+    [
+      "backend/internal/vaccination/queries.go",
+      `q := "SELECT operational_location_display(s.name, gsp.partition_label) AS loc"`,
+      null,
+    ],
+
+    // NEW CHECK FIXTURES: missing-partition-column (Defect #1 from 2026-08-06 partition sweep)
+    // Real defect: verification_items table has shed_id but no partition_label
+    [
+      "backend/migrations/postgres/000180_verification_items.sql",
+      `CREATE TABLE verification_items (
+  id UUID PRIMARY KEY,
+  shed_id UUID NOT NULL REFERENCES sheds(id),
+  source_module TEXT NOT NULL
+);`,
+      "missing-partition-column",
+    ],
+    // Correct form: includes partition_label
+    [
+      "backend/migrations/postgres/000180_verification_items_fixed.sql",
+      `CREATE TABLE verification_items (
+  id UUID PRIMARY KEY,
+  shed_id UUID NOT NULL REFERENCES sheds(id),
+  partition_label TEXT,
+  source_module TEXT NOT NULL
+);`,
+      null,
+    ],
+    // Legitimate exception: locations table is shed-only (already in allowlist)
+    [
+      "backend/migrations/postgres/000040_locations.sql",
+      `CREATE TABLE locations (
+  id UUID PRIMARY KEY,
+  shed_id UUID NOT NULL,
+  location_type TEXT NOT NULL
+);`,
+      null,
+    ],
+
+    // NEW CHECK FIXTURES: go-display-drift (Defect: hand-rolled Go concatenation)
+    // Real defect: six call sites concatenate shedName + partitionLabel after SQL->Go conversion
+    [
+      "backend/internal/counts/domain.go",
+      `  display := shedName + " " + partitionLabel`,
+      "go-display-drift",
+    ],
+    [
+      "backend/internal/counts/domain_ok.go",
+      `  display := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()`,
+      null,
+    ],
+    [
+      "backend/internal/obligation/helpers.go",
+      `  location := fmt.Sprintf("%s %s", shedLabel, partitionLabel)`,
+      "go-display-drift",
+    ],
+
+    // NEW CHECK FIXTURES: ts-display-drift (TypeScript concatenation outside lib/operational-location.ts)
+    [
+      "apps/admin-web/features/counts/shed-detail.tsx",
+      `  const label = shedName + " - " + partitionLabel;`,
+      "ts-display-drift",
+    ],
+    [
+      "apps/admin-web/features/counts/shed-detail-ok.tsx",
+      `  const label = OperationalLocation.format(shedName, partitionLabel);`,
+      null,
+    ],
+    [
+      "apps/admin-web/lib/operational-location.ts",
+      `  export const format = (shedName, partitionLabel) => shedName + partitionLabel;`,
+      null, // approved location for composition
+    ],
+
+    // NEW CHECK FIXTURES: kt-display-drift (Kotlin concatenation outside PartitionLabel.kt)
+    [
+      "apps/goatos-android/feature/feature-counts/ShedScreen.kt",
+      `  val label = shedName + " " + partitionLabel`,
+      "kt-display-drift",
+    ],
+    [
+      "apps/goatos-android/feature/feature-counts/ShedScreen-ok.kt",
+      `  val label = PartitionLabel.render(shedName, partitionLabel)`,
+      null,
+    ],
+    [
+      "apps/goatos-android/core/core-ui/PartitionLabel.kt",
+      `  fun render(shed: String, partition: String) = shed + " " + partition`,
+      null, // approved location for composition
+    ],
   ];
 
   let failed = 0;
@@ -659,6 +1007,12 @@ function main() {
     process.exit(1);
   }
   console.log(`operational-location guard: PASS (${files.length} files)`);
+  console.log("\nRemainingBlind Spots (CAUGHT BY TESTS, NOT THIS GUARD):");
+  console.log("  - duplicate-options: dropdowns rendering duplicate text when same partition label");
+  console.log("    appears in multiple parks or parks have sheds with identical names (e.g., both");
+  console.log("    parks have a shed named 'Godel 1'). Runtime-only; caught by integration tests.");
+  console.log("  - location_type laundering: intermediate variable across lines (dataflow required;");
+  console.log("    every regex attempt flags correct code). Exact assignment on same line IS caught.");
 }
 
 main();
