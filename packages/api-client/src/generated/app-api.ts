@@ -5208,6 +5208,25 @@ export interface components {
             /** @description The animals behind missingPriorDoseCount, capped at 25 per cell so a cell can never return an unbounded list. missingPriorDoseCount remains the full count when capped. */
             missingPriorDoseGoats?: components["schemas"]["VaccinationCommandBoardCohortAnimal"][];
         };
+        /** @description One animal behind the Closed, No Dose tile, with the identity and ground location a park head needs to act on it. */
+        VaccinationCommandBoardClosedWithoutDoseAnimal: {
+            /** Format: uuid */
+            goatId: string;
+            displayId: string;
+            /** @description Primary visible tag when the animal carries one. */
+            tag?: string;
+            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. */
+            locationDisplay: string;
+            parkName: string;
+            /** @description Physical shed name. Not a ground location on its own when a partition exists. */
+            shedName: string;
+            /** @description Raw stored partition label, absent for a non-partitioned shed. */
+            partitionLabel?: string;
+            /** @description Why the work closed with no dose, in farm language (Cancelled, Waived, Superseded, Deferred for recovery). Never a raw obligation status token. */
+            reason: string;
+            /** @description Human dose label whose obligation closed (e.g. "ET+TT · Dose 2"). */
+            vaccineLabel: string;
+        };
         /** @description One business day of accepted administration inside a cohort x dose cell. */
         VaccinationCommandBoardCohortDay: {
             /**
@@ -5353,6 +5372,8 @@ export interface components {
             driveOptionsTruncated: boolean;
             /** @description Cohort (management_stage × sex) × vaccine matrix; rows are cohort+vaccine cells. */
             cohortMatrix: components["schemas"]["VaccinationCommandBoardCohortCell"][];
+            /** @description The animals behind kpis.closedWithoutDose, capped at 50. The tile answers "how many", which is where the question starts: the next one is always "which animals, and why did their work close with no dose". Selected by the SAME per-animal residual predicate the tile counts with, so the list and the number can never describe different animals. The tile's count stays whole-scope truth when this list is capped. */
+            closedWithoutDoseAnimals: components["schemas"]["VaccinationCommandBoardClosedWithoutDoseAnimal"][];
             /** @description Shed × dose rule state matrix; each row is a shed+dose combination with state and date range. */
             shedDoseMatrix: components["schemas"]["ShedDoseMatrixCell"][];
             /** @description Weekly aggregation of doses given (ISO week × vaccine × completion status). Ordered by week descending. */

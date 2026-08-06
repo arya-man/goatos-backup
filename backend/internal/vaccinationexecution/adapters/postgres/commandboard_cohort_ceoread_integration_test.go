@@ -524,3 +524,151 @@ func seedCohortFixtureShell(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		 VALUES ($1, $2, $3, 'park', $4, $5::date, $5::timestamptz, $6::timestamptz, 'in_progress')`,
 		ids.batchID, ids.tenantID, ids.protocolVersionID, ids.parkID, ids.plannedDate, ids.windowEnd)
 }
+
+// TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPartitionLocation pins the
+// list behind the Closed, No Dose tile.
+//
+// Two failures it blocks:
+//
+//	(1) LIST/COUNT DIVERGENCE. The tile and the list must be selected by the same per-animal
+//	    residual predicate. A list built from a looser filter would name animals the tile never
+//	    counted, and the CEO would chase work that is not in the bucket.
+//	(2) PARENT-SHED LOCATION. An animal standing in "Godel 1 - Part 3" must not be reported as
+//	    "Godel 1". shed_id alone is not a ground location when the shed is partitioned, and a park
+//	    head sent to the wrong side of a partition cannot find the animal.
+//
+// Fixture: 3 animals whose only obligation is cancelled with no completion (the residual), one of
+// them in a partitioned shed; plus 1 animal with an accepted dose that must NOT appear.
+//
+// StatusBuckets / ParkScope / OneToMany.
+func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPartitionLocation(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatalf("LoadLocation(Asia/Kolkata) error = %v", err)
+	}
+
+	const (
+		tenantID          = "00000000-0000-4000-8000-0000000000f4"
+		parkID            = "70000000-0000-4000-8000-0000010000f4"
+		shedID            = "70000000-0000-4000-8000-0000020000f4"
+		protocolID        = "70000000-0000-4000-8000-000006000ce0"
+		protocolVersionID = "70000000-0000-4000-8000-000006000ce1"
+		ruleDose1ID       = "70000000-0000-4000-8000-000007000ce1"
+		ruleDose2ID       = "70000000-0000-4000-8000-000007000ce2"
+		batchID           = "70000000-0000-4000-8000-000004000ce1"
+		custodianPartyID  = "70000000-0000-4000-8000-000009000ce1"
+		closedCount       = 3
+		partitionLabel    = "Part 3"
+	)
+
+	doseDay := time.Date(2026, 6, 30, 0, 0, 0, 0, ist)
+	asOf := time.Date(2026, 7, 25, 11, 0, 0, 0, ist)
+	windowEnd := time.Date(2026, 7, 31, 23, 59, 59, 0, ist)
+
+	seedCohortFixtureShell(t, ctx, pool, cohortFixtureIDs{
+		tenantID: tenantID, parkID: parkID, parkName: "CPT-QA-CE", shedID: shedID, shedName: "Godel 1",
+		protocolID: protocolID, protocolCode: "vaccination_ce", protocolVersionID: protocolVersionID,
+		ruleDose1ID: ruleDose1ID, ruleDose2ID: ruleDose2ID, batchID: batchID,
+		custodianPartyID: custodianPartyID, plannedDate: doseDay, windowEnd: windowEnd,
+	})
+
+	seedAnimal := func(i int, status string, accepted bool, partitioned bool) string {
+		goatID := fmt.Sprintf("70000000-0000-4000-8000-0000340%05d", 700+i)
+		execProjectionSQL(t, ctx, pool, "goat",
+			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, custodian_party_id, dob)
+			 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, $4, '2023-01-01')`,
+			goatID, tenantID, shedID, custodianPartyID)
+		if partitioned {
+			// source_shed_name is the partition-bearing name the row was normalized FROM
+			// ("Godel 1 - Part 3"), retained for traceability and NOT NULL in schema.
+			execProjectionSQL(t, ctx, pool, "goat partition",
+				`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+				 VALUES ($1, $2, $3, $4, $5)`, tenantID, goatID, shedID, partitionLabel,
+				"Godel 1 - "+partitionLabel)
+		}
+		oblID := fmt.Sprintf("70000000-0000-4000-8000-0000840%05d", 700+i)
+		execProjectionSQL(t, ctx, pool, "obligation",
+			`INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, target_id, target_type,
+			   scope_type, scope_id, rule_id, status, due_at, batch_id, idempotency_key)
+			 VALUES ($1, $2, $3, $4, 'goat', 'shed', $5, $6, $7, $8::timestamptz, $9, $10)`,
+			oblID, tenantID, protocolVersionID, goatID, shedID, ruleDose1ID, status, doseDay, batchID,
+			fmt.Sprintf("obl-ce-%d", i))
+		if accepted {
+			execProjectionSQL(t, ctx, pool, "completion",
+				`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at, idempotency_key)
+				 VALUES ($1, $2, $3, $4, 'accepted', $5::timestamptz, $5::timestamptz, $6)`,
+				fmt.Sprintf("70000000-0000-4000-8000-0000940%05d", 700+i), tenantID, oblID, goatID, doseDay,
+				fmt.Sprintf("comp-ce-%d", i))
+		}
+		return goatID
+	}
+
+	// The residual: closed with no completion. One of them stands in a partition.
+	partitionedGoat := seedAnimal(0, "canceled", false, true)
+	seedAnimal(1, "canceled", false, false)
+	seedAnimal(2, "canceled", false, false)
+	// Must NOT appear: this animal's dose is accepted, so it belongs to the verified tile.
+	verifiedGoat := seedAnimal(3, "completed", true, false)
+
+	repo := NewRepository(pool, 5*time.Second)
+	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{TenantID: tenantID, AsOf: asOf})
+	if err != nil {
+		t.Fatalf("VaccinationCommandBoard() error = %v", err)
+	}
+
+	if resp.KPIs.ClosedWithoutDose != closedCount {
+		t.Fatalf("closedWithoutDose tile = %d, want %d (fixture did not reproduce the residual bucket)",
+			resp.KPIs.ClosedWithoutDose, closedCount)
+	}
+	// (1) The list is exactly the tile's animals -- same predicate, same key set.
+	if got := len(resp.ClosedWithoutDoseAnimals); got != closedCount {
+		t.Fatalf("closedWithoutDoseAnimals = %d animals, want %d -- the list and the tile must be "+
+			"selected by the same per-animal residual predicate, or the CEO chases animals the tile "+
+			"never counted", got, closedCount)
+	}
+	for _, animal := range resp.ClosedWithoutDoseAnimals {
+		if animal.GoatID == verifiedGoat {
+			t.Errorf("verified animal %s appears in the closed-without-dose list -- an accepted dose "+
+				"belongs to the verified tile", verifiedGoat)
+		}
+		if animal.DisplayID == "" || animal.Reason == "" || animal.VaccineLabel == "" {
+			t.Errorf("animal %+v is missing identity/reason/vaccine -- the drawer exists to answer "+
+				"'which animals and why', so a blank row answers nothing", animal)
+		}
+		if animal.Reason != "Cancelled" {
+			t.Errorf("reason = %q, want %q -- raw obligation status tokens must never reach a CEO screen",
+				animal.Reason, "Cancelled")
+		}
+	}
+
+	// (2) The partitioned animal reports its ground location, not the parent shed.
+	var partitioned *domain.CommandBoardClosedWithoutDoseAnimal
+	for i := range resp.ClosedWithoutDoseAnimals {
+		if resp.ClosedWithoutDoseAnimals[i].GoatID == partitionedGoat {
+			partitioned = &resp.ClosedWithoutDoseAnimals[i]
+		}
+	}
+	if partitioned == nil {
+		t.Fatalf("the partitioned animal is missing from the list entirely")
+	}
+	if partitioned.LocationDisplay != "Godel 1 - Part 3" {
+		t.Errorf("locationDisplay = %q, want %q -- an animal standing in a partition reported as its "+
+			"parent shed sends a park head to the wrong side of the shed", partitioned.LocationDisplay,
+			"Godel 1 - Part 3")
+	}
+	for _, animal := range resp.ClosedWithoutDoseAnimals {
+		if animal.LocationDisplay == "whole" || animal.PartitionLabel == "whole" {
+			t.Errorf("animal %s leaked the 'whole' matching sentinel to a display field: %+v",
+				animal.DisplayID, animal)
+		}
+		if animal.GoatID != partitionedGoat && animal.LocationDisplay != "Godel 1" {
+			t.Errorf("non-partitioned animal locationDisplay = %q, want %q -- a shed with no partition "+
+				"renders as its own name", animal.LocationDisplay, "Godel 1")
+		}
+	}
+}

@@ -808,6 +808,38 @@ type CommandBoardKPI struct {
 	ClosedWithoutDose    int `json:"closedWithoutDose"`
 }
 
+// CommandBoardClosedWithoutDoseAnimal names one animal behind the ClosedWithoutDose tile.
+//
+// The tile answers "how many", which is where a CEO's question STARTS, not ends: the next question
+// is always "which animals, and why did their work close with no dose given". Without the list the
+// only way to answer was a database query, so the tile was a dead end on the screen.
+//
+// The location is the animal's OPERATIONAL location -- park, physical shed, and partition when the
+// shed has one ("Castro 2", "Godel 1 - Part 3"). shed_id alone is not an animal's ground location,
+// so LocationDisplay is composed by oploc.OperationalLocation.Display() and never from the parent
+// shed name.
+type CommandBoardClosedWithoutDoseAnimal struct {
+	GoatID    string `json:"goatId"`
+	DisplayID string `json:"displayId"`
+	// Tag is the animal's primary visible tag when it carries one.
+	Tag string `json:"tag,omitempty"`
+	// LocationDisplay is the farm-readable operational location, partition included.
+	LocationDisplay string `json:"locationDisplay"`
+	ParkName        string `json:"parkName"`
+	ShedName        string `json:"shedName"`
+	PartitionLabel  string `json:"partitionLabel,omitempty"`
+	// Reason is the closure that put this animal in the residual bucket, in farm language
+	// ("Cancelled", "Waived", "Superseded"), never the raw obligation status token.
+	Reason string `json:"reason"`
+	// VaccineLabel names the dose whose obligation closed, so the reader can tell a withdrawn
+	// animal from one whose single vaccine was waived.
+	VaccineLabel string `json:"vaccineLabel"`
+}
+
+// CommandBoardClosedWithoutDoseListCap bounds the tile's animal list. The residual bucket is small
+// by construction, but the list is still a bounded page while the tile's count stays whole truth.
+const CommandBoardClosedWithoutDoseListCap = 50
+
 type CommandBoardCohort struct {
 	// ParkID/ParkName carry the farm this cohort sits on. The matrix is read farmwise, so the
 	// same cohort on two farms stays two cells.
@@ -965,10 +997,13 @@ type CommandBoardResponse struct {
 	// "more drives exist, narrow by park" instead of lying by omission.
 	DriveOptionsTruncated bool                     `json:"driveOptionsTruncated"`
 	CohortMatrix          []CommandBoardCohortCell `json:"cohortMatrix"`
-	ShedDoseMatrix        []ShedDoseMatrixCell     `json:"shedDoseMatrix"`
-	WeeklyGiven           []WeeklyGivenRow         `json:"weeklyGiven"`
-	VerificationQueue     []VerificationQueueRow   `json:"verificationQueue"`
-	Freshness             *ProjectionFreshness     `json:"freshness,omitempty"`
+	// ClosedWithoutDoseAnimals names the animals behind KPIs.ClosedWithoutDose, capped at
+	// CommandBoardClosedWithoutDoseListCap. The COUNT on the tile stays whole-scope truth.
+	ClosedWithoutDoseAnimals []CommandBoardClosedWithoutDoseAnimal `json:"closedWithoutDoseAnimals"`
+	ShedDoseMatrix           []ShedDoseMatrixCell                  `json:"shedDoseMatrix"`
+	WeeklyGiven              []WeeklyGivenRow                      `json:"weeklyGiven"`
+	VerificationQueue        []VerificationQueueRow                `json:"verificationQueue"`
+	Freshness                *ProjectionFreshness                  `json:"freshness,omitempty"`
 }
 
 type CommandBoardQuery struct {
