@@ -366,8 +366,10 @@ Job logs are captured per job and replayed in **selection** order, not finish
 order, so output stays deterministic.
 
 `job_group()` cannot see a SECOND WORKTREE. It is in-memory and per-process, so
-two checkouts both entered the Gradle region and each measured 397 s / 413 s
-against 110-161 s alone. `tools/ci/gradle-worktree-lock.sh` closes that with a
+two checkouts both entered the Gradle region. In the recorded `ci-local`
+timings the `:app compile+unit+lint` step cost 413 s and 212 s in a two-way
+overlap, and 340 s / 251 s / 361 s in a three-way one, against 84-181 s for runs
+nothing else overlapped. `tools/ci/gradle-worktree-lock.sh` closes that with a
 machine-wide advisory `mkdir` mutex keyed on `realpath(GRADLE_USER_HOME)`,
 acquired once in `run_android` after the cheap static guards and the toolchain
 check. It is FAIL-OPEN on every path: it can never fail a step, skip the android

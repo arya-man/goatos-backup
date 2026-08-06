@@ -76,13 +76,13 @@ authorise a push to `main`?*
 | `CEO_AI_EVAL_LIVE` | `0` (`:229`) | Runs the **live** CEO-AI answer-quality eval against a real assistant endpoint (Vertex/Gemini) + Postgres oracle. Also needs `MESHA_ASSISTANT_URL`, `GOATOS_EVAL_DATABASE_URL`, `GOATOS_EVAL_TENANT_ID`. The cheap structural self-test always runs | Adds network-bound eval time | Yes. Default `0`; the skip is a loud `SKIP`, never a silent pass |
 | `GOATOS_CI_BASE` | `origin/main` (single resolver: `run-local-ci.sh` `resolve_ci_base`) | The diff base for the classifier AND the Android UI-diff detector. An unresolvable ref falls back to `HEAD~1` **loudly**, and that fallback is FATAL (exit 4) on the receipt-writing `auto`/`all` modes | Indirect — a narrower base selects fewer jobs | Yes: the resolved base is recorded on EVERY receipt (`all` and `scoped`) and must be an ancestor of real remote main at push time |
 | `MODE=all` (make var) | unset | `make ci-local MODE=all` forces every job | Maximum | Yes, `mode=all` |
-| `JOB=<job>` (make var) | unset | `make ci-local JOB=common\|backend\|query-plans\|guardrails\|admin-web\|android` runs exactly that job. Does NOT enable `GOATOS_FAST_LOCAL_CI` — for the iterate loop use `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job>`, or `make ci-local JOB=android` silently takes the slow `--no-daemon` path plus the benchmark compile (~288 s) while the RED banner's script-shaped command does not | Minimal | **NO — partial runs never write a receipt** |
+| `JOB=<job>` (make var) | unset | `make ci-local JOB=common\|backend\|query-plans\|guardrails\|admin-web\|android` runs exactly that job. Does NOT enable `GOATOS_FAST_LOCAL_CI` — for the iterate loop use `GOATOS_FAST_LOCAL_CI=1 tools/ci/run-local-ci.sh <job>`, or `make ci-local JOB=android` silently takes the slow `--no-daemon` path and also pays the benchmark compile, while the RED banner's script-shaped command does neither. The daemon is the dominant term: `:app compile+unit+lint` is recorded at 84-288 s under `--no-daemon`; the benchmark compile itself is only 2-24 s | Minimal | **NO — partial runs never write a receipt** |
 | `GOATOS_BYPASS_LOCAL_CI` | `0` (`land-main.sh:68`) | **`land-main` only.** Skips `make ci-local` *and* the exact-SHA receipt, then still pushes. `prePush()` also returns early before `evaluatePush` | Skips everything | **Pushes with NO receipt and NO gate.** This is the one flag that voids the whole evidence model. Do not use it outside a documented incident |
 | `GOATOS_LAND_MAX_ATTEMPTS` | `3` (`land-main.sh:90`) | How many rebase→full-CI→re-fetch attempts `land-main` will make when `main` moves under it | A contended `main` can pay the **entire** gate up to 3×. This dominates a bad landing | n/a. Lowering it is a failure mode, not a speedup |
 | `GOATOS_LAND_TEST_MODE` / `GOATOS_LAND_TEST_CI_COMMAND` | `0` / unset (`land-main.sh:67`, `:124`) | Used by `tools/ci/land-main.test.sh` to drive `land-main` with a fake CI command | n/a | Test harness only |
 | `GOATOS_CI_LOCAL_JOBS` | `3` (`parallel-dispatch.sh:43`, hard-clamped 1..4) | Parallel job-dispatch width. `1` degrades to sequential. Never changes WHICH jobs run; contending jobs (`android`→gradle, `backend`+`query-plans`→docker) are grouped and never overlap regardless of width | Wall-clock only | Yes — receipt semantics are untouched by dispatch width |
 | `GOATOS_CI_TRACE_ONLY` | unset (`check-local-ci-evidence.mjs:264`) | Reachability probe used by `check-android-screenshot-proof.sh`: `step` prints `CI-TRACE <name> :: <cmd>` and executes nothing, and the script `exit 3`s **before** the receipt block | Near-zero (nothing executes) | **NO — `--record` independently refuses while it is set.** Not a bypass |
-| `GOATOS_CI_GRADLE_LOCK` | `1` (`gradle-worktree-lock.sh`) | Machine-wide advisory mutex around the Gradle region of the `android` job, so two worktrees QUEUE instead of both crawling. `0` opts out entirely and touches no filesystem | Saves nothing on a solo run (an uncontended `mkdir` succeeds instantly). On an overlapping pair it converts 397 s + 413 s of thrash into roughly 161 s + 161 s of queued work | Yes — the lock changes start time only |
+| `GOATOS_CI_GRADLE_LOCK` | `1` (`gradle-worktree-lock.sh`) | Machine-wide advisory mutex around the Gradle region of the `android` job, so two worktrees QUEUE instead of both crawling. `0` opts out entirely and touches no filesystem | Saves nothing on a solo run (an uncontended `mkdir` succeeds instantly). On an overlapping pair it replaces two mutually-slowed legs (recorded 413 s + 212 s) with two sequential solo-speed ones (recorded solo range 84-181 s), so the second worktree WAITS rather than thrashing — the lock makes no single pass faster | Yes — the lock changes start time only |
 | `GOATOS_CI_GRADLE_LOCK_TIMEOUT` | `1800` | How long `gradle_lock_acquire` waits before it gives up and PROCEEDS UNLOCKED, loudly. It never fails, never skips the job, never returns non-zero | Bounds the worst-case wait | Yes — the lock changes start time only |
 | `GOATOS_CI_GRADLE_LOCK_STALE_SECONDS` | `1500` | Age at which a lock whose owner cannot be VERIFIED (a foreign hostname, a `hostname` flap on this same box, or a pid that is alive but is a different process) expires. Must stay BELOW `_TIMEOUT`, or the branch is unreachable at default settings and the only escape is the fail-open path. A same-host owner that is provably dead is reclaimed immediately, regardless of age | Bounds recovery from an unverifiable lock | Yes — the lock changes start time only |
 | `GOATOS_CI_GRADLE_LOCK_DIR` | `$TMPDIR` | Directory holding `goatos-gradle-lock.<md5 of realpath(GRADLE_USER_HOME)>`. Exists so the guard can run in a sandbox; not a knob for normal use | n/a | Yes — the lock changes start time only |
@@ -164,8 +164,8 @@ this second pays the entire suite twice for one landing — **run exactly one of
 them.** And prove screenshots **once, on the SHA you intend to push**: proving
 them on every intermediate commit costs a full pass each time and certifies
 nothing you will push, since a rebase or amend changes the SHA and voids the
-receipt anyway (measured: five `android screenshots` steps, 112-172 s each, on
-five DIFFERENT SHAs inside one 40-minute block).
+receipt anyway (measured: five `android screenshots` steps, 109-208 s each, on
+five DIFFERENT SHAs inside one 42-minute block).
 
 This runs the **full, unnarrowed** `:app:verifyPaparazziDevDebug`.
 `tools/ci/check-android-screenshot-proof.sh` (wired into the `android` job and
@@ -238,10 +238,10 @@ instrumentation, plus standalone guard runs.
 | `ci-local JOB=admin-web` (after) | ≈33 s |
 | `telemetry-guard` de-duplication (it ran twice; now once) | **≈6 s saved per full suite** |
 | `tools/ci/**` self-test suite when it ran unconditionally | ≈59 s added to `JOB=common` (of which the screenshot-proof suite alone ≈62 s guarding a 0.18 s check) — source: the measurement recorded in `run-local-ci.sh:304-309`. Now diff-scoped, so it is ≈0 on a commit with no `tools/ci/**` diff |
-| `android screenshots` (Paparazzi) | **112 s, 114 s, 117 s, 145 s, 172 s** — five clean observations on five DIFFERENT SHAs inside one 40-minute block. This replaces the old "≥100 s, n=1, on a failed build" estimate; the doc should stop guessing |
-| two android legs running CONCURRENTLY in two worktrees | **397 s and 413 s**, versus **110-161 s** uncontended. This is the number the Gradle worktree lock exists for; queuing is faster than racing |
+| `android screenshots` (Paparazzi) | **116 s, 123 s, 208 s, 148 s, 109 s** — five observations on five DIFFERENT SHAs inside one 42-minute block (`goatos-land` timings, epochs 1785993245-1785995783). Across every recorded worktree the step ranges **109-208 s**. This replaces the old "≥100 s, n=1, on a failed build" estimate; the doc should stop guessing |
+| android legs running CONCURRENTLY in separate worktrees | `:app compile+unit+lint` cost **413 s and 212 s** in a two-way overlap (epochs 1785995260 / 1785995293) and **340 s / 251 s / 361 s** in a three-way one (epochs 1785967083-1785967590), against **84-181 s** for runs no other recorded run overlapped. This is what the Gradle worktree lock exists for; queuing is faster than racing. Honesty note: two solo-recorded runs sit at 288 s and 413 s with no overlapping run to explain them — most likely a maintainer's manual `./gradlew`, which is the KNOWN LIMIT the lock does not cover |
 | `gradle-worktree-lock guard` (`check-gradle-worktree-lock.sh`) | **44-46 s** wall over five runs, of which case (h) — 8 racers x 3 rounds proving a concurrent stale break admits exactly one — is **≈23 s**. Diff-scoped in `run_common` to a `tools/ci/gradle-worktree-lock.sh` diff, so **≈0 s** on every other commit |
-| `gradle-worktree-lock guard self-test` (19 mutants) | **17 min 16 s** measured (~52 s/mutant; the mutants that HANG cost the harness's 150 s budget each). Diff-scoped to the lock library, the guard, the harness, or `run-local-ci.sh` — deliberately NOT to all of `tools/ci/**`, or every CI-tooling commit would pay 15 minutes for a change to an unrelated file |
+| `gradle-worktree-lock guard self-test` (22 mutants) | **17 min 16 s** measured (~52 s/mutant; the mutants that HANG cost the harness's 150 s budget each). Diff-scoped to the lock library, the guard, the harness, or `run-local-ci.sh` — deliberately NOT to all of `tools/ci/**`, or every CI-tooling commit would pay 15 minutes for a change to an unrelated file |
 | `:app` compile+unit+lint collapsed into one Gradle invocation | **≈17 s saved per android leg** — three `--no-daemon` invocations pay ~30 s of fixed JVM-start/configuration/up-to-date overhead vs 12.7 s paid once, on a 12-core/JDK-21 box (`run-local-ci.sh:505-511`) |
 
 ### Estimated — not results
@@ -300,8 +300,9 @@ inside `.git/`, is append-only, and is never committed.
 
 `parallel-dispatch.sh`'s `job_group()` serialises `android` within **one**
 `run-local-ci.sh` process. It is entirely in-memory, so a second worktree is
-invisible to it, and both builds crawl: **397 s and 413 s concurrently versus
-110-161 s alone.**
+invisible to it, and the builds crawl: **413 s and 212 s** in a recorded
+two-way overlap, **340 s / 251 s / 361 s** in a three-way one, against
+**84-181 s** for runs nothing else overlapped.
 
 `tools/ci/gradle-worktree-lock.sh` is a machine-wide advisory mutex around the
 Gradle region of the `android` job, keyed on `realpath(GRADLE_USER_HOME)` — the
