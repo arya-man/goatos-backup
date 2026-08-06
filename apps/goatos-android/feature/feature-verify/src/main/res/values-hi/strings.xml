@@ -23,6 +23,8 @@
     <string name="verify_queue_empty">कतार खाली है</string>
     <string name="verify_queue_unsupported_module">यह कतार अभी ऐप में उपलब्ध नहीं है</string>
     <string name="verify_queue_unsupported_module_subtitle">इन प्रमाणों की समीक्षा के लिए Mesha वेब ऐप खोलें।</string>
+    <string name="verify_queue_load_failed">कतार लोड नहीं हो सकी</string>
+    <string name="verify_queue_load_failed_subtitle">इस कतार को पढ़ने में समस्या हुई। फिर से कोशिश करने के लिए रिफ़्रेश करें।</string>
     <string name="verify_queue_empty_subtitle">अभी सत्यापित करने के लिए कोई वीडियो लंबित नहीं है</string>
     <string name="verify_action_queue_empty">कोई सबमिट वीडियो नहीं</string>
     <string name="verify_action_queue_empty_subtitle">सबमिट किए गए टीकाकरण वीडियो निदेशक समीक्षा के लिए यहाँ दिखेंगे</string>

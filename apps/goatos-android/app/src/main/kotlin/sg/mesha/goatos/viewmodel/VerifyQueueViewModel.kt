@@ -216,19 +216,17 @@ class VerifyQueueViewModel @Inject constructor(
         val items = resource.data?.items.orEmpty()
         val filterOptions = resource.data?.filterOptions
 
-        // Error handling: show error only if no cached data exists. If we have cached rows,
-        // keep showing them with the error cleared so the user can still work offline.
-        val queueError = if (items.isEmpty() && flags.hasLoadedOnce) {
-            val err = resource.error
-            if (err != null) {
-                err.serverErrorText()?.display
-                    ?: "Couldn't load the queue. Please try again."
-            } else {
-                null
-            }
-        } else {
-            null
-        }
+        // Surface a failure only when there is nothing to show. With cached rows we keep
+        // drawing them, because stale work beats a blank screen for an operator in a shed.
+        //
+        // queueFailed and queueError are separate on purpose. The failure is a FACT the
+        // ViewModel knows; the words for it are not the ViewModel's to choose. A literal
+        // English fallback here could never be translated -- this module ships en/hi/kn/te
+        // -- so the fallback copy lives in the string table and is resolved by the
+        // composable. queueError carries ONLY the backend's own explanation when there is
+        // one, per ServerErrorText.kt: the backend owns the copy, the client renders it.
+        val queueFailed = items.isEmpty() && flags.hasLoadedOnce && resource.error != null
+        val queueError = if (queueFailed) resource.error?.serverErrorText()?.display else null
 
         VerifyQueueUiState(
             // ONE CARD PER SHED: the backend emits one verification_item per goat, so a naive
@@ -267,6 +265,7 @@ class VerifyQueueViewModel @Inject constructor(
             hasMore = !isActionQueue && resource.data?.nextCursor != null,
             isLoadingMore = flags.isLoadingMore,
             hasLoadedOnce = flags.hasLoadedOnce,
+            queueFailed = queueFailed,
             queueError = queueError,
             driveClosures = resource.data?.driveClosures.orEmpty()
                 .filter { it.ready }
