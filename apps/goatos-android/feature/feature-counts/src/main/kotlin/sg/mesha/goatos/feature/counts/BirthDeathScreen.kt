@@ -114,6 +114,8 @@ data class BirthDeathUiState(
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val parkId: String = "",
     val shedId: String = "",
+    /** The pen within [shedId], or null for a shed-level placement. See AddBirthState. */
+    val partitionLabel: String? = null,
     /** Set when the destination catalog could not be loaded and no cached copy exists. */
     val destinationsMessage: String? = null,
     val damId: String = "",
@@ -139,6 +141,10 @@ data class BirthDeathUiState(
     /** The sheds of the currently chosen park — the second placement dropdown's whole option set. */
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
+
+    /** The composite dropdown key for the current selection; shed alone is not unique. */
+    val shedOptionKey: String
+        get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
 }
 
 sealed interface BirthDeathEvent {
@@ -419,16 +425,19 @@ private fun androidx.compose.foundation.lazy.LazyListScope.birthFields(
                 enabled = state.destinationParks.isNotEmpty(),
             )
             val sheds = state.shedsForSelectedPark
-            val selectedShed = sheds.firstOrNull { it.shedId == state.shedId }
+            // Composite key + backend label, same rule as AddBirthScreen: the destinations feed
+            // is one row PER PARTITION, so shedId is not unique and a bare name renders one shed
+            // ten identical times.
+            val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
             CountsDropdownField(
                 label = stringResource(R.string.counts_field_shed),
-                selectedLabel = selectedShed?.name,
+                selectedLabel = selectedShed?.displayLabel,
                 placeholder = if (state.parkId.isBlank()) {
                     stringResource(R.string.counts_select_farm_first)
                 } else {
                     stringResource(R.string.counts_select_shed)
                 },
-                options = sheds.map { CountsDropdownOption(it.shedId, it.name) },
+                options = sheds.map { CountsDropdownOption(it.optionKey, it.displayLabel) },
                 onSelect = { onEvent(BirthDeathEvent.SelectShed(it)) },
                 enabled = sheds.isNotEmpty(),
             )

@@ -525,7 +525,7 @@ internal fun GoatSearchItemDto.toShiftingAnimalUi(): ShiftingAnimalUi = Shifting
     parkName = locationPath.parkName.orEmpty(),
     shedName = locationPath.shedName.orEmpty(),
     partitionLabel = locationPath.partitionLabel,
-    locationLabel = locationPath.display,
+    locationLabel = locationPath.operationalLocationDisplay,
     // Carried for the death target (Birth/Death screen): the write sends this row_version verbatim
     // and the confirmation card shows sex + status. Shifting ignores all three.
     rowVersion = rowVersion,
@@ -549,6 +549,11 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
     parkId = parkId,
     name = name,
     sheds = sheds.map {
-        ShiftingShedUi(shedId = it.shedId, name = it.name, partitionLabel = it.partitionLabel)
+        ShiftingShedUi(
+            shedId = it.shedId,
+            name = it.name,
+            partitionLabel = it.partitionLabel,
+            operationalLocationDisplay = it.operationalLocationDisplay,
+        )
     },
 )

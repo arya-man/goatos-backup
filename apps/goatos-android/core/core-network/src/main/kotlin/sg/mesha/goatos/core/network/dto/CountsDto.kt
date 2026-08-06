@@ -299,6 +299,14 @@ data class CountsShiftingPendingExecutionItemDto(
     @SerialName("destination_shed_id") val destinationShedId: String = "",
     @SerialName("destination_shed_name") val destinationShedName: String = "",
     @SerialName("destination_partition_label") val destinationPartitionLabel: String? = null,
+    /**
+     * Backend-composed labels for each end of the movement ("Castro - 1" -> "Castro - 2"). Render
+     * these; do not rebuild them from shed name + partition. Both were added 2026-08-06 together
+     * with the server fields that populate them — until then this DTO's partition fields were
+     * declared but nothing ever sent them, so approve/execute read "Castro -> Castro".
+     */
+    @SerialName("source_operational_location_display") val sourceOperationalLocationDisplay: String? = null,
+    @SerialName("destination_operational_location_display") val destinationOperationalLocationDisplay: String = "",
     @SerialName("approved_by_user_id") val approvedByUserId: String? = null,
     @SerialName("approved_at") val approvedAt: String? = null,
     @SerialName("approved_at_ist") val approvedAtIst: String? = null,
@@ -466,6 +474,13 @@ data class CountsBirthEventRequestDto(
     @SerialName("species") val species: String,
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
+    /**
+     * The pen within [shedId] the newborn is placed into ("1", "Part 3"). Null = shed-level
+     * placement, which is exactly the pre-2026-08-06 behaviour, so this is additive. Without it a
+     * birth into "Godel 1 - 3" could only ever be recorded as "Godel 1", and the destination feed
+     * returns one option PER PARTITION, so [shedId] alone does not identify the chosen option.
+     */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("breed") val breed: String? = null,
     @SerialName("sex") val sex: String,
     @SerialName("dob") val dob: String,

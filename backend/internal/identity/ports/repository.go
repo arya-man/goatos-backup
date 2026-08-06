@@ -10,15 +10,19 @@ import (
 )
 
 var (
-	ErrNotFound                       = errors.New("identity record not found")
-	ErrIdempotencyConflict            = errors.New("idempotency key reused with different request")
-	ErrIdempotencyPending             = errors.New("idempotency key is not completed")
-	ErrWriteConflict                  = errors.New("identity write conflict")
-	ErrNoTemporaryIdentifier          = errors.New("identity goat has no active temporary identifier to promote")
-	ErrInvalidReference               = errors.New("identity referenced record is invalid")
-	ErrInvalidCursor                  = errors.New("invalid pagination cursor")
-	ErrGuardrailRequired              = errors.New("identity critical transition requires guardrail")
-	ErrInvalidChronology              = errors.New("identity dob must be on or before entry_date")
+	ErrNotFound              = errors.New("identity record not found")
+	ErrIdempotencyConflict   = errors.New("idempotency key reused with different request")
+	ErrIdempotencyPending    = errors.New("idempotency key is not completed")
+	ErrWriteConflict         = errors.New("identity write conflict")
+	ErrNoTemporaryIdentifier = errors.New("identity goat has no active temporary identifier to promote")
+	ErrInvalidReference      = errors.New("identity referenced record is invalid")
+	ErrInvalidCursor         = errors.New("invalid pagination cursor")
+	ErrGuardrailRequired     = errors.New("identity critical transition requires guardrail")
+	ErrInvalidChronology     = errors.New("identity dob must be on or before entry_date")
+	// ErrPartitionNotInShed: a create/placement named a partition_label that does not exist in
+	// shed_partitions for that shed. Rejected rather than stored, so a typo can never put an
+	// animal in a pen that is not real; a shed-level placement omits the field instead.
+	ErrPartitionNotInShed             = errors.New("identity partition_label is not a real partition of this shed")
 	ErrFutureAnchor                   = errors.New("identity dob/entry_date cannot be in the future")
 	ErrCriticalDeathGuardrailRequired = fmt.Errorf("%w: death exit", ErrGuardrailRequired)
 	// ErrCrossParkMove: goats never move between parks (maintainer decision 2026-07-19).
@@ -184,11 +188,13 @@ type MoveGoatCommand struct {
 	GoatID               string
 	ToParkID             string
 	ToShedID             string
-	Reason               string
-	OccurredAt           time.Time
-	EvidenceRefs         []domain.EvidenceRef
-	RowVersion           int
-	GuardrailApproved    bool
+	// ToPartitionLabel is the destination pen, or nil for a shed-level move.
+	ToPartitionLabel  *string
+	Reason            string
+	OccurredAt        time.Time
+	EvidenceRefs      []domain.EvidenceRef
+	RowVersion        int
+	GuardrailApproved bool
 }
 
 type ExitGoatCommand struct {
@@ -336,16 +342,21 @@ type CreateAdminGoatCommand struct {
 	FarmID               *string
 	ParkID               string
 	ShedID               string
-	Species              string
-	Breed                *string
-	Sex                  string
-	DOB                  *time.Time
-	DOBEstimated         bool
-	OriginType           string
-	EntryDate            time.Time
-	ManagementStage      *string
-	HealthStatus         *string
-	WeightKg             *float64
+	// PartitionLabel is the pen within ShedID, or nil for a shed-level placement. nil is the
+	// pre-2026-08-06 behaviour and stays the default, so callers that never set it are unchanged.
+	// When set, the repository validates it against shed_partitions and upserts
+	// goat_shed_partitions inside the same transaction as the goats insert.
+	PartitionLabel  *string
+	Species         string
+	Breed           *string
+	Sex             string
+	DOB             *time.Time
+	DOBEstimated    bool
+	OriginType      string
+	EntryDate       time.Time
+	ManagementStage *string
+	HealthStatus    *string
+	WeightKg        *float64
 	// DamID is canonical after ValidateAdminGoatCreate; it is never a copied RFID in a persisted
 	// birth relationship or emitted goat.created payload.
 	DamID      *string

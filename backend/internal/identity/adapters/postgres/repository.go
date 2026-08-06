@@ -122,7 +122,8 @@ SELECT
 FROM goat_shed_partitions
 WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`, tenantID, goatID).Scan(&partitionLabel, &sourceShedName)
 	if errors.Is(err, pgx.ErrNoRows) {
-		loc.OperationalLocationDisplay = loc.Display
+		// No partition row for this animal: the bare shed/park label seeded by the caller is
+		// already the correct operational location, so there is nothing to compose.
 		return nil
 	}
 	if err != nil {
@@ -603,19 +604,21 @@ func goatSummaryFromSQLC(row sqlcGoatRow) (domain.GoatSummary, string, *string, 
 		ManagementStage:    pgTextPtr(row.ManagementStage),
 		HealthStatus:       pgTextPtr(row.HealthStatus),
 		LocationPath: domain.LocationPath{
-			Display:    row.LocationDisplay,
-			FarmID:     nonEmptyStringPtr(row.FarmID),
-			FarmCode:   nonEmptyStringPtr(row.FarmCode),
-			FarmName:   nonEmptyStringPtr(row.FarmName),
-			ParkID:     nonEmptyStringPtr(row.ParkID),
-			ParkCode:   nonEmptyStringPtr(row.ParkCode),
-			ParkName:   nonEmptyStringPtr(row.ParkName),
-			ShedID:     nonEmptyStringPtr(row.ShedID),
-			ShedCode:   nonEmptyStringPtr(row.ShedCode),
-			ShedName:   nonEmptyStringPtr(row.ShedName),
-			CohortID:   nonEmptyStringPtr(row.CohortID),
-			CohortCode: nonEmptyStringPtr(row.CohortCode),
-			CohortName: nonEmptyStringPtr(row.CohortName),
+			// Seeded with the bare shed/park label; applyLocationPartition overwrites it with the
+			// partition-aware composition when the animal is in a pen.
+			OperationalLocationDisplay: row.LocationDisplay,
+			FarmID:                     nonEmptyStringPtr(row.FarmID),
+			FarmCode:                   nonEmptyStringPtr(row.FarmCode),
+			FarmName:                   nonEmptyStringPtr(row.FarmName),
+			ParkID:                     nonEmptyStringPtr(row.ParkID),
+			ParkCode:                   nonEmptyStringPtr(row.ParkCode),
+			ParkName:                   nonEmptyStringPtr(row.ParkName),
+			ShedID:                     nonEmptyStringPtr(row.ShedID),
+			ShedCode:                   nonEmptyStringPtr(row.ShedCode),
+			ShedName:                   nonEmptyStringPtr(row.ShedName),
+			CohortID:                   nonEmptyStringPtr(row.CohortID),
+			CohortCode:                 nonEmptyStringPtr(row.CohortCode),
+			CohortName:                 nonEmptyStringPtr(row.CohortName),
 		},
 		WeightKg:         row.WeightKg,
 		RowVersion:       int32(row.RowVersion),
@@ -690,7 +693,7 @@ func scanGoatRow(row scanner) (domain.GoatSummary, string, *string, int, error) 
 		&growth,
 		&management,
 		&health,
-		&summary.LocationPath.Display,
+		&summary.LocationPath.OperationalLocationDisplay,
 		&farmID,
 		&farmCode,
 		&farmName,
@@ -759,12 +762,11 @@ func applyLocationPartition(loc *domain.LocationPath, partitionLabel, sourceShed
 		loc.SourceShedName = &src
 	}
 	if loc.ShedID != nil && loc.PartitionLabel != nil && loc.ShedName != nil {
-		loc.Display = oploc.OperationalLocation{
+		loc.OperationalLocationDisplay = oploc.OperationalLocation{
 			ShedName:       *loc.ShedName,
 			PartitionLabel: *loc.PartitionLabel,
 		}.Display()
 	}
-	loc.OperationalLocationDisplay = loc.Display
 }
 
 func scanIdentifier(row scanner) (domain.GoatIdentifier, error) {
@@ -857,7 +859,7 @@ func scanIdentifierMatch(row scanner) (domain.GoatIdentifier, domain.GoatSummary
 		&growth,
 		&management,
 		&health,
-		&summary.LocationPath.Display,
+		&summary.LocationPath.OperationalLocationDisplay,
 		&farmID,
 		&farmCode,
 		&farmName,

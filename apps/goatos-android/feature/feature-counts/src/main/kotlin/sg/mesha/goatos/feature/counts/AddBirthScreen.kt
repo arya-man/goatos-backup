@@ -27,11 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 /**
  * Add-birth form (`/counts/birth/add` — docs/decisions/birth-death-workflows.md §"Birth submit
@@ -59,6 +59,12 @@ data class AddBirthUiState(
     val destinationParks: List<ShiftingParkUi> = emptyList(),
     val parkId: String = "",
     val shedId: String = "",
+    /**
+     * The pen within [shedId], or null for a shed-level placement. Carried alongside [shedId]
+     * because the destinations feed returns one option PER PARTITION and shedId is therefore not
+     * a unique key.
+     */
+    val partitionLabel: String? = null,
     val destinationsMessage: String? = null,
     val damId: String = "",
     val litterSize: Int = 1,
@@ -74,6 +80,10 @@ data class AddBirthUiState(
 ) {
     val shedsForSelectedPark: List<ShiftingShedUi>
         get() = destinationParks.firstOrNull { it.parkId == parkId }?.sheds.orEmpty()
+
+    /** The composite dropdown key for the current selection; shed alone is not unique. */
+    val shedOptionKey: String
+        get() = listOfNotNull(shedId.takeIf { it.isNotBlank() }, partitionLabel).joinToString("|")
 }
 
 sealed interface AddBirthEvent {
@@ -122,7 +132,7 @@ fun AddBirthScreen(
                     Text(
                         text = stringResource(R.string.counts_add_birth_tag_note),
                         color = MeshaColors.Faint,
-                        fontSize = 11.sp,
+                        style = MeshaType.cardSubtitle,
                     )
                     CountsSegmented(
                         options = listOf(
@@ -172,8 +182,7 @@ fun AddBirthScreen(
                     Text(
                         text = stringResource(R.string.counts_field_litter_size),
                         color = MeshaColors.Muted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.W700,
+                        style = MeshaType.pillStrong,
                     )
                     CountsSegmented(
                         options = listOf(
@@ -209,21 +218,26 @@ fun AddBirthScreen(
                         enabled = state.destinationParks.isNotEmpty(),
                     )
                     val sheds = state.shedsForSelectedPark
-                    val selectedShed = sheds.firstOrNull { it.shedId == state.shedId }
+                    // Keyed on optionKey (shedId|partitionLabel), never shedId alone. The
+                    // destinations feed returns one row PER PARTITION, so a shed with 10 pens
+                    // appears 10 times under one shedId; matching on shedId resolved every one of
+                    // them to the first row, which meant the operator could pick "Godel 1 - 7" and
+                    // silently record "Godel 1 - 1".
+                    val selectedShed = sheds.firstOrNull { it.optionKey == state.shedOptionKey }
                     CountsDropdownField(
                         label = stringResource(R.string.counts_field_shed),
-                        selectedLabel = selectedShed?.name,
+                        selectedLabel = selectedShed?.displayLabel,
                         placeholder = if (state.parkId.isBlank()) {
                             stringResource(R.string.counts_select_farm_first)
                         } else {
                             stringResource(R.string.counts_select_shed)
                         },
-                        options = sheds.map { CountsDropdownOption(it.shedId, it.name) },
+                        options = sheds.map { CountsDropdownOption(it.optionKey, it.displayLabel) },
                         onSelect = { onEvent(AddBirthEvent.SelectShed(it)) },
                         enabled = sheds.isNotEmpty(),
                     )
                     state.destinationsMessage?.let { message ->
-                        Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                        Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                     }
                 }
             }
@@ -232,12 +246,12 @@ fun AddBirthScreen(
                 Text(
                     text = stringResource(R.string.counts_add_birth_workflow_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.cardSubtitle,
                 )
             }
             state.validationMessage?.let { message ->
                 item(key = "validation") {
-                    Text(text = message, color = MeshaColors.Warn, fontSize = 12.sp)
+                    Text(text = message, color = MeshaColors.Warn, style = MeshaType.cardSubtitle)
                 }
             }
             item(key = "submit") {
@@ -261,7 +275,7 @@ fun AddBirthScreen(
                 Text(
                     text = stringResource(R.string.counts_offline_note),
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
+                    style = MeshaType.cardSubtitle,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -302,8 +316,7 @@ internal fun AddFormExpander(expanded: Boolean, onToggle: () -> Unit, label: Str
         Text(
             text = label,
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pillStrong,
             modifier = Modifier.weight(1f),
         )
         Icon(

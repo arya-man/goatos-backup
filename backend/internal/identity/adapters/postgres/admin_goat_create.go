@@ -358,6 +358,44 @@ func (r *Repository) createAdminGoatInTx(ctx context.Context, tx pgx.Tx, cmd por
 	); err != nil {
 		return nil, err
 	}
+	// Partition placement. Before 2026-08-06 the create path had NO partition concept at all --
+	// it wrote goats.shed_id and nothing else -- so a birth into "Godel 1 - 3" could only ever be
+	// stored as "Godel 1". nil keeps exactly that old behaviour, which is what makes this additive
+	// for every existing caller.
+	//
+	// Both statements run on `tx`, the same transaction as the goats INSERT above: a create must
+	// never commit a goat and then fail to record its pen, or the animal silently lands at shed
+	// level and no later read can tell that a partition was ever requested.
+	if cmd.PartitionLabel != nil {
+		label := strings.TrimSpace(*cmd.PartitionLabel)
+		// Validate against the authoritative catalog (migration 000112), not against
+		// goat_shed_partitions -- the latter only knows pens that already hold an animal, so
+		// checking it would make the FIRST placement into an empty pen impossible. That is the
+		// "cannot fill an empty pen" bug the catalog exists to fix.
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM shed_partitions
+  WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
+    AND lower(btrim(partition_label)) = lower(btrim($3))
+)`, cmd.TenantID, cmd.ShedID, label).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("identity: create admin goat: check shed_partitions: %w", err)
+		}
+		if !exists {
+			return nil, ports.ErrPartitionNotInShed
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, now())
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+    shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now()`,
+			cmd.TenantID, goatID, cmd.ShedID, label, cmd.ShedID); err != nil {
+			return nil, fmt.Errorf("identity: create admin goat: upsert goat_shed_partitions: %w", err)
+		}
+	}
 	if cmd.OriginType == "birth" {
 		if cmd.DamID == nil || cmd.LitterSize == nil || *cmd.LitterSize < 1 || *cmd.LitterSize > 3 {
 			return nil, ports.ErrWriteConflict

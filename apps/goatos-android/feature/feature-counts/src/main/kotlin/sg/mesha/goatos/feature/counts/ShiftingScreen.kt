@@ -109,7 +109,19 @@ data class ShiftingShedUi(
     val shedId: String,
     val name: String,
     val partitionLabel: String? = null,
+    /**
+     * The backend-composed operational-location label ("Yashoda", "Castro - 2",
+     * "Godel 1 - Part 3"). Render this verbatim: the backend owns visible labels, and composing
+     * shed + partition on the client duplicates that rule into a second language where it drifts.
+     * Falls back to the local composer only when the server sends nothing, so an older backend
+     * still renders something sensible instead of a blank row.
+     */
+    val operationalLocationDisplay: String = "",
 ) {
+    /** What the operator should read for this option. */
+    val displayLabel: String
+        get() = operationalLocationDisplay.ifBlank { operationalLocationLabel(name, partitionLabel) }
+
     /** Stable dropdown-option key: shed alone is not unique once a shed has partitions. */
     val optionKey: String
         get() = listOfNotNull(shedId, partitionLabel).joinToString("|")

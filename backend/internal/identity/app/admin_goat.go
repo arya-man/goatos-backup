@@ -415,6 +415,23 @@ func (s *Service) normalizeAdminGoatCreate(_ context.Context, tenantID, actorID,
 	if normalized.ShedID != nil && !uuidPattern.MatchString(*normalized.ShedID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "shed_id", Code: "invalid", Message: "shed_id must be a UUID"})
 	}
+	// A partition names a pen INSIDE a shed, so it is meaningless without one, and it must never
+	// be the "whole" matching sentinel -- that is a comparison key, not a place (oploc.WholeSentinel).
+	// Existence against shed_partitions is checked in the repository, inside the create transaction,
+	// where the shed row is already being read.
+	if normalized.PartitionLabel != nil {
+		label := strings.TrimSpace(*normalized.PartitionLabel)
+		switch {
+		case label == "":
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: "partition_label must not be blank; omit it for a shed-level placement"})
+		case strings.EqualFold(label, "whole"):
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: `partition_label must not be "whole"; omit it for a shed-level placement`})
+		case normalized.ShedID == nil && normalized.ShedCode == nil:
+			errorsOut = append(errorsOut, domain.FieldError{Field: "partition_label", Code: "invalid", Message: "partition_label requires a shed"})
+		default:
+			normalized.PartitionLabel = &label
+		}
+	}
 	if normalized.FarmID != nil && !uuidPattern.MatchString(*normalized.FarmID) {
 		errorsOut = append(errorsOut, domain.FieldError{Field: "farm_id", Code: "invalid", Message: "farm_id must be a UUID"})
 	}
@@ -561,6 +578,9 @@ func validateAdminGoatCreate(ctx context.Context, repo adminGoatRepository, norm
 	cmd.FarmID = validation.FarmID
 	cmd.ParkID = validation.ParkID
 	cmd.ShedID = validation.ShedID
+	// Carried verbatim; the repository checks it against the shed's real partitions inside the
+	// create transaction. Nil stays nil, so a shed-level create behaves exactly as before.
+	cmd.PartitionLabel = normalized.PartitionLabel
 	if normalized.OriginType == "birth" {
 		cmd.DamID = validation.DamGoatID
 	}

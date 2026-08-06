@@ -1928,7 +1928,6 @@ export interface components {
         /** @enum {string} */
         IdentifierStatus: "active" | "retired" | "disputed" | "duplicate" | "invalid";
         LocationPath: {
-            display: string;
             /** Format: uuid */
             farm_id?: string | null;
             /** Format: uuid */
@@ -1942,7 +1941,7 @@ export interface components {
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            operational_location_display: string;
         };
         GoatSummary: {
             /** Format: uuid */
@@ -2011,6 +2010,8 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
+            /** @description The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. Optional and additive: omitting it preserves the previous shed-level behaviour exactly. Validated against the shed's real partitions when present; never the "whole" sentinel. */
+            partition_label?: string | null;
             breed?: string;
             /** @enum {string} */
             sex: "female" | "male";
@@ -2057,6 +2058,8 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description The destination pen within shed_id ('1', 'Part 3'). Without this a move could only target a whole shed, so Castro 1 -> Castro 2 was unexpressible on this route while the app-api shifting route could already express it. Optional and additive: omitting it preserves the previous shed-level move behaviour. */
+            partition_label?: string | null;
             reason: string;
             /** Format: date-time */
             occurred_at?: string;

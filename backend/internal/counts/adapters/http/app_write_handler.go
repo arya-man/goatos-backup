@@ -1252,6 +1252,17 @@ func (h *AppWriteHandler) writeAppError(w http.ResponseWriter, r *http.Request, 
 		h.writeError(w, r, appErr.HTTPStatus, appErr.Code, appErr.Message, err)
 		return
 	}
+	// Raw identity SENTINELS reach this path too, and only *identityapp.Error was unwrapped above --
+	// so a sentinel fell through to a 500. Observed 2026-08-06 in a live run: a birth naming a pen
+	// that does not exist in the shed was correctly refused and correctly rolled back, but the
+	// operator got "internal server error" instead of being told the pen was wrong. Identity's own
+	// mapRepoErr does map this, but the birth route does not go through it: it submits through the
+	// counts approvals path, so the mapping has to exist here as well.
+	if errors.Is(err, identityports.ErrPartitionNotInShed) {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_partition_label",
+			"that partition does not exist in the selected shed", err)
+		return
+	}
 	h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 }
 

@@ -64,10 +64,23 @@ class OperationalLocationLabelTest {
     }
 
     @Test
-    fun `numeric partition uses space format`() {
-        assertEquals("Castro 2", operationalLocationLabel("Castro", "2"))
-        assertEquals("Castro 1", operationalLocationLabel("Castro", "1"))
-        assertEquals("Godel 1 5", operationalLocationLabel("Godel 1", "5"))
+    fun `numeric partition uses dash format`() {
+        assertEquals("Castro - 2", operationalLocationLabel("Castro", "2"))
+        assertEquals("Castro - 1", operationalLocationLabel("Castro", "1"))
+        assertEquals("Godel 1 - 5", operationalLocationLabel("Godel 1", "5"))
+    }
+
+    /**
+     * The reason the separator changed (2026-08-06). A shed NAME that itself ends in a digit made
+     * the old space form unreadable: "Godel 1" + "1" rendered "Godel 1 1", and "Godel 1" + "10"
+     * rendered "Godel 1 10", which cannot be parsed back into shed + partition by eye. This was
+     * 98 of 130 live STG destination options (75%), not an edge case.
+     */
+    @Test
+    fun `digit-terminated shed names stay readable`() {
+        assertEquals("Godel 1 - 1", operationalLocationLabel("Godel 1", "1"))
+        assertEquals("Godel 1 - 10", operationalLocationLabel("Godel 1", "10"))
+        assertEquals("Sumathi 2 - 7", operationalLocationLabel("Sumathi 2", "7"))
     }
 
     @Test

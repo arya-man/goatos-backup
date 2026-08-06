@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -142,6 +144,40 @@ INSERT INTO goat_location_history (
 )`,
 		cmd.TenantID, cmd.GoatID, stringValue(state.CurrentLocation), cmd.ToShedID, goatLocationHistoryReasonMove, cmd.OccurredAt, cmd.ActorID, cmd.StoredIdempotencyKey); err != nil {
 		return nil, err
+	}
+	// The animal's PEN moves with it, in this same transaction. Two cases, and the DELETE half
+	// matters as much as the upsert: a move to a shed with no pen named must CLEAR any pen the
+	// animal used to occupy, or it keeps a goat_shed_partitions row pointing at the shed it just
+	// left and every partition-aware read reports it in the wrong place.
+	if cmd.ToPartitionLabel != nil {
+		label := strings.TrimSpace(*cmd.ToPartitionLabel)
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM shed_partitions
+  WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
+    AND lower(btrim(partition_label)) = lower(btrim($3))
+)`, cmd.TenantID, cmd.ToShedID, label).Scan(&exists); err != nil {
+			return nil, fmt.Errorf("identity: move goat: check shed_partitions: %w", err)
+		}
+		if !exists {
+			return nil, ports.ErrPartitionNotInShed
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name, updated_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, now())
+ON CONFLICT (tenant_id, goat_id) DO UPDATE SET
+    shed_id = EXCLUDED.shed_id,
+    partition_label = EXCLUDED.partition_label,
+    source_shed_name = EXCLUDED.source_shed_name,
+    updated_at = now()`,
+			cmd.TenantID, cmd.GoatID, cmd.ToShedID, label, cmd.ToShedID); err != nil {
+			return nil, fmt.Errorf("identity: move goat: upsert goat_shed_partitions: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx,
+		`DELETE FROM goat_shed_partitions WHERE tenant_id = $1::uuid AND goat_id = $2::uuid`,
+		cmd.TenantID, cmd.GoatID); err != nil {
+		return nil, fmt.Errorf("identity: move goat: clear goat_shed_partitions: %w", err)
 	}
 
 	payload := map[string]any{

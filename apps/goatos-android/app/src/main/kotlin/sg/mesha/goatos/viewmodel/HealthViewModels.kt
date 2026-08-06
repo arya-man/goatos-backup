@@ -357,7 +357,7 @@ private fun GoatSearchItemDto.toHealthGoatUi() = HealthGoatUi(
     goatId = goatId,
     displayId = displayId.ifBlank { animalIdentifier1 },
     tag = animalIdentifier1,
-    locationLabel = locationPath.display,
+    locationLabel = locationPath.operationalLocationDisplay,
     sex = sex,
 )
 

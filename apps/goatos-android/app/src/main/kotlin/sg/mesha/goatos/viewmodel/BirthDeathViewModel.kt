@@ -361,12 +361,20 @@ class BirthDeathViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
-    private fun onSelectShed(shedId: String) {
+    /**
+     * [optionKey] is the composite `shedId|partitionLabel` dropdown key, not a shed id — the
+     * destinations feed returns one option per PARTITION, so a shed id does not identify a choice.
+     */
+    private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            // Guard the pairing at selection too: only a shed that belongs to the chosen park stores.
-            val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(shedId = shedId) else current
+            // Guard the pairing at selection too: only an option that belongs to the chosen park stores.
+            val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
+            if (option != null) {
+                current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
+            } else {
+                current
+            }
         }
         recomputeSubmitGate()
     }
@@ -492,6 +500,7 @@ class BirthDeathViewModel @Inject constructor(
             // Placement ids come from the destinations catalog, not free text — never a typed UUID.
             parkId = current.parkId.ifBlank { null },
             shedId = current.shedId.ifBlank { null },
+            partitionLabel = current.partitionLabel?.takeIf { it.isNotBlank() },
             // Breed is the selected facet key from the herd's own vocabulary, never typed.
             breed = current.breed.trim(),
             sex = current.sex,

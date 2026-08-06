@@ -4797,12 +4797,8 @@ components:
       type: object
       additionalProperties: false
       required:
-        - display
+        - operational_location_display
       properties:
-        display:
-          type: string
-          minLength: 1
-          maxLength: 200
         farm_id:
           type:
             - string
@@ -5080,6 +5076,16 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+          description: >-
+            The pen within shed_id this animal is placed into ('1', 'Part 3'), matching a row in
+            shed_partitions for that shed. Optional and additive: omitting it preserves the
+            previous shed-level behaviour exactly. Validated against the shed's real partitions
+            when present; never the "whole" sentinel.
         breed:
           type: string
           maxLength: 120
@@ -5210,6 +5216,16 @@ components:
         shed_id:
           type: string
           format: uuid
+        partition_label:
+          type:
+            - string
+            - "null"
+          maxLength: 120
+          description: >-
+            The destination pen within shed_id ('1', 'Part 3'). Without this a move could only
+            target a whole shed, so Castro 1 -> Castro 2 was unexpressible on this route while
+            the app-api shifting route could already express it. Optional and additive: omitting
+            it preserves the previous shed-level move behaviour.
         reason:
           type: string
           minLength: 3
