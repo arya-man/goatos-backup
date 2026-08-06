@@ -31,7 +31,15 @@ func splitShedPartitionName(name string) (parentShedName, partitionLabel string)
 // CampaignShed from its already-loaded DisplayName. OperationalLocationDisplay is composed
 // through oploc.OperationalLocation.Display() so it follows the exact same rendering rule as
 // every other module and can never show the "whole" sentinel.
+// The STORED partition_label wins when present: it was resolved from the shed_partitions catalog
+// at write time, and the catalog is the only thing that can prove a numeric partition. Re-deriving
+// from the display name here made a read return an empty partition for a row whose column held
+// "2" -- the write and the read disagreed about the same shed.
 func applyShedPartitionDisplay(shed *domain.CampaignShed) {
+	if oploc.IsPartitioned(shed.PartitionLabel) {
+		stampCampaignShedLocation(shed, shed.PartitionLabel)
+		return
+	}
 	parent, partition := splitShedPartitionName(shed.DisplayName)
 	shed.ParentShedName = parent
 	shed.PartitionLabel = partition
@@ -51,5 +59,38 @@ func applyPlannerShedPartitionDisplay(shed *domain.PlannerShed) {
 		ShedID:         shed.LocationID,
 		ShedName:       parent,
 		PartitionLabel: partition,
+	}.Display()
+}
+
+// stampCampaignShedLocation fills ParentShedName / PartitionLabel / OperationalLocationDisplay on a
+// row the WRITE path just produced, using the catalog-resolved label. The INSERT ... RETURNING
+// cannot supply these (they are derived, not stored columns), so without this a freshly created or
+// updated campaign returns a shed with an empty operational location while the same row reads back
+// correctly later — two different answers for one shed depending on which call you made.
+//
+// The catalog label is authoritative. The parent name is the display name minus that suffix, so
+// "Castro 2" + label "2" -> parent "Castro", and "Godel 1 - Part 3" + "Part 3" -> "Godel 1". A shed
+// with no catalog partition keeps its name verbatim ("Mandela 1" stays "Mandela 1").
+func stampCampaignShedLocation(shed *domain.CampaignShed, partitionLabel string) {
+	display := strings.TrimSpace(shed.DisplayName)
+	label := strings.TrimSpace(partitionLabel)
+	if !oploc.IsPartitioned(label) {
+		shed.PartitionLabel = ""
+		shed.ParentShedName = display
+		shed.OperationalLocationDisplay = display
+		return
+	}
+	parent := display
+	for _, suffix := range []string{" - " + label, " " + label} {
+		if strings.HasSuffix(display, suffix) {
+			parent = strings.TrimSuffix(display, suffix)
+			break
+		}
+	}
+	shed.PartitionLabel = label
+	shed.ParentShedName = strings.TrimSpace(parent)
+	shed.OperationalLocationDisplay = oploc.OperationalLocation{
+		ShedName:       strings.TrimSpace(parent),
+		PartitionLabel: label,
 	}.Display()
 }
