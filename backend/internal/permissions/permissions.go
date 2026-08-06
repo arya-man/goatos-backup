@@ -73,10 +73,45 @@ const (
 	// health.diagnose, which no operator holds — the phone showed them the ＋ Add-case button and
 	// the write came back 403, where the outbox retried it forever behind a "Retrying sync" row.
 	// Diagnosis/treatment authoring stays with the PC Director and CEO tier.
-	HealthRead                = "health.read"
-	HealthReport              = "health.report"
-	HealthDiagnose            = "health.diagnose"
-	HealthExecute             = "health.execute"
+	HealthRead     = "health.read"
+	HealthReport   = "health.report"
+	HealthDiagnose = "health.diagnose"
+	HealthExecute  = "health.execute"
+	// HealthConfigRead gates the AUTHORED TREATMENT-PROTOCOL read surface (/health-config/*): the
+	// per-disease, per-age-band day-by-day course -- which medicine, what dosage, by what route,
+	// on which day, and for how many days.
+	//
+	// It is deliberately SEPARATE from HealthRead, which gates the operator's WORK (/app/health/*:
+	// today's treatment sessions for the animals in front of them). Those are two different
+	// authorities: an operator must see the steps for the case they are treating, and must not be
+	// able to inspect and edit the standing clinical rulebook the whole herd is treated from.
+	// HealthRead already delivers the steps a case pinned; this permission is about the rulebook.
+	//
+	// Nav consequence: the Health Config screen declares this permission, so a principal without it
+	// does not receive that nav item. Hiding the item is not the control -- the routes require the
+	// same permission, so the screen is unreachable rather than merely invisible.
+	HealthConfigRead = "health.config.read"
+	// HealthConfigWrite gates EDITING that rulebook: changing a medicine or a dosage, changing how
+	// many days a course runs, adding a disease, and publishing any of it.
+	//
+	// This is the highest-consequence permission in the Health module, and it is granted narrowly
+	// for a clinical reason. A dosage is an instruction a field operator follows on an animal
+	// without re-deriving it -- the phone shows the step and they administer it. An incorrect
+	// ration produces thinner animals a month later; an incorrect dosage can produce a dead one the
+	// same day. So the authority to change it sits with the CEO tier and the Health Director, and
+	// nowhere else.
+	//
+	// Deliberately NOT granted to RoleOperator (executes a course, does not author it), RolePark-
+	// Head (runs a park's execution), RolePCDirector (Preventive Care is a DISTINCT department from
+	// Health -- see RoleHealthDirector), or RoleVerifier (separation of duty: the verifier checks
+	// captured work and must not be able to rewrite the standard that work is judged against).
+	//
+	// Every write it gates is versioned and ledgered: an edit builds a draft, publishing swaps
+	// which version is live and retires the old one, `health_cases` pins the version each goat was
+	// diagnosed under, and health_config_write_log records who changed what, when, and under which
+	// idempotency key. The permission controls who may author; the version history and the ledger
+	// are what make an authored change answerable afterwards.
+	HealthConfigWrite         = "health.config.write"
 	LocationsRead             = "locations.read"
 	LocationsWrite            = "locations.write"
 	LocationsReview           = "locations.review"
@@ -583,6 +618,19 @@ var rolePermissions = map[string]map[string]struct{}{
 		ProcurementRead: {},
 		RosterRead:      {}, RosterManage: {},
 		VerificationAct: {},
+		// The AUTHORED TREATMENT RULEBOOK (/health/config), maintainer decision 2026-08-06.
+		//
+		// This is the second documented extension to this role, and unlike the counts one it is
+		// squarely inside the handbook: Health_Director.pdf Responsibilities 1-4 put observation,
+		// diagnosis, treatment and treatment tracking on this desk, and the protocol IS the
+		// treatment standard those responsibilities are carried out against. GoatWriteHealth above
+		// already lets this role record a clinical fact about one animal; this lets it author the
+		// standing course every animal with that disease is treated under.
+		//
+		// It does NOT come with any Preventive Care permission, and must not: pc_director and
+		// health_director are separate departments and merging them is prohibited. Vaccination
+		// protocol authoring stays on /config with ProtocolWrite, which this role does not hold.
+		HealthConfigRead: {}, HealthConfigWrite: {},
 	},
 	// The whole role: three approval permissions, nothing else. See RoleCountsApprover's doc
 	// comment for why this exists as its own role rather than as additions to pc_director /
@@ -660,6 +708,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		VerificationReview:    {},
 		VerificationAct:       {},
 		HealthRead:            {}, HealthReport: {}, HealthDiagnose: {}, HealthExecute: {},
+		// The authored treatment rulebook (/health/config). Part of the founder/builder visibility
+		// invariant above: the platform-owner cohort holds the grants for every built visible
+		// module, so a founder is never locked out of a screen they are expected to operate.
+		HealthConfigRead: {}, HealthConfigWrite: {},
 	},
 }
 

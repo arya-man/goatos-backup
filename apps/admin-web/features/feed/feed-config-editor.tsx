@@ -5,7 +5,7 @@ import { Pencil } from "lucide-react";
 
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { FeedConfigActionResult } from "./feed-config-actions";
-import { afterSubmit, CLOSED_STATE, openIntent, type FeedConfigIdempotencyState } from "./feed-config-idempotency";
+import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
 
 // Inline editors for the three writable Feed Config surfaces.
 //
@@ -46,9 +46,9 @@ function FeedConfigFormShell({
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<FeedConfigActionResult | null>(null);
   // The idempotency-key lifecycle (mint on open, reuse across retries, rotate only after a
-  // confirmed success) is a pure state machine in feed-config-idempotency.ts, tested there
+  // confirmed success) is a pure state machine in lib/authoring-idempotency.ts, tested there
   // directly so the retry/replay behavior does not require mounting this component.
-  const [idem, setIdem] = useState<FeedConfigIdempotencyState>(CLOSED_STATE);
+  const [idem, setIdem] = useState<AuthoringIdempotencyState>(CLOSED_STATE);
 
   function handleOpen() {
     setResult(null);

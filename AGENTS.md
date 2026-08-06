@@ -365,6 +365,38 @@ by `counts.read` / `counts.write`, which today only `ceo_internal` holds. Granti
 proof, replacing the silent vaccination default) but NOT `counts.read`/`counts.write` until
 the feature is deliberately turned on. Ownership and access are separate decisions here.
 
+Confirmed Health-protocol authoring rule (maintainer decision 2026-08-06): `health_director` DOES
+hold `health.config.read` / `health.config.write` -- the authored treatment rulebook behind
+`/health/config`. This is a SECOND grant to that role and it is a different kind from the counts
+one above: counts ownership is an extension of the handbook, whereas this is squarely inside it
+(`Health_Director.pdf` Responsibilities 1-4 put observation, diagnosis, treatment and treatment
+tracking on that desk, and the protocol IS the standard those are carried out against). The role
+already held `goat.write_health` to record a clinical fact about ONE animal; this lets it author
+the standing course EVERY animal with that disease is treated under.
+
+Read the two together and the pattern is: `health_director` gets Health authority in full and
+Counts ownership without Counts access. It still gets NO Preventive Care permission -- `pc_director`
+and `health_director` are separate departments and merging them is prohibited, so vaccination
+protocol authoring stays on `/config` behind `ProtocolWrite`, which `health_director` does not hold.
+`health.config.write` is also deliberately withheld from `operator` (executes a course, does not
+author it), `park_head` (runs a park's execution) and `verifier` (separation of duty: the verifier
+must not rewrite the standard the work is judged against). Only `ceo_internal` and `health_director`
+hold it.
+
+TREATMENT PROTOCOLS ARE VERSIONED, NEVER EDITED IN PLACE, and that is a medical-safety property
+rather than an implementation preference. An edit builds a DRAFT; publishing promotes it and RETIRES
+the version it replaces. `health_cases` pins `health_protocol_version_id` at diagnosis, so a goat
+mid-treatment finishes on the dosages it started on and the version it was actually treated from
+stays readable forever. Do not "simplify" this into an in-place update: that changes the dose an
+animal currently being treated receives.
+
+The Google Sheet (`Adults SOP` / `Kids SOP`) is now a ONE-TIME BOOTSTRAP, not an ongoing sync.
+`ReplacePublishedProtocols` retires every published protocol and republishes the set, so running it
+after an app edit would silently discard that edit; it therefore fails closed with
+`ports.ErrImportAfterAuthoring` once any version carries the `health-config:app` source ref.
+`ReplacePublishedProtocolsOverwritingAuthored` is the reviewed break-glass. Canonical prose:
+`docs/decisions/health-config-authoring.md`.
+
 Separately: PLANNING a weighing task is CEO-only. `growth_director` monitors weighing across
 both parks, oversees the operators and may execute, but does not raise the task; the two
 planner reads that feed the create wizard (`/app/weighing/planner/catalog` and
@@ -997,7 +1029,17 @@ Purpose:
   classified `module-surface`, not `authority-screen`. This exception covers
   Config for Feed ONLY. No command lens (Control Tower, Action Center, Calendar,
   Protocol Adherence, Workflows) is exempt for any vertical, and none may be.
-  The machine guard carries the same single-entry allowlist in
+  **Ratified exception (maintainer decision 2026-08-06): `/health/config`.**
+  The SECOND and only other entry, same shape and same reasoning. Health authors
+  a treatment protocol: per disease x age band, an ordered day/session course of
+  medicine + dosage + unit + route, plain actions, and critical handoffs. That is
+  a Health-owned data model served by `/health-config/*`, not protocol `rule_dsl`,
+  and `/config?category=health` cannot render a per-day medicine grid. `/config`
+  remains the single generic protocol-rule authority screen; `/health/config` is
+  classified `module-surface`, not `authority-screen`. This exception covers
+  Config for Health ONLY. Canonical prose:
+  `docs/decisions/health-config-authoring.md`.
+  The machine guard carries the same allowlist — now exactly two entries — in
   `apps/admin-web/scripts/check-ia-guard.mjs`; widening it needs a new recorded
   maintainer decision here first.
 - Config / Protocol Rules is a generic Admin / Data Ops authority screen

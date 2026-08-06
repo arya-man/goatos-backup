@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { afterSubmit, CLOSED_STATE, openIntent } from "./feed-config-idempotency.ts";
+import { afterSubmit, CLOSED_STATE, openIntent } from "./authoring-idempotency.ts";
 
 // Regression coverage for the P2 idempotency-regeneration fix: `upsertFeedConfig*` used to default
 // the Idempotency-Key header to a fresh `randomUUID()` minted INSIDE the server call, so a retry

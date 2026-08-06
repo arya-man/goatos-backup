@@ -781,9 +781,59 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		case "verification-review":
 			out[i].Controls = compileVerificationReviewControls(out[i].Controls, input, out[i].Copy)
+		case "health-config":
+			out[i].Controls = compileHealthConfigControls(out[i].Controls, input, out[i].Copy)
 		}
 	}
 	return out
+}
+
+// compileHealthConfigControls splits /health/config by authority: HealthConfigRead reaches the
+// screen and reads the standing dosages; only HealthConfigWrite may change them.
+//
+// The four controls are declared here rather than left to the renderer so a read-only principal
+// gets a visibly DISABLED control carrying a reason, not a missing one. A missing button reads as
+// a broken page; a disabled button with "your role can read the protocols but cannot change them"
+// is an answer. This is the same shape compileConfigControls uses for protocol publish.
+func compileHealthConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
+	// An unauthenticated/grantless compile (contract shape requests, fixtures) keeps every control
+	// enabled, matching how compileConfigControls treats the same case.
+	allowed := len(input.Grants) == 0 || grantsAuthorize(input.Grants, input.TenantID, []string{permissions.HealthConfigWrite})
+	reason := ""
+	if !allowed {
+		reason = controlCopy(copy, "health_config.disabled_no_write", "Your current role can read the treatment protocols but cannot change them.")
+	}
+	for _, c := range []domain.Control{
+		{
+			ID:     "add_disease",
+			Label:  controlCopy(copy, "action.add_disease", "Add disease"),
+			Kind:   "primary_action",
+			Action: "POST /health-config/diseases",
+		},
+		{
+			ID:     "edit_protocol",
+			Label:  controlCopy(copy, "action.edit_protocol", "Edit"),
+			Kind:   "row_action",
+			Action: "POST /health-config/drafts",
+		},
+		{
+			ID:     "publish_protocol",
+			Label:  controlCopy(copy, "action.publish_protocol", "Publish"),
+			Kind:   "primary_action",
+			Action: "POST /health-config/protocols/{protocol_version_id}/publish",
+		},
+		{
+			ID:     "discard_draft",
+			Label:  controlCopy(copy, "action.discard_draft", "Discard draft"),
+			Kind:   "secondary_action",
+			Action: "POST /health-config/protocols/{protocol_version_id}/discard",
+		},
+	} {
+		c.Enabled = allowed
+		c.DisabledReason = reason
+		controls = upsertControl(controls, c)
+	}
+	return controls
 }
 
 func compileConfigControls(controls []domain.Control, input BootstrapInput, copy map[string]string) []domain.Control {
@@ -1203,6 +1253,11 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.CountsApproveAccess}
 	case "verification-actions":
 		return []string{permissions.VerificationReview}
+	case "health-config":
+		// The READ permission, not the write one: a principal allowed to inspect the standing
+		// dosages should reach the screen and see it read-only. Whether the save/publish controls
+		// are offered is a separate decision made from HealthConfigWrite on the page contract.
+		return []string{permissions.HealthConfigRead}
 	default:
 		return nil
 	}

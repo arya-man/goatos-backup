@@ -153,6 +153,29 @@ func navigation() domain.NavigationContract {
 					// navLeaf("feed-packing", "Feed Packing", "/feed/packing", nil),
 				},
 			},
+			// Health is a VERTICAL (diagnosis, treatment and veterinary care), and a DISTINCT
+			// department from Preventive Care -- merging the two is prohibited. Its icon must not
+			// be the syringe/injection token, which belongs to the Vaccination module under
+			// Preventive Care.
+			//
+			// SCOPE NOTE — Health Config is a Health-owned authority screen, approved by explicit
+			// maintainer decision 2026-08-06 (docs/decisions/health-config-authoring.md) as the
+			// SECOND entry in the module-surface exception list, alongside /feed/config. It is not
+			// a duplicate of the top-level Admin/Data Ops `/config`: a treatment protocol is a
+			// day-by-day medication document owned by the Health module and served by
+			// /health-config/*, not a protocol `rule_dsl` row, and `/config?category=health`
+			// cannot render a per-day medicine/dosage/route grid. `/config` stays the single
+			// generic protocol-rule authority screen, and no command lens (Control Tower, Action
+			// Center, Calendar, Protocol Adherence, Workflows) is duplicated under /health.
+			{
+				ID: "health", Label: "Health", Icon: "stethoscope", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeaf("health-config", "Health Config", "/health/config", nil),
+					// Health treatment EXECUTION is an app-only (operator) workflow — the operator
+					// works the day's treatment sessions on the phone. It is deliberately not a web
+					// surface, so there is no "/health/work" leaf. The authoring screen is web.
+				},
+			},
 			{
 				ID: "admin-data", Label: "Admin / Data Ops", Icon: "edit-3", DefaultOpen: true,
 				Leaves: []domain.NavigationItem{
@@ -190,6 +213,7 @@ func routeLabels() []domain.RouteLabelRule {
 		{Pattern: "/feed/direction", Label: "Feed Direction", Match: "exact"},
 		{Pattern: "/feed/packing", Label: "Feed Packing", Match: "exact"},
 		{Pattern: "/feed/config", Label: "Feed Config — Ration Rules", Match: "exact"},
+		{Pattern: "/health/config", Label: "Health Config — Treatment Protocols", Match: "exact"},
 		{Pattern: "/operations/audit", Label: "Audit Log", Match: "exact"},
 		{Pattern: "/operations/dlq", Label: "DLQ Center", Match: "exact"},
 		{Pattern: "/config", Label: "Config — Protocol Rules", Match: "exact"},
@@ -399,6 +423,29 @@ func pages() []domain.PageContract {
 				// as WHEN THE ANIMALS ARE FED. Animals are fed the NEXT morning; these are the
 				// issue, amend and cutoff times of the sheet that feeds them.
 				table("schedule-config", "Feed day clock", "/feed-config/schedule", []string{"workflow", "direction_time", "correction_time", "transport_time", "status"}, "schedule_row"),
+			}),
+		// ---------------------------------------------------------------------------
+		// Health Config — the authored treatment rulebook.
+		//
+		// TWO tables, and the split is the point rather than a layout choice. The catalog lists
+		// one row per disease per AGE BAND, because the two bands are separately authored
+		// documents that a diagnosis picks between using the goat's own age -- collapsing them
+		// into one disease row would hide that a kid's dosage differs from an adult's (two of the
+		// 27 imported diseases already do). The steps table is the document itself, read inside
+		// the editor drawer for the selected protocol.
+		//
+		// No KPI cards. Every list endpoint here returns a keyset cursor and no total, because
+		// counting the filtered catalog on each request is compute-on-read and a headline computed
+		// from the visible page would be a false statement about the rulebook.
+		// ---------------------------------------------------------------------------
+		page("health-config", "/health/config", "/health/config", "Health Config — Treatment Protocols", "Health-owned authority screen for the authored disease treatment courses: medicines, dosages, routes, and how many days each course runs.", "module-surface",
+			[]domain.TableContract{
+				tableP("protocol-catalog", "Treatment protocols", "/health-config/protocols", []string{"display_name", "age_band", "duration_days", "step_count", "medication_count", "critical_action_count", "published_version", "draft_state"}, "protocol_version_id", []int{10, 25, 50}),
+				// The document. medicine/dosage/route are empty on action and critical-action
+				// steps by design -- those steps carry an instruction instead -- so the columns are
+				// deliberately sparse rather than being split into three tables an author would
+				// have to reconcile in their head.
+				table("protocol-steps", "Protocol steps", "/health-config/protocols", []string{"day_no", "session", "record_type", "medicine_name", "dosage_text", "dosage_denominator", "medicine_route", "instruction", "critical_action_type"}, "step_id"),
 			}),
 		page("audit-log", "/operations/audit", "/operations/audit", "Audit Log", "Business audit trail for built admin/operator/system actions.", "authority-screen",
 			[]domain.TableContract{table("activity-trail", "Activity trail", "/operations/audit", []string{"when", "operation", "operator", "action", "target", "result", "proof"}, "audit_row")}),
@@ -2275,6 +2322,104 @@ func pageSpecificCopy(id string) map[string]string {
 			"lifecycle.state.preview":        "preview",
 			"lifecycle.state.beyond_horizon": "beyond window",
 		}
+	case "health-config":
+		// Every visible string on /health/config. The renderer owns layout and nothing else --
+		// AGENTS.md's backend-owns-labels rule applies with extra force here because these strings
+		// describe a MEDICAL document, and a client-invented label ("dose", "amount", "strength")
+		// would quietly redefine what an author thinks they are typing.
+		return map[string]string{
+			"crumb": "Health",
+
+			"section.catalog.title":   "Treatment protocols",
+			"section.catalog.aria":    "Authored disease treatment courses",
+			"section.catalog.caption": "One course per disease, per age band",
+			"section.catalog.note":    "The standing rulebook a diagnosis loads from. Adult and kid are separately authored because a kid's dosage is not always an adult's, and the phone picks between them using the animal's own age band. Editing never touches the live course: a change builds a draft, and publishing swaps which version is live.",
+
+			"section.steps.title":   "Protocol steps",
+			"section.steps.aria":    "The day-by-day course",
+			"section.steps.caption": "What the operator does, in the order they do it",
+			"section.steps.note":    "Each step is a medicine, an action, or a critical action that hands the animal to quarantine or a lifecycle exit. Steps are ordered by day and by session within the day; the order shown here is the order the operator works through.",
+
+			"section.history.title": "Version history",
+			"section.history.note":  "Every published version is kept. A goat pins the version it was diagnosed under and finishes its course on those dosages, so retiring a version never changes what an animal mid-treatment receives.",
+
+			"label.disease":              "Disease",
+			"label.age_band":             "Age band",
+			"label.age_band.adult":       "Adult",
+			"label.age_band.kid":         "Kid",
+			"label.duration_days":        "Days",
+			"label.duration_days_help":   "How many days the course runs.",
+			"label.step_count":           "Steps",
+			"label.medication_count":     "Medicines",
+			"label.critical_count":       "Critical actions",
+			"label.published_version":    "Live version",
+			"label.draft_state":          "Draft",
+			"label.day_no":               "Day",
+			"label.session":              "Session",
+			"label.session.morning":      "Morning",
+			"label.session.afternoon":    "Afternoon",
+			"label.session.evening":      "Evening",
+			"label.session.unscheduled":  "Any time",
+			"label.record_type":          "Step type",
+			"label.record_type.action":   "Action",
+			"label.record_type.medicine": "Medicine",
+			"label.record_type.critical": "Critical action",
+			"label.medicine_name":        "Medicine",
+			"label.dosage_text":          "Dosage",
+			"label.dosage_denominator":   "Unit",
+			"label.medicine_route":       "Route",
+			"label.instruction":          "Instruction",
+			"label.critical_action_type": "Hands off to",
+			"label.critical.quarantine":  "Quarantine or movement",
+			"label.critical.exit":        "Lifecycle exit",
+			"label.open_cases":           "Goats being treated on this version",
+
+			"action.add_disease":      "Add disease",
+			"action.edit_protocol":    "Edit",
+			"action.publish_protocol": "Publish",
+			"action.discard_draft":    "Discard draft",
+			"action.save_draft":       "Save draft",
+			"action.add_step":         "Add step",
+			"action.remove_step":      "Remove",
+
+			"status.live":       "Live",
+			"status.draft":      "Draft",
+			"status.retired":    "Retired",
+			"status.no_live":    "Not published",
+			"status.draft_open": "Draft open",
+			"status.draft_none": "—",
+
+			"note.unscheduled_session": "\"Any time\" is a real choice, not a missing one: it is the right session for a once-daily medicine given whenever the operator reaches the animal.",
+			"note.dosage_unit":         "\"none\" is a real unit for a whole-unit dose such as one bolus, and is different from leaving the unit blank.",
+			"note.publish_effect":      "Publishing replaces the live course for the NEXT diagnosis. Goats already being treated finish on the version they started.",
+			"note.days_shrink":         "Shortening the number of days will not delete steps. Move or remove any step past the last day first.",
+			"note.both_bands":          "Adding a disease opens a draft for both adult and kid so neither band is missing when a goat is diagnosed. Edit each one separately, then publish each.",
+			"note.rename_scope":        "Renaming a disease renames it for both age bands.",
+
+			"filter.all_option":     "All",
+			"filter.bar_aria":       "Filter treatment protocols",
+			"filter.clear_all":      "Clear all",
+			"filter.age_band_label": "Age band",
+			"filter.draft_label":    "Draft state",
+			"filter.draft_any":      "All",
+			"filter.draft_only":     "With an open draft",
+			"filter.search_label":   "Search a disease",
+
+			"pager.next":      "Next",
+			"pager.restart":   "Back to start",
+			"pager.rows_note": "Server-paginated. This screen shows one page of the rulebook, never a running total.",
+
+			"empty.catalog": "No treatment protocols are authored yet.",
+			"empty.steps":   "This course has no steps yet. Add the first one.",
+			"empty.search":  "No disease matches that search.",
+
+			"health_config.disabled_no_write": "Your current role can read the treatment protocols but cannot change them.",
+			"error.validation_title":          "Fix these before continuing",
+			"error.draft_exists":              "Someone else already has a draft open for this protocol.",
+			"error.disease_exists":            "A disease with that name already exists.",
+			"error.not_a_draft":               "Only a draft can be published or discarded.",
+			"error.protocol_in_use":           "This protocol is being used by an open case.",
+		}
 	case "feed-config":
 		return map[string]string{
 			"crumb":                        "Feed",
@@ -3304,8 +3449,74 @@ func pageSpecificCopy(id string) map[string]string {
 	}
 }
 
+// healthConfigOptionGroups holds the four authoring vocabularies of a treatment protocol.
+//
+// All four are FIXED SCHEMA/CLINICAL constraints, not tenant data, which is what makes it correct
+// to declare them here rather than compile them from a table: session and record_type are CHECK
+// constraints on health_protocol_steps, critical_action_type is a CHECK plus the policy-pack
+// handoff set, and medicine_route is the closed set of ways a drug can be given.
+//
+// They are validate-or-reject on the backend, so a key that drifts from this list fails the save
+// with a field error rather than storing an instruction nobody can follow. That is why the routes
+// in particular are a vocabulary and not free text: the difference between IM and IV is clinical,
+// and a stored typo renders on the operator's phone as an unfollowable instruction.
+func healthConfigOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "health_sessions",
+			Options: []domain.Option{
+				option("morning", "Morning", "first working session of the day", "info"),
+				option("afternoon", "Afternoon", "midday session", "info"),
+				option("evening", "Evening", "last session of the day", "info"),
+				// "Any time" rather than the raw key: 'unscheduled' is a real bucket for a
+				// once-daily medicine given whenever the operator reaches the animal, and the raw
+				// word reads to an author as "not decided yet", which is the opposite meaning.
+				option("unscheduled", "Any time", "no fixed session — given whenever the operator reaches the animal", "mut"),
+			},
+		},
+		{
+			ID: "health_record_types",
+			Options: []domain.Option{
+				option("medication", "Medicine", "give a medicine at a dosage and route", "ok"),
+				option("action", "Action", "something the operator does that is not a medicine", "info"),
+				option("critical_action", "Critical action", "hands the animal to quarantine, movement or a lifecycle exit", "warn"),
+			},
+		},
+		{
+			ID: "health_medicine_routes",
+			Options: []domain.Option{
+				option("IM", "IM", "intramuscular", ""),
+				option("SQ", "SQ", "subcutaneous", ""),
+				option("IV", "IV", "intravenous", ""),
+				option("Oral", "Oral", "by mouth", ""),
+				option("Topical", "Topical", "applied to the skin", ""),
+				option("Intra Mammary", "Intra Mammary", "into the udder", ""),
+			},
+		},
+		{
+			ID: "health_dosage_units",
+			Options: []domain.Option{
+				option("ml", "ml", "millilitres", ""),
+				// A real authored unit, deliberately distinct from leaving the unit blank: 'none'
+				// means a whole-unit dose such as one bolus, blank means the author has not said.
+				option("none", "none", "a whole unit, such as one bolus", "mut"),
+				option("kg", "kg", "kilograms", ""),
+			},
+		},
+		{
+			ID: "health_critical_actions",
+			Options: []domain.Option{
+				option("quarantine_or_movement", "Quarantine or movement", "move the animal; the policy pack owns the transition", "warn"),
+				option("lifecycle_exit", "Lifecycle exit", "cull or exit; the policy pack owns the transition", "bad"),
+			},
+		},
+	}
+}
+
 func pageOptionGroups(id string) []domain.OptionGroup {
 	switch id {
+	case "health-config":
+		return withGenericOptionGroups(healthConfigOptionGroups())
 	case "control-tower":
 		return append(genericOptionGroups(), processIntegrityOptionGroups()...)
 	case "workflows", "workflow-record":

@@ -26,6 +26,7 @@ tags:
   - name: Vaccination
   - name: Feed Direction
   - name: Feed Config
+  - name: Health Config
   - name: Calendar
   - name: Vaccination Passport
   - name: Herd Register
@@ -6647,6 +6648,275 @@ paths:
         "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
         "409": { $ref: "#/components/responses/WriteConflict" }
         "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols:
+    get:
+      tags: [Health Config]
+      operationId: listHealthConfigProtocols
+      summary: List the authored treatment protocols, one row per disease and age band.
+      description: >-
+        One bounded keyset page of the treatment rulebook behind the Health Config screen. Each row
+        carries the LIVE published version and the OPEN DRAFT side by side, because an author needs
+        to see that the live protocol still says 5 ml while their unpublished draft says 3 ml --
+        collapsing them into one "current" object would hide exactly the state that most needs
+        review. There is no total: counting the filtered catalog on every request is
+        compute-on-read, and a page subtotal shown as a catalog total is a false statement.
+      parameters:
+        - name: age_band
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [adult, kid]
+        - name: search
+          in: query
+          required: false
+          description: Case-insensitive substring match on the disease name.
+          schema:
+            type: string
+        - name: draft_only
+          in: query
+          required: false
+          description: When true, returns only protocols with an unpublished draft open.
+          schema:
+            type: boolean
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+      responses:
+        "200":
+          description: One page of authored protocols.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolPage"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}:
+    get:
+      tags: [Health Config]
+      operationId: getHealthConfigProtocol
+      summary: Read one protocol version with its ordered steps and version history.
+      description: >-
+        Returns the whole authored document -- name, duration, and the ordered day/session steps --
+        plus the disease's version history and the number of open cases still being treated under
+        THIS version. That case count is shown next to the publish control so an author can see
+        that retiring a version does not stop those treatments: a case pins the version it was
+        diagnosed under and finishes on it.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The protocol version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolDetail"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/diseases:
+    post:
+      tags: [Health Config]
+      operationId: createHealthConfigDisease
+      summary: Add a disease, opening an empty draft for both age bands.
+      description: >-
+        Creates drafts for BOTH the adult and the kid band, because the phone picks the protocol
+        from the GOAT's age band -- a disease authored for adults only fails at diagnosis for a kid
+        with "protocol not published", which reads as a bug rather than as a deliberate gap. The two
+        drafts start identical and are edited apart afterwards. disease_key is derived from the name
+        when omitted. Nothing is live until each draft is published.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateHealthConfigDiseaseRequest"
+      responses:
+        "201":
+          description: The disease was created and both drafts are open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "200":
+          description: Idempotent replay of an earlier create.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The submitted content was rejected. Every offending field is named.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/drafts:
+    post:
+      tags: [Health Config]
+      operationId: openHealthConfigDraft
+      summary: Open the draft for a protocol, copying the published version if none is open.
+      description: >-
+        Copy-on-edit is the safety property: the live protocol keeps serving diagnoses untouched
+        while an author works, and nothing typed here reaches a treating operator until publish.
+        This is a POST because it may create a draft row, and it carries no Idempotency-Key because
+        at most one draft can exist per protocol -- the uniqueness constraint IS the idempotency, so
+        a repeated call returns the same draft rather than creating a second one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenHealthConfigDraftRequest"
+      responses:
+        "200":
+          description: The open draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigProtocolDetail"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The request was rejected. Every offending field is named.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/drafts/save:
+    post:
+      tags: [Health Config]
+      operationId: saveHealthConfigDraft
+      summary: Replace a draft's whole content.
+      description: >-
+        Saves are WHOLE-DOCUMENT, never per-field: a protocol is read by an operator as one
+        sequence, and a partial save that left a step pointing at a day the duration no longer
+        covers would be a protocol nobody can execute. Steps carry no seq -- order is positional and
+        the server assigns seq 1..N, which is what makes a reorder a single atomic replacement.
+        Submitting content identical to what is stored returns outcome "unchanged" and writes
+        nothing. A draft may be saved incomplete; the strict rules apply at publish.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveHealthConfigDraftRequest"
+      responses:
+        "200":
+          description: The draft was saved, or already matched.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The submitted content was rejected. Every offending field is named.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}/publish:
+    post:
+      tags: [Health Config]
+      operationId: publishHealthConfigDraft
+      summary: Publish a draft, retiring the version it replaces.
+      description: >-
+        Promotes the draft to the live protocol and retires the previously published version, in one
+        transaction. Goats currently being treated are UNAFFECTED: each case pins the version it was
+        diagnosed under and finishes on those dosages, so publishing changes what the NEXT diagnosis
+        loads, never what an animal mid-course receives. Publish applies the strict rulebook -- at
+        least one step, no step beyond the duration, no day without a step, and every medicine
+        carrying a route and a complete dosage -- against what is actually stored.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The draft is now the live protocol.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "422":
+          description: The stored draft is not publishable. Every offending field is named.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigValidationError"
+        "500": { $ref: "#/components/responses/ServerError" }
+  /health-config/protocols/{protocol_version_id}/discard:
+    post:
+      tags: [Health Config]
+      operationId: discardHealthConfigDraft
+      summary: Discard a draft without publishing it.
+      description: >-
+        Deletes the draft and its steps. Only a draft can be discarded -- a published version is
+        immutable because goats are being treated from it, and a retired one is history.
+      parameters:
+        - name: protocol_version_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The draft was discarded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthConfigWriteResult"
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFoundOrNotAllowed" }
+        "409": { $ref: "#/components/responses/WriteConflict" }
+        "500": { $ref: "#/components/responses/ServerError" }
   /app/counts/approvals:
     get:
       tags:
@@ -7564,6 +7834,432 @@ components:
           description: >-
             Whether another page exists. Deliberately NOT a total count: counting the filtered set on
             every page is compute-on-read, and the grid needs "is there more", not a total.
+    HealthConfigStep:
+      type: object
+      additionalProperties: false
+      required:
+        - day_no
+        - session
+        - seq
+        - record_type
+      properties:
+        step_id:
+          type: string
+          description: Absent on steps a client is submitting; present on stored steps.
+        day_no:
+          type: integer
+          minimum: 1
+          maximum: 90
+        session:
+          type: string
+          enum: [morning, afternoon, evening, unscheduled]
+          description: >-
+            'unscheduled' is a real bucket, not a placeholder for "not decided": it is what the
+            imported sheet uses for a step with no fixed time, such as a once-daily injection given
+            whenever the operator reaches the animal.
+        seq:
+          type: integer
+          minimum: 1
+          description: >-
+            Server-assigned position, 1..N in working order. Clients do NOT send it on save --
+            order is positional there -- because health_protocol_steps is UNIQUE on
+            (version, seq) and a client-driven renumber collides with itself mid-reorder.
+        record_type:
+          type: string
+          enum: [action, medication, critical_action]
+        medicine_name:
+          type: string
+          nullable: true
+        dosage_text:
+          type: string
+          nullable: true
+        dosage_denominator:
+          type: string
+          nullable: true
+          enum: [ml, kg, none, null]
+          description: >-
+            What the dosage number is counted in. 'none' is a real authored value (a whole-unit dose
+            such as one bolus) and is deliberately distinct from an ABSENT denominator, which means
+            the author has not said.
+        medicine_route:
+          type: string
+          nullable: true
+          enum: [IM, SQ, IV, Oral, Topical, Intra Mammary, null]
+          description: >-
+            Closed vocabulary rather than free text because the route is a CLINICAL instruction: the
+            difference between IM and IV is not a labelling preference, and a stored typo renders on
+            the operator's phone as an instruction nobody can follow.
+        instruction:
+          type: string
+          nullable: true
+        critical_action_type:
+          type: string
+          nullable: true
+          enum: [quarantine_or_movement, lifecycle_exit, null]
+          description: >-
+            Present only on a critical_action step. Both values hand the animal to a policy-pack
+            transition Health does not itself perform, so an author may name one but the module
+            never executes it.
+        status:
+          type: string
+          nullable: true
+    HealthConfigProtocolRow:
+      type: object
+      additionalProperties: false
+      required:
+        - disease_key
+        - display_name
+        - age_band
+        - published_version_id
+        - published_version
+        - duration_days
+        - step_count
+        - medication_count
+        - critical_action_count
+        - source_ref
+        - has_draft
+        - draft_version_id
+        - draft_version
+        - draft_duration_days
+        - draft_step_count
+        - draft_medication_count
+      properties:
+        disease_key:
+          type: string
+        display_name:
+          type: string
+        age_band:
+          type: string
+          enum: [adult, kid]
+        published_version_id:
+          type: string
+          description: Empty when this disease/band has no live protocol (drafted but never published).
+        published_version:
+          type: integer
+        duration_days:
+          type: integer
+        step_count:
+          type: integer
+        medication_count:
+          type: integer
+        critical_action_count:
+          type: integer
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        source_ref:
+          type: string
+          description: >-
+            Where this version came from. 'health-config:app' means it was authored in the app; a
+            'google-sheet:...' value means it is still the imported bootstrap.
+        has_draft:
+          type: boolean
+        draft_version_id:
+          type: string
+        draft_version:
+          type: integer
+        draft_duration_days:
+          type: integer
+        draft_step_count:
+          type: integer
+        draft_medication_count:
+          type: integer
+        draft_updated_at:
+          type: string
+          format: date-time
+          nullable: true
+    HealthConfigProtocolPage:
+      type: object
+      additionalProperties: false
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigProtocolRow"
+        next_cursor:
+          type: string
+          nullable: true
+          description: >-
+            Keyset position of the next page, absent on the last. Deliberately not a total count:
+            counting the filtered catalog on every request is compute-on-read.
+    HealthConfigVersionSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - version
+        - status
+        - duration_days
+        - step_count
+        - source_ref
+        - created_at
+      properties:
+        protocol_version_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        status:
+          type: string
+          enum: [draft, published, retired]
+        duration_days:
+          type: integer
+        step_count:
+          type: integer
+        source_ref:
+          type: string
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    HealthConfigProtocolDetail:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version_id
+        - disease_key
+        - display_name
+        - age_band
+        - version
+        - status
+        - duration_days
+        - source_ref
+        - content_hash
+        - created_at
+        - updated_at
+        - steps
+        - open_case_count
+      properties:
+        protocol_version_id:
+          type: string
+          format: uuid
+        disease_key:
+          type: string
+        display_name:
+          type: string
+        age_band:
+          type: string
+          enum: [adult, kid]
+        version:
+          type: integer
+        status:
+          type: string
+          enum: [draft, published, retired]
+        duration_days:
+          type: integer
+        source_ref:
+          type: string
+        content_hash:
+          type: string
+          description: >-
+            Hash of THIS protocol's content for an app-authored version, which is what lets an
+            identical re-save be recognised as "unchanged". Rows written by the sheet importer
+            instead share one hash across the whole import snapshot.
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/HealthConfigStep"
+        history:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/HealthConfigVersionSummary"
+        open_case_count:
+          type: integer
+          description: >-
+            Goats currently being treated under THIS version. Shown next to the publish control so
+            an author can see that retiring the version does not stop those treatments.
+    CreateHealthConfigDiseaseRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - display_name
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        disease_key:
+          type: string
+          description: >-
+            Optional. Derived from the display name when omitted, which is what the UI does -- the
+            key is an internal join identity an author has no reason to think about. Accepted so a
+            seed command can reproduce the imported keys exactly.
+        duration_days:
+          type: integer
+          minimum: 1
+          maximum: 90
+          nullable: true
+          description: >-
+            Absent takes the declared default of 3. A PRESENT out-of-range value is REJECTED, never
+            rewritten to the default -- a business number the author did not type must never become
+            authored truth.
+    OpenHealthConfigDraftRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - disease_key
+        - age_band
+      properties:
+        disease_key:
+          type: string
+        age_band:
+          type: string
+          enum: [adult, kid]
+    SaveHealthConfigDraftStep:
+      type: object
+      additionalProperties: false
+      required:
+        - day_no
+        - session
+        - record_type
+      properties:
+        day_no:
+          type: integer
+          minimum: 1
+          maximum: 90
+        session:
+          type: string
+          enum: [morning, afternoon, evening, unscheduled]
+        record_type:
+          type: string
+          enum: [action, medication, critical_action]
+        medicine_name:
+          type: string
+        dosage_text:
+          type: string
+        dosage_denominator:
+          type: string
+        medicine_route:
+          type: string
+        instruction:
+          type: string
+        critical_action_type:
+          type: string
+    SaveHealthConfigDraftRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - disease_key
+        - age_band
+        - display_name
+        - steps
+      properties:
+        disease_key:
+          type: string
+        age_band:
+          type: string
+          enum: [adult, kid]
+        display_name:
+          type: string
+          description: >-
+            A rename applies to the DISEASE, not to one band: the two bands are the same illness, and
+            letting them drift would show an operator one name on an adult and another on a kid.
+        duration_days:
+          type: integer
+          minimum: 1
+          maximum: 90
+          nullable: true
+        steps:
+          type: array
+          description: >-
+            The whole ordered step list. Order is positional; the server assigns seq 1..N. An empty
+            array is a legitimate draft -- the strict rules apply at publish.
+          items:
+            $ref: "#/components/schemas/SaveHealthConfigDraftStep"
+    HealthConfigWriteResult:
+      type: object
+      additionalProperties: false
+      required:
+        - outcome
+        - disease_key
+        - idempotent_replay
+      properties:
+        outcome:
+          type: string
+          enum: [created, saved, unchanged, published, discarded]
+          description: >-
+            The same vocabulary the audit ledger uses, so the API, the trail and the UI all say the
+            same word for the same act.
+        disease_key:
+          type: string
+        age_band:
+          type: string
+          nullable: true
+        protocol_version_id:
+          type: string
+          nullable: true
+        version:
+          type: integer
+          nullable: true
+        retired_version_id:
+          type: string
+          nullable: true
+          description: The version this publish retired. Absent on a disease's first publish.
+        draft_version_ids:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          description: Age band -> draft id, returned by a disease create which opens two drafts.
+        idempotent_replay:
+          type: boolean
+          description: True when the response was read back from the ledger rather than re-run.
+    HealthConfigFieldError:
+      type: object
+      additionalProperties: false
+      required:
+        - field
+        - message
+      properties:
+        field:
+          type: string
+          description: >-
+            The exact rejected field, e.g. "steps[4].medicine_route", so the editor can mark that
+            row rather than showing one message for the whole form.
+        message:
+          type: string
+    HealthConfigValidationError:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - trace_id
+        - retryable
+        - errors
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        trace_id:
+          type: string
+        retryable:
+          type: boolean
+        errors:
+          type: array
+          description: >-
+            EVERY field error from one validation pass, together. A 28-step protocol rejected one
+            field per round trip is not authorable.
+          items:
+            $ref: "#/components/schemas/HealthConfigFieldError"
     FeedConfigRationGroup:
       type: object
       additionalProperties: false

@@ -1,5 +1,9 @@
-// The Feed Config idempotency-key lifecycle, extracted as a pure state machine so it is testable
-// without mounting FeedConfigFormShell's React tree.
+// The authoring idempotency-key lifecycle, as a pure state machine so it is testable without
+// mounting any React tree.
+//
+// SHARED because two authoring screens need exactly this behaviour: /feed/config (which it was
+// written for) and /health/config. It lives in lib/ rather than in one feature so the other can
+// use it without a cross-feature deep import -- a feature's internals are not a public API.
 //
 // THE BUG THIS CLOSES: `upsertFeedConfig*` (lib/api/server.ts) used to default the
 // Idempotency-Key header to a fresh `randomUUID()` generated INSIDE the server action call. A
@@ -17,15 +21,15 @@
 // write's key. A rejected/failed outcome had no side effect, so it keeps the same key -- an
 // immediate retry (lost response, or the operator fixing a validation error) stays one intent.
 
-export type FeedConfigIdempotencyState = {
+export type AuthoringIdempotencyState = {
   open: boolean;
   key: string | null;
 };
 
-export const CLOSED_STATE: FeedConfigIdempotencyState = { open: false, key: null };
+export const CLOSED_STATE: AuthoringIdempotencyState = { open: false, key: null };
 
 /** The form opens: a fresh key for a fresh editing intent. */
-export function openIntent(mintKey: () => string): FeedConfigIdempotencyState {
+export function openIntent(mintKey: () => string): AuthoringIdempotencyState {
   return { open: true, key: mintKey() };
 }
 
@@ -40,10 +44,10 @@ export function openIntent(mintKey: () => string): FeedConfigIdempotencyState {
  *   for the next open.
  */
 export function afterSubmit(
-  state: FeedConfigIdempotencyState,
+  state: AuthoringIdempotencyState,
   ok: boolean,
   mintKey: () => string,
-): FeedConfigIdempotencyState {
+): AuthoringIdempotencyState {
   if (!state.open) return state;
   if (!ok) return state;
   return { open: true, key: mintKey() };

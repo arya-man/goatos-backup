@@ -481,6 +481,12 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	healthRepo := healthpg.NewRepository(pool, cfg.Postgres.QueryTimeout)
 	healthService := healthapp.NewService(healthRepo)
 	healthHandler := healthhttp.NewHandler(healthService, log)
+	// The authored treatment rulebook behind /health/config. Same repository, because the
+	// protocol tables belong to the Health module and a second package writing them would be the
+	// cross-module table write AGENTS.md bans -- the authoring surface is a different API over
+	// the same module, not a different module.
+	healthConfigService := healthapp.NewConfigService(healthRepo)
+	healthConfigHandler := healthhttp.NewConfigHandler(healthConfigService, log)
 	countsApprovalRepo := countspg.NewRepository(pool, cfg.Postgres.QueryTimeout).
 		WithIdentityTxWriter(identityRepo).
 		WithDeathEvidenceTxGate(tasksWorkflowRepo)
@@ -970,6 +976,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	countshttp.RegisterShiftingExecution(protectedMux, countsAppWriteHandler)
 	taskshttp.Register(protectedMux, tasksWorkflowHandler)
 	healthhttp.Register(protectedMux, healthHandler)
+	healthhttp.RegisterConfig(protectedMux, healthConfigHandler)
 	feedhttp.Register(protectedMux, feedHandler)
 	feedconfighttp.Register(protectedMux, feedConfigHandler)
 	feeddirectionhttp.Register(protectedMux, feedDirectionHandler)

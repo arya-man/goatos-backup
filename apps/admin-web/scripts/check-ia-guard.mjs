@@ -66,7 +66,7 @@ function hasCommandSegment(route) {
 // Narrow, deliberate exceptions: module surfaces whose PATH happens to contain a command/authority
 // segment but which are not a duplicate of that top-level lens.
 //
-// `/feed/config` is the only entry, approved by explicit maintainer decision recorded in
+// `/feed/config`, approved by explicit maintainer decision recorded in
 // backend/internal/adminui/app/service.go (see the comment above the "feed" nav group). It is NOT a
 // second Config authority screen: `/config` remains the single generic protocol-rule authority
 // surface, and `/feed/config` authors the ration grid, per-shed factors, session template and
@@ -75,11 +75,20 @@ function hasCommandSegment(route) {
 // protocol rules rather than the ration grid. The backend contract classifies it "module-surface",
 // not "authority-screen", and ships it as a Feed nav leaf.
 //
+// `/health/config`, approved by explicit maintainer decision 2026-08-06 and recorded in
+// docs/decisions/health-config-authoring.md plus the "health" nav group comment in the same backend
+// contract. It is the same shape of exception for the same reason: a treatment protocol is a
+// day-by-day medication document (disease x age band -> ordered steps carrying medicine, dosage,
+// unit and route) owned by the Health module and served by /health-config/*, not a protocol
+// `rule_dsl` row, and `/config?category=health` cannot render a per-day medicine grid. `/config`
+// stays the single generic protocol-rule authority screen; this is classified "module-surface" and
+// ships as a Health nav leaf.
+//
 // Widening this set is a deliberate scope decision (same standing as SUPPORTED_COUNTS_HREFS below),
 // not a routine edit: it must be backed by a maintainer decision recorded in the backend contract.
 // No command lens (Control Tower, Action Center, Calendar, Protocol Adherence, Workflows) is
 // exempted for any vertical, and none may be.
-const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config"]);
+const MODULE_SURFACE_ROUTE_EXCEPTIONS = new Set(["/feed/config", "/health/config"]);
 
 function isAllowedRoute(route) {
   if (TOP_LEVEL_COMMAND_ROUTES.has(route)) return true;

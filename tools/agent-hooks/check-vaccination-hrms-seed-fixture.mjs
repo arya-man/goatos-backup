@@ -29,7 +29,15 @@ const REQUIRED_COMPANIONS = [
   "docs/decisions/scale-anti-patterns.md",
   ".agents/skills/goatos-build/SKILL.md",
 ];
-const RELEVANT_MIGRATION_TERMS = /vaccination|protocol_versions|protocol_rules|sop_versions|workforce_members|workforce_positions|position_module_duties|\bgoats\b|management_stage|\bdob\b|species/i;
+// The terms that make a migration part of the VACCINATION seed contract.
+//
+// The table names carry a leading \b deliberately. Without it, `protocol_versions` matches as a
+// SUBSTRING of another module's table -- `health_protocol_versions` (the Health module's treatment
+// protocols, migration 000098/000121) is a completely different table with its own seed path, and
+// it was tripping this guard and demanding seven vaccination companions that have nothing to do
+// with it. `\b` does not match between `_` and a letter (both are word characters), so
+// `health_protocol_versions` no longer matches while a bare `protocol_versions` still does.
+const RELEVANT_MIGRATION_TERMS = /vaccination|\bprotocol_versions|\bprotocol_rules|\bsop_versions|\bworkforce_members|\bworkforce_positions|\bposition_module_duties|\bgoats\b|management_stage|\bdob\b|species/i;
 
 function changedFilesAndDiffs() {
   let base;
@@ -356,6 +364,17 @@ function runSelfTest() {
   ]]);
   if (couplingProblems(["backend/migrations/postgres/000998_alter_goats.sql"], canonicalMigration).length !== REQUIRED_COMPANIONS.length) {
     throw new Error("contract coupling self-test missed a canonical seed-table migration");
+  }
+  // A migration for ANOTHER module whose table name merely CONTAINS a vaccination table name must
+  // NOT couple. `health_protocol_versions` is the Health module's treatment-protocol table and has
+  // no relationship to the vaccination seed contract.
+  const otherModuleMigration = new Map([[
+    "backend/migrations/postgres/000997_health_protocol_authoring.sql",
+    "+ALTER TABLE public.health_protocol_versions ADD COLUMN created_by uuid;\n" +
+      "+CREATE UNIQUE INDEX health_protocol_versions_one_draft_uq ON public.health_protocol_versions (tenant_id, disease_key, age_band) WHERE status = 'draft';\n",
+  ]]);
+  if (couplingProblems(["backend/migrations/postgres/000997_health_protocol_authoring.sql"], otherModuleMigration).length !== 0) {
+    throw new Error("contract coupling self-test wrongly coupled another module's protocol table");
   }
   // An index-only migration that merely NAMES a canonical table in its predicate
   // (e.g. a partial unique index keyed on a vaccination event_type) must NOT couple.
