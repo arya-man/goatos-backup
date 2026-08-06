@@ -57,9 +57,15 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
         window.flatMapLatest { size -> repository.observeLeadershipVideos("vaccination_proof", size) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val title: StateFlow<String> =
+        window.flatMapLatest { size -> repository.observeLeadershipTitle("vaccination_proof", size) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
     val state: StateFlow<VaccinationLeadershipVideosUiState> =
-        combine(cached, loading, loadingMore, failure) { items, isLoading, isAppending, error ->
+        combine(cached, loading, loadingMore, failure, title) { items, isLoading, isAppending, error, screenTitle ->
             VaccinationLeadershipVideosUiState(
+                title = screenTitle,
                 loading = isLoading,
                 loadingMore = isAppending,
                 items = items,
