@@ -3339,18 +3339,53 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				// The cohort rows leadership reads down the side of the command board's
 				// vaccine matrix. Fixed ladder so the matrix keeps a stable shape and a
 				// cohort with no live animals still shows as a row.
+				// The cohort rows the matrix can show. Adults is NO LONGER a catch-all: it is an
+				// ordinary rung whose membership is declared in command_board_cohort_stage_map
+				// below. A stage that maps to nothing renders as its OWN row, so an unmapped or
+				// newly-introduced stage is visible rather than silently absorbed.
 				ID: "command_board_cohort_ladder",
 				Options: []domain.Option{
 					option("K0", "K0", "", ""),
 					option("K1", "K1", "", ""),
 					option("K2", "K2", "", ""),
 					option("K3", "K3", "", ""),
+					option("Kid", "Kid", "", ""),
 					option("Fattening", "Fattening", "", ""),
-					// F2 is its OWN rung, above the Adults catch-all. Without it every F2 stage fell
-					// into the catch-all and the CEO read "Adults 372" when the true adult herd
-					// (Non-Pregnant + Buck) is 324 — F2-Female 38 and F2-Male 10 were being folded in.
 					option("F2", "F2", "", ""),
 					option("Adults", "Adults", "", ""),
+				},
+			},
+			{
+				// STAGE -> COHORT ROW, declared membership (maintainer decision 2026-08-06).
+				//
+				// Prefix matching with an Adults catch-all is what put F2-Female/F2-Male in the
+				// adult herd (372 vs the true 324) and then left ICU-Kid — a KID carrying a
+				// health-state prefix — sitting in Adults too. Both are the same defect: a label
+				// the ladder did not recognise fell through to the last rung.
+				//
+				// So membership is explicit and Adults means exactly Non-Pregnant, Buck, Mother.
+				// A composite operational label classifies by its UNDERLYING cohort, never by its
+				// health/operational prefix: ICU-Kid is a kid, ICU-Non-Pregnant is an adult.
+				// Anything absent here is deliberately NOT guessed — it renders as its own row
+				// (Warmup is an arrival/acclimation state, neither adult nor kid by label, and
+				// stays visible until the CEO bucket for it is defined).
+				ID: "command_board_cohort_stage_map",
+				Options: []domain.Option{
+					option("NON-PREGNANT", "Adults", "", ""),
+					option("BUCK", "Adults", "", ""),
+					option("MOTHER", "Adults", "", ""),
+					option("ADULT", "Adults", "", ""),
+					option("ICU-NON-PREGNANT", "Adults", "", ""),
+					option("K0", "K0", "", ""),
+					option("K1", "K1", "", ""),
+					option("K2", "K2", "", ""),
+					option("K3", "K3", "", ""),
+					option("ICU-KID", "Kid", "", ""),
+					option("ICU-KIDS", "Kid", "", ""),
+					option("QUARANTINE KIDS", "Kid", "", ""),
+					option("F2-FEMALE", "F2", "", ""),
+					option("F2-MALE", "F2", "", ""),
+					option("FATTENING", "Fattening", "", ""),
 				},
 			},
 			{
@@ -3361,13 +3396,17 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 				// business rows on its own.
 				ID: "command_board_cohort_row_order",
 				Options: []domain.Option{
-					option("K0", "K0", "", ""),
-					option("K1", "K1", "", ""),
-					option("K2", "K2", "", ""),
-					option("K3", "K3", "", ""),
-					option("Adults", "Adults", "True adults only — Non-Pregnant and Buck", ""),
-					option("Fattening", "Fattening", "Not adult", ""),
-					option("F2", "F2", "Not adult", ""),
+					option("Adults", "Adults", "Non-Pregnant, Buck and Mother", ""),
+					option("K0", "K0", "Kid", ""),
+					option("K1", "K1", "Kid", ""),
+					option("K2", "K2", "Kid", ""),
+					option("K3", "K3", "Kid", ""),
+					// A kid in ICU is still a kid; the health state is a prefix on the label, not a
+					// different cohort.
+					option("Kid", "Kid", "Kid — stage not further specified", ""),
+					// F2 is the fattening KID cohort split by sex, not an adult group.
+					option("F2", "F2", "Kid — fattening, by sex", ""),
+					option("Fattening", "Fattening", "Kid — fattening", ""),
 				},
 			},
 			{
