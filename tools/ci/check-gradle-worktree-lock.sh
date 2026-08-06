@@ -24,7 +24,8 @@
 # Cases: (a) exclusion + non-owner-release theft, (b) dead-owner break,
 # (c) SIGKILL survivability, (d) SIGTERM release + the holder actually DIES,
 # (e) fail-open on timeout, (f) exit-status transparency across 6 combinations,
-# (g) trace + opt-out neutrality (library probe AND run-local-ci.sh wiring),
+# (g) trace + opt-out neutrality (library probe AND run-local-ci.sh wiring,
+# with stale-worker reaper neutralised), (g3) reaper does not fire on trace,
 # (h) concurrent stale-break admits exactly one, (i) SIGINT release + death,
 # (j) a recycled pid is not proof of identity, (k) the owner pid is the
 # ACQUIRING SUBSHELL, (l) a pre-existing EXIT trap survives install+clear,
@@ -39,12 +40,12 @@
 #
 # 21 assertions in all: a b c d e f g g3 h i j k l m m2 n o p q q2 r.
 #
-# ONE MACHINE-WIDE SIDE EFFECT, named rather than hidden: case (g) drives the
-# real `run-local-ci.sh android` under GOATOS_CI_TRACE_ONLY. Everything this
-# guard does ITSELF is sandboxed sleeps with no Gradle, but that target's
-# stale-worker reaper sits outside `step` and used to SIGKILL machine-wide
-# GradleWorkerMain processes it does not own. It is now trace-gated, and case
-# (g3) is what holds it that way.
+# TWO REQUIRED GUARD CASES for the stale-worker reaper: case (g) drives the
+# real `run-local-ci.sh android` under GOATOS_CI_TRACE_ONLY with MAX_AGE_MINUTES
+# neutralised. Everything this guard does ITSELF is sandboxed sleeps with no
+# Gradle, but that target's stale-worker reaper sits outside `step` — it does not
+# short-circuit under trace — and used to SIGKILL machine-wide GradleWorkerMain
+# processes it does not own. Case (g3) proves the neutralisation is live.
 #
 # Self-test: tools/ci/check-gradle-worktree-lock.test.sh drives this guard
 # against 23 mutated copies of the library via GOATOS_GRADLE_LOCK_UNDER_TEST and
@@ -326,8 +327,12 @@ else
 fi
 reset_lock
 # Wiring probe: the real script under trace must create NO lock and still exit 3.
+# Neutralise the stale-worker reaper (which sits outside `step` so trace does not
+# short-circuit it) by setting MAX_AGE_MINUTES very high, so it sees nothing
+# that is worth reaping. Without this the guard's declared "sandboxed sleeps, no
+# Gradle" turns into machine-wide SIGKILL of somebody else's long-lived build.
 g_sb="$SB/trace-dir"; mkdir -p "$g_sb"
-GOATOS_CI_GRADLE_LOCK_DIR="$g_sb" GOATOS_CI_TRACE_ONLY=1 bash tools/ci/run-local-ci.sh android >/dev/null 2>&1
+MAX_AGE_MINUTES=999999 GOATOS_CI_GRADLE_LOCK_DIR="$g_sb" GOATOS_CI_TRACE_ONLY=1 bash tools/ci/run-local-ci.sh android >/dev/null 2>&1
 g_rc=$?
 [ "$g_rc" -eq 3 ] || fail "(g) GOATOS_CI_TRACE_ONLY=1 run-local-ci.sh android exited ${g_rc}, not 3 — a trace run must stay ahead of the receipt writer"
 [ -z "$(ls -A "$g_sb" 2>/dev/null)" ] || fail "(g) a TRACE run of run-local-ci.sh android created a lock dir; trace executes nothing and must acquire nothing"
@@ -338,9 +343,10 @@ reset_lock
 # older than 30 minutes — other agents' builds included, which AGENTS.md bans
 # outright. It sits outside `step`, so trace mode did not short-circuit it, and
 # `make guardrails` therefore became a machine-wide killer of somebody else's
-# long build. Asserted on the reaper's own output, which it always prints.
+# long build. Neutralise the reaper with MAX_AGE_MINUTES=999999; asserted on
+# the reaper's own output, which it always prints.
 g_out="$SB/g.reap.out"
-GOATOS_CI_GRADLE_LOCK_DIR="$g_sb" GOATOS_CI_TRACE_ONLY=1 \
+MAX_AGE_MINUTES=999999 GOATOS_CI_GRADLE_LOCK_DIR="$g_sb" GOATOS_CI_TRACE_ONLY=1 \
   bash tools/ci/run-local-ci.sh android >"$g_out" 2>&1
 if grep -qE 'stale Gradle test worker|reaped [0-9]+ stale' "$g_out"; then
   fail "(g3) a TRACE run of run-local-ci.sh android ran the stale-worker reaper, which SIGKILLs machine-wide GradleWorkerMain processes it does not own. A trace run starts no Gradle and has nothing to reap; two required guards drive this target under trace"
@@ -646,6 +652,6 @@ reset_lock
 CASES="a b c d e f g g3 h i j k l m m2 n o p q q2 r"
 if [ "$rc" -eq 0 ]; then
   # shellcheck disable=SC2086
-  echo "gradle-worktree-lock guard: $(set -- $CASES; echo $#) cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out/no-reap, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation, unusable-path fail-open, hostname-flap release, inode-scoped break)"
+  echo "gradle-worktree-lock guard: $(set -- $CASES; echo $#) cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out/reaper-neutralised, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation, unusable-path fail-open, hostname-flap release, inode+mtime-scoped break)"
 fi
 exit "$rc"
