@@ -8,7 +8,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
+
+// A FIXED business-day anchor, not time.Now(): a Goat OS business day is an India business day, and
+// a movement raised at 02:00 IST must not read as the previous date. Fixing the instant also makes
+// these tests deterministic rather than dependent on the hour they run -- the exact defect class that
+// once made 15 calendar tests pass or fail by time of day.
+func fixedBusinessInstant() time.Time {
+	return time.Date(2026, 8, 6, 9, 0, 0, 0, biztime.DefaultLocation())
+}
 
 // Regression proof for a defect that survived a full code review and was only found by running the
 // real path end to end (2026-08-06).
@@ -47,8 +56,8 @@ func TestRaisedShiftingEventPersistsItsPartitionLabels(t *testing.T) {
 		DestinationParkID:         destSecondPark,
 		DestinationShedID:         destCastroCBE,
 		DestinationPartitionLabel: &destination,
-		RaisedAt:                  time.Now().UTC(),
-		EffectiveAt:               time.Now().UTC(),
+		RaisedAt:                  fixedBusinessInstant(),
+		EffectiveAt:               fixedBusinessInstant(),
 		AuthorizationState:        "pending",
 		VerificationState:         "unverified",
 		EventStatus:               "pending",
@@ -99,8 +108,8 @@ func TestRaisedShiftingEventWithoutPartitionsStoresNull(t *testing.T) {
 		Category:                "growth",
 		DestinationParkID:       destSecondPark,
 		DestinationShedID:       destCastroCBE,
-		RaisedAt:                time.Now().UTC(),
-		EffectiveAt:             time.Now().UTC(),
+		RaisedAt:                fixedBusinessInstant(),
+		EffectiveAt:             fixedBusinessInstant(),
 		AuthorizationState:      "pending",
 		VerificationState:       "unverified",
 		EventStatus:             "pending",
