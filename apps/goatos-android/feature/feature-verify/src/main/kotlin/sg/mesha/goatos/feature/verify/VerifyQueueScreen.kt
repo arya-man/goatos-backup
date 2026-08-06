@@ -47,6 +47,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
@@ -239,7 +244,16 @@ fun VerifyQueueScreen(
             onRefresh = { onEvent(VerifyQueueEvent.Refresh) },
             onMissed = { onEvent(VerifyQueueEvent.ToggleMissed) },
         )
-        if (state.categoryOptions.isNotEmpty()) {
+        // The category options ARE the verifier's modules (Vaccination, Weighing, ...). When the
+        // shell already carries them in the drawer, repeating them as a chip row inside the body
+        // is the same list twice, and the two can disagree about what is selected. Same shape as
+        // the "You" placement rule: 2+ modules -> drawer owns the module switch; exactly one
+        // module -> no drawer exists, so the chips stay as the only way to see the scope.
+        //
+        // LocalDrawerOpener is non-null ONLY when chrome is EXPANDED (2+ modules) and this is an
+        // exact L0 root, which is precisely "the drawer is on screen and lists these modules".
+        val drawerCarriesModules = LocalDrawerOpener.current != null
+        if (shouldShowCategoryFilter(drawerCarriesModules, state.categoryOptions.size)) {
             CategoryFilterRow(
                 options = state.categoryOptions,
                 selected = state.selectedCategory,
@@ -277,19 +291,25 @@ fun VerifyQueueScreen(
                 onSelect = { selectedWeighingScope = it },
             )
         }
+        // A chip row is only honest while the whole set fits on a phone. A real park has many
+        // sheds, so past CHIP_ROW_MAX_OPTIONS the row becomes a horizontal scroll the verifier
+        // must drag through to discover what exists -- and the selected chip can sit off-screen.
+        // Past that size the same options are offered as a SEARCHABLE picker instead.
         if (state.parkOptions.size > 1) {
-            LocationFilterRow(
+            LocationFilter(
                 options = state.parkOptions,
                 selected = state.selectedParkId,
                 onSelect = { onEvent(VerifyQueueEvent.SelectPark(it)) },
+                pickerTitle = stringResource(R.string.verify_filter_park_title),
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
         if (state.shedOptions.size > 1) {
-            LocationFilterRow(
+            LocationFilter(
                 options = state.shedOptions,
                 selected = state.selectedShedId,
                 onSelect = { onEvent(VerifyQueueEvent.SelectShed(it)) },
+                pickerTitle = stringResource(R.string.verify_filter_shed_title),
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
@@ -898,5 +918,151 @@ private fun InlineLoadingFooter() {
         contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Muted, strokeWidth = 2.dp)
+    }
+}
+
+/**
+ * Whether the in-body module chip row should render.
+ *
+ * The chips duplicate the drawer's module list for any verifier with 2+ modules, so they are
+ * suppressed there and the drawer owns the switch. A single-module verifier has no drawer, so the
+ * row stays. Extracted so the rule is assertable without a screenshot.
+ */
+internal fun shouldShowCategoryFilter(drawerCarriesModules: Boolean, optionCount: Int): Boolean =
+    optionCount > 0 && !drawerCarriesModules
+
+/** Above this many options a chip row stops being scannable on a phone and becomes a drag. */
+internal const val CHIP_ROW_MAX_OPTIONS = 6
+
+/** True when the option set should be offered as a searchable picker instead of a chip row. */
+internal fun shouldUseSearchablePicker(optionCount: Int): Boolean = optionCount > CHIP_ROW_MAX_OPTIONS
+
+/** Case-insensitive contains filter for the picker's search field. */
+internal fun filterLocationOptions(
+    options: List<VerifyLocationFilterOption>,
+    query: String,
+): List<VerifyLocationFilterOption> {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return options
+    return options.filter { it.label.contains(trimmed, ignoreCase = true) }
+}
+
+/**
+ * Park/shed filter. Small sets stay as chips (one glance, one tap). Large sets become a
+ * searchable bottom sheet, because a park can hold many sheds and a horizontal chip row hides
+ * most of them off-screen.
+ */
+@Composable
+private fun LocationFilter(
+    options: List<VerifyLocationFilterOption>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    pickerTitle: String,
+    modifier: Modifier = Modifier,
+) {
+    if (!shouldUseSearchablePicker(options.size)) {
+        LocationFilterRow(options = options, selected = selected, onSelect = onSelect, modifier = modifier)
+        return
+    }
+    var pickerOpen by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.value == selected }?.label
+        ?: options.firstOrNull { it.value == null }?.label
+        ?: pickerTitle
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(10.dp))
+            .clickable { pickerOpen = true }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = selectedLabel, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+        Text(
+            text = stringResource(R.string.verify_filter_change),
+            color = MeshaColors.BrandD,
+            style = MeshaType.cta,
+        )
+    }
+    if (pickerOpen) {
+        LocationPickerSheet(
+            title = pickerTitle,
+            options = options,
+            selected = selected,
+            onSelect = {
+                onSelect(it)
+                pickerOpen = false
+            },
+            onDismiss = { pickerOpen = false },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LocationPickerSheet(
+    title: String,
+    options: List<VerifyLocationFilterOption>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = filterLocationOptions(options, query)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MeshaColors.PageBg) {
+        Text(
+            text = title,
+            color = MeshaColors.Ink,
+            style = MeshaType.screenTitle,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            singleLine = true,
+            placeholder = { Text(stringResource(R.string.verify_filter_search_hint)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        if (visible.isEmpty()) {
+            Text(
+                text = stringResource(R.string.verify_filter_no_matches),
+                color = MeshaColors.Muted,
+                style = MeshaType.body,
+                modifier = Modifier.padding(16.dp),
+            )
+        }
+        LazyColumn(modifier = Modifier.fillMaxWidth()) {
+            items(visible, key = { it.value ?: "__all__" }) { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSelect(option.value) }
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = option.label,
+                        color = if (option.value == selected) MeshaColors.BrandD else MeshaColors.Ink,
+                        style = MeshaType.body,
+                    )
+                    if (option.value == selected) {
+                        Icon(
+                            imageVector = MeshaIcons.CheckCircle,
+                            contentDescription = null,
+                            tint = MeshaColors.BrandD,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
     }
 }

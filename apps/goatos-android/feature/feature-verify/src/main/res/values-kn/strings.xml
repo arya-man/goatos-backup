@@ -77,4 +77,9 @@
     <string name="verify_approve_dialog_confirm">ಅನುಮೋದನೆ ಖಚಿತಪಡಿಸಿ</string>
     <string name="verify_approve_dialog_cancel">ರದ್ದುಮಾಡಿ</string>
     <string name="verify_detail_group_accepted">ಈ ಶೆಡ್‌ನ ಎಲ್ಲಾ ವೀಡಿಯೊಗಳನ್ನು ಅಂಗೀಕರಿಸಲಾಗಿದೆ</string>
+    <string name="verify_filter_park_title">ಪಾರ್ಕ್</string>
+    <string name="verify_filter_shed_title">ಶೆಡ್</string>
+    <string name="verify_filter_change">ಬದಲಾಯಿಸಿ</string>
+    <string name="verify_filter_search_hint">ಹುಡುಕಿ</string>
+    <string name="verify_filter_no_matches">ಯಾವುದೇ ಹೊಂದಾಣಿಕೆ ಇಲ್ಲ</string>
 </resources>
