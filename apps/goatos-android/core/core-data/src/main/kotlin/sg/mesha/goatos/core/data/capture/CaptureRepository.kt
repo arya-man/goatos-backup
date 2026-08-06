@@ -243,7 +243,16 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
     goatId = goatId,
     obligationId = obligationId,
     capturedAtMs = capturedAtMs,
-    syncStatus = runCatching { CaptureSyncStatus.valueOf(syncStatus) }.getOrDefault(CaptureSyncStatus.PENDING),
+    // Explicit mapping rather than valueOf-in-runCatching: an unrecognised string must fall to
+    // PENDING (treat the capture as NOT yet seen by the backend, which is the safe side -- it
+    // keeps showing locally and is never used to overrule a server status), and doing that with
+    // a `when` means there is no exception to swallow in the first place.
+    syncStatus = when (syncStatus.trim().uppercase()) {
+        "SYNCED" -> CaptureSyncStatus.SYNCED
+        "IN_FLIGHT" -> CaptureSyncStatus.IN_FLIGHT
+        "FAILED" -> CaptureSyncStatus.FAILED
+        else -> CaptureSyncStatus.PENDING
+    },
 )
 
 private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
