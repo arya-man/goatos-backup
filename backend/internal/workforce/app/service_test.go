@@ -271,7 +271,7 @@ func TestBootstrapLeadershipGetsFixedNav(t *testing.T) {
 	}
 	wantNav := []domain.BootstrapNavigationItem{
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-		{Key: "videos", Label: "Videos", Href: "/verify/action"},
+		{Key: "videos", Label: "Videos", Href: "/verify?module=vaccination&category=vaccination_proof&status=all"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -506,7 +506,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 	ceoVaccinationWant := []domain.BootstrapNavigationItem{
 		{Key: "overview", Label: "Overview", Href: "/vaccination"},
 		{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-		{Key: "videos", Label: "Videos", Href: "/verify/action"},
+		{Key: "videos", Label: "Videos", Href: "/verify?module=vaccination&category=vaccination_proof&status=all"},
 		// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
 		// "You" lives in the drawer, and the alerts tab label never names the feature
 		// (the href's category still scopes it). This is a leadership/registry bar, so
@@ -587,7 +587,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: []string{"vaccination"},
 			want: []domain.BootstrapNavigationItem{
 				{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-				{Key: "videos", Label: "Videos", Href: "/verify/action"},
+				{Key: "videos", Label: "Videos", Href: "/verify?module=vaccination&category=vaccination_proof&status=all"},
 				// MAINTAINER DECISION 2026-08-03: the verifier bar is [Verify, Alerts, You].
 				// "You" carries shared_key "you" so it dedupes across modules like the
 				// leadership entries -- the objection was the per-feature REPETITION, not its

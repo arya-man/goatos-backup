@@ -79,12 +79,94 @@ data class RfidScanAttemptEntity(
     val idempotencyKey: String,
 )
 
+/** Result of [ScannedGoatDao.upsertScan] — tells the repository whether a fresh outbox
+ *  enqueue is warranted. A [DUPLICATE] result must NOT enqueue (same tag, same obligation
+ *  cycle, already captured/capturing). [INSERTED] and [REPLACED] both represent genuinely new
+ *  evidence that has not reached the server for THIS obligation cycle and must enqueue. */
+enum class ScanUpsertResult { INSERTED, REPLACED, DUPLICATE }
+
 @Dao
 interface ScannedGoatDao {
     /** Insert-or-ignore: the unique (taskId, fieldKey, tag) index makes a repeat scan of the
-     *  same tag a silent no-op — dedup happens at the DB layer, not just in memory. */
+     *  same tag a silent no-op — dedup happens at the DB layer, not just in memory. Superseded
+     *  by [upsertScan] for the write path; kept for direct/test use where the caller has
+     *  already established there is no obligation-reopen case to consider. */
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(entity: ScannedGoatEntity): Long
+
+    @Query(
+        "SELECT * FROM scanned_goat_capture WHERE taskId = :taskId AND fieldKey = :fieldKey " +
+            "AND tag = :tag LIMIT 1",
+    )
+    suspend fun findByTaskFieldTag(taskId: String, fieldKey: String, tag: String): ScannedGoatEntity?
+
+    @Query(
+        "UPDATE scanned_goat_capture SET goatId = :goatId, obligationId = :obligationId, " +
+            "capturedAtMs = :capturedAtMs, syncStatus = :syncStatus WHERE id = :id",
+    )
+    suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String)
+
+    /**
+     * Writes [entity] as durable local evidence, distinguishing a TRUE repeat (same tag, same
+     * obligation cycle — must stay deduped) from a tag re-scanned for a DIFFERENT/reopened
+     * obligation (a verifier-rejected obligation reopened, or the same physical tag reassigned
+     * to a new obligation) — which is fresh evidence and must be written through, never
+     * silently absorbed by the unique (taskId, fieldKey, tag) index.
+     *
+     * ROOT CAUSE this closes: the plain [insert] (OnConflictStrategy.IGNORE) treated ANY tag
+     * collision as a duplicate — including a STALE, already-SYNCED row left over from a PRIOR
+     * obligation cycle for the same tag (e.g. yesterday's synced capture, whose obligation the
+     * server later reopened — a rejected/re-verified obligation typically keeps its ORIGINAL id,
+     * it just flips status, so obligationId equality cannot distinguish this case). The caller
+     * (ScanViewModel) only reaches [recordScan] on a roster row it has already judged PENDING/
+     * due-again — a true still-DONE re-scan is routed to the "already scanned" duplicate feed
+     * path before ever calling this. So the durable signal here is the STORED row's own
+     * [ScannedGoatEntity.syncStatus]: while it is still PENDING/IN_FLIGHT/FAILED, the original
+     * write has not even reached the server yet, so a repeat read is a true duplicate of
+     * in-flight work and must stay deduped. Once it is SYNCED, the server has already
+     * acknowledged this exact tag for this exact obligation cycle — a caller that scans it AGAIN
+     * only does so because the domain invalidated that earlier evidence (obligation reopened).
+     * Silently no-op'ing on the SYNCED stale row produced an ACCEPTED scan attempt with no
+     * durable capture and no outbox enqueue: an accepted operator scan that never reached
+     * `scan_captures` on the backend.
+     *
+     * Deliberately NOT `@Transaction`: this app has exactly one writer for a given
+     * (taskId, fieldKey, tag) at a time (one physical RFID reader stream, sequential
+     * onTagRead handling), and the unique index on that triple is the actual concurrency
+     * safety net — a racing insert can still only ever leave one row. Wrapping this
+     * read-then-write in a DAO-interface `@Transaction` default method was found (via a
+     * captured `android.database.SQLException: connection is closed`, suppressed under an
+     * unrelated later test) to leak an async connection-pool operation past the calling
+     * coroutine's own completion under a bare `Dispatchers.Unconfined` test dispatcher —
+     * i.e. the transaction's internal bookkeeping did not fully finish before the
+     * suspend call returned to its caller. Since no cross-row atomicity is actually
+     * required here, the safest fix is to not ask Room's transaction coroutine machinery
+     * to do more than this call needs.
+     */
+    suspend fun upsertScan(entity: ScannedGoatEntity): ScanUpsertResult {
+        val existing = findByTaskFieldTag(entity.taskId, entity.fieldKey, entity.tag)
+        if (existing == null) {
+            insert(entity)
+            return ScanUpsertResult.INSERTED
+        }
+        if (existing.syncStatus != CaptureSyncStatus.SYNCED.name) {
+            // Original write for this tag is still in flight (or failed and awaiting retry) —
+            // a repeat read right now carries no new signal; stay deduped.
+            return ScanUpsertResult.DUPLICATE
+        }
+        // Existing row is SYNCED: the earlier evidence already reached the server. A fresh scan
+        // of the same tag only happens because the caller's own roster state judged this
+        // obligation due again (reopen) — replace the stale row in place and reset it to PENDING
+        // so the repository re-enqueues the outbox write for the new cycle.
+        replaceScan(
+            id = existing.id,
+            goatId = entity.goatId,
+            obligationId = entity.obligationId,
+            capturedAtMs = entity.capturedAtMs,
+            syncStatus = entity.syncStatus,
+        )
+        return ScanUpsertResult.REPLACED
+    }
 
     // Bounded (mobile-guard: unbounded-db-read) — a shed's scanned-goat count is naturally
     // capacity-bounded, but the query still carries an explicit LIMIT rather than relying on

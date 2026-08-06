@@ -403,7 +403,7 @@ fun GoatOsShellChrome(
     // up to it (or the attempt is known to have failed, see below).
     var pendingNavTarget by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(currentRoute) {
-        if (pendingNavTarget != null && currentRoute?.routeBase() == pendingNavTarget) {
+        if (pendingNavTarget != null && currentRoute?.routeBase() == pendingNavTarget?.routeBase()) {
             pendingNavTarget = null
         }
     }
@@ -613,7 +613,14 @@ private fun MeshaNavBar(
         // the golden frontend rule and actively mislabel items (the backend calls the vaccination
         // module's own tab "Drives", not "Vaccination").
         items.forEach { item ->
-            val isSelected = currentBaseRoute == item.href
+            // Compare BASE to BASE. `currentBaseRoute` is already stripped at '?', but a
+            // backend-composed href can carry a query -- the verifier's tabs are
+            // "/verify?module=vaccination&category=vaccination_proof". Comparing the stripped
+            // route against the UNstripped href never matched, so the verifier's bottom bar
+            // highlighted NOTHING and they could not tell which screen they were on, while
+            // operator/CEO (whose hrefs carry no query) looked fine. Same mismatch also kept the
+            // double-tap guard armed forever for those tabs.
+            val isSelected = currentBaseRoute == item.href.routeBase()
             NavigationBarItem(
                 selected = isSelected,
                 onClick = {

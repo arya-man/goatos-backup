@@ -950,7 +950,24 @@ WHERE NOT EXISTS (
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) > now()
 )
 ON CONFLICT (tenant_id, task_id, field_key, normalized_tag) DO UPDATE
-SET updated_at = now()
+-- A re-scan of the SAME tag (retry of the same cycle, OR a genuinely new capture after a
+-- verifier rejection reopened the obligation — same obligation_id, only its row_version bumps)
+-- must overwrite the durable evidence with what was just scanned, not merely touch updated_at.
+-- The previous "DO UPDATE SET updated_at = now()" silently absorbed a legitimately new capture
+-- as an invisible timestamp bump: captured_at, goat_id, obligation_id, captured_by, and
+-- idempotency_key all stayed pinned to the FIRST-ever scan of this tag forever, so a re-scan
+-- days later still read back as the original capture — the server-side half of the accepted
+-- scan / never-durably-recorded defect (the Room-layer half is CaptureRepository.upsertScan).
+-- This is an unconditional "last scan wins" overwrite, matching the client's own replaceScan:
+-- a plain retry re-sends identical values (harmless no-op update) and a reopened cycle's re-scan
+-- correctly refreshes every column to the new capture.
+SET tag = EXCLUDED.tag,
+    goat_id = EXCLUDED.goat_id,
+    obligation_id = EXCLUDED.obligation_id,
+    captured_by = EXCLUDED.captured_by,
+    idempotency_key = EXCLUDED.idempotency_key,
+    captured_at = EXCLUDED.captured_at,
+    updated_at = now()
 RETURNING capture_id::text, task_id::text, field_key, tag, COALESCE(goat_id::text, ''), COALESCE(obligation_id::text, ''), captured_at`,
 		cmd.TenantID,
 		cmd.TaskID,

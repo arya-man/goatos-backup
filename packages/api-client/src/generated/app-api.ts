@@ -3767,6 +3767,10 @@ export interface components {
             blocking_reason: string | null;
             /** @enum {string} */
             submit_state: "draft" | "submitted" | "verified" | "closed";
+            /** @description True only when a live or accepted submission trail exists for THIS shed's CURRENT round of eligible obligations. False whenever the shed has open, unsubmitted obligations for this round -- including immediately after a verifier rejection reopens an obligation, even if submit_state still reads a stale terminal word from an earlier round. */
+            round_submitted: boolean;
+            /** @description Deterministic fingerprint of this shed's current obligation-round state. Changes value whenever an obligation in this shed submits or is reopened by a verifier rejection. Opaque -- not a UUID, not stable across schema changes -- for round- identity comparisons only, not for display. */
+            round_id: string;
         };
         RetryReviewFanoutsRequest: {
             /** @default 50 */
@@ -11854,6 +11858,10 @@ export interface operations {
                              */
                             scannedAt?: string | null;
                             obligationId?: string;
+                            /**
+                             * @description obligation_instances.row_version for this row's obligation — bumps on every transition, including a verifier rejection reopening it for re-capture. The scan-capture idempotency key discriminator; a mobile client must fold this into the key so a genuinely-new scan after a reopen is not deduped away as a replay of the prior cycle's capture.
+                             */
+                            obligationRowVersion?: number;
                             taskId?: string;
                             batchId?: string;
                             sopVersionId?: string;

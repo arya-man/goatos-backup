@@ -256,7 +256,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
     ],
-    version = 33,
+    version = 34,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -314,6 +314,11 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // v32 (see [MIGRATION_31_32]) adds `answers` to capture_evidence_drafts — the operator's typed
     // form answers on a reserved `__answers__` row, so re-entering a capture screen restores the
     // numbers and remarks beside the videos instead of demanding the whole sheet again.
+    // v34 (see [MIGRATION_33_34]) adds `obligationRowVersion` to scan_roster_row —
+    // obligation_instances.row_version echoed from the backend, the server-issued cycle
+    // discriminator folded into the scan-capture idempotency key so a genuinely-new scan after a
+    // verifier-rejection reopen is not deduped away as a replay of the prior cycle's already-synced
+    // capture.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {

@@ -127,6 +127,13 @@ data class ScanRosterRowEntity(
      *  matches backend order. Defaults to 0 for rows written before the ordering column existed. */
     val seq: Long = 0,
     val updatedAt: Long,
+    /** `obligation_instances.row_version` for this row's obligation, echoed from
+     *  [sg.mesha.goatos.core.network.dto.ScanRosterRowDto.obligationRowVersion]. See
+     *  `sg.mesha.goatos.core.data.capture.scanCaptureIdempotencyKey` — this is the server-issued
+     *  cycle discriminator folded into the scan-capture idempotency key so a genuinely-new scan
+     *  after a verifier-rejection reopen is not deduped away as a replay of the prior cycle's
+     *  already-synced capture. Defaults to 0 for rows written before this column existed. */
+    val obligationRowVersion: Int = 0,
 )
 
 @Dao

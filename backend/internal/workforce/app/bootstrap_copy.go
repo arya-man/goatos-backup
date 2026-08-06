@@ -90,7 +90,22 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			{key: "overview", labelKey: "nav.overview", href: "/vaccination", shared_key: "", priority: 1, requiredPermission: permissions.VaccinationOverviewRead}, //nav-composition:ignore: registry entry
 			{key: "vaccination", labelKey: "nav.drives", href: "/vaccination", shared_key: "", priority: 1, excludedPermission: permissions.CalendarAction},         //nav-composition:ignore: registry entry
 			{key: "calendar", labelKey: "nav.calendar", href: "/calendar", shared_key: "calendar", priority: 2, requiredPermission: permissions.CalendarAction},     //nav-composition:ignore: registry entry
-			{key: "videos", labelKey: "nav.videos", href: "/verify/action", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct},           //nav-composition:ignore: registry entry
+			// Leadership's Videos tab is a REVIEW/audit surface (context/architecture/
+			// verifier-app-and-flow.md; verdict-exclusivity rule in AGENTS.md): it must show the
+			// complete evidence trail -- pending, approved, rejected, AND already-closed proofs --
+			// not just work still open for action. It used to point at "/verify/action"
+			// (permission-gated the same way, since only VerificationAct-holding leadership ever
+			// reaches this non-review-lens contribution), which hits GET /verification/action-queue
+			// with OpenOnly=true and silently drops every item whose closed_at is set. A CEO who had
+			// already closed half his approved vaccination proofs saw only the other half plus the
+			// rejected one -- the closed half of his own audit trail vanished with no error. Routing
+			// through verifyQueueHref instead lands on GET /verification/queue (OpenOnly=false,
+			// status-filterable, "All" reachable), the same review endpoint the standalone verifier's
+			// reviewContributions videos tab already uses correctly. Never revert this to
+			// "/verify/action" or otherwise flip OpenOnly for the action queue itself -- the verifier's
+			// action queue must stay open-items-only (see the reviewContributions entry below and
+			// ListActionQueue in verification/adapters/http/handler.go).
+			{key: "videos", labelKey: "nav.videos", href: leadershipVideosHref("vaccination"), shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct}, //nav-composition:ignore: registry entry
 			// Vaccination's OWN alerts feed. The href names the feature that owns it, the same
 			// way weighing's does: alerts are feature-scoped by rule, and a generically-named
 			// "/alerts" is what once got copied into weighing's bar, where it 403'd for a
@@ -1174,6 +1189,19 @@ var bootstrapLabels = map[string]map[string]string{
 // It carries the category as well as the module because the module key alone is not a queue scope:
 // the client filters by category, and anything it does not recognise as a module lands on
 // vaccination. Naming the category makes the scope explicit instead of guessable.
+// leadershipVideosHref is the REVIEW queue plus an explicit no-status-filter selection.
+//
+// verifyQueueHref alone is not enough here. The review read defaults a BLANK status to `pending`
+// (verification/app/service.go), and leadership's Videos tab is an audit surface where pending is
+// routinely EMPTY -- every proof already has a verdict. Landing there with no status therefore
+// showed the CEO an empty screen, which is how "only the rejected one is showing" would have
+// become "nothing is showing" once the action-queue href was corrected. `status=all` is the
+// backend's documented no-filter sentinel (handler.statusAll) and returns pending + approved +
+// rejected, including already-CLOSED items, which is exactly the trail leadership must see.
+func leadershipVideosHref(normalizedFeatureKey string) string {
+	return verifyQueueHref(normalizedFeatureKey) + "&status=all"
+}
+
 func verifyQueueHref(normalizedFeatureKey string) string {
 	return "/verify?module=" + normalizedFeatureKey + "&category=" + verificationCategoryForFeature(normalizedFeatureKey)
 }

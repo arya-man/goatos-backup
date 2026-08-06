@@ -775,8 +775,13 @@ class SubmitViewModelFormTest {
             // Terminal-sounding state left behind by the PREVIOUS round.
             state = "needs_review",
             rowVersion = 2,
-            scopeType = "shed",
-            scopeId = "shed-godel-1",
+            // PARK-scoped, like every real vaccination drive task: one shared parent across all
+            // sheds in the drive. Its `needs_review` belongs to an EARLIER round and must never
+            // acknowledge THIS shed's round (AGENTS.md: shared drive tasks are aggregate
+            // bookkeeping only). Scoping the guard to scopeType=="shed" missed exactly this and
+            // the false ack came straight back on the next attempt.
+            scopeType = "park",
+            scopeId = "park-cbe",
         )
         val form = FormSpec(
             schemaVersion = "goatos.sop-form.v1",
@@ -1414,6 +1419,7 @@ class SubmitViewModelFormTest {
             submitEnabled = true,
             blockingReason = null,
             submitState = "needs_review",
+            roundSubmitted = true,
         )
         val proofCaptureRepository = FakeProofCaptureRepository()
         val proofCaptureSource = FakeProofCaptureSource()
@@ -1476,6 +1482,7 @@ class SubmitViewModelFormTest {
             submitEnabled = false,
             blockingReason = null,
             submitState = "verified",
+            roundSubmitted = true,
         )
         val sync = CapturingSyncRepository()
         val viewModel = viewModel(

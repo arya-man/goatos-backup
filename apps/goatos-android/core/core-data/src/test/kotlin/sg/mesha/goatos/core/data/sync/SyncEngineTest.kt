@@ -1132,6 +1132,19 @@ private class FakeScannedGoatDao : ScannedGoatDao {
         return 1L
     }
 
+    override suspend fun findByTaskFieldTag(taskId: String, fieldKey: String, tag: String): ScannedGoatEntity? =
+        rows.firstOrNull { it.taskId == taskId && it.fieldKey == fieldKey && it.tag == tag }
+
+    override suspend fun replaceScan(id: String, goatId: String?, obligationId: String?, capturedAtMs: Long, syncStatus: String) {
+        rows.replaceAll { row ->
+            if (row.id == id) {
+                row.copy(goatId = goatId, obligationId = obligationId, capturedAtMs = capturedAtMs, syncStatus = syncStatus)
+            } else {
+                row
+            }
+        }
+    }
+
     override fun observeForField(taskId: String, fieldKey: String, limit: Int): Flow<List<ScannedGoatEntity>> =
         flowOf(rows.filter { it.taskId == taskId && it.fieldKey == fieldKey }.take(limit))
 

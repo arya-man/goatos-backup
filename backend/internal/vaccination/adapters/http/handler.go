@@ -336,6 +336,14 @@ type shedCompletionSummaryResponse struct {
 	SubmitEnabled    bool                                 `json:"submit_enabled"`
 	BlockingReason   *string                              `json:"blocking_reason"`
 	SubmitState      string                               `json:"submit_state"`
+	// RoundSubmitted is true only when a live/accepted submission trail exists for THIS shed's
+	// CURRENT round of eligible obligations. See domain.ShedCompletionSummary.RoundSubmitted.
+	RoundSubmitted bool `json:"round_submitted"`
+	// RoundID is a deterministic fingerprint of this shed's current obligation-round state; it
+	// changes value whenever an obligation in this shed submits or is reopened by a verifier
+	// rejection. See domain.ShedCompletionSummary.RoundID. Opaque to clients -- not a UUID, not
+	// stable across schema changes -- carried for round-identity comparisons only.
+	RoundID string `json:"round_id"`
 }
 
 // ShedCompletionSummary serves GET /app/tasks/{task_id}/shed-completion-summary — the read-only
@@ -381,6 +389,8 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		SubmitEnabled:    summary.SubmitEnabled,
 		BlockingReason:   summary.BlockingReason,
 		SubmitState:      summary.SubmitState,
+		RoundSubmitted:   summary.RoundSubmitted,
+		RoundID:          summary.RoundID,
 	})
 }
 

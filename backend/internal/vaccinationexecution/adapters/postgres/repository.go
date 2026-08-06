@@ -2200,6 +2200,7 @@ func (r *Repository) ScanRoster(ctx context.Context, q domain.ScanRosterQuery) (
 			&row.Status,
 			&scannedAt,
 			&row.ObligationID,
+			&row.ObligationRowVersion,
 		); err != nil {
 			return domain.ScanRosterResult{}, fmt.Errorf("vaccination execution: scan roster scan: %w", err)
 		}
@@ -2287,7 +2288,8 @@ SELECT
   -- NULL for a sent-back animal: it must present as not-yet-scanned so the row carries no
   -- "Proof synced" tick and the client's own done/pending split puts it back in pending.
   CASE WHEN vc.completion_status = 'rejected' THEN NULL ELSE COALESCE(sc.captured_at, vcm.administered_at) END AS scanned_at,
-  oi.obligation_id::text
+  oi.obligation_id::text,
+  oi.row_version
 FROM obligation_instances oi
 LEFT JOIN obligation_batches ob
   ON ob.tenant_id = oi.tenant_id

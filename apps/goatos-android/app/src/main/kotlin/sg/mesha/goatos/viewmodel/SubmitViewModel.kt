@@ -1104,7 +1104,19 @@ class SubmitViewModel @Inject constructor(
             // SHED_SUBMIT was ever enqueued, and the operator was told the job was done.
             if (summary.submitEnabled && summary.submitState.isRoundClosedOut()) return false
             if (!task.state.isSubmissionTerminal()) return false
+            // The shed-scoped summary IS per-shed truth, so "needs_review"/"submitted" here means
+            // THIS shed's round is with the verifier -- a legitimate acknowledged state.
             if (!summary.submitState.isSubmissionTerminal()) return false
+            // ROUND-IDENTITY GATE (closes the former KNOWN GAP below). submit_state alone cannot
+            // distinguish "submitted THIS round" from "submitted the PREVIOUS round, then reopened
+            // by a verifier rejection" -- both used to arrive as submitState=needs_review with
+            // submit_enabled=true. The backend now derives round_submitted from shed-scoped facts
+            // (a live pending verification item, an unaccepted completion, or accepted history for
+            // this shed's current round -- see domain.ShedCompletionSummary.RoundSubmitted) instead
+            // of the shared park-level sop_tasks.state, so it is false exactly when this shed's
+            // round was reopened and a fresh submission is still owed. Trust it over the coarse
+            // submit_state word: a reopened shed must reach the submit form, never the ack screen.
+            if (!summary.roundSubmitted) return false
             if (currentProofPolicy.isShedLevelVideo) {
                 val readiness = currentShedProofReadiness()
                 if (readiness.uploading > 0 || readiness.failed > 0) return false
@@ -1128,8 +1140,22 @@ class SubmitViewModel @Inject constructor(
         // round below it, so there the task's own terminal state IS the answer and still acks
         // (an operator reopening an already-submitted task must not be handed a blank form that
         // invites a duplicate submission).
-        val shedScoped = activeShedScopeId(task) != null
-        return if (shedScoped) scopeSubmissionAcked else task.state.isSubmissionTerminal()
+        // `task.state` may ONLY answer for a task that is ITSELF the submission unit.
+        //
+        // A vaccination drive task is PARK-scoped and shared by every shed in the drive -- AGENTS.md:
+        // "Shared vaccination drive tasks are aggregate bookkeeping only. A hidden park/batch-level
+        // sop_tasks.state must not be used as per-shed submitted/proof/verification truth." An
+        // earlier round leaves that shared parent `needs_review`, so reading it here acknowledged a
+        // shed whose own round was never sent. Scoping the guard to `scopeType == "shed"` was not
+        // enough: the live task is park-scoped, so the guard never fired and the lie came straight
+        // back on the next attempt.
+        //
+        // So: anything scoped ABOVE the submission (park, batch, drive) requires positive evidence.
+        // Only a self-contained task with no shed selected under it may speak for itself.
+        val taskIsItsOwnSubmissionUnit =
+            activeShedScopeId(task) == null &&
+                (task.scopeType.isBlank() || task.scopeType.equals("task", ignoreCase = true))
+        return if (taskIsItsOwnSubmissionUnit) task.state.isSubmissionTerminal() else scopeSubmissionAcked
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =

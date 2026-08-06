@@ -370,10 +370,17 @@ type ScanRosterRow struct {
 	Status         string  `json:"status"`
 	ScannedAt      *string `json:"scannedAt,omitempty"`
 	ObligationID   string  `json:"obligationId"`
-	BatchID        string  `json:"batchId"`
-	TaskID         string  `json:"taskId"`
-	SOPVersionID   string  `json:"sopVersionId"`
-	TaskRowVersion int32   `json:"taskRowVersion"`
+	// ObligationRowVersion is obligation_instances.row_version for this row's obligation. It
+	// bumps every time the obligation transitions (including a verifier rejection reopening it
+	// for re-capture) and is the server-issued cycle discriminator the mobile scan-capture
+	// idempotency key uses (CaptureRepository.scanCaptureIdempotencyKey), so a genuinely-new
+	// scan after a reopen builds a NEW key while a network retry of the same scan stays on the
+	// SAME key and dedupes. See the scan-capture silent-loss defect this closes.
+	ObligationRowVersion int32  `json:"obligationRowVersion"`
+	BatchID              string `json:"batchId"`
+	TaskID               string `json:"taskId"`
+	SOPVersionID         string `json:"sopVersionId"`
+	TaskRowVersion       int32  `json:"taskRowVersion"`
 }
 
 type ScanRosterQuery struct {
