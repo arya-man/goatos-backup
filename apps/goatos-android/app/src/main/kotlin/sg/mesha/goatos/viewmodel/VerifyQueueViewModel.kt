@@ -23,6 +23,7 @@ import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.isConnectivityFailure
+import sg.mesha.goatos.core.network.serverErrorText
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 import sg.mesha.goatos.core.network.dto.VerificationStatus
@@ -214,6 +215,21 @@ class VerifyQueueViewModel @Inject constructor(
     ) { resource, scope, flags ->
         val items = resource.data?.items.orEmpty()
         val filterOptions = resource.data?.filterOptions
+
+        // Error handling: show error only if no cached data exists. If we have cached rows,
+        // keep showing them with the error cleared so the user can still work offline.
+        val queueError = if (items.isEmpty() && flags.hasLoadedOnce) {
+            val err = resource.error
+            if (err != null) {
+                err.serverErrorText()?.display
+                    ?: "Couldn't load the queue. Please try again."
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+
         VerifyQueueUiState(
             // ONE CARD PER SHED: the backend emits one verification_item per goat, so a naive
             // items.map here regresses a 40-animal shed into 40 rows. Group first -- [toShedRow]
@@ -251,6 +267,7 @@ class VerifyQueueViewModel @Inject constructor(
             hasMore = !isActionQueue && resource.data?.nextCursor != null,
             isLoadingMore = flags.isLoadingMore,
             hasLoadedOnce = flags.hasLoadedOnce,
+            queueError = queueError,
             driveClosures = resource.data?.driveClosures.orEmpty()
                 .filter { it.ready }
                 .map {

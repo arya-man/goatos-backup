@@ -380,6 +380,9 @@ dependencies {
     // in test context, no manual launch/collect needed). Catches state-sequence bugs:
     // flashes, wedges, yanks, stale-scope issues (item: state-sequence tests).
     testImplementation(libs.turbine)
+    // Retrofit and OkHttp for creating mock HttpException with proper error bodies in tests
+    testImplementation(libs.retrofit)
+    testImplementation(libs.okhttp)
 }
 
 configurations.matching { configuration ->
