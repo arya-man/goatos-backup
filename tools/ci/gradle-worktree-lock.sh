@@ -86,6 +86,33 @@ _gradle_lock_self() {
 
 _gradle_lock_host() { hostname 2>/dev/null || echo unknown-host; }
 
+# _gradle_lock_ino — inode of a path (empty when unknown). This is the ONLY
+# thing that identifies the lockdir a stale decision was made ABOUT: `mkdir`
+# gives a fresh inode at the same path, so a path comparison cannot tell a
+# recreated lock from the corrupt one it replaced (case r).
+_gradle_lock_ino() { stat -f %i "$1" 2>/dev/null || stat -c %i "$1" 2>/dev/null || true; }
+
+# _gradle_lock_path_unusable — is the lock path structurally unusable, as
+# opposed to merely HELD? `mkdir` reports both as plain failure, and treating
+# unusable as held costs the FULL timeout (1800 s by default) of polling before
+# the fail-open branch fires: a 30-minute stall inside a wall-clock fix, on a
+# TMPDIR whose directory was removed under a launchd/tmux session, a read-only
+# or full volume, or a GOATOS_CI_GRADLE_LOCK_DIR pointed at a path that does not
+# exist yet (case p).
+#
+# Deliberately NOT `[ ! -d "$lockdir" ]`: the ordinary EEXIST case is a
+# directory whose parent is fine, and a holder releasing between our failed
+# mkdir and our probe would otherwise read as "unusable" and drop the mutex.
+# Both conditions below are stable properties of the PATH, not of the race.
+_gradle_lock_path_unusable() { # lockdir -> 0 = unusable
+  local lockdir="$1" parent
+  [ -e "$lockdir" ] && [ ! -d "$lockdir" ] && return 0
+  parent="$(dirname "$lockdir")"
+  [ -d "$parent" ] || return 0
+  [ -w "$parent" ] || return 0
+  return 1
+}
+
 _gradle_lock_mtime() { # path -> epoch seconds (0 when unknown)
   local m
   m="$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0)"
@@ -153,9 +180,9 @@ gradle_lock_dir() {
 # the PATH, not the inode the decision was made about, so a losing racer's `mv`
 # succeeds — it just moves the WINNER'S FRESH lock. Measured 3 processes inside
 # at once with `mv` alone. Hence the break-lock plus the re-read (case h).
-_gradle_lock_break() { # lockdir expected_owner_pid reason
-  local lockdir="$1" expect="$2" reason="$3"
-  local brk="${lockdir}.break" graveyard cur_pid="" now bage
+_gradle_lock_break() { # lockdir expected_owner_pid reason expected_inode
+  local lockdir="$1" expect="$2" reason="$3" expect_ino="${4:-}"
+  local brk="${lockdir}.break" graveyard cur_pid="" cur_ino="" now bage
 
   if [ -d "$brk" ]; then
     now="$(date +%s)"
@@ -167,7 +194,18 @@ _gradle_lock_break() { # lockdir expected_owner_pid reason
   if [ -r "$lockdir/owner" ]; then
     { IFS="$(printf '\t')" read -r cur_pid _; } <"$lockdir/owner" 2>/dev/null || cur_pid=""
   fi
-  if [ ! -d "$lockdir" ] || [ "${cur_pid}" != "${expect}" ]; then
+  cur_ino="$(_gradle_lock_ino "$lockdir")"
+  # The INODE is the load-bearing half. On the malformed-owner decision `expect`
+  # is the EMPTY STRING, and an unreadable owner file also yields cur_pid="", so
+  # the pid comparison degenerates to `"" != ""` — vacuously true — and the
+  # break would `mv` away whatever sits at the path, including a DIFFERENT,
+  # FRESH, LIVE lock created by the winner of this same break after our decision
+  # (whose own owner write then fails ENOENT and drops IT to the unlocked path,
+  # so two builds compile at once — invisibly, because both paths are fail-open).
+  # A recreated lockdir has a different inode, so this returns 1 and the caller
+  # re-polls (case r).
+  if [ ! -d "$lockdir" ] || [ -z "$cur_ino" ] || [ "${cur_ino}" != "${expect_ino}" ] \
+     || [ "${cur_pid}" != "${expect}" ]; then
     rm -rf "$brk" 2>/dev/null
     return 1
   fi
@@ -197,7 +235,15 @@ gradle_lock_acquire() {
   gradle_lock_enabled || return 0
 
   local lockdir timeout stale host self t0 waited=0 last_note=0 missing=0
+  local ino="" prev_ino=""
   lockdir="$(gradle_lock_dir)"
+  # (p) Structurally unusable path: fail open on the FIRST look. Polling it for
+  # the whole timeout is indistinguishable from a held lock and costs 30 minutes
+  # at the shipped default.
+  if _gradle_lock_path_unusable "$lockdir"; then
+    echo "ci-local: Gradle lock path ${lockdir} is unusable — PROCEEDING WITHOUT THE LOCK (this run is slower, not weaker)" >&2
+    return 0
+  fi
   timeout="$(_gradle_lock_num "${GOATOS_CI_GRADLE_LOCK_TIMEOUT:-1800}" 1800 GOATOS_CI_GRADLE_LOCK_TIMEOUT)"
   # Default 1500 < the 1800 s timeout ON PURPOSE: with STALE above TIMEOUT the
   # expiry branch is unreachable at default settings and an unverifiable lock
@@ -224,13 +270,27 @@ gradle_lock_acquire() {
       return 0
     fi
 
+    # mkdir can fail for reasons other than EEXIST. Re-check before treating the
+    # failure as contention (case p).
+    if _gradle_lock_path_unusable "$lockdir"; then
+      echo "ci-local: Gradle lock path ${lockdir} is unusable — PROCEEDING WITHOUT THE LOCK (this run is slower, not weaker)" >&2
+      return 0
+    fi
+
     local opid="" ohost="" owt="" olabel="" oepoch="" oident="" age=0 now
     if [ -r "$lockdir/owner" ]; then
       { IFS="$(printf '\t')" read -r opid ohost owt olabel oepoch oident; } <"$lockdir/owner" 2>/dev/null || opid=""
     fi
+    # Captured on the SAME poll as the owner read, so it identifies the lockdir
+    # this poll's decision is about (case r).
+    prev_ino="$ino"; ino="$(_gradle_lock_ino "$lockdir")"
     now="$(date +%s)"
     case "$oepoch" in ''|*[!0-9]*) oepoch="$(_gradle_lock_mtime "$lockdir")" ;; esac
     age=$(( now - oepoch ))
+    # oepoch 0 means "no owner file and no stat" — a lockdir that vanished under
+    # us. `now - 0` is 1.7 billion seconds and the wait message said so.
+    [ "$age" -ge 0 ] 2>/dev/null || age=0
+    [ "$oepoch" -gt 0 ] 2>/dev/null || age=0
 
     local decision=""
     case "$opid" in
@@ -239,6 +299,9 @@ gradle_lock_acquire() {
         # holder is only ever ownerless for the microseconds between its mkdir
         # and its write, and evicting there restores the very contention this
         # file removes. Three consecutive polls (~3 s) is genuinely corrupt.
+        # A DIFFERENT lockdir restarts the count: three polls of "corrupt" only
+        # mean anything when they were three polls of the SAME directory.
+        if [ -n "$prev_ino" ] && [ "$ino" != "$prev_ino" ]; then missing=0; fi
         missing=$(( missing + 1 ))
         [ "$missing" -ge 3 ] && decision="malformed owner file"
         ;;
@@ -265,7 +328,7 @@ gradle_lock_acquire() {
     esac
 
     if [ -n "$decision" ]; then
-      if _gradle_lock_break "$lockdir" "$opid" "$decision"; then
+      if _gradle_lock_break "$lockdir" "$opid" "$decision" "$ino"; then
         continue
       fi
       # Nothing decided or nothing removed: fall through to the throttle and the
@@ -292,14 +355,28 @@ gradle_lock_acquire() {
 gradle_lock_release() {
   gradle_lock_trace && return 0
   gradle_lock_enabled || return 0
-  local lockdir opid="" ohost="" self
+  local lockdir opid="" ohost="" oident="" self
   lockdir="$(gradle_lock_dir)"
   [ -d "$lockdir" ] || return 0
   [ -r "$lockdir/owner" ] || return 0
   _gradle_lock_self; self="${_GRADLE_LOCK_SELF}"
-  { IFS="$(printf '\t')" read -r opid ohost _; } <"$lockdir/owner" 2>/dev/null || return 0
+  { IFS="$(printf '\t')" read -r opid ohost _ _ _ oident; } <"$lockdir/owner" 2>/dev/null || return 0
   [ "$opid" = "$self" ] || return 0
-  [ "$ohost" = "$(_gradle_lock_host)" ] || return 0
+  # Self-ownership needs the pid PLUS one thing that says "same machine". The
+  # hostname is the cheap answer but it is not stable: this box's own `hostname`
+  # flaps between foo.local and foo.lan across a wifi/VPN transition, and a flap
+  # between acquire and release LEAKED the lockdir. The leaked lock then also
+  # failed the same-host liveness check in acquire, so the next worktree could
+  # only age-break it — a 25-minute wait for a lock nobody held.
+  #
+  # The start-time identity is the stronger proof and needs no hostname: same
+  # pid AND same process start time means this process provably wrote the file.
+  # Non-owner-release protection is unchanged — a different process fails the
+  # pid check first, and a recycled pid fails the identity (case q).
+  if [ "$ohost" != "$(_gradle_lock_host)" ]; then
+    [ -n "$oident" ] || return 0
+    [ "$oident" = "$(_gradle_lock_pid_identity "$self")" ] || return 0
+  fi
   rm -rf "$lockdir" 2>/dev/null
   return 0
 }

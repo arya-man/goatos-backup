@@ -545,7 +545,14 @@ run_android_guards() {
 run_android() {
   # Orphaned test JVMs from a previously-killed Gradle run hold module build locks, so the
   # next run blocks on a lock nobody is watching and reads as "the suite is slow". Reap first.
-  bash tools/agent-hooks/reap-stale-gradle-workers.sh || true
+  #
+  # NOT under trace. This sits outside `step`, so trace mode does not short-circuit it, and
+  # the reaper `kill -9`s every GradleWorkerMain on the MACHINE older than 30 minutes — other
+  # agents' workers included, which AGENTS.md bans outright. A trace run starts no Gradle and
+  # so has nothing to reap; two required guards drive this target under trace
+  # (check-android-screenshot-proof.sh and check-gradle-worktree-lock.sh case (g)), which
+  # made `make guardrails` a machine-wide killer of somebody else's long build.
+  ci_trace_only || bash tools/agent-hooks/reap-stale-gradle-workers.sh || true
 
   current_job="android"
   run_android_guards
