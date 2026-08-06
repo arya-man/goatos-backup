@@ -13906,9 +13906,14 @@ components:
           format: uuid
         displayId:
           type: string
-        tag:
+        tag1:
           type: string
-          description: Primary visible tag when the animal carries one.
+          description: >-
+            The animal's physical tag (animal_identifier_1). This is the identity the FARM uses;
+            displayId is an internal Goat OS id and is only a fallback label.
+        tag2:
+          type: string
+          description: Second physical tag (animal_identifier_2) when the animal carries two.
         locationDisplay:
           type: string
           description: >-
