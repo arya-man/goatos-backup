@@ -17,6 +17,10 @@ export interface CommandBoardDriveOption {
   // CONTRACT GAP: The backend API response lacks shed_id and partition_label, so the frontend cannot
   // properly distinguish them. TODO: Add shed_id + partition_label to VaccinationCommandBoardDriveOption.
   shedNames: string[];
+  // Stable ids for the same sheds. Dedup on these, never on shedNames -- names repeat across
+  // parks, so a name-keyed dedup merges two parks' sheds into one row. Optional because older
+  // backends did not send it; absent means fall back to name-scoped behaviour within this row.
+  shedIds?: string[];
   // Set when the option's counts were reconstructed from the projection matrices instead of being
   // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
   // fold below must not add it to its siblings.
@@ -36,6 +40,10 @@ export interface ScheduledDriveRow {
   // Row is already scoped by parkId + drive + window dates, so sheds are contextually unambiguous
   // even though names alone would not be sufficient in a multi-park context.
   shedNames: string[];
+  // Stable shed ids for the same sheds, in the same scope. Dedup keys on these, never on
+  // shedNames: names repeat across parks (two Castro, two Gandhi), so a name-keyed dedup
+  // silently merges two parks' sheds into one row.
+  shedIds: string[];
   batchIds: string[];
 }
 
@@ -102,39 +110,41 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     const parkId = option.parkId ?? "";
     const parkName = option.parkName ?? "";
     const key = `${parkId}|${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
-    let row = rows.get(key);
+    let row: ScheduledDriveRow | undefined = rows.get(key);
     if (!row) {
       // Row is keyed by (parkId, drive name, window dates). ShedIds (from the API) are used for deduplication.
       // This prevents name collisions across parks where identical shed names can exist.
       row = { key, driveName: name, parkId, parkName, dateKeys: [], targetCount: 0, doseCount: 0, shedIds: [], shedNames: [], batchIds: [] };
       rows.set(key, row);
     }
+    // rows.set above guarantees this; the local alias keeps TS from widening it back to undefined.
+    const driveRow: ScheduledDriveRow = row;
     const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
-    if (planned && !row.dateKeys.includes(planned)) row.dateKeys.push(planned);
+    if (planned && !driveRow.dateKeys.includes(planned)) driveRow.dateKeys.push(planned);
     // Genuine API rows are one executable operator day each, so they sum. Matrix-derived options all
     // reconstruct the same campaign-wide total, so summing them would multiply it by the number of
     // days; the campaign total is the max, not the sum.
     if (option.derivedFromMatrix) {
-      row.targetCount = Math.max(row.targetCount, option.targetCount ?? 0);
-      row.doseCount = Math.max(row.doseCount, option.doseCount ?? 0);
+      driveRow.targetCount = Math.max(driveRow.targetCount, option.targetCount ?? 0);
+      driveRow.doseCount = Math.max(driveRow.doseCount, option.doseCount ?? 0);
     } else {
-      row.targetCount += option.targetCount ?? 0;
-      row.doseCount += option.doseCount ?? 0;
+      driveRow.targetCount += option.targetCount ?? 0;
+      driveRow.doseCount += option.doseCount ?? 0;
     }
-    row.batchIds.push(option.driveBatchId);
+    driveRow.batchIds.push(option.driveBatchId);
     // Collect shed IDs and names within this row's scope (park + drive + window). Row is scoped to
     // (parkId, driveName, windowStart, windowEnd). Use shedIds for deduplication to prevent
     // name collisions; keep shedNames for display. Sort both for stable output.
-    const shedIdSet = new Set(row.shedIds);
-    const shedNameSet = new Set(row.shedNames);
-    (option.shedIds ?? []).forEach((id) => {
+    const shedIdSet = new Set(driveRow.shedIds);
+    const shedNameSet = new Set(driveRow.shedNames);
+    (option.shedIds ?? []).forEach((id: string) => {
       shedIdSet.add(id);
     });
-    (option.shedNames ?? []).forEach((name) => {
+    (option.shedNames ?? []).forEach((name: string) => {
       shedNameSet.add(name);
     });
-    row.shedIds = Array.from(shedIdSet);
-    row.shedNames = Array.from(shedNameSet);
+    driveRow.shedIds = Array.from(shedIdSet);
+    driveRow.shedNames = Array.from(shedNameSet);
   });
   return Array.from(rows.values()).map((row) => ({
     ...row,
