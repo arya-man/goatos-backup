@@ -610,6 +610,20 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 
 	// The residual: closed with no completion. One of them stands in a partition.
 	partitionedGoat := seedAnimal(0, "canceled", false, true)
+	// FAN-OUT TRAP: goat_identifiers is unique per (goat_id, identifier_type) only for the PRIMARY
+	// active row, so a goat may hold several active NON-primary rows of one type -- real data does.
+	// A plain join would emit this animal twice, so the drawer would repeat it and stop matching the
+	// tile. The primary row must win and the animal must appear exactly once.
+	execProjectionSQL(t, ctx, pool, "primary tag",
+		`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+		   scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+		 VALUES ($1, $2, 'animal_identifier_2', 'TAG-PRIMARY', 'tag-primary', 'tenant', true, 'active', now(), 'v1')`,
+		tenantID, partitionedGoat)
+	execProjectionSQL(t, ctx, pool, "second active non-primary tag",
+		`INSERT INTO goat_identifiers (tenant_id, goat_id, identifier_type, identifier_value, normalized_value,
+		   scope_key, is_primary_for_goat, status, valid_from, normalizer_version)
+		 VALUES ($1, $2, 'animal_identifier_2', 'TAG-SECONDARY', 'tag-secondary', 'tenant', false, 'active', now(), 'v1')`,
+		tenantID, partitionedGoat)
 	seedAnimal(1, "canceled", false, false)
 	seedAnimal(2, "canceled", false, false)
 	// Must NOT appear: this animal's dose is accepted, so it belongs to the verified tile.
@@ -655,6 +669,23 @@ func TestVaccinationCommandBoardClosedWithoutDoseAnimalsMatchTheTileAndCarryPart
 	}
 	if partitioned == nil {
 		t.Fatalf("the partitioned animal is missing from the list entirely")
+	}
+	// The animal with two active identifiers of one type appears exactly once, carrying its PRIMARY
+	// tag. Duplication here would also mean the list no longer matches the tile.
+	occurrences := 0
+	for _, animal := range resp.ClosedWithoutDoseAnimals {
+		if animal.GoatID == partitionedGoat {
+			occurrences++
+		}
+	}
+	if occurrences != 1 {
+		t.Errorf("animal with two active animal_identifier_2 rows appears %d times, want 1 -- a plain "+
+			"join on goat_identifiers fans the animal out, repeats it in the drawer, pushes distinct "+
+			"animals past the list cap, and breaks parity with the closedWithoutDose tile", occurrences)
+	}
+	if partitioned.Tag2 != "TAG-PRIMARY" {
+		t.Errorf("tag2 = %q, want the PRIMARY active identifier %q -- the non-primary row must not win",
+			partitioned.Tag2, "TAG-PRIMARY")
 	}
 	if partitioned.LocationDisplay != "Godel 1 - Part 3" {
 		t.Errorf("locationDisplay = %q, want %q -- an animal standing in a partition reported as its "+
