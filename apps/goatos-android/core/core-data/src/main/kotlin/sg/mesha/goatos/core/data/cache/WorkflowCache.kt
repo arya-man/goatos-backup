@@ -174,6 +174,17 @@ interface WorkflowDetailCacheDao : JsonBlobCacheDao<WorkflowDetailCacheEntity> {
     @Query("SELECT * FROM workflow_detail_cache WHERE cacheKey = :cacheKey")
     override fun observe(cacheKey: String): Flow<WorkflowDetailCacheEntity?>
 
+    /**
+     * Every cached VIEW of one workflow: the plain detail (key = workflowId) plus any lens views
+     * (key = "workflowId|lens|date"), which hold a filtered action list and a day-grain card.
+     *
+     * An optimistic local completion has to reach all of them, or completing a feed on the
+     * Colostrum screen would leave the Birth detail of the same kid showing it as still pending
+     * until the next refresh. Bounded by enforceCacheBounds, so this is a handful of rows.
+     */
+    @Query("SELECT * FROM workflow_detail_cache WHERE cacheKey = :workflowId OR cacheKey LIKE :workflowId || '|%'")
+    suspend fun findAllViews(workflowId: String): List<WorkflowDetailCacheEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     override suspend fun upsert(entity: WorkflowDetailCacheEntity)
 

@@ -56,7 +56,13 @@ abstract class WorkflowListViewModel(
 
     private data class Selection(val dateIso: String, val filter: String = FILTER_ALL)
 
-    private val moduleKey = if (module == WorkflowModuleUi.DEATH) MODULE_DEATH else MODULE_BIRTH
+    private val moduleKey = when (module) {
+        WorkflowModuleUi.DEATH -> MODULE_DEATH
+        // A LENS keyword, not a workflow module: the backend serves the same card DTO from the
+        // colostrum-day grain (docs/decisions/colostrum-milk-module.md).
+        WorkflowModuleUi.COLOSTRUM -> MODULE_COLOSTRUM
+        else -> MODULE_BIRTH
+    }
 
     private val _selection = MutableStateFlow(Selection(dateIso = todayIso()))
     private val _isOffline = MutableStateFlow(false)
@@ -88,7 +94,9 @@ abstract class WorkflowListViewModel(
         val today = todayIso()
         WorkflowListUiState(
             module = module,
-            subtitle = chipCounts?.let { "${it.all} $SUBTITLE_OPEN" } ?: "",
+            subtitle = chipCounts?.let {
+                "${it.all} ${if (module == WorkflowModuleUi.COLOSTRUM) SUBTITLE_KIDS else SUBTITLE_OPEN}"
+            } ?: "",
             dateIso = selection.dateIso,
             dateLabel = dateLabel(selection.dateIso, today),
             isToday = selection.dateIso >= today,
@@ -185,13 +193,18 @@ abstract class WorkflowListViewModel(
     // DTO -> UI mapping (presentation only; every business value is backend-owned)
     // -----------------------------------------------------------------------
 
-    private fun WorkflowChipsDto.toChipUi(): List<WorkflowChipUi> = listOf(
-        WorkflowChipUi(FILTER_ALL, CHIP_ALL, all),
-        WorkflowChipUi(FILTER_OVERDUE, CHIP_OVERDUE, overdue),
-        WorkflowChipUi(FILTER_DUE, CHIP_DUE, due),
-        WorkflowChipUi(FILTER_COMPLETED, CHIP_COMPLETED, completed),
-        WorkflowChipUi(FILTER_AWAITING_VIDEO, CHIP_AWAITING_VIDEO, awaitingVideo),
-    )
+    private fun WorkflowChipsDto.toChipUi(): List<WorkflowChipUi> = buildList {
+        add(WorkflowChipUi(FILTER_ALL, CHIP_ALL, all))
+        add(WorkflowChipUi(FILTER_OVERDUE, CHIP_OVERDUE, overdue))
+        add(WorkflowChipUi(FILTER_DUE, CHIP_DUE, due))
+        add(WorkflowChipUi(FILTER_COMPLETED, CHIP_COMPLETED, completed))
+        // Colostrum has no awaiting-video bucket: verification is enqueued once per WHOLE kid
+        // workflow, so one day's feeds can never occupy it. The backend rejects the filter, so
+        // rendering the chip would offer a permanent zero that 400s when tapped.
+        if (module != WorkflowModuleUi.COLOSTRUM) {
+            add(WorkflowChipUi(FILTER_AWAITING_VIDEO, CHIP_AWAITING_VIDEO, awaitingVideo))
+        }
+    }
 
     private fun WorkflowOverdueDateDto.toUi(): WorkflowOverdueDateUi? {
         val parsed = runCatching { LocalDate.parse(date) }.getOrNull() ?: return null
@@ -285,6 +298,7 @@ abstract class WorkflowListViewModel(
 
         const val MODULE_BIRTH = "birth"
         const val MODULE_DEATH = "death"
+        const val MODULE_COLOSTRUM = "colostrum"
         const val TEMPLATE_BIRTH_MOTHER = "birth_mother"
         const val STATE_COMPLETED = "completed"
         const val FILTER_ALL = "all"
@@ -300,6 +314,8 @@ abstract class WorkflowListViewModel(
         const val CHIP_AWAITING_VIDEO = "Awaiting video"
 
         const val SUBTITLE_OPEN = "events today"
+        // A colostrum card is a KID with feeds due on the selected day, not an event on that day.
+        const val SUBTITLE_KIDS = "kids to feed"
         const val NEXT_LABEL = "Next"
         const val NEXT_DONE = "Done"
         const val AWAITING_VERIFICATION = "Awaiting verification"
@@ -348,8 +364,23 @@ class DeathWorkflowListViewModel @Inject constructor(
     crashReporter: CrashReporter,
 ) : WorkflowListViewModel(WorkflowModuleUi.DEATH, repo, analytics, crashReporter)
 
+/**
+ * `/counts/colostrum` — the Milk module's Colostrum work list.
+ *
+ * Same implementation as Birth because it renders the same card DTO; only the grain behind it
+ * differs (that date's feeds, not the kid's whole task list). Completing a feed here writes the
+ * same row the Birth screen writes (docs/decisions/colostrum-milk-module.md).
+ */
+@HiltViewModel
+class ColostrumWorkflowListViewModel @Inject constructor(
+    repo: WorkflowsRepository,
+    analytics: AnalyticsPort,
+    crashReporter: CrashReporter,
+) : WorkflowListViewModel(WorkflowModuleUi.COLOSTRUM, repo, analytics, crashReporter)
+
 internal fun workflowEmptyMessage(module: WorkflowModuleUi, isOffline: Boolean): String = when {
     isOffline -> "Couldn't load the work list. It will appear once you're back online."
     module == WorkflowModuleUi.BIRTH -> "No birth follow-up work for this day."
+    module == WorkflowModuleUi.COLOSTRUM -> "No colostrum feeds for this day."
     else -> "Nothing to follow up for this day."
 }

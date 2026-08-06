@@ -167,6 +167,16 @@ object MeshaIcons {
         "M9 7V5h6v2M10 5l1-2h2l1 2",
         "M11 11h3M11 14h3M11 17h3",
     )
+    /**
+     * Colostrum: the first milk, and a timed one. A droplet with a clock hand — deliberately not a
+     * third bottle, because it sits in the same bar as Milk Prep's can and Milk Feeding's bottle
+     * and would be unreadable at 20dp as another vessel.
+     */
+    val Colostrum: ImageVector = strokeIcon(
+        "colostrum",
+        "M12 3.5c3.6 4.6 5.5 7.2 5.5 9.6a5.5 5.5 0 0 1 -11 0c0-2.4 1.9-5 5.5-9.6z",
+        "M12 10.8v2.9l2.1 1.2",
+    )
     val Goat: ImageVector = strokeIcon(
         "goat",
         "M5 8c-1-3 1-4 2-2M19 8c1-3-1-4-2-2M7 6c0 6 2 9 5 9s5-3 5-9M9 15v3M15 15v3M10 11h.01M14 11h.01",
@@ -286,6 +296,9 @@ object MeshaIcons {
         // their own glyphs.
         "milk", "milk_preparation" -> MilkPreparation
         "milk_feeding" -> MilkFeeding
+        // Its own glyph, not the generic Module grid: Colostrum shares the Milk bar with two
+        // siblings, and the fallback would repeat the mark another tab already uses.
+        "colostrum" -> Colostrum
         // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
         "breeding" -> Breeding
         "aas_health", "health_adults", "health_kids" -> Health

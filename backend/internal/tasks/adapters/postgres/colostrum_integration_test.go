@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 )
@@ -293,6 +295,210 @@ func TestColostrumPreviousDayAttentionCountsKidsNotFeeds(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Adversarial regressions required by the aggregate/projection contract
+// (.agents/skills/goatos-code-review/references/aggregates-and-projections.md).
+// ---------------------------------------------------------------------------
+
+// FAN-OUT. A kid has MANY feeds on one date; the card grain is one row per kid per date. If the
+// aggregate ever became a join (or lost its GROUP BY), the same kid would appear once per feed and
+// the chips would count a single animal five times.
+func TestColostrumDayOneToManyFeedsStillYieldOneCardPerKid(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+
+	page := mustListColostrum(t, repo, ctx, colostrumBirthDate, wfEventAt)
+
+	matches := 0
+	for _, card := range page.Items {
+		if card.WorkflowID == workflowID {
+			matches++
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("kid appeared on %d cards, want exactly 1 — five feeds is one card", matches)
+	}
+	if page.Chips.All != 1 {
+		t.Fatalf("chips.all = %d, want 1 kid (not one per feed)", page.Chips.All)
+	}
+	card := colostrumCard(t, page, workflowID)
+	if card.ActionsTotal != 5 {
+		t.Fatalf("the many feeds must live in the counter, not in extra rows: total = %d, want 5",
+			card.ActionsTotal)
+	}
+}
+
+// PAGINATION. Chips are whole-day aggregates, so walking the keyset must visit every card exactly
+// once while the chip counts stay put — page size changes rows, never summary truth.
+func TestColostrumDayPageBoundaryKeepsChipsAndVisitsEveryCard(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	first := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+	second := openSecondKidWorkflow(t, repo, pool, ctx)
+
+	full := mustListColostrum(t, repo, ctx, colostrumBirthDate, wfEventAt)
+	if full.Chips.All != 2 {
+		t.Fatalf("chips.all = %d, want 2 kids", full.Chips.All)
+	}
+
+	seen := map[string]int{}
+	query := colostrumQuery(colostrumBirthDate, "", wfEventAt)
+	query.PageSize = 1
+	for pages := 0; ; pages++ {
+		if pages > 5 {
+			t.Fatal("keyset did not terminate — the cursor is not advancing")
+		}
+		page, err := repo.ListColostrumDay(ctx, query)
+		if err != nil {
+			t.Fatalf("page %d: %v", pages, err)
+		}
+		if page.Chips != full.Chips {
+			t.Fatalf("page %d changed the chips: %+v vs %+v", pages, page.Chips, full.Chips)
+		}
+		for _, card := range page.Items {
+			seen[card.WorkflowID]++
+		}
+		if page.NextCursor == nil {
+			break
+		}
+		cursor, err := domain.DecodeWorkflowCursor(*page.NextCursor)
+		if err != nil {
+			t.Fatalf("decode cursor: %v", err)
+		}
+		query.Cursor = cursor
+	}
+	if len(seen) != 2 || seen[first] != 1 || seen[second] != 1 {
+		t.Fatalf("keyset walk visited %v, want each of %s and %s exactly once", seen, first, second)
+	}
+}
+
+// DATE. The feeds of ONE kid deliberately land on two different business dates, and neither date
+// may borrow the other's rows. This is the difference between "due date" and "event date" that the
+// whole lens exists for.
+func TestColostrumDayScheduledDateSplitsFeedsAcrossBusinessDates(t *testing.T) {
+	repo, _, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+
+	birthDay := colostrumCard(t, mustListColostrum(t, repo, ctx, colostrumBirthDate, wfEventAt), workflowID)
+	nextDayAt := time.Date(2026, 7, 28, 12, 0, 0, 0, biztime.DefaultLocation())
+	nextDay := colostrumCard(t, mustListColostrum(t, repo, ctx, colostrumNextDate, nextDayAt), workflowID)
+
+	if birthDay.ActionsTotal != 5 || nextDay.ActionsTotal != 5 {
+		t.Fatalf("feeds split %d / %d, want 5 / 5", birthDay.ActionsTotal, nextDay.ActionsTotal)
+	}
+	// Ten feeds exist in total; each belongs to exactly one date. Neither double-counted nor lost.
+	var totalFeeds int
+	if err := repo.pool.QueryRow(ctx, `
+SELECT count(*)::int FROM workflow_actions
+WHERE workflow_id = $1::uuid AND (section = 'colostrum_session' OR action_key = 'first_colostrum')`,
+		workflowID).Scan(&totalFeeds); err != nil {
+		t.Fatalf("count feeds: %v", err)
+	}
+	if birthDay.ActionsTotal+nextDay.ActionsTotal != totalFeeds {
+		t.Fatalf("the two dates hold %d feeds but the kid has %d",
+			birthDay.ActionsTotal+nextDay.ActionsTotal, totalFeeds)
+	}
+	// A date with no feeds is empty rather than falling back to any other day's rows.
+	empty := mustListColostrum(t, repo, ctx, "2026-07-30",
+		time.Date(2026, 7, 30, 9, 0, 0, 0, biztime.DefaultLocation()))
+	if empty.Chips.All != 0 {
+		t.Fatalf("a date with no scheduled feeds returned %d cards", empty.Chips.All)
+	}
+}
+
+// SCOPE. This lens has no park or cohort dimension — its scope is (tenant, business date). The
+// dangerous leak is therefore tenant, and it is worth asserting because the day CTE filters on
+// workflow_actions.tenant_id while the card join re-filters on workflow_instances.tenant_id.
+func TestColostrumDayScopeHierarchyIsTenantAndDate(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+
+	otherTenant := "aaaaaaa1-0000-0000-0000-0000000000e1"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Other Tenant', 'active')
+ON CONFLICT (tenant_id) DO NOTHING`, otherTenant); err != nil {
+		t.Fatalf("seed other tenant: %v", err)
+	}
+
+	page, err := repo.ListColostrumDay(ctx, domain.ColostrumDayQuery{
+		TenantID: otherTenant, Date: colostrumBirthDate, TodayDate: colostrumBirthDate,
+		PageSize: domain.MaxWorkflowPageSize, Now: wfEventAt,
+	})
+	if err != nil {
+		t.Fatalf("other tenant list: %v", err)
+	}
+	if len(page.Items) != 0 || page.Chips.All != 0 {
+		t.Fatalf("another tenant saw %d cards / chips %+v — the day window must never cross tenants",
+			len(page.Items), page.Chips)
+	}
+	if len(page.OverdueDates) != 0 {
+		t.Fatalf("another tenant saw attention dates %+v", page.OverdueDates)
+	}
+}
+
+// STATUS MATRIX. Every workflow_actions status a feed can hold, on one date, at once. Each has a
+// different effect on the counters, and getting any one wrong silently misreports the day.
+func TestColostrumDayStatusBucketsCoverEveryActionStatus(t *testing.T) {
+	repo, pool, ctx := newWorkflowRepo(t)
+	workflowID := openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, wfKid)
+
+	// Assign one status to each of the birth day's five feeds, in due order.
+	statuses := []string{"completed", "in_review", "rework", "canceled", "pending"}
+	rows, err := pool.Query(ctx, `
+SELECT action_id::text, action_key FROM workflow_actions
+WHERE workflow_id = $1::uuid
+  AND (section = 'colostrum_session' OR action_key = 'first_colostrum')
+  AND (due_at AT TIME ZONE 'Asia/Kolkata')::date = DATE '2026-07-27'
+ORDER BY seq`, workflowID)
+	if err != nil {
+		t.Fatalf("load feeds: %v", err)
+	}
+	var actionIDs, actionKeys []string
+	for rows.Next() {
+		var id, key string
+		if err := rows.Scan(&id, &key); err != nil {
+			rows.Close()
+			t.Fatalf("scan: %v", err)
+		}
+		actionIDs = append(actionIDs, id)
+		actionKeys = append(actionKeys, key)
+	}
+	rows.Close()
+	if len(actionIDs) != len(statuses) {
+		t.Fatalf("expected %d birth-day feeds, got %d", len(statuses), len(actionIDs))
+	}
+	for i, status := range statuses {
+		if _, err := pool.Exec(ctx, `UPDATE workflow_actions SET status = $2 WHERE action_id = $1::uuid`,
+			actionIDs[i], status); err != nil {
+			t.Fatalf("set %s: %v", status, err)
+		}
+	}
+
+	at := time.Date(2026, 7, 27, 23, 0, 0, 0, biztime.DefaultLocation())
+	page := mustListColostrum(t, repo, ctx, colostrumBirthDate, at)
+	card := colostrumCard(t, page, workflowID)
+
+	// canceled leaves the denominator entirely; the other four remain.
+	if card.ActionsTotal != 4 {
+		t.Fatalf("total = %d, want 4 (canceled excluded)", card.ActionsTotal)
+	}
+	// Only `completed` is done. in_review, rework and pending are all still the operator's work.
+	if card.ActionsDone != 1 {
+		t.Fatalf("done = %d, want 1 — only 'completed' counts", card.ActionsDone)
+	}
+	// The next feed is the earliest incomplete one, which is the in_review row, not the pending one.
+	if card.NextAction == nil {
+		t.Fatal("a day with outstanding feeds must carry a next action")
+	}
+	if card.NextAction.Key != actionKeys[1] {
+		t.Fatalf("next feed = %q, want %q — the earliest incomplete row, which is the in_review one",
+			card.NextAction.Key, actionKeys[1])
+	}
+	// Chips still partition the day with this mixture present.
+	if page.Chips.All != page.Chips.Overdue+page.Chips.Due+page.Chips.Completed {
+		t.Fatalf("chips stopped partitioning under a mixed status matrix: %+v", page.Chips)
+	}
+}
+
 // Migration 000115 is the only thing keeping this lens off a sequential scan of workflow_actions.
 // A migration that silently fails to apply leaves every test above green (the queries are correct
 // either way at fixture scale) and the page slow in production, so assert the index EXISTS rather
@@ -314,6 +520,22 @@ WHERE schemaname = 'public' AND indexname = 'workflow_actions_colostrum_day_idx'
 			t.Fatalf("index definition %q is missing %q", indexDef, fragment)
 		}
 	}
+}
+
+// openSecondKidWorkflow seeds a second kid born the same moment, so the day holds two cards and the
+// keyset has a real boundary to cross.
+func openSecondKidWorkflow(t *testing.T, repo *Repository, pool *pgxpool.Pool, ctx context.Context) string {
+	t.Helper()
+	const secondKid = "aaaaaaa1-0000-0000-0000-0000000000fd"
+	if _, err := pool.Exec(ctx, `
+INSERT INTO goats (goat_id, tenant_id, species, sex, breed, lifecycle_status, custodian_party_id,
+                   origin_type, dob, entry_date, time_of_birth)
+VALUES ($1::uuid, $2::uuid, 'goat', 'male', 'Boer', 'alive', $3::uuid,
+        'birth', DATE '2026-07-27', DATE '2026-07-27', TIME '09:30')
+ON CONFLICT (goat_id) DO NOTHING`, secondKid, wfTenant, wfCustodian); err != nil {
+		t.Fatalf("seed second kid: %v", err)
+	}
+	return openWorkflow(t, repo, ctx, domain.TemplateKeyBirthKid, secondKid)
 }
 
 func mustListColostrum(t *testing.T, repo *Repository, ctx context.Context, date string, now time.Time) domain.WorkflowListPage {

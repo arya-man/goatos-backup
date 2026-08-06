@@ -124,6 +124,33 @@ class MeshaIconsNavKeyTest {
     }
 
     @Test
+    fun `the Milk module's three bar leaves each carry their own glyph`() {
+        // Bug 2's within-a-bar form. Milk contributes three nav items (bootstrap_copy.go:
+        // milk_preparation, milk_feeding, colostrum) that appear side by side in ONE bottom bar,
+        // where a shared or fallback glyph is most confusing: the operator sees two identical
+        // tabs. Colostrum arrived last (docs/decisions/colostrum-milk-module.md) and would have
+        // fallen through to the generic Module tile without its own mapping.
+        val milkLeaves = listOf("milk_preparation", "milk_feeding", "colostrum")
+        for (leaf in milkLeaves) {
+            assertNotEquals(
+                "milk bar leaf '$leaf' fell through to the generic fallback icon",
+                MeshaIcons.Module,
+                MeshaIcons.forNavKey(leaf),
+            )
+        }
+        for (i in milkLeaves.indices) {
+            for (j in i + 1 until milkLeaves.size) {
+                assertNotEquals(
+                    "milk bar leaves '${milkLeaves[i]}' and '${milkLeaves[j]}' share an icon; " +
+                        "they sit next to each other in the same bottom bar",
+                    MeshaIcons.forNavKey(milkLeaves[i]),
+                    MeshaIcons.forNavKey(milkLeaves[j]),
+                )
+            }
+        }
+    }
+
+    @Test
     fun `every module key is invariant under the verify_ prefix, generically`() {
         // Generalizes the previous test to the full module key list (not just the four modules
         // that currently have a verifier queue) so a FUTURE module added to the verifier's

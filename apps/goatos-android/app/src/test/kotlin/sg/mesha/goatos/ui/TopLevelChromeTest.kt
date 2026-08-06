@@ -467,6 +467,40 @@ class TopLevelChromeTest {
     }
 
     @Test
+    fun `the Milk bar carries three leaves and the colostrum drill is not a root`() {
+        // Colostrum joined the Milk module on 2026-08-06 (docs/decisions/colostrum-milk-module.md)
+        // as a backend-composed leaf beside Milk Prep and Milk Feeding. Two things must hold and
+        // are easy to get wrong independently: the leaf is an L0 ROOT (a composable registered but
+        // absent from the root set is treated as unhosted, so a deep link to it bounces to home),
+        // and its date-scoped DRILL is NOT (an L1 that leaks into the root set would render the
+        // bottom bar over a detail screen -- the android-navigation-stack invariant).
+        val milk = NavModule(
+            key = "milk",
+            label = "Milk",
+            href = Routes.COUNTS_MILK_PREPARATION,
+            status = NavModuleStatus.AVAILABLE,
+            navItems = listOf(
+                NavItem(key = "milk_preparation", label = "Milk Prep", href = Routes.COUNTS_MILK_PREPARATION),
+                NavItem(key = "milk_feeding", label = "Milk Feeding", href = Routes.COUNTS_MILK_FEEDING),
+                NavItem(key = "colostrum", label = "Colostrum", href = Routes.COUNTS_COLOSTRUM),
+            ),
+        )
+        val state = NavState(chrome = NavChrome.MINIMAL, items = milk.navItems, modules = listOf(milk))
+        val milkRoots = rootsFor(state, "milk", Routes.COUNTS_MILK_PREPARATION)
+
+        assertEquals(
+            listOf(Routes.COUNTS_MILK_PREPARATION, Routes.COUNTS_MILK_FEEDING, Routes.COUNTS_COLOSTRUM),
+            milkRoots,
+        )
+        assertTrue(isTopLevelRoute(Routes.COUNTS_COLOSTRUM, milkRoots))
+        assertFalse(
+            isTopLevelRoute(Routes.colostrumWorkflowRoute("wf-1", "2026-08-06"), milkRoots),
+        )
+        // Milk Prep keeps the landing slot (maintainer decision 2026-08-06).
+        assertEquals(Routes.COUNTS_MILK_PREPARATION, milk.href)
+    }
+
+    @Test
     fun `a bootstrap with no modules still renders its visible_navigation bar`() {
         // Older backend or a cached pre-`modules` bootstrap: fall back to visible_navigation
         // rather than dropping the bottom bar entirely.

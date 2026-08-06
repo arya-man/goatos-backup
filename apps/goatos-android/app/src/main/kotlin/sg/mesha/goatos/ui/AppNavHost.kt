@@ -137,7 +137,9 @@ import sg.mesha.goatos.viewmodel.AddHealthCaseViewModel
 import sg.mesha.goatos.viewmodel.AdultHealthViewModel
 import sg.mesha.goatos.viewmodel.ApprovalViewModel
 import sg.mesha.goatos.viewmodel.WeighingAlertsViewModel
+import sg.mesha.goatos.core.data.WORKFLOW_MODULE_COLOSTRUM
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
+import sg.mesha.goatos.viewmodel.ColostrumWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.CalendarDayViewModel
 import sg.mesha.goatos.viewmodel.DeathWorkflowListViewModel
 import sg.mesha.goatos.viewmodel.HealthDetailViewModel
@@ -311,6 +313,13 @@ object Routes {
     const val COUNTS_MILK_FEEDING_DETAIL = "/counts/milk-feeding/tasks/{$MILK_FEEDING_TASK_ID_ARG}"
     fun milkFeedingDetailRoute(taskId: String): String = "/counts/milk-feeding/tasks/$taskId"
 
+    /**
+     * `/counts/colostrum` — the Milk module's Colostrum work list (L0), the kids with a colostrum
+     * feed due on the selected business date (docs/decisions/colostrum-milk-module.md). It carries
+     * no add form: the feeds it shows were scheduled by the birth that created them.
+     */
+    const val COUNTS_COLOSTRUM = "/counts/colostrum"
+
     // L1 drill-ins for one workflow card (distinct hosted destinations with Up/Back and no root
     // chrome — never a prefix reuse of the L0 roots above). Each module keeps its own drill route
     // so Back always lands on the module the operator came from.
@@ -319,6 +328,15 @@ object Routes {
     const val COUNTS_DEATH_WORKFLOW = "/counts/death/workflows/{$WORKFLOW_ID_ARG}"
     fun birthWorkflowRoute(workflowId: String): String = "/counts/birth/workflows/$workflowId"
     fun deathWorkflowRoute(workflowId: String): String = "/counts/death/workflows/$workflowId"
+
+    // The colostrum drill carries the business DATE in the route, because the rows and the header
+    // counters are day-scoped: the same kid opened from the 5th and from the 6th is two different
+    // screens. Its own route (not a birth prefix) keeps Back landing on Colostrum.
+    const val WORKFLOW_DATE_ARG = "date"
+    const val COUNTS_COLOSTRUM_WORKFLOW =
+        "/counts/colostrum/workflows/{$WORKFLOW_ID_ARG}/dates/{$WORKFLOW_DATE_ARG}"
+    fun colostrumWorkflowRoute(workflowId: String, dateIso: String): String =
+        "/counts/colostrum/workflows/$workflowId/dates/$dateIso"
 
     // L1 add forms behind each module's ＋ button (hosted destinations with Up/Back, no root chrome).
     const val COUNTS_BIRTH_ADD = "/counts/birth/add"
@@ -1986,13 +2004,48 @@ fun AppNavHost(
             )
         }
 
+        // Colostrum (docs/decisions/colostrum-milk-module.md): the Milk module's third L0 list. The
+        // drill carries the SELECTED DATE, because a card's counters and rows are that day's feeds.
+        // onAddNew is unreachable — the screen renders no ＋ for this module.
+        composable(Routes.COUNTS_COLOSTRUM) {
+            val vm: ColostrumWorkflowListViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            WorkflowListDestination(
+                vm = vm,
+                onOpenCard = { workflowId ->
+                    navController.navigate(
+                        Routes.colostrumWorkflowRoute(workflowId, state.dateIso),
+                    ) { launchSingleTop = true }
+                },
+                onAddNew = {},
+                onBack = { navController.popBackStack() },
+            )
+        }
+
         // L1 workflow drill-ins: one goat's SOP action list. The camera is bound only while
         // composed (operator capture role gated) so requires_video actions can record; the
         // `tag_the_kid` action navigates to the existing L2 promote form instead of posting.
-        listOf(Routes.COUNTS_BIRTH_WORKFLOW, Routes.COUNTS_DEATH_WORKFLOW).forEach { route ->
+        listOf(
+            Routes.COUNTS_BIRTH_WORKFLOW,
+            Routes.COUNTS_DEATH_WORKFLOW,
+            Routes.COUNTS_COLOSTRUM_WORKFLOW,
+        ).forEach { route ->
             composable(
                 route = route,
-                arguments = listOf(navArgument(Routes.WORKFLOW_ID_ARG) { type = NavType.StringType }),
+                arguments = buildList {
+                    add(navArgument(Routes.WORKFLOW_ID_ARG) { type = NavType.StringType })
+                    // The colostrum drill alone is date-scoped; the VM reads both from
+                    // SavedStateHandle and passes them to the backend lens.
+                    if (route == Routes.COUNTS_COLOSTRUM_WORKFLOW) {
+                        add(navArgument(Routes.WORKFLOW_DATE_ARG) { type = NavType.StringType })
+                        add(
+                            navArgument(WorkflowDetailViewModel.ARG_LENS) {
+                                type = NavType.StringType
+                                defaultValue = WORKFLOW_MODULE_COLOSTRUM
+                            },
+                        )
+                    }
+                },
             ) {
                 val vm: WorkflowDetailViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
@@ -2779,6 +2832,10 @@ private val supportedRootDestinations = setOf(
     Routes.COUNTS_SHIFTING,
     Routes.COUNTS_MILK_PREPARATION,
     Routes.COUNTS_MILK_FEEDING,
+    // Colostrum is a backend-composed leaf of the Milk module's bar, so it is an L0 root exactly
+    // like its two siblings -- registering the composable alone would leave a notification or deep
+    // link naming it treated as unhosted and bounced to home.
+    Routes.COUNTS_COLOSTRUM,
     Routes.HEALTH_ADULTS,
     Routes.HEALTH_KIDS,
 )
