@@ -70,6 +70,15 @@ shed `Godel 1` with partition `Part 3`. Seed/import must write the physical
 shed to `locations`/`goats.shed_id`; drive assignment/read models carry the
 partition label separately.
 
+**Partition resolution is now part of the seed data contract.** Every animal
+placed in a partitioned shed (one with non-NULL partition labels) must have a
+matching `goat_shed_partitions` entry during seed so that location-bearing
+tables (`verification_items`, `weighing_campaign_sheds`, `health_cases`) can
+backfill `partition_label` from that seeded data. Unresolvable partitions (no
+matching entry in `goat_shed_partitions`, or an animal in a non-partitioned
+shed) result in NULL `partition_label` and render as the plain shed name, never
+as a fabricated partition value.
+
 Adult vaccination scheduling must not use source `entry_date` / `post_arrival`
 as a due-date anchor. For adults, accepted same-vaccine history is the timing
 authority; if no same-vaccine history exists, the animal automatically joins

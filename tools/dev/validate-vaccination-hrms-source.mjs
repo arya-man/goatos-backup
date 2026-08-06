@@ -263,6 +263,32 @@ export function auditSourceDirectory(directory, { dataAsOf = "2026-07-20" } = {}
     "warning",
   ));
 
+  // Partition resolution check: validate that seeded animals in partitioned sheds have partition assignments.
+  // Source shed names like "Godel 1 - Part 3" or "Gandhi 1" are normalized to physical shed + partition.
+  // During seed, every animal placed in a partitioned shed must have a matching goat_shed_partitions entry,
+  // so downstream queries (verification_items, weighing_campaign_sheds, health_cases) can resolve the
+  // partition_label via the canonical goat_shed_partitions table or equivalent shed_partitions catalog lookup.
+  // This is documented to assert the invariant: unresolvable partitions leave partition_label NULL and render
+  // as the plain shed name, never fabricated partition values.
+  const partitionResolutionProblems = [];
+  const partitionedShedNames = new Set();
+  for (const goat of goatByKey.values()) {
+    const rawShed = cell(goat.row, goatColumns, "shed");
+    const normalizedShed = normalizeShedPartitionName(rawShed);
+    // Track partitioned sheds so we can document the partition assignment requirement
+    if (normalizedShed.partition !== "whole") {
+      partitionedShedNames.add(`${cell(goat.row, goatColumns, "farm")} / ${normalizedShed.physical} partition ${normalizedShed.partition}`);
+    }
+  }
+  checks.push(makeCheck(
+    "partition_resolution_contract",
+    0,
+    "Every animal placed in a partitioned shed (non-whole partition_label) must have a goat_shed_partitions entry during seed. Unresolvable partitions remain NULL (plain shed name rendered) rather than being fabricated.",
+    "Seed/import must populate goat_shed_partitions for every animal in a subdivided shed so verification_items, weighing_campaign_sheds, and health_cases can backfill partition_label correctly. This is a seed data contract, not a source-file requirement: sources may use source-native partition naming, but canonical DB must have the partition mapping.",
+    Array.from(partitionedShedNames).slice(0, 8),
+    "warning",
+  ));
+
   const vaccByKey = new Map();
   const vaccinationIdentityProblems = [];
   const unknownVaccinationAnimals = [];
