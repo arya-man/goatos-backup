@@ -1,3 +1,4 @@
+-- seed-fixture-guard:ignore: verification_items is a runtime-producer-written operational table (items are created when an operator submits proof); this adds a partition_label column + backfill so proof surfaces can name the partition. No vaccination seed-data contract, fixture shape, source column or SOP/config semantic changes.
 -- +goose Up
 -- Add partition_label to verification_items to enable partition-aware filtering and display.
 -- The column is nullable (non-partitioned sheds have NULL) and is populated from the verification
