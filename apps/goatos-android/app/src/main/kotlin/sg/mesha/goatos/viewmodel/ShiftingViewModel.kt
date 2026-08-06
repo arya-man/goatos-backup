@@ -551,10 +551,13 @@ internal fun CountsDestinationParkDto.toShiftingParkUi(): ShiftingParkUi = Shift
     sheds = sheds.map {
         ShiftingShedUi(
             shedId = it.shedId,
-            // main now passes the backend-composed display through as its own field, so the
-            // workaround of overwriting `name` with it is no longer needed -- keep name as the
-            // shed name and let the screen render operationalLocationDisplay.
-            name = it.name,
+            // `name` IS the dropdown label the screen renders, so it must carry the
+            // backend-composed display -- a partitioned shed's bare name repeats once per
+            // partition ("Godel 1" three times) and the operator cannot tell them apart.
+            // Falls back to name for legacy API responses that omit the display field.
+            // operationalLocationDisplay is also passed through for callers that want the
+            // raw parts; the two are deliberately the same string here.
+            name = it.operationalLocationDisplay.ifBlank { it.name },
             partitionLabel = it.partitionLabel,
             operationalLocationDisplay = it.operationalLocationDisplay,
         )
