@@ -16798,6 +16798,13 @@ components:
           enum: [shed, cohort, pen]
         display_name:
           type: string
+        parent_shed_name:
+          type:
+            - string
+            - "null"
+          description: >-
+            Base shed name extracted from display_name when a partition label is present.
+            Null or absent when display_name carries no partition suffix.
         partition_label:
           type:
             - string
@@ -19961,6 +19968,17 @@ components:
         shed_id:
           type: string
           format: uuid
+        partition_label:
+          type: string
+          description: >-
+            Raw partition label ('1', 'Part 3') for sheds with partitions, or null/absent for
+            non-partitioned sheds. Used alongside shed_label to identify operational location.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-owned composed display label for the operational location (shed + partition).
+            Examples: 'Castro 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned).
+            Render this field verbatim; do NOT compose it on the client.
         shed_label:
           type: string
           description: Backend-owned display label for shed_id. Never a raw UUID.
