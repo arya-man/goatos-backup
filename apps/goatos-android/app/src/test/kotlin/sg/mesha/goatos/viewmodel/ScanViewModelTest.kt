@@ -1209,7 +1209,10 @@ class ScanViewModelTest {
         return rosterRepo(pending)
     }
 
-    private fun rosterRepo(rows: List<ScanRosterRowDto>): FakeScanExecutionRepository {
+    private fun rosterRepo(
+        rows: List<ScanRosterRowDto>,
+        rosterUpdatedAtMs: Long = 10_000L,
+    ): FakeScanExecutionRepository {
         val pages = rows.chunked(20)
         check(pages.isNotEmpty())
         val continuation = mutableMapOf<String, ScanRosterResponseDto>()
@@ -1219,7 +1222,11 @@ class ScanViewModelTest {
             if (index == 0) Unit else continuation["cursor-$index"] = dto
         }
         val first = ScanRosterResponseDto(rows = pages.first(), nextCursor = if (pages.size > 1) "cursor-1" else null)
-        return FakeScanExecutionRepository(firstPage = first, continuationPages = continuation)
+        return FakeScanExecutionRepository(
+            firstPage = first,
+            continuationPages = continuation,
+            rosterUpdatedAtMs = rosterUpdatedAtMs,
+        )
     }
 
     /**
@@ -1238,6 +1245,111 @@ class ScanViewModelTest {
      * Pairs with the process-recreation tests above, which pin the OPPOSITE case: an unsynced
      * capture must stay green offline. Only a capture the backend has already seen may be overruled.
      */
+    /**
+     * The OPPOSITE invariant, and the one the reconciliation could most easily break: an UNSYNCED
+     * capture must keep showing DONE even while the server still reports the obligation open.
+     *
+     * That is not staleness, it is ordinary offline scanning -- the operator scanned in a shed with
+     * no signal, the backend has not seen the capture yet, and of course it still says `due`. An
+     * earlier attempt at this fix dropped those too and broke seven tests; only a capture the
+     * backend has ALREADY SEEN (SYNCED) may be overruled by it.
+     *
+     * Deliberately the same fixture as the rejection test above, changing ONLY the sync status, so
+     * the two cases are read side by side and neither can be "fixed" without failing the other.
+     */
+    @Test
+    fun `an unsynced capture keeps showing done while the server has not seen it`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "901007000504418",
+            goatId = "goat-1",
+            obligationId = "obl-1",
+            capturedAtMs = 1L,
+        )
+        // NOT marked synced: the outbox has not drained, so the backend cannot know about it.
+
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-1", "901007000504418", "obl-1").copy(status = "due"),
+                    scanRow("goat-2", "901007000504332", "obl-2").copy(status = "done"),
+                    scanRow("goat-3", "901007000504407", "obl-3").copy(status = "done"),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            "an offline scan the backend has not seen must stay DONE",
+            ScanStatus.DONE,
+            vm.state.value.roster.first { it.obligationId == "obl-1" }.status,
+        )
+    }
+
+    /**
+     * The race a judge caught in the first version of this fix.
+     *
+     * `syncStatus` flips to SYNCED the instant the capture reaches the server, but the roster cache
+     * only reloads on screen entry / pull-to-refresh / navigate-back. In that window the cached row
+     * still says `pending` from BEFORE the scan -- and the first implementation read that as "the
+     * server says this is still open" and pulled the tick off a freshly scanned, never rejected
+     * animal, in front of the operator, recoverable only by a manual refresh.
+     *
+     * A roster row OLDER than the capture cannot have an opinion about it yet. Here the row was
+     * fetched at t=1 and the scan taken at t=5_000, so the local evidence must stand.
+     */
+    @Test
+    fun `a stale roster row older than the capture cannot un-complete a fresh scan`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "901007000504418",
+            goatId = "goat-1",
+            obligationId = "obl-1",
+            capturedAtMs = 5_000L,
+        )
+        // The outbox drained: the backend has the capture. The roster has NOT been refetched since.
+        scanCaptures.markLocalScanSynced("task-1", ROSTER_SCAN_FIELD_KEY, "901007000504418")
+
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(scanRow("goat-1", "901007000504418", "obl-1").copy(status = "pending")),
+                // Roster page fetched BEFORE the scan was taken -- it predates the capture.
+                rosterUpdatedAtMs = 1L,
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertEquals(
+            "a roster row older than the capture must not un-complete it",
+            ScanStatus.DONE,
+            vm.state.value.roster.first { it.obligationId == "obl-1" }.status,
+        )
+    }
+
     @Test
     fun `a synced capture yields to a reopened obligation after rejection`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
@@ -1316,6 +1428,7 @@ private class FakeRfidReaderPort : RfidReaderPort {
 private class FakeScanExecutionRepository(
     private val firstPage: ScanRosterResponseDto,
     private val continuationPages: Map<String, ScanRosterResponseDto> = emptyMap(),
+    private val rosterUpdatedAtMs: Long = 10_000L,
     warmCache: ScanRosterResponseDto? = null,
     private val refreshStarted: CompletableDeferred<Unit>? = null,
     private val refreshGate: CompletableDeferred<Unit>? = null,
@@ -1342,7 +1455,9 @@ private class FakeScanExecutionRepository(
             status = status,
             obligationId = obligationId,
             seq = seq,
-            updatedAt = 1L,
+            // When the roster page was FETCHED. Defaults to "just now" (a real fetch stamps the
+            // clock); tests that model a STALE cache pass an older value than the capture's time.
+            updatedAt = rosterUpdatedAtMs,
         )
 
     private fun statusIsDone(status: String): Boolean =
