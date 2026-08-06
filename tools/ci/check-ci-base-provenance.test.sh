@@ -195,7 +195,10 @@ out="$g_out"
 if [ "$status" -ne 4 ]; then
   fail "(d) expected exit 4 on the HEAD~1 fallback, got ${status}"
   printf '%s\n' "$out" | head -20
-elif ! printf '%s' "$out" | grep -q "UNRESOLVABLE"; then
+# Pure-shell match, NOT `printf ... | grep -q`: grep -q exits on first match and closes the pipe, so
+# printf takes EPIPE mid-write ("printf: write error: Broken pipe") and this case failed under a
+# loaded parallel ci-local run while passing standalone. No pipe, no SIGPIPE, same assertion.
+elif case "$out" in *UNRESOLVABLE*) false ;; *) true ;; esac; then
   fail "(d) exited 4 but never said the base was unresolvable"
 elif ! printf '%s' "$out" | grep -q "REFUSING to run the receipt-writing gate"; then
   fail "(d) exited 4 without naming the receipt-writing refusal"
