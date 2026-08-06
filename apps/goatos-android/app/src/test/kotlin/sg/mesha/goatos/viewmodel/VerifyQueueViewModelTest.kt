@@ -17,6 +17,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.NoopAnalytics
@@ -35,10 +36,15 @@ import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
 import sg.mesha.goatos.core.network.dto.VerificationPageOptionDto
 import sg.mesha.goatos.core.network.dto.VerificationStatusOptionDto
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
+import sg.mesha.goatos.core.network.dto.VerificationSourceRef
+import okhttp3.ResponseBody.Companion.toResponseBody
+import retrofit2.HttpException
+import retrofit2.Response
 
 /**
  * Verifier feature segregation regressions. Each top-level feature must observe and refresh
  * only its backend-selected page category so videos from different module pages cannot mix.
+ * Also tests error handling: failed fetches render distinct error states, not "Queue clear".
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class VerifyQueueViewModelTest {
@@ -172,6 +178,90 @@ class VerifyQueueViewModelTest {
         assertEquals(listOf("shifting_move"), repo.observedCategories)
         assertFalse(vm.state.value.isUnsupportedModule)
     }
+
+    @Test
+    fun `a 403 module_scope_forbidden renders as refusal state not empty queue`() = runTest(dispatcher) {
+        // A verifier opened the app on a module they're not assigned to. The backend refuses
+        // the queue fetch with 403 module_scope_forbidden. The old code rendered "Queue clear"
+        // (empty state with positive tone), wasting 40 minutes debugging. The fix: detect the
+        // error and show it distinctly.
+        val repo = FakeVerifyQueueRepository(
+            error = HttpException(
+                Response.error<String>(
+                    403,
+                    """{"code":"module_scope_forbidden","message":"verifier is not assigned to this module"}""".toResponseBody()
+                )
+            )
+        )
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // After a fetch attempt, hasLoadedOnce is true (set in finally), rows are empty,
+        // and queueError is the backend's message.
+        assertTrue(vm.state.value.hasLoadedOnce)
+        assertTrue(vm.state.value.rows.isEmpty())
+        assertNotNull(vm.state.value.queueError)
+        assertTrue(vm.state.value.queueError!!.contains("not assigned"))
+    }
+
+    @Test
+    fun `a generic 500 error renders as failure state with fallback message`() = runTest(dispatcher) {
+        // A backend error with no readable message (corrupted body, or empty envelope).
+        val repo = FakeVerifyQueueRepository(
+            error = HttpException(
+                Response.error<String>(500, "Internal Server Error".toResponseBody())
+            )
+        )
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        assertTrue(vm.state.value.hasLoadedOnce)
+        assertTrue(vm.state.value.rows.isEmpty())
+        assertNotNull(vm.state.value.queueError)
+        // The fallback message is used when no server error text is available.
+        assertEquals("Couldn't load the queue. Please try again.", vm.state.value.queueError)
+    }
+
+    @Test
+    fun `cached rows survive a fetch failure`() = runTest(dispatcher) {
+        // A queue fetch fails, but we have cached rows from a previous success.
+        // The error should NOT blank the cache — show the rows with the error cleared
+        // so the user can still review offline.
+        val cachedRows = listOf(
+            FakeVerificationQueueItem(itemId = "item1", category = "vaccination_proof")
+        )
+        val repo = FakeVerifyQueueRepository(
+            cachedItems = cachedRows,
+            error = HttpException(
+                Response.error<String>(500, "Server error".toResponseBody())
+            )
+        )
+        val vm = VerifyQueueViewModel(
+            repo = repo,
+            syncRepo = FakeVerifySyncRepository(),
+            analytics = NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("category" to "vaccination_proof")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        // We have cached rows, so error is suppressed (queueError stays null).
+        assertTrue(vm.state.value.hasLoadedOnce)
+        assertFalse(vm.state.value.rows.isEmpty())
+        assertNull(vm.state.value.queueError)
+    }
 }
 
 private class FakeVerifySyncRepository : SyncRepository {
@@ -189,7 +279,15 @@ private class FakeVerifySyncRepository : SyncRepository {
     override suspend fun triggerDrain() = Unit
 }
 
-private class FakeVerifyQueueRepository : VerificationRepository {
+private data class FakeVerificationQueueItem(
+    val itemId: String,
+    val category: String,
+)
+
+private class FakeVerifyQueueRepository(
+    private val cachedItems: List<FakeVerificationQueueItem> = emptyList(),
+    private val error: Throwable? = null,
+) : VerificationRepository {
     var refreshQueueCalls = 0
         private set
     val observedCategories = mutableListOf<String?>()
@@ -202,25 +300,60 @@ private class FakeVerifyQueueRepository : VerificationRepository {
         observedCategories += category
         return flowOf(
             Resource(
-                data = VerificationQueueResponseDto(
-                    items = emptyList(),
-                    filterOptions = VerificationFilterOptionsDto(
-                        moduleKey = "counts",
-                        moduleLabel = "Counts",
-                        pages = listOf(
-                            VerificationPageOptionDto("birth", "Birth", "birth_evidence"),
-                            VerificationPageOptionDto("death", "Death", "death_evidence"),
+                data = if (cachedItems.isNotEmpty()) {
+                    VerificationQueueResponseDto(
+                        items = cachedItems.map { fake ->
+                            sg.mesha.goatos.core.network.dto.VerificationQueueItem(
+                                itemId = fake.itemId,
+                                category = fake.category,
+                                status = "pending",
+                                source = VerificationSourceRef(
+                                    taskId = null,
+                                    submissionId = null,
+                                    refType = "test",
+                                ),
+                                media = emptyList(),
+                            )
+                        },
+                        filterOptions = VerificationFilterOptionsDto(
+                            moduleKey = "counts",
+                            moduleLabel = "Counts",
+                            pages = listOf(
+                                VerificationPageOptionDto("birth", "Birth", "birth_evidence"),
+                                VerificationPageOptionDto("death", "Death", "death_evidence"),
+                            ),
+                            statuses = listOf(
+                                VerificationStatusOptionDto("due", "Due", "pending"),
+                                VerificationStatusOptionDto("approved", "Approved", "approved"),
+                                VerificationStatusOptionDto("rejected", "Rejected", "rejected"),
+                            ),
+                            selectedBusinessDate = businessDate,
+                            missedOnly = missed == true,
+                            hasMissed = true,
                         ),
-                        statuses = listOf(
-                            VerificationStatusOptionDto("due", "Due", "pending"),
-                            VerificationStatusOptionDto("approved", "Approved", "approved"),
-                            VerificationStatusOptionDto("rejected", "Rejected", "rejected"),
+                    )
+                } else {
+                    VerificationQueueResponseDto(
+                        items = emptyList(),
+                        filterOptions = VerificationFilterOptionsDto(
+                            moduleKey = "counts",
+                            moduleLabel = "Counts",
+                            pages = listOf(
+                                VerificationPageOptionDto("birth", "Birth", "birth_evidence"),
+                                VerificationPageOptionDto("death", "Death", "death_evidence"),
+                            ),
+                            statuses = listOf(
+                                VerificationStatusOptionDto("due", "Due", "pending"),
+                                VerificationStatusOptionDto("approved", "Approved", "approved"),
+                                VerificationStatusOptionDto("rejected", "Rejected", "rejected"),
+                            ),
+                            selectedBusinessDate = businessDate,
+                            missedOnly = missed == true,
+                            hasMissed = true,
                         ),
-                        selectedBusinessDate = businessDate,
-                        missedOnly = missed == true,
-                        hasMissed = true,
-                    ),
-                ),
+                    )
+                },
+                error = error,
             ),
         )
     }
@@ -229,7 +362,11 @@ private class FakeVerifyQueueRepository : VerificationRepository {
         refreshQueueCalls++
         refreshedCategories += category
         refreshedScopes += Triple(status, businessDate, missed)
-        return Result.success(Unit)
+        return if (error == null) {
+            Result.success(Unit)
+        } else {
+            Result.failure(error)
+        }
     }
 
     override suspend fun appendQueue(cursor: String, category: String?, status: String?, businessDate: String?, missed: Boolean?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")

@@ -157,6 +157,9 @@ data class VerifyQueueUiState(
     /** True once a fetch has COMPLETED, whatever it returned. Guards the empty state so it is
      *  never drawn before an answer exists, and never yanked away by a later refresh. */
     val hasLoadedOnce: Boolean = false,
+    /** Error message when queue fetch fails and no cached rows exist. Null = no error or
+     *  error is being retried with cached data available. */
+    val queueError: String? = null,
     val driveClosures: List<VerifyDriveClosure> = emptyList(),
     val closingBatchId: String? = null,
     val closeErrorBatchId: String? = null,
@@ -318,6 +321,17 @@ fun VerifyQueueScreen(
                     EmptyState(
                         title = stringResource(R.string.verify_queue_unsupported_module),
                         subtitle = stringResource(R.string.verify_queue_unsupported_module_subtitle),
+                        icon = MeshaIcons.Video,
+                        tone = EmptyTone.Neutral,
+                    )
+                }
+            } else if (state.rows.isEmpty() && state.queueError != null) {
+                // A fetch failed and no cached data exists. Show the backend error message if
+                // available, or a generic fallback. This is distinct from "Queue clear".
+                item {
+                    EmptyState(
+                        title = stringResource(R.string.verify_queue_load_failed),
+                        subtitle = state.queueError,
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Neutral,
                     )
