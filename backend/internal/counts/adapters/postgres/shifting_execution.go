@@ -504,7 +504,7 @@ func lockShiftingEvent(ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID
 	var out lockedShiftingEvent
 	err := tx.QueryRow(ctx, `
 SELECT event_status, authorization_state, verification_state, priority,
-       destination_park_id::text, destination_shed_id::text,
+       destination_park_id::text, destination_shed_id::text, destination_partition_label,
        applied_at, applied_by::text, completed_at, completed_by::text,
        completion_destination_tag, management_stage_mode, target_management_stage,
        raise_comment,
