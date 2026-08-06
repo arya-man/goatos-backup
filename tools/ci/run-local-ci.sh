@@ -486,6 +486,7 @@ run_android_guards() {
   step "android-vaccination-submit-gate-guard" make android-vaccination-submit-gate-guard
   step "android-compose-lists-guard"  make android-compose-lists-guard
   step "android-navigation-stack-guard" make android-navigation-stack-guard
+  step "l0-root-chrome-guard" make l0-root-chrome-guard
   step "nav-entry-point-placement-guard" make nav-entry-point-placement-guard
   step "mobile-contract-ownership-guard" make mobile-contract-ownership-guard
   step "android screenshot proof coverage guard" android_screenshot_proof_coverage_guard

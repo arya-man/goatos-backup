@@ -171,6 +171,9 @@ fun ProfileScreen(
     onEvent: (ProfileEvent) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // chrome-guard:ignore: renders identity/settings already carried by the bootstrap contract
+    // plus live on-device reader state; there is no independent server read for this screen to
+    // re-fetch, so a resume-triggered refresh would call nothing.
     val settingRows = state.rows.filter { it.kind != SettingKind.SIGN_OUT }
     val signOut = state.rows.firstOrNull { it.kind == SettingKind.SIGN_OUT }
     val localizedSettingsTitle = stringResource(R.string.profile_settings_label)

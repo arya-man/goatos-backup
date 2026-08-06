@@ -105,14 +105,14 @@ function findingsForL0Screens(files) {
     // Check for chrome-guard:ignore directive (used for forms/scan/capture)
     const hasIgnore = /chrome-guard:\s*ignore/.test(raw);
 
-    // Remove comments (but we already checked for ignore above on the raw source)
-    const withoutBlockComments = raw.replace(/\/\*[\s\S]*?\*\//g, "");
-    // Keep line comments for now to avoid removing the ignore directive by accident
-    // But strip them when looking for actual code patterns
+    // Remove ALL comments so patterns don't match text inside KDoc/comments
+    const withoutAllComments = raw
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
 
     // L0 screens MUST render MeshaScreenHeader
     const hasMeshaScreenHeader = /MeshaScreenHeader\s*\(/.test(
-      withoutBlockComments
+      withoutAllComments
     );
     if (!hasMeshaScreenHeader && !hasIgnore) {
       findings.push(
@@ -125,7 +125,7 @@ function findingsForL0Screens(files) {
     const isReadScreen = readScreens.has(screenName);
     if (isReadScreen && !hasIgnore) {
       const hasRefreshOnResume = /RefreshOnResume\s*[\({]/.test(
-        withoutBlockComments
+        withoutAllComments
       );
       if (!hasRefreshOnResume) {
         findings.push(
@@ -136,10 +136,11 @@ function findingsForL0Screens(files) {
     }
 
     // If the screen has a refresh affordance, it MUST use SyncIconButton, never hand-rolled
-    const hasIconButtonRefresh = /IconButton\s*\([^)]*icon\s*=.*Refresh/.test(
-      withoutBlockComments
+    // This checks for both inline icon parameter and child Icon composable with Refresh.
+    const hasIconButtonRefresh = /IconButton\s*\([\s\S]*?Refresh|IconButton\s*\([^)]*icon\s*=.*Refresh/.test(
+      withoutAllComments
     );
-    const hasSyncIconButton = /SyncIconButton\s*\(/.test(withoutBlockComments);
+    const hasSyncIconButton = /SyncIconButton\s*[\({]/.test(withoutAllComments);
 
     if (hasIconButtonRefresh && !hasSyncIconButton && !hasIgnore) {
       findings.push(

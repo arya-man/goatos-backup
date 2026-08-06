@@ -11858,9 +11858,7 @@ export interface operations {
                              */
                             scannedAt?: string | null;
                             obligationId?: string;
-                            /**
-                             * @description obligation_instances.row_version for this row's obligation — bumps on every transition, including a verifier rejection reopening it for re-capture. The scan-capture idempotency key discriminator; a mobile client must fold this into the key so a genuinely-new scan after a reopen is not deduped away as a replay of the prior cycle's capture.
-                             */
+                            /** @description obligation_instances.row_version for this row's obligation — bumps on every transition, including a verifier rejection reopening it for re-capture. The scan-capture idempotency key discriminator; a mobile client must fold this into the key so a genuinely-new scan after a reopen is not deduped away as a replay of the prior cycle's capture. */
                             obligationRowVersion?: number;
                             taskId?: string;
                             batchId?: string;
