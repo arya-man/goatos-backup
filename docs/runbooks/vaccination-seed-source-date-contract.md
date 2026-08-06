@@ -89,6 +89,18 @@ that physical shed. Partition rows may split operator drive work, but they must
 not create separate buildings, duplicate owner coverage requirements, duplicate
 animal counts, or independent read-model totals.
 
+**Partition resolution and schema contract (2026-08-06).** Every animal placed
+in a partitioned shed must have a matching entry in `goat_shed_partitions`
+during seed, so location-bearing read models can populate `partition_label` on
+`verification_items`, `weighing_campaign_sheds`, `health_cases`, and future
+operational tables that snapshot location at write time. Migrations that add
+`partition_label` columns backfill from `goat_shed_partitions` (the canonical
+per-goat partition mapping), so the seed contract is: partition resolution
+happens at seed time when animals are placed, not at query time. Unresolvable
+partitions (no `goat_shed_partitions` match, or an animal genuinely in a
+non-partitioned shed) result in NULL `partition_label` and render as the plain
+shed name, never as an inferred or fabricated partition.
+
 CPT-only operator-drive rehearsal data is valid when the source center is CPT
 only and the reviewed roster contains exactly the three vaccination
 operators required for that seed. Do not synthesize Coimbatore/CBE
