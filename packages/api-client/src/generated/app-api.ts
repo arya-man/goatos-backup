@@ -6507,6 +6507,8 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
+            /** @description Base shed name extracted from display_name when a partition label is present. Null or absent when display_name carries no partition suffix. */
+            parent_shed_name?: string | null;
             /** @description Raw stored partition label for this shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string "whole". NOT the same field as location_type, which is an enum (shed/cohort/pen) and carries no partition information. */
             partition_label?: string | null;
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
@@ -7837,6 +7839,10 @@ export interface components {
             operator_name?: string;
             /** Format: uuid */
             shed_id?: string;
+            /** @description Raw partition label ('1', 'Part 3') for sheds with partitions, or null/absent for non-partitioned sheds. Used alongside shed_label to identify operational location. */
+            partition_label?: string;
+            /** @description Backend-owned composed display label for the operational location (shed + partition). Examples: 'Castro 2', 'Godel 1 - Part 3', 'Yashoda' (when unpartitioned). Render this field verbatim; do NOT compose it on the client. */
+            operational_location_display?: string;
             /** @description Backend-owned display label for shed_id. Never a raw UUID. */
             shed_label?: string;
             /** Format: uuid */
