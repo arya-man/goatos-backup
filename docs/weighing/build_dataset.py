@@ -192,13 +192,16 @@ def build(indir: pathlib.Path) -> dict:
     print(f"animals {len(animals)} · changes {len(events)} · shed-level {len(shed_rows)}",
           file=sys.stderr)
 
+
     return {"animals": list(animals.values()), "events": events, "shedlevel": shed_rows,
-            "_counts": {"copied": copied, "mirrors": mirrors, "dropped": dropped}}
+            "_counts": {"copied": copied, "mirrors": mirrors, "dropped": dropped,
+                        "shedlevel": len(shed_rows)}}
 
 
 # The figures this document quotes. If a rule or an extract changes, these move —
 # that is the point of asserting them.
-EXPECTED = {"animals": 2099, "events": 13141, "copied": 9650, "mirrors": 71, "dropped": 13}
+EXPECTED = {"animals": 2099, "events": 13141, "copied": 9650, "mirrors": 71, "dropped": 13,
+            "shedlevel": 146}
 
 
 def main() -> int:
