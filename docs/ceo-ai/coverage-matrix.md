@@ -546,6 +546,20 @@ untouched. Explicit documented exclusion — no coverage-matrix mapping required
 
 | vaccination_operator_assignment_config | func:ReassignPlannedDrives | Explicit exclusion: admin-only operator assignment config write/reassignment; existing vaccination execution/schedule reads remain the covered user-visible source. |
 
+## Goat passport operational location (2026-08-06)
+
+`func:NewLocationReader` / `func:GoatLocation` / `func:NewService` (passport) resolve a
+goat's CURRENT operational location — park, physical shed, and `partition_label` — so the
+passport surface can answer with the partition when one exists, per
+`docs/decisions/operational-location-convention.md`. This is a READ of facts the assistant
+already covers: the same park/shed/partition grain is served to leadership through
+`ceo_ai.animal_current_scope` (which carries `partition_label` since migration 000110).
+The passport reader adds NO new leadership KPI, Cube metric, `ceo_ai.*` view, or MCP tool —
+it is a per-animal detail read behind the existing passport API, and leadership aggregate
+questions continue to resolve through `animal_current_scope`.
+
+| goat_passport_location | func:NewLocationReader, func:GoatLocation, func:NewService | Covered by `ceo_ai.animal_current_scope` (same park/shed/partition grain, `partition_label` present); passport reader is a per-animal detail read adding no new leadership aggregate. |
+
 ## Explicit exclusion: one-time vaccination drive recompute (ops tool, 2026-07-23)
 
 `func:RecomputeFutureVaccinationDrives`
