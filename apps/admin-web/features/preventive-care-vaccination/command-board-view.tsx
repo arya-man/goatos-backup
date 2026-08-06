@@ -52,17 +52,20 @@ function mergeAdministeredDateRange(
   ranges[vaccine] = current;
 }
 
-// The cohort ladder comes from the backend option group so the row set stays
-// business-governed. The last rung is the catch-all: any live management stage that
-// does not match an earlier rung folds into it.
-function cohortBucket(managementStage: string, ladder: string[]): string {
-  const stage = (managementStage || "").trim().toUpperCase();
-  const fallback = ladder[ladder.length - 1] ?? "";
-  for (const rung of ladder.slice(0, -1)) {
-    const key = rung.toUpperCase();
-    if (stage.startsWith(key) || stage.includes(key)) return rung;
-  }
-  return fallback;
+// Stage -> cohort row, by DECLARED backend membership. Never prefix matching, and Adults is no
+// longer a catch-all.
+//
+// Prefix matching with a trailing catch-all put F2-Female/F2-Male in the adult herd (372 against a
+// true 324) and left ICU-Kid — a KID carrying a health-state prefix — in Adults as well. Both are
+// the same failure: a label the ladder did not recognise fell through to the last rung and
+// silently inflated it.
+//
+// An unmapped stage now returns ITSELF, so it renders as its own visible row. Warmup is an
+// arrival/acclimation state that is neither adult nor kid by label, and it stays visible under its
+// own name rather than being guessed into a cohort.
+function cohortBucket(managementStage: string, stageMap: Map<string, string>): string {
+  const stage = (managementStage || "").trim();
+  return stageMap.get(stage.toUpperCase()) ?? stage;
 }
 
 interface CohortPivotRow {
@@ -151,7 +154,8 @@ function mergeExceptions(
 // merge into one set of rows. Farms are ordered by name for a stable read.
 function buildCohortFarms(
   matrix: CohortCellInput[],
-  ladder: string[]
+  ladder: string[],
+  stageMap: Map<string, string>,
 ): Array<{ farm: string; vaccines: string[]; rows: CohortPivotRow[] }> {
   const byFarm = new Map<string, CohortCellInput[]>();
   matrix.forEach((cell) => {
@@ -162,15 +166,26 @@ function buildCohortFarms(
   });
   return Array.from(byFarm.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([farm, cells]) => ({ farm, ...buildCohortPivot(cells, ladder) }));
+    .map(([farm, cells]) => ({ farm, ...buildCohortPivot(cells, ladder, stageMap) }));
 }
 
 function buildCohortPivot(
   matrix: CohortCellInput[],
-  ladder: string[]
+  ladder: string[],
+  stageMap: Map<string, string>,
 ): { vaccines: string[]; rows: CohortPivotRow[] } {
   const vaccines = Array.from(new Set(matrix.map((c) => c.vaccineLabel).filter(Boolean))).sort();
-  const rows = ladder.map((cohort) => {
+  // Declared rows PLUS any stage this farm holds that the map does not classify. An unmapped stage
+  // gets its own visible row instead of disappearing into another cohort, so a newly introduced or
+  // still-undefined label (Warmup today) is something the CEO can see and ask about.
+  const unmapped = Array.from(
+    new Set(
+      matrix
+        .map((cell) => cohortBucket(cell.cohort.managementStage, stageMap))
+        .filter((row) => row && !ladder.includes(row)),
+    ),
+  ).sort();
+  const rows = [...ladder, ...unmapped].map((cohort) => {
     const pending: Record<string, number> = {};
     const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
@@ -184,7 +199,7 @@ function buildCohortPivot(
     const counted = new Set<string>();
     let animals = 0;
     matrix.forEach((cell) => {
-      if (cohortBucket(cell.cohort.managementStage, ladder) !== cohort) return;
+      if (cohortBucket(cell.cohort.managementStage, stageMap) !== cohort) return;
       const key = `${cell.cohort.managementStage}|${cell.cohort.sex}`;
       pending[cell.vaccineLabel] = (pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       submitted[cell.vaccineLabel] = (submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
@@ -721,8 +736,12 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
           // not-adult cohorts.
           const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
+          // Declared stage -> row membership. Adults is a normal rung here, never a fallback.
+          const stageMap = new Map(
+            optionGroup(pageContract, "command_board_cohort_stage_map").map((o) => [o.key.toUpperCase(), o.label]),
+          );
           const readingOrder = cohortRowOrder(pageContract);
-          const farms = buildCohortFarms(view.cohortMatrix, ladder).map((farmBlock) => ({
+          const farms = buildCohortFarms(view.cohortMatrix, ladder, stageMap).map((farmBlock) => ({
             ...farmBlock,
             rows: [...farmBlock.rows].sort((a, b) => {
               const ai = readingOrder.indexOf(a.cohort);
