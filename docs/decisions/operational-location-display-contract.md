@@ -109,6 +109,44 @@ Two defects discovered pre-migration:
 Both were caused by queries collapsing partitions at read time. This ADR closes
 that gap.
 
+### Post-migration recurrence (2026-08-06) — the display half
+
+The read-time collapse was fixed; the DISPLAY half then failed in two new ways,
+found while exercising the shifting destination picker against real STG data.
+Both are now machine-blocked (`oploc-display-wire-name`,
+`backend-owned-oploc-label` in `check-operational-location.mjs`).
+
+1. **The label shipped under two different wire names.**
+   `/app/counts/shifting/destinations` emitted `json:"display"`, while
+   OpenAPI's `ShiftingDestinationShed` and Android's `CountsDestinationShedDto`
+   both declared `operational_location_display`. Nothing errored: kotlinx gives
+   an absent key its default, so the field deserialized to `""`. **A contract
+   break between a Go json tag and a client `@SerialName` is SILENT — there is no
+   type error, no 4xx, just an empty string on a screen.** The canonical wire name
+   is `operational_location_display` on every surface; `display` is banned for
+   this concept.
+
+2. **Clients re-derived the label instead of rendering it.** `ShiftingScreen`
+   called `operationalLocationLabel(name, partitionLabel)` locally rather than
+   using the shipped string — which is why defect 1 went unnoticed for so long:
+   *the second bug masked the first.* Because the client composed its own label,
+   the empty backend field was never read. Worse, `AddBirthScreen` and
+   `BirthDeathScreen` rendered a bare `.name`, so a shed with 10 partitions
+   appeared as 10 identical `"Godel 1"` rows keyed by the same `shedId`, and
+   `firstOrNull { it.shedId == … }` silently resolved every one of them to
+   partition 1.
+
+**Two lessons worth carrying forward.** First, duplicated display logic hides
+contract drift: the rule lives in three languages (`oploc.Display()`,
+`PartitionLabel.kt`, `operational-location.ts`), and as long as each client
+composes its own string, the backend's field can be wrong indefinitely without
+anyone noticing. Backend composes, clients render — that is what makes the
+contract observable. Second, when scoping a guard for this class, do NOT require
+a nearby `partition_label` mention as the trigger: `AddBirthScreen.kt` names
+partitions **zero** times, and that total absence is precisely the defect. A
+guard gated on a partition mention can only ever catch code that already
+half-remembered the rule.
+
 ## Exception
 
 A genuinely partition-exempt surface carries a COMPLETE inline directive:

@@ -166,6 +166,158 @@ const CHECKS = [
     },
     msg: "partition catalog built from goat_shed_partitions only hides empty partitions; use shed_partitions (migration 000112) as the authoritative partition source",
   },
+  {
+    id: "oploc-display-wire-name",
+    // The operational-location label has exactly ONE wire name across Go, OpenAPI,
+    // Kotlin and TypeScript: `operational_location_display`. Shipping the same
+    // concept as a bare `display` splits the contract three ways and the break is
+    // SILENT: kotlinx/serde give an absent key its default (""), so the client
+    // renders an empty label rather than failing. Observed 2026-08-06 on
+    // /app/counts/shifting/destinations -- backend emitted `display`, OpenAPI and
+    // CountsDestinationShedDto declared `operational_location_display`, and the
+    // only reason nothing looked broken was a SECOND defect (the screen re-derived
+    // the label locally, see backend-owned-oploc-label) masking the first.
+    //
+    // Scoped by a partition sibling so this cannot fire on the many legitimate
+    // `display` fields elsewhere: a field is an operational-location label only if
+    // a partition_label / partitionLabel is declared within the same struct-ish
+    // window.
+    test: (line, file, lines, i) => {
+      const declaresBareDisplay =
+        /json:"display[,"]/.test(line) ||
+        /@SerialName\(\s*["']display["']\s*\)/.test(line) ||
+        /^\s{2,}display:\s*$/.test(line);
+      if (!declaresBareDisplay) return false;
+      // NO partition-sibling gate. The first draft required a partition_label within
+      // +/-12 lines and that repeated, one check over, the exact blind spot this
+      // guard's own ADR warns about: a surface that forgot partitions entirely names
+      // them nowhere, so the gate only ever caught code that already half-remembered
+      // the rule. Scope instead by NAME: `display` is a banned spelling for a
+      // location label, so require a location-ish sibling (shed/park/location) rather
+      // than a partition one. That still spares the many unrelated `display` fields.
+      const window = lines.slice(Math.max(0, i - 12), i + 13).join("\n");
+      if (!/shed|park|location|partition/i.test(window)) return false;
+      // Already carrying the canonical name somewhere in the same block -> the
+      // bare `display` is an extra alias, still wrong, but do not double-report
+      // when the canonical field is the one on this very line.
+      return !/operational_location_display/.test(line);
+    },
+    msg: "operational-location label must ship as `operational_location_display` on every surface (Go json tag, OpenAPI property, Kotlin @SerialName, TS); a bare `display` silently deserializes to \"\" on clients that expect the canonical name",
+  },
+  {
+    id: "backend-owned-oploc-label",
+    // AGENTS.md golden rule: the backend owns visible labels; clients render them.
+    // oploc.Display() already composes "Yashoda" / "Castro 2" / "Godel 1 - Part 3"
+    // and ships it, so a client that rebuilds the string from name + partition is
+    // duplicating a business rule into a second (and third) language where it can
+    // drift. Observed 2026-08-06: AddBirthScreen rendered a bare shed name for
+    // partition-bearing options, so one shed appeared 10 identical times.
+    //
+    // The violation is a SHED-identified dropdown option or selected label built
+    // from a bare `.name`. Park options legitimately have no partition, so the id
+    // expression must be shed-ish for this to fire.
+    test: (line, file, lines, i) => {
+      if (!/\.(kt|ts|tsx)$/.test(file)) return false;
+      // `[^,()]` (not `[^,)]`) is load-bearing: allowing `(` let the CORRECT form
+      // `DropdownOption(it.shedId, operationalLocationLabel(it.name, it.partitionLabel))`
+      // match on its inner `it.name,` and flagged compliant code. Caught by the
+      // a/AddBirthOk.kt fixture -- keep that fixture.
+      const bareShedOption =
+        /DropdownOption\s*\(\s*[^,()]*[Ss]hed[A-Za-z]*\s*,\s*[^,()]*\.name\s*[,)]/.test(line);
+      const bareShedSelectedLabel =
+        /selected(?:Shed)?Label\s*=\s*[A-Za-z_]*[Ss]hed[A-Za-z_]*\??\.name\b/.test(line);
+      // NO "is a partition mentioned nearby?" gate here, deliberately. The first
+      // draft of this check required one and was therefore blind to the exact
+      // defect it was written for: AddBirthScreen.kt names `partitionLabel` ZERO
+      // times -- omitting partitions entirely IS the bug, so scoping on a nearby
+      // partition mention only ever catches code that already half-remembered the
+      // rule. A shed-identified option is in scope on its own; park options stay
+      // out because the id expression must be shed-ish to match.
+      return bareShedOption || bareShedSelectedLabel;
+    },
+    msg: "shed option/label rendered from a bare `.name`; render the backend's operational_location_display or every partition of a shed shows the same text",
+  },
+  {
+    id: "shed-only-selection-key",
+    // The LABEL and the KEY are separate defects and the key is the dangerous one.
+    // Destination feeds return one row PER PARTITION, so shed_id is not unique --
+    // on live STG, 18 shed ids cover 130 rows and one shed appears 10 times.
+    // `firstOrNull { it.shedId == state.shedId }` therefore resolves EVERY partition
+    // of a shed to its first row: the screen can show 10 correct labels and still
+    // select partition 1 for all of them. Fixing only the visible label leaves this
+    // silently wrong, which is why it gets its own check rather than riding along.
+    // Correct form: ShiftingScreen.kt's
+    //   it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel
+    test: (line, file) => {
+      if (!/\.(kt|ts|tsx)$/.test(file)) return false;
+      if (!/\b(firstOrNull|find)\s*[({]/.test(line)) return false;
+      if (!/\.shedId\s*==|shed_id\s*===/.test(line)) return false;
+      // A composite key that also compares the partition is the correct form.
+      return !/partition/i.test(line);
+    },
+    msg: "shed option looked up by shedId alone; destination rows are one PER PARTITION so shedId is not unique - match on (shedId, partitionLabel) or every partition resolves to the first row",
+  },
+  {
+    id: "bare-shed-movement-label",
+    // The shifting approve/execute consumer side of the same defect: a movement's
+    // source/destination label built from a bare shed name, so a Castro 1 -> Castro 2
+    // move renders "Castro -> Castro". Distinct from backend-owned-oploc-label
+    // because it is neither a DropdownOption nor a `selectedLabel =`.
+    test: (line, file) => {
+      if (!/\.(kt|ts|tsx)$/.test(file)) return false;
+      // The shed variable itself must carry the source/destination prefix. Making that prefix
+      // OPTIONAL produced a false positive on herd-actions.ts's CSV shed-IMPORT preview
+      // (`sourceLabel = [shedCode, shedName].join(" · ")`), which builds a label for an imported
+      // shed row -- no movement, no partition, nothing to fix. A guard that flags correct code
+      // gets baselined and then ignored, so the prefix is required.
+      return /\b(source|destination)Label\s*=\s*[^=]*\b(source|destination)[Ss]hedName\b/.test(line);
+    },
+    msg: "movement source/destination label built from a bare shed name; a Castro 1 -> Castro 2 move renders as \"Castro -> Castro\". Render the backend's operational_location_display for each end",
+  },
+  {
+    id: "location-write-without-partition",
+    // A *Request schema that targets a shed but cannot name a partition. This is
+    // SCHEMA-SCOPED on purpose: the first attempt was a file-level "does
+    // admin-api.yaml contain partition_label anywhere" REQUIRED check, which passed
+    // vacuously because one unrelated READ schema mentions it -- a textbook
+    // guard-false-green. Bound the resource: find the enclosing `    Xxx:` schema
+    // header, and only search THAT block.
+    test: (line, file, lines, i) => {
+      if (!/contracts\/openapi\/.*\.yaml$/.test(file)) return false;
+      if (!/^ {8}shed_id:\s*$/.test(line)) return false;
+      let header = null;
+      let start = 0;
+      for (let j = i; j >= 0; j--) {
+        const m = /^ {4}([A-Za-z][A-Za-z0-9]*):\s*$/.exec(lines[j]);
+        if (m) {
+          header = m[1];
+          start = j;
+          break;
+        }
+      }
+      if (!header || !/Request$/.test(header)) return false;
+      let end = lines.length;
+      for (let j = start + 1; j < lines.length; j++) {
+        if (/^ {4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(lines[j])) {
+          end = j;
+          break;
+        }
+      }
+      const block = lines.slice(start, end).join("\n");
+      // Narrowed to writes that PLACE AN ANIMAL. A shed-scoped write is not
+      // automatically a partition defect: feed config and feed session completions
+      // (FeedDirection/FeedDistribution/FeedPacking/FeedConfig*) legitimately target
+      // a whole shed and have no per-pen concept. Before this filter the check was
+      // 6/9 false positives, which is how a guard earns a baseline entry and then
+      // gets ignored. Animal-placement signal = the schema names goats.
+      const placesAnAnimal =
+        /Goat|Birth|Shifting|Move|Animal/i.test(header) ||
+        /\bgoat_ids?\b|\bdam_id\b|\blitter_size\b/i.test(block);
+      if (!placesAnAnimal) return false;
+      return !/partition/i.test(block);
+    },
+    msg: "a *Request schema targets shed_id but declares no partition; with additionalProperties:false a move/create into Castro 2 is unexpressible (RecordShiftingEventRequest is the correct template)",
+  },
 ];
 
 // Files that must CONTAIN a token (absence is the violation).
@@ -250,6 +402,131 @@ function selfTest() {
     ],
     // the primitive itself is allowed to name the sentinel
     ["backend/internal/platform/oploc/oploc.go", `const label = "whole"`, null],
+    // --- oploc-display-wire-name -------------------------------------------
+    // the real 2026-08-06 defect: bare `display` beside a partition_label sibling
+    [
+      "b/app_destinations_handler.go",
+      `type shed struct {\n\tPartitionLabel *string \`json:"partition_label,omitempty"\`\n\tDisplay string \`json:"display"\`\n}`,
+      "oploc-display-wire-name",
+    ],
+    // canonical name in the same struct -> clean
+    [
+      "b/ok_handler.go",
+      `type shed struct {\n\tPartitionLabel *string \`json:"partition_label,omitempty"\`\n\tOperationalLocationDisplay string \`json:"operational_location_display"\`\n}`,
+      null,
+    ],
+    // ADVERSARIAL: a `display` field with NO partition anywhere near it is some
+    // other concept entirely and must not be flagged.
+    ["b/unrelated.go", `type card struct {\n\tDisplay string \`json:"display"\`\n}`, null],
+    // Kotlin client side of the same drift
+    [
+      "a/CountsDto.kt",
+      `data class D(\n  @SerialName("partition_label") val partitionLabel: String? = null,\n  @SerialName("display") val display: String = "",\n)`,
+      "oploc-display-wire-name",
+    ],
+    // --- backend-owned-oploc-label -----------------------------------------
+    // the real AddBirthScreen defect: shed option labelled by bare name
+    [
+      "a/AddBirthScreen.kt",
+      `val partitionLabel = shed.partitionLabel\noptions = sheds.map { CountsDropdownOption(it.shedId, it.name) }`,
+      "backend-owned-oploc-label",
+    ],
+    // CORRECT = render the BACKEND's shipped label. The previous version of this
+    // fixture used operationalLocationLabel(it.name, it.partitionLabel) and called
+    // that clean, which certified ADR defect #2 (client-side re-derivation) as the
+    // right answer -- the guard was encoding a weaker rule than the doc it enforces.
+    [
+      "a/AddBirthOk.kt",
+      `options = sheds.map { CountsDropdownOption(it.shedId + "/" + it.partitionLabel, it.operationalLocationDisplay) }`,
+      null,
+    ],
+    // ADVERSARIAL: PARK options have no partition concept -> must stay clean even
+    // when a partition label appears elsewhere in the same file.
+    [
+      "a/ParkPicker.kt",
+      `val partitionLabel = shed.partitionLabel\noptions = parks.map { CountsDropdownOption(it.parkId, it.name) }`,
+      null,
+    ],
+    // REGRESSION FIXTURE: a shed option in a file that never mentions a partition
+    // is the WORST case, not a clean one. This fixture previously expected null and
+    // encoded the guard's own blind spot -- AddBirthScreen.kt has zero partition
+    // mentions, which is precisely why its dropdown showed one shed ten times.
+    ["a/NoParts.kt", `options = sheds.map { CountsDropdownOption(it.shedId, it.name) }`, "backend-owned-oploc-label"],
+    // selected-label form of the same defect
+    ["a/Selected.kt", `selectedLabel = selectedShed?.name`, "backend-owned-oploc-label"],
+    // --- shed-only-selection-key -------------------------------------------
+    [
+      "a/BirthKey.kt",
+      `val selectedShed = sheds.firstOrNull { it.shedId == state.shedId }`,
+      "shed-only-selection-key",
+    ],
+    // correct: the composite key ShiftingScreen already uses
+    [
+      "a/ShiftKeyOk.kt",
+      `val sel = sheds.firstOrNull { it.shedId == destinationShedId && it.partitionLabel == destinationPartitionLabel }`,
+      null,
+    ],
+    // ADVERSARIAL: a firstOrNull on something that is not a shed id stays clean.
+    ["a/OtherKey.kt", `val p = parks.firstOrNull { it.parkId == state.parkId }`, null],
+    // --- bare-shed-movement-label ------------------------------------------
+    [
+      "a/Pending.kt",
+      `destinationLabel = destinationShedName.takeIf { it.isNotBlank() } ?: UNKNOWN`,
+      "bare-shed-movement-label",
+    ],
+    // correct: renders the backend-composed label for the movement end
+    [
+      "a/PendingOk.kt",
+      `destinationLabel = destinationOperationalLocationDisplay.takeIf { it.isNotBlank() } ?: UNKNOWN`,
+      null,
+    ],
+    // ADVERSARIAL: a CSV shed-IMPORT preview row label is not a movement. Real case
+    // (herd-actions.ts) that this check wrongly flagged until the source/destination prefix on the
+    // shed variable was made mandatory.
+    [
+      "a/herd-actions.ts",
+      `const sourceLabel = [shedCode, shedName].filter(Boolean).join(" · ") || undefined;`,
+      null,
+    ],
+    // --- location-write-without-partition ----------------------------------
+    [
+      "contracts/openapi/admin-api.yaml",
+      `    MoveGoatRequest:\n      additionalProperties: false\n      properties:\n        park_id:\n          type: string\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
+      "location-write-without-partition",
+    ],
+    // correct: the shifting template, which names a partition
+    [
+      "contracts/openapi/app-api.yaml",
+      `    RecordShiftingEventRequest:\n      properties:\n        shed_id:\n          type: string\n        destination_partition_label:\n          type: string\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // ADVERSARIAL: a READ schema (not *Request) with shed_id is not a write path.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    ShedSummary:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // ADVERSARIAL (the vacuous-pass case): a sibling schema mentioning partition
+    // must NOT excuse the write schema that lacks one.
+    [
+      "contracts/openapi/admin-api.yaml",
+      `    SomeRead:\n      properties:\n        partition_label:\n          type: string\n    MoveGoatRequest:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
+      "location-write-without-partition",
+    ],
+    // ADVERSARIAL: a shed-scoped write that does NOT place an animal (feed config,
+    // feed session completion) has no per-pen concept and must stay clean.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    UpsertFeedConfigShedFactorRequest:\n      properties:\n        shed_id:\n          type: string\n        factor:\n          type: number\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // ...but a birth, which places an animal, is caught by its dam_id/litter signal
+    // even though its name is "RecordBirthEventRequest".
+    [
+      "contracts/openapi/app-api.yaml",
+      `    RecordBirthEventRequest:\n      properties:\n        shed_id:\n          type: string\n        dam_id:\n          type: string\n    NextSchema:\n      type: object`,
+      "location-write-without-partition",
+    ],
     // CLOSURE BYPASS 1: whole-leak via fmt.Sprintf argument
     ["a/sprintf.go", `label := fmt.Sprintf("%s %s", shed, "whole")`, "whole-leak"],
     // CLOSURE BYPASS 2: counts-grain multi-line GROUP BY
