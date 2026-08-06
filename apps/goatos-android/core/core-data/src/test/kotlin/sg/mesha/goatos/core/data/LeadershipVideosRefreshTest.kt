@@ -44,7 +44,7 @@ class LeadershipVideosRefreshTest {
 
     @Test
     fun `refreshLeadershipVideos with 5 real items then observeLeadershipVideos emits the items`() = runTest {
-        withRepository { repository, backend, _ ->
+        withRepository { repository, backend, requests ->
             // Use the REAL 5-item JSON payload from the backend
             backend.response = { REAL_5_ITEM_RESPONSE }
 
@@ -59,6 +59,16 @@ class LeadershipVideosRefreshTest {
             assert(refreshResult is AppResult.Ok) {
                 "refreshLeadershipVideos reported failure: $refreshResult"
             }
+
+            // The leadership surface MUST ask for the full trail. Omitting `status` makes the
+            // backend default to `pending`, which returns HTTP 200 with ZERO rows once every
+            // proof has been decided -- a silent empty gallery with no error to show. Pin the
+            // wire contract, not just the mapping.
+            assertEquals(
+                "leadership refresh must request the full evidence trail",
+                "all",
+                requests.last().status,
+            )
 
             // Observe: this is what the Composable renders from
             val observed = repository.observeLeadershipVideos(
