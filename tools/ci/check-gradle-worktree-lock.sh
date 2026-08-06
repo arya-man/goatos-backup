@@ -32,10 +32,12 @@
 # enabled AND on the GOATOS_CI_GRADLE_LOCK=0 opt-out path, (n) an orphaned
 # break-lock stays bounded and honours the timeout, (o) non-numeric and
 # out-of-range knobs are sanitised, (p) an UNUSABLE lock path fails open on the
-# first look instead of being polled for the whole timeout, (q) a hostname flap
-# between acquire and release does not leak the lock (and does not become a
-# general release bypass), (r) a stale break acts only on the lockdir its
-# decision was made about.
+# first look instead of being polled for the whole timeout, (q)/(q2) a hostname
+# flap between acquire and release does not leak the lock, and the allowance
+# that makes that work does not degenerate into release-on-pid-alone, (r) a
+# stale break acts only on the lockdir its decision was made about.
+#
+# 21 assertions in all: a b c d e f g g3 h i j k l m m2 n o p q q2 r.
 #
 # ONE MACHINE-WIDE SIDE EFFECT, named rather than hidden: case (g) drives the
 # real `run-local-ci.sh android` under GOATOS_CI_TRACE_ONLY. Everything this
@@ -45,7 +47,7 @@
 # (g3) is what holds it that way.
 #
 # Self-test: tools/ci/check-gradle-worktree-lock.test.sh drives this guard
-# against 22 mutated copies of the library via GOATOS_GRADLE_LOCK_UNDER_TEST and
+# against 23 mutated copies of the library via GOATOS_GRADLE_LOCK_UNDER_TEST and
 # requires a RED for each. A guard that has never been observed to fail is a
 # guard nobody has proven.
 set -uo pipefail
@@ -593,13 +595,25 @@ echo "guard-host-a.local" >"$SB/q.host"
 if [ -d "$LOCKDIR" ]; then
   fail "(q) a hostname flap between acquire and release LEAKED the lockdir ${LOCKDIR}: release demanded an exact hostname match and returned a no-op. The orphan then also fails acquire's same-host liveness check, so the next worktree waits out the full stale window for a lock nobody holds"
 fi
-# The non-owner-release protection case (a) proves must NOT have been weakened.
+# (q2) The allowance must not degenerate into "release whenever the PID matches".
+# A pid alone is not identity — macOS $TMPDIR survives a reboot, so a recorded
+# pid can be recycled by an unrelated live process (the same premise as case j).
+# This plants an owner whose pid IS the releasing shell's own, on a host that
+# does NOT match, with a FOREIGN start-time identity. A correct release refuses
+# (the identity is the thing standing in for the hostname); a release that
+# accepted the flap by dropping to the pid alone would delete another process's
+# live lock. Only the identity check can separate these two, so unlike the leak
+# assertion above this one is not satisfiable by the pid comparison.
 reset_lock
-plant_owner 999999 "guard-host-a.local" "$(date +%s)" "not-this-process"
 ( PATH="$q_shim:$PATH" bash -c '
-    cd "$GUARD_REPO"; . "$GUARD_LIB"; gradle_lock_release' ) >/dev/null 2>&1
+    cd "$GUARD_REPO"; . "$GUARD_LIB"
+    _gradle_lock_self; self="$_GRADLE_LOCK_SELF"
+    mkdir -p "$2"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\n" "$self" "recycled-owner.invalid" "$1" planted \
+      "$(date +%s)" "Thu Jan 1 00:00:00 2000" >"$2/owner"
+    gradle_lock_release' _ "$SB" "$LOCKDIR" ) >/dev/null 2>&1
 [ -d "$LOCKDIR" ] || \
-  fail "(q) the hostname-flap allowance became a general release bypass: a process released a lock owned by ANOTHER pid"
+  fail "(q2) the hostname-flap allowance degenerated into release-on-pid-alone: a shell deleted a lock whose recorded process identity was NOT its own. A pid is proof of nothing on a box whose TMPDIR outlives a reboot"
 reset_lock
 
 # ── (r) a break must act ONLY on the lockdir its decision was made about ─────
@@ -626,7 +640,12 @@ grep -q SURVIVED "$r_out" || \
   fail "(r) a stale-break decision made about a CORRUPT lockdir evicted a DIFFERENT, fresh, LIVE lockdir at the same path. rename(2) is atomic w.r.t. the PATH, not the inode the decision was about, and an empty expected pid compares equal to an unreadable owner file — so the re-validation passed vacuously"
 reset_lock
 
+# The case list is written ONCE and counted, so the headline cannot drift away
+# from what actually ran — a stale "16 cases" on a file with 21 is the kind of
+# small lie that makes a reviewer stop trusting the rest of the output.
+CASES="a b c d e f g g3 h i j k l m m2 n o p q q2 r"
 if [ "$rc" -eq 0 ]; then
-  echo "gradle-worktree-lock guard: 19 cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out/no-reap, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation, unusable-path fail-open, hostname-flap release, inode-scoped break)"
+  # shellcheck disable=SC2086
+  echo "gradle-worktree-lock guard: $(set -- $CASES; echo $#) cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out/no-reap, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation, unusable-path fail-open, hostname-flap release, inode-scoped break)"
 fi
 exit "$rc"
