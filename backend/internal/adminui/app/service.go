@@ -1320,6 +1320,30 @@ func pageSpecificCopy(id string) map[string]string {
 			"command_board.cohort_matrix.submitted_word":       "submitted",
 			"command_board.cohort_matrix.verified_word":        "verified",
 			"command_board.cohort_matrix.date_unavailable":     "Date unavailable",
+			"command_board.cohort_matrix.note":                 "Rows are cohort status by dose. Historical rows without a drive batch are shown by administration date, not drive.",
+			"command_board.cohort_matrix.row_hint":             "Select a cell for the cohort breakdown",
+			"command_board.cohort_matrix.detail.title":         "Cell detail",
+			"command_board.cohort_matrix.detail.empty":         "Select a cell to see its cohort breakdown",
+			"command_board.cohort_matrix.detail.animals":       "Animals in cohort",
+			"command_board.cohort_matrix.detail.dates":         "Operator vaccination date",
+			"command_board.cohort_matrix.detail.breakdown":     "Sub-cohorts",
+			"command_board.cohort_matrix.detail.close":         "Close",
+			"command_board.cohort_matrix.detail.per_day":       "Vaccination days",
+			"command_board.cohort_matrix.detail.exceptions":    "Missing this dose, later dose accepted",
+			"command_board.cohort_matrix.detail.animals_word":  "animals",
+			"command_board.cohort_matrix.detail.capped":        "Showing the first 25 animals of",
+			"command_board.cohort_matrix.exception_word":       "exceptions",
+			"command_board.cohort_matrix.exception_word_one":   "exception",
+			"command_board.cohort_matrix.detail.clean":         "No dose-sequence exceptions in this cohort",
+			"command_board.cohort_matrix.unbatched":            "historical / unbatched",
+			"command_board.kpi.closed_without_dose_open":       "Open the animals whose work closed with no dose",
+			"command_board.kpi.closed_without_dose_empty":      "No animals closed without a dose in this scope",
+			"command_board.closed_drawer.animals_word":         "animals",
+			"command_board.closed_drawer.column.animal":        "Animal",
+			"command_board.closed_drawer.column.location":      "Location",
+			"command_board.closed_drawer.column.vaccine":       "Vaccine",
+			"command_board.closed_drawer.column.reason":        "Why no dose",
+			"command_board.closed_drawer.capped":               "Showing the first 50 animals of",
 			"command_board.filter.vaccine":                     "Vaccine",
 			"command_board.filter.all_vaccines":                "All vaccines",
 			"command_board.filter.drive":                       "Drive",
@@ -3322,7 +3346,28 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 					option("K2", "K2", "", ""),
 					option("K3", "K3", "", ""),
 					option("Fattening", "Fattening", "", ""),
+					// F2 is its OWN rung, above the Adults catch-all. Without it every F2 stage fell
+					// into the catch-all and the CEO read "Adults 372" when the true adult herd
+					// (Non-Pregnant + Buck) is 324 — F2-Female 38 and F2-Male 10 were being folded in.
+					option("F2", "F2", "", ""),
 					option("Adults", "Adults", "", ""),
+				},
+			},
+			{
+				// MATCHING order above puts the Adults catch-all last, because the last rung absorbs
+				// any live stage no earlier rung claims. READING order is a different question: the
+				// CEO reads the true adult herd first, then the not-adult cohorts. This group owns
+				// that reading order and the "not adult" qualifier, so the frontend never re-sorts
+				// business rows on its own.
+				ID: "command_board_cohort_row_order",
+				Options: []domain.Option{
+					option("K0", "K0", "", ""),
+					option("K1", "K1", "", ""),
+					option("K2", "K2", "", ""),
+					option("K3", "K3", "", ""),
+					option("Adults", "Adults", "True adults only — Non-Pregnant and Buck", ""),
+					option("Fattening", "Fattening", "Not adult", ""),
+					option("F2", "F2", "Not adult", ""),
 				},
 			},
 			{
