@@ -3158,7 +3158,6 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 		if parkCode == "" || shedName == "" {
 			continue
 		}
-		// operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=key-is-already-park-scoped-parkCode-plus-shedName-so-the-cross-park-name-collision-this-rule-guards-against-cannot-occur-here-and-resolving-an-id-per-row-would-add-an-N+1-query-in-seed expiry=2027-08-06
 		pair := parkCode + "||" + shedName
 		if _, ok := seenSheds[pair]; ok {
 			continue
