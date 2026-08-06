@@ -170,6 +170,7 @@ guardrails:
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
 	$(MAKE) admin-web-local-overlay-guard
+	$(MAKE) overlay-motion-guard
 	$(MAKE) android-bounded-memory-guard
 	$(MAKE) telemetry-guard
 	$(MAKE) exception-guard
@@ -840,6 +841,15 @@ admin-web-request-reads-guard-audit:
 admin-web-prefetch-guard:
 	node tools/agent-hooks/check-admin-web-prefetch.mjs --self-test
 	node tools/agent-hooks/check-admin-web-prefetch.mjs
+
+# overlay-motion-guard: a page-level entry animation must not replay while a client-local overlay
+# is open. An overlay whose open state lives in the URL (e.g. the verifier review modal's vi_row)
+# re-renders the page on every step, replaying the animation underneath it — the 2026-08-06 "feels
+# stuck, not smooth" regression. No test could see it; only the CSS interaction shows it.
+.PHONY: overlay-motion-guard
+overlay-motion-guard:
+	node tools/agent-hooks/check-overlay-motion.mjs --self-test
+	node tools/agent-hooks/check-overlay-motion.mjs
 
 # admin-web-local-overlay-guard: prevent same-page drawers from navigating through
 # Next Server Components. The whole feature tree has a zero-tolerance baseline:

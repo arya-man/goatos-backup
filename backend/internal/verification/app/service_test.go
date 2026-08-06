@@ -64,6 +64,26 @@ func (r *fakeRepo) GetItem(_ context.Context, _ string, itemID string) (domain.I
 	return item, nil
 }
 
+func (r *fakeRepo) GetItemCategories(_ context.Context, _ string, itemIDs []string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, id := range itemIDs {
+		if item, ok := r.items[id]; ok {
+			out[id] = item.Category
+		}
+	}
+	return out, nil
+}
+
+func (r *fakeRepo) GetItemProofRefs(_ context.Context, _ string, itemIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, id := range itemIDs {
+		if item, ok := r.items[id]; ok {
+			out[id] = item.MediaRefs
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeRepo) GetSubmissionItems(_ context.Context, tenantID, submissionID string) ([]domain.Item, error) {
 	items := make([]domain.Item, 0)
 	for _, item := range r.items {
@@ -614,9 +634,10 @@ func TestListQueueFiltersOneIndiaBusinessDateAndReturnsSecondaryTabs(t *testing.
 	wantStatuses := []domain.QueueStatusOption{
 		// "All" leads and carries NO status, so selecting it sends no status filter and the queue
 		// returns due + approved + rejected together (maintainer request 2026-07-30).
+		// Labels are backend-owned per the verifier spec (verification-review page contract).
 		{Key: "all", Label: "All"},
-		{Key: "due", Label: "Due", Status: domain.StatusPending},
-		{Key: "approved", Label: "Approved", Status: domain.StatusApproved},
+		{Key: "due", Label: "To verify", Status: domain.StatusPending},
+		{Key: "approved", Label: "Accepted", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},
 	}
 	if !reflect.DeepEqual(result.FilterOptions.Statuses, wantStatuses) {
@@ -877,4 +898,60 @@ func TestEvidenceLinkResolvedIsLinkResolutionNotByteRetrievability(t *testing.T)
 	if rows[0].EvidenceLinkResolved {
 		t.Fatal("EvidenceLinkResolved = true for an item with no media_refs, want false")
 	}
+}
+
+// One unresolvable media ref per item should NOT blank the video for other healthy items on the page.
+// Per-item resolution: an item whose own refs all resolve keeps its media and evidence_available=true;
+// an item with any unresolvable ref of its OWN gets empty media + evidence_available=false.
+func TestPerItemMediaResolution(t *testing.T) {
+	// Two items: one with unresolvable ref, one healthy. The healthy item must retain its media.
+	item1 := domain.Item{ItemID: "item-1", TenantID: testTenant, MediaRefs: []string{"proof-missing"}}
+	item2 := domain.Item{ItemID: "item-2", TenantID: testTenant, MediaRefs: []string{"proof-valid"}}
+
+	// Resolver returns per-ID failures as empty MediaItems (DownloadURL="")
+	failOnID := map[string]bool{"proof-missing": true}
+	partialResolver := &partialMediaResolver{failOnID: failOnID}
+
+	svc := NewService(newFakeRepo(), partialResolver)
+	rows := svc.resolveMedia(context.Background(), testTenant, []domain.Item{item1, item2})
+
+	if len(rows) != 2 {
+		t.Fatalf("rows len = %d, want 2", len(rows))
+	}
+
+	// Item 1: unresolvable ref -> empty media, evidence_available=false
+	if rows[0].EvidenceLinkResolved {
+		t.Errorf("item1.EvidenceLinkResolved = true, want false (ref failed to resolve)")
+	}
+	if len(rows[0].Media) != 0 {
+		t.Errorf("item1 media len = %d, want 0", len(rows[0].Media))
+	}
+
+	// Item 2: all refs resolved -> media present, evidence_available=true
+	if !rows[1].EvidenceLinkResolved {
+		t.Errorf("item2.EvidenceLinkResolved = false, want true (all refs resolved)")
+	}
+	if len(rows[1].Media) != 1 {
+		t.Errorf("item2 media len = %d, want 1", len(rows[1].Media))
+	}
+	if rows[1].Media[0].DownloadURL == "" {
+		t.Error("item2 media has empty DownloadURL")
+	}
+}
+
+// Helper: partial resolver for testing (returns empty MediaItems for failed IDs, valid ones for others)
+type partialMediaResolver struct {
+	failOnID map[string]bool
+}
+
+func (p *partialMediaResolver) ResolveMedia(_ context.Context, _ string, proofIDs []string) ([]domain.MediaItem, error) {
+	out := make([]domain.MediaItem, len(proofIDs))
+	for i, id := range proofIDs {
+		out[i].ProofID = id
+		if p.failOnID[id] {
+			continue // Leave DownloadURL empty for failed IDs
+		}
+		out[i].DownloadURL = "https://example.com/download/" + id
+	}
+	return out, nil
 }

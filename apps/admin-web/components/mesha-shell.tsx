@@ -188,6 +188,7 @@ export function MeshaShell({
   const activeParkLabel = parkScopeLabel(parks, activeParkId, contract);
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(false);
+
   const [isLight, setIsLight] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
@@ -204,6 +205,25 @@ export function MeshaShell({
     }
     return init;
   });
+  // Collapsed rail: the group's leaves are hidden, so toggling one open would be a click that
+  // visibly does nothing. In rail mode the icon navigates to that group's first leaf instead;
+  // expanded, it keeps the normal open/close behaviour.
+  const activateGroup = useCallback(
+    (group: { id: string; leaves?: { href: string }[] }): void => {
+      if (rail) {
+        const first = group.leaves?.[0]?.href;
+        if (first) {
+          router.push(first);
+          return;
+        }
+      }
+      // Inlined rather than calling toggleGroup(): that helper is declared ~200 lines below and
+      // relying on hoisting trips no-use-before-define, while moving this hook down would put it
+      // after an early return and break the rules of hooks.
+      setOpenGroups((prev) => ({ ...prev, [group.id]: !prev[group.id] }));
+    },
+    [rail, router],
+  );
   const navCountsHref = scopeHref("/api/nav-counts", renderedScope);
   const actionCenterBadge = visibleBadge(navCounts.actionCenter);
   const pcBadge = visibleBadge(navCounts.pc);
@@ -598,15 +618,16 @@ export function MeshaShell({
               <div key={g.id}>
                 <div
                   className={`ggrp ${open ? "open" : ""}`}
-                  onClick={() => toggleGroup(g.id)}
+                  onClick={() => activateGroup(g)}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") return;
                     event.preventDefault();
-                    toggleGroup(g.id);
+                    activateGroup(g);
                   }}
                   role="button"
                   tabIndex={0}
                   aria-expanded={open}
+                  title={rail ? g.label : undefined}
                 >
                   <GroupIcon className="ic" />
                   {g.label}

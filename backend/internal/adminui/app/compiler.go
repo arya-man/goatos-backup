@@ -80,7 +80,7 @@ func (s *Service) bootstrapCached(ctx context.Context, input BootstrapInput) dom
 	if cached, ok := s.cached(key, now); ok {
 		return cached
 	}
-	resp := s.compile(input, families, familyErr)
+	resp := s.compile(ctx, input, families, familyErr)
 	expiresAt := now.Add(s.cacheTTL)
 	s.storeCache(key, resp, now, expiresAt)
 	if revisionKey != "" && familyErr == nil {
@@ -166,7 +166,7 @@ func (s *Service) evictCacheEntryLocked() {
 	}
 }
 
-func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
+func (s *Service) compile(ctx context.Context, input BootstrapInput, families ReferenceFamilies, familyErr error) domain.BootstrapResponse {
 	families.UIConfig = applicableConfigEntries(families.UIConfig)
 	resp := baseBootstrap()
 	resp = compileRequestContext(resp, input, families)
@@ -175,7 +175,7 @@ func (s *Service) compile(input BootstrapInput, families ReferenceFamilies, fami
 	// parallel one, so /actions keeps the same controls/copy/options every other principal gets.
 	// It runs before familyHashes so the contract revision reflects what is actually served.
 	if isVerifierLensPrincipal(input) {
-		resp = applyVerifierLens(resp, s.verifierNavModules())
+		resp = applyVerifierLens(resp, s.verifierNavModules(ctx, input))
 	}
 	hashes := familyHashes(resp, families, input, familyErr)
 	resp.FamilyHashes = hashes

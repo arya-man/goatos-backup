@@ -657,6 +657,110 @@ func TestListQueueKeysetIsBoundedAndOrdered_RealPostgres(t *testing.T) {
 	}
 }
 
+// TestListQueueFilterOptionsStatusCounts_OneToMany_PageBoundary_ParkScope_StatusBuckets_RealPostgres pins the fix for
+// the banned "capped read-time rollup presented as truth" pattern (docs/decisions/
+// scale-anti-patterns.md): the verifier mock's dot-legend pill counts must come from the
+// database's own whole-filter aggregate (domain.QueueStatusCounts), never from grouping a fetched,
+// keyset-limited page in app/frontend state. This seeds MORE than one page worth of pending items
+// (25, against a 20-row page) plus a handful of approved/rejected rows, then asserts:
+//  1. Counts.Pending EXCEEDS the page size (would be impossible if it were page-derived).
+//  2. Counts.Pending matches a direct COUNT(*) against verification_items for the SAME scope.
+//  3. pending + approved + rejected counts equal the total row count for the scope — the
+//     disjointness claim in the projection-review marker, proven, not just asserted in a comment.
+func TestListQueueFilterOptionsStatusCounts_OneToMany_PageBoundary_ParkScope_StatusBuckets_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+
+	const pageSize = 20
+	const pendingTotal = 25 // deliberately > pageSize, so a page-derived count would undercount.
+	const approvedTotal = 4
+	const rejectedTotal = 3
+
+	base := time.Now().In(biztime.DefaultLocation()).Add(-time.Hour)
+	var allIDs []string
+	for i := 0; i < pendingTotal+approvedTotal+rejectedTotal; i++ {
+		result, err := repo.CreateItem(ctx, domain.CreateItem{
+			TenantID: tenantID, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+			Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: tenantID},
+			MediaRefs:      []string{"proof-1"},
+			CapturedAt:     base.Add(time.Duration(i) * time.Minute),
+			IdempotencyKey: "vaccination:submission:status-counts-" + strconv.Itoa(i),
+		})
+		if err != nil {
+			t.Fatalf("seed CreateItem[%d]: %v", i, err)
+		}
+		allIDs = append(allIDs, result.Item.ItemID)
+	}
+	// Flip a subset to approved/rejected directly (bypassing the verdict flow, which is exercised
+	// elsewhere) so the count query is proven against a REAL status matrix, not all-pending.
+	for i, id := range allIDs[pendingTotal : pendingTotal+approvedTotal] {
+		_ = i
+		if _, err := pool.Exec(ctx, `UPDATE verification_items SET status = 'approved' WHERE tenant_id = $1::uuid AND item_id = $2::uuid`, tenantID, id); err != nil {
+			t.Fatalf("seed approved status: %v", err)
+		}
+	}
+	for _, id := range allIDs[pendingTotal+approvedTotal:] {
+		// verification_items_reject_reason_check requires a non-blank verdict_reason whenever
+		// status = 'rejected'.
+		if _, err := pool.Exec(ctx, `UPDATE verification_items SET status = 'rejected', verdict_reason = 'seeded for status-counts test' WHERE tenant_id = $1::uuid AND item_id = $2::uuid`, tenantID, id); err != nil {
+			t.Fatalf("seed rejected status: %v", err)
+		}
+	}
+
+	options, err := repo.ListQueueFilterOptions(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", Status: domain.StatusPending,
+		Limit: pageSize, // the PAGE read stays capped; the aggregate below must not be.
+	})
+	if err != nil {
+		t.Fatalf("ListQueueFilterOptions: %v", err)
+	}
+
+	if options.Counts.Pending <= pageSize {
+		t.Fatalf("Counts.Pending = %d, want > page size %d (a page-derived count could never exceed the page)", options.Counts.Pending, pageSize)
+	}
+	if options.Counts.Pending != pendingTotal {
+		t.Fatalf("Counts.Pending = %d, want %d (whole-filter DB total)", options.Counts.Pending, pendingTotal)
+	}
+	if options.Counts.Approved != approvedTotal {
+		t.Fatalf("Counts.Approved = %d, want %d", options.Counts.Approved, approvedTotal)
+	}
+	if options.Counts.Rejected != rejectedTotal {
+		t.Fatalf("Counts.Rejected = %d, want %d", options.Counts.Rejected, rejectedTotal)
+	}
+
+	// Direct DB proof, independent of the repository code path under test.
+	var dbPending, dbApproved, dbRejected int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM verification_items WHERE tenant_id = $1::uuid AND category = 'vaccination_proof' AND status = 'pending'`, tenantID).Scan(&dbPending); err != nil {
+		t.Fatalf("direct pending count: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM verification_items WHERE tenant_id = $1::uuid AND category = 'vaccination_proof' AND status = 'approved'`, tenantID).Scan(&dbApproved); err != nil {
+		t.Fatalf("direct approved count: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM verification_items WHERE tenant_id = $1::uuid AND category = 'vaccination_proof' AND status = 'rejected'`, tenantID).Scan(&dbRejected); err != nil {
+		t.Fatalf("direct rejected count: %v", err)
+	}
+	if dbPending != options.Counts.Pending || dbApproved != options.Counts.Approved || dbRejected != options.Counts.Rejected {
+		t.Fatalf("repository counts (%d/%d/%d) do not match direct DB counts (%d/%d/%d)",
+			options.Counts.Pending, options.Counts.Approved, options.Counts.Rejected, dbPending, dbApproved, dbRejected)
+	}
+
+	// Disjointness proof: the three buckets sum to the whole scoped row total — no double count,
+	// no gap.
+	var totalInScope int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM verification_items WHERE tenant_id = $1::uuid AND category = 'vaccination_proof'`, tenantID).Scan(&totalInScope); err != nil {
+		t.Fatalf("direct total count: %v", err)
+	}
+	sum := options.Counts.Pending + options.Counts.Approved + options.Counts.Rejected
+	if sum != totalInScope {
+		t.Fatalf("pending+approved+rejected = %d, want %d (whole scoped total) — buckets are not disjoint/complete", sum, totalInScope)
+	}
+}
+
 func TestListQueueFetchesDisplayLabels_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()

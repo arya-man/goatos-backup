@@ -18,6 +18,16 @@
       "ciStep": "admin-web-local-overlay-guard"
     },
     {
+      "id": "overlay-motion",
+      "script": "tools/agent-hooks/check-overlay-motion.mjs",
+      "makeTarget": "overlay-motion-guard",
+      "realCheck": "node tools/agent-hooks/check-overlay-motion.mjs",
+      "selfTest": "node tools/agent-hooks/check-overlay-motion.mjs --self-test",
+      "owningDoc": "docs/frontend/admin-web-engineering-quality.md",
+      "requiredInCI": true,
+      "ciStep": "overlay-motion-guard"
+    },
+    {
       "id": "admin-web-prefetch",
       "script": "tools/agent-hooks/check-admin-web-prefetch.mjs",
       "makeTarget": "admin-web-prefetch-guard",

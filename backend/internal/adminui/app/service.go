@@ -14,11 +14,14 @@ type Service struct {
 	// verificationModules sources the verifier-only workspace's evidence modules from the generic
 	// Verification type registry. Injected via WithVerificationModules; see verifier_lens.go.
 	verificationModules VerificationModuleSource
-	mu                  sync.Mutex
-	cache               map[string]cacheEntry
-	cacheTTL            time.Duration
-	cacheMaxEntries     int
-	now                 func() time.Time
+	// moduleDutyReader filters the verifier's modules by assigned duties. Optional; when nil or
+	// erroring, the lens fails SAFE by showing no modules. Injected via WithModuleDutyReader.
+	moduleDutyReader ModuleDutyReader
+	mu               sync.Mutex
+	cache            map[string]cacheEntry
+	cacheTTL         time.Duration
+	cacheMaxEntries  int
+	now              func() time.Time
 }
 
 func NewService(repo ...ReferenceRepository) *Service {
@@ -302,7 +305,7 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("workflow-catalog", "Workflow catalog", "/vaccination/action-center", []string{"workflow", "stage", "owner", "next_action", "status"}, "wf_row")}),
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
-			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason", "details"}, "vi_row", []int{20, 50, 100})}),
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -922,7 +925,18 @@ func pageSpecificCopy(id string) map[string]string {
 		}
 	case "verification-review":
 		return map[string]string{
-			"crumb":                         "Approvals",
+			"crumb": "Approvals",
+			// Verifier video-review board copy. These are backend-owned like every other visible
+			// string here: the frontend previously carried them as local fallbacks, which is the
+			// hardcoded-visible-literal defect the contract rule exists to prevent.
+			"board.title":      "Verification Board",
+			"filter.shed":      "Shed (optional)",
+			"filter.all_sheds": "All sheds",
+			"table.hint":       "Open a row to review the evidence and record a verdict.",
+			// Accessible label for the player's full-screen toggle.
+			"drawer.media.fullscreen_label": "Full screen",
+			// Accept is blocked when the proof media does not resolve, so a verdict can never be
+			// recorded against evidence nobody could watch.
 			"filter.action_type":            "Action type",
 			"filter.all_action_types":       "All action types",
 			"filter.apply":                  "Apply filters",
@@ -985,6 +999,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"verdict.reason_required":      "A rejection must say what was wrong. Approving needs no reason.",
 			"verdict.disabled_not_pending": "This action already has a verdict and cannot be reviewed again.",
 			"verdict.disabled_no_access":   "Recording a verdict is limited to the video verification team.",
+			"verdict.disabled_no_evidence": "No video available — accept is blocked. Reject it, or come back once the proof resolves.",
 			"action.disabled_no_authority": "Acting on the source task is limited to the park head, director, or CEO.",
 			"verdict.note":                 "Approving records that the video meets the standard. It does not close the work — an authority does that once every proof in the submission is approved.",
 		}
