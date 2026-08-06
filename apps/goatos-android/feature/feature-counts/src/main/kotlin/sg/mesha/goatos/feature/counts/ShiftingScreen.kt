@@ -251,9 +251,8 @@ fun ShiftingScreen(
         // The dropdowns below are the pickers; this is only what they currently mean, mirrored.
         val selectedParkName = state.destinationParks.firstOrNull { it.parkId == state.destinationParkId }?.name
         val selectedDestination = state.selectedDestination
-        val selectedShedLabel = selectedDestination?.let {
-            operationalLocationLabel(it.name, it.partitionLabel)
-        }
+        // The name is already formatted by the backend (operational_location_display); don't re-format
+        val selectedShedLabel = selectedDestination?.name
 
         LazyColumn(
             modifier = Modifier.fillMaxSize().weight(1f).padding(horizontal = 16.dp),
@@ -333,6 +332,11 @@ fun ShiftingScreen(
                 // never both. Keyed by shed_id + partition_label: shed NAMES repeat across
                 // parks and a shed's own partitions share its shed_id, so either alone would
                 // collapse distinct destinations into one entry.
+                //
+                // The name is already formatted by the backend (operational_location_display):
+                // "Yashoda" (non-partitioned), "Castro 2" (numeric), or "Godel 1 - Part 3"
+                // (worded). Do NOT re-format it — the ShiftingViewModel.toShiftingParkUi()
+                // already applied the proper formatting when importing from the backend.
                 val destinations = state.shedsForSelectedPark
                 CountsDropdownField(
                     label = stringResource(R.string.counts_field_shed),
@@ -343,7 +347,7 @@ fun ShiftingScreen(
                         stringResource(R.string.counts_select_shed)
                     },
                     options = destinations.map {
-                        CountsDropdownOption(it.optionKey, operationalLocationLabel(it.name, it.partitionLabel))
+                        CountsDropdownOption(it.optionKey, it.name)
                     },
                     onSelect = { key ->
                         val chosen = destinations.firstOrNull { it.optionKey == key }
