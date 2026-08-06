@@ -417,6 +417,17 @@
       "ciStep": "leadership-assistant-coverage-guard"
     },
     {
+      "id": "leadership-verifier-surface-separation",
+      "script": "tools/agent-hooks/check-leadership-verifier-surface-separation.mjs",
+      "makeTarget": "leadership-verifier-surface-separation-guard",
+      "realCheck": "node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs",
+      "selfTest": "node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs --self-test",
+      "owningDoc": "docs/decisions/leadership-vs-verifier-surface-separation.md",
+      "requiredInCI": true,
+      "ciStep": "leadership-verifier-surface-separation-guard",
+      "notes": "Maintains separation between Leadership (audit/overview, read-only) and Verifier (action queue, verdict casting) surfaces. Enforces: (1) leadership nav hrefs do not point to /verify* routes, (2) leadership Android screens do not import from feature-verify, (3) verdict controls (approve/reject) do not appear in leadership screens. Incident 2026-08-06: leadership Videos nav was repointed at a verifier route, causing leadership screens to reflect every verifier UI change and creating UX confusion about readable vs. actionable content."
+    },
+    {
       "id": "local-ci-evidence",
       "script": "tools/ci/check-local-ci-evidence.mjs",
       "makeTarget": "local-ci-evidence-guard",

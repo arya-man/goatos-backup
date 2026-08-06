@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheDao
 import sg.mesha.goatos.core.data.cache.VerificationQueueCacheEntity
@@ -104,6 +105,24 @@ interface VerificationRepository {
      *  verdict outbox row has SUCCEEDED. This keeps the verifier queue honest when the backend
      *  write landed but the follow-up refresh is temporarily offline/stale. */
     suspend fun markVerificationItemDecidedLocally(itemId: String)
+
+    /** Cache-first stream for leadership videos (full trail: pending/approved/rejected/closed).
+     *  Returns a bounded window of verification items rendered as UI models. */
+    fun observeLeadershipVideos(
+        category: String? = null,
+        windowSize: Int = 20,
+    ): Flow<List<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>>
+
+    /** Fetches and caches the first page of leadership videos. */
+    // windowSize MUST match the value passed to observeLeadershipVideos: the cache key is derived
+    // from every query parameter including the limit, so refreshing with a different window writes
+    // a row the observing Flow never reads, and the screen renders "No videos yet" over a
+    // successful fetch.
+    suspend fun refreshLeadershipVideos(
+        category: String? = null,
+        windowSize: Int,
+        reset: Boolean = true,
+    ): AppResult<Unit>
 }
 
 class DefaultVerificationRepository(
@@ -289,6 +308,59 @@ class DefaultVerificationRepository(
 
     private fun actionScopeKey(category: String?, parkId: String?, shedId: String?, limit: Int?): String =
         cacheKey("verification-action-queue", category, parkId, shedId, limit?.toString())
+
+    override fun observeLeadershipVideos(
+        category: String?,
+        windowSize: Int,
+    ): Flow<List<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>> {
+        // Leadership sees full trail: status=all returns pending + approved + rejected + closed
+        return observeQueue(
+            category = category,
+            status = "all", // Backend's no-filter sentinel (handler.statusAll)
+            limit = windowSize,
+        ).map { resource ->
+            resource.data?.items?.mapIndexed { index, item ->
+                sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi(
+                    id = item.itemId,
+                    title = item.subjectLabel?.ifEmpty { "Proof ${index + 1}" } ?: "Proof ${index + 1}",
+                    status = item.status,
+                    statusLabel = formatStatus(item.status),
+                    statusTone = when (item.status.lowercase()) {
+                        "pending_verification", "pending" -> "neutral"
+                        "approved" -> "success"
+                        "rework" -> "error"
+                        "closed" -> "neutral"
+                        else -> "neutral"
+                    },
+                    timestamp = item.capturedAt?.ifEmpty { "Unknown time" } ?: "Unknown time",
+                    proofCount = (item.media.size).coerceAtLeast(1),
+                    videoUrls = item.media.map { it.downloadUrl },
+                    summary = item.subjectLabel.orEmpty(), // Use backend copy, no composition
+                )
+            }.orEmpty()
+        }
+    }
+
+    override suspend fun refreshLeadershipVideos(
+        category: String?,
+        windowSize: Int,
+        reset: Boolean,
+    ): AppResult<Unit> =
+        // refreshQueue is runCatching-based: it NEVER throws, it returns the failure. Discarding
+        // that Result reported success on every failed fetch, so the gallery rendered its empty
+        // state with no error while nothing was ever cached. Propagate it.
+        refreshQueue(category = category, status = "all", limit = windowSize).fold(
+            onSuccess = { AppResult.Ok(Unit) },
+            onFailure = { AppResult.Err("Failed to refresh leadership videos", it) },
+        )
+
+    private fun formatStatus(status: String): String = when (status.lowercase()) {
+        "pending_verification", "pending" -> "Pending Review"
+        "approved" -> "Approved"
+        "rework" -> "Needs Rework"
+        "closed" -> "Closed"
+        else -> status
+    }
 }
 
 class VerificationQueueCursorException(message: String) : IllegalStateException(message)
