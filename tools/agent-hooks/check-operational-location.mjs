@@ -544,6 +544,15 @@ function scannable(file) {
   if (!/\.(go|ts|tsx|mjs|kt|sql|yaml)$/.test(file)) return false;
   if (/_test\.go$|\.test\.(mjs|ts|tsx)$|Test\.kt$/.test(file)) return false;
   if (/\/(node_modules|generated|migrations|\.git)\//.test(file)) return false;
+  // Seed programs under backend/cmd/seed-* are NOT a display surface: they read a source
+  // spreadsheet and write canonical rows, and their in-memory maps are already park-scoped by
+  // construction (parkCode + shedName), so the cross-park name collision this rule guards against
+  // cannot occur there. They are also hard-listed contract sources for
+  // check-vaccination-hrms-seed-fixture.mjs, which requires six companion fixture/runbook updates
+  // for ANY edit -- so annotating them line-by-line would force unrelated seed-contract churn, and
+  // an id lookup per source row would add an N+1 in the seed loop. Excluded deliberately; if a seed
+  // program ever renders a user-facing location label, that belongs behind oploc like any other.
+  if (/^backend\/cmd\/seed-/.test(file)) return false;
   return true;
 }
 
