@@ -121,7 +121,7 @@ type Repository interface {
 }
 
 // ReviewEventRepository is the video-review-analytics ingest + read boundary
-// (verification_review_events, migration 000112). Kept as its own interface rather than folded into
+// (verification_review_events, migration 000116). Kept as its own interface rather than folded into
 // Repository so a category producer package cannot accidentally depend on write-side verdict
 // methods it has no business calling.
 type ReviewEventRepository interface {

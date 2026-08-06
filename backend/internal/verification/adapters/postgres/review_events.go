@@ -12,7 +12,7 @@ import (
 )
 
 // ReviewEventRepository implements ports.ReviewEventRepository against verification_review_events
-// (migration 000112). Kept in its own small file/struct per the file-organization rule -- it is a
+// (migration 000116). Kept in its own small file/struct per the file-organization rule -- it is a
 // distinct bounded concern (video-review analytics) from the verdict/queue Repository above, even
 // though both live in the same package and share the pool.
 type ReviewEventRepository struct {

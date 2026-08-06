@@ -3,7 +3,7 @@
 -- +goose Up
 -- +goose NO TRANSACTION
 
--- Supports ceo_ai.verifier_review_integrity (migration 000114): the base scan is every DECIDED
+-- Supports ceo_ai.verifier_review_integrity (migration 000118): the base scan is every DECIDED
 -- item (verified_by IS NOT NULL, status IN ('approved','rejected')), grouped by
 -- (tenant_id, verified_by, park_id, category, business_day derived from verified_at). This
 -- partial index on verified_by IS NOT NULL matches that predicate exactly and carries park_id/

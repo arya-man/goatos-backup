@@ -51,7 +51,7 @@ func (h *Handler) WithModuleDutyReader(reader VerificationModuleDutyReader) *Han
 }
 
 // WithReviewEventRepository wires the video-review-analytics ingest/read repository
-// (verification_review_events, migration 000112). Left optional/nil-safe like the duty reader
+// (verification_review_events, migration 000116). Left optional/nil-safe like the duty reader
 // above so existing wiring call sites do not have to change until they opt in.
 func (h *Handler) WithReviewEventRepository(repo ports.ReviewEventRepository) *Handler {
 	h.reviewEvent = repo

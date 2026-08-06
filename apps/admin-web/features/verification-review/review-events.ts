@@ -34,7 +34,7 @@ export interface ReviewEventPayload {
 
 export interface PendingEvent {
   // Null for queue-scoped events: queue_opened fires on landing, before any item is chosen, and the
-  // backend enforces item_id IS NULL for it (migration 000118). Never send a placeholder string.
+  // backend enforces item_id IS NULL for it (migration 000119). Never send a placeholder string.
   item_id: string | null;
   proof_id?: string;
   session_id: string;

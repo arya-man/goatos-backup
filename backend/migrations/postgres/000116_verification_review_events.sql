@@ -23,7 +23,7 @@
 -- internal/verification/adapters/postgres/review_facts.go on read, backed by the indexes below.
 -- They are cheap per-item aggregates (bounded by event count per item, not a whole-table scan),
 -- so read-time computation is not the scale-anti-pattern this repo bans for CEO-wide aggregates;
--- the CEO-wide ceo_ai view in migration 000117 IS a stored/materialized aggregate.
+-- the CEO-wide ceo_ai view in migration 000118 IS a stored/materialized aggregate.
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
 -- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE TABLE public.verification_review_events (
@@ -52,7 +52,7 @@ CREATE TABLE public.verification_review_events (
 );
 
 -- Attach the composite unique CONSTRAINT using the index built CONCURRENTLY in migration
--- 000111 (USING INDEX skips the redundant index build, so this only takes the brief catalog
+-- 000115 (USING INDEX skips the redundant index build, so this only takes the brief catalog
 -- lock needed to record the constraint -- no CREATE-INDEX-strength table lock on the hot table).
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
 -- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
@@ -72,7 +72,7 @@ CREATE UNIQUE INDEX verification_review_events_tenant_client_event_unique_idx
 CREATE INDEX verification_review_events_item_actor_time_idx
     ON public.verification_review_events USING btree (tenant_id, item_id, actor_id, occurred_at);
 
--- Read path 2: per-actor-per-day rollups feeding the CEO aggregate (migration 000112).
+-- Read path 2: per-actor-per-day rollups feeding the CEO aggregate (migration 000118).
 -- seed-migration-guard:ignore owner=ravi issue=maintainer-decision-2026-08-06 reason=append-only-telemetry-accrues-at-runtime-no-seed-companion expiry=2026-11-30
 -- no-mismatch-review-queue:ignore: owner=ravi issue=maintainer-decision-2026-08-06 scope=verifier-watch-telemetry-not-a-reconciliation-queue expiry=2026-11-30
 CREATE INDEX verification_review_events_actor_time_idx
