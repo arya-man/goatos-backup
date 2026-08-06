@@ -20,7 +20,7 @@ const (
 )
 
 // ReviewEventTypes is the closed set the write path validates against. Keep in sync with the
-// migration 000112 CHECK constraint -- both exist because Postgres is the last line of defense
+// migration 000116 CHECK constraint -- both exist because Postgres is the last line of defense
 // against a bypassed app layer, not because the list is meant to drift between them.
 var ReviewEventTypes = map[ReviewEventType]bool{
 	ReviewEventQueueOpened:       true,
@@ -47,7 +47,7 @@ type ReviewEventPayload struct {
 	Verdict         *string `json:"verdict,omitempty"`
 	// Category/ParkID/ShedID are the QUEUE-SCOPED attribution fields. A queue_opened event fires
 	// before any item exists (landing on the queue screen), so it has no item_id to hang scope on
-	// -- see migration 000118. Category is REQUIRED on a queue_opened event so a CEO-facing
+	// -- see migration 000119. Category is REQUIRED on a queue_opened event so a CEO-facing
 	// "queue opened -> item opened -> verdict recorded" funnel can still attribute it to a
 	// category/park/shed dimension without a fake item_id. ParkID/ShedID are optional (the queue
 	// view may not be park/shed-scoped).
@@ -64,7 +64,7 @@ type ReviewEventPayload struct {
 // POST /verification/review-events.
 type ReviewEvent struct {
 	TenantID string
-	// ItemID is nil for queue-scoped events (event_type = queue_opened, migration 000118) and
+	// ItemID is nil for queue-scoped events (event_type = queue_opened, migration 000119) and
 	// required/non-nil for every item-scoped event type. See review_events.go's validation for
 	// the enforcement and the DB CHECK constraint for the belt-and-suspenders half.
 	ItemID        *string

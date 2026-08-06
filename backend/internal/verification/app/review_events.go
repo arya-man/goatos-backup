@@ -61,7 +61,7 @@ func (s *Service) RecordReviewEvents(
 
 	now := s.now()
 
-	// Classify each input FIRST: queue-scoped (queue_opened, no item_id -- migration 000118) vs
+	// Classify each input FIRST: queue-scoped (queue_opened, no item_id -- migration 000119) vs
 	// item-scoped (every other type, item_id required). This must happen before any item_id
 	// UUID-format check, or a queue-scoped event with an empty item_id would wrongly fail the
 	// item-scoped "must be a UUID" rule instead of its own queue-scoped rule.

@@ -14,7 +14,7 @@
 -- (AT TIME ZONE 'Asia/Kolkata', see 000096).
 --
 -- SOURCE TABLES: verification_items (the decided-item population) LEFT JOINed to a per-
--- (tenant_id,item_id,actor_id) rollup of verification_review_events (migration 000112, the
+-- (tenant_id,item_id,actor_id) rollup of verification_review_events (migration 000116, the
 -- client video-review telemetry) and to locations (park label only). It does NOT join goats,
 -- goat_identifiers, or any clinical table -- verifier review behavior is orthogonal to animal
 -- identity, exactly like the weighing views' herd-isolation rule (000080).
@@ -42,7 +42,7 @@
 -- SCALE: full-view aggregate, consistent with every other ceo_ai.* view in this codebase
 -- (ceo_ai.verification_queue_status has no WHERE clause either) -- the assistant queries this
 -- WHOLE, never paginates it. The base verification_items scan is served by
--- verification_items_verified_by_review_idx (migration 000113, partial on verified_by IS NOT
+-- verification_items_verified_by_review_idx (migration 000117, partial on verified_by IS NOT
 -- NULL, carrying park_id/category/verified_at). The event-side window functions partition by
 -- (tenant_id, item_id, actor_id), which verification_review_events_item_actor_time_idx (migration
 -- 000112) exists to serve. Not compute-on-read over unbounded UNINDEXED history.

@@ -146,7 +146,7 @@ func TestItemReviewFactsWatchFractionCountsDistinctCoveredRanges_RealPostgres(t 
 
 // TestInsertReviewEventsAcceptsNullItemIDForQueueScopedEvent is the real-bug regression
 // (2026-08-06): a queue_opened event has no item yet and its item_id column must accept NULL --
-// migration 000118 dropped the NOT NULL and added the scope CHECK. A batch mixing a null-item
+// migration 000119 dropped the NOT NULL and added the scope CHECK. A batch mixing a null-item
 // queue_opened row with a real item-scoped row must insert BOTH.
 func TestInsertReviewEventsAcceptsNullItemIDForQueueScopedEvent_RealPostgres(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)

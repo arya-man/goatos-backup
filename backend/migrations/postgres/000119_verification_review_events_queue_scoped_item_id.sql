@@ -26,7 +26,7 @@
 -- dimensions ceo_ai.verifier_review_integrity groups its item-scoped rows by, without needing a
 -- fake item_id to hang it on.
 --
--- WHY THIS DOES NOT TOUCH ceo_ai.verifier_review_integrity (migration 000117): every CTE in that
+-- WHY THIS DOES NOT TOUCH ceo_ai.verifier_review_integrity (migration 000118): every CTE in that
 -- view (event_stats, item_facts) is built by joining verification_review_events to
 -- verification_items ON jf.item_id = vi.item_id, which is a UUID equality -- a NULL item_id row
 -- can never satisfy `NULL = vi.item_id` (SQL NULL comparison semantics), so queue_opened rows
