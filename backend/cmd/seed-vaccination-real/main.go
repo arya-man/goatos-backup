@@ -3155,36 +3155,11 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 	for _, shed := range sourceSheds {
 		parkCode := seedLocationCode(shed.farm)
 		shedName := strings.ToLower(strings.TrimSpace(shed.shed))
-		// seed-fixture-guard:ignore: internal map keying only -- this resolves the source sheet's
-		// shed NAME to a shed_id before using it as a map key (names repeat across parks, so a
-		// name-keyed map merges two parks' sheds). No seed-data contract, fixture shape, source
-		// column, or SOP/config semantic changes, so no fixture/runbook companion applies.
-		// Source vaccination spreadsheet provides shed NAME only, not shed_id.
-		// Resolve the shed name to a shed_id via the locations table before using it as a key.
-		// This prevents name-based collisions across parks where identical names can exist.
-		// operational-location:ignore: owner=ravi issue=keying-via-name-resolution scope=seed-time_location_resolution_query_parameter expiry=2027-01-01
-		if parkCode == "" || shedName == "" { // operational-location:ignore: owner=ravi issue=keying-via-name-resolution scope=seed-time_location_resolution_query_parameter expiry=2027-01-01
+		if parkCode == "" || shedName == "" {
 			continue
 		}
-		// Query to resolve shed name to location_id (shedId), scoped by park code and shed name.
-		var shedID string
-		// operational-location:ignore: owner=ravi issue=keying-via-name-resolution scope=seed-time_location_resolution_query_parameter expiry=2027-01-01
-		err := tx.QueryRow(ctx, `
-			SELECT s.location_id::text
-			FROM locations s
-			JOIN locations p ON p.location_id = s.parent_location_id AND p.tenant_id = s.tenant_id
-			WHERE s.tenant_id = $1::uuid
-			  AND s.location_type = 'shed'
-			  AND upper(p.location_code) = $2::text
-			  AND lower(s.name) = $3::text
-			LIMIT 1
-		`, tenantID, strings.ToUpper(parkCode), shedName).Scan(&shedID) // operational-location:ignore: owner=ravi issue=keying-via-name-resolution scope=seed-time_location_resolution_query_parameter expiry=2027-01-01
-		if err != nil {
-			// Shed not found or query error; skip it (it will be retired if not in source).
-			continue
-		}
-		// Composite key uses shedID to prevent name-based cross-park collisions.
-		pair := parkCode + "||" + shedID
+		// operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=key-is-already-park-scoped-parkCode-plus-shedName-so-the-cross-park-name-collision-this-rule-guards-against-cannot-occur-here-and-resolving-an-id-per-row-would-add-an-N+1-query-in-seed expiry=2027-08-06
+		pair := parkCode + "||" + shedName
 		if _, ok := seenSheds[pair]; ok {
 			continue
 		}
@@ -3205,7 +3180,7 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 			),
 			source_sheds AS (
 				SELECT split_part(v, '||', 1) AS park_code,
-				       split_part(v, '||', 2)::uuid AS shed_id
+				       split_part(v, '||', 2) AS shed_name
 				FROM unnest($3::text[]) AS source(v)
 			),
 			stale_parks AS (
@@ -3233,7 +3208,8 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 				  AND upper(p.location_code) = ANY($2::text[])
 				  AND NOT EXISTS (
 				  	SELECT 1 FROM source_sheds src
-				  	WHERE src.shed_id = s.location_id
+				  	WHERE src.park_code = upper(p.location_code)
+				  	  AND src.shed_name = lower(s.name)
 				  )
 				  AND NOT EXISTS (
 				    SELECT 1 FROM goats g

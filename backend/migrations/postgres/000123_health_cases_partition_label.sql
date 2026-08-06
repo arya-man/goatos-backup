@@ -1,4 +1,3 @@
--- seed-fixture-guard:ignore: health_cases is health-owned; this adds a partition_label snapshot column + backfill. It touches no vaccination seed source, fixture shape, SOP/config semantic or source column.
 -- +goose Up
 -- health_cases.partition_label: snapshot the goat's partition at the moment the case is opened,
 -- alongside the pre-existing park_id/shed_id snapshot columns (OpenCase already reads those from
