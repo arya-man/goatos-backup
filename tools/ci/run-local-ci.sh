@@ -212,6 +212,13 @@ changed_since_base() {
 # shellcheck source=tools/ci/android-ui-diff.sh
 . "$(dirname "${BASH_SOURCE[0]}")/android-ui-diff.sh"
 
+# Machine-wide advisory Gradle mutex. job_group() serialises `android` within ONE
+# dispatch; this serialises it across WORKTREES. FAIL-OPEN on every path — it
+# changes WHEN the android job starts, never which steps run or how they are
+# judged. See the contract at the top of that file.
+# shellcheck source=tools/ci/gradle-worktree-lock.sh
+. "$(dirname "${BASH_SOURCE[0]}")/gradle-worktree-lock.sh"
+
 # ci_tooling_changed: true when this run should pay for the tools/ci/** self-tests.
 # FAIL-OPEN BY DESIGN: if the diff cannot be determined (no base ref, git failure,
 # empty output) we RUN the self-tests. A guard that silently skips itself because
@@ -221,6 +228,30 @@ ci_tooling_changed() {
   changed="$(changed_since_base 2>/dev/null)" || return 0
   [ -n "$changed" ] || return 0
   printf '%s\n' "$changed" | grep -Eq '^tools/ci/'
+}
+
+# gradle_lock_lib_changed / gradle_lock_selftest_changed — same fail-open shape
+# as ci_tooling_changed above (undeterminable or empty diff => RUN).
+#
+# WHY THESE ARE SEPARATE FROM ci_tooling_changed: the lock guard is ~45 s and its
+# mutation self-test is ~15 min. Charging both to every `tools/ci/**` commit is a
+# wall-clock regression inside a wall-clock fix — the same mistake the ~62 s
+# screenshot-proof self-test made before it was diff-scoped.
+gradle_lock_lib_changed() {
+  local changed
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq '^tools/ci/gradle-worktree-lock\.sh$'
+}
+
+# run-local-ci.sh is in the self-test's trigger set ON PURPOSE: guard case (g)
+# drives `run-local-ci.sh android` under trace as the WIRING assertion, so an
+# edit to this file can invalidate the self-test's result.
+gradle_lock_selftest_changed() {
+  local changed
+  changed="$(changed_since_base 2>/dev/null)" || return 0
+  [ -n "$changed" ] || return 0
+  printf '%s\n' "$changed" | grep -Eq '^tools/ci/(gradle-worktree-lock\.sh|check-gradle-worktree-lock\.sh|check-gradle-worktree-lock\.test\.sh|run-local-ci\.sh)$'
 }
 
 # The real check lives in its own file so it greps this script from OUTSIDE and
@@ -342,6 +373,23 @@ run_common() {
   # the runs that follow the change which caused the drift.
   step "push-hook-freshness-guard" bash tools/ci/check-push-hook-freshness.sh
   step "parallel-dispatch cleanup guard" bash tools/ci/check-parallel-dispatch-cleanup.sh
+  # gradle-worktree-lock guard: ~45s of sandboxed sleeps, no Gradle. Diff-scoped
+  # to a tools/ci/gradle-worktree-lock.sh diff (fail-open) because it guards
+  # exactly that one file, and 45s x every pass is a meaningful slice of what
+  # the lock itself wins back. `make gradle-worktree-lock-guard` and
+  # `make guardrails` still run it unconditionally when explicitly asked.
+  if gradle_lock_lib_changed; then
+    step "gradle-worktree-lock guard" bash tools/ci/check-gradle-worktree-lock.sh
+  else
+    RESULTS+=("SKIP  gradle-worktree-lock guard (no tools/ci/gradle-worktree-lock.sh diff)")
+    echo "── ci-local: gradle-worktree-lock guard SKIPPED (no tools/ci/gradle-worktree-lock.sh diff vs base)"
+  fi
+  if gradle_lock_selftest_changed; then
+    step "gradle-worktree-lock guard self-test" bash tools/ci/check-gradle-worktree-lock.test.sh
+  else
+    RESULTS+=("SKIP  gradle-worktree-lock guard self-test (no lock/guard/harness/run-local-ci diff)")
+    echo "── ci-local: gradle-worktree-lock guard self-test SKIPPED (no lock/guard/harness/run-local-ci diff vs base)"
+  fi
   step "large-file guard"         node tools/ci/check-large-files.mjs
   step "git diff --check"         git diff --check
   # exception-guard: diff-scoped (Kotlin + Go together in one pass — see
@@ -512,6 +560,22 @@ run_android() {
   fi
   export JAVA_HOME="$jdk" ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
   [ -f apps/goatos-android/local.properties ] || echo "sdk.dir=$sdk" > apps/goatos-android/local.properties
+  # ── machine-wide Gradle lane, acquired ONCE for the whole Gradle region ─────
+  # Placement is deliberate: AFTER run_android_guards and the toolchain check, so
+  # the ~13 cheap static guards never queue behind another worktree and a
+  # toolchain-missing run never takes the lock; BEFORE the config-cache guard,
+  # which runs a real Gradle configuration and is therefore inside the contended
+  # region. One acquire per job, not per step — five acquire/release cycles
+  # would let two worktrees ping-pong and reproduce the contention this removes.
+  # NOT skipped under GOATOS_FAST_LOCAL_CI: fast mode uses the Gradle DAEMON,
+  # which is precisely the shared resource that contends.
+  local lane_t0=$SECONDS
+  gradle_lock_acquire "android gradle"
+  gradle_lock_install_trap
+  # record_timing, so the contention is MEASURABLE in the TSV next session; it
+  # never reads or writes `fail`. Suppressed under trace, which by contract
+  # executes nothing and must not append rows to the shared timings file.
+  ci_trace_only || record_timing "android gradle lane wait" PASS $(( SECONDS - lane_t0 ))
   # Configuration-cache safety. Lives in the `android` job, not run_common or
   # `guardrails`, because it needs a real Gradle configuration run (~5-35s, no
   # task actions). It is BEHAVIOURAL: the same failure a real build would hit.
@@ -548,6 +612,8 @@ run_android() {
       echo "── ci-local: android benchmark compile SKIPPED by GOATOS_FAST_LOCAL_CI=1 (no Android build/benchmark diff)"
       RESULTS+=("SKIP  android benchmark compile (GOATOS_FAST_LOCAL_CI=1)")
     fi
+    gradle_lock_clear_trap
+    gradle_lock_release
     return
   fi
   # ONE Gradle invocation for compile+unit+lint, with every flag byte-for-byte as
@@ -601,6 +667,8 @@ run_android() {
       ;;
   esac
   step "android benchmark compile" bash -c 'cd apps/goatos-android && ./gradlew :benchmark:compileDevNonMinifiedBenchmarkKotlin --no-daemon --console=plain'
+  gradle_lock_clear_trap
+  gradle_lock_release
 }
 
 run_guardrails() {

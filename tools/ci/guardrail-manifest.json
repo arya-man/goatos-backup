@@ -888,6 +888,16 @@
       "ciStep": "check-parallel-dispatch-cleanup.sh"
     },
     {
+      "id": "gradle-worktree-lock",
+      "script": "tools/ci/check-gradle-worktree-lock.sh",
+      "makeTarget": "gradle-worktree-lock-guard",
+      "realCheck": "bash tools/ci/check-gradle-worktree-lock.sh",
+      "selfTest": "bash tools/ci/check-gradle-worktree-lock.test.sh",
+      "owningDoc": "docs/runbooks/local-ci-performance.md",
+      "requiredInCI": true,
+      "ciStep": "check-gradle-worktree-lock.sh"
+    },
+    {
       "id": "admin-web-and-backend-boundaries",
       "script": "tools/agent-hooks/check-boundaries.sh",
       "makeTarget": null,
