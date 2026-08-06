@@ -63,7 +63,7 @@ than from a query anyone else can run, which is why they were wrong until the au
 | `sql/enrich.sql` | every consecutive pair where the animal came out **lighter**, joined to health, kidding, abortion and shifting records covering the interval **or falling within a rule-specific lookback before it** — see the Lookback notes in §5a |
 | `sql/enrich_pos.sql` | the same for pairs where it came out **heavier** |
 | `sql/animals.sql` | per-animal series: first and last weighing, span, overall rate, current park / shed / partition |
-| `sql/shedlevel.sql` | whole-shed readings — per shed-day aggregate weight, 121 rows |
+| `sql/shedlevel.sql` | whole-shed readings — per shed-day aggregate weight, 146 rows |
 
 **Shed and partition are normalised in `animals.sql` and `shedlevel.sql` only.** There,
 `GODEL 1 - PART 3`, `GODEL 1 PART 3` and `Godel 1 - Part 3` all resolve to shed `GODEL 1`,
@@ -436,14 +436,29 @@ Five stages, in this order:
 
 ```bash
 cd docs/weighing
-export WEIGHING_DATA_DIR=./work          # holds the stage 1 extracts
+mkdir -p work
+
+# Stage 1. --max_rows is NOT optional: bq defaults to 100 rows and will
+# silently hand you a truncated extract that still classifies cleanly.
+bq --project_id=goatos-sheets query --nouse_legacy_sql --format=prettyjson \
+   --max_rows=20000 < sql/enrich.sql     > work/neg_events.json
+bq --project_id=goatos-sheets query --nouse_legacy_sql --format=prettyjson \
+   --max_rows=20000 < sql/enrich_pos.sql > work/pos_events.json
+bq --project_id=goatos-sheets query --nouse_legacy_sql --format=prettyjson \
+   --max_rows=20000 < sql/animals.sql    > work/animals.json
+bq --project_id=goatos-sheets query --nouse_legacy_sql --format=prettyjson \
+   --max_rows=20000 < sql/shedlevel.sql  > work/shedlevel.json
+
+# Stages 2-4.
+export WEIGHING_DATA_DIR=./work
 python3 classify.py
 python3 classify_pos.py
 python3 build_dataset.py --in ./work --out ./work/dataset.json --check
 ```
 
 `--check` asserts every figure this document quotes: 2,099 animals, 13,141 changes, 9,650
-copied, 71 mirrors, 13 dropped. If a rule or an extract changes, it fails — which is the point.
+copied, 71 mirrors, 13 dropped, 146 whole-shed rows. If a rule or an extract changes, it fails
+— which is the point.
 
 **The stage 1 outputs are not in the repository**, so a clean clone can run stages 2–4 only
 against a fresh BigQuery extract. Everything else is committed.
@@ -509,3 +524,15 @@ of this file against its own code and data.
 | "An animal cannot regain that" / "Growth does not reverse" | both rules have no time bound; 12 and 3 rows respectively took over 30 days |
 | Growth ceilings stated without saying which animals get which | the `goat_type` test, the 12,805/349 split, and the observed percentile distribution |
 | Series key not described | it is the bare animal id, chained across parks |
+
+### Documentation — second audit
+
+Found by a review that re-ran the pipeline against BigQuery rather than reading the files.
+
+| Was | Now |
+|---|---|
+| The mock's `within_noise` legend still read "Under 3% of body weight" — the exact defect the first audit's row above says was fixed. It was fixed in this document and never in the page | the page states both branches |
+| `sql/shedlevel.sql` returns 146 rows today; the document said 121 and the mock embedded 121. `--check` passed because it never asserted the shed-level count. The committed SQL uses a case-insensitive junk-id filter that my original ad-hoc query did not, so it correctly picks up 25 more rows | 146, embedded and asserted |
+| The mock's STATUS filter labelled the `valid` bucket "Real loss", though it holds gains too | "Real change" |
+| The stage 1 commands were not written down, so a reproducer hit `bq`'s silent 100-row default | commands given in full, with `--max_rows` and why it matters |
+| The deleted pounds/kilograms rule still had two label definitions in the mock's config. No row used them, but dead config undermines a correction that claims deletion | removed |
