@@ -63,6 +63,7 @@ import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.locale.AppLocaleState
 import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
 import sg.mesha.goatos.core.designsystem.nav.LocalIsTopLevelRoot
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaDimens
@@ -527,6 +528,9 @@ fun GoatOsShellChrome(
             CompositionLocalProvider(
                 LocalDrawerOpener provides drawerOpener,
                 LocalIsTopLevelRoot provides isTopLevel,
+                // Read-only signal: the drawer is on screen and already lists the modules, so a
+                // screen must not repeat that list as in-body chips.
+                LocalDrawerCarriesModules provides (drawerOpener != null),
             ) {
                 Column(
                     modifier = Modifier

@@ -47,7 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
-import sg.mesha.goatos.core.designsystem.nav.LocalDrawerOpener
+import sg.mesha.goatos.core.designsystem.nav.LocalDrawerCarriesModules
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -250,9 +250,11 @@ fun VerifyQueueScreen(
         // the "You" placement rule: 2+ modules -> drawer owns the module switch; exactly one
         // module -> no drawer exists, so the chips stay as the only way to see the scope.
         //
-        // LocalDrawerOpener is non-null ONLY when chrome is EXPANDED (2+ modules) and this is an
-        // exact L0 root, which is precisely "the drawer is on screen and lists these modules".
-        val drawerCarriesModules = LocalDrawerOpener.current != null
+        // Shell-owned read-only signal: true ONLY when chrome is EXPANDED (2+ modules) and this
+        // is an exact L0 root -- precisely "the drawer is on screen and lists these modules".
+        // Drawer ACCESS stays with the shell; a feature reading LocalDrawerOpener directly is
+        // blocked by make android-navigation-stack-guard.
+        val drawerCarriesModules = LocalDrawerCarriesModules.current
         if (shouldShowCategoryFilter(drawerCarriesModules, state.categoryOptions.size)) {
             CategoryFilterRow(
                 options = state.categoryOptions,
