@@ -4146,12 +4146,27 @@ LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_i
 -- The animal's REAL identity is its physical tag(s), and an animal may carry two. Same
 -- canonical source and types the shed roster and calendar drawer read, so one animal reads
 -- identically on every surface.
-LEFT JOIN goat_identifiers aid1
-  ON aid1.tenant_id = g.tenant_id AND aid1.goat_id = g.goat_id
- AND aid1.identifier_type = 'animal_identifier_1' AND aid1.status = 'active'
-LEFT JOIN goat_identifiers aid2
-  ON aid2.tenant_id = g.tenant_id AND aid2.goat_id = g.goat_id
- AND aid2.identifier_type = 'animal_identifier_2' AND aid2.status = 'active'
+--
+-- SCALAR picks, not plain joins. goat_identifiers is unique per (goat_id, identifier_type) ONLY
+-- for is_primary_for_goat AND status='active'; a goat may hold several active NON-primary rows
+-- of one type, and this fixture already does. A plain join would emit that goat once per extra
+-- row, so the drawer would repeat animals, push distinct animals past the LIMIT, and stop matching
+-- kpis.closedWithoutDose. The primary row wins; identifier_id only breaks ties so the pick is
+-- stable across reads.
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+    AND gi.identifier_type = 'animal_identifier_1' AND gi.status = 'active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_id
+  LIMIT 1
+) aid1 ON true
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+    AND gi.identifier_type = 'animal_identifier_2' AND gi.status = 'active'
+  ORDER BY gi.is_primary_for_goat DESC, gi.identifier_id
+  LIMIT 1
+) aid2 ON true
 LEFT JOIN LATERAL (
   SELECT s.status, pr.dose_code
   FROM scoped s
