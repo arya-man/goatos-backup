@@ -45,7 +45,7 @@
 -- verification_items_verified_by_review_idx (migration 000117, partial on verified_by IS NOT
 -- NULL, carrying park_id/category/verified_at). The event-side window functions partition by
 -- (tenant_id, item_id, actor_id), which verification_review_events_item_actor_time_idx (migration
--- 000112) exists to serve. Not compute-on-read over unbounded UNINDEXED history.
+-- 000116) exists to serve. Not compute-on-read over unbounded UNINDEXED history.
 --
 -- LOCK SAFETY: CREATE VIEW only -- no table DDL, no backfill, no rewrite of any write path.
 SET LOCAL lock_timeout = '2s';

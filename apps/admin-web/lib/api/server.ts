@@ -154,7 +154,7 @@ export type AssignTaskRequest = AdminApiComponents["schemas"]["AssignTaskRequest
 // Generic Verification vertical (context/architecture/verification-module-design.md +
 // verifier-app-and-flow.md). /actions serves BOTH personas of that vertical, split by the page
 // contract's controls rather than by route:
-//   - the VERIFIER (verification.review) records the approve/reject verdict on the item itself;
+//   - the VERIFIER (verification.verdict -- that role ALONE) records the approve/reject verdict;
 //   - the AUTHORITY (verification.act) acts on the SOURCE task via /admin/tasks/{task_id}/rework
 //     |assign.
 // Admin-web gained the verdict half on 2026-08-03, when the verifier-only web workspace landed;

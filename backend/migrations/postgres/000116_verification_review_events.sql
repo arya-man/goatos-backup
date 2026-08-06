@@ -20,7 +20,7 @@
 --
 -- Derived per-(item,actor) facts (watch_ms, distinct-covered watch_fraction, play/pause/seek
 -- counts, time-to-verdict, watched_full) are NOT stored here -- computed in
--- internal/verification/adapters/postgres/review_facts.go on read, backed by the indexes below.
+-- internal/verification/adapters/postgres/review_events.go on read, backed by the indexes below.
 -- They are cheap per-item aggregates (bounded by event count per item, not a whole-table scan),
 -- so read-time computation is not the scale-anti-pattern this repo bans for CEO-wide aggregates;
 -- the CEO-wide ceo_ai view in migration 000118 IS a stored/materialized aggregate.

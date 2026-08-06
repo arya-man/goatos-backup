@@ -130,7 +130,7 @@ type ReviewEventRepository interface {
 	// after a network blip) inserts nothing new and returns the count of ACTUALLY new rows.
 	InsertReviewEvents(ctx context.Context, batch domain.ReviewEventBatch) (inserted int, err error)
 	// ItemReviewFacts computes the derived per-actor watch/timing facts for one item from its raw
-	// event stream (bounded by that item's event count; see review_facts.go for the computation).
+	// event stream (bounded by that item's event count; see adapters/postgres/review_events.go for the computation).
 	ItemReviewFacts(ctx context.Context, tenantID, itemID string) ([]domain.ItemReviewFacts, error)
 }
 
