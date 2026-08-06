@@ -274,7 +274,6 @@ data class ScanUiState(
 /** User intents the screen emits; the app/viewmodel layer handles them. */
 sealed interface ScanEvent {
     data object Back : ScanEvent
-    data object Tap : ScanEvent                            // tap reader / ring to scan
     data object OpenList : ScanEvent                       // open the scan-list sheet
     data object Submit : ScanEvent                         // submit the shed record
     data object LoadMore : ScanEvent                       // fetch one bounded continuation page
@@ -378,8 +377,6 @@ fun ScanScreen(
                             state.proofActionNeeded.isNotEmpty() -> ScanRingTone.WARNING
                             else -> ScanRingTone.SUCCESS
                         },
-                        enabled = state.scanEnabled,
-                        onTap = { onEvent(ScanEvent.Tap) },
                     )
                 }
                 if (state.error != null) {
@@ -792,8 +789,6 @@ private fun ScanRing(
     total: Int,
     unitLabel: String,
     tone: ScanRingTone,
-    enabled: Boolean,
-    onTap: () -> Unit,
 ) {
     val fraction = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
     val fg = when (tone) {
@@ -804,8 +799,7 @@ private fun ScanRing(
     Box(
         modifier = Modifier
             .padding(top = 6.dp, bottom = 2.dp)
-            .size(132.dp)
-            .then(if (enabled) Modifier.clip(CircleShape).clickable { onTap() } else Modifier),
+            .size(132.dp),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {

@@ -68,6 +68,7 @@ import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
+import sg.mesha.goatos.core.ui.LoadingSkeletonList
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
@@ -159,6 +160,10 @@ data class VerifyDetailUiState(
     val isSubmitting: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
     val isRefreshing: Boolean = false,
+    /** True once the cache/network has ANSWERED at least once. The empty state is a definitive
+     *  claim ("this item has no video"), so it must never be drawn before an answer exists --
+     *  that is what made opening an item flash the no-media state and read as lag. */
+    val hasLoadedOnce: Boolean = false,
     val lastSyncedAt: Long? = null,
     val isOffline: Boolean = false,
     val errorMessage: String? = null,
@@ -302,13 +307,24 @@ fun VerifyDetailScreen(
                 contentPadding = PaddingValues(bottom = 20.dp),
             ) {
                 if (entries.isEmpty()) {
+                    // "No video attached" is a DEFINITIVE claim. Drawing it before the first
+                    // answer arrives made every open flash the warning state and then swap to the
+                    // video -- which reads as lag, and briefly tells a verifier the proof is
+                    // missing when it is not. Hold the skeleton until an answer exists.
                     item {
-                        EmptyState(
-                            title = stringResource(R.string.verify_detail_no_media),
-                            icon = MeshaIcons.Video,
-                            tone = EmptyTone.Warn,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
+                        if (state.hasLoadedOnce) {
+                            EmptyState(
+                                title = stringResource(R.string.verify_detail_no_media),
+                                icon = MeshaIcons.Video,
+                                tone = EmptyTone.Warn,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        } else {
+                            LoadingSkeletonList(
+                                rows = 1,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
                     }
                 } else {
                     items(

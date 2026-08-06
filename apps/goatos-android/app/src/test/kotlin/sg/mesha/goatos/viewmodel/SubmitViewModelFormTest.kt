@@ -19,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -753,6 +754,46 @@ class SubmitViewModelFormTest {
         val state = viewModel.state.value
         assertFalse("raw UUID leaked into the user-visible shed summary", state.shed.contains(rawId))
         assertFalse("raw UUID leaked into the user-visible title", state.title.contains(rawId))
+    }
+
+    /**
+     * A SHED-scoped round must never be acknowledged without evidence that THIS round was sent.
+     *
+     * Live failure, twice. The operator rescanned an animal a verifier had sent back, recorded the
+     * proof and tapped Finalize. The screen showed "Shed record submitted · Synced · record on
+     * file" while the database held NO submission, NO completion and NO verification item -- the
+     * task carried `needs_review` from the EARLIER round, that reads as "submission terminal", and
+     * the ack was inferred from the ABSENCE of a negative. Weighing is worse: its shed-completion
+     * summary endpoint does not exist, so the guarded branch never runs at all and every weighing
+     * submit took this path.
+     */
+    @Test
+    fun `a shed-scoped round is not acknowledged without evidence this round was sent`() = runTest(dispatcher) {
+        val task = TaskSummaryDto(
+            taskId = "task-shed-round",
+            sopVersionId = "sop-shed-round",
+            // Terminal-sounding state left behind by the PREVIOUS round.
+            state = "needs_review",
+            rowVersion = 2,
+            scopeType = "shed",
+            scopeId = "shed-godel-1",
+        )
+        val form = FormSpec(
+            schemaVersion = "goatos.sop-form.v1",
+            fields = listOf(
+                FormField(key = "cold_chain_verified", label = "Cold chain verified", type = FormFieldType.BOOLEAN, required = true),
+            ),
+            rules = emptyList(),
+        )
+        val viewModel = viewModel(FakeFormTasksRepository(task, form), CapturingSyncRepository(), task.taskId)
+        backgroundScope.launch { viewModel.state.collect {} }
+        advanceUntilIdle()
+
+        assertNotEquals(
+            "a shed round with no submission evidence must never render as acknowledged",
+            sg.mesha.goatos.feature.submit.SyncState.ACKED,
+            viewModel.state.value.syncState,
+        )
     }
 
     @Test

@@ -632,10 +632,10 @@ func TestListQueueFiltersOneIndiaBusinessDateAndReturnsSecondaryTabs(t *testing.
 		t.Fatalf("items = %+v, want one item captured on 2026-07-30 IST", result.Items)
 	}
 	wantStatuses := []domain.QueueStatusOption{
-		// "All" leads and carries NO status, so selecting it sends no status filter and the queue
-		// returns due + approved + rejected together (maintainer request 2026-07-30).
-		// Labels are backend-owned per the verifier spec (verification-review page contract).
-		{Key: "all", Label: "All"},
+		// No "All": removed 2026-08-06 by maintainer decision. The three status chips are the ONLY
+		// verification statuses, so an "All" chip can never surface a row the other three cannot.
+		// The API still accepts `status=all`; it is simply not offered as phone chrome. Labels are
+		// backend-owned per the verifier spec (verification-review page contract).
 		{Key: "due", Label: "To verify", Status: domain.StatusPending},
 		{Key: "approved", Label: "Accepted", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},

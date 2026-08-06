@@ -249,7 +249,18 @@ class VerifyQueueViewModel @Inject constructor(
                 VerifyCategoryOption(value = page.category, label = page.label)
             },
             selectedCategory = scope.category,
-            statusOptions = filterOptions?.statuses.orEmpty().map { VerifyStatusOption(value = it.status, label = it.label) },
+            // The "All" option deliberately carries NO `status` -- it means "do not filter". Reading
+            // `status` alone made that chip send a BLANK status, and the backend silently defaults
+            // a blank status to `pending` (verification/app/service.go), so tapping All showed the
+            // Due queue: empty once everything is decided. Fall back to the option's own key, which
+            // for that row is literally the backend's no-filter sentinel "all". Same defaulting trap
+            // that made an approved item render "No video attached to this item".
+            statusOptions = filterOptions?.statuses.orEmpty().map { option ->
+                VerifyStatusOption(
+                    value = option.status.ifBlank { option.key },
+                    label = option.label,
+                )
+            },
             selectedStatus = scope.status,
             selectedBusinessDate = filterOptions?.selectedBusinessDate ?: scope.businessDate,
             businessTimezone = filterOptions?.businessTimezone ?: "Asia/Kolkata",

@@ -520,7 +520,6 @@ class ScanViewModel @Inject constructor(
                 _selectedFilter.value = if (_selectedFilter.value == event.status) null else event.status
             ScanEvent.OpenList ->
                 _rosterExpanded.value = !_rosterExpanded.value
-            ScanEvent.Tap -> onManualTap()
             is ScanEvent.CaptureVideo -> requestGoatProof(event.goatId)
             is ScanEvent.CaptureProof -> requestGoatProof(event.goatId)
             is ScanEvent.RetryProof -> retryGoatProof(event.goatId)
@@ -551,14 +550,12 @@ class ScanViewModel @Inject constructor(
 
     /** Manual ring tap: advances the next REAL pending roster row (from the current computed
      *  state) to DONE in the draft overlay only. It is not an RFID capture. */
-    private fun onManualTap() {
-        if (!canAcceptScanInput()) return
-        val row = state.value.roster.firstOrNull { it.status == ScanStatus.PENDING } ?: return
-        markRowDone(row)
-        _manualDone.update { it + row.obligationId }
-        // Manual selection is draft-only. It must never mint an accepted RFID attempt or a
-        // durable roster scan; only a subsequent physical reader event can supply that evidence.
-    }
+    // There is deliberately NO manual "mark done" path. A tap used to take the first PENDING row
+    // and complete it (R50-024 narrowed it to draft-only but kept the affordance); the maintainer
+    // hit it in the field by tapping the progress ring, and it fabricated a completion for the
+    // very animal a verifier had just REJECTED -- re-enabling "Finalize shed" on a shed with an
+    // unvaccinated goat in it. Vaccination completion comes from a physical tag read and nothing
+    // else. Do not reintroduce a tap-to-complete affordance anywhere on this screen.
 
     /** Hardware tag read (keyboard-wedge): match the tag against the FULL roster (R50-007: via bounded
      *  Room query, not just the loaded page in state.value.roster.firstOrNull) and fold into draft overlay.
@@ -674,7 +671,7 @@ class ScanViewModel @Inject constructor(
     private fun draftDoneIds(): Set<String> =
         persistedScans.value.mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }.toSet() + _localDone.value
 
-    /** Shared by a real tag-match ([onTagRead]) and a manual ring tap ([onManualTap]): records
+    /** Used by a real tag-match ([onTagRead]) only -- there is no manual completion path: records
      * [row]'s obligation as locally DONE (unsynced) in the draft overlay and pushes a feed row.
      * The combine re-derives the roster + counts from this set on the next emission. */
     private fun markRowDone(row: RosterRow, capturedAtMs: Long = System.currentTimeMillis()) {
