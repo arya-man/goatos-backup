@@ -4,7 +4,10 @@
 -- item's source at creation time (e.g., from goat_shed_partitions for vaccination items).
 --
 -- LOCK SAFETY: ADD COLUMN nullable is a fast catalog-only change (no table rewrite).
--- Index creation uses CONCURRENTLY to avoid blocking concurrent writes (requires NO TRANSACTION).
+-- The partition-aware index is built CONCURRENTLY in 000125, which cannot share this
+-- migration: goose's NO TRANSACTION marker applies to the WHOLE migration, so keeping the
+-- concurrent index here would either run it inside a transaction (Postgres rejects it outright)
+-- or strip the transaction from this ALTER + backfill, losing their atomicity.
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '30s';
 
@@ -29,21 +32,9 @@ WHERE vi.source_module = 'vaccination'
   AND gsp.goat_id = (vi.source_ref_id::uuid)
   AND vi.partition_label IS NULL;
 
--- Index for filter/query paths that group by (shed_id, partition_label).
--- The filter query in repository.go groups by shed_id and constructs
--- operational-location display labels per (shed_id, partition_label) pair.
--- This index supports efficient grouping and avoids full table scans on filter queries.
--- +goose NO TRANSACTION
-CREATE INDEX CONCURRENTLY verification_items_shed_partition_idx
-    ON public.verification_items (tenant_id, shed_id, partition_label)
-    WHERE shed_id IS NOT NULL;
-
 -- +goose Down
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '30s';
-
--- +goose NO TRANSACTION
-DROP INDEX CONCURRENTLY IF EXISTS public.verification_items_shed_partition_idx;
 
 ALTER TABLE public.verification_items
     DROP COLUMN IF EXISTS partition_label;

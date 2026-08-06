@@ -16,7 +16,10 @@
 -- assignment while a health case's shed_id is already a point-in-time diagnosis fact.
 --
 -- LOCK SAFETY: ADD COLUMN nullable is a fast catalog-only change (no table rewrite).
--- Index creation uses CONCURRENTLY to avoid blocking concurrent writes (requires NO TRANSACTION).
+-- The partition-aware index is built CONCURRENTLY in 000126. It cannot live here: goose's
+-- NO TRANSACTION marker applies to the WHOLE migration, so a concurrent index placed after a
+-- transactional ALTER either runs inside that transaction (Postgres rejects it) or costs this
+-- ALTER its atomicity.
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '30s';
 
@@ -37,17 +40,9 @@ WHERE gsp.tenant_id = hc.tenant_id
   AND hc.partition_label IS NULL;
 
 -- Index for filter/list paths that group or filter by (shed_id, partition_label).
--- +goose NO TRANSACTION
-CREATE INDEX CONCURRENTLY health_cases_shed_partition_idx
-    ON public.health_cases (tenant_id, shed_id, partition_label)
-    WHERE shed_id IS NOT NULL;
-
 -- +goose Down
 SET LOCAL lock_timeout = '2s';
 SET LOCAL statement_timeout = '30s';
-
--- +goose NO TRANSACTION
-DROP INDEX CONCURRENTLY IF EXISTS public.health_cases_shed_partition_idx;
 
 ALTER TABLE public.health_cases
     DROP COLUMN IF EXISTS partition_label;

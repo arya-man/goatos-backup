@@ -244,6 +244,9 @@ ORDER BY captured_at, item_id`, tenantID, submissionID)
 func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	// Filter options are keyed by oploc.Key() ("<uuid>#<partition>"), so the raw value
+	// cannot go into a ::uuid cast. See splitShedFilter.
+	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	var cursorCapturedAt any
 	var cursorItemID any
 	if params.Cursor != nil {
@@ -302,6 +305,7 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
   AND ($14 = '' OR vi.park_id = $14::uuid)
   AND ($15 = '' OR vi.shed_id = $15::uuid)
+  AND ($19 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $19)
   AND ($16::timestamptz IS NULL OR vi.captured_at >= $16::timestamptz)
   AND ($17::timestamptz IS NULL OR vi.captured_at < $17::timestamptz)
   AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
@@ -335,9 +339,9 @@ LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
-		params.ParkID, params.ShedID,
+		params.ParkID, shedFilterID,
 		params.CapturedFrom, params.CapturedBefore,
-		params.AwaitingApplicationOnly,
+		params.AwaitingApplicationOnly, shedFilterPartition,
 	)
 	if err != nil {
 		return nil, err
@@ -355,6 +359,8 @@ LIMIT $11`,
 }
 
 func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.ListQueueParams) (domain.QueueFilterOptions, error) {
+	// Same composite-key decode as ListQueue: counts must match the list they describe.
+	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	options := domain.QueueFilterOptions{}
@@ -483,12 +489,13 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
   AND ($7 = '' OR vi.park_id = $7::uuid)
   AND ($8 = '' OR vi.shed_id = $8::uuid)
+  AND ($11 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $11)
   AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
   AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
 GROUP BY vi.status`,
 		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID,
-		params.CapturedFrom, params.CapturedBefore,
+		params.ScopeRestricted, params.ParkIDs, params.ParkID, shedFilterID,
+		params.CapturedFrom, params.CapturedBefore, shedFilterPartition,
 	)
 	if err != nil {
 		return options, err
@@ -525,11 +532,13 @@ SELECT EXISTS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($7 = '' OR vi.park_id = $7::uuid)
     AND ($8 = '' OR vi.shed_id = $8::uuid)
+  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
     AND vi.captured_at < $9::timestamptz
   LIMIT 1
 )`,
 			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-			params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID, params.MissedBefore,
+			params.ScopeRestricted, params.ParkIDs, params.ParkID, shedFilterID, params.MissedBefore,
+			shedFilterPartition,
 		).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err
@@ -861,6 +870,8 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 }
 
 func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
+	// Same composite-key decode as ListQueue.
+	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
@@ -963,6 +974,7 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
   UNION ALL
   -- The archived counterpart of the branch above: an animal whose clip was sent back still has
   -- its verification item, and the drive must keep seeing it as a rejected video. Without this
@@ -995,6 +1007,7 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
   UNION ALL
   SELECT
     vc.batch_id,
@@ -1099,7 +1112,8 @@ WHERE proof_count = completion_count
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, params.ShedID)
+		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, shedFilterID,
+		shedFilterPartition)
 	if err != nil {
 		return nil, err
 	}
