@@ -365,6 +365,29 @@ grouped and never overlap (`android` → `gradle`; `backend` + `query-plans` →
 Job logs are captured per job and replayed in **selection** order, not finish
 order, so output stays deterministic.
 
+`job_group()` cannot see a SECOND WORKTREE. It is in-memory and per-process, so
+two checkouts both entered the Gradle region and each measured 397 s / 413 s
+against 110-161 s alone. `tools/ci/gradle-worktree-lock.sh` closes that with a
+machine-wide advisory `mkdir` mutex keyed on `realpath(GRADLE_USER_HOME)`,
+acquired once in `run_android` after the cheap static guards and the toolchain
+check. It is FAIL-OPEN on every path: it can never fail a step, skip the android
+job, or wait unboundedly, and it changes **when** the android job starts, never
+which steps run or how any of them is judged. It does **not** make a single pass
+faster and it saves nothing on a solo landing.
+
+One behavioural consequence to know before you press Ctrl-C: the android lane
+now exits 130/143 on INT/TERM instead of falling through into `android benchmark
+compile` — and the re-raise is aimed at the acquiring subshell, so TERMing the
+lane no longer takes `run-local-ci.sh` down with it. Guard:
+`tools/ci/check-gradle-worktree-lock.sh` (16 behavioural cases, ~45 s, no
+Gradle) with `check-gradle-worktree-lock.test.sh` driving it against 19 mutated
+copies of the library (~15 min). Both are diff-scoped in `run_common` — the
+guard to a lock-library diff, the self-test to the lock, guard, harness or
+`run-local-ci.sh` — because charging 15 minutes to every `tools/ci/**` commit
+would be a wall-clock regression inside a wall-clock fix. `make guardrails` and
+`make gradle-worktree-lock-guard` still run the guard unconditionally. Flags and
+the full property list: `docs/runbooks/local-ci-performance.md` §2 and §5.
+
 Proof: `tools/ci/check-run-local-ci-parallel.test.sh`, wired into `run_common`.
 It asserts the failure semantics directly *and* drives the real script in a
 throwaway git repo to prove a RED parallel run exits non-zero and writes **no
