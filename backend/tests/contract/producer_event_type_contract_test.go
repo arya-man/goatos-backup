@@ -200,11 +200,43 @@ func collectEmittedEventTypes(t *testing.T) []emitted {
 					}
 				}
 			case *ast.ValueSpec:
+				// Two naming shapes reach an outbox writer:
+				//   fooEventType = "a.b.c"   -- adapter-local constant
+				//   EventFoo     = "a.b.c"   -- domain constant, which adapters alias as
+				//                               `fooEventType = domain.EventFoo`
+				// Matching only the first misses counts entirely: its adapter declares
+				// projectionExceptionOpenedEventType = domain.EventProjectionExceptionOpened,
+				// a SelectorExpr whose VALUE lives in another package, so there is no literal
+				// to read at the alias. Catching the domain constant at its own definition
+				// covers the alias without cross-package identifier resolution.
 				for i, ident := range node.Names {
-					if !strings.HasSuffix(ident.Name, "EventType") || i >= len(node.Values) {
+					named := strings.HasSuffix(ident.Name, "EventType") ||
+						(strings.HasPrefix(ident.Name, "Event") && len(ident.Name) > 5 &&
+							ident.Name[5] >= 'A' && ident.Name[5] <= 'Z')
+					if !named || i >= len(node.Values) {
 						continue
 					}
 					if lit, ok := node.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						if v, uerr := strconv.Unquote(lit.Value); uerr == nil {
+							add(v, lit.Pos())
+						}
+					}
+				}
+			case *ast.CompositeLit:
+				// Some writers take the event type on an OPTIONS STRUCT rather than as a named
+				// parameter -- counts' insertProjectionExceptionOutbox(..., opts
+				// projectionExceptionOutboxOptions) is the live example. The parameter-index
+				// walk cannot see those, so read the struct field directly.
+				for _, elt := range node.Elts {
+					kv, ok := elt.(*ast.KeyValueExpr)
+					if !ok {
+						continue
+					}
+					key, ok := kv.Key.(*ast.Ident)
+					if !ok || !strings.EqualFold(key.Name, "eventType") {
+						continue
+					}
+					if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						if v, uerr := strconv.Unquote(lit.Value); uerr == nil {
 							add(v, lit.Pos())
 						}
