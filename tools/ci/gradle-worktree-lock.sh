@@ -291,8 +291,19 @@ gradle_lock_acquire() {
       { IFS="$(printf '\t')" read -r opid ohost owt olabel oepoch oident; } <"$lockdir/owner" 2>/dev/null || opid=""
     fi
     # Captured on the SAME poll as the owner read, so it identifies the lockdir
-    # this poll's decision is about (case r).
+    # this poll's decision is about (case r). decision_mtime is the FILESYSTEM
+    # mtime of the lockdir at decision time — NOT oepoch. oepoch is the owner's
+    # self-reported claim (business data written into the owner file, used only
+    # for age/staleness math) and can legitimately disagree with the directory's
+    # real mtime — a corrupt/hand-planted owner file, a clock-skewed writer, or
+    # (in the self-test) a deliberately fabricated stale timestamp. Re-validating
+    # a break against oepoch therefore rejects vacuously whenever that claim
+    # doesn't match reality, even with no race at all (cases j, o2). decision_mtime
+    # is instead the SAME re-validation signal as the inode: a value that can only
+    # change if the lockdir at this path was actually replaced between decision and
+    # break.
     prev_ino="$ino"; ino="$(_gradle_lock_ino "$lockdir")"
+    local decision_mtime; decision_mtime="$(_gradle_lock_mtime "$lockdir")"
     now="$(date +%s)"
     case "$oepoch" in ''|*[!0-9]*) oepoch="$(_gradle_lock_mtime "$lockdir")" ;; esac
     age=$(( now - oepoch ))
@@ -337,7 +348,7 @@ gradle_lock_acquire() {
     esac
 
     if [ -n "$decision" ]; then
-      if _gradle_lock_break "$lockdir" "$opid" "$decision" "$ino" "$oepoch"; then
+      if _gradle_lock_break "$lockdir" "$opid" "$decision" "$ino" "$decision_mtime"; then
         continue
       fi
       # Nothing decided or nothing removed: fall through to the throttle and the
