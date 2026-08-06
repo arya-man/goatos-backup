@@ -186,6 +186,7 @@
          is backend-owned and rendered verbatim. -->
     <string name="counts_workflow_birth_title">Birth</string>
     <string name="counts_workflow_death_title">Death</string>
+    <string name="counts_workflow_colostrum_title">Colostrum</string>
     <string name="counts_workflow_open_fmt">%1$d open</string>
     <string name="counts_workflow_add_birth">Add birth</string>
     <string name="counts_workflow_add_death">Add death</string>

@@ -69,6 +69,18 @@ class WorkflowDetailViewModel @Inject constructor(
 
     private val workflowId: String = savedStateHandle[ARG_WORKFLOW_ID] ?: ""
 
+    /**
+     * The lens this drill-in was opened through, supplied by the route.
+     *
+     * Empty for Birth/Death: the full action list. `colostrum` + a business date narrows the rows
+     * to that day's feeds and re-counts the header at the day grain, so the detail agrees with the
+     * Colostrum card that opened it (docs/decisions/colostrum-milk-module.md). The narrowing is the
+     * BACKEND's — the client passes the lens through and renders what comes back, including a
+     * blocked reason naming work this screen does not itself show.
+     */
+    private val lens: String = savedStateHandle[ARG_LENS] ?: ""
+    private val lensDate: String = savedStateHandle[ARG_DATE] ?: ""
+
     private val _state = MutableStateFlow(WorkflowDetailUiState(workflowId = workflowId))
     val state: StateFlow<WorkflowDetailUiState> = _state.asStateFlow()
     private var finalizedDeathSubmission = false
@@ -93,7 +105,7 @@ class WorkflowDetailViewModel @Inject constructor(
     private fun observeDetail() {
         viewModelScope.launch {
             combine(
-                repo.observeDetail(workflowId),
+                repo.observeDetail(workflowId, lens, lensDate),
                 repo.observeVideoDrafts(workflowId),
                 syncRepository.observeStatus(),
             ) { detail, drafts, sync -> Triple(detail, drafts, sync) }
@@ -117,7 +129,7 @@ class WorkflowDetailViewModel @Inject constructor(
                             .filter { it.actionKey == ACTION_KEY_DEATH_VIDEO || it.actionKey == ACTION_KEY_POST_MORTEM_VIDEO }
                             .forEach { repo.markActionCompleted(workflowId, it.actionId, inReview = false) }
                         repo.clearVideoDrafts(workflowId)
-                        repo.refreshDetail(workflowId)
+                        repo.refreshDetail(workflowId, lens, lensDate)
                         _state.update {
                             it.copy(message = "Submitted. Both videos are saved to the backend.", isErrorMessage = false)
                         }
@@ -131,7 +143,7 @@ class WorkflowDetailViewModel @Inject constructor(
         if (_state.value.isRefreshing) return
         _state.update { it.copy(isRefreshing = true) }
         viewModelScope.launch {
-            repo.refreshDetail(workflowId)
+            repo.refreshDetail(workflowId, lens, lensDate)
                 .onSuccess {
                     _state.update { it.copy(isRefreshing = false, loading = false) }
                 }
@@ -560,6 +572,8 @@ class WorkflowDetailViewModel @Inject constructor(
 
     companion object {
         const val ARG_WORKFLOW_ID = "workflow_id"
+        const val ARG_LENS = "lens"
+        const val ARG_DATE = "date"
 
         private val IST: ZoneId = ZoneId.of("Asia/Kolkata")
         private val TIME_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")

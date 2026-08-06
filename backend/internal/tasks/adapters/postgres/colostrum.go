@@ -102,17 +102,25 @@ const colostrumOverdueLookbackDays = 30
 // projection maintained in the action-write transaction — not a longer timeout.
 //
 // projection-review: membership=workflow_actions rows matching colostrumActionPredicate within
-// [dayStart, dayEnd) for the tenant, on non-canceled workflows; producer unique key=
-// workflow_actions (workflow_id, action_key); consumer card key=(workflow_id, business date) = one
-// card per kid per date, guaranteed by GROUP BY wa.workflow_id inside a single-day window;
+// [dayStart, dayEnd) for the tenant, on non-canceled workflows, producer unique key
+// (workflow_id, action_key); group_key=wa.workflow_id inside a single-day window, so the consumer
+// card key is (workflow_id, colostrum business date) = exactly one card per kid per date;
 // join_cardinality=workflow_instances joins the CTE on its primary key workflow_id (1:1), goats on
 // its PK (1:1), the identifier LATERAL is LIMIT 1 (1:{0,1}), and both locations join on their PK
-// (1:{0,1}) — no join can multiply a card; pagination=chips aggregate the whole day while cards
-// keyset on (next_due_at ASC NULLS LAST, workflow_id ASC), so page size never changes chip truth;
-// scope=tenant_id + day window + colostrum predicate, IDENTICAL for the chips numerator and
-// denominator (both range over the same `day` CTE rows, and the four buckets are mutually exclusive
-// by construction: overdue needs next_due_at < now, due is the remaining incomplete cards, and
-// completed is exactly next_key IS NULL).
+// (1:{0,1}) - no join can multiply a card, and the next-feed columns are aggregates rather than a
+// join so a repeated seq cannot fan a card out either; pagination=chips aggregate the whole day
+// while cards keyset on (next_due_at ASC NULLS LAST, workflow_id ASC), so page size never changes
+// chip truth; scope=tenant_id + day window + colostrum predicate, IDENTICAL for the chips numerator
+// and denominator (both range over the same `day` CTE rows, and the four buckets are mutually
+// exclusive by construction: overdue needs next_due_at < now, due is the remaining incomplete
+// cards, and completed is exactly next_key IS NULL).
+//
+// Adversarial regressions live in colostrum_integration_test.go:
+// TestColostrumDayOneToManyFeedsStillYieldOneCardPerKid (fan-out),
+// TestColostrumDayPageBoundaryKeepsChipsAndVisitsEveryCard (pagination),
+// TestColostrumDayScheduledDateSplitsFeedsAcrossBusinessDates (date),
+// TestColostrumDayScopeHierarchyIsTenantAndDate (scope),
+// TestColostrumDayStatusBucketsCoverEveryActionStatus (status matrix).
 func (r *Repository) ListColostrumDay(ctx context.Context, q domain.ColostrumDayQuery) (domain.WorkflowListPage, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -233,11 +241,15 @@ LIMIT $`+fmt.Sprint(len(args)), args...)
 // colostrumOverdueDates is the bell: at most the five most recent PAST business dates that still
 // hold an unfed colostrum feed whose time has passed.
 //
-// projection-review: producer=workflow_actions colostrum rows; consumer=one row per business date;
-// the count is count(DISTINCT workflow_id), i.e. KID CARDS on that date, matching what tapping the
-// date then shows — counting feed rows instead would report 3 for one kid with three missed feeds.
-// The join to workflow_instances is on its primary key (1:1) and only filters canceled workflows,
-// so it cannot change the count.
+// projection-review: membership=workflow_actions colostrum rows still pending/rework whose due_at
+// has passed, on non-canceled workflows, within the bounded lookback window, producer unique key
+// (workflow_id, action_key); group_key=the IST business date of due_at, one output row per date;
+// join_cardinality=workflow_instances joins on its primary key workflow_id (1:1) and only filters
+// canceled workflows, so it cannot change a count; pagination=none, the result is capped at the
+// five most recent dates and each row is a whole-date aggregate; scope=tenant_id + [today-30d,
+// today) + colostrum predicate, and the measure is count(DISTINCT workflow_id) so the number is KID
+// CARDS on that date - counting feed rows would report 3 for one kid with three missed feeds, which
+// is not what tapping the date then shows.
 func (r *Repository) colostrumOverdueDates(
 	ctx context.Context,
 	tenantID string,

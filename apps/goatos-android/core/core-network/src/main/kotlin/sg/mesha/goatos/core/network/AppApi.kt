@@ -1060,9 +1060,21 @@ interface AppApi {
         cursor: String? = null,
     ): WorkflowListResponseDto
 
-    /** GET /app/workflows/{workflow_id} — one workflow's card header, context facts, and full
-     *  bounded action list (≤18 rows). */
-    suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto
+    /**
+     * GET /app/workflows/{workflow_id} — one workflow's card header, context facts, and full
+     * bounded action list (≤18 rows).
+     *
+     * [lens] = `colostrum` narrows the rows to the colostrum feeds due on [date] and re-counts the
+     * card header at that day's grain, so the Colostrum detail matches the card that opened it
+     * (docs/decisions/colostrum-milk-module.md). Blocked state still comes from the kid's complete
+     * action set, so a feed may legitimately arrive `blocked` with a reason naming work this
+     * screen does not show.
+     */
+    suspend fun getWorkflow(
+        workflowId: String,
+        lens: String? = null,
+        date: String? = null,
+    ): WorkflowDetailResponseDto
 
     /**
      * POST /app/workflows/{workflow_id}/actions/{action_id}/answer — answers a question /
@@ -1707,8 +1719,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
     ): WorkflowListResponseDto = WorkflowListResponseDto()
 
-    override suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto =
-        WorkflowDetailResponseDto(workflowId = workflowId)
+    override suspend fun getWorkflow(
+        workflowId: String,
+        lens: String?,
+        date: String?,
+    ): WorkflowDetailResponseDto = WorkflowDetailResponseDto(workflowId = workflowId)
 
     override suspend fun answerWorkflowAction(
         workflowId: String,

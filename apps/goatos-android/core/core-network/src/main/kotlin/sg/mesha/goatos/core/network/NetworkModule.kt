@@ -686,7 +686,11 @@ interface AppApiService {
     ): WorkflowListResponseDto
 
     @GET("app/workflows/{workflow_id}")
-    suspend fun getWorkflow(@Path("workflow_id") workflowId: String): WorkflowDetailResponseDto
+    suspend fun getWorkflow(
+        @Path("workflow_id") workflowId: String,
+        @Query("lens") lens: String? = null,
+        @Query("date") date: String? = null,
+    ): WorkflowDetailResponseDto
 
     @POST("app/workflows/{workflow_id}/actions/{action_id}/answer")
     suspend fun answerWorkflowAction(
@@ -1339,8 +1343,8 @@ class RetrofitAppApi(
         cursor: String?,
     ): WorkflowListResponseDto = service.listWorkflows(module, date, filter, pageSize, cursor)
 
-    override suspend fun getWorkflow(workflowId: String): WorkflowDetailResponseDto =
-        service.getWorkflow(workflowId)
+    override suspend fun getWorkflow(workflowId: String, lens: String?, date: String?): WorkflowDetailResponseDto =
+        service.getWorkflow(workflowId, lens, date)
 
     override suspend fun answerWorkflowAction(
         workflowId: String,

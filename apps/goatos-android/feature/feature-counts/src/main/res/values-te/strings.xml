@@ -170,6 +170,7 @@
     <!-- Birth / Death workflow module -->
     <string name="counts_workflow_birth_title">జననం</string>
     <string name="counts_workflow_death_title">మరణం</string>
+    <string name="counts_workflow_colostrum_title">జున్నుపాలు</string>
     <string name="counts_workflow_open_fmt">%1$d తెరిచి ఉన్నాయి</string>
     <string name="counts_workflow_add_birth">జననం జోడించండి</string>
     <string name="counts_workflow_add_death">మరణం జోడించండి</string>

@@ -44,8 +44,8 @@ import sg.mesha.goatos.core.network.dto.WorkflowOverdueDateDto
 const val WORKFLOW_PAGE_SIZE = 20
 
 /** How many (module | date | filter) scopes keep their cached card rows. Bounds the table across
- *  day/chip churn: two modules x a few recently visited days/filters. */
-private const val WORKFLOW_CACHED_QUERIES = 8
+ *  day/chip churn: three modules (birth, death, colostrum) x a few recently visited days/filters. */
+private const val WORKFLOW_CACHED_QUERIES = 12
 private const val WORKFLOW_MAX_CACHED_ROWS = WORKFLOW_PAGE_SIZE * 3
 private const val MAX_ACTIVE_WORKFLOW_WRITES = WORKFLOW_MAX_CACHED_ROWS * 2
 private val WORKFLOW_ACTION_OP_TYPES = listOf(
@@ -88,8 +88,16 @@ interface WorkflowsRepository {
     /** At most five previous business dates with actionable overdue work, cached Room-first. */
     fun observeOverdueDates(module: String): Flow<List<WorkflowOverdueDateDto>>
 
-    /** The cached drill-in detail. Emits null on a cold cache; [refreshDetail] repopulates. */
-    fun observeDetail(workflowId: String): Flow<WorkflowDetailResponseDto?>
+    /**
+     * The cached drill-in detail. Emits null on a cold cache; [refreshDetail] repopulates.
+     *
+     * [lens]/[date] select a narrowed VIEW of the same workflow — today only `colostrum`, which
+     * carries that date's feeds and a day-grain card. Views are cached under their own key: one kid
+     * legitimately has both a Birth detail (every task) and a Colostrum detail (one day's feeds),
+     * and storing them under a shared key would make whichever screen was opened last overwrite the
+     * other (docs/decisions/colostrum-milk-module.md).
+     */
+    fun observeDetail(workflowId: String, lens: String = "", date: String = ""): Flow<WorkflowDetailResponseDto?>
 
     /** Durable, app-private death evidence. Drafts do not create network/outbox work. */
     fun observeVideoDrafts(workflowId: String): Flow<List<WorkflowVideoDraft>>
@@ -103,8 +111,9 @@ interface WorkflowsRepository {
     /** Locks both durable drafts after Submit while their proof+completion outbox group drains. */
     suspend fun markVideoDraftsSubmitting(workflowId: String)
 
-    /** Fetches the detail and upserts Room (which re-emits). Failure leaves the cache visible. */
-    suspend fun refreshDetail(workflowId: String): Result<Unit>
+    /** Fetches the detail and upserts Room (which re-emits). Failure leaves the cache visible.
+     *  [lens]/[date] fetch and cache the narrowed view instead of the full action list. */
+    suspend fun refreshDetail(workflowId: String, lens: String = "", date: String = ""): Result<Unit>
 
     /** The cached card by id (offline-first drill-in header while the detail fetch runs). */
     suspend fun findCachedCard(workflowId: String): WorkflowCardDto?
@@ -191,12 +200,13 @@ class DefaultWorkflowsRepository(
             .flowOn(Dispatchers.Default)
 
     // offline-first-guard:ignore: Room-backed — reads workflowDetailCacheDao.observe(); heuristic misses the dao read through the .map/readCachedJson helper.
-    override fun observeDetail(workflowId: String): Flow<WorkflowDetailResponseDto?> =
-        database.workflowDetailCacheDao().observe(workflowId)
+    override fun observeDetail(workflowId: String, lens: String, date: String): Flow<WorkflowDetailResponseDto?> {
+        val key = detailCacheKey(workflowId, lens, date)
+        return database.workflowDetailCacheDao().observe(key)
             .map { entity ->
                 readCachedJson<WorkflowDetailResponseDto>(
                     json = json,
-                    cacheKey = workflowId,
+                    cacheKey = key,
                     dtoJson = entity?.dtoJson,
                     updatedAt = entity?.updatedAt,
                     now = clock(),
@@ -204,6 +214,7 @@ class DefaultWorkflowsRepository(
                 ).data
             }
             .flowOn(Dispatchers.Default)
+    }
 
     override fun observeVideoDrafts(workflowId: String): Flow<List<WorkflowVideoDraft>> =
         database.proofCaptureDao().observeWorkflowDeathDrafts(workflowId)
@@ -223,18 +234,23 @@ class DefaultWorkflowsRepository(
     override suspend fun markVideoDraftsSubmitting(workflowId: String) =
         database.proofCaptureDao().markWorkflowDeathDraftsSubmitting(workflowId)
 
-    override suspend fun refreshDetail(workflowId: String): Result<Unit> = runCatching {
+    override suspend fun refreshDetail(workflowId: String, lens: String, date: String): Result<Unit> = runCatching {
         // Sample on both sides of the request. If a command finishes while GET is in flight, the
         // pre-request sample protects against installing the older GET snapshot; if it is queued
         // during the GET, the post-request sample protects it. A command already terminal before
         // the first sample has committed/rejected, so backend truth is authoritative.
+        val key = detailCacheKey(workflowId, lens, date)
         val activeBefore = activeWorkflowActionIds(workflowId)
-        val detail = api.getWorkflow(workflowId)
+        val detail = api.getWorkflow(
+            workflowId = workflowId,
+            lens = lens.takeIf { it.isNotBlank() },
+            date = date.takeIf { it.isNotBlank() },
+        )
         val activeAfter = activeWorkflowActionIds(workflowId)
         val detailDao = database.workflowDetailCacheDao()
-        val cached = detailDao.observe(workflowId).firstOrNull()
+        val cached = detailDao.observe(key).firstOrNull()
             ?.let { runCatching { json.decodeFromString<WorkflowDetailResponseDto>(it.dtoJson) }
-                .onFailure { android.util.Log.w("WorkflowsRepository", "reconcile detail: deserialize cached workflow detail failed for $workflowId", it) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "reconcile detail: deserialize cached workflow detail failed for $key", it) }
                 .getOrNull() }
         val reconciled = detail.withActiveWorkflowActionsPreserved(
             cached = cached,
@@ -242,7 +258,7 @@ class DefaultWorkflowsRepository(
         )
         detailDao.upsert(
             WorkflowDetailCacheEntity(
-                cacheKey = workflowId,
+                cacheKey = key,
                 dtoJson = json.encodeToString(reconciled),
                 updatedAt = clock(),
             ),
@@ -311,27 +327,45 @@ class DefaultWorkflowsRepository(
         transform: (WorkflowDetailResponseDto) -> WorkflowDetailResponseDto,
     ) {
         val detailDao = database.workflowDetailCacheDao()
-        val entity = detailDao.observe(workflowId).firstOrNull() ?: return
-        val detail = runCatching { json.decodeFromString<WorkflowDetailResponseDto>(entity.dtoJson) }
-            .onFailure { android.util.Log.w("WorkflowsRepository", "mutateCachedDetail: deserialize cached workflow detail failed for $workflowId", it) }
-            .getOrNull() ?: return
-        val mutated = transform(detail)
-        // Keep the Room SSOT immediately usable while the proof upload + completion outbox group
-        // drains. `in_review` means this operator has finished the step locally: count it and unlock
-        // its successor. A verifier rework is a different status and the next refresh re-locks the
-        // sequence. The backend repeats the hard write gate and remains authoritative on reconcile.
-        val optimistic = mutated.withOptimisticOperatorSequence()
+        // Every cached VIEW of this workflow, not just the plain one: a kid can be open in Birth
+        // (all tasks) and in Colostrum (one day's feeds) at once, and a completion belongs to both.
+        val views = detailDao.findAllViews(workflowId)
+        if (views.isEmpty()) return
         val updatedAt = clock()
+
+        val mutatedViews = views.mapNotNull { entity ->
+            val detail = runCatching { json.decodeFromString<WorkflowDetailResponseDto>(entity.dtoJson) }
+                .onFailure { android.util.Log.w("WorkflowsRepository", "mutateCachedDetail: deserialize cached workflow detail failed for ${entity.cacheKey}", it) }
+                .getOrNull() ?: return@mapNotNull null
+            // Keep the Room SSOT immediately usable while the proof upload + completion outbox group
+            // drains. `in_review` means this operator has finished the step locally: count it and
+            // unlock its successor. A verifier rework is a different status and the next refresh
+            // re-locks the sequence. The backend repeats the hard write gate and remains
+            // authoritative on reconcile. A view that does not contain the tapped action is
+            // unchanged by the transform, which is exactly right — it simply does not show it.
+            entity.cacheKey to transform(detail).withOptimisticOperatorSequence()
+        }.toMap()
+        if (mutatedViews.isEmpty()) return
+
         database.withTransaction {
-            detailDao.upsert(
-                WorkflowDetailCacheEntity(
-                    cacheKey = workflowId,
-                    dtoJson = json.encodeToString(optimistic),
-                    updatedAt = updatedAt,
-                ),
-            )
+            mutatedViews.forEach { (cacheKey, optimistic) ->
+                detailDao.upsert(
+                    WorkflowDetailCacheEntity(
+                        cacheKey = cacheKey,
+                        dtoJson = json.encodeToString(optimistic),
+                        updatedAt = updatedAt,
+                    ),
+                )
+            }
             val cardDao = database.workflowCardDao()
             val updatedCards = cardDao.findAllById(workflowId, WORKFLOW_CACHED_QUERIES).mapNotNull { entity ->
+                // A card must be updated from a detail of ITS OWN grain. The Birth card counts every
+                // operator action; a Colostrum card counts one day's feeds. Feeding the colostrum
+                // view's progress into the Birth card would show the kid as (say) 1/5 when it is
+                // really 5/13 — the cross-surface count-parity defect AGENTS.md locks against.
+                // A card whose matching view is not cached is left for the next refresh.
+                val optimistic = mutatedViews[detailViewKeyForCard(workflowId, entity.queryKey)]
+                    ?: return@mapNotNull null
                 runCatching { json.decodeFromString<WorkflowCardDto>(entity.dtoJson) }
                     .onFailure { android.util.Log.w("WorkflowsRepository", "mutateCachedDetail: deserialize cached workflow card failed", it) }
                     .getOrNull()
@@ -480,6 +514,38 @@ internal fun WorkflowDetailResponseDto.withActiveWorkflowActionsPreserved(
 
 private fun scopeKey(module: String, date: String, filter: String): String =
     cacheKey("workflows", module, date, filter)
+
+/**
+ * The module name of the Colostrum lens, shared by the list scope and the detail view key. It is a
+ * backend LENS keyword rather than a workflow module (docs/decisions/colostrum-milk-module.md).
+ */
+const val WORKFLOW_MODULE_COLOSTRUM = "colostrum"
+
+/**
+ * Cache key for one VIEW of a workflow's detail. The unfiltered detail keeps the bare workflow id,
+ * so existing rows and callers are untouched; a lens gets its own key because a kid's Birth detail
+ * (every task) and Colostrum detail (one day's feeds) are different documents that must not
+ * overwrite each other.
+ */
+internal fun detailCacheKey(workflowId: String, lens: String, date: String): String =
+    if (lens.isBlank()) workflowId else cacheKey(workflowId, lens, date)
+
+/**
+ * Which cached detail view backs a given card scope — the pairing that keeps an optimistic update
+ * inside its own grain. A colostrum card for 2026-08-06 is backed by that date's colostrum view;
+ * every other card is backed by the plain detail.
+ */
+internal fun detailViewKeyForCard(workflowId: String, cardQueryKey: String): String {
+    val parts = cardQueryKey.split("|")
+    // scopeKey("workflows", module, date, filter)
+    val module = parts.getOrNull(1).orEmpty()
+    val date = parts.getOrNull(2).orEmpty()
+    return if (module == WORKFLOW_MODULE_COLOSTRUM) {
+        detailCacheKey(workflowId, WORKFLOW_MODULE_COLOSTRUM, date)
+    } else {
+        workflowId
+    }
+}
 
 private fun chipsKey(module: String, date: String): String =
     cacheKey("workflow-chips", module, date)

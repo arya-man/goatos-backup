@@ -74,8 +74,23 @@ import sg.mesha.goatos.core.ui.SyncStatusIndicator
  * each card's own backend fields — never re-derived business truth.
  */
 
-/** Which module this list renders. Determines the accent (death is danger-tinted) and copy. */
-enum class WorkflowModuleUi { BIRTH, DEATH }
+/**
+ * Which module this list renders. Determines the accent (death is danger-tinted) and copy.
+ *
+ * COLOSTRUM is the Milk module's Colostrum page (docs/decisions/colostrum-milk-module.md). It reuses
+ * this screen wholesale because it renders the SAME backend card DTO; what differs is the grain
+ * behind it (one day's feeds rather than a kid's whole task list) and the absence of a ＋ button —
+ * a birth is never recorded from here.
+ */
+enum class WorkflowModuleUi { BIRTH, DEATH, COLOSTRUM }
+
+/**
+ * Whether this module records new events. Colostrum renders work that birth already created, so it
+ * has nothing to add: the ＋ is omitted rather than disabled, because a disabled button invites the
+ * question "why can't I?" for something that is not missing.
+ */
+private val WorkflowModuleUi.recordsNewEvents: Boolean
+    get() = this != WorkflowModuleUi.COLOSTRUM
 
 /** One filter chip: backend bucket [key], display [label], backend-computed [count]. */
 @Immutable
@@ -168,7 +183,11 @@ fun WorkflowListScreen(
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             title = stringResource(
-                if (isDeath) R.string.counts_workflow_death_title else R.string.counts_workflow_birth_title,
+                when (state.module) {
+                    WorkflowModuleUi.DEATH -> R.string.counts_workflow_death_title
+                    WorkflowModuleUi.COLOSTRUM -> R.string.counts_workflow_colostrum_title
+                    else -> R.string.counts_workflow_birth_title
+                },
             ),
             subtitle = state.subtitle.ifBlank { null },
             onBack = { onEvent(WorkflowListEvent.Back) },
@@ -179,23 +198,26 @@ fun WorkflowListScreen(
                     onSync = { onEvent(WorkflowListEvent.Refresh) },
                 )
                 // The prominent ＋ — the ONLY way in to recording (mock's addbtn). 48dp: the
-                // a11y minimum touch target, tapped wearing gloves.
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accent)
-                        .clickable { onEvent(WorkflowListEvent.AddNew) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = MeshaIcons.Plus,
-                        contentDescription = stringResource(
-                            if (isDeath) R.string.counts_workflow_add_death else R.string.counts_workflow_add_birth,
-                        ),
-                        tint = MeshaColors.OnBrand,
-                        modifier = Modifier.size(20.dp),
-                    )
+                // a11y minimum touch target, tapped wearing gloves. Absent on Colostrum, which
+                // renders feeds birth already scheduled.
+                if (state.module.recordsNewEvents) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(accent)
+                            .clickable { onEvent(WorkflowListEvent.AddNew) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = MeshaIcons.Plus,
+                            contentDescription = stringResource(
+                                if (isDeath) R.string.counts_workflow_add_death else R.string.counts_workflow_add_birth,
+                            ),
+                            tint = MeshaColors.OnBrand,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             },
         )

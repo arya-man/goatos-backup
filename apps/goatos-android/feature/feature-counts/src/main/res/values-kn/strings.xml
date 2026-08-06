@@ -170,6 +170,7 @@
     <!-- Birth / Death workflow module -->
     <string name="counts_workflow_birth_title">ಜನನ</string>
     <string name="counts_workflow_death_title">ಮರಣ</string>
+    <string name="counts_workflow_colostrum_title">ಗಿಣ್ಣು ಹಾಲು</string>
     <string name="counts_workflow_open_fmt">%1$d ತೆರೆದಿವೆ</string>
     <string name="counts_workflow_add_birth">ಜನನ ಸೇರಿಸಿ</string>
     <string name="counts_workflow_add_death">ಮರಣ ಸೇರಿಸಿ</string>
