@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 
 /**
@@ -145,6 +146,10 @@ fun WeighingGrowthScreen(
     onSelectPark: (String?) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // L0 read screen: cached rows render instantly and a background refresh fires on every
+    // return to this destination, so a retained ViewModel never shows stale growth numbers.
+    RefreshOnResume { onRefresh() }
+
     Column(modifier = modifier.fillMaxSize().background(MeshaColors.PageBg)) {
         MeshaScreenHeader(
             eyebrow = state.eyebrow,

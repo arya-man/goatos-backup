@@ -108,6 +108,17 @@
       "ciStep": "android-navigation-stack-guard"
     },
     {
+      "id": "android-l0-root-chrome",
+      "script": "tools/agent-hooks/check-l0-root-chrome.mjs",
+      "makeTarget": "l0-root-chrome-guard",
+      "realCheck": "node tools/agent-hooks/check-l0-root-chrome.mjs",
+      "selfTest": "node tools/agent-hooks/check-l0-root-chrome.mjs --self-test",
+      "owningDoc": "docs/decisions/android-navigation-stack.md",
+      "requiredInCI": true,
+      "ciStep": "l0-root-chrome-guard",
+      "notes": "L0 root screens must render MeshaScreenHeader (shell-owned chrome), call RefreshOnResume (read screens), and use SyncIconButton (not hand-rolled refresh). Prevents screens shipping without top chrome/drawer/refresh like /vaccination/videos on 2026-08-03."
+    },
+    {
       "id": "android-orientation-lock",
       "script": "tools/agent-hooks/check-android-orientation-lock.mjs",
       "makeTarget": "mobile-guard",

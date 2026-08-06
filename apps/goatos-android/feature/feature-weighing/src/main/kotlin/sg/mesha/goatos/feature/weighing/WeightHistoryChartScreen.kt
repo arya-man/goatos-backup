@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
@@ -145,6 +146,9 @@ fun WeightHistoryChartScreen(
     onRefresh: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
+    // L0 read screen: refresh on every return so the chart never renders a stale window.
+    RefreshOnResume { onRefresh() }
+
     // All display text is resolved HERE, at render time, from the raw ids/enums/counts the
     // ViewModel emits -- the ViewModel cannot call stringResource, so it must never own English
     // text. This is the same split WeighingScreen uses for backendStatus -> mapWeighingStatusLabel.

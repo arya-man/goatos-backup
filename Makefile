@@ -167,6 +167,7 @@ guardrails:
 	$(MAKE) android-vaccination-submit-gate-guard
 	$(MAKE) android-compose-lists-guard
 	$(MAKE) android-navigation-stack-guard
+	$(MAKE) l0-root-chrome-guard
 	$(MAKE) nav-entry-point-placement-guard
 	$(MAKE) admin-web-request-reads-guard
 	$(MAKE) admin-web-prefetch-guard
@@ -786,6 +787,15 @@ android-vaccination-submit-gate-guard:
 android-navigation-stack-guard:
 	node tools/agent-hooks/check-android-navigation-stack.mjs --self-test
 	node tools/agent-hooks/check-android-navigation-stack.mjs
+
+# l0-root-chrome-guard: L0 root screens must render MeshaScreenHeader (shell-owned
+# chrome), call RefreshOnResume (read screens), and use SyncIconButton (not hand-rolled
+# refresh). Prevents screens from shipping without top chrome/drawer/refresh handling,
+# as happened on 2026-08-03 with /vaccination/videos (a Box+LazyColumn floating above
+# the bottom bar with no drawer affordance). See docs/decisions/android-navigation-stack.md.
+l0-root-chrome-guard:
+	node tools/agent-hooks/check-l0-root-chrome.mjs --self-test
+	node tools/agent-hooks/check-l0-root-chrome.mjs
 
 # nav-entry-point-placement-guard: a FEATURE ENTRY POINT never lives in the top-right app bar.
 # The app bar carries actions ON the current screen (refresh/filter/search); a doorway to another
