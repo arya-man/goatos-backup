@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import sg.mesha.goatos.core.common.AppResult
 import sg.mesha.goatos.core.network.AppApi
 import sg.mesha.goatos.core.network.NetworkFactory
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
@@ -55,7 +56,7 @@ class LeadershipVideosRefreshTest {
             )
 
             // Verify refresh reported success
-            assert(refreshResult is sg.mesha.goatos.core.data.AppResult.Ok) {
+            assert(refreshResult is AppResult.Ok) {
                 "refreshLeadershipVideos reported failure: $refreshResult"
             }
 

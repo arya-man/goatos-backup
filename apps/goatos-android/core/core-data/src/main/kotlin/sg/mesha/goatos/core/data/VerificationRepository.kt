@@ -114,6 +114,9 @@ interface VerificationRepository {
     ): Flow<List<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>>
 
     /** Fetches and caches the first page of leadership videos. */
+    /** Backend-owned screen title (queue contract's module label). Empty until first fetch. */
+    fun observeLeadershipTitle(category: String? = null, windowSize: Int): Flow<String>
+
     // windowSize MUST match the value passed to observeLeadershipVideos: the cache key is derived
     // from every query parameter including the limit, so refreshing with a different window writes
     // a row the observing Flow never reads, and the screen renders "No videos yet" over a
@@ -340,6 +343,10 @@ class DefaultVerificationRepository(
             }.orEmpty()
         }
     }
+
+    override fun observeLeadershipTitle(category: String?, windowSize: Int): Flow<String> =
+        observeQueue(category = category, status = "all", limit = windowSize)
+            .map { it.data?.filterOptions?.moduleLabel.orEmpty() }
 
     override suspend fun refreshLeadershipVideos(
         category: String?,

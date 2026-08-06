@@ -25,6 +25,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.ui.RefreshOnResume
+import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVideoEvent
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVideoPlaybackEvent
@@ -44,6 +47,10 @@ fun VaccinationLeadershipVideosScreen(
 ) {
     val lazyListState = rememberLazyListState()
 
+    // Read screen: cached rows show instantly and a background refresh fires on every return to
+    // this destination, so a retained ViewModel never leaves stale evidence on screen.
+    RefreshOnResume { onEvent(VaccinationLeadershipVideoEvent.Refresh()) }
+
     // Scroll-driven prefetch: ask for the next page when near the bottom
     LaunchedEffect(lazyListState) {
         snapshotFlow { lazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
@@ -56,8 +63,23 @@ fun VaccinationLeadershipVideosScreen(
             }
     }
 
+    Column(modifier = modifier.fillMaxSize()) {
+        // L0 root chrome. MeshaScreenHeader is the SHELL-owned primitive from core-designsystem:
+        // it reads LocalDrawerOpener itself and renders the drawer affordance, so this screen
+        // never touches drawer state directly. It is deliberately NOT a feature-verify composable
+        // -- this module shares no UI code with the verifier surface.
+        MeshaScreenHeader(
+            title = state.title,
+            actions = {
+                SyncIconButton(
+                    isSyncing = state.loading,
+                    onSync = { onEvent(VaccinationLeadershipVideoEvent.Refresh()) },
+                )
+            },
+        )
+
     Box(
-        modifier = modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
     ) {
         when {
             state.error != null && state.items.isEmpty() -> {
@@ -166,6 +188,7 @@ fun VaccinationLeadershipVideosScreen(
                 }
             }
         }
+    }
     }
 }
 

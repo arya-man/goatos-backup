@@ -23,6 +23,9 @@ data class VaccinationLeadershipItemUi(
  * Full evidence trail (pending/approved/rejected/closed) rendered read-only with no approval/rejection controls.
  */
 data class VaccinationLeadershipVideosUiState(
+    // Screen title. Backend-owned (the queue contract's module label), never composed on-device --
+    // clients render backend copy verbatim.
+    val title: String = "",
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
     val items: List<VaccinationLeadershipItemUi> = emptyList(),
