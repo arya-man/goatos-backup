@@ -42,19 +42,19 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 			{
 				LocationID:       uuid.NewString(),
 				LocationType:     "shed",
-				DisplayName:      "Yashoda",                    // Non-partitioned
+				DisplayName:      "Yashoda", // Non-partitioned
 				WeighingCategory: domain.CategoryIndividualAnimal,
 			},
 			{
 				LocationID:       uuid.NewString(),
 				LocationType:     "shed",
-				DisplayName:      "Castro 2",                   // Numeric partition format
+				DisplayName:      "Castro 2", // Numeric partition format
 				WeighingCategory: domain.CategoryPerShedPartition,
 			},
 			{
 				LocationID:       uuid.NewString(),
 				LocationType:     "shed",
-				DisplayName:      "Godel 1 - Part 3",           // Prefixed partition format
+				DisplayName:      "Godel 1 - Part 3", // Prefixed partition format
 				WeighingCategory: domain.CategoryPerShedPartition,
 			},
 		},
@@ -67,31 +67,31 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 
 	// Verify partition_label extraction and OperationalLocationDisplay
 	tests := []struct {
-		name                            string
-		displayName                     string
-		expectedPartitionLabel          string
-		expectedParentShedName          string
+		name                               string
+		displayName                        string
+		expectedPartitionLabel             string
+		expectedParentShedName             string
 		expectedOperationalLocationDisplay string
 	}{
 		{
-			name:                            "non-partitioned shed",
-			displayName:                     "Yashoda",
-			expectedPartitionLabel:          "",
-			expectedParentShedName:          "Yashoda",
+			name:                               "non-partitioned shed",
+			displayName:                        "Yashoda",
+			expectedPartitionLabel:             "",
+			expectedParentShedName:             "Yashoda",
 			expectedOperationalLocationDisplay: "Yashoda",
 		},
 		{
-			name:                            "numeric partition format",
-			displayName:                     "Castro 2",
-			expectedPartitionLabel:          "2",
-			expectedParentShedName:          "Castro",
+			name:                               "numeric partition format",
+			displayName:                        "Castro 2",
+			expectedPartitionLabel:             "2",
+			expectedParentShedName:             "Castro",
 			expectedOperationalLocationDisplay: "Castro 2",
 		},
 		{
-			name:                            "prefixed partition format",
-			displayName:                     "Godel 1 - Part 3",
-			expectedPartitionLabel:          "Part 3",
-			expectedParentShedName:          "Godel 1",
+			name:                               "prefixed partition format",
+			displayName:                        "Godel 1 - Part 3",
+			expectedPartitionLabel:             "Part 3",
+			expectedParentShedName:             "Godel 1",
 			expectedOperationalLocationDisplay: "Godel 1 - Part 3",
 		},
 	}
