@@ -198,6 +198,39 @@ class VaccinationLeadershipVideosViewModelTest {
         assertTrue(true) // Compile-time structural guarantee above
     }
 
+    @Test
+    fun `server-relative proof links are resolved to absolute URLs the player can open`() = runTest {
+        // REGRESSION: the queue contract returns proof links as server-relative paths
+        // ("/app/proofs/<id>/download/signed?..."). Handing that straight to the player failed with
+        // "Malformed URL", so EVERY clip in the leadership gallery rendered 00:00 / 00:00 with no
+        // visible error. The verifier surface resolves the same field against the API base; this
+        // pins that the leadership copy does too.
+        repository.setResponse(
+            VerificationQueueResponseDto(
+                items = listOf(
+                    verificationItem(id = "item1", subjectLabel = "Proof 1", status = "approved").copy(
+                        media = listOf(
+                            sg.mesha.goatos.core.network.dto.VerificationMediaItem(
+                                proofId = "proof-1",
+                                downloadUrl = "/app/proofs/proof-1/download/signed?sig=abc",
+                                mimeType = "video/mp4",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        viewModel.onEvent(VaccinationLeadershipVideoEvent.Refresh())
+
+        viewModel.state.test {
+            var state = awaitItem()
+            while (state.items.isEmpty() && state.error == null) state = awaitItem()
+            val url = state.items.first().media.first().url
+            assertTrue("expected an absolute URL, got: $url", url.startsWith("http://") || url.startsWith("https://"))
+            assertTrue("absolute URL must keep the signed path", url.endsWith("/app/proofs/proof-1/download/signed?sig=abc"))
+        }
+    }
+
     private fun verificationItem(id: String, subjectLabel: String, status: String) = VerificationQueueItem(
         itemId = id,
         category = "vaccination_proof",

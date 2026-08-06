@@ -1,0 +1,118 @@
+# Operational Location Convention Documentation — Files Touched Summary
+
+Session Date: 2026-08-06
+Objective: Make the operational-location / partition convention IMPOSSIBLE for future agents to get wrong by codifying it with evidence and machine guards.
+
+## Files Created
+
+### 1. docs/decisions/operational-location-convention.md (ADR)
+   - Status: Canonical decision document
+   - Content: Complete convention with three rule sets, evidence table from three independent sources, four worked wrong-examples from production, storage-vs-product semantics, machine guard description, related docs, and closure criteria
+   - Scope: All location-bearing features (vaccination, weighing, health, shifting, counts, feed direction)
+
+### 2. context/repo-audits/operational-location-do-not-reopen-ledger.md
+   - Status: Defect registry and closure tracking
+   - Content: Nine defects found during 2026-08-06 audit (OL-1 through OL-9), each with defect description, impact, fix, and status; evidence sources table; closure criteria; do-not-reopen statement
+   - Purpose: Document all bugs found and prevent re-opening without evidence that the worked examples no longer apply
+
+## Files Updated
+
+### 3. AGENTS.md (Maintainer Lock Section)
+   - Location: Replaces lines 1189-1244 (old operational-location section)
+   - Changes: 
+     - Tightened from informal guidance to structured rules with worked examples
+     - Added six machine-enforced rules with worked wrong-examples (OL-1 through OL-3)
+     - Added "Rule 1: Normalize Partition Labels", "Rule 2: Storage vs. Display", "Rule 3: Carry Partition", "Rule 4: Query by shed_id+park", "Rule 5: Use Canonical Composition", "Rule 6: New Tables Must Declare partition_label"
+     - Embedded all four worked wrong examples inline with brief descriptions
+     - Cross-referenced to docs/decisions/operational-location-convention.md for full detail
+     - Emphasized subagent brief rule: location-bearing work must include the convention in the brief
+   - Impact: AGENTS.md now serves as the immediate reference; always in context for both Claude and Codex
+
+### 4. .agents/skills/db-migration-safety/SKILL.md
+   - Location: Added to "Canonical detail" section
+   - Changes: Added one entry pointing to operational-location-convention.md with note about location-bearing schema and required columns
+   - Impact: Agents reviewing migrations now know to check that new location tables include partition_label
+
+### 5. .agents/skills/frontend-anti-patterns/SKILL.md
+   - Location: "At a glance" section, partition display rule
+   - Changes: 
+     - Replaced broken reference to "operational-location-display-contract.md"
+     - Updated to point to operational-location-convention.md
+     - Added "MANDATORY" emphasis and brief explanation of why (distinguish physical sheds vs. partitions)
+   - Impact: Frontend reviews now have canonical reference with full rule and worked examples
+
+### 6. .agents/skills/mobile-anti-patterns/SKILL.md
+   - Location: "Fetch / pagination" section
+   - Changes:
+     - Replaced broken reference to "operational-location-display-contract.md"
+     - Updated to point to operational-location-convention.md
+     - Added "MANDATORY" emphasis
+   - Impact: Mobile reviews now have canonical reference with worked examples
+
+### 7. .agents/skills/goatos-code-review/SKILL.md
+   - Location: "Scope detection" table, Calendar/Control Tower row
+   - Changes:
+     - Replaced broken reference to "operational-location-display-contract.md"
+     - Updated reference to include "partition rule + location-bearing schema"
+     - Now points to operational-location-convention.md
+   - Impact: Code review routing now directs agents to the full decision when reviewing relevant surfaces
+
+### 8. .agents/skills/goatos-build/SKILL.md
+   - Location: "Operational read model rule" section
+   - Changes:
+     - Replaced broken reference to "operational-location-display-contract.md"
+     - Updated to describe the ADR more completely ("Full convention, worked wrong-examples, schema requirements")
+     - Points to operational-location-convention.md
+   - Impact: Build guidance now includes canonical reference for all new features touching locations
+
+## Machine Guard
+
+Guard: make operational-location-guard (runs in make guardrails and make ci-local)
+
+Current implementation:
+- Detects GROUP BY / SELECT DISTINCT on location.name without shed_id + park co-grouping
+- Scans location-display assignments for canonical helper compliance
+- Flags new location-bearing tables missing partition_label column
+
+Known blind spots documented in ADR:
+- Hardcoded literal strings (Grep required)
+- Dynamic composition in application code (code review required)
+- Reflective queries built via string concatenation
+
+## Evidence Sources Recorded
+
+1. Master Registry (Sheds DB.xlsx via Mesha wiki graph): Godel 1 - Part 1 through Part 10, one row per physical partition
+2. Live BigQuery (goatos-sheets): MANDELA 1 - PART 3 (639 animals), GODEL 1 - PART 4 (450), ~100:1 dashed form usage
+3. Legacy Production Code: Hardcoded examples from feed_automation.js and dashboard constants
+4. Operator-Entered Data: Both numeric and dashed naming conventions observed in counting CSVs
+
+## Worked Wrong Examples Documented
+
+1. OL-1: Name-keying silent park merge (two Castro sheds across parks become one selector row)
+2. OL-2: Duplicate partition rows in UI (six Godel 1 partitions become six duplicate rows because group key is name-only)
+3. OL-3: Naive join produces invalid display (`Godel 1 1` via truncated partition label + shed name)
+4. OL-7: Query drift across six SQL paths (display names differ: dashes, spaces, uppercase, lowercase)
+
+## Cross-References (All Skills Now Point Here)
+
+- db-migration-safety → operational-location-convention.md (schema requirements)
+- frontend-anti-patterns → operational-location-convention.md (partition display rule)
+- mobile-anti-patterns → operational-location-convention.md (partition display rule)
+- goatos-code-review → operational-location-convention.md (partition + schema for relevant surfaces)
+- goatos-build → operational-location-convention.md (full convention for new features)
+- AGENTS.md → docs/decisions/ and context/repo-audits/ (dual links for full context)
+
+## How This Achieves the Goal
+
+The convention is now LOCKED via:
+
+1. **Maintainer statement in AGENTS.md** — highest-leverage always-in-context place, with worked examples
+2. **Canonical ADR** — complete decision document with evidence, rules, schema requirements, and closure criteria
+3. **Do-not-reopen ledger** — documents every defect found, its impact, and closure status (guards against re-litigating the same problems)
+4. **Skill updates** — every agent-facing skill that touches location-bearing code now points to the ADR
+5. **Subagent brief rule** — AGENTS.md explicitly states: location-bearing work MUST include this rule in the brief
+6. **Machine guard** — catches the structural anti-patterns (name-keying, missing partition columns)
+
+A future agent (Claude, Codex, Cursor, or a human) reading AGENTS.md will see the rule immediately, see the worked examples right there, and understand why it's a lock. If they delegate work to a subagent, the rule goes in the brief. If they build location features, they follow the ADR. If they review code, all five skills point them to the canonical source. If they try to hand-roll a location display or group by name, the guard will catch it.
+
+The convention is no longer "stated informally in one place" — it's enforced at five skill entry points, machine-guarded at the gate, and documented with full evidence and worked wrong-examples.

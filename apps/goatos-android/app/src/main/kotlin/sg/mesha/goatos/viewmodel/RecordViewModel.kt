@@ -18,6 +18,7 @@ import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.ExecutionRepository
 import sg.mesha.goatos.core.network.dto.VaccinationExecutionShedDrilldownDto
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.record.RecordEvent
 import sg.mesha.goatos.feature.record.RecordTone
 import sg.mesha.goatos.feature.record.RecordUiState
@@ -158,8 +159,14 @@ class RecordViewModel @Inject constructor(
         val allRowsLackTaskId = rows.isNotEmpty() && rows.all { it.sopTaskId.isNullOrBlank() }
         val hasNoScannableTask = hasWorkDue && allRowsLackTaskId
 
+        // Operational location: the drilldown-level shedName has no partition of its own, but
+        // every row shares the shed's partition (VaccinationExecutionRowDto.partition), so the
+        // first row is enough to render "Castro 2" / "Godel 1 - Part 3" instead of a bare shed
+        // name when this shed has partitions. See PartitionLabel.kt for the display rules.
+        val locationLabel = operationalLocationLabel(shedName, rows.firstOrNull()?.partition)
+            .ifBlank { shedName }
         return base.copy(
-            title = "$shedName · record",
+            title = "$locationLabel · record",
             subtitle = "${summary.completed} / ${summary.total} done",
             // Real drives only — a shed with no drives renders empty, never the sample rows.
             groups = groups,

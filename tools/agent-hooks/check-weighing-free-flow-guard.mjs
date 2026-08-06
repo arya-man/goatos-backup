@@ -345,11 +345,20 @@ function writePathBodies(source) {
 // protocol_*, obligation_* — anything describing an ANIMAL or another module's rules. Weighing
 // knows a scanned string and a weight. It does not know what animal that is, and must not ask.
 //
+// CRITICAL: goat_shed_partitions is BANNED (PER-GOAT table, reveals which animal sits where).
+// shed_partitions (ORG-scoped catalog of existing partitions) is ALLOWED. See BANNED_SHADOW_RE
+// and guard self-test below for enforcement.
+//
 // Adding to this set is a maintainer decision, not a developer convenience.
 const NON_WEIGHING_TABLES_ALLOWED_ON_READ = new Set([
   "locations",
   "workforce_members",
   "user_scope_grants",
+  // shed_partitions: catalog of partitions that physically exist, keyed by location ID.
+  // ORG-scoped (tenant_id, shed_id, normalized_label), not per-animal. Maintained by migration
+  // 000112. Resolves partition_label in weighing_campaign_sheds without reading goat_shed_partitions.
+  // Maintainer decision 2026-08-06: exact catalog wins over name-parsing inference.
+  "shed_partitions",
   // Weighing's OWN lifecycle notifications (assigned/submitted/reopened/rework/closed). Shared
   // delivery plumbing, not another module's animal data.
   "notification_requests",
@@ -1550,7 +1559,45 @@ UPDATE weighing_observations observation
     );
   }
 
-  console.log("weighing-free-flow guard: self-test passed (15/15 failure modes + 4 demonstrated bypasses)");
+  // Mode 16: shed_partitions ALLOWED, goat_shed_partitions BANNED.
+  // Maintainer decision 2026-08-06: shed_partitions is an ORG-scoped catalog (tenant_id, shed_id,
+  // normalized_label) with no per-animal data. goat_shed_partitions is per-goat (tenant_id, goat_id)
+  // and reveals which animal sits where -- strictly banned. This distinction is the whole point of
+  // the allowlist.
+  const goodMode16ShedPartitions = `
+func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT sp.partition_label
+    FROM shed_partitions sp
+    WHERE sp.tenant_id=$1 AND sp.shed_id=$2
+  ` + "`" + `)
+  return err
+}
+`;
+  const badMode16GoatShedPartitions = `
+func (r *Repository) ResolveCampaignPartition(ctx context.Context) error {
+  _, err := r.pool.Exec(ctx, ` + "`" + `
+    SELECT gsp.partition_label, gsp.goat_id
+    FROM goat_shed_partitions gsp
+    WHERE gsp.tenant_id=$1 AND gsp.shed_id=$2
+  ` + "`" + `)
+  return err
+}
+`;
+  const goodMode16 = anyPathTableFindings("fake.go", goodMode16ShedPartitions);
+  if (goodMode16.length) {
+    throw new Error(
+      `self-test failed: mode 16 false positive on reading shed_partitions (ORG-scoped catalog). got: ${JSON.stringify(goodMode16)}`,
+    );
+  }
+  const badMode16 = anyPathTableFindings("fake.go", badMode16GoatShedPartitions);
+  if (!badMode16.some((f) => f.rule === "weighing-reads-non-weighing-table")) {
+    throw new Error(
+      `self-test failed: mode 16 did not flag goat_shed_partitions (per-goat, reveals animal location). got: ${JSON.stringify(badMode16)}`,
+    );
+  }
+
+  console.log("weighing-free-flow guard: self-test passed (16/16 failure modes + 4 demonstrated bypasses + shed_partitions distinction)");
 }
 
 // Builds a throwaway fixture repo under os.tmpdir(), writes ONE Go file and ONE migration file

@@ -64,9 +64,10 @@ chapters below; do not review from the summary.
 - **Backend owns the contract:** nav, titles, labels, filter/sort/page-size,
   chips, row-click params, drawer/action labels, empty/error copy, disabled
   reasons, summary-vs-detail — never hardcoded in a page.
-- **Partition display rule:** when a shed partition exists (`Castro 1` +
-  `Castro 2`), render the partition label, never collapse into parent. See
-  [`docs/decisions/operational-location-display-contract.md`](../../../docs/decisions/operational-location-display-contract.md).
+- **Partition display rule (MANDATORY):** when a shed partition exists (`Castro 1` +
+  `Castro 2` as separate physical locations, or `Godel 1 - Part 3` as a partition),
+  render the partition label in product displays, never collapse into parent. Full rule,
+  worked examples, and schema requirements: [`docs/decisions/operational-location-convention.md`](../../../docs/decisions/operational-location-convention.md).
 - **No SSR full-table request reads:** don't drain a paginated endpoint cursor-by-
   cursor into one array (the `searchAllGoats` walk); read a projection/summary.
 - **No broad endpoint for a narrow screen:** a month schedule page must not call

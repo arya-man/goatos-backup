@@ -66,6 +66,7 @@ data class VerificationQueueItem(
     @SerialName("operator_id") val operatorId: String? = null,
     @SerialName("operator_name") val operatorName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("shed_label") val shedLabel: String? = null,
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_label") val parkLabel: String? = null,

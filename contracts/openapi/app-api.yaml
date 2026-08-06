@@ -14955,6 +14955,12 @@ components:
           items:
             type: string
           description: Whole physical sheds assigned to this executable operator day.
+        shedIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Location IDs of the physical sheds assigned to this executable operator day.
     CommandBoardVaccineColumn:
       type: object
       additionalProperties: false

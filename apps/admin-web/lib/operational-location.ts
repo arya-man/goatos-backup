@@ -33,8 +33,17 @@ function isPartitioned(rawPartitionLabel: string | null | undefined): rawPartiti
  * the raw shed_name/partition_label pair (e.g. a locally composed row).
  */
 export function operationalLocationLabel({ shedName, partitionLabel, sourceShedName }: OperationalLocationInput): string {
-  const shed = (shedName ?? "").trim() || (sourceShedName ?? "").trim();
+  const shed = (shedName ?? "").trim();
   const rawPartition = (partitionLabel ?? "").trim();
+  // sourceShedName is the RAW partition-bearing name a row was normalized FROM ("Castro 1"), so it
+  // ALREADY contains the partition. Using it as the shed and then appending partitionLabel produced
+  // "Castro 1 1" -- the same defect class as the "Godel 1 1" bug this convention exists to prevent.
+  // It is a display value in its own right, never a prefix. Go's oploc.Display() deliberately never
+  // reads this field and Kotlin's helper has no such parameter; this keeps the three in agreement.
+  if (!shed) {
+    const raw = (sourceShedName ?? "").trim();
+    if (raw) return raw;
+  }
   if (!isPartitioned(rawPartition)) return shed;
   // With no shed name there is nothing to prefix, so return the partition alone rather than
   // concatenating onto an empty string -- that produced a leading space (" 2") or a leading dash

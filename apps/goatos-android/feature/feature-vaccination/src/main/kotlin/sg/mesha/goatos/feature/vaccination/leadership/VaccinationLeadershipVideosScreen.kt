@@ -133,9 +133,13 @@ fun VaccinationLeadershipVideosScreen(
             },
         )
 
-        if (state.parkOptions.size > 1) {
+        // Parks always render, and there is NO "All parks": one park is always selected so the
+        // shed list below is scoped to it. Shed names repeat across parks, so an unscoped shed
+        // list is ambiguous by construction.
+        if (state.parkOptions.isNotEmpty()) {
             LeadershipLocationFilter(
                 allLabel = "All parks",
+                includeAllOption = false,
                 pickerTitle = "Choose a park",
                 options = state.parkOptions,
                 selected = state.selectedParkId,
@@ -260,6 +264,7 @@ fun VaccinationLeadershipVideosScreen(
 private fun LeadershipLocationFilter(
     allLabel: String,
     pickerTitle: String,
+    includeAllOption: Boolean = true,
     options: List<VaccinationLeadershipLocationOptionUi>,
     selected: String?,
     onSelect: (String?) -> Unit,
@@ -275,8 +280,10 @@ private fun LeadershipLocationFilter(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(bottom = 8.dp),
         ) {
-            item {
-                LeadershipChip(label = allLabel, selected = selected == null, onClick = { onSelect(null) })
+            if (includeAllOption) {
+                item {
+                    LeadershipChip(label = allLabel, selected = selected == null, onClick = { onSelect(null) })
+                }
             }
             items(options.filter { it.id != null }, key = { it.id ?: "" }) { option ->
                 LeadershipChip(label = option.label, selected = option.id == selected, onClick = { onSelect(option.id) })

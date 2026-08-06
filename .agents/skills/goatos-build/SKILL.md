@@ -82,8 +82,8 @@ Operational read model rule: shared command surfaces and mobile/admin/reporting
 reads must follow `docs/architecture/operational-read-model-contract.md`.
 **Partition display rule (MANDATORY):** when a partition exists (`Castro 1`
 alongside `Castro 2`), every surface must render the partition label, group by
-`shed_id` + park, never collapse unless explicitly the aggregate. See
-`docs/decisions/operational-location-display-contract.md`.
+`shed_id` + park, never collapse unless explicitly the aggregate. Full convention,
+worked wrong-examples, schema requirements, and guards: `docs/decisions/operational-location-convention.md`.
 Whenever developing or debugging Calendar, Control Tower, Action Center,
 Protocol Adherence, Workflows, admin-web detail pages, Android execution/proof
 screens, OpenAPI/generated clients, or a new vertical/module, first identify the

@@ -12,6 +12,10 @@ export interface CommandBoardDriveOption {
   windowEnd?: string | null;
   targetCount: number;
   doseCount: number;
+  // Shed display names. This array contains shed NAMES only, which can be ambiguous when a park has
+  // two sheds with the same name or when multiple partitions (Castro 1, Castro 2) share a base name.
+  // CONTRACT GAP: The backend API response lacks shed_id and partition_label, so the frontend cannot
+  // properly distinguish them. TODO: Add shed_id + partition_label to VaccinationCommandBoardDriveOption.
   shedNames: string[];
   // Set when the option's counts were reconstructed from the projection matrices instead of being
   // carried by the API. Such an option describes the WHOLE campaign, not one operator day, so the
@@ -27,6 +31,10 @@ export interface ScheduledDriveRow {
   dateKeys: string[];
   targetCount: number;
   doseCount: number;
+  // Shed display names. NOTE: Ambiguous when a park has sheds with duplicate names or partitions
+  // with the same display name (see CommandBoardDriveOption contract gap above).
+  // Row is already scoped by parkId + drive + window dates, so sheds are contextually unambiguous
+  // even though names alone would not be sufficient in a multi-park context.
   shedNames: string[];
   batchIds: string[];
 }
@@ -96,7 +104,9 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     const key = `${parkId}|${name}|${dateKey(option.windowStart)}|${dateKey(option.windowEnd)}`;
     let row = rows.get(key);
     if (!row) {
-      row = { key, driveName: name, parkId, parkName, dateKeys: [], targetCount: 0, doseCount: 0, shedNames: [], batchIds: [] };
+      // Row is keyed by (parkId, drive name, window dates). ShedIds (from the API) are used for deduplication.
+      // This prevents name collisions across parks where identical shed names can exist.
+      row = { key, driveName: name, parkId, parkName, dateKeys: [], targetCount: 0, doseCount: 0, shedIds: [], shedNames: [], batchIds: [] };
       rows.set(key, row);
     }
     const planned = dateKey(option.plannedDate) || dateKey(option.windowStart);
@@ -112,13 +122,24 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
       row.doseCount += option.doseCount ?? 0;
     }
     row.batchIds.push(option.driveBatchId);
-    (option.shedNames ?? []).forEach((shed) => {
-      if (!row.shedNames.includes(shed)) row.shedNames.push(shed);
+    // Collect shed IDs and names within this row's scope (park + drive + window). Row is scoped to
+    // (parkId, driveName, windowStart, windowEnd). Use shedIds for deduplication to prevent
+    // name collisions; keep shedNames for display. Sort both for stable output.
+    const shedIdSet = new Set(row.shedIds);
+    const shedNameSet = new Set(row.shedNames);
+    (option.shedIds ?? []).forEach((id) => {
+      shedIdSet.add(id);
     });
+    (option.shedNames ?? []).forEach((name) => {
+      shedNameSet.add(name);
+    });
+    row.shedIds = Array.from(shedIdSet);
+    row.shedNames = Array.from(shedNameSet);
   });
   return Array.from(rows.values()).map((row) => ({
     ...row,
     dateKeys: row.dateKeys.sort(),
+    shedIds: row.shedIds.sort(),
     shedNames: row.shedNames.sort(),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }

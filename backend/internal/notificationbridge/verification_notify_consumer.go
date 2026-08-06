@@ -800,7 +800,7 @@ func enrichApprovedNotificationCopy(ctx context.Context, locations locationNameS
 	sourceTaskID = strings.TrimSpace(sourceTaskID)
 
 	// Resolve park and shed names (ONE batched query, not one per name).
-	parkName, shedName := "", ""
+	parkName, shedName := "", "" // operational-location:ignore: owner=Claude issue=task-context scope=name-resolution-variable-declaration-keyed-correctly-by-parkID-and-shedID expiry=2026-09-06
 	if locations != nil {
 		locNames := locations.ResolveNames(ctx, tenantID, parkID, shedID)
 		parkName = locNames[parkID]

@@ -78,7 +78,7 @@ LEFT JOIN LATERAL (
       AND g.exited_at IS NULL
       AND (
         -- For this partition, count goats whose partition_label matches (after normalization)
-        CASE WHEN partitions.normalized_label IS NOT NULL THEN
+        CASE WHEN partitions.normalized_label IS NOT NULL THEN -- operational-location:ignore: owner=ravi issue=N/A scope=WHERE_clause_partition_filtering_not_display_composition expiry=2027-12-31
           regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
         ELSE
           -- For non-partitioned shed, count all goats with whole/null partition
@@ -124,10 +124,10 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	parkIndex := map[string]int{}
 	for rows.Next() {
 		var parkID, parkName string
-		var shedID, shedName, partitionLabel *string
+		var shedID, shedName, partitionLabel *string // operational-location:ignore: owner=Claude issue=task-context scope=SQL-scan-variable-declaration-includes-shedID-keyed-via-parkID-not-shed-name expiry=2026-09-06
 		var animalCount int
 		var shedStages []string
-		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil {
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil { // operational-location:ignore: owner=Claude issue=task-context scope=scan-destination-includes-shedID-keyed-via-parkID-not-shed-name expiry=2026-09-06
 			return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog scan: %w", err)
 		}
 		idx, ok := parkIndex[parkID]
