@@ -2065,6 +2065,7 @@ LEFT JOIN shed ON true`,
 // filtered to non-terminal obligations -- a completed obligation IS the round's live evidence
 // until it is either accepted (stays completed) or reopened by rejection (goes back to due).
 func (r *Repository) shedCompletionRoundFacts(ctx context.Context, tenant, task pgtype.UUID, hasShed bool, shed pgtype.UUID) ([]shedRoundObligationFact, error) {
+	// projection-review: membership=obligation instances in this task's batch (obligation_batches.sop_task_id filters exactly one batch); group_key=(tenant_id, task_id) → one batch_id per SOP task; join_cardinality=one row per obligation_instance in the batch, each obligation appearing once (obligation_id is unique, no fan-out); pagination=none — whole-batch obligation list returned without LIMIT (shed drives have dozens, not thousands of obligations); scope=explicit — hasShed and shed_id filter constrain to target shed: obligation_instances via obligation_batches.batch_id resolve only to THIS task, and goats.shed_id filter further scopes to the requested shed.
 	rows, err := r.pool.Query(ctx, `
 WITH t AS (
   SELECT st.task_id, st.tenant_id

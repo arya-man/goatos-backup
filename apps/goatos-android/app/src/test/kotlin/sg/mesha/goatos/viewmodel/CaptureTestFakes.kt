@@ -48,6 +48,7 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int,
         capturedAtMs: Long?,
     ) {
         recordScanCalls++

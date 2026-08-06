@@ -63,7 +63,9 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				if m.Href != "/vaccination" {
 					t.Fatalf("vaccination row lands on %q, want /vaccination", m.Href)
 				}
-				// MAINTAINER DECISION 2026-08-03: verifier bottom bar is [Verify, Alerts];
+				// MAINTAINER DECISION 2026-08-06: leadership and verifier are SEPARATE SURFACES on
+				// SEPARATE ROUTES. Leadership videos nav points to /vaccination/videos (leadership-owned),
+				// NEVER to /verify (verifier-owned). Verifier bottom bar is [Verify, Alerts];
 				// "You" lives in the drawer, and the alerts tab label never names the
 				// feature (the href's category still scopes it).
 				// Leadership/registry modules are NOT the verifier bar: they legitimately
@@ -71,7 +73,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				wantItems := []domain.BootstrapNavigationItem{
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-					{Key: "videos", Label: "Videos", Href: "/verify?module=vaccination&category=vaccination_proof&status=all"},
+					{Key: "videos", Label: "Videos", Href: "/vaccination/videos"},
 					{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}

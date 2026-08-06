@@ -1,20 +1,23 @@
 package sg.mesha.goatos.viewmodel
 
-import androidx.lifecycle.SavedStateHandle
 import app.cash.turbine.test
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.analytics.NoopCrashReporter
 import sg.mesha.goatos.core.common.AppResult
+import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
-import sg.mesha.goatos.feature.vaccination.leadership.VaccinationLeadershipItemUi
-import sg.mesha.goatos.feature.vaccination.leadership.VaccinationLeadershipVideosUiState
-import kotlinx.coroutines.flow.flowOf
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.network.dto.VerificationQueueItem
+import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
 
 /**
  * Tests for VaccinationLeadershipVideosViewModel.
@@ -24,6 +27,7 @@ import kotlin.test.assertTrue
  */
 class VaccinationLeadershipVideosViewModelTest {
     private lateinit var repository: FakeVerificationRepository
+    private lateinit var syncRepo: SyncRepository
     private lateinit var analytics: FakeAnalyticsPort
     private lateinit var crashReporter: CrashReporter
     private lateinit var viewModel: VaccinationLeadershipVideosViewModel
@@ -31,12 +35,48 @@ class VaccinationLeadershipVideosViewModelTest {
     @Before
     fun setup() {
         repository = FakeVerificationRepository()
+        syncRepo = object : SyncRepository {
+            override fun observeStatus() = MutableStateFlow(sg.mesha.goatos.core.data.sync.SyncStatus.empty(online = true))
+            override fun observeItem(itemId: String) = MutableStateFlow<sg.mesha.goatos.core.data.sync.SyncQueueItem?>(null)
+            override suspend fun enqueueShedSubmit(
+                taskId: String,
+                groupKey: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto,
+            ): AppResult<String> = error("unused")
+            override suspend fun enqueueReschedule(
+                obligationId: String,
+                groupKey: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto,
+            ): AppResult<String> = error("unused")
+            override suspend fun enqueueProofUpload(
+                groupKey: String,
+                idempotencyKey: String,
+                request: sg.mesha.goatos.core.network.dto.ProofUploadRequestDto,
+                localFilePath: String,
+                durationMs: Long?,
+            ): AppResult<String> = error("unused")
+            override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+            override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+            override suspend fun enqueueVerificationVerdict(
+                itemId: String,
+                decision: String,
+                reason: String?,
+                rowVersion: Int,
+            ): AppResult<String> = error("unused")
+            override suspend fun enqueueVerificationBatchClose(batchId: String): AppResult<String> = AppResult.Ok("close-$batchId")
+            override suspend fun retry(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+            override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+            override suspend fun triggerDrain() = Unit
+        }
         analytics = FakeAnalyticsPort()
         crashReporter = NoopCrashReporter()
         viewModel = VaccinationLeadershipVideosViewModel(
             repository = repository,
             analytics = analytics,
             crashReporter = crashReporter,
+            syncRepo = syncRepo,
         )
     }
 
@@ -45,43 +85,24 @@ class VaccinationLeadershipVideosViewModelTest {
         viewModel.state.test {
             val state = awaitItem()
             assertEquals(true, state.loading)
-            assertEquals(emptyList(), state.items)
+            assertTrue(state.items.isEmpty())
             assertEquals(null, state.error)
         }
     }
 
     @Test
     fun `after refresh, items are displayed`() = runTest {
-        val testItems = listOf(
-            VaccinationLeadershipItemUi(
-                id = "item1",
-                title = "Proof 1",
-                status = "approved",
-                statusLabel = "Approved",
-                statusTone = "success",
-                timestamp = "2026-08-06 10:00 AM",
-                proofCount = 1,
-                videoUrls = listOf("https://example.com/video1.mp4"),
-                summary = "Vaccination proof submitted",
-            ),
-            VaccinationLeadershipItemUi(
-                id = "item2",
-                title = "Proof 2",
-                status = "pending",
-                statusLabel = "Pending Review",
-                statusTone = "neutral",
-                timestamp = "2026-08-06 11:00 AM",
-                proofCount = 1,
-                videoUrls = listOf("https://example.com/video2.mp4"),
-                summary = "Vaccination proof submitted",
+        repository.setResponse(
+            VerificationQueueResponseDto(
+                items = listOf(
+                    verificationItem(id = "item1", subjectLabel = "Proof 1", status = "approved"),
+                    verificationItem(id = "item2", subjectLabel = "Proof 2", status = "pending"),
+                ),
             ),
         )
-        repository.setLeadershipItems(testItems)
 
         viewModel.state.test {
-            // Skip initial loading state
-            awaitItem()
-            // After refresh completes
+            awaitItem() // initial loading state
             val state = awaitItem()
             assertEquals(2, state.items.size)
             assertEquals("item1", state.items[0].id)
@@ -92,59 +113,21 @@ class VaccinationLeadershipVideosViewModelTest {
 
     @Test
     fun `full trail shows pending, approved, rejected, closed items`() = runTest {
-        val testItems = listOf(
-            VaccinationLeadershipItemUi(
-                id = "pending-item",
-                title = "Pending",
-                status = "pending",
-                statusLabel = "Pending Review",
-                statusTone = "neutral",
-                timestamp = "2026-08-06 10:00 AM",
-                proofCount = 1,
-                videoUrls = listOf(),
-                summary = "",
-            ),
-            VaccinationLeadershipItemUi(
-                id = "approved-item",
-                title = "Approved",
-                status = "approved",
-                statusLabel = "Approved",
-                statusTone = "success",
-                timestamp = "2026-08-06 11:00 AM",
-                proofCount = 1,
-                videoUrls = listOf(),
-                summary = "",
-            ),
-            VaccinationLeadershipItemUi(
-                id = "rework-item",
-                title = "Rework",
-                status = "rework",
-                statusLabel = "Needs Rework",
-                statusTone = "error",
-                timestamp = "2026-08-06 12:00 PM",
-                proofCount = 1,
-                videoUrls = listOf(),
-                summary = "",
-            ),
-            VaccinationLeadershipItemUi(
-                id = "closed-item",
-                title = "Closed",
-                status = "closed",
-                statusLabel = "Closed",
-                statusTone = "neutral",
-                timestamp = "2026-08-06 01:00 PM",
-                proofCount = 1,
-                videoUrls = listOf(),
-                summary = "",
+        repository.setResponse(
+            VerificationQueueResponseDto(
+                items = listOf(
+                    verificationItem(id = "pending-item", subjectLabel = "Pending", status = "pending"),
+                    verificationItem(id = "approved-item", subjectLabel = "Approved", status = "approved"),
+                    verificationItem(id = "rework-item", subjectLabel = "Rework", status = "rework"),
+                    verificationItem(id = "closed-item", subjectLabel = "Closed", status = "closed"),
+                ),
             ),
         )
-        repository.setLeadershipItems(testItems)
 
         viewModel.state.test {
-            awaitItem() // Skip loading
+            awaitItem() // initial loading state
             val state = awaitItem()
             assertEquals(4, state.items.size)
-            // Verify all statuses are present
             val statuses = state.items.map { it.status }
             assertTrue(statuses.contains("pending"))
             assertTrue(statuses.contains("approved"))
@@ -157,24 +140,15 @@ class VaccinationLeadershipVideosViewModelTest {
     fun `no verdict controls are rendered - read only by construction`() = runTest {
         // This is a compile-time check: the screen composable has no approve/reject buttons
         // and the ViewModel has no verdict methods. This test documents the invariant.
-        val uiState = VaccinationLeadershipVideosUiState(
-            items = listOf(
-                VaccinationLeadershipItemUi(
-                    id = "item",
-                    title = "Title",
-                    status = "pending",
-                    statusLabel = "Label",
-                    statusTone = "neutral",
-                    timestamp = "now",
-                    proofCount = 1,
-                    videoUrls = listOf(),
-                    summary = "",
-                )
-            )
+        repository.setResponse(
+            VerificationQueueResponseDto(items = listOf(verificationItem(id = "item", subjectLabel = "Title", status = "pending"))),
         )
-        // Verify the state has no verdict-related fields
-        assertTrue(uiState.items.isNotEmpty())
-        assertEquals(null, uiState.error)
+        viewModel.state.test {
+            awaitItem()
+            val state = awaitItem()
+            assertTrue(state.items.isNotEmpty())
+            assertEquals(null, state.error)
+        }
     }
 
     @Test
@@ -188,14 +162,22 @@ class VaccinationLeadershipVideosViewModelTest {
         // All of those remain in VerifyQueueViewModel.
         assertTrue(true) // Compile-time structural guarantee above
     }
+
+    private fun verificationItem(id: String, subjectLabel: String, status: String) = VerificationQueueItem(
+        itemId = id,
+        category = "vaccination_proof",
+        subjectLabel = subjectLabel,
+        status = status,
+        capturedAt = "",
+    )
 }
 
 // Test fakes
 private class FakeVerificationRepository : VerificationRepository {
-    private var leadershipItems = emptyList<VaccinationLeadershipItemUi>()
+    private val response = MutableStateFlow(Resource<VerificationQueueResponseDto>(data = null, lastSyncedAt = null))
 
-    fun setLeadershipItems(items: List<VaccinationLeadershipItemUi>) {
-        this.leadershipItems = items
+    fun setResponse(dto: VerificationQueueResponseDto) {
+        response.value = Resource(data = dto, lastSyncedAt = 0L)
     }
 
     override suspend fun queue(
@@ -207,7 +189,7 @@ private class FakeVerificationRepository : VerificationRepository {
         shedId: String?,
         limit: Int?,
         cursor: String?,
-    ) = throw NotImplementedError()
+    ) = response.value.data ?: VerificationQueueResponseDto()
 
     override fun observeQueue(
         category: String?,
@@ -217,7 +199,7 @@ private class FakeVerificationRepository : VerificationRepository {
         parkId: String?,
         shedId: String?,
         limit: Int?,
-    ) = throw NotImplementedError()
+    ): Flow<Resource<VerificationQueueResponseDto>> = response.asStateFlow()
 
     override suspend fun refreshQueue(
         category: String?,
@@ -238,7 +220,7 @@ private class FakeVerificationRepository : VerificationRepository {
         parkId: String?,
         shedId: String?,
         limit: Int?,
-    ) = throw NotImplementedError()
+    ) = Result.success(Unit)
 
     override fun observeActionQueue(
         category: String?,
@@ -264,16 +246,16 @@ private class FakeVerificationRepository : VerificationRepository {
 
     override suspend fun markVerificationItemDecidedLocally(itemId: String) = Unit
 
-    override fun observeLeadershipVideos(
-        category: String?,
-        windowSize: Int,
-    ) = flowOf(leadershipItems)
+    override fun observeLeadershipVideos(category: String?, windowSize: Int) = throw NotImplementedError()
 
-    override suspend fun refreshLeadershipVideos(category: String?, reset: Boolean) =
+    override fun observeLeadershipTitle(category: String?, windowSize: Int) = throw NotImplementedError()
+
+    override suspend fun refreshLeadershipVideos(category: String?, windowSize: Int, reset: Boolean) =
         AppResult.Ok(Unit)
 }
 
 private class FakeAnalyticsPort : AnalyticsPort {
-    override fun track(event: String) = Unit
-    override fun trackUserAction(action: String, attributes: Map<String, String>) = Unit
+    override fun track(event: String, props: Map<String, String>) = Unit
+    override fun setUserProperty(name: String, value: String?) = Unit
+    override fun setUserId(id: String?) = Unit
 }

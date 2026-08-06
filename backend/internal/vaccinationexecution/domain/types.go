@@ -363,13 +363,13 @@ type DriveAssignmentResponse struct {
 // ScanRosterRow represents a single per-animal vaccination obligation for mobile scan screen.
 // primaryTag and secondaryTag are RFID identifiers; vaccineLabel is the vaccine name and schedule position.
 type ScanRosterRow struct {
-	GoatID         string  `json:"goatId"`
-	PrimaryTag     string  `json:"primaryTag"`
-	SecondaryTag   *string `json:"secondaryTag,omitempty"`
-	VaccineLabel   string  `json:"vaccineLabel"`
-	Status         string  `json:"status"`
-	ScannedAt      *string `json:"scannedAt,omitempty"`
-	ObligationID   string  `json:"obligationId"`
+	GoatID       string  `json:"goatId"`
+	PrimaryTag   string  `json:"primaryTag"`
+	SecondaryTag *string `json:"secondaryTag,omitempty"`
+	VaccineLabel string  `json:"vaccineLabel"`
+	Status       string  `json:"status"`
+	ScannedAt    *string `json:"scannedAt,omitempty"`
+	ObligationID string  `json:"obligationId"`
 	// ObligationRowVersion is obligation_instances.row_version for this row's obligation. It
 	// bumps every time the obligation transitions (including a verifier rejection reopening it
 	// for re-capture) and is the server-issued cycle discriminator the mobile scan-capture

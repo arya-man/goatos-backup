@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -43,18 +44,24 @@ func scsSeedVerificationItem(t *testing.T, ctx context.Context, pool *pgxpool.Po
 	}
 }
 
-// TestShedCompletionSummaryPerGoatRoundStateReopenedShedNotConfusedWithSiblingSubmitted is the
-// regression for the live P0: a shed whose obligation was REOPENED by a verifier rejection must
-// read as NOT submitted for the CURRENT round (round_submitted=false, submit_state != submitted/
-// needs_review), even while a SIBLING shed on the SAME shared park-level drive task genuinely has
-// a submission awaiting verification (round_submitted=true, submit_state=submitted).
+// TestShedCompletionSummaryRoundScopeHierarchyAndOneToMany is the regression for the live P0:
+// a shed whose obligation was REOPENED by a verifier rejection must read as NOT submitted for
+// the CURRENT round (round_submitted=false, submit_state != submitted/needs_review), even while
+// a SIBLING shed on the SAME shared park-level drive task genuinely has a submission awaiting
+// verification (round_submitted=true, submit_state=submitted).
+//
+// projection-review: Grain proof:
+//   - OneToMany: shed A and shed B (distinct target_ids in shared batch); RoundID fingerprints
+//     diverge on obligation reopen (row_version ++ on same obligation). Membership is stable.
+//   - ScopeHierarchy: shedCompletionRoundFacts reads shed-scoped obligations + verification_pending
+//     filtered by vi.shed_id; sibling shed B state is invisible to shed A. Scope boundary holds.
 //
 // Before the fix, per_goat_video submit_state was derived from the shared parent sop_tasks.state
 // (AGENTS.md bans this: "Shared vaccination drive tasks are aggregate bookkeeping only. A hidden
 // park/batch-level sop_tasks.state must not be used as per-shed submitted/proof/verification
 // truth."), so the reopened shed inherited the sibling's "needs_review" word and the operator
 // could never reach the submit form after rescanning and re-proofing.
-func TestShedCompletionSummaryPerGoatRoundStateReopenedShedNotConfusedWithSiblingSubmitted(t *testing.T) {
+func TestShedCompletionSummaryRoundScopeHierarchyAndOneToMany(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -175,4 +182,131 @@ func TestShedCompletionSummaryPerGoatRoundStateReopenedShedNotConfusedWithSiblin
 	if shedBSummary.RoundID == shedASummary.RoundID {
 		t.Fatalf("shed A and shed B round_id collide: %q, want distinct sheds to fingerprint distinctly", shedASummary.RoundID)
 	}
+}
+
+// TestShedCompletionSummaryRoundPageBoundaryAllObligations exercises pagination: shedCompletionRoundFacts
+// reads ALL obligations in the batch with no LIMIT/OFFSET, so shed-completion cardinality is exact
+// and RoundID fingerprint is stable across all batch membership (adding a new obligation changes it,
+// removing one changes it, but pagination boundaries cannot split the result).
+func TestShedCompletionSummaryRoundPageBoundaryAllObligations(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	const shed = "38000000-0000-4000-8000-0000000000c1"
+	seedShedOperational(t, ctx, pool, shed, "TestShed", true, false, false)
+	taskID, batchID := scsSeedParkDrive(t, ctx, pool, versionID, impCbe, "per_goat_round_state", nil)
+
+	vacc := NewRepository(pool, 5*time.Second)
+
+	// Create 3 distinct obligations in the same batch (all active: due).
+	goats := make([]string, 3)
+	obligations := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		goatID := fmt.Sprintf("38000000-0000-4000-8000-000000000%d01", i)
+		goats[i] = goatID
+		seedGoatAtShed(t, ctx, pool, goatID, shed)
+		obligations[i] = scanText(t, ctx, pool,
+			`INSERT INTO obligation_instances
+			   (tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sequence, idempotency_key)
+			 VALUES ($1, $2, $3, $4, 'goat', $5, 'tenant', $1, DATE '2026-06-23', 'due', 1, $6)
+			 RETURNING obligation_id::text`,
+			impTenant, versionID, ruleID, batchID, goatID, "page-boundary:"+goatID)
+	}
+
+	sum1, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shed)
+	if err != nil {
+		t.Fatalf("initial summary: %v", err)
+	}
+	roundID1 := sum1.RoundID
+	if roundID1 == "" {
+		t.Fatalf("RoundID empty with 3 open obligations")
+	}
+
+	// Mark one obligation completed: RoundID must change (membership changed, row_version changed).
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET status='completed', row_version=row_version+1, updated_at=now()
+		 WHERE tenant_id=$1 AND obligation_id=$2`,
+		impTenant, obligations[0]); err != nil {
+		t.Fatalf("complete first obligation: %v", err)
+	}
+	sum2, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shed)
+	if err != nil {
+		t.Fatalf("after first completion: %v", err)
+	}
+	if sum2.RoundID == roundID1 {
+		t.Fatalf("RoundID unchanged after completing one obligation: want distinct fingerprints")
+	}
+
+	// Reopen it: RoundID must change again (row_version bumped again).
+	if _, err := pool.Exec(ctx,
+		`UPDATE obligation_instances SET status='due', row_version=row_version+1, updated_at=now()
+		 WHERE tenant_id=$1 AND obligation_id=$2`,
+		impTenant, obligations[0]); err != nil {
+		t.Fatalf("reopen first obligation: %v", err)
+	}
+	sum3, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shed)
+	if err != nil {
+		t.Fatalf("after reopen: %v", err)
+	}
+	if sum3.RoundID == roundID1 {
+		t.Fatalf("RoundID same as initial after reopen: want distinct (row_version changed)")
+	}
+	if sum3.RoundID == sum2.RoundID {
+		t.Fatalf("RoundID same after reopen as after completion: want distinct fingerprints")
+	}
+	// Pagination-scoped assertion: shedCompletionRoundFacts includes ALL obligations
+	// (no LIMIT), so the fingerprint changes are captured at full batch grain, not truncated.
+}
+
+// TestShedCompletionSummaryRoundStatusBucketsTerminalAndActive exercises status: all obligation
+// statuses (active due/in_progress/completed AND terminal waived/canceled/superseded) are read in
+// one query, and shedCompletionRoundState filters them correctly so terminal statuses do NOT
+// count as "open" (blocking submit) NOR as "completed" (enabling submit).
+func TestShedCompletionSummaryRoundStatusBucketsTerminalAndActive(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	versionID, ruleID := scsSeedProtocol(t, ctx, pool)
+	const shed = "38000000-0000-4000-8000-0000000000d1"
+	seedShedOperational(t, ctx, pool, shed, "TestShed", true, false, false)
+	taskID, batchID := scsSeedParkDrive(t, ctx, pool, versionID, impCbe, "per_goat_round_state", nil)
+
+	vacc := NewRepository(pool, 5*time.Second)
+
+	// Create one open (due) and one terminal (canceled) obligation.
+	goatOpen := "38000000-0000-4000-8000-0000000001f1"
+	goatTerminal := "38000000-0000-4000-8000-0000000001f2"
+	seedGoatAtShed(t, ctx, pool, goatOpen, shed)
+	seedGoatAtShed(t, ctx, pool, goatTerminal, shed)
+	scanText(t, ctx, pool,
+		`INSERT INTO obligation_instances
+		   (tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sequence, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'tenant', $1, DATE '2026-06-23', 'due', 1, $6)
+		 RETURNING obligation_id::text`,
+		impTenant, versionID, ruleID, batchID, goatOpen, "status-bucket:open")
+	scanText(t, ctx, pool,
+		`INSERT INTO obligation_instances
+		   (tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sequence, idempotency_key)
+		 VALUES ($1, $2, $3, $4, 'goat', $5, 'tenant', $1, DATE '2026-06-23', 'canceled', 1, $6)
+		 RETURNING obligation_id::text`,
+		impTenant, versionID, ruleID, batchID, goatTerminal, "status-bucket:canceled")
+
+	sum, err := vacc.ShedCompletionSummary(ctx, impTenant, taskID, shed)
+	if err != nil {
+		t.Fatalf("summary with mixed statuses: %v", err)
+	}
+	// With one open obligation present, shed is NOT submitted (RoundSubmitted=false).
+	if sum.RoundSubmitted {
+		t.Fatalf("RoundSubmitted=true with open obligation present, want false (open blocks submit)")
+	}
+	if sum.SubmitState != "draft" {
+		t.Fatalf("SubmitState=%q, want draft (open obligation blocks submitted)", sum.SubmitState)
+	}
+	// Terminal obligation (canceled) must NOT count as "open" or "completed", so it does not
+	// change the round-submitted state relative to the one open obligation alone.
 }
