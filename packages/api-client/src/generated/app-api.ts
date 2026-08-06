@@ -4221,7 +4221,6 @@ export interface components {
             redirect_goat_id?: string | null;
         };
         LocationPath: {
-            display: string;
             /** Format: uuid */
             farm_id?: string | null;
             farm_code?: string | null;
@@ -4243,7 +4242,7 @@ export interface components {
             /** @description Original partition-bearing source name (e.g. "Castro 1"), kept for traceability only. Not a display field. */
             source_shed_name?: string | null;
             /** @description User-facing location label. No partition -> bare shed name ("Yashoda"); numeric convention -> "Castro 2"; prefixed convention -> "Godel 1 - Part 3". */
-            operational_location_display?: string;
+            operational_location_display: string;
         };
         EvidenceRef: {
             /** @enum {string} */
@@ -7840,6 +7839,8 @@ export interface components {
             /** Format: uuid */
             shed_id?: string;
             shed_code?: string;
+            /** @description The pen within shed_id the newborn is placed into ('1', 'Part 3'), matching a row in shed_partitions for that shed. OPTIONAL and additive: omitting it keeps the previous behaviour exactly (the animal is placed at shed level with no goat_shed_partitions row), so clients that predate this field continue to work unchanged. When present it is validated against the shed's real partitions and a mismatch is rejected rather than stored, and it is persisted in the SAME transaction as the goat insert. Never the literal string "whole" - that is a matching sentinel, not a pen. */
+            partition_label?: string | null;
             breed: string;
             /** @enum {string} */
             sex: "female" | "male";
@@ -8160,6 +8161,14 @@ export interface components {
             /** Format: uuid */
             destination_shed_id: string;
             destination_shed_name: string;
+            /** @description The pen this movement runs FROM. Absent for an intake with no tracked origin. */
+            source_partition_label?: string | null;
+            /** @description The pen this movement runs INTO. */
+            destination_partition_label?: string | null;
+            /** @description Backend-composed operator-facing label for the source end ("Castro - 1"). Render this verbatim; do not rebuild it from shed name + partition on the client. Absent when the movement has no tracked origin. */
+            source_operational_location_display?: string | null;
+            /** @description Backend-composed operator-facing label for the destination end ("Castro - 2"). Added 2026-08-06: this item previously shipped shed names only, so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2 move while the Android DTO already declared the partition fields and deserialized them to null. */
+            destination_operational_location_display?: string;
             /**
              * Format: uuid
              * @description Who authorized this movement - the operator's basis for acting.

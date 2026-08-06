@@ -397,8 +397,12 @@ class ShiftingExecuteViewModel @Inject constructor(
         current.copy(
             loading = false,
             notFound = false,
-            sourceLabel = (sourceShedName ?: sourceParkName)?.takeIf { it.isNotBlank() } ?: UNKNOWN_LOCATION,
-            destinationLabel = destinationShedName.takeIf { it.isNotBlank() }
+            // Backend-composed label first, so the operator walking the animals sees the PEN
+            // ("Castro - 1" -> "Castro - 2") and not the parent shed on both ends.
+            sourceLabel = sourceOperationalLocationDisplay?.takeIf { it.isNotBlank() }
+                ?: (sourceShedName ?: sourceParkName)?.takeIf { it.isNotBlank() } ?: UNKNOWN_LOCATION,
+            destinationLabel = destinationOperationalLocationDisplay.takeIf { it.isNotBlank() }
+                ?: destinationShedName.takeIf { it.isNotBlank() }
                 ?: destinationParkName.takeIf { it.isNotBlank() } ?: UNKNOWN_LOCATION,
             priority = priority.titleCase(),
             category = category.titleCase(),

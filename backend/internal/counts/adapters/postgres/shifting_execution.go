@@ -817,8 +817,8 @@ WITH page AS (
 	                           OR se.verification_state = 'rejected')
 	                THEN 'execute' ELSE 'none' END AS primary_action_key,
 	           se.priority, se.category,
-           se.source_park_id, se.source_shed_id,
-           se.destination_park_id, se.destination_shed_id,
+           se.source_park_id, se.source_shed_id, se.source_partition_label,
+           se.destination_park_id, se.destination_shed_id, se.destination_partition_label,
            se.authorized_by, se.authorized_at, se.raised_at, se.effective_at
     FROM shifting_events se
     WHERE se.tenant_id = $1::uuid
@@ -853,8 +853,10 @@ WITH page AS (
 	SELECT p.shifting_event_id::text, p.event_status, p.verification_state, p.primary_action_key,
 	       p.priority, p.category,
        p.source_park_id::text, src_park.name, p.source_shed_id::text, src_shed.name,
+       p.source_partition_label,
        p.destination_park_id::text, dst_park.name,
        p.destination_shed_id::text, dst_shed.name,
+       p.destination_partition_label,
        p.authorized_by::text, p.authorized_at,
        r.raised_by_user_id::text, p.raised_at, p.effective_at,
        coalesce(array_length(r.goat_ids, 1), 0) AS animal_count,
@@ -902,8 +904,10 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 			&item.ShiftingEventID, &item.EventStatus, &item.VerificationState, &item.PrimaryActionKey,
 			&item.Priority, &item.Category,
 			&item.SourceParkID, &item.SourceParkName, &item.SourceShedID, &item.SourceShedName,
+			&item.SourcePartitionLabel,
 			&item.DestinationParkID, &item.DestinationParkName,
 			&item.DestinationShedID, &item.DestinationShedName,
+			&item.DestinationPartitionLabel,
 			&item.AuthorizedByUserID, &item.AuthorizedAt,
 			&raisedBy, &item.RaisedAt, &item.EffectiveAt,
 			&item.AnimalCount, &animalsRaw,

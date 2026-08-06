@@ -35,10 +35,18 @@ type appShiftingDestinationShed struct {
 	// the raw stored label for a real-partition entry. A partitioned shed appears multiple times in
 	// its park's sheds list, once per real partition -- never as a synthesized "whole shed" option.
 	PartitionLabel *string `json:"partition_label,omitempty"`
-	// Display is the operator-facing operational-location label ("Yashoda", "Castro 2",
-	// "Godel 1 - Part 3"), so the client renders exactly what oploc.OperationalLocation.Display
-	// produces and never re-derives it from ShedID + PartitionLabel itself.
-	Display string `json:"display"`
+	// OperationalLocationDisplay is the operator-facing operational-location label ("Yashoda",
+	// "Castro - 2", "Godel 1 - Part 3"), so the client renders exactly what
+	// oploc.OperationalLocation.Display produces and never re-derives it from ShedID +
+	// PartitionLabel itself.
+	//
+	// The wire name is `operational_location_display`, NOT `display`. It shipped as `display`
+	// until 2026-08-06 while OpenAPI's ShiftingDestinationShed and Android's
+	// CountsDestinationShedDto both declared the canonical name, so the client deserialized it to
+	// "" on every row -- silently, because an absent key takes its default. Nobody noticed only
+	// because the screen re-derived the label locally, which is the defect this field exists to
+	// prevent.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 // ListShiftingDestinations returns the active park -> shed cascade for the caller's tenant.
@@ -71,11 +79,11 @@ func (h *AppWriteHandler) ListShiftingDestinations(w http.ResponseWriter, r *htt
 		sheds := make([]appShiftingDestinationShed, 0, len(park.Sheds))
 		for _, shed := range park.Sheds {
 			sheds = append(sheds, appShiftingDestinationShed{
-				ShedID:           shed.ShedID,
-				Name:             shed.Name,
-				ManagementStages: shed.ManagementStages,
-				PartitionLabel:   shed.PartitionLabel,
-				Display:          shed.Display,
+				ShedID:                     shed.ShedID,
+				Name:                       shed.Name,
+				ManagementStages:           shed.ManagementStages,
+				PartitionLabel:             shed.PartitionLabel,
+				OperationalLocationDisplay: shed.Display,
 			})
 		}
 		parks = append(parks, appShiftingDestinationPark{

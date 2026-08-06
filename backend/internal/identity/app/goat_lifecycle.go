@@ -118,6 +118,7 @@ func (s *Service) MoveGoat(ctx context.Context, input MoveGoatInput) (*domain.Ad
 		GoatID:               goatID,
 		ToParkID:             body.ParkID,
 		ToShedID:             body.ShedID,
+		ToPartitionLabel:     body.PartitionLabel,
 		Reason:               strings.TrimSpace(body.Reason),
 		OccurredAt:           occurredAt,
 		EvidenceRefs:         body.EvidenceRefs,
@@ -587,6 +588,16 @@ func validateMoveGoat(body *domain.MoveGoatRequest) error {
 	}
 	if body.RowVersion < 1 {
 		return BadRequest("invalid_row_version", "row_version must be positive")
+	}
+	// A pen is meaningless without a shed and must never be the "whole" matching sentinel.
+	// Existence against shed_partitions is checked in the repository, inside the move transaction.
+	if body.PartitionLabel != nil {
+		label := strings.TrimSpace(*body.PartitionLabel)
+		if label == "" || strings.EqualFold(label, "whole") {
+			return BadRequest("invalid_partition_label",
+				`partition_label must name a real pen; omit it for a shed-level move`)
+		}
+		body.PartitionLabel = &label
 	}
 	return validateEvidenceRefs(body.EvidenceRefs, true)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 // Shifting EXECUTION endpoints -- the operator's half of a movement.
@@ -329,16 +330,30 @@ type appShiftingPendingExecutionItem struct {
 
 	Priority string `json:"priority"`
 	Category string `json:"category"`
+	// (helpers for the operational-location labels below live at the end of this file)
 
 	SourceParkID   *string `json:"source_park_id,omitempty"`
 	SourceParkName *string `json:"source_park_name,omitempty"`
 	SourceShedID   *string `json:"source_shed_id,omitempty"`
 	SourceShedName *string `json:"source_shed_name,omitempty"`
+	// SourcePartitionLabel/DestinationPartitionLabel and their composed *OperationalLocationDisplay
+	// labels close a silent gap found 2026-08-06: the Android DTOs already declared the partition
+	// fields, shifting_events has carried the columns since 000113, but nothing here selected or
+	// emitted them -- so approve/execute rendered "Castro -> Castro" for a Castro 1 -> Castro 2
+	// move and the client fields deserialized null forever.
+	//
+	// The *Display fields are composed by oploc.Display() so the client renders the label rather
+	// than rebuilding it from name + partition (the re-derivation defect in
+	// docs/decisions/operational-location-display-contract.md).
+	SourcePartitionLabel             *string `json:"source_partition_label,omitempty"`
+	SourceOperationalLocationDisplay *string `json:"source_operational_location_display,omitempty"`
 
-	DestinationParkID   string `json:"destination_park_id"`
-	DestinationParkName string `json:"destination_park_name"`
-	DestinationShedID   string `json:"destination_shed_id"`
-	DestinationShedName string `json:"destination_shed_name"`
+	DestinationParkID                     string  `json:"destination_park_id"`
+	DestinationParkName                   string  `json:"destination_park_name"`
+	DestinationShedID                     string  `json:"destination_shed_id"`
+	DestinationShedName                   string  `json:"destination_shed_name"`
+	DestinationPartitionLabel             *string `json:"destination_partition_label,omitempty"`
+	DestinationOperationalLocationDisplay string  `json:"destination_operational_location_display"`
 
 	ApprovedByUserID *string    `json:"approved_by_user_id,omitempty"`
 	ApprovedAt       *time.Time `json:"approved_at,omitempty"`
@@ -411,31 +426,38 @@ func (h *AppWriteHandler) ListShiftingPendingExecution(w http.ResponseWriter, r 
 			})
 		}
 		items = append(items, appShiftingPendingExecutionItem{
-			ShiftingEventID:     row.ShiftingEventID,
-			EventStatus:         row.EventStatus,
-			VerificationState:   row.VerificationState,
-			PrimaryActionKey:    row.PrimaryActionKey,
-			Priority:            row.Priority,
-			Category:            row.Category,
-			SourceParkID:        row.SourceParkID,
-			SourceParkName:      row.SourceParkName,
-			SourceShedID:        row.SourceShedID,
-			SourceShedName:      row.SourceShedName,
-			DestinationParkID:   row.DestinationParkID,
-			DestinationParkName: row.DestinationParkName,
-			DestinationShedID:   row.DestinationShedID,
-			DestinationShedName: row.DestinationShedName,
-			ApprovedByUserID:    row.AuthorizedByUserID,
-			ApprovedAt:          row.AuthorizedAt,
-			ApprovedAtIST:       istLabel(row.AuthorizedAt),
-			RaisedByUserID:      row.RaisedByUserID,
-			RaisedAt:            row.RaisedAt,
-			RaisedAtIST:         row.RaisedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
-			EffectiveAt:         row.EffectiveAt,
-			AnimalCount:         row.AnimalCount,
-			AnimalsTruncated:    row.AnimalCount > len(animals),
-			Animals:             animals,
-			FeedRequirement:     row.FeedRequirement,
+			ShiftingEventID:                  row.ShiftingEventID,
+			EventStatus:                      row.EventStatus,
+			VerificationState:                row.VerificationState,
+			PrimaryActionKey:                 row.PrimaryActionKey,
+			Priority:                         row.Priority,
+			Category:                         row.Category,
+			SourceParkID:                     row.SourceParkID,
+			SourceParkName:                   row.SourceParkName,
+			SourceShedID:                     row.SourceShedID,
+			SourceShedName:                   row.SourceShedName,
+			SourcePartitionLabel:             row.SourcePartitionLabel,
+			SourceOperationalLocationDisplay: optionalOperationalLocationDisplay(row.SourceShedName, row.SourcePartitionLabel),
+			DestinationParkID:                row.DestinationParkID,
+			DestinationParkName:              row.DestinationParkName,
+			DestinationShedID:                row.DestinationShedID,
+			DestinationShedName:              row.DestinationShedName,
+			DestinationPartitionLabel:        row.DestinationPartitionLabel,
+			DestinationOperationalLocationDisplay: oploc.OperationalLocation{
+				ShedName:       row.DestinationShedName,
+				PartitionLabel: stringOrEmpty(row.DestinationPartitionLabel),
+			}.Display(),
+			ApprovedByUserID: row.AuthorizedByUserID,
+			ApprovedAt:       row.AuthorizedAt,
+			ApprovedAtIST:    istLabel(row.AuthorizedAt),
+			RaisedByUserID:   row.RaisedByUserID,
+			RaisedAt:         row.RaisedAt,
+			RaisedAtIST:      row.RaisedAt.In(biztime.DefaultLocation()).Format(time.RFC3339),
+			EffectiveAt:      row.EffectiveAt,
+			AnimalCount:      row.AnimalCount,
+			AnimalsTruncated: row.AnimalCount > len(animals),
+			Animals:          animals,
+			FeedRequirement:  row.FeedRequirement,
 		})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK,
@@ -504,4 +526,30 @@ func (h *AppWriteHandler) writeShiftingExecutionError(w http.ResponseWriter, r *
 		}
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 	}
+}
+
+// stringOrEmpty dereferences an optional label, treating nil as "no partition".
+func stringOrEmpty(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+
+// optionalOperationalLocationDisplay composes the operator-facing label for a movement END whose
+// shed itself is optional (an intake has no source). It returns nil rather than an empty string so
+// the field stays absent on the wire for a movement with no origin, instead of shipping "" and
+// making the client decide what that means.
+func optionalOperationalLocationDisplay(shedName *string, partitionLabel *string) *string {
+	if shedName == nil || strings.TrimSpace(*shedName) == "" {
+		return nil
+	}
+	display := oploc.OperationalLocation{
+		ShedName:       *shedName,
+		PartitionLabel: stringOrEmpty(partitionLabel),
+	}.Display()
+	if display == "" {
+		return nil
+	}
+	return &display
 }

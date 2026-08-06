@@ -32,11 +32,12 @@ type Warning struct {
 }
 
 type LocationPath struct {
-	// Display is the operational location for this animal: bare shed/park name when not
-	// partitioned, "<shed> <partition>" / "<shed> - Part <n>" when it is. Composed via
-	// internal/platform/oploc.OperationalLocation.Display() so it can never render the "whole"
-	// sentinel.
-	Display    string  `json:"display"`
+	// The `display` alias was RETIRED on 2026-08-06. This type used to ship the same string twice --
+	// a required `display` and an optional `operational_location_display` -- which is how one name
+	// gets updated and the other silently does not. That exact failure had already happened one
+	// endpoint over: the shifting destinations handler emitted `display` while the contract and the
+	// Android DTO expected `operational_location_display`, so clients deserialized "" with no error.
+	// OperationalLocationDisplay below is now the single name on every surface.
 	FarmID     *string `json:"farm_id"`
 	FarmCode   *string `json:"farm_code,omitempty"`
 	FarmName   *string `json:"farm_name,omitempty"`
@@ -55,9 +56,13 @@ type LocationPath struct {
 	// SourceShedName is the original partition-bearing name the row was normalized from
 	// ("Castro 1"), kept for traceability only -- it is not a display field.
 	SourceShedName *string `json:"source_shed_name,omitempty"`
-	// OperationalLocationDisplay duplicates Display under an explicit name for API consumers that
-	// migrated off the historically ambiguous "display" field; both are always equal.
-	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
+	// OperationalLocationDisplay is the operational location for this animal: bare shed/park name
+	// when it is not partitioned, "<shed> - <partition>" when it is. Composed via
+	// oploc.OperationalLocation.Display() so it can never render the "whole" sentinel.
+	//
+	// Required, not omitempty: this replaced the former required `display` field, and a location
+	// label that can vanish from the payload is how a screen silently renders blank.
+	OperationalLocationDisplay string `json:"operational_location_display"`
 }
 
 type EvidenceRef struct {
@@ -208,13 +213,20 @@ type AdminGoatCreateRequest struct {
 	// TimeOfBirth is the operator-recorded birth time (HH:MM, 24h, IST wall clock). Optional; stored
 	// as goats.time_of_birth and carried on the goat.created payload so the birth follow-up workflow
 	// opener can anchor EVENT+offset steps. Absent = unknown (readers fall back to 07:00 IST).
-	TimeOfBirth     *string `json:"time_of_birth,omitempty"`
-	FarmID          *string `json:"farm_id,omitempty"`
-	FarmCode        *string `json:"farm_code,omitempty"`
-	ParkID          *string `json:"park_id,omitempty"`
-	ParkCode        *string `json:"park_code,omitempty"`
-	ShedID          *string `json:"shed_id,omitempty"`
-	ShedCode        *string `json:"shed_code,omitempty"`
+	TimeOfBirth *string `json:"time_of_birth,omitempty"`
+	FarmID      *string `json:"farm_id,omitempty"`
+	FarmCode    *string `json:"farm_code,omitempty"`
+	ParkID      *string `json:"park_id,omitempty"`
+	ParkCode    *string `json:"park_code,omitempty"`
+	ShedID      *string `json:"shed_id,omitempty"`
+	ShedCode    *string `json:"shed_code,omitempty"`
+	// PartitionLabel is the pen within ShedID this animal is placed into ('1', 'Part 3'). Optional
+	// and additive: nil reproduces the pre-2026-08-06 behaviour exactly (shed-level placement, no
+	// goat_shed_partitions row), so existing callers are unaffected. When present it is validated
+	// against the shed's real partitions and persisted in the SAME transaction as the goat insert
+	// -- the create path previously had no partition concept at all, which is why a birth into
+	// "Godel 1 - 3" could only ever be stored as "Godel 1".
+	PartitionLabel  *string `json:"partition_label,omitempty"`
 	Breed           *string `json:"breed,omitempty"`
 	Sex             string  `json:"sex"`
 	DOB             *string `json:"dob,omitempty"`
@@ -257,12 +269,17 @@ type AdminGoatBulkCommitRow struct {
 }
 
 type MoveGoatRequest struct {
-	ParkID       string        `json:"park_id"`
-	ShedID       string        `json:"shed_id"`
-	Reason       string        `json:"reason"`
-	OccurredAt   *time.Time    `json:"occurred_at,omitempty"`
-	EvidenceRefs []EvidenceRef `json:"evidence_refs"`
-	RowVersion   int           `json:"row_version"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel is the destination PEN. Optional: nil moves the animal to the shed with no
+	// pen recorded, which is the pre-2026-08-06 behaviour. Without it this route could only ever
+	// target a whole shed, so Castro 1 -> Castro 2 was unexpressible here even though the app-api
+	// shifting route could already express it.
+	PartitionLabel *string       `json:"partition_label,omitempty"`
+	Reason         string        `json:"reason"`
+	OccurredAt     *time.Time    `json:"occurred_at,omitempty"`
+	EvidenceRefs   []EvidenceRef `json:"evidence_refs"`
+	RowVersion     int           `json:"row_version"`
 }
 
 type ExitGoatRequest struct {

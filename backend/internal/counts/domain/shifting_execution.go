@@ -234,11 +234,19 @@ type ShiftingExecutionRow struct {
 	SourceParkName *string
 	SourceShedID   *string
 	SourceShedName *string
+	// SourcePartitionLabel/DestinationPartitionLabel are the PENS this movement runs between.
+	// Without them the approve and execute screens rendered "Castro -> Castro" for a
+	// Castro 1 -> Castro 2 move: the raw columns have existed on shifting_events since migration
+	// 000113 and the Android DTOs declared both fields, but nothing on the Go side ever selected
+	// or emitted them, so the client deserialized null forever. Silent, because an absent key
+	// takes its default.
+	SourcePartitionLabel *string
 
-	DestinationParkID   string
-	DestinationParkName string
-	DestinationShedID   string
-	DestinationShedName string
+	DestinationParkID         string
+	DestinationParkName       string
+	DestinationShedID         string
+	DestinationShedName       string
+	DestinationPartitionLabel *string
 
 	// AuthorizedBy/AuthorizedAt answer "who said I may do this, and when" -- the operator's basis
 	// for acting. AuthorizedAt is a UTC instant; it is rendered in Asia/Kolkata at the HTTP edge,

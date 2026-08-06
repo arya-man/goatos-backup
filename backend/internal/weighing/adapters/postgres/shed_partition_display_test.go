@@ -49,8 +49,10 @@ func TestApplyShedPartitionDisplayCarriesParentAndPartition(t *testing.T) {
 	if shed.PartitionLabel != "2" {
 		t.Fatalf("PartitionLabel = %q, want %q", shed.PartitionLabel, "2")
 	}
-	if shed.OperationalLocationDisplay != "Castro 2" {
-		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Castro 2")
+	// DisplayName above is the raw source row ("Castro 2"); the composed display uses
+	// the " - " separator (2026-08-06).
+	if shed.OperationalLocationDisplay != "Castro - 2" {
+		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Castro - 2")
 	}
 }
 

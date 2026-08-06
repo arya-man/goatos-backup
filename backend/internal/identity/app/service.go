@@ -396,6 +396,11 @@ func mapRepoErr(err error) error {
 	if errors.Is(err, ports.ErrInvalidReference) {
 		return BadRequest("invalid_reference", "referenced identity data is missing, inactive, or outside tenant scope")
 	}
+	// A bad pen is operator input, not a server fault: surface it as a 400 the app can show on
+	// the field rather than letting it escape as a 500.
+	if errors.Is(err, ports.ErrPartitionNotInShed) {
+		return BadRequest("invalid_partition_label", "that partition does not exist in the selected shed")
+	}
 	if errors.Is(err, ports.ErrInvalidChronology) {
 		return BadRequest("invalid_chronology", "dob must be on or before entry_date")
 	}

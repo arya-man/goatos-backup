@@ -41,7 +41,12 @@ export function operationalLocationLabel({ shedName, partitionLabel, sourceShedN
   // (" - Part 3") and made admin-web render this edge case differently from Android for the same
   // animal. Matches PartitionLabel.kt and oploc.Display().
   if (!shed) return rawPartition;
-  return /^part\b/i.test(rawPartition) ? `${shed} - ${rawPartition}` : `${shed} ${rawPartition}`;
+  // One separator for every partition, worded or bare (maintainer decision, 2026-08-06). The old
+  // space form was unreadable wherever the shed NAME ends in a digit: "Godel 1" + "1" read
+  // "Godel 1 1" and "Godel 1" + "10" read "Godel 1 10". That was 98 of 130 real STG destination
+  // options (75%), not an edge case. Worded labels already used the dash, so two formats became
+  // one. Keep identical to oploc.Display() (Go) and PartitionLabel.kt (Android).
+  return `${shed} - ${rawPartition}`;
 }
 
 /** True when the given partition label represents a real (non-whole) partition. */

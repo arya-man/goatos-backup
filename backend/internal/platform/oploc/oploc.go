@@ -30,14 +30,13 @@ const WholeSentinel = "whole"
 // normalizer byte for byte and must not drift from it.
 var partPrefix = regexp.MustCompile(`^part[[:space:]]+`)
 
-// alreadyWordedPartition matches a label that already reads as a partition
-// phrase, so joining it to the shed name should use the dash form rather than a
-// bare space. This is DISPLAY-only and is deliberately wider than partPrefix:
-// it also covers the plural/range form ('Parts 1-3'), which the matching key
-// leaves alone. Kept identical to the Android helper's ALREADY_WORDED_PARTITION
-// (`^parts?\b`) so the same label can never render two different ways on the
-// phone and on the web.
-var alreadyWordedPartition = regexp.MustCompile(`(?i)^parts?\b`)
+// NOTE (2026-08-06): the display join no longer branches on whether a label is
+// already worded ('Part 3') or bare ('1') -- BOTH now join with " - ", so the
+// regex that used to select between a space form and a dash form is gone. The
+// matching key still normalizes 'Part 3' and '3' to the same value; that is
+// partPrefix above and is unaffected. Android keeps its own
+// ALREADY_WORDED_PARTITION because partitionDisplayLabel (the standalone chip)
+// still needs it; only the JOIN collapsed.
 
 // NormalizePartition reduces a raw partition label to its comparison key.
 // It mirrors, exactly, the SQL used by the operator execution reads:
@@ -88,11 +87,27 @@ type OperationalLocation struct {
 // Display renders the user-facing operational location.
 //
 //	non-partitioned:      "Yashoda"
-//	numeric convention:   "Castro 2", "Gandhi 3"
+//	numeric convention:   "Castro - 2", "Gandhi - 3"
 //	prefixed convention:  "Godel 1 - Part 3"
 //
-// The two conventions are preserved as stored rather than rewritten, so the
-// label an operator reads on screen matches the label painted on the shed.
+// The stored label is preserved verbatim rather than rewritten, so the text an
+// operator reads on screen matches the text painted on the shed; only the
+// SEPARATOR is ours.
+//
+// Why a dash and not a space (maintainer decision, 2026-08-06). The space form
+// was unreadable for the majority of real sheds, because shed NAMES themselves
+// end in a digit: "Godel 1" + partition "1" rendered "Godel 1 1", and
+// "Godel 1" + "10" rendered "Godel 1 10" -- which a human cannot parse as
+// shed "Godel 1" partition 10 rather than shed "Godel 1 1" partition 0, or
+// "Godel 1 10" as a name in its own right. On live STG data this was not an
+// edge case: 98 of 130 destination options (75%) had a digit-terminated shed
+// name with a numeric partition. Joining with " - " makes the boundary explicit
+// and, because worded labels already used the dash, collapses two formats into
+// one.
+//
+// Keep this identical to PartitionLabel.kt (Android) and
+// lib/operational-location.ts (admin-web); the same animal must never read two
+// different ways across surfaces.
 func (l OperationalLocation) Display() string {
 	shed := strings.TrimSpace(l.ShedName)
 	label := strings.TrimSpace(l.PartitionLabel)
@@ -108,10 +123,7 @@ func (l OperationalLocation) Display() string {
 	if !IsPartitioned(label) {
 		return shed
 	}
-	if alreadyWordedPartition.MatchString(label) {
-		return shed + " - " + label
-	}
-	return shed + " " + label
+	return shed + " - " + label
 }
 
 // IsPartitioned reports whether this location names a real partition.

@@ -1614,7 +1614,7 @@ func summary(goatID, displayID, identityState string) domain.GoatSummary {
 		LifecycleStatus:   "alive",
 		AnimalIdentifier1: strPtr("A1-" + displayID),
 		AnimalIdentifier2: strPtr("A2-" + displayID),
-		LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+		LocationPath:      domain.LocationPath{OperationalLocationDisplay: "Synthetic CBE"},
 		Warnings:          []domain.Warning{},
 	}
 }

@@ -143,11 +143,14 @@ class AddBirthViewModel @Inject constructor(
                     val shedStillOffered = parks
                         .firstOrNull { it.parkId == parkId }
                         ?.sheds
-                        ?.any { it.shedId == current.shedId } == true
+                        // Match the PEN, not just the shed: a refresh that drops "Godel 1 - 7"
+                        // while keeping "Godel 1" must not silently retain the stale partition.
+                        ?.any { it.shedId == current.shedId && it.partitionLabel == current.partitionLabel } == true
                     current.copy(
                         destinationParks = parks,
                         parkId = parkId,
                         shedId = if (shedStillOffered) current.shedId else "",
+                        partitionLabel = if (shedStillOffered) current.partitionLabel else null,
                         destinationsMessage = if (parks.isEmpty()) current.destinationsMessage else null,
                     )
                 }
@@ -222,11 +225,21 @@ class AddBirthViewModel @Inject constructor(
         recomputeSubmitGate()
     }
 
-    private fun onSelectShed(shedId: String) {
+    /**
+     * [optionKey] is the composite dropdown key `shedId|partitionLabel` (or a bare `shedId` for a
+     * non-partitioned shed), not a shed id. Resolving the option rather than parsing the string
+     * keeps the pen exactly as the backend spelled it, so a label containing "|" could never
+     * corrupt the selection.
+     */
+    private fun onSelectShed(optionKey: String) {
         if (!beginEdit()) return
         _state.update { current ->
-            val belongsToPark = current.shedsForSelectedPark.any { it.shedId == shedId }
-            if (belongsToPark) current.copy(shedId = shedId) else current
+            val option = current.shedsForSelectedPark.firstOrNull { it.optionKey == optionKey }
+            if (option != null) {
+                current.copy(shedId = option.shedId, partitionLabel = option.partitionLabel)
+            } else {
+                current
+            }
         }
         recomputeSubmitGate()
     }
@@ -285,6 +298,7 @@ class AddBirthViewModel @Inject constructor(
                     species = current.species,
                     parkId = current.parkId.ifBlank { null },
                     shedId = current.shedId.ifBlank { null },
+                    partitionLabel = current.partitionLabel?.takeIf { it.isNotBlank() },
                     breed = current.breed.trim(),
                     sex = current.sex,
                     // DOB is locked to today (births are recorded as they happen) and the entry

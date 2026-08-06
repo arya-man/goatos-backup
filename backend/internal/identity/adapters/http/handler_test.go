@@ -757,7 +757,7 @@ func handlerPassport() *domain.GoatPassport {
 			AnimalIdentifier1: strPtr("A1-G-000001"),
 			AnimalIdentifier2: strPtr("A2-G-000001"),
 			LifecycleStatus:   "alive",
-			LocationPath:      domain.LocationPath{Display: "Synthetic CBE"},
+			LocationPath:      domain.LocationPath{OperationalLocationDisplay: "Synthetic CBE"},
 			Warnings:          []domain.Warning{},
 		},
 		Identifiers:  []domain.GoatIdentifier{},
