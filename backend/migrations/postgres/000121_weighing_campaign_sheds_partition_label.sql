@@ -1,4 +1,3 @@
--- seed-fixture-guard:ignore: weighing_campaign_sheds is weighing-owned and free-flow; this adds a partition_label column + backfill from the locations/shed_partitions catalog. It touches no goat, vaccination, protocol or SOP table and changes no seed-data contract, fixture shape or source column.
 -- +goose Up
 -- weighing_campaign_sheds.partition_label: snapshot the partition label when the planner
 -- assigns a shed to a campaign.
