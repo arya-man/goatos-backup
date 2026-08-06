@@ -381,7 +381,7 @@ compile` — and the re-raise is aimed at the acquiring subshell, so TERMing the
 lane no longer takes `run-local-ci.sh` down with it. Guard:
 `tools/ci/check-gradle-worktree-lock.sh` (16 behavioural cases, ~45 s, no
 Gradle) with `check-gradle-worktree-lock.test.sh` driving it against 19 mutated
-copies of the library (~15 min). Both are diff-scoped in `run_common` — the
+copies of the library (17 min 16 s measured). Both are diff-scoped in `run_common` — the
 guard to a lock-library diff, the self-test to the lock, guard, harness or
 `run-local-ci.sh` — because charging 15 minutes to every `tools/ci/**` commit
 would be a wall-clock regression inside a wall-clock fix. `make guardrails` and
