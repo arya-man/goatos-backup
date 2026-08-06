@@ -5,10 +5,13 @@
 # WHY THIS EXISTS
 #   parallel-dispatch.sh's job_group() serialises `android` within ONE
 #   run-local-ci.sh process. It is entirely in-memory, so two worktrees are
-#   invisible to each other. Measured on this box: two concurrent android legs
-#   cost 397 s and 413 s, versus 110-161 s uncontended. Queuing is faster than
-#   racing, and that is the whole claim — this file makes the second worktree
-#   WAIT, it does not make any single pass faster.
+#   invisible to each other. Measured on this box, from the recorded ci-local
+#   timings: THREE worktrees whose `:app compile+unit+lint` steps overlapped for
+#   ~3.5 min took 340 s, 251 s and 361 s (epochs 1785967083-1785967590), and a
+#   two-worktree overlap took 413 s and 212 s (epochs 1785995260 / 1785995293).
+#   Runs on the same box with no other recorded run overlapping them cluster at
+#   84-181 s. Queuing is faster than racing, and that is the whole claim — this
+#   file makes the second worktree WAIT, it does not make any single pass faster.
 #
 # THE CENTRAL CONTRACT: FAIL OPEN, ALWAYS.
 #   No path in this file returns non-zero. No path fails a step, skips the
@@ -35,8 +38,8 @@
 # check-guardrail-registration.mjs's auto-enumeration of check-*.sh does not
 # claim this library file as a guard.
 #
-# Guarded behaviourally by tools/ci/check-gradle-worktree-lock.sh (16 cases) and
-# its mutation self-test tools/ci/check-gradle-worktree-lock.test.sh (19
+# Guarded behaviourally by tools/ci/check-gradle-worktree-lock.sh (19 cases) and
+# its mutation self-test tools/ci/check-gradle-worktree-lock.test.sh (22
 # mutants). Every property below names the case that proves it.
 
 _GRADLE_LOCK_SELF="${_GRADLE_LOCK_SELF:-}"

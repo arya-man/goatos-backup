@@ -685,14 +685,17 @@ push-hook-freshness-guard:
 parallel-dispatch-cleanup-guard:
 	bash tools/ci/check-parallel-dispatch-cleanup.sh
 
-# gradle-worktree-lock-guard: two worktrees running Gradle at once measured ~3x
-# slower than queuing (397s+413s concurrent vs 110-161s alone). The lock that
-# fixes that is FAIL-OPEN, so a lock which has stopped excluding fails nothing
-# and silently returns the penalty — hence a BEHAVIOURAL guard: real processes,
-# real signals, real filesystem state. ~45s of sandboxed sleeps, no Gradle.
+# gradle-worktree-lock-guard: worktrees running Gradle at once measured ~2-3x
+# slower than queuing — recorded ci-local timings show a three-way overlap at
+# 340s/251s/361s and a two-way at 413s/212s, against 84-181s for runs nothing
+# else overlapped. The lock that fixes that is FAIL-OPEN, so a lock which has
+# stopped excluding fails nothing and silently returns the penalty — hence a
+# BEHAVIOURAL guard: real processes, real signals, real filesystem state. ~47s,
+# all of it sandboxed sleeps; the guard itself runs no Gradle, but note case (g)
+# drives run-local-ci.sh android under trace (which no longer reaps).
 # In run-local-ci.sh it is diff-scoped to a tools/ci/gradle-worktree-lock.sh
 # diff; this target and `make guardrails` always run it.
-# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (19 mutants, ~17min)
+# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (22 mutants, ~17min)
 gradle-worktree-lock-guard:
 	bash tools/ci/check-gradle-worktree-lock.sh
 
