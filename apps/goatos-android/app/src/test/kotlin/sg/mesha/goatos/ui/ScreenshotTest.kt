@@ -66,6 +66,18 @@ import sg.mesha.goatos.feature.counts.ShiftingParkUi
 import sg.mesha.goatos.feature.counts.ShiftingScreen
 import sg.mesha.goatos.feature.counts.ShiftingShedUi
 import sg.mesha.goatos.feature.counts.ShiftingUiState
+import sg.mesha.goatos.feature.counts.WorkflowActionSection
+import sg.mesha.goatos.feature.counts.WorkflowActionUi
+import sg.mesha.goatos.feature.counts.WorkflowCardBucket
+import sg.mesha.goatos.feature.counts.WorkflowCardUi
+import sg.mesha.goatos.feature.counts.WorkflowChipUi
+import sg.mesha.goatos.feature.counts.WorkflowDetailScreen
+import sg.mesha.goatos.feature.counts.WorkflowDetailUiState
+import sg.mesha.goatos.feature.counts.WorkflowListScreen
+import sg.mesha.goatos.feature.counts.WorkflowListUiState
+import sg.mesha.goatos.feature.counts.WorkflowModuleUi
+import sg.mesha.goatos.feature.counts.WorkflowOverdueDateUi
+import sg.mesha.goatos.feature.counts.WorkflowStatusTone
 import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionUiState
 import sg.mesha.goatos.feature.feed.FeedDropdownOption
@@ -552,7 +564,7 @@ class ScreenshotTest {
                     ShiftingPreviousDateUi("2026-07-21", "21 Jul", 3),
                     ShiftingPreviousDateUi("2026-07-20", "20 Jul", 1),
                 ),
-                lastSyncedAt = 0L,
+                lastSyncedAt = null,
             ),
             rows = rows,
         )
@@ -672,6 +684,246 @@ class ScreenshotTest {
                 videoCaptured = true,
                 videoMessage = "Video saved on this phone. It will upload automatically.",
                 canComplete = true,
+            ),
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // Colostrum (docs/decisions/colostrum-milk-module.md)
+    // -----------------------------------------------------------------------
+
+    private fun colostrumCard(
+        id: String,
+        displayId: String,
+        done: Int,
+        total: Int,
+        next: String,
+        due: String,
+        overdue: Boolean,
+        bucket: WorkflowCardBucket,
+        meta: String,
+    ) = WorkflowCardUi(
+        workflowId = id,
+        displayId = displayId,
+        roleLabel = "Kid",
+        metaLine = meta,
+        actionsDone = done,
+        actionsTotal = total,
+        nextKindLabel = if (bucket == WorkflowCardBucket.COMPLETED) "Done" else "Next",
+        nextTitle = next,
+        dueLabel = due,
+        overdue = overdue,
+        bucket = bucket,
+    )
+
+    /** The Colostrum work list: bell + date bar + day-scoped chips, and NO + button. */
+    @Test
+    fun colostrumList() = shot("colostrum-list") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    colostrumCard(
+                        id = "wf-1", displayId = "CPT-10234", done = 2, total = 5,
+                        next = "4th Colostrum", due = "2h late", overdue = true,
+                        bucket = WorkflowCardBucket.OVERDUE, meta = "Born 6 Aug 05:40 · Castro 2 · Boer",
+                    ),
+                    colostrumCard(
+                        id = "wf-2", displayId = "CPT-10235", done = 0, total = 5,
+                        next = "6th Colostrum", due = "15:00", overdue = false,
+                        bucket = WorkflowCardBucket.DUE, meta = "Born 5 Aug 23:10 · Gandhi 1 · Sirohi",
+                    ),
+                    colostrumCard(
+                        id = "wf-3", displayId = "CPT-10231", done = 5, total = 5,
+                        next = "All feeds done", due = "", overdue = false,
+                        bucket = WorkflowCardBucket.COMPLETED, meta = "Born 5 Aug 07:20 · Yashoda · Boer",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        WorkflowListScreen(
+            state = WorkflowListUiState(
+                module = WorkflowModuleUi.COLOSTRUM,
+                subtitle = "3 kids to feed",
+                dateIso = "2026-08-06",
+                dateLabel = "Today · 6 Aug",
+                isToday = true,
+                chips = listOf(
+                    WorkflowChipUi("all", "All", 3),
+                    WorkflowChipUi("overdue", "Overdue", 1),
+                    WorkflowChipUi("due", "Due", 1),
+                    WorkflowChipUi("completed", "Completed", 1),
+                ),
+                overdueDates = listOf(
+                    WorkflowOverdueDateUi("2026-08-05", "Wed, 5 Aug", 2),
+                    WorkflowOverdueDateUi("2026-08-04", "Tue, 4 Aug", 1),
+                ),
+                selectedFilter = "all",
+                lastSyncedAt = null,
+            ),
+            rows = rows,
+        )
+    }
+
+    /** A past day reached through the date bar: the amber "past day" note is visible. */
+    @Test
+    fun colostrumListPastDay() = shot("colostrum-list-past-day") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    colostrumCard(
+                        id = "wf-9", displayId = "CPT-10228", done = 3, total = 6,
+                        next = "5th Colostrum", due = "1d late", overdue = true,
+                        bucket = WorkflowCardBucket.OVERDUE, meta = "Born 5 Aug 06:10 · Castro 1 · Boer",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        WorkflowListScreen(
+            state = WorkflowListUiState(
+                module = WorkflowModuleUi.COLOSTRUM,
+                subtitle = "1 kid to feed",
+                dateIso = "2026-08-05",
+                dateLabel = "5 Aug",
+                isToday = false,
+                chips = listOf(
+                    WorkflowChipUi("all", "All", 1),
+                    WorkflowChipUi("overdue", "Overdue", 1),
+                    WorkflowChipUi("due", "Due", 0),
+                    WorkflowChipUi("completed", "Completed", 0),
+                ),
+                selectedFilter = "overdue",
+                lastSyncedAt = null,
+            ),
+            rows = rows,
+        )
+    }
+
+    /** Nothing born in the last two days — the day is legitimately empty. */
+    @Test
+    fun colostrumListEmpty() = shot("colostrum-list-empty") {
+        val rows = flowOf(PagingData.from(emptyList<WorkflowCardUi>())).collectAsLazyPagingItems()
+        WorkflowListScreen(
+            state = WorkflowListUiState(
+                module = WorkflowModuleUi.COLOSTRUM,
+                dateIso = "2026-08-06",
+                dateLabel = "Today · 6 Aug",
+                isToday = true,
+                chips = listOf(
+                    WorkflowChipUi("all", "All", 0),
+                    WorkflowChipUi("overdue", "Overdue", 0),
+                    WorkflowChipUi("due", "Due", 0),
+                    WorkflowChipUi("completed", "Completed", 0),
+                ),
+                emptyMessage = "No colostrum feeds for this day.",
+                lastSyncedAt = null,
+            ),
+            rows = rows,
+        )
+    }
+
+    private fun colostrumFeed(
+        id: String,
+        title: String,
+        detail: String,
+        status: String,
+        tone: WorkflowStatusTone,
+        section: WorkflowActionSection,
+        canRecord: Boolean,
+    ) = WorkflowActionUi(
+        actionId = id,
+        actionKey = id,
+        title = title,
+        detail = detail,
+        typeLabel = "Do & confirm",
+        glyph = if (tone == WorkflowStatusTone.DONE) "✓" else "▣",
+        requiresVideo = true,
+        options = emptyList(),
+        statusLabel = status,
+        statusTone = tone,
+        section = section,
+        canAnswer = false,
+        canComplete = false,
+        canRecordVideo = canRecord,
+        opensPromote = false,
+        footer = if (tone == WorkflowStatusTone.DONE) "Recorded by Amit Kumar" else "",
+        answerValue = null,
+    )
+
+    /** The drill-in: ONLY that date's feeds, counted at the day grain (2/5, not the kid's 13). */
+    @Test
+    fun colostrumDetail() = shot("colostrum-detail") {
+        WorkflowDetailScreen(
+            state = WorkflowDetailUiState(
+                workflowId = "wf-1",
+                loading = false,
+                displayId = "CPT-10234",
+                roleLabel = "Kid",
+                templateLine = "Colostrum · Today · 6 Aug",
+                facts = listOf(
+                    "Born" to "06 Aug 2026 · 05:40",
+                    "Park" to "Channapatna",
+                    "Shed" to "Castro 2",
+                    "Mother RFID" to "982000123456789",
+                ),
+                actionsDone = 2,
+                actionsTotal = 5,
+                actions = listOf(
+                    colostrumFeed(
+                        "f-0700", "2nd Colostrum", "Feed colostrum at the 07:00 session on the birth day.",
+                        "Done", WorkflowStatusTone.DONE, WorkflowActionSection.COMPLETED, canRecord = false,
+                    ),
+                    colostrumFeed(
+                        "f-1100", "3rd Colostrum", "Feed colostrum at the 11:00 session on the birth day.",
+                        "Done", WorkflowStatusTone.DONE, WorkflowActionSection.COMPLETED, canRecord = false,
+                    ),
+                    colostrumFeed(
+                        "f-1500", "4th Colostrum", "Feed colostrum at the 15:00 session on the birth day.",
+                        "2h late", WorkflowStatusTone.OVERDUE, WorkflowActionSection.OVERDUE, canRecord = true,
+                    ),
+                    colostrumFeed(
+                        "f-1830", "5th Colostrum", "Feed colostrum at the 18:30 session on the birth day.",
+                        "18:30", WorkflowStatusTone.SCHEDULED, WorkflowActionSection.SCHEDULED, canRecord = false,
+                    ),
+                    colostrumFeed(
+                        "f-2200", "6th Colostrum", "Feed colostrum at the 22:00 session on the birth day.",
+                        "22:00", WorkflowStatusTone.SCHEDULED, WorkflowActionSection.SCHEDULED, canRecord = false,
+                    ),
+                ),
+            ),
+        )
+    }
+
+    /**
+     * The honest-blocking case: 1st Colostrum is gated by four earlier BIRTH steps this screen does
+     * not show, so the backend sends a reason instead of letting the operator tap into a 409.
+     */
+    @Test
+    fun colostrumDetailBlockedByEarlierBirthSteps() = shot("colostrum-detail-blocked") {
+        WorkflowDetailScreen(
+            state = WorkflowDetailUiState(
+                workflowId = "wf-2",
+                loading = false,
+                displayId = "CPT-10235",
+                roleLabel = "Kid",
+                templateLine = "Colostrum · Today · 6 Aug",
+                facts = listOf(
+                    "Born" to "06 Aug 2026 · 05:55",
+                    "Park" to "Channapatna",
+                    "Shed" to "Gandhi 1",
+                ),
+                actionsDone = 0,
+                actionsTotal = 5,
+                actions = listOf(
+                    colostrumFeed(
+                        "f-first", "1st Colostrum",
+                        "Feed the first colostrum and record a video using the in-app camera.",
+                        "Blocked", WorkflowStatusTone.BLOCKED, WorkflowActionSection.OVERDUE, canRecord = false,
+                    ).copy(footer = "Finish the earlier birth steps for this kid first."),
+                    colostrumFeed(
+                        "f-1100b", "2nd Colostrum", "Feed colostrum at the 11:00 session on the birth day.",
+                        "11:00", WorkflowStatusTone.SCHEDULED, WorkflowActionSection.SCHEDULED, canRecord = false,
+                    ),
+                ),
             ),
         )
     }

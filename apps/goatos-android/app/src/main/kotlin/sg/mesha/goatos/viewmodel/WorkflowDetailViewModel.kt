@@ -547,7 +547,10 @@ class WorkflowDetailViewModel @Inject constructor(
             canComplete = actionable && actionType == TYPE_ACTION && !requiresVideo && !opensPromote,
             canRecordVideo = actionable && requiresVideo,
             opensPromote = opensPromote && actionable,
-            footer = completedByLabel.orEmpty(),
+            // A blocked row must say WHY. On the Colostrum lens the prerequisite is not even on
+            // screen (1st Colostrum waits on four birth steps that live in Birth), so a bare
+            // "Blocked" chip is a dead end for the person holding the phone.
+            footer = completedByLabel.orEmpty().ifBlank { workflowBlockedNote(blocked, blockedReason) },
             answerValue = answerValue,
         )
     }
@@ -673,6 +676,25 @@ internal fun workflowTagNeedsPermanentIdentifier(answerValue: String?): Boolean 
 internal fun workflowAccessLabel(blockedReason: String?, due: Instant?, now: Instant): String? {
     if (blockedReason != "not_yet_due" || due == null || !now.isBefore(due)) return null
     return "Available ${due.atZone(WORKFLOW_IST).format(WORKFLOW_DATE_TIME_FORMAT)}"
+}
+
+/**
+ * The farm-readable reason a row cannot be started yet, shown under the row when there is no
+ * completion attribution to show instead.
+ *
+ * `previous_action` is the one that matters here. On Birth the blocking step is visible right above,
+ * so the chip alone reads fine; on the Colostrum lens it is NOT on screen at all — 1st Colostrum
+ * sits behind kid-clean, iodine dipping, front teeth and suck reflex, which live in Birth. Without
+ * this line the operator sees "Blocked" with nothing to act on, taps anyway, and gets a rejection
+ * (docs/decisions/colostrum-milk-module.md).
+ */
+internal fun workflowBlockedNote(blocked: Boolean, blockedReason: String?): String {
+    if (!blocked) return ""
+    return when (blockedReason) {
+        "previous_action" -> "Finish the earlier birth steps for this kid first."
+        "signoff" -> "Waiting for the videos this step signs off."
+        else -> ""
+    }
 }
 
 internal fun workflowNumericAnswerUnit(action: WorkflowActionDto): String? =
