@@ -89,6 +89,23 @@ class VerifyDetailViewModel @Inject constructor(
     private val businessDate: String? = savedStateHandle.get<String>("businessDate")
     private val missed: Boolean = savedStateHandle.get<Boolean>("missed") ?: false
 
+    /**
+     * Status to re-query the queue with when resolving THIS item.
+     *
+     * The backend silently defaults a blank/absent status to `pending`
+     * (verification/app/service.go: `if params.Status == "" && !params.IncludeAllStatuses`), and the
+     * nav route does not forward the queue's selected status. So opening an ALREADY-APPROVED item
+     * from the "Approved" filter re-queried with no status, got back only pending rows, found
+     * nothing, and rendered "No video attached to this item" -- on an item whose media was intact
+     * at every layer (verified: the queue endpoint returns full media arrays with download_url for
+     * every approved item). Pending items only worked because the accidental default matched.
+     *
+     * "all" is the backend's documented explicit no-filter sentinel (handler.go `statusAll`). The
+     * detail screen resolves ONE item by group key out of whatever page it fetches, so it must
+     * never inherit the queue's ambient "pending" default.
+     */
+    private val effectiveStatus: String = status?.takeIf { it.isNotBlank() } ?: "all"
+
     private val _flags = MutableStateFlow(VerifyDetailFlags())
     private val watchTimeByProof = mutableMapOf<String, Long>()
     private var trackedItemOpened = false
@@ -115,7 +132,7 @@ class VerifyDetailViewModel @Inject constructor(
         } else {
             repo.observeQueue(
                 category = category,
-                status = status,
+                status = effectiveStatus,
                 businessDate = businessDate,
                 missed = missed,
                 parkId = parkId,
@@ -231,7 +248,7 @@ class VerifyDetailViewModel @Inject constructor(
         } else {
             repo.refreshQueue(
                 category = category,
-                status = status,
+                status = effectiveStatus,
                 businessDate = businessDate,
                 missed = missed,
                 parkId = parkId,

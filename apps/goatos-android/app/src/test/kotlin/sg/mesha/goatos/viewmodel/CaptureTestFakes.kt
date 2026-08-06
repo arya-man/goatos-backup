@@ -78,7 +78,12 @@ class FakeScanCaptureRepository : ScanCaptureRepository {
         enqueuePendingScansCalls++
     }
 
-    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) = Unit
+    override suspend fun markLocalScanSynced(taskId: String, fieldKey: String, tag: String) {
+        val index = rows.indexOfFirst { it.fieldKey == fieldKey && it.tag == tag }
+        if (index < 0) return
+        rows[index] = rows[index].copy(syncStatus = CaptureSyncStatus.SYNCED)
+        flow.value = rows.toList()
+    }
 
     override suspend fun tagsForTask(taskId: String): List<String> = rows.map { it.tag }
 

@@ -23,6 +23,14 @@ data class ScannedGoatRow(
     val goatId: String?,
     val obligationId: String?,
     val capturedAtMs: Long,
+    /**
+     * Whether this capture reached the backend. Room is the SSOT for the CAPTURE, never for the
+     * OBLIGATION: a SYNCED capture whose obligation the server still reports open (a verifier
+     * rejected the proof and it reopened) is a STALE done-marker, while a PENDING/IN_FLIGHT one is
+     * a legitimate offline scan the server has not seen. Conflating them either lies about
+     * completion or breaks offline scanning.
+     */
+    val syncStatus: CaptureSyncStatus = CaptureSyncStatus.PENDING,
 )
 
 enum class RfidScanAttemptOutcome(val wireValue: String) {

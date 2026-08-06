@@ -314,11 +314,30 @@ class ScanViewModel @Inject constructor(
         val doneGoatIds = (persistedDoneGoats.toSet() + localDoneGoats + persistedScanGoatIds)
             .filterTo(mutableSetOf()) { it.isNotBlank() }
         val fullRows = withOutOfWindowDoneRows(rows, doneGoatIds)
+        // [persistedScans] is a local CAPTURE LOG, not a completion record: it says "this tag was
+        // read on this device", never "the obligation finished". Folding it wholesale into
+        // [localDone] made a scan permanently equal DONE, so after a verifier REJECTED a proof and
+        // the backend reopened the obligation the animal stayed green across restarts.
+        //
+        // Reconciliation is gated on the capture being SYNCED. That distinction is the fix: a
+        // PENDING/IN_FLIGHT capture is a legitimate offline scan the backend has not seen and must
+        // keep showing DONE through process death (see the process-recreation tests); dropping
+        // those would break offline scanning to fix staleness. A SYNCED capture the server still
+        // reports open has been overruled by the domain, and the server wins.
+        val syncedCaptureObligations = persistedScans.asSequence()
+            .filter { it.syncStatus == CaptureSyncStatus.SYNCED }
+            .mapNotNull { it.obligationId?.takeIf(String::isNotBlank) }
+            .toSet()
+        val serverReopenedObligations = fullRows.asSequence()
+            .filter { statusOf(it.status) != ScanStatus.DONE }
+            .mapNotNull { it.obligationId.takeIf(String::isNotBlank) }
+            .filterTo(mutableSetOf()) { it in syncedCaptureObligations }
+        val reconciledLocalDone = localDone - serverReopenedObligations
         val base = applyRows(
             rows = fullRows,
             total = total,
             hasMore = hasMore,
-            localDone = localDone,
+            localDone = reconciledLocalDone,
             persistedScans = persistedScans,
             proofs = proofRows,
             operatorAllowed = operatorAllowed == true,
@@ -331,7 +350,7 @@ class ScanViewModel @Inject constructor(
             serverAllGoatProofsReady = policy.isPerGoatVideo && shedSummary.allHandledProofsReady(),
         )
         // Full-roster (page-independent) aggregates overlay the window-derived counts (R50-008).
-        val aggregated = applyFullRosterCounts(base, counts, localDone)
+        val aggregated = applyFullRosterCounts(base, counts, reconciledLocalDone)
         // Submit gate follows the task SOP. Per-goat video mode still requires synced goat clips.
         // Shed-level video mode only gates this scan screen on all goats scanned; the submit form
         // then enforces the required 1..5 shed-level video proof clips.
@@ -872,7 +891,14 @@ class ScanViewModel @Inject constructor(
             latestFailedAtMs = latestFailedProof?.capturedAtMs,
         )
         val capturedAtMs = scannedAtByObligation[obligationId] ?: scannedAtMs
-        val serverDone = scannedAtMs != null
+        // The STATUS decides, not the scan timestamp. A rejected animal keeps its scannedAt
+        // FOREVER -- it really was scanned -- so `scannedAtMs != null` marked a sent-back animal as
+        // finished and painted a green tick and "Proof synced" on the very animal the operator had
+        // to redo, while the sheds list, the shed drilldown and the roster all reported it `due`.
+        // Mirrors ScanRosterRowEntity.isServerDone() in ExecutionRepository, which was written for
+        // exactly this case but was only ever wired into capture pruning.
+        val serverDone = !isOutstandingServerStatus(status) &&
+            (scannedAtMs != null || statusOf(status) == ScanStatus.DONE)
         return RosterRow(
             primaryTag = primaryTag,
             secondaryTag = secondaryTag,
@@ -985,6 +1011,13 @@ class ScanViewModel @Inject constructor(
         scanCompletedTracked = true
         AnalyticsFunnels.trackScanCompleted(analytics, id, scannedCount)
     }
+
+    /**
+     * Server statuses meaning this animal is OUTSTANDING whatever local evidence exists.
+     * Kept in lockstep with SERVER_OUTSTANDING_ROSTER_STATUSES in ExecutionRepository.
+     */
+    private fun isOutstandingServerStatus(raw: String): Boolean =
+        raw.trim().lowercase() in setOf("rejected", "due", "pending")
 
     private fun statusOf(raw: String): ScanStatus {
         val s = raw.lowercase()

@@ -243,6 +243,7 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
     goatId = goatId,
     obligationId = obligationId,
     capturedAtMs = capturedAtMs,
+    syncStatus = runCatching { CaptureSyncStatus.valueOf(syncStatus) }.getOrDefault(CaptureSyncStatus.PENDING),
 )
 
 private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
