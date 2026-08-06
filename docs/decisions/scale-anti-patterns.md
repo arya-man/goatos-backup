@@ -95,6 +95,16 @@ turns a verifier into a `vaccination_operator_*` position, shift row, or animal
 cap contributor, the drive planner silently gains fake capacity and every
 operator-day proof becomes suspect.
 
+Seed-time N+1 location resolution is a scale anti-pattern. When seeding animals
+into partitioned sheds, do not resolve shed names to IDs inside a per-row loop:
+`for each source row: query locations WHERE name = row.shed_name`. This is an
+N+1 query that scales O(n) with animal count (2000+ rows on a 2000-animal seed).
+Pre-resolve all active shed names to IDs in a single query before the loop, then
+key lookups inside the loop are O(1) map reads. The same pattern applies to any
+per-row location/partition lookup inside seed: build a pre-resolved key map
+keyed by `(park_code, normalized_shed_name)` or `location_id` as a single
+SQL pass, then use that map for every animal row.
+
 ## Sub-500ms serving-read budget
 
 Every operator-facing API, SSR page load, dashboard read, schedule/calendar
