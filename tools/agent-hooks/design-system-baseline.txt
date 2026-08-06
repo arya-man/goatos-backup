@@ -57,6 +57,13 @@ apps/goatos-android/feature/feature-verify/src/main/kotlin/sg/mesha/goatos/featu
 # cemented as the intended look with no rendered review. The 3 named-compose-color violations in
 # InAppVideoRecorder WERE fixed properly (MeshaColors.ViewfinderBackdrop). This is debt to retire
 # screen-by-screen with visual QA, not a licence to write new literals.
+# 2026-08-06, same shape again: WorkflowListScreen entered the diff for the Colostrum lens
+# (docs/decisions/colostrum-milk-module.md), which added a third WorkflowModuleUi value, a
+# title branch, and an `if` around the existing + button. Its 22 literals are ALL pre-existing:
+# `git diff origin/main...HEAD` on that file adds ZERO fontSize/fontWeight/Color lines. No new
+# screen code was authored here to tokenise.
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/WorkflowListScreen.kt:literal-font-size
+apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/WorkflowListScreen.kt:literal-font-weight
 apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsFormKit.kt:literal-font-size
 apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/CountsFormKit.kt:literal-font-weight
 apps/goatos-android/feature/feature-counts/src/main/kotlin/sg/mesha/goatos/feature/counts/MilkFeedingScreen.kt:literal-font-size
