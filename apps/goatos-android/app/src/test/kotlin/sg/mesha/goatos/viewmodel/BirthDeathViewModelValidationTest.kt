@@ -632,7 +632,7 @@ private class FakeBirthDeathCountsRepository(
                 sex = "female",
                 lifecycleStatus = "alive",
                 rowVersion = 7,
-                locationPath = GoatLocationPathDto(display = "North Park / Shed A"),
+                locationPath = GoatLocationPathDto(operationalLocationDisplay = "North Park / Shed A"),
             ),
         ),
     )
