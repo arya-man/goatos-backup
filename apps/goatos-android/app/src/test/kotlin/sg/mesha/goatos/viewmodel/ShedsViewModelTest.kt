@@ -264,6 +264,60 @@ class ShedsViewModelTest {
         assertEquals("5", completedRow.accepted)
         assertTrue(rows.any { it.shedId == "shed-open" })
     }
+
+    /**
+     * Maintainer-reported: Godel 1 rendered "3 TARGETED · 1 OPEN · 2 DONE · 2 ACCEPTED" and still
+     * refused the tap with "Godel 1 is already submitted for verification".
+     *
+     * That is the verifier reject/reopen loop. A shed submitted, then partly sent back (or which
+     * gained a newly-due animal), keeps a TERMINAL row status while its open COUNT climbs back
+     * above zero. The record-only predicate read only the statuses, so the card and the tap gate
+     * disagreed on screen: one said a goat was still open, the other said the shed was finished.
+     *
+     * Remaining open work must always win -- otherwise the reopened animal can never be worked.
+     */
+    @Test
+    fun `a submitted shed with work reopened stays openable`() = runTest(dispatcher) {
+        val today = LocalDate.now()
+        val repo = FakeShedsPinVmExecutionRepository(
+            VaccinationExecutionResponseDto(
+                rows = listOf(
+                    VaccinationExecutionRowDto(
+                        shedId = "shed-reopened",
+                        shedName = "Godel 1",
+                        parkId = "park-cbe",
+                        parkName = "Coimbatore",
+                        dueDate = today.toString(),
+                        targetCount = 3,
+                        openCount = 1,
+                        doneCount = 2,
+                        acceptedCount = 2,
+                        // Terminal status carried over from the original submission...
+                        workState = "completed",
+                        sopStatus = "accepted",
+                        verificationStatus = "accepted",
+                    ),
+                ),
+            ),
+        )
+        val vm = ShedsViewModel(
+            repo = repo,
+            crashReporter = NoopCrashReporter(),
+            analytics = NoopAnalytics(),
+            bootstrapRepository = FakeShedsRoleBootstrapRepository(role = "operator"),
+            savedStateHandle = SavedStateHandle(),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val row = vm.state.value.rows.firstOrNull { it.shedId == "shed-reopened" }
+        assertTrue("reopened shed must stay on the list", row != null)
+        assertEquals(
+            "a shed with open work must never be gated as already-submitted",
+            false,
+            row!!.opensRecordOnly,
+        )
+    }
 }
 
 private class ShedsRecordingAnalytics : AnalyticsPort {

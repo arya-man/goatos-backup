@@ -36,13 +36,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.GoatOsTheme
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 
 // telemetry:exempt pure stateless renderer; AnalyticsPort wiring lives in RfidViewModel.
 
@@ -218,21 +218,19 @@ private fun RfidHeader(onBack: () -> Unit) {
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = "‹", color = MeshaColors.Muted, fontSize = 26.sp, fontWeight = FontWeight.W700)
+            Text(text = "‹", color = MeshaColors.Muted, style = MeshaType.screenTitle)
         }
         Spacer(Modifier.width(10.dp))
         Column {
             Text(
                 text = stringResource(R.string.profile_settings_label),
                 color = MeshaColors.Muted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.sectionLabel,
             )
             Text(
                 text = stringResource(R.string.rfid_title),
                 color = MeshaColors.Ink,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.screenTitle,
             )
         }
     }
@@ -271,8 +269,7 @@ private fun RfidDeviceHero(state: RfidUiState) {
         Text(
             text = deviceName,
             color = MeshaColors.Ink,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.headerTitle,
             modifier = Modifier.padding(top = 12.dp),
         )
         Box(
@@ -281,7 +278,7 @@ private fun RfidDeviceHero(state: RfidUiState) {
                 .background(pillBg, shape = RoundedCornerShape(999.dp))
                 .padding(horizontal = 10.dp, vertical = 4.dp),
         ) {
-            Text(text = pillLabel, color = pillFg, fontSize = 11.sp, fontWeight = FontWeight.W700)
+            Text(text = pillLabel, color = pillFg, style = MeshaType.pill)
         }
     }
 }
@@ -291,8 +288,7 @@ private fun RfidInfoBox() {
     Text(
         text = stringResource(R.string.rfid_detail_hid_note),
         color = MeshaColors.Muted,
-        fontSize = 12.sp,
-        lineHeight = 19.sp,
+        style = MeshaType.cardSubtitle.copy(lineHeight = 19.sp),
         modifier = Modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
@@ -351,11 +347,11 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
         Icon(imageVector = MeshaIcons.Bluetooth, contentDescription = null, tint = iconColor, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(11.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = row.name, color = MeshaColors.Ink, fontSize = 13.5.sp, fontWeight = FontWeight.W700)
+            Text(text = row.name, color = MeshaColors.Ink, style = MeshaType.listTitle)
             Text(
                 text = row.detail,
                 color = MeshaColors.Muted,
-                fontSize = 11.sp,
+                style = MeshaType.fieldLabel,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -363,8 +359,7 @@ private fun DiscoveredReaderRow(row: RfidReaderRow, onEvent: (RfidEvent) -> Unit
         Text(
             text = row.signalLabel,
             color = signalColor,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
         )
     }
 }
@@ -397,8 +392,7 @@ private fun RfidPrimaryAction(label: String, onEvent: (RfidEvent) -> Unit) {
         Text(
             text = label,
             color = MeshaColors.Ink,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cardTitle,
             fontFamily = FontFamily.Default,
         )
     }
@@ -431,8 +425,7 @@ private fun RfidBluetoothAction(onEvent: (RfidEvent) -> Unit) {
         Text(
             text = stringResource(R.string.rfid_detail_action_open_bluetooth),
             color = MeshaColors.Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.bodyStrong,
             fontFamily = FontFamily.Default,
         )
     }
@@ -452,8 +445,7 @@ private fun RfidTestField(state: RfidUiState, onEvent: (RfidEvent) -> Unit) {
         Text(
             text = stringResource(R.string.rfid_detail_test_label),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.cta,
             modifier = Modifier.padding(start = 2.dp, bottom = 7.dp),
         )
         Row(
@@ -470,14 +462,16 @@ private fun RfidTestField(state: RfidUiState, onEvent: (RfidEvent) -> Unit) {
                 ) { onEvent(RfidEvent.TestRead) }
                 .padding(horizontal = 15.dp, vertical = 13.dp),
         ) {
-            Text(text = "↳", color = MeshaColors.Faint, fontSize = 15.sp, fontFamily = FontFamily.Monospace)
+            Text(
+                text = "↳",
+                color = MeshaColors.Faint,
+                style = MeshaType.cardTitle.copy(fontFamily = FontFamily.Monospace),
+            )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = state.testReadValue,
                 color = MeshaColors.Ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.W600,
-                fontFamily = FontFamily.Monospace,
+                style = MeshaType.bodyStrong.copy(fontFamily = FontFamily.Monospace),
                 modifier = Modifier.weight(1f),
             )
             Icon(imageVector = MeshaIcons.Check, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(16.dp))
