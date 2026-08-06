@@ -65,7 +65,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	if p.GoatID != "goat" || len(p.OpenObligations) != 2 || len(p.VaccinationHistory) != 1 {
 		t.Fatalf("passport shape: %+v", p)
 	}
-	if p.OperationalLocationDisplay != "Castro 2" || p.ParkName != "CPT" || p.ShedID != "shed1" || p.PartitionLabel != "2" {
+	if p.OperationalLocationDisplay != "Castro - 2" || p.ParkName != "CPT" || p.ShedID != "shed1" || p.PartitionLabel != "2" {
 		t.Fatalf("passport location: %+v", p)
 	}
 	if p.NextDue == nil || p.NextDue.ObligationID != "o1" {
