@@ -25,6 +25,7 @@
     <string name="verify_queue_load_failed">Couldn\'t load the queue</string>
     <string name="verify_queue_unsupported_module">This queue is not available in the app yet</string>
     <string name="verify_queue_unsupported_module_subtitle">Open it on the Mesha web app to review these proofs.</string>
+    <string name="verify_queue_load_failed_subtitle">Something went wrong reading this queue. Pull to refresh to try again.</string>
     <string name="verify_queue_empty_subtitle">No pending videos to verify right now</string>
     <string name="verify_queue_empty_date_subtitle">No videos in this page, status, and date</string>
     <string name="verify_missed_open">Show missed verification videos</string>

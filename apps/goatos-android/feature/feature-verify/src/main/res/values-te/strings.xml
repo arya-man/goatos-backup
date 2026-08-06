@@ -23,6 +23,8 @@
     <string name="verify_queue_empty">క్యూ ఖాళీగా ఉంది</string>
     <string name="verify_queue_unsupported_module">ఈ క్యూ ఇంకా యాప్‌లో అందుబాటులో లేదు</string>
     <string name="verify_queue_unsupported_module_subtitle">ఈ రుజువులను సమీక్షించడానికి Mesha వెబ్ యాప్ తెరవండి.</string>
+    <string name="verify_queue_load_failed">క్యూను లోడ్ చేయలేకపోయాం</string>
+    <string name="verify_queue_load_failed_subtitle">ఈ క్యూను చదవడంలో సమస్య వచ్చింది. మళ్లీ ప్రయత్నించడానికి రిఫ్రెష్ చేయండి.</string>
     <string name="verify_queue_empty_subtitle">ప్రస్తుతం ధృవీకరించడానికి పెండింగ్‌లో వీడియోలు లేవు</string>
     <string name="verify_action_queue_empty">సమర్పించిన వీడియోలు లేవు</string>
     <string name="verify_action_queue_empty_subtitle">సమర్పించిన టీకా వీడియోలు డైరెక్టర్ సమీక్ష కోసం ఇక్కడ కనిపిస్తాయి</string>

@@ -206,6 +206,7 @@ class VerifyQueueViewModelTest {
         // and queueError is the backend's message.
         assertTrue(vm.state.value.hasLoadedOnce)
         assertTrue(vm.state.value.rows.isEmpty())
+        assertTrue(vm.state.value.queueFailed)
         assertNotNull(vm.state.value.queueError)
         assertTrue(vm.state.value.queueError!!.contains("not assigned"))
     }
@@ -229,9 +230,12 @@ class VerifyQueueViewModelTest {
 
         assertTrue(vm.state.value.hasLoadedOnce)
         assertTrue(vm.state.value.rows.isEmpty())
-        assertNotNull(vm.state.value.queueError)
-        // The fallback message is used when no server error text is available.
-        assertEquals("Couldn't load the queue. Please try again.", vm.state.value.queueError)
+        // The FACT of the failure reaches the screen so it cannot render "Queue clear"...
+        assertTrue(vm.state.value.queueFailed)
+        // ...while the words do not: this body carries no readable envelope, so the server
+        // said nothing, and the fallback copy is a translated string resolved by the
+        // composable rather than an English literal the ViewModel could never translate.
+        assertNull(vm.state.value.queueError)
     }
 
     @Test
@@ -260,6 +264,7 @@ class VerifyQueueViewModelTest {
         // We have cached rows, so error is suppressed (queueError stays null).
         assertTrue(vm.state.value.hasLoadedOnce)
         assertFalse(vm.state.value.rows.isEmpty())
+        assertFalse(vm.state.value.queueFailed)
         assertNull(vm.state.value.queueError)
     }
 }

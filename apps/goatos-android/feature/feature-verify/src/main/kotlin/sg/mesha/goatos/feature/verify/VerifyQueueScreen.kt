@@ -157,8 +157,12 @@ data class VerifyQueueUiState(
     /** True once a fetch has COMPLETED, whatever it returned. Guards the empty state so it is
      *  never drawn before an answer exists, and never yanked away by a later refresh. */
     val hasLoadedOnce: Boolean = false,
-    /** Error message when queue fetch fails and no cached rows exist. Null = no error or
-     *  error is being retried with cached data available. */
+    /** True when a completed fetch failed and there is nothing cached to draw. This is the
+     *  fact; [queueError] is only the backend's wording for it, which may be absent. */
+    val queueFailed: Boolean = false,
+    /** The BACKEND's explanation of the failure, when the envelope carried one. Null means
+     *  the server did not say -- the screen supplies translated fallback copy, because a
+     *  literal here could never be translated. */
     val queueError: String? = null,
     val driveClosures: List<VerifyDriveClosure> = emptyList(),
     val closingBatchId: String? = null,
@@ -325,13 +329,16 @@ fun VerifyQueueScreen(
                         tone = EmptyTone.Neutral,
                     )
                 }
-            } else if (state.rows.isEmpty() && state.queueError != null) {
-                // A fetch failed and no cached data exists. Show the backend error message if
-                // available, or a generic fallback. This is distinct from "Queue clear".
+            } else if (state.rows.isEmpty() && state.queueFailed) {
+                // A completed fetch failed with nothing cached. This must NOT be "Queue clear":
+                // a verifier read that as all-caught-up while 52 proofs sat pending behind a 403.
+                // Prefer the backend's own explanation ("verifier is not assigned to this
+                // module"); fall back to translated copy only when the server did not say.
                 item {
                     EmptyState(
                         title = stringResource(R.string.verify_queue_load_failed),
-                        subtitle = state.queueError,
+                        subtitle = state.queueError
+                            ?: stringResource(R.string.verify_queue_load_failed_subtitle),
                         icon = MeshaIcons.Video,
                         tone = EmptyTone.Neutral,
                     )
