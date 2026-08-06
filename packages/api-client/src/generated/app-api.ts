@@ -7361,7 +7361,10 @@ export interface components {
              * @description REQUIRED (a real UUID) for every event type EXCEPT queue_opened. MUST be null/omitted for queue_opened -- that event fires before any item exists (landing on the queue screen), so there is no item to name yet. See migration 000119 (verification_review_events_item_id_scope_check): item_id IS NULL if and only if event_type = 'queue_opened'. Sending a placeholder string for a queue_opened event (e.g. "queue") is REJECTED with a precise 422 field error naming item_id, not accepted and not a generic invalid_json.
              */
             item_id?: string | null;
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Which proof video the event refers to. MUST be one of the item's OWN proofs (its media_refs) — a proof belonging to another item is REJECTED with a 422 field error naming proof_id (`proof_not_on_item`), even though it is a real, existing proof. The derived watch facts partition durations and watch intervals BY proof_id, so a foreign proof would put a duration this verifier never watched into the item's denominator and skew both its watch fraction and the CEO integrity aggregate. Omit it for queue_opened, which has no item and therefore no proof (`queue_scoped_proof_forbidden`).
+             */
             proof_id?: string;
             session_id: string;
             event_type: components["schemas"]["VerificationReviewEventType"];

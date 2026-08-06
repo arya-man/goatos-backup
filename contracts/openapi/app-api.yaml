@@ -19166,6 +19166,14 @@ components:
         proof_id:
           type: string
           format: uuid
+          description: >-
+            Which proof video the event refers to. MUST be one of the item's OWN proofs (its
+            media_refs) — a proof belonging to another item is REJECTED with a 422 field error naming
+            proof_id (`proof_not_on_item`), even though it is a real, existing proof. The derived
+            watch facts partition durations and watch intervals BY proof_id, so a foreign proof would
+            put a duration this verifier never watched into the item's denominator and skew both its
+            watch fraction and the CEO integrity aggregate. Omit it for queue_opened, which has no
+            item and therefore no proof (`queue_scoped_proof_forbidden`).
         session_id:
           type: string
           maxLength: 200

@@ -89,6 +89,15 @@ type Repository interface {
 	// which authorizes every event's item against the caller's categories and would otherwise be
 	// an n-plus-one-fanout over a batch that can legitimately span many items.
 	GetItemCategories(ctx context.Context, tenantID string, itemIDs []string) (map[string]string, error)
+
+	// GetItemProofRefs batch-resolves item_id -> the item's OWN proof ids (media_refs) in ONE query.
+	// Telemetry carries a client-supplied proof_id, and the derived watch facts PARTITION by it, so a
+	// proof belonging to another item (or another module) would silently skew ProofDurationMs and
+	// WatchFraction for this item and the CEO integrity aggregate built on them. The DB FK only
+	// proves the proof EXISTS, not that it belongs here. Batched for the same reason as
+	// GetItemCategories: one flush can span several items, and a per-event lookup would be the
+	// cross-boundary fan-out docs/decisions/scale-anti-patterns.md bans.
+	GetItemProofRefs(ctx context.Context, tenantID string, itemIDs []string) (map[string][]string, error)
 	GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error)
 	// ListQueue returns Limit+1 rows (the app layer trims to Limit and derives next_cursor) ordered
 	// by (captured_at, item_id) ascending — keyset, never OFFSET.

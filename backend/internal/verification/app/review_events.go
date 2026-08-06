@@ -88,6 +88,15 @@ func (s *Service) RecordReviewEvents(
 	if err != nil {
 		return 0, err
 	}
+	// Each item's OWN proof ids, batched alongside. A client-supplied proof_id must belong to the
+	// item the event is attributed to: the derived watch facts partition durations and intervals BY
+	// proof_id, so a sibling item's proof (or any other existing proof uuid) would land a foreign
+	// duration in this item's denominator and skew WatchFraction plus the CEO integrity aggregate.
+	// The DB foreign key only proves the proof row exists, never that it belongs here.
+	itemProofRefs, err := s.repo.GetItemProofRefs(ctx, tenantID, distinctItemIDs)
+	if err != nil {
+		return 0, err
+	}
 
 	events := make([]domain.ReviewEvent, 0, len(inputs))
 	for _, in := range inputs {
@@ -167,6 +176,23 @@ func (s *Service) RecordReviewEvents(
 			if !uuidutil.IsUUIDString(p) {
 				return 0, BadRequestField("invalid_proof", "proof_id must be a UUID",
 					"proof_id", "invalid_proof_id", "must be a UUID")
+			}
+			// Shape and FK existence are not OWNERSHIP. Without this check an authorized item could
+			// carry another item's proof and corrupt its own watch fraction.
+			if itemID == nil {
+				return 0, BadRequestField("invalid_proof", "a queue-scoped event has no item and cannot carry a proof_id",
+					"proof_id", "queue_scoped_proof_forbidden", "omit proof_id on a queue_opened event")
+			}
+			owned := false
+			for _, ref := range itemProofRefs[*itemID] {
+				if strings.EqualFold(strings.TrimSpace(ref), p) {
+					owned = true
+					break
+				}
+			}
+			if !owned {
+				return 0, BadRequestField("invalid_proof", "proof_id does not belong to this verification item",
+					"proof_id", "proof_not_on_item", "must be one of the item's own proofs")
 			}
 			proofID = &p
 		}
