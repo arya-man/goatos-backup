@@ -167,6 +167,11 @@ private class AutoCloseRepository(
     // test to be exercising the production path at all.
     override suspend fun markVerificationItemDecidedLocally(itemId: String) = markItemDecided(itemId)
 
+    override fun observeLeadershipVideos(category: String?, windowSize: Int) = flowOf(emptyList<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>())
+    override fun observeLeadershipTitle(category: String?, windowSize: Int) = flowOf("")
+    override suspend fun refreshLeadershipVideos(category: String?, windowSize: Int, reset: Boolean) =
+        sg.mesha.goatos.core.common.AppResult.Ok(Unit)
+
     // Publishes into the OBSERVED flow, which is what the real system does: the verdict lands
     // server-side and the queue read then reports the item as decided. Mutating the backing
     // list alone left observeQueue emitting the stale PENDING row, so the ViewModel's

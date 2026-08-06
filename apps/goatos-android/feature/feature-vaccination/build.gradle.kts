@@ -23,6 +23,11 @@ dependencies {
     implementation(project(":core:core-designsystem"))
     implementation(project(":core:core-data"))
     implementation(project(":core:core-ui"))
+    // Leadership's read-only proof video player is built via ProofPlayerFactory
+    // (:core:core-media), NOT ExoPlayer.Builder — see AGENTS.md media-telemetry rule.
+    implementation(project(":core:core-media"))
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)

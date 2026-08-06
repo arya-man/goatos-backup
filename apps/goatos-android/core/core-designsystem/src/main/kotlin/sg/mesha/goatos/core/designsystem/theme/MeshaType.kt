@@ -64,4 +64,19 @@ object MeshaType {
 
     /** Fine print (otp note, role note). */
     val caption = TextStyle(fontSize = 11.5.sp, fontWeight = FontWeight.W600)
+
+    /** Large initials rendered inside an avatar badge (profile header). */
+    val avatarInitials = TextStyle(fontSize = 18.sp, fontWeight = FontWeight.W800)
+
+    /** A settings/list row's primary label (e.g. Profile settings row title). */
+    val rowLabel = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.W400)
+
+    /** A settings/list row's small secondary caption underneath [rowLabel]. */
+    val rowCaption = TextStyle(fontSize = 11.sp, fontWeight = FontWeight.W400)
+
+    /** A settings/list row's trailing value (right-aligned, e.g. current setting). */
+    val rowValue = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.W700)
+
+    /** A small navigation glyph (e.g. the "›" row-disclosure chevron). */
+    val glyphSmall = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.W400)
 }

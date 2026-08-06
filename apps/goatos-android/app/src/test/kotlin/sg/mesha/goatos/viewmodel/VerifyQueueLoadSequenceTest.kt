@@ -6,6 +6,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -312,6 +313,10 @@ private class SequenceFakeRepo(
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = error("unused")
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit
     override suspend fun markVerificationItemDecidedLocally(itemId: String) = Unit
+    override fun observeLeadershipVideos(category: String?, windowSize: Int) = flowOf(emptyList<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>())
+    override fun observeLeadershipTitle(category: String?, windowSize: Int) = flowOf("")
+    override suspend fun refreshLeadershipVideos(category: String?, windowSize: Int, reset: Boolean) =
+        sg.mesha.goatos.core.common.AppResult.Ok(Unit)
 }
 
 private class SequenceFakeSyncRepository : SyncRepository {

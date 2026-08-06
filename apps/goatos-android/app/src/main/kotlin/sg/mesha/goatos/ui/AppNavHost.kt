@@ -1869,13 +1869,7 @@ fun AppNavHost(
             val state by vm.state.collectAsStateWithLifecycle()
             VaccinationLeadershipVideosScreen(
                 state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VaccinationLeadershipVideoEvent.Refresh -> vm.refresh()
-                        is VaccinationLeadershipVideoEvent.ItemVisible -> vm.onItemVisible(event.index)
-                        is VaccinationLeadershipVideoEvent.PlaybackEvent -> vm.onPlayback(event.event)
-                    }
-                },
+                onEvent = vm::onEvent,
             )
         }
 

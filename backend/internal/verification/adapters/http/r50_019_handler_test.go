@@ -36,6 +36,10 @@ func (*moduleDutyQueueRepo) ListQueueFilterOptions(context.Context, ports.ListQu
 	return domain.QueueFilterOptions{}, nil
 }
 
+func (*moduleDutyQueueRepo) ListReadyVaccinationBatchClosures(context.Context, ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
+	return []domain.VaccinationBatchClosure{}, nil
+}
+
 func TestVerifierCannotReadCategoryWithoutModuleDuty(t *testing.T) {
 	const (
 		tenantID = "10000000-0000-4000-8000-000000000001"

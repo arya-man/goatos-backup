@@ -132,6 +132,10 @@ private class StatusSensitiveRepository(private val item: VerificationQueueItem)
     override suspend fun refreshActionQueue(category: String?, parkId: String?, shedId: String?, limit: Int?): Result<Unit> = Result.success(Unit)
     override suspend fun markVaccinationBatchClosedLocally(batchId: String, category: String?, parkId: String?, shedId: String?, limit: Int?) = Unit
     override suspend fun markVerificationItemDecidedLocally(itemId: String) = Unit
+    override fun observeLeadershipVideos(category: String?, windowSize: Int) = flowOf(emptyList<sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi>())
+    override fun observeLeadershipTitle(category: String?, windowSize: Int) = flowOf("")
+    override suspend fun refreshLeadershipVideos(category: String?, windowSize: Int, reset: Boolean) =
+        sg.mesha.goatos.core.common.AppResult.Ok(Unit)
 }
 
 /** Minimal SyncRepository: this test never issues a verdict, it only opens the screen. */

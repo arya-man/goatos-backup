@@ -172,6 +172,7 @@ private class CountingScanCaptureRepository : ScanCaptureRepository {
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int,
         capturedAtMs: Long?,
     ) = Unit
 
