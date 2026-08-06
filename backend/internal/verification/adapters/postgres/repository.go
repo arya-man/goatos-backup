@@ -174,6 +174,42 @@ func (r *Repository) GetItemCategories(ctx context.Context, tenantID string, ite
 	return out, nil
 }
 
+// GetItemProofRefs batch-resolves item_id -> its own proof ids (media_refs) in ONE query, so the
+// telemetry write path can reject a proof_id that belongs to a different item. See ports.Repository.
+func (r *Repository) GetItemProofRefs(ctx context.Context, tenantID string, itemIDs []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(itemIDs) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	rows, err := r.pool.Query(ctx,
+		`SELECT item_id::text, media_refs FROM verification_items WHERE tenant_id = $1::uuid AND item_id = ANY($2::uuid[])`,
+		tenantID, itemIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var itemID string
+		var raw []byte
+		if err := rows.Scan(&itemID, &raw); err != nil {
+			return nil, err
+		}
+		refs := []string{}
+		if len(raw) > 0 {
+			if err := json.Unmarshal(raw, &refs); err != nil {
+				return nil, fmt.Errorf("verification: unmarshal media_refs for item %s: %w", itemID, err)
+			}
+		}
+		out[itemID] = refs
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (r *Repository) GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()

@@ -288,3 +288,78 @@ func TestReviewEventsIngestRejectsQueueOpenedMissingCategory(t *testing.T) {
 		t.Fatalf("expected invalid_payload error, got %v", err)
 	}
 }
+
+// A proof_id is client-supplied and the derived watch facts PARTITION by it, so a proof belonging to
+// a DIFFERENT item would put a foreign duration into this item's denominator and skew its watch
+// fraction — and the CEO integrity aggregate built on it. UUID shape and the DB foreign key both
+// pass for a sibling's proof: neither is ownership.
+func TestReviewEventsIngestRejectsAProofFromAnotherItem(t *testing.T) {
+	svc, repo, item := newServiceWithItem(t, "vaccination_proof")
+	ownProof := "00000000-0000-4000-c000-000000000001"
+	siblingProof := "00000000-0000-4000-c000-000000000002"
+
+	// Give the item one real proof, and stand up a sibling item owning a different one.
+	stored := repo.items[item.ItemID]
+	stored.MediaRefs = []string{ownProof}
+	repo.items[item.ItemID] = stored
+
+	sibling, err := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source:         domain.SourceRef{Module: "vaccination", RefType: "sop_submission", RefID: testTenant},
+		MediaRefs:      []string{siblingProof},
+		CapturedAt:     time.Now(),
+		IdempotencyKey: "idem-sibling-proof",
+	})
+	if err != nil {
+		t.Fatalf("create sibling item: %v", err)
+	}
+	if len(repo.items[sibling.Item.ItemID].MediaRefs) != 1 {
+		t.Fatalf("sibling item should own exactly its own proof")
+	}
+
+	reviewRepo := &fakeReviewEventRepo{}
+	in := validBatchInput(item.ItemID)
+	in.EventType = string(domain.ReviewEventVideoPlay)
+	in.ProofID = siblingProof // authorized item, ANOTHER item's proof
+
+	_, err = svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant,
+		"00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in})
+	if err == nil {
+		t.Fatal("a proof from another item must be REJECTED, not stored")
+	}
+	if len(reviewRepo.inserted) != 0 {
+		t.Fatalf("nothing may be inserted when a proof is refused; inserted %d batch(es)", len(reviewRepo.inserted))
+	}
+
+	// The item's OWN proof still works — the guard must not lock the feature out.
+	in.ProofID = ownProof
+	if _, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant,
+		"00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in}); err != nil {
+		t.Fatalf("the item's own proof must be accepted: %v", err)
+	}
+}
+
+// A queue_opened event has no item, so it can have no proof either; accepting one would store a
+// proof no ownership check could ever be applied to.
+func TestReviewEventsIngestRejectsAProofOnAQueueScopedEvent(t *testing.T) {
+	svc, _, _ := newServiceWithItem(t, "vaccination_proof")
+	reviewRepo := &fakeReviewEventRepo{}
+
+	in := ReviewEventBatchInput{
+		SessionID:     "sess-1",
+		EventType:     string(domain.ReviewEventQueueOpened),
+		OccurredAt:    time.Now().Format(time.RFC3339),
+		ClientEventID: "00000000-0000-4000-a000-000000000009",
+		ProofID:       "00000000-0000-4000-c000-000000000003",
+	}
+	category := "vaccination_proof"
+	in.Payload.Category = &category
+
+	if _, err := svc.RecordReviewEvents(context.Background(), reviewRepo, testTenant,
+		"00000000-0000-4000-b000-000000000001", nil, []ReviewEventBatchInput{in}); err == nil {
+		t.Fatal("a queue-scoped event carrying a proof_id must be rejected")
+	}
+	if len(reviewRepo.inserted) != 0 {
+		t.Fatalf("nothing may be inserted; inserted %d batch(es)", len(reviewRepo.inserted))
+	}
+}
