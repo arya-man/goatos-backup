@@ -419,7 +419,14 @@ var protectedRoutes = []Route{
 	// proof before deciding). Gated on verification.review -- the same permission that already
 	// gates seeing the queue/evidence at all; this is telemetry ABOUT that same review activity,
 	// never a separate write authority.
-	{OperationID: "recordVerificationReviewEvents", Method: "POST", Pattern: "/verification/review-events", Permissions: []string{VerificationReview}},
+	// Telemetry INGEST is gated on VerificationVerdict, not VerificationReview. This stream measures
+	// whether the person who signs the second check actually watched the evidence, and
+	// VerificationReview is deliberately held by CEO/CxO for visibility -- so gating ingest on it let a
+	// read-only leadership principal post queue/video/verdict telemetry under their own actor id,
+	// polluting the integrity stream with rows for a principal who cannot record a verdict at all.
+	// Reading the derived facts stays on VerificationReview: leadership must be able to SEE the signal
+	// they cannot write. See context/architecture/verifier-app-and-flow.md -> Roles.
+	{OperationID: "recordVerificationReviewEvents", Method: "POST", Pattern: "/verification/review-events", Permissions: []string{VerificationVerdict}},
 	{OperationID: "getVerificationItemReviewFacts", Method: "GET", Pattern: "/verification/items/{item_id}/review-facts", Permissions: []string{VerificationReview}},
 
 	// HR roster: staff positions (concept #2), leave/absence (#3), temporary

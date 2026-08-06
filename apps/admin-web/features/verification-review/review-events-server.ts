@@ -35,8 +35,23 @@ export async function submitVerificationReviewEvents(events: PendingEvent[]): Pr
 
   const result = await postVerificationReviewEvents(apiEvents, idempotencyKey);
   if (!result.ok) {
+    // The `permanent:` prefix tells the client buffer to DROP this batch instead of re-queueing it.
+    // Telemetry ingest is verifier-only authority, so a leadership principal browsing the queue gets
+    // a forbidden that retrying can never fix — without this the buffer would grow forever behind an
+    // unsatisfiable retry. A validation rejection is equally hopeless on replay.
+    const status = result.error.status ?? 0;
+    const permanentKind =
+      result.error.kind === "permission_denied" ||
+      result.error.kind === "unauthorized" ||
+      result.error.kind === "tenant_scope_mismatch" ||
+      result.error.kind === "bad_request" ||
+      result.error.kind === "not_found" ||
+      result.error.kind === "missing_config";
+    // A 4xx that is not a timeout or a rate limit will reject the same batch identically forever.
+    const permanentStatus = status >= 400 && status < 500 && status !== 408 && status !== 429;
+    const permanent = permanentKind || permanentStatus;
     throw new Error(
-      `Failed to post verification review events: ${result.error.kind} ${result.error.code}`,
+      `${permanent ? "permanent" : "transient"}: verification review events rejected: ${result.error.kind} ${result.error.code}`,
     );
   }
 }
