@@ -27,6 +27,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -62,6 +63,7 @@ import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVid
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVideoPlaybackEvent
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVideosUiState
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
 import sg.mesha.goatos.core.media.LocalProofPlayerFactory
@@ -277,9 +279,11 @@ private fun LeadershipChip(label: String, selected: Boolean, onClick: () -> Unit
     Text(
         text = label,
         color = fg,
-        fontSize = 12.5.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pillStrong,
         modifier = Modifier
+            // Filter chips are the primary control on this screen; without this the tap target is
+            // the text bounds, below the accessibility minimum.
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(999.dp))
@@ -308,15 +312,13 @@ private fun LeadershipDriveCloseCard(
                 Text(
                     text = closure.batchLabel.ifBlank { "Vaccination drive ready" },
                     color = MeshaColors.Ink,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.W800,
+                    style = MeshaType.bodyStrong,
                 )
                 if (closure.driveLabel.isNotBlank()) {
                     Text(
                         text = closure.driveLabel,
                         color = MeshaColors.Muted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.W700,
+                        style = MeshaType.cta,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
@@ -324,14 +326,13 @@ private fun LeadershipDriveCloseCard(
                     text = "${closure.totalCount} animals · ${closure.shedCount} sheds · " +
                         "${closure.approvedVideos}/${closure.videoCount} videos approved",
                     color = MeshaColors.Muted,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
                 Text(
                     text = "Video pending ${closure.pendingVideos} · rejected ${closure.rejectedVideos}",
                     color = MeshaColors.Faint,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.pill,
                     modifier = Modifier.padding(top = 6.dp),
                 )
             }
@@ -348,7 +349,7 @@ private fun LeadershipDriveCloseCard(
                 } else {
                     Icon(MeshaIcons.CheckCircle, contentDescription = null, tint = MeshaColors.Surf, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(6.dp))
-                    Text(text = "Close", color = MeshaColors.Surf, fontSize = 12.5.sp, fontWeight = FontWeight.W800)
+                    Text(text = "Close", color = MeshaColors.Surf, style = MeshaType.pillStrong)
                 }
             }
         }
@@ -356,8 +357,7 @@ private fun LeadershipDriveCloseCard(
             Text(
                 text = it,
                 color = MeshaColors.Danger,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W600,
+                style = MeshaType.cardSubtitle,
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
@@ -395,20 +395,19 @@ fun VaccinationLeadershipVideoItemCard(
                 Text(
                     text = listOf(item.title, item.shedLabel).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Proof" },
                     color = MeshaColors.Ink,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.bodyStrong,
                 )
                 Text(
                     text = listOf(item.parkLabel, item.operatorLabel, item.timestamp).filter { it.isNotBlank() }.joinToString(" · "),
                     color = MeshaColors.Muted,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
                 if (item.summary.isNotEmpty() && item.summary != item.title) {
                     Text(
                         text = item.summary,
                         color = MeshaColors.Faint,
-                        fontSize = 11.sp,
+                        style = MeshaType.pill,
                         modifier = Modifier.padding(top = 2.dp),
                     )
                 }
@@ -418,8 +417,7 @@ fun VaccinationLeadershipVideoItemCard(
         Text(
             text = "Vaccination proof",
             color = MeshaColors.Faint,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pill,
             modifier = Modifier.padding(top = 10.dp),
         )
     }
@@ -436,8 +434,7 @@ private fun LeadershipStatusPill(tone: String, label: String) {
     Text(
         text = label,
         color = fg,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pill,
         modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(bg).padding(horizontal = 10.dp, vertical = 4.dp),
     )
 }
@@ -466,11 +463,11 @@ private fun VaccinationLeadershipProofDetailScreen(
                 Icon(MeshaIcons.Close, contentDescription = "Close", tint = MeshaColors.Ink)
             }
             Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(text = "Vaccination proof", color = MeshaColors.Ink, fontSize = 16.sp, fontWeight = FontWeight.W800)
+                Text(text = "Vaccination proof", color = MeshaColors.Ink, style = MeshaType.button)
                 Text(
                     text = "${item.proofCount} goat${if (item.proofCount != 1) "s" else ""}",
                     color = MeshaColors.Muted,
-                    fontSize = 12.sp,
+                    style = MeshaType.cardSubtitle,
                 )
             }
             LeadershipStatusPill(tone = item.statusTone, label = item.statusLabel)
@@ -503,7 +500,7 @@ private fun VaccinationLeadershipContextCard(item: VaccinationLeadershipItemUi) 
             .border(1.dp, MeshaColors.Hair, RoundedCornerShape(14.dp))
             .padding(14.dp),
     ) {
-        Text(text = "Context", color = MeshaColors.Ink, fontSize = 13.sp, fontWeight = FontWeight.W800, modifier = Modifier.padding(bottom = 8.dp))
+        Text(text = "Context", color = MeshaColors.Ink, style = MeshaType.listTitle, modifier = Modifier.padding(bottom = 8.dp))
         listOf(
             "Shed" to item.shedLabel,
             "Park" to item.parkLabel,
@@ -511,8 +508,8 @@ private fun VaccinationLeadershipContextCard(item: VaccinationLeadershipItemUi) 
             "Captured" to item.timestamp,
         ).filter { it.second.isNotBlank() }.forEach { (label, value) ->
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Text(text = label, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                Text(text = value, color = MeshaColors.Ink, fontSize = 12.sp, fontWeight = FontWeight.W600)
+                Text(text = label, color = MeshaColors.Muted, style = MeshaType.cardSubtitle, modifier = Modifier.weight(1f))
+                Text(text = value, color = MeshaColors.Ink, style = MeshaType.cardSubtitle)
             }
         }
     }
