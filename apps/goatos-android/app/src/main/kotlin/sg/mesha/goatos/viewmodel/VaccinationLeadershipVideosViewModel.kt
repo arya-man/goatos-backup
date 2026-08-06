@@ -1,5 +1,6 @@
 package sg.mesha.goatos.viewmodel
 
+import sg.mesha.goatos.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -316,7 +317,7 @@ private fun VerificationQueueItem.toUi(index: Int): VaccinationLeadershipItemUi 
         parkLabel = parkLabel.orEmpty(),
         operatorLabel = operatorName.orEmpty(),
         media = media.map {
-            VaccinationLeadershipMediaUi(proofId = it.proofId, url = it.downloadUrl, mimeType = it.mimeType.orEmpty())
+            VaccinationLeadershipMediaUi(proofId = it.proofId, url = absoluteProofUrl(it.downloadUrl), mimeType = it.mimeType.orEmpty())
         },
     )
 }
@@ -350,3 +351,15 @@ private fun formatLeadershipCapturedAt(raw: String): String = runCatching {
         .atZone(java.time.ZoneId.of("Asia/Kolkata"))
         .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy, h:mm a"))
 }.getOrElse { raw }
+
+/**
+ * The queue contract returns proof links as SERVER-RELATIVE paths ("/app/proofs/<id>/download/..."),
+ * which ExoPlayer rejects with "Malformed URL" -- the gallery showed 00:00 / 00:00 on every clip.
+ * Resolve against the build's API base, exactly as VerifyDetailViewModel does for the same field.
+ */
+private fun absoluteProofUrl(url: String): String {
+    val trimmed = url.trim()
+    if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) return trimmed
+    if (!trimmed.startsWith("/")) return trimmed
+    return BuildConfig.API_BASE_URL.trimEnd('/') + trimmed
+}
