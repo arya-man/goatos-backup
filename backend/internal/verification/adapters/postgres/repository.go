@@ -98,7 +98,7 @@ INSERT INTO verification_items (
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
   nullif($17, ''),
-  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, '')::text, nullif($14, '')::uuid, $15, $16, $18, $20
+  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, '')::text, nullif($14, '')::uuid, $15, $16, $18
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
