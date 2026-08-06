@@ -15,7 +15,12 @@ import org.junit.Test
  *     generic 4-square [MeshaIcons.Module] fallback tile, because `forNavKey` only knew the
  *     unprefixed module names and the drawer's keys are `verify_`-prefixed.
  *  2. Two DISTINCT modules (`counts` and `weighing`) collided on the same icon anyway.
- *  3. (Not this file -- see VerifyQueueTitleTest for the hardcoded-title bug.)
+ *  3. Two DISTINCT modules (`counts` and `breeding`) collided on the same [MeshaIcons.Goat]
+ *     icon -- found on a real device, screenshotted, in the CEO drawer (Herd Operations and
+ *     Breeding wore the identical glyph). `breeding` now resolves to its own [MeshaIcons.Breeding]
+ *     glyph. `allowedSharedIconGroups` below is the escape hatch for a FUTURE deliberate share;
+ *     it must never again be used to paper over an actual unresolved collision like this one was.
+ *  4. (Not this file -- see VerifyQueueTitleTest for the hardcoded-title bug.)
  */
 class MeshaIconsNavKeyTest {
 
@@ -51,14 +56,12 @@ class MeshaIconsNavKeyTest {
     /**
      * Keys that are ALLOWED to legitimately share an icon, with the reason encoded here instead
      * of silently weakening the injectivity assertion below. Pulled from MeshaIcons.kt's own
-     * doc comments, not invented for this test.
+     * doc comments, not invented for this test. Empty today: `counts` and `breeding` used to be
+     * listed here, which is exactly how the same-glyph bug went unnoticed -- the test documented
+     * the collision as intentional instead of catching it. Do not re-add an entry here without a
+     * doc comment in MeshaIcons.kt justifying it independently of this test.
      */
-    private val allowedSharedIconGroups: List<Set<String>> = listOf(
-        // Counts vertical ("Herd Operations") and Breeding both use the Goat glyph per
-        // MeshaIcons.kt's own comments ("counts" -> Goat: "it is the herd itself"; "breeding"
-        // -> Goat). Both are herd-identity verticals, not two features masquerading as one.
-        setOf("counts", "breeding"),
-    )
+    private val allowedSharedIconGroups: List<Set<String>> = emptyList()
 
     @Test
     fun `distinct module keys never collide on the same icon, except the documented allow-set`() {
