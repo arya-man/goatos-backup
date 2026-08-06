@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	vaccinatdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
@@ -4073,6 +4074,131 @@ FROM per_animal
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
+	// 1b. The animals behind the ClosedWithoutDose tile.
+	//
+	// The tile is a dead end without them: "3 closed with no dose" starts the CEO's question and the
+	// only way to finish it was a database query. The per-animal predicate below is the SAME
+	// four-boolean fold the tile counts with (per_animal, priority chain residual), so the list and
+	// the number can never describe different animals.
+	//
+	// projection-review: membership=obligation_instances folded to one row per animal by per_animal, filtered to the residual bucket, then joined 1:1 to that animal's identity and location; group_key=target_id (the ANIMAL), identical to the tile's key set; join_cardinality=comp pre-aggregated per obligation before the fold; goats/locations/goat_shed_partitions 0..1 on a PK; the primary-tag and closed-dose lookups are LATERAL LIMIT 1 scalars so neither can multiply an animal; pagination=whole-scope COUNT stays on the tile, this LIST is capped in Go at CommandBoardClosedWithoutDoseListCap; scope=tenant + optional batch + optional park EXISTS, same predicates as the tile.
+	// (a) producer unique columns: target_id after the per_animal fold | consumer GROUP BY: none —
+	//     one row per animal is already the grain, so there is no aggregate to fan out.
+	// (b) join multiplicity: every join is 0..1 (PK lookups) or a LIMIT 1 LATERAL.
+	// (c) key set: the residual filter is byte-identical to the tile's
+	//     `NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled`, so
+	//     count and list range over the same animals.
+	closedWithoutDoseSQL := `
+WITH comp AS (
+  SELECT
+    obligation_id,
+    bool_or(status = 'accepted') AS has_accepted,
+    bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+),
+scoped AS (
+  SELECT
+    oi.target_id,
+    oi.obligation_id,
+    oi.status,
+    oi.rule_id,
+    COALESCE(comp.has_accepted, false) AS has_accepted,
+    COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
+    comp.obligation_id IS NULL AS no_completion,
+    oi.status IN ('scheduled','due','in_progress','deferred','missed') AS is_open,
+    (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AS due_before_as_of
+  FROM obligation_instances oi
+  LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
+  WHERE oi.tenant_id = $1::uuid
+    AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+    AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+      SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+    ))
+),
+per_animal AS (
+  SELECT
+    target_id,
+    bool_or(has_accepted) AS any_verified,
+    bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
+    bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
+    bool_or(is_open AND no_completion AND NOT due_before_as_of) AS any_scheduled
+  FROM scoped
+  GROUP BY target_id
+)
+SELECT
+  g.goat_id::text,
+  g.display_id,
+  COALESCE(tag.identifier_value, '') AS tag,
+  COALESCE(park.name, '') AS park_name,
+  COALESCE(shed.name, '') AS shed_name,
+  COALESCE(gsp.partition_label, '') AS partition_label,
+  COALESCE(closed.status, '') AS reason_status,
+  COALESCE(closed.dose_code, '') AS dose_code
+FROM per_animal pa
+JOIN goats g ON g.goat_id = pa.target_id AND g.tenant_id = $1::uuid
+LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
+LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN LATERAL (
+  SELECT gi.identifier_value FROM goat_identifiers gi
+  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+    AND gi.status = 'active' AND gi.is_primary_for_goat
+  LIMIT 1
+) tag ON true
+LEFT JOIN LATERAL (
+  SELECT s.status, pr.dose_code
+  FROM scoped s
+  JOIN protocol_rules pr ON pr.rule_id = s.rule_id AND pr.tenant_id = $1::uuid
+  WHERE s.target_id = pa.target_id
+  ORDER BY s.obligation_id
+  LIMIT 1
+) closed ON true
+WHERE NOT pa.any_verified AND NOT pa.any_awaiting AND NOT pa.any_overdue AND NOT pa.any_scheduled
+ORDER BY g.display_id
+LIMIT $5
+`
+	closedRows, err := r.pool.Query(ctx, closedWithoutDoseSQL, q.TenantID, asOf, q.DriveBatchID, parkID,
+		domain.CommandBoardClosedWithoutDoseListCap)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: closed-without-dose query: %w", err)
+	}
+	defer closedRows.Close()
+	// Initialised, not left nil: the contract declares this list required, and a nil slice marshals
+	// to null. An empty residual bucket must read as "no animals closed without a dose", never as a
+	// field the server declined to send.
+	resp.ClosedWithoutDoseAnimals = []domain.CommandBoardClosedWithoutDoseAnimal{}
+	for closedRows.Next() {
+		var animal domain.CommandBoardClosedWithoutDoseAnimal
+		var reasonStatus, doseCode string
+		if err := closedRows.Scan(&animal.GoatID, &animal.DisplayID, &animal.Tag, &animal.ParkName,
+			&animal.ShedName, &animal.PartitionLabel, &reasonStatus, &doseCode); err != nil {
+			return resp, fmt.Errorf("vaccination command board: closed-without-dose scan: %w", err)
+		}
+		// Ground location is park + physical shed + partition. shed.name alone would print "Godel 1"
+		// for an animal standing in "Godel 1 - Part 3".
+		animal.LocationDisplay = oploc.OperationalLocation{
+			ParkName:       animal.ParkName,
+			ShedName:       animal.ShedName,
+			PartitionLabel: animal.PartitionLabel,
+		}.Display()
+		// NormalizePartition collapses every non-partitioned encoding to the "whole" MATCHING
+		// sentinel, which is a grouping key and never copy. A non-partitioned shed carries no
+		// partition label on the wire at all.
+		if normalized := oploc.NormalizePartition(animal.PartitionLabel); oploc.IsPartitioned(normalized) {
+			animal.PartitionLabel = strings.TrimSpace(animal.PartitionLabel)
+		} else {
+			animal.PartitionLabel = ""
+		}
+		animal.Reason = closureReasonLabel(reasonStatus)
+		animal.VaccineLabel = vaccinatdomain.DoseQualifiedDisplayLabel("", doseCode)
+		resp.ClosedWithoutDoseAnimals = append(resp.ClosedWithoutDoseAnimals, animal)
+	}
+	if err := closedRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: closed-without-dose rows: %w", err)
+	}
+
 	// 2. Cohort matrix query (management_stage × sex × vaccine × pending/submitted/verified)
 	//
 	// THREE disjoint buckets, partitioned by WHO OWES THE NEXT MOVE. pending_count used to fuse the
@@ -4822,4 +4948,24 @@ func commandBoardDriveLabel(name string, plannedDate pgtype.Date, windowStart pg
 		name = fmt.Sprintf("%s (%s)", name, status)
 	}
 	return name
+}
+
+// closureReasonLabel renders an obligation's closed status in farm language. Raw status tokens are
+// storage vocabulary and must never reach a CEO screen; an unmapped status degrades to the generic
+// business phrasing rather than leaking the token.
+func closureReasonLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "cancelled", "canceled":
+		return "Cancelled"
+	case "waived":
+		return "Waived"
+	case "superseded":
+		return "Superseded"
+	case "deferred":
+		return "Deferred for recovery"
+	case "":
+		return "Closed with no dose"
+	default:
+		return "Closed with no dose"
+	}
 }

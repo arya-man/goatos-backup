@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -429,6 +430,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // Cell drilldown is client-local overlay state: the cohort row already carries its sub-cohorts,
   // so opening a cell must not re-run the route (local-overlay rule).
   const [selectedCell, setSelectedCell] = useState<SelectedCohortCell | null>(null);
+  // Client-local overlay state: the animals are already in the rendered payload, so opening the
+  // drawer must not re-run the route.
+  const [closedDrawerOpen, setClosedDrawerOpen] = useState(false);
+  const closedAnimals = board.closedWithoutDoseAnimals ?? [];
   const futureCampaigns = useMemo(
     () => statuses.has("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
@@ -573,7 +578,28 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
               left the tiles summing to less than the total, so a reader could not tell a projection
               bug from animals whose obligations genuinely closed with no dose. */}
-          <div className="kpi mut">
+          {/* The tile is the START of the CEO's question, not the end: "3 closed with no dose" is
+              followed every time by "which animals, and why". It opens the record drawer with that
+              list rather than dead-ending on a number. Disabled-with-reason at zero, so the
+              affordance never promises a list that does not exist. */}
+          <div
+            className={`kpi mut${closedAnimals.length > 0 ? " kpi-clickable" : ""}`}
+            role={closedAnimals.length > 0 ? "button" : undefined}
+            tabIndex={closedAnimals.length > 0 ? 0 : undefined}
+            aria-disabled={closedAnimals.length === 0 ? true : undefined}
+            title={
+              closedAnimals.length > 0
+                ? copy(pageContract, "command_board.kpi.closed_without_dose_open")
+                : copy(pageContract, "command_board.kpi.closed_without_dose_empty")
+            }
+            onClick={() => closedAnimals.length > 0 && setClosedDrawerOpen(true)}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && closedAnimals.length > 0) {
+                e.preventDefault();
+                setClosedDrawerOpen(true);
+              }
+            }}
+          >
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.closed_without_dose")}</div>
             <div className="val">{view.kpis.closedWithoutDose}</div>
@@ -1013,6 +1039,70 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             queue age was unique, so it now rides along in that cell and the duplicate table is
             gone. */}
       </div>
+
+      {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
+          payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
+      {closedDrawerOpen && (
+        <>
+          <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}></div>
+          <aside
+            className="drawer on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={copy(pageContract, "command_board.kpi.closed_without_dose")}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setClosedDrawerOpen(false);
+            }}
+          >
+            <div className="dh">
+              <div style={{ flex: 1 }}>
+                <h3>{copy(pageContract, "command_board.kpi.closed_without_dose")}</h3>
+                <span>
+                  {view.kpis.closedWithoutDose} {copy(pageContract, "command_board.closed_drawer.animals_word")}
+                </span>
+              </div>
+              <button className="cal-nav" onClick={() => setClosedDrawerOpen(false)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="db">
+              <table className="cbm-closed-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.animal")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.location")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.vaccine")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.reason")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closedAnimals.map((animal) => (
+                    <tr key={animal.goatId}>
+                      <td>
+                        <b>{animal.displayId}</b>
+                        {animal.tag ? <span className="cbm-closed-tag">{animal.tag}</span> : null}
+                      </td>
+                      {/* Ground location, partition included -- the parent shed name alone would
+                          send a park head to the wrong side of a partitioned shed. */}
+                      <td>
+                        {animal.locationDisplay}
+                        <span className="cbm-closed-park">{animal.parkName}</span>
+                      </td>
+                      <td>{animal.vaccineLabel}</td>
+                      <td>{animal.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {view.kpis.closedWithoutDose > closedAnimals.length ? (
+                <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
+                  {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </>
+      )}
     </section>
   );
 
