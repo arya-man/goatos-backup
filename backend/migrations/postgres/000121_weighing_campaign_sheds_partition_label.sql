@@ -121,11 +121,10 @@ DO $$
   END
 $$;
 
--- Add index for reads by campaign_shed_id (common in reads) and by partition_label
--- when filtering campaign sheds by partition within a shed.
-CREATE INDEX IF NOT EXISTS weighing_campaign_sheds_campaign_partition_idx
-  ON weighing_campaign_sheds (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''));
+-- The partition-aware read index is created CONCURRENTLY in migration 000124, which is marked
+-- NO TRANSACTION. weighing_campaign_sheds is a populated operational table, so a plain
+-- CREATE INDEX inside this transactional migration would take a write lock for the duration of
+-- the build and stall live campaign writes during deploy.
 
 -- +goose Down
-DROP INDEX IF EXISTS weighing_campaign_sheds_campaign_partition_idx;
 ALTER TABLE weighing_campaign_sheds DROP COLUMN IF EXISTS partition_label;
