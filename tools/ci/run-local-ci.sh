@@ -237,11 +237,15 @@ ci_tooling_changed() {
 # mutation self-test is ~15 min. Charging both to every `tools/ci/**` commit is a
 # wall-clock regression inside a wall-clock fix — the same mistake the ~62 s
 # screenshot-proof self-test made before it was diff-scoped.
+# run-local-ci.sh is in the GUARD's trigger set too, not only the self-test's:
+# case (g) asserts that a trace run acquires no lock and case (g3) that it does
+# not run the machine-wide stale-worker reaper. Both are properties of THIS
+# file, so a diff here that leaves the library alone must still pay the 47 s.
 gradle_lock_lib_changed() {
   local changed
   changed="$(changed_since_base 2>/dev/null)" || return 0
   [ -n "$changed" ] || return 0
-  printf '%s\n' "$changed" | grep -Eq '^tools/ci/gradle-worktree-lock\.sh$'
+  printf '%s\n' "$changed" | grep -Eq '^tools/ci/(gradle-worktree-lock\.sh|run-local-ci\.sh)$'
 }
 
 # run-local-ci.sh is in the self-test's trigger set ON PURPOSE: guard case (g)
@@ -373,10 +377,11 @@ run_common() {
   # the runs that follow the change which caused the drift.
   step "push-hook-freshness-guard" bash tools/ci/check-push-hook-freshness.sh
   step "parallel-dispatch cleanup guard" bash tools/ci/check-parallel-dispatch-cleanup.sh
-  # gradle-worktree-lock guard: ~45s of sandboxed sleeps, no Gradle. Diff-scoped
-  # to a tools/ci/gradle-worktree-lock.sh diff (fail-open) because it guards
-  # exactly that one file, and 45s x every pass is a meaningful slice of what
-  # the lock itself wins back. `make gradle-worktree-lock-guard` and
+  # gradle-worktree-lock guard: ~47s, all of it sandboxed sleeps. The guard runs
+  # no Gradle ITSELF, but case (g) does drive `run-local-ci.sh android` under
+  # trace — which is why this file is in its trigger set alongside the library.
+  # Diff-scoped (fail-open) because 47s x every pass is a meaningful slice of
+  # what the lock itself wins back. `make gradle-worktree-lock-guard` and
   # `make guardrails` still run it unconditionally when explicitly asked.
   if gradle_lock_lib_changed; then
     step "gradle-worktree-lock guard" bash tools/ci/check-gradle-worktree-lock.sh
