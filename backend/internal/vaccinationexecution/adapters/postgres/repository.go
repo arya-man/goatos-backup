@@ -4104,6 +4104,7 @@ scoped AS (
     oi.obligation_id,
     oi.status,
     oi.rule_id,
+    oi.due_at,
     COALESCE(comp.has_accepted, false) AS has_accepted,
     COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
     comp.obligation_id IS NULL AS no_completion,
@@ -4130,7 +4131,8 @@ per_animal AS (
 SELECT
   g.goat_id::text,
   g.display_id,
-  COALESCE(tag.identifier_value, '') AS tag,
+  COALESCE(aid1.identifier_value, '') AS animal_identifier_1,
+  COALESCE(aid2.identifier_value, '') AS animal_identifier_2,
   COALESCE(park.name, '') AS park_name,
   COALESCE(shed.name, '') AS shed_name,
   COALESCE(gsp.partition_label, '') AS partition_label,
@@ -4141,18 +4143,25 @@ JOIN goats g ON g.goat_id = pa.target_id AND g.tenant_id = $1::uuid
 LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
 LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
 LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
-LEFT JOIN LATERAL (
-  SELECT gi.identifier_value FROM goat_identifiers gi
-  WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
-    AND gi.status = 'active' AND gi.is_primary_for_goat
-  LIMIT 1
-) tag ON true
+-- The animal's REAL identity is its physical tag(s), and an animal may carry two. Same
+-- canonical source and types the shed roster and calendar drawer read, so one animal reads
+-- identically on every surface.
+LEFT JOIN goat_identifiers aid1
+  ON aid1.tenant_id = g.tenant_id AND aid1.goat_id = g.goat_id
+ AND aid1.identifier_type = 'animal_identifier_1' AND aid1.status = 'active'
+LEFT JOIN goat_identifiers aid2
+  ON aid2.tenant_id = g.tenant_id AND aid2.goat_id = g.goat_id
+ AND aid2.identifier_type = 'animal_identifier_2' AND aid2.status = 'active'
 LEFT JOIN LATERAL (
   SELECT s.status, pr.dose_code
   FROM scoped s
   JOIN protocol_rules pr ON pr.rule_id = s.rule_id AND pr.tenant_id = $1::uuid
   WHERE s.target_id = pa.target_id
-  ORDER BY s.obligation_id
+  -- An animal can hold more than one closed obligation (a waived Dose 1 and a cancelled Dose 2).
+  -- The drawer has one reason line, so show the MOST RECENT closure -- that is the fact a reader
+  -- acts on -- rather than whichever UUID happened to sort first. obligation_id only breaks ties
+  -- so the pick stays stable across reads.
+  ORDER BY s.due_at DESC NULLS LAST, s.obligation_id
   LIMIT 1
 ) closed ON true
 WHERE NOT pa.any_verified AND NOT pa.any_awaiting AND NOT pa.any_overdue AND NOT pa.any_scheduled
@@ -4172,8 +4181,8 @@ LIMIT $5
 	for closedRows.Next() {
 		var animal domain.CommandBoardClosedWithoutDoseAnimal
 		var reasonStatus, doseCode string
-		if err := closedRows.Scan(&animal.GoatID, &animal.DisplayID, &animal.Tag, &animal.ParkName,
-			&animal.ShedName, &animal.PartitionLabel, &reasonStatus, &doseCode); err != nil {
+		if err := closedRows.Scan(&animal.GoatID, &animal.DisplayID, &animal.Tag1, &animal.Tag2,
+			&animal.ParkName, &animal.ShedName, &animal.PartitionLabel, &reasonStatus, &doseCode); err != nil {
 			return resp, fmt.Errorf("vaccination command board: closed-without-dose scan: %w", err)
 		}
 		// Ground location is park + physical shed + partition. shed.name alone would print "Godel 1"

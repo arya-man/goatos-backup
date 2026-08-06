@@ -5213,8 +5213,10 @@ export interface components {
             /** Format: uuid */
             goatId: string;
             displayId: string;
-            /** @description Primary visible tag when the animal carries one. */
-            tag?: string;
+            /** @description The animal's physical tag (animal_identifier_1). This is the identity the FARM uses; displayId is an internal Goat OS id and is only a fallback label. */
+            tag1?: string;
+            /** @description Second physical tag (animal_identifier_2) when the animal carries two. */
+            tag2?: string;
             /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. */
             locationDisplay: string;
             parkName: string;

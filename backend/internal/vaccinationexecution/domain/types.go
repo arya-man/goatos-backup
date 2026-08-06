@@ -819,10 +819,14 @@ type CommandBoardKPI struct {
 // so LocationDisplay is composed by oploc.OperationalLocation.Display() and never from the parent
 // shed name.
 type CommandBoardClosedWithoutDoseAnimal struct {
-	GoatID    string `json:"goatId"`
+	GoatID string `json:"goatId"`
+	// DisplayID is the INTERNAL Goat OS id. It is a fallback label, never the animal's identity:
+	// the farm identifies an animal by the physical tag on its ear.
 	DisplayID string `json:"displayId"`
-	// Tag is the animal's primary visible tag when it carries one.
-	Tag string `json:"tag,omitempty"`
+	// Tag1/Tag2 are the animal's physical tags. An animal may carry one or two; both are shown so
+	// whoever walks to the shed can match either ear. Empty when that tag slot is unused.
+	Tag1 string `json:"tag1,omitempty"`
+	Tag2 string `json:"tag2,omitempty"`
 	// LocationDisplay is the farm-readable operational location, partition included.
 	LocationDisplay string `json:"locationDisplay"`
 	ParkName        string `json:"parkName"`

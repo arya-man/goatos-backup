@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
@@ -115,6 +115,11 @@ interface CohortCellInput {
 // Day counts of the same vaccine coming from several (stage, sex) cohorts land on the same cohort
 // row, so identical dates ADD rather than overwrite — otherwise "1 Jul: 237" would silently become
 // whichever sub-cohort was folded last.
+//
+// CALLER CONTRACT: only ever feed this the day rows of ONE vaccine label. Repeated dates across
+// sub-cohorts are DIFFERENT animals dosed on the same day and must sum; repeated dates from the
+// same sub-cohort would double it. The backend already emits one day list per cohort x dose, so
+// the caller must not merge two dose codes into one call.
 function mergeDays(target: Record<string, CohortDay[]>, vaccine: string, days?: CohortDay[]) {
   if (!days?.length) return;
   const list = target[vaccine] ?? [];
@@ -457,6 +462,30 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     return next;
   });
 
+  const openCohortDrawer = (cell: SelectedCohortCell) => {
+    setClosedDrawerOpen(false);
+    setSelectedCell(cell);
+  };
+
+  const openClosedDrawer = () => {
+    setSelectedCell(null);
+    setClosedDrawerOpen(true);
+  };
+
+  // Escape closes whichever drawer is open, from ANYWHERE on the page. An onKeyDown handler on the
+  // drawer element only fires once focus is already inside it, so pressing Escape after opening a
+  // drawer by mouse did nothing and the scrim kept swallowing the next click.
+  useEffect(() => {
+    if (!selectedCell && !closedDrawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setSelectedCell(null);
+      setClosedDrawerOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedCell, closedDrawerOpen]);
+
   const filterBar = (
     <div className="cbm-filters">
       <div className="cbm-filter-row">
@@ -592,7 +621,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 ? copy(pageContract, "command_board.kpi.closed_without_dose_open")
                 : copy(pageContract, "command_board.kpi.closed_without_dose_empty")
             }
-            onClick={() => closedAnimals.length > 0 && setClosedDrawerOpen(true)}
+            onClick={() => closedAnimals.length > 0 && openClosedDrawer()}
             onKeyDown={(e) => {
               if ((e.key === "Enter" || e.key === " ") && closedAnimals.length > 0) {
                 e.preventDefault();
@@ -825,11 +854,21 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                                     role="button"
                                     tabIndex={0}
                                     aria-pressed={selectedCell?.key === cellKey}
-                                    onClick={() => setSelectedCell((prev) => (prev?.key === cellKey ? null : selection))}
+                                    onClick={() => {
+                                      if (selectedCell?.key === cellKey) {
+                                        setSelectedCell(null);
+                                      } else {
+                                        openCohortDrawer(selection);
+                                      }
+                                    }}
                                     onKeyDown={(e) => {
                                       if (e.key === "Enter" || e.key === " ") {
                                         e.preventDefault();
-                                        setSelectedCell((prev) => (prev?.key === cellKey ? null : selection));
+                                        if (selectedCell?.key === cellKey) {
+                                          setSelectedCell(null);
+                                        } else {
+                                          openCohortDrawer(selection);
+                                        }
                                       }
                                     }}
                                   >
@@ -867,125 +906,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     </div>
                   </div>
                 ))
-              )}
-              {selectedCell ? (
-                <div className="cbm-cohort-detail">
-                  <div className="cbm-cohort-detail-hd">
-                    <b>
-                      {selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · {selectedCell.cohort} ×{" "}
-                      {selectedCell.vaccine}
-                    </b>
-                    <button type="button" className="btn sm" onClick={() => setSelectedCell(null)}>
-                      {copy(pageContract, "command_board.cohort_matrix.detail.close")}
-                    </button>
-                  </div>
-                  <div className="cbm-cohort-detail-grid">
-                    <div>
-                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</span>
-                      <span className="v">{selectedCell.animals}</span>
-                    </div>
-                    <div>
-                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</span>
-                      <span className="v">{selectedCell.pending}</span>
-                    </div>
-                    <div>
-                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</span>
-                      <span className="v">{selectedCell.submitted}</span>
-                    </div>
-                    <div>
-                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</span>
-                      <span className="v">{selectedCell.verified}</span>
-                    </div>
-                    <div>
-                      <span className="k">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</span>
-                      <span className="v">
-                        {selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="cbm-cohort-detail-cols">
-                    {/* The day story: which day the operator actually dosed how many animals. */}
-                    <div className="cbm-cohort-detail-block">
-                      <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
-                      {selectedCell.days.length > 0 ? (
-                        <ul className="cbm-daylist">
-                          {selectedCell.days.map((day) => (
-                            <li key={day.date}>
-                              {/* Same farm-readable date wording the cell span uses ("30 Jun 2026"),
-                                  never the stored ISO value. */}
-                              <span className="d">{formatDateSpan(day.date, day.date)}</span>
-                              <span className="n">{day.animalCount}</span>
-                              <span className="u">{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="cbm-cohort-detail-muted">
-                          {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
-                        </span>
-                      )}
-                    </div>
-                    {/* The exception story: animals whose later dose is accepted while THIS dose is
-                        not. Named, so the CEO can hand the list to a park head. */}
-                    <div className="cbm-cohort-detail-block">
-                      <b>{copy(pageContract, "command_board.cohort_matrix.detail.exceptions")}</b>
-                      {selectedCell.exceptionCount > 0 ? (
-                        <>
-                          <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
-                          <ul className="cbm-goatlist">
-                            {selectedCell.exceptionGoats.map((goat) => (
-                              <li key={goat.goatId}>
-                                {goat.displayId}
-                                {goat.tag ? <span className="t">{goat.tag}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                          {selectedCell.exceptionCount > selectedCell.exceptionGoats.length ? (
-                            <span className="cbm-cohort-detail-muted">
-                              {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
-                            </span>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="cbm-cohort-detail-muted">
-                          {copy(pageContract, "command_board.cohort_matrix.detail.clean")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {selectedCell.members.length > 0 ? (
-                    <table className="cbm-cohort-detail-table">
-                      <thead>
-                        <tr>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.exception_word")}</th>
-                          <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedCell.members.map((member) => (
-                          <tr key={member.label}>
-                            <td>{member.label}</td>
-                            <td>{member.animals}</td>
-                            <td>{member.pending}</td>
-                            <td>{member.submitted}</td>
-                            <td>{member.verified}</td>
-                            <td>{member.exceptions}</td>
-                            <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="cbm-cohort-detail cbm-cohort-detail-empty">
-                  {copy(pageContract, "command_board.cohort_matrix.detail.empty")}
-                </div>
               )}
             </div>
           );
@@ -1082,9 +1002,19 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <tbody>
                   {closedAnimals.map((animal) => (
                     <tr key={animal.goatId}>
+                      {/* The tag on the animal's ear is what identifies it on the farm, so the
+                          tags lead and the internal id sits under them. An animal may carry two;
+                          both are shown so either ear matches. */}
                       <td>
-                        <b>{animal.displayId}</b>
-                        {animal.tag ? <span className="cbm-closed-tag">{animal.tag}</span> : null}
+                        {animal.tag1 || animal.tag2 ? (
+                          <>
+                            {animal.tag1 ? <b>{animal.tag1}</b> : null}
+                            {animal.tag2 ? <b className="cbm-closed-tag2">{animal.tag2}</b> : null}
+                            <span className="cbm-closed-tag">{animal.displayId}</span>
+                          </>
+                        ) : (
+                          <b>{animal.displayId}</b>
+                        )}
                       </td>
                       {/* Ground location, partition included -- the parent shed name alone would
                           send a park head to the wrong side of a partitioned shed. */}
@@ -1102,6 +1032,138 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
                   {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
                 </div>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Cohort matrix cell detail drawer. Opens from clicking a cohort matrix cell with the data
+          already in the rendered row. Closes on X, scrim, and Escape. Only one drawer open at a time. */}
+      {selectedCell && (
+        <div className="dscrim on" onClick={() => setSelectedCell(null)}>
+          <aside
+            className="drawer on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · ${selectedCell.cohort} × ${selectedCell.vaccine}`}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSelectedCell(null);
+            }}
+          >
+            <div className="dh">
+              <div style={{ flex: 1 }}>
+                <h3>
+                  {selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · {selectedCell.cohort} × {selectedCell.vaccine}
+                </h3>
+              </div>
+              <button className="cal-nav" onClick={() => setSelectedCell(null)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="db" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="metagrid">
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</div>
+                  <div className="v">{selectedCell.animals}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</div>
+                  <div className="v">{selectedCell.pending}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</div>
+                  <div className="v">{selectedCell.submitted}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</div>
+                  <div className="v">{selectedCell.verified}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</div>
+                  <div className="v">
+                    {selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                  </div>
+                </div>
+              </div>
+
+              {/* The day story: which day the operator actually dosed how many animals. */}
+              <div className="cbm-drawer-section">
+                <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
+                {selectedCell.days.length > 0 ? (
+                  <ul className="cbm-daylist">
+                    {selectedCell.days.map((day) => (
+                      <li key={day.date}>
+                        <span className="d">{formatDateSpan(day.date, day.date)}</span>
+                        <span className="n">{day.animalCount}</span>
+                        <span className="u">{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="cbm-cohort-detail-muted">
+                    {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                  </span>
+                )}
+              </div>
+
+              {/* The exception story: animals whose later dose is accepted while THIS dose is
+                  not. Named, so the CEO can hand the list to a park head. */}
+              <div className="cbm-drawer-section">
+                <b>{copy(pageContract, "command_board.cohort_matrix.detail.exceptions")}</b>
+                {selectedCell.exceptionCount > 0 ? (
+                  <>
+                    <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
+                    <ul className="cbm-goatlist">
+                      {selectedCell.exceptionGoats.map((goat) => (
+                        <li key={goat.goatId}>
+                          {goat.displayId}
+                          {goat.tag ? <span className="t">{goat.tag}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                    {selectedCell.exceptionCount > selectedCell.exceptionGoats.length ? (
+                      <span className="cbm-cohort-detail-muted">
+                        {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="cbm-cohort-detail-muted">
+                    {copy(pageContract, "command_board.cohort_matrix.detail.clean")}
+                  </span>
+                )}
+              </div>
+
+              {/* Sub-cohorts breakdown table */}
+              {selectedCell.members.length > 0 ? (
+                <table className="cbm-cohort-detail-table">
+                  <thead>
+                    <tr>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.exception_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedCell.members.map((member) => (
+                      <tr key={member.label}>
+                        <td>{member.label}</td>
+                        <td>{member.animals}</td>
+                        <td>{member.pending}</td>
+                        <td>{member.submitted}</td>
+                        <td>{member.verified}</td>
+                        <td>{member.exceptions}</td>
+                        <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               ) : null}
             </div>
           </aside>
