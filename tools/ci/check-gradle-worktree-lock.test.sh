@@ -4,8 +4,8 @@
 # The only thing that makes that guard worth having is that it goes RED when the
 # lock stops behaving. The lock is FAIL-OPEN, so a broken lock fails nothing on
 # its own — it silently restores the measured ~3x cross-worktree Gradle penalty.
-# So this harness builds NINETEEN mutated copies of tools/ci/gradle-worktree-lock.sh
-# (ids i..xix), points the guard at each via GOATOS_GRADLE_LOCK_UNDER_TEST, and
+# So this harness builds TWENTY-TWO mutated copies of tools/ci/gradle-worktree-lock.sh
+# (ids i..xxii), points the guard at each via GOATOS_GRADLE_LOCK_UNDER_TEST, and
 # requires a non-zero exit for every one — plus a zero exit for the pristine
 # library, so the harness cannot pass by rejecting everything.
 #
@@ -32,6 +32,14 @@
 # the wrong reason, then not caught at all. Every literal `$` in a replacement is
 # `\$`; the only bare `$1` is the capture in (iii). (xvii)/(xviii) use `!`
 # delimiters because an escaped `\}` inside `s{}{}` breaks perl's brace counting.
+#
+# ONE GUARD CASE IS DELIBERATELY NOT MUTATION-COVERED HERE, and saying so is the
+# point: case (g3) asserts that a TRACE run of run-local-ci.sh does not run the
+# machine-wide stale-Gradle-worker reaper. That behaviour lives in
+# run-local-ci.sh, not in the library this harness mutates, so no mutant of the
+# library can turn it red. It was proven the other way — by removing the
+# `ci_trace_only ||` gate in place, observing (g3) RED, and restoring — and that
+# is the check to repeat if that line is ever touched.
 #
 # NEVER invokes Gradle. Sleeps and shell only.
 set -uo pipefail
@@ -138,7 +146,7 @@ mutate ix   "an INT handler that releases and RETURNS instead of dying" \
   's{trap \x27_gradle_lock_on_signal INT\x27  INT}{trap \x27gradle_lock_release\x27 INT}'
 
 mutate x    "a stale break that does not RE-VALIDATE the owner" \
-  's{if \[ ! -d "\$lockdir" \] \|\| \[ "\$\{cur_pid\}" != "\$\{expect\}" \]; then}{if false; then}'
+  's{if \[ ! -d "\$lockdir" \] \|\| \[ -z "\$cur_ino" \] \|\| \[ "\$\{cur_ino\}" != "\$\{expect_ino\}" \] \\\n     \|\| \[ "\$\{cur_pid\}" != "\$\{expect\}" \]; then}{if false; then}'
 
 mutate xi   "kill -0 treated as proof of identity" \
   's{\[ -n "\$oident" \]}{[ -z "\$oident" ]}'
@@ -166,6 +174,17 @@ mutate xviii "an unsanitised GOATOS_CI_GRADLE_LOCK_STALE_SECONDS" \
 
 mutate xix  "a knob sanitiser that checks shape but not MAGNITUDE" \
   's{if \[ "\$\{#v\}" -gt 9 \]; then}{if false; then}'
+
+# Both call sites, or the surviving one still catches it and the mutant is a
+# no-op dressed as a mutation.
+mutate xx   "an acquire that polls an UNUSABLE lock path as if it were HELD" \
+  's{if _gradle_lock_path_unusable "\$lockdir"; then}{if false; then}g'
+
+mutate xxi  "a release that demands an exact hostname and leaks on a flap" \
+  's{  if \[ "\$ohost" != "\$\(_gradle_lock_host\)" \]; then\n    \[ -n "\$oident" \] \|\| return 0\n    \[ "\$oident" = "\$\(_gradle_lock_pid_identity "\$self"\)" \] \|\| return 0\n  fi}{  [ "\$ohost" = "\$(_gradle_lock_host)" ] || return 0}'
+
+mutate xxii "a stale break that re-validates on a pid that can be EMPTY, not the inode" \
+  's{ \|\| \[ -z "\$cur_ino" \] \|\| \[ "\$\{cur_ino\}" != "\$\{expect_ino\}" \]}{}'
 
 [ "$fails" -eq 0 ] || { echo "check-gradle-worktree-lock.test.sh: ${fails} case(s) FAILED" >&2; exit 1; }
 echo "check-gradle-worktree-lock.test.sh: all cases ok"

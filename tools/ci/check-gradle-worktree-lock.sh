@@ -31,10 +31,21 @@
 # (m)/(m2) a TERM at the android lane must not signal its parent — with the lock
 # enabled AND on the GOATOS_CI_GRADLE_LOCK=0 opt-out path, (n) an orphaned
 # break-lock stays bounded and honours the timeout, (o) non-numeric and
-# out-of-range knobs are sanitised.
+# out-of-range knobs are sanitised, (p) an UNUSABLE lock path fails open on the
+# first look instead of being polled for the whole timeout, (q) a hostname flap
+# between acquire and release does not leak the lock (and does not become a
+# general release bypass), (r) a stale break acts only on the lockdir its
+# decision was made about.
+#
+# ONE MACHINE-WIDE SIDE EFFECT, named rather than hidden: case (g) drives the
+# real `run-local-ci.sh android` under GOATOS_CI_TRACE_ONLY. Everything this
+# guard does ITSELF is sandboxed sleeps with no Gradle, but that target's
+# stale-worker reaper sits outside `step` and used to SIGKILL machine-wide
+# GradleWorkerMain processes it does not own. It is now trace-gated, and case
+# (g3) is what holds it that way.
 #
 # Self-test: tools/ci/check-gradle-worktree-lock.test.sh drives this guard
-# against 19 mutated copies of the library via GOATOS_GRADLE_LOCK_UNDER_TEST and
+# against 22 mutated copies of the library via GOATOS_GRADLE_LOCK_UNDER_TEST and
 # requires a RED for each. A guard that has never been observed to fail is a
 # guard nobody has proven.
 set -uo pipefail
@@ -320,6 +331,20 @@ g_rc=$?
 [ -z "$(ls -A "$g_sb" 2>/dev/null)" ] || fail "(g) a TRACE run of run-local-ci.sh android created a lock dir; trace executes nothing and must acquire nothing"
 reset_lock
 
+# (g3) THIS guard drives run-local-ci.sh android, whose first action used to be
+# an unconditional reap that `kill -9`s every GradleWorkerMain on the MACHINE
+# older than 30 minutes — other agents' builds included, which AGENTS.md bans
+# outright. It sits outside `step`, so trace mode did not short-circuit it, and
+# `make guardrails` therefore became a machine-wide killer of somebody else's
+# long build. Asserted on the reaper's own output, which it always prints.
+g_out="$SB/g.reap.out"
+GOATOS_CI_GRADLE_LOCK_DIR="$g_sb" GOATOS_CI_TRACE_ONLY=1 \
+  bash tools/ci/run-local-ci.sh android >"$g_out" 2>&1
+if grep -qE 'stale Gradle test worker|reaped [0-9]+ stale' "$g_out"; then
+  fail "(g3) a TRACE run of run-local-ci.sh android ran the stale-worker reaper, which SIGKILLs machine-wide GradleWorkerMain processes it does not own. A trace run starts no Gradle and has nothing to reap; two required guards drive this target under trace"
+fi
+reset_lock
+
 # ── (h) concurrent stale-break admits exactly ONE ───────────────────────────
 # rename(2) is atomic w.r.t. the PATH, not the inode the decision was made
 # about, so a bare `mv` break lets a loser move the WINNER'S FRESH lock and both
@@ -510,7 +535,98 @@ if [ -d "$LOCKDIR" ]; then
 fi
 reset_lock
 
+# ── (p) an UNUSABLE lock path fails open on the FIRST look ──────────────────
+# `mkdir` reports "held" and "unusable" identically, and treating unusable as
+# held costs the WHOLE timeout — 1800s at the shipped default — before the
+# fail-open branch fires. A 30-minute silent stall on the android lane, which
+# blocks the suite, inside a change whose entire purpose is wall clock.
+#
+# TIMEOUT=60 with a <=5s deadline is the load-bearing pair: with the early
+# fail-open removed each shape polls the full 60s and the deadline catches it,
+# while 60s is far too long to pass by accident.
+phase p
+for shape in file-at-path missing-parent unwritable-parent; do
+  p_root="$SB/p.$shape"
+  case "$shape" in
+    file-at-path)
+      mkdir -p "$p_root"
+      : >"$(GOATOS_CI_GRADLE_LOCK_DIR="$p_root" gradle_lock_dir)" ;;
+    missing-parent)   p_root="$SB/p.$shape/does/not/exist" ;;
+    unwritable-parent) mkdir -p "$p_root"; chmod 500 "$p_root" ;;
+  esac
+  p_t0=$SECONDS
+  ( GOATOS_CI_GRADLE_LOCK_DIR="$p_root" GOATOS_CI_GRADLE_LOCK_TIMEOUT=60 bash -c '
+      cd "$GUARD_REPO"; . "$GUARD_LIB"; gradle_lock_acquire p; echo "$?" >"$1"' _ "$SB/p.$shape.rc" \
+  ) >/dev/null 2>&1 &
+  pp=$!; track "$pp"
+  p_i=0
+  while [ "$p_i" -lt 50 ]; do kill -0 "$pp" 2>/dev/null || break; sleep 0.1; p_i=$(( p_i + 1 )); done
+  if kill -0 "$pp" 2>/dev/null; then
+    kill -KILL "$pp" 2>/dev/null
+    fail "(p) with an unusable lock path (${shape}) acquire did not return within 5s against a 60s timeout — an unusable path is being polled as if it were HELD, so it costs the entire timeout (1800s at the shipped default) before failing open"
+  else
+    [ "$(cat "$SB/p.$shape.rc" 2>/dev/null)" = 0 ] || \
+      fail "(p) acquire returned non-zero on an unusable lock path (${shape}) — fail-open is the contract"
+  fi
+  [ "$shape" = unwritable-parent ] && chmod 700 "$p_root"
+  : $(( SECONDS - p_t0 ))
+done
+reset_lock
+
+# ── (q) a hostname flap between acquire and release must not LEAK the lock ───
+# `hostname` on this box flaps between foo.local and foo.lan across a wifi/VPN
+# transition — the library's own comment cites it. A flap mid-build made release
+# a no-op, and the leaked lockdir then ALSO failed the same-host liveness check
+# in acquire, so the next worktree could only age-break a lock nobody held after
+# the 1500s stale window. Driven through a PATH shim so the flap is real to the
+# library rather than simulated by editing the owner file.
+phase q
+reset_lock
+q_shim="$SB/q.bin"; mkdir -p "$q_shim"
+printf '#!/bin/sh\ncat "%s/q.host"\n' "$SB" >"$q_shim/hostname"; chmod +x "$q_shim/hostname"
+echo "guard-host-a.local" >"$SB/q.host"
+( PATH="$q_shim:$PATH" bash -c '
+    cd "$GUARD_REPO"; . "$GUARD_LIB"
+    gradle_lock_acquire q
+    echo "guard-host-a.lan" >"$1/q.host"   # the flap, mid-hold
+    gradle_lock_release' _ "$SB" ) >/dev/null 2>&1
+if [ -d "$LOCKDIR" ]; then
+  fail "(q) a hostname flap between acquire and release LEAKED the lockdir ${LOCKDIR}: release demanded an exact hostname match and returned a no-op. The orphan then also fails acquire's same-host liveness check, so the next worktree waits out the full stale window for a lock nobody holds"
+fi
+# The non-owner-release protection case (a) proves must NOT have been weakened.
+reset_lock
+plant_owner 999999 "guard-host-a.local" "$(date +%s)" "not-this-process"
+( PATH="$q_shim:$PATH" bash -c '
+    cd "$GUARD_REPO"; . "$GUARD_LIB"; gradle_lock_release' ) >/dev/null 2>&1
+[ -d "$LOCKDIR" ] || \
+  fail "(q) the hostname-flap allowance became a general release bypass: a process released a lock owned by ANOTHER pid"
+reset_lock
+
+# ── (r) a break must act ONLY on the lockdir its decision was made about ─────
+# On the malformed-owner decision the expected pid is the EMPTY STRING, and an
+# unreadable owner file also reads empty — so a pid-only re-validation passes
+# vacuously and the break can mv away a fresh LIVE lock created after the
+# decision. That lock's own owner write then fails ENOENT and drops IT to the
+# unlocked path, so two builds compile at once, both fail-open, silently.
+# Deterministic rather than raced: the window is sub-millisecond in the wild.
+phase r
+reset_lock
+mkdir -p "$LOCKDIR"                       # phantom: holder KILLed before its write
+r_out="$SB/r.out"
+bash -c '
+  cd "$GUARD_REPO"; . "$GUARD_LIB"
+  ld="$1"
+  ino_decided="$(_gradle_lock_ino "$ld")"
+  # the winner of this same break removes the corrupt dir and re-mkdirs a FRESH
+  # live lock, which has not written its owner file yet
+  rm -rf "$ld"; mkdir "$ld"
+  _gradle_lock_break "$ld" "" "malformed owner file" "$ino_decided" && echo BROKE
+  [ -d "$ld" ] && echo SURVIVED' _ "$LOCKDIR" >"$r_out" 2>&1
+grep -q SURVIVED "$r_out" || \
+  fail "(r) a stale-break decision made about a CORRUPT lockdir evicted a DIFFERENT, fresh, LIVE lockdir at the same path. rename(2) is atomic w.r.t. the PATH, not the inode the decision was about, and an empty expected pid compares equal to an unreadable owner file — so the re-validation passed vacuously"
+reset_lock
+
 if [ "$rc" -eq 0 ]; then
-  echo "gradle-worktree-lock guard: 16 cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation)"
+  echo "gradle-worktree-lock guard: 19 cases green in $(( SECONDS - t_start ))s (exclusion, dead-owner + concurrent break, SIGKILL/SIGTERM/SIGINT, fail-open, status transparency, trace/opt-out/no-reap, pid identity, subshell ownership, trap hygiene, lane-scoped re-raise, bounded break, knob sanitisation, unusable-path fail-open, hostname-flap release, inode-scoped break)"
 fi
 exit "$rc"
