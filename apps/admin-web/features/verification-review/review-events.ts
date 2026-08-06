@@ -57,6 +57,9 @@ export interface PendingEvent {
  * covers modal close and verdict submit, and every event carries a stable client_event_id, so a retry
  * can never double-count. What is at risk is at most the trailing batch of a hard window close.
  */
+/** Retry ceiling: ~10 minutes of a busy review at the 10s flush cadence, then oldest-first drop. */
+const MAX_BUFFERED_EVENTS = 500;
+
 export class ReviewEventBuffer {
   private sessionId = typeof window !== "undefined" && crypto ? crypto.randomUUID() : "";
   private events: PendingEvent[] = [];
@@ -64,6 +67,10 @@ export class ReviewEventBuffer {
   private flushIntervalMs = 10000; // ~10 seconds
   private readonly postFn: (events: PendingEvent[]) => Promise<void>;
   private lastWatchedMs = 0; // Track last watched position for seek blocking
+  // Kept so dispose() can actually detach them. Without this every modal open added another pair of
+  // window listeners that lived for the rest of the session, and each dead buffer still woke up on
+  // every visibility change to flush a queue nobody would read.
+  private unloadHandlers: Array<[string, () => void]> = [];
 
   constructor(postFn: (events: PendingEvent[]) => Promise<void>) {
     this.postFn = postFn;
@@ -74,6 +81,9 @@ export class ReviewEventBuffer {
   private startFlushTimer(): void {
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = setInterval(() => this.flush(), this.flushIntervalMs);
+    // A periodic timer must never be the reason a process or a test run refuses to exit; the browser
+    // does not care either way.
+    (this.flushTimer as unknown as { unref?: () => void }).unref?.();
   }
 
   private setupUnloadHandlers(): void {
@@ -91,6 +101,10 @@ export class ReviewEventBuffer {
 
     window.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("beforeunload", handleBeforeUnload);
+    this.unloadHandlers = [
+      ["visibilitychange", handleVisibilityChange],
+      ["beforeunload", handleBeforeUnload],
+    ];
   }
 
   /**
@@ -155,18 +169,44 @@ export class ReviewEventBuffer {
 
     try {
       await this.postFn(eventsToSend);
-    } catch {
-      // Silently re-queue on any failure (network, auth, validation).
-      // The next flush will retry with the same client_event_id, which is idempotent.
+    } catch (error: unknown) {
+      // A rejection the server will never accept (forbidden/unauthorized/validation) must be DROPPED.
+      // Re-queueing it grew the buffer forever behind an unsatisfiable retry — which is exactly what a
+      // leadership principal browsing the queue produces now that ingest is verifier-only authority.
+      if (error instanceof Error && error.message.startsWith("permanent:")) return;
+      // Transient failure (network, restart): re-queue and retry with the same client_event_id, which
+      // the server dedupes. Bounded so a long outage cannot grow the tab's memory without limit; the
+      // OLDEST events are dropped because the newest carry the current review.
       this.events = eventsToSend.concat(this.events);
+      if (this.events.length > MAX_BUFFERED_EVENTS) {
+        this.events = this.events.slice(this.events.length - MAX_BUFFERED_EVENTS);
+      }
     }
   }
 
   /**
-   * Force flush and clear resources (called on modal close, verdict submit, etc.).
+   * Flush now (modal close, verdict submit, tab hidden). Does NOT stop the periodic timer: it used
+   * to, which meant the first verdict permanently disabled auto-flush for the rest of that buffer's
+   * life, so a verifier who reviewed a second item on the same buffer only ever delivered on an
+   * explicit flush. Use dispose() to release resources.
    */
   async forceFlush(): Promise<void> {
-    if (this.flushTimer) clearInterval(this.flushTimer);
+    await this.flush();
+  }
+
+  /**
+   * Release the timer and window listeners, flushing whatever is left. Call from the owning
+   * component's effect cleanup.
+   */
+  async dispose(): Promise<void> {
+    if (this.flushTimer) {
+      clearInterval(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (typeof window !== "undefined") {
+      for (const [type, handler] of this.unloadHandlers) window.removeEventListener(type, handler);
+    }
+    this.unloadHandlers = [];
     await this.flush();
   }
 

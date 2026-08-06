@@ -1,256 +1,188 @@
-import { test, describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
+import test from "node:test";
 
-describe("ReviewEventBuffer", () => {
-  describe("event emission", () => {
-    it("emits all 9 event types", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ itemId, eventType, payload, proofId });
-          return "client-id";
-        },
-      };
+// A window/document stand-in must exist BEFORE the module is imported: the buffer registers unload
+// handlers in its constructor and skips them entirely when `window` is undefined, so a test that
+// imported first would silently exercise the no-listener path.
+const listeners = new Map();
+globalThis.window = {
+  addEventListener: (type, fn) => {
+    if (!listeners.has(type)) listeners.set(type, []);
+    listeners.get(type).push(fn);
+  },
+  removeEventListener: (type, fn) => {
+    const fns = listeners.get(type) ?? [];
+    const i = fns.indexOf(fn);
+    if (i >= 0) fns.splice(i, 1);
+  },
+};
+globalThis.document = { visibilityState: "visible" };
 
-      const eventTypes = [
-        "queue_opened",
-        "item_opened",
-        "video_play",
-        "video_pause",
-        "video_seek_attempt",
-        "video_ended",
-        "proof_switched",
-        "fullscreen_toggled",
-        "verdict_recorded",
-      ];
+const { ReviewEventBuffer } = await import("./review-events.ts");
 
-      for (const eventType of eventTypes) {
-        buffer.recordEvent("item-123", eventType, {}, "proof-456");
+function fire(type) {
+  for (const fn of [...(listeners.get(type) ?? [])]) fn();
+}
+
+/**
+ * Let the buffer's fire-and-forget flush settle. The unload handlers call flush() without awaiting
+ * it, so the assertion has to run after the pending microtasks resolve — a fixed sleep would be both
+ * slower and flakier, and the repo's frontend-foundations guard rightly refuses one.
+ */
+async function drain() {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+/** Collects posted batches and can be told to fail, so retry behaviour is observable. */
+function recorder() {
+  const batches = [];
+  let failWith = null;
+  return {
+    batches,
+    failNextWith(error) {
+      failWith = error;
+    },
+    postFn: async (events) => {
+      if (failWith) {
+        const err = failWith;
+        failWith = null;
+        throw err;
       }
+      batches.push(events);
+    },
+  };
+}
 
-      assert.equal(eventsCapture.length, 9);
-      eventTypes.forEach((eventType, i) => {
-        assert.equal(eventsCapture[i].eventType, eventType);
-      });
-    });
+test("recordEvent stamps a stable session id and a unique client_event_id per event", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent("item-1", "item_opened", {});
+  buffer.recordEvent("item-1", "video_play", { video_position_ms: 0 }, "proof-1");
+  await buffer.forceFlush();
 
-    it("includes correct payload for video_play", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ eventType, payload });
-          return "client-id";
-        },
-      };
+  const [batch] = r.batches;
+  assert.equal(batch.length, 2);
+  assert.match(batch[0].session_id, /^[0-9a-f-]{36}$/, "a real uuid session id");
+  assert.equal(batch[0].session_id, batch[1].session_id, "one session across the review");
+  assert.notEqual(batch[0].client_event_id, batch[1].client_event_id);
+  assert.equal(batch[1].proof_id, "proof-1");
+  assert.equal(batch[1].item_id, "item-1");
+  assert.ok(!Number.isNaN(Date.parse(batch[0].occurred_at)), "occurred_at is an ISO instant");
+  await buffer.dispose();
+});
 
-      buffer.recordEvent("item-123", "video_play", {
-        video_position_ms: 5000,
-        video_duration_ms: 60000,
-      });
+test("queue_opened carries a null item_id rather than a placeholder", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent(null, "queue_opened", { category: "weighing_proof" });
+  await buffer.forceFlush();
+  assert.equal(r.batches[0][0].item_id, null, "the backend rejects a placeholder id with 422");
+  await buffer.dispose();
+});
 
-      const event = eventsCapture[0];
-      assert.equal(event.eventType, "video_play");
-      assert.equal(event.payload.video_position_ms, 5000);
-      assert.equal(event.payload.video_duration_ms, 60000);
-    });
+test("a transient failure re-queues and retries with the SAME client_event_id", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent("item-1", "video_play", {});
+  const idBefore = buffer.events?.[0]?.client_event_id;
 
-    it("includes correct payload for video_seek_attempt", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ eventType, payload });
-          return "client-id";
-        },
-      };
+  r.failNextWith(new Error("transient: backend_down"));
+  await buffer.forceFlush();
+  assert.equal(r.batches.length, 0, "nothing was accepted");
 
-      buffer.recordEvent("item-123", "video_seek_attempt", {
-        seek_from_ms: 5000,
-        seek_to_ms: 15000,
-        video_position_ms: 15000,
-        video_duration_ms: 60000,
-      });
+  await buffer.forceFlush(); // retry
+  assert.equal(r.batches.length, 1, "the retry delivered it");
+  if (idBefore) {
+    assert.equal(r.batches[0][0].client_event_id, idBefore, "same id => server dedupes, never double-counts");
+  }
+  await buffer.dispose();
+});
 
-      const event = eventsCapture[0];
-      assert.equal(event.eventType, "video_seek_attempt");
-      assert.equal(event.payload.seek_from_ms, 5000);
-      assert.equal(event.payload.seek_to_ms, 15000);
-    });
+test("a permanent rejection is DROPPED, not retried forever", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent("item-1", "video_play", {});
 
-    it("includes correct payload for verdict_recorded", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ eventType, payload });
-          return "client-id";
-        },
-      };
+  // Telemetry ingest is verifier-only authority, so a read-only leadership principal gets a
+  // forbidden no retry can fix. Re-queueing it grew the buffer forever.
+  r.failNextWith(new Error("permanent: verification review events rejected: permission_denied 403"));
+  await buffer.forceFlush();
 
-      buffer.recordEvent("item-123", "verdict_recorded", {
-        verdict: "approved",
-      });
+  await buffer.forceFlush();
+  assert.equal(r.batches.length, 0, "the batch must be discarded, not resent");
+  await buffer.dispose();
+});
 
-      const event = eventsCapture[0];
-      assert.equal(event.eventType, "verdict_recorded");
-      assert.equal(event.payload.verdict, "approved");
-    });
-  });
+test("recordVerdict posts the decision immediately, with everything buffered behind it", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent("item-1", "video_play", {});
+  buffer.recordEvent("item-1", "video_ended", {});
+  await buffer.recordVerdict("item-1", "approved");
 
-  describe("client_event_id minting and reuse", () => {
-    it("mints unique client_event_id for each event", async () => {
-      const ids = new Set();
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          // Simulate UUID minting
-          const id = crypto.randomUUID();
-          ids.add(id);
-          return id;
-        },
-      };
+  assert.equal(r.batches.length, 1, "the verdict flushes on its own, not on the 10s timer");
+  const types = r.batches[0].map((e) => e.event_type);
+  assert.deepEqual(types, ["video_play", "video_ended", "verdict_recorded"]);
+  assert.equal(r.batches[0].at(-1).payload.verdict, "approved");
+  await buffer.dispose();
+});
 
-      buffer.recordEvent("item-123", "video_play", {});
-      buffer.recordEvent("item-123", "video_pause", {});
-      buffer.recordEvent("item-123", "video_ended", {});
+test("hiding the tab flushes what is buffered", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  buffer.recordEvent("item-1", "video_pause", { video_position_ms: 1200 });
 
-      assert.equal(ids.size, 3);
-    });
+  globalThis.document.visibilityState = "hidden";
+  fire("visibilitychange");
+  await drain();
+  globalThis.document.visibilityState = "visible";
 
-    it("reuses same client_event_id on retry", async () => {
-      let callCount = 0;
-      const postFn = async () => {
-        callCount++;
-        if (callCount === 1) throw new Error("Network error");
-        return { ok: true };
-      };
+  assert.equal(r.batches.length, 1, "a tab switch must not silently discard the review so far");
+  assert.equal(r.batches[0][0].payload.video_position_ms, 1200);
+  await buffer.dispose();
+});
 
-      const clientEventIds = [];
-      const capturePost = async (events) => {
-        events.forEach((e) => clientEventIds.push(e.client_event_id));
-      };
+test("flushing an empty buffer posts nothing", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  await buffer.forceFlush();
+  assert.equal(r.batches.length, 0);
+  await buffer.dispose();
+});
 
-      // Simulate recording an event with a fixed client_event_id
-      const event1Id = crypto.randomUUID();
-      const event2Id = crypto.randomUUID();
+test("dispose detaches the window listeners it registered", async () => {
+  const before = (listeners.get("visibilitychange") ?? []).length;
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  assert.equal(
+    (listeners.get("visibilitychange") ?? []).length,
+    before + 1,
+    "the buffer registers one visibility listener",
+  );
+  await buffer.dispose();
+  assert.equal(
+    (listeners.get("visibilitychange") ?? []).length,
+    before,
+    "and releases it — otherwise every drawer open leaks a listener for the session",
+  );
+});
 
-      clientEventIds.push(event1Id);
-      clientEventIds.push(event1Id); // Simulate retry with same ID
-
-      // Both should have the same ID (retry scenario)
-      assert.equal(clientEventIds[0], clientEventIds[1]);
-    });
-  });
-
-  describe("seek blocking", () => {
-    it("tracks last watched position", async () => {
-      const buffer = {
-        lastWatched: 0,
-        recordEvent(itemId, eventType, payload, proofId) {
-          if (eventType === "video_play" && payload.video_position_ms !== undefined) {
-            this.lastWatched = Math.max(this.lastWatched, payload.video_position_ms);
-          }
-          return "client-id";
-        },
-        getLastWatchedMs() {
-          return this.lastWatched;
-        },
-      };
-
-      // Simulate playing video from 0ms to 5000ms
-      buffer.recordEvent("item-123", "video_play", { video_position_ms: 0 });
-      assert.equal(buffer.getLastWatchedMs(), 0);
-
-      // Simulate video playback advancing to 5000ms (via timeupdate)
-      buffer.lastWatched = 5000;
-      assert.equal(buffer.getLastWatchedMs(), 5000);
-    });
-
-    it("blocks forward seek attempt", async () => {
-      const eventsCapture = [];
-      const lastWatchedMs = 5000;
-      const seekToMs = 15000; // Attempt to seek past unwatched
-
-      // Simulate seek blocking logic
-      const shouldBlock = seekToMs > lastWatchedMs;
-      assert.equal(shouldBlock, true);
-    });
-
-    it("allows replay of watched video", async () => {
-      const lastWatchedMs = 10000;
-      const seekToMs = 5000; // Seek backward to already-watched
-
-      // Seek backward is allowed
-      const shouldBlock = seekToMs > lastWatchedMs;
-      assert.equal(shouldBlock, false);
-    });
-
-    it("resets last watched on item switch", async () => {
-      const buffer = {
-        lastWatched: 10000,
-        resetLastWatched() {
-          this.lastWatched = 0;
-        },
-        getLastWatchedMs() {
-          return this.lastWatched;
-        },
-      };
-
-      assert.equal(buffer.getLastWatchedMs(), 10000);
-      buffer.resetLastWatched();
-      assert.equal(buffer.getLastWatchedMs(), 0);
-    });
-  });
-
-  describe("event payload details", () => {
-    it("includes category/park/shed/status in queue_opened", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ eventType, payload });
-          return "client-id";
-        },
-      };
-
-      buffer.recordEvent("item-123", "queue_opened", {
-        category: "vaccination",
-        park: "CBE",
-        shed: "Shed A",
-        status: "pending",
-      });
-
-      const event = eventsCapture[0];
-      assert.equal(event.payload.category, "vaccination");
-      assert.equal(event.payload.park, "CBE");
-      assert.equal(event.payload.shed, "Shed A");
-      assert.equal(event.payload.status, "pending");
-    });
-
-    it("includes proof_id when provided", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ itemId, eventType, proofId });
-          return "client-id";
-        },
-      };
-
-      buffer.recordEvent("item-123", "video_play", {}, "proof-456");
-      buffer.recordEvent("item-789", "proof_switched", {}, "proof-789");
-
-      assert.equal(eventsCapture[0].proofId, "proof-456");
-      assert.equal(eventsCapture[1].proofId, "proof-789");
-    });
-
-    it("omits proof_id when not provided", async () => {
-      const eventsCapture = [];
-      const buffer = {
-        recordEvent(itemId, eventType, payload, proofId) {
-          eventsCapture.push({ itemId, eventType, proofId });
-          return "client-id";
-        },
-      };
-
-      buffer.recordEvent("item-123", "queue_opened", {});
-
-      assert.equal(eventsCapture[0].proofId, undefined);
-    });
-  });
+test("a verdict flush does not disable later auto-flushing", async () => {
+  const r = recorder();
+  const buffer = new ReviewEventBuffer(r.postFn);
+  await buffer.recordVerdict("item-1", "rejected");
+  // forceFlush used to clearInterval, so the periodic flush died with the first verdict and a second
+  // item reviewed on the same buffer only ever delivered if something flushed explicitly.
+  assert.notEqual(
+    buffer.flushTimer,
+    null,
+    "the periodic flush timer must survive a verdict — clearing it here was the regression",
+  );
+  buffer.recordEvent("item-2", "item_opened", {});
+  globalThis.document.visibilityState = "hidden";
+  fire("visibilitychange");
+  await drain();
+  globalThis.document.visibilityState = "visible";
+  assert.equal(r.batches.length, 2, "the second item's events still reach the server");
+  await buffer.dispose();
 });

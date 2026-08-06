@@ -298,6 +298,35 @@ func TestVerdictRouteIsVerifierOnlyWhileQueueReadStaysLeadershipVisible(t *testi
 	}
 }
 
+// Telemetry INGEST carries verifier-only authority; reading the derived facts stays leadership-visible.
+// Gating ingest on verification.review let a read-only CEO/CxO principal post queue/video/verdict
+// telemetry under their own actor id, polluting the integrity stream that exists to measure the person
+// who signs the second check.
+func TestReviewTelemetryIngestIsVerifierOnlyWhileFactsStayLeadershipVisible(t *testing.T) {
+	ingest, ok := permissions.Match("POST", "/verification/review-events")
+	if !ok {
+		t.Fatal("recordVerificationReviewEvents route is not registered")
+	}
+	for _, role := range []string{permissions.RoleCEOInternal, permissions.RoleParkHead, permissions.RolePCDirector, permissions.RoleOperator, permissions.RoleGrowthDirector} {
+		if permissions.RolesAuthorize([]string{role}, ingest.Permissions, ingest.AdminOnly) {
+			t.Fatalf("%s must not be able to write verifier review telemetry", role)
+		}
+	}
+	if !permissions.RolesAuthorize([]string{permissions.RoleVerifier}, ingest.Permissions, ingest.AdminOnly) {
+		t.Fatal("verifier must be able to write their own review telemetry")
+	}
+
+	facts, ok := permissions.Match("GET", "/verification/items/10000000-0000-4000-8000-000000000001/review-facts")
+	if !ok {
+		t.Fatal("getVerificationItemReviewFacts route is not registered")
+	}
+	for _, role := range []string{permissions.RoleVerifier, permissions.RoleCEOInternal} {
+		if !permissions.RolesAuthorize([]string{role}, facts.Permissions, facts.AdminOnly) {
+			t.Fatalf("%s must be able to READ the review-integrity facts", role)
+		}
+	}
+}
+
 // A module whose pages all lack navigation metadata is dropped rather than rendered as an empty
 // group that opens onto a queue which cannot exist.
 func TestVerifierLensDropsModulesWithNoRenderablePage(t *testing.T) {

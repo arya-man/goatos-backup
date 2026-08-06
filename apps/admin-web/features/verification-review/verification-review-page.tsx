@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Filter, PlayCircle } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
-import { copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { firstAuthRequiredError, listStaffPositions, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDateTime } from "@/lib/format";
@@ -99,7 +99,13 @@ export async function VerificationReviewPage({
         </div>
       )}
 
-      <VerificationQueueTelemetry category={category} parkId={scope.parkId} shedId={shedId} status={status}>
+      <VerificationQueueTelemetry
+        category={category}
+        parkId={scope.parkId}
+        shedId={shedId}
+        status={status}
+        enabled={controlEnabled(pageContract, "record_verdict", false)}
+      >
         <section className="card vr-board" style={{ minWidth: 0 }}>
         <div className="bt">{copy(pageContract, "board.title")}</div>
 

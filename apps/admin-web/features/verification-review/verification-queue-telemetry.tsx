@@ -9,12 +9,18 @@ export function VerificationQueueTelemetry({
   parkId,
   shedId,
   status,
+  // Whether this principal may record a verdict. Telemetry ingest carries verifier-only authority, so
+  // a leadership principal browsing the queue would post a batch the backend refuses. Emitting
+  // nothing is the honest behaviour: the stream measures the person who signs the second check, and a
+  // read-only viewer has no watch obligation to record.
+  enabled,
   children,
 }: {
   category?: string;
   parkId?: string;
   shedId?: string;
   status?: string;
+  enabled: boolean;
   children: React.ReactNode;
 }) {
   const eventBuffer = useMemo(
@@ -23,6 +29,7 @@ export function VerificationQueueTelemetry({
   );
 
   useEffect(() => {
+    if (!enabled) return;
     // item_id is null: the queue screen has no item yet, and the backend rejects a placeholder
     // (422 invalid_item_id). Attribution rides on payload.category/park_id/shed_id instead.
     void eventBuffer.recordEvent(
@@ -35,11 +42,11 @@ export function VerificationQueueTelemetry({
         status: status || undefined,
       }
     );
-  }, [eventBuffer, category, parkId, shedId, status]);
+  }, [eventBuffer, enabled, category, parkId, shedId, status]);
 
   useEffect(() => {
     return () => {
-      void eventBuffer.forceFlush();
+      void eventBuffer.dispose();
     };
   }, [eventBuffer]);
 

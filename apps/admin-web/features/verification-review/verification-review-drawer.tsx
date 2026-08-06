@@ -8,7 +8,7 @@ import {
 import { Maximize, Minimize, PlayCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
@@ -33,10 +33,6 @@ function renderLabelOrFallback(label: string | null | undefined): string {
  * `fallback` so an older cached contract degrades to the pre-verdict behaviour instead of throwing
  * the whole drawer, which is why this does not use the throwing `control()` helper.
  */
-function controlEnabled(page: AdminUiPageContract, id: string, fallback: boolean): boolean {
-  return page.controls.find((item) => item.id === id)?.enabled ?? fallback;
-}
-
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
@@ -256,14 +252,26 @@ function VerificationReviewDrawerPanel({
     }
   }, [mediaIndex, item.item_id, item.media, eventBuffer]);
 
-  // Flush on close
+  // Flush on the actual open -> false transition, and on unmount.
+  //
+  // The previous version flushed in the effect cleanup `if (!open)`, which reads backwards: cleanup
+  // sees the PREVIOUS render's `open`, so closing an open drawer ran the cleanup captured with
+  // open=true and skipped the flush entirely. It only ever fired for a drawer that was already
+  // closed — i.e. exactly when there was nothing buffered to send.
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      void eventBuffer.forceFlush();
+    }
+    wasOpenRef.current = open;
+  }, [open, eventBuffer]);
   useEffect(() => {
     return () => {
-      if (!open) {
-        void eventBuffer.forceFlush();
-      }
+      // dispose(), not forceFlush(): it flushes AND releases the interval plus the window listeners
+      // this buffer registered, which otherwise accumulate for every drawer that is ever opened.
+      void eventBuffer.dispose();
     };
-  }, [open, eventBuffer]);
+  }, [eventBuffer]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -294,15 +302,35 @@ function VerificationReviewDrawerPanel({
     });
   }, []);
 
-  // Handle verdict form submission to emit verdict_recorded event
+  // Set while the verdict telemetry is being flushed, so the re-submit below is not intercepted again.
+  const verdictTelemetrySentRef = useRef(false);
+
+  // Handle verdict form submission to emit verdict_recorded event.
+  //
+  // The submit is HELD until the telemetry has been posted. Firing it fire-and-forget raced the
+  // Server Action: the verdict write navigates/re-renders, which can tear the page down before the
+  // flush completes, losing the single most important event in the stream — the decision itself,
+  // plus whatever watch events were still buffered behind it. Telemetry failures never block the
+  // verdict: forceFlush() does not throw, and a failed batch is re-queued idempotently.
   const handleVerdictSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+    if (verdictTelemetrySentRef.current) {
+      verdictTelemetrySentRef.current = false;
+      return; // the re-submit below — let it through to the Server Action
+    }
     const form = e.currentTarget;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const decision = (submitter?.value ?? form.querySelector('button[type="submit"]')?.getAttribute('value')) as "approved" | "rejected";
+    const decision = (submitter?.value ??
+      form.querySelector('button[type="submit"]')?.getAttribute("value")) as "approved" | "rejected";
+    if (!decision) return;
 
-    if (decision) {
-      void eventBuffer.recordVerdict(item.item_id, decision);
-    }
+    e.preventDefault();
+    void eventBuffer.recordVerdict(item.item_id, decision).finally(() => {
+      verdictTelemetrySentRef.current = true;
+      // requestSubmit preserves which button submitted, so the Server Action still receives the
+      // approve/reject value; form.submit() would drop it.
+      if (submitter) form.requestSubmit(submitter);
+      else form.requestSubmit();
+    });
   }, [item.item_id, eventBuffer]);
 
   const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
