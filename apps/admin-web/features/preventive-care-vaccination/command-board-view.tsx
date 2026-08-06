@@ -1,5 +1,6 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
@@ -75,17 +76,28 @@ interface CohortPivotRow {
   submitted: Record<string, number>;
   verified: Record<string, number>;
   administeredDates: Record<string, AdministeredDateRange>;
-  // The real management stages that fold into this rung, kept as their own sub-rows so the
-  // ladder never hides the live detail — Adults still shows Non-Pregnant and Buck separately.
-  members: Array<{
-    label: string;
-    animals: number;
-    pending: Record<string, number>;
-    submitted: Record<string, number>;
-    verified: Record<string, number>;
-    administeredDates: Record<string, AdministeredDateRange>;
-  }>;
+  // Per-vaccine day split and dose-sequence exceptions, both backend-owned. The grid shows the
+  // exception COUNT (a clean 324 and a 321-with-3-missing must not read alike) and the drilldown
+  // shows the days and the animals.
+  days: Record<string, CohortDay[]>;
+  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+  // The real management stages that fold into this rung. They are CEO-level noise in the grid, so
+  // they live in the drilldown only — the grid stays one row per cohort.
+  members: CohortMember[];
 }
+
+interface CohortMember {
+  label: string;
+  animals: number;
+  pending: Record<string, number>;
+  submitted: Record<string, number>;
+  verified: Record<string, number>;
+  administeredDates: Record<string, AdministeredDateRange>;
+  exceptions: Record<string, { count: number; goats: CohortAnimal[] }>;
+}
+
+type CohortDay = { date: string; animalCount: number };
+type CohortAnimal = { goatId: string; displayId: string; tag?: string };
 
 interface CohortCellInput {
   cohort: { parkName: string; managementStage: string; sex: string; animalCount: number };
@@ -95,6 +107,44 @@ interface CohortCellInput {
   verifiedCount: number;
   minAdministeredDate?: string | null;
   maxAdministeredDate?: string | null;
+  administeredDays?: CohortDay[];
+  missingPriorDoseCount?: number;
+  missingPriorDoseGoats?: CohortAnimal[];
+}
+
+// Day counts of the same vaccine coming from several (stage, sex) cohorts land on the same cohort
+// row, so identical dates ADD rather than overwrite — otherwise "1 Jul: 237" would silently become
+// whichever sub-cohort was folded last.
+//
+// CALLER CONTRACT: only ever feed this the day rows of ONE vaccine label. Repeated dates across
+// sub-cohorts are DIFFERENT animals dosed on the same day and must sum; repeated dates from the
+// same sub-cohort would double it. The backend already emits one day list per cohort x dose, so
+// the caller must not merge two dose codes into one call.
+function mergeDays(target: Record<string, CohortDay[]>, vaccine: string, days?: CohortDay[]) {
+  if (!days?.length) return;
+  const list = target[vaccine] ?? [];
+  days.forEach((day) => {
+    const found = list.find((candidate) => candidate.date === day.date);
+    if (found) found.animalCount += day.animalCount;
+    else list.push({ date: day.date, animalCount: day.animalCount });
+  });
+  list.sort((a, b) => a.date.localeCompare(b.date));
+  target[vaccine] = list;
+}
+
+function mergeExceptions(
+  target: Record<string, { count: number; goats: CohortAnimal[] }>,
+  vaccine: string,
+  count?: number,
+  goats?: CohortAnimal[],
+) {
+  if (!count) return;
+  const current = target[vaccine] ?? { count: 0, goats: [] };
+  current.count += count;
+  (goats ?? []).forEach((goat) => {
+    if (!current.goats.some((candidate) => candidate.goatId === goat.goatId)) current.goats.push(goat);
+  });
+  target[vaccine] = current;
 }
 
 // One matrix per FARM: leadership reads this farmwise, so Channapatna and Coimbatore never
@@ -125,17 +175,9 @@ function buildCohortPivot(
     const submitted: Record<string, number> = {};
     const verified: Record<string, number> = {};
     const administeredDates: Record<string, AdministeredDateRange> = {};
-    const members = new Map<
-      string,
-      {
-        label: string;
-        animals: number;
-        pending: Record<string, number>;
-        submitted: Record<string, number>;
-        verified: Record<string, number>;
-        administeredDates: Record<string, AdministeredDateRange>;
-      }
-    >();
+    const days: Record<string, CohortDay[]> = {};
+    const exceptions: Record<string, { count: number; goats: CohortAnimal[] }> = {};
+    const members = new Map<string, CohortMember>();
     // Animals are per (stage, sex) cohort and the source repeats a cohort once per vaccine, so
     // head counts accumulate per DISTINCT cohort key — summing the rows directly would multiply
     // the head count by the number of vaccines.
@@ -153,6 +195,8 @@ function buildCohortPivot(
         cell.minAdministeredDate,
         cell.maxAdministeredDate,
       );
+      mergeDays(days, cell.vaccineLabel, cell.administeredDays);
+      mergeExceptions(exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
 
       let member = members.get(key);
       if (!member) {
@@ -163,9 +207,11 @@ function buildCohortPivot(
           submitted: {},
           verified: {},
           administeredDates: {},
+          exceptions: {},
         };
         members.set(key, member);
       }
+      mergeExceptions(member.exceptions, cell.vaccineLabel, cell.missingPriorDoseCount, cell.missingPriorDoseGoats);
       member.pending[cell.vaccineLabel] = (member.pending[cell.vaccineLabel] ?? 0) + cell.pendingCount;
       member.submitted[cell.vaccineLabel] =
         (member.submitted[cell.vaccineLabel] ?? 0) + (cell.submittedCount ?? 0);
@@ -190,6 +236,8 @@ function buildCohortPivot(
       submitted,
       verified,
       administeredDates,
+      days,
+      exceptions,
       members: Array.from(members.values()).sort((a, b) => b.animals - a.animals),
     };
   });
@@ -318,6 +366,42 @@ function enrichDriveOptions(
   }).filter((option) => option.status !== "planned" || (option.targetCount ?? 0) > 0);
 }
 
+// One selected cohort × dose cell, resolved entirely from the row already rendered.
+interface SelectedCohortCell {
+  key: string;
+  farm: string;
+  cohort: string;
+  vaccine: string;
+  animals: number;
+  pending: number;
+  submitted: number;
+  verified: number;
+  dateSpan: string;
+  days: CohortDay[];
+  exceptionCount: number;
+  exceptionGoats: CohortAnimal[];
+  members: Array<{
+    label: string;
+    animals: number;
+    pending: number;
+    submitted: number;
+    verified: number;
+    exceptions: number;
+    dateSpan: string;
+  }>;
+}
+
+// Reading order and the "not adult" qualifier are backend-owned (the cohort row-order option
+// group), so the grid never re-sorts business rows or invents its own qualifier text.
+function cohortRowOrder(pageContract: AdminUiPageContract): string[] {
+  return optionGroup(pageContract, "command_board_cohort_row_order").map((option) => option.label);
+}
+
+function rowQualifier(pageContract: AdminUiPageContract, cohort: string): string {
+  const match = optionGroup(pageContract, "command_board_cohort_row_order").find((option) => option.label === cohort);
+  return match?.title ?? "";
+}
+
 export function CommandBoardView({ board, pageContract, driveBatchId, driveParkId }: CommandBoardViewProps) {
   // Vaccine + status filters operate on the fetched payload. Drive scope is a server read, but
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
@@ -348,6 +432,13 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
   const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set(STATUS_KEYS));
+  // Cell drilldown is client-local overlay state: the cohort row already carries its sub-cohorts,
+  // so opening a cell must not re-run the route (local-overlay rule).
+  const [selectedCell, setSelectedCell] = useState<SelectedCohortCell | null>(null);
+  // Client-local overlay state: the animals are already in the rendered payload, so opening the
+  // drawer must not re-run the route.
+  const [closedDrawerOpen, setClosedDrawerOpen] = useState(false);
+  const closedAnimals = board.closedWithoutDoseAnimals ?? [];
   const futureCampaigns = useMemo(
     () => statuses.has("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
@@ -370,6 +461,30 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     if (next.has(key)) next.delete(key); else next.add(key);
     return next;
   });
+
+  const openCohortDrawer = (cell: SelectedCohortCell) => {
+    setClosedDrawerOpen(false);
+    setSelectedCell(cell);
+  };
+
+  const openClosedDrawer = () => {
+    setSelectedCell(null);
+    setClosedDrawerOpen(true);
+  };
+
+  // Escape closes whichever drawer is open, from ANYWHERE on the page. An onKeyDown handler on the
+  // drawer element only fires once focus is already inside it, so pressing Escape after opening a
+  // drawer by mouse did nothing and the scrim kept swallowing the next click.
+  useEffect(() => {
+    if (!selectedCell && !closedDrawerOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setSelectedCell(null);
+      setClosedDrawerOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedCell, closedDrawerOpen]);
 
   const filterBar = (
     <div className="cbm-filters">
@@ -492,7 +607,28 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           {/* The five buckets are a disjoint, EXHAUSTIVE partition of targets. Rendering only four
               left the tiles summing to less than the total, so a reader could not tell a projection
               bug from animals whose obligations genuinely closed with no dose. */}
-          <div className="kpi mut">
+          {/* The tile is the START of the CEO's question, not the end: "3 closed with no dose" is
+              followed every time by "which animals, and why". It opens the record drawer with that
+              list rather than dead-ending on a number. Disabled-with-reason at zero, so the
+              affordance never promises a list that does not exist. */}
+          <div
+            className={`kpi mut${closedAnimals.length > 0 ? " kpi-clickable" : ""}`}
+            role={closedAnimals.length > 0 ? "button" : undefined}
+            tabIndex={closedAnimals.length > 0 ? 0 : undefined}
+            aria-disabled={closedAnimals.length === 0 ? true : undefined}
+            title={
+              closedAnimals.length > 0
+                ? copy(pageContract, "command_board.kpi.closed_without_dose_open")
+                : copy(pageContract, "command_board.kpi.closed_without_dose_empty")
+            }
+            onClick={() => closedAnimals.length > 0 && openClosedDrawer()}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && closedAnimals.length > 0) {
+                e.preventDefault();
+                setClosedDrawerOpen(true);
+              }
+            }}
+          >
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.closed_without_dose")}</div>
             <div className="val">{view.kpis.closedWithoutDose}</div>
@@ -577,6 +713,203 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           );
         })()}
 
+        {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
+            across the top, pending count in the cell (red when > 0) with the verified count
+            beneath it so closure is readable without subtracting from the head count. */}
+        {(() => {
+          // MATCHING ladder (catch-all last) and READING order are different backend lists: the
+          // Adults catch-all must stay last for bucketing, but the CEO reads Adults before the
+          // not-adult cohorts.
+          const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
+          const readingOrder = cohortRowOrder(pageContract);
+          const farms = buildCohortFarms(view.cohortMatrix, ladder).map((farmBlock) => ({
+            ...farmBlock,
+            rows: [...farmBlock.rows].sort((a, b) => {
+              const ai = readingOrder.indexOf(a.cohort);
+              const bi = readingOrder.indexOf(b.cohort);
+              return (ai < 0 ? readingOrder.length : ai) - (bi < 0 ? readingOrder.length : bi);
+            }),
+          }));
+          return (
+            <div className="cbm-cohort-section">
+              {/* Header carries the title only. The matrix explains itself through the cells and
+                  the drilldown; the CEO does not read a paragraph of legend first. */}
+              <div className="cbm-section-head">
+                <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
+              </div>
+              {farms.length === 0 ? (
+                <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
+              ) : (
+                farms.map(({ farm, vaccines, rows }) => (
+                  <div key={farm} className="cbm-farm-block">
+                    <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
+                    <div className="cbm-hm">
+                      <table className="cbm-heat cbm-cohort-heat">
+                        <thead>
+                          <tr>
+                            <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
+                            {vaccines.map((v) => (
+                              <th key={v}>{v}</th>
+                            ))}
+                            <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {rows.map((row) => {
+                            // Three DISJOINT buckets, rendered together: the big number is what
+                            // the OPERATOR still owes, and the sub-line carries what the VERIFIER
+                            // owes (submitted) plus what is closed (verified). Showing pending
+                            // alone made a fully vaccinated, fully submitted park read identically
+                            // to an untouched one, and contradicted the "awaiting verification"
+                            // KPI directly above this table.
+                            const label = row.cohort;
+                            const present = row.animals > 0;
+                            const animals = row.animals;
+                            const pendingOf = row.pending;
+                            const submittedOf = row.submitted;
+                            const verifiedOf = row.verified;
+                            const administeredDatesOf = row.administeredDates;
+                            const cells =
+                              vaccines.map((v) => {
+                                const pending = pendingOf[v];
+                                if (!present || pending === undefined) {
+                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                }
+                                const awaiting = submittedOf[v] ?? 0;
+                                const done = verifiedOf[v] ?? 0;
+                                // Nothing owed and nothing done: stay neutral rather than
+                                // pretend work was completed. `awaiting` is part of the guard —
+                                // a submitted-but-unverified cell is real work and must render.
+                                if (pending === 0 && awaiting === 0 && done === 0) {
+                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
+                                }
+                                const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
+                                const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
+                                const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
+                                const administered = administeredDatesOf[v];
+                                const administeredDate = formatDateSpan(administered?.min, administered?.max);
+                                // The headline number is the count of the state the cell colour
+                                // denotes, so colour and number can never disagree.
+                                const headline = pending > 0 ? pending : awaiting > 0 ? awaiting : done;
+                                // Actual medical dates belong to the VERIFIED doses only; show the
+                                // honest "date unavailable" rather than borrowing the drive's
+                                // planned date.
+                                const dateSuffix = administeredDate
+                                  ? ` · ${administeredDate}`
+                                  : done > 0
+                                    ? ` · ${copy(pageContract, "command_board.cohort_matrix.date_unavailable")}`
+                                    : "";
+                                const exception = row.exceptions[v];
+                                const exceptionCount = exception?.count ?? 0;
+                                const exceptionWord = copy(
+                                  pageContract,
+                                  exceptionCount === 1
+                                    ? "command_board.cohort_matrix.exception_word_one"
+                                    : "command_board.cohort_matrix.exception_word",
+                                );
+                                // Only the buckets that carry work are spelled out. A CEO cell that
+                                // prints "0 pending · 0 submitted · 324 verified" makes the reader
+                                // subtract zeroes to find the one fact that matters.
+                                const parts: string[] = [];
+                                if (pending > 0) parts.push(`${pending} ${pendingWord}`);
+                                if (awaiting > 0) parts.push(`${awaiting} ${submittedWord}`);
+                                if (done > 0) parts.push(`${done} ${verifiedWord}`);
+                                const cellKey = `${farm}|${label}|${v}`;
+                                const selection: SelectedCohortCell = {
+                                  key: cellKey,
+                                  farm,
+                                  cohort: label,
+                                  vaccine: v,
+                                  animals,
+                                  pending,
+                                  submitted: awaiting,
+                                  verified: done,
+                                  dateSpan: administeredDate,
+                                  days: row.days[v] ?? [],
+                                  exceptionCount,
+                                  exceptionGoats: exception?.goats ?? [],
+                                  members: row.members.map((member) => ({
+                                    label: member.label,
+                                    animals: member.animals,
+                                    pending: member.pending[v] ?? 0,
+                                    submitted: member.submitted[v] ?? 0,
+                                    verified: member.verified[v] ?? 0,
+                                    exceptions: member.exceptions[v]?.count ?? 0,
+                                    dateSpan: formatDateSpan(member.administeredDates[v]?.min, member.administeredDates[v]?.max),
+                                  })),
+                                };
+                                // Colour follows who owes the next move; an exception rides ON TOP of
+                                // that colour as its own chip, because "324 verified" and "321
+                                // verified with 3 animals missing this dose" are different medical
+                                // facts that must not render as the same green block.
+                                return (
+                                  <td
+                                    key={v}
+                                    className={`cbm-cell cbm-cohort-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}${
+                                      exceptionCount > 0 ? " cbm-cell-exception" : ""
+                                    }${selectedCell?.key === cellKey ? " cbm-cell-on" : ""}`}
+                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}${
+                                      exceptionCount > 0 ? ` · ${exceptionCount} ${exceptionWord}` : ""
+                                    }`}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={selectedCell?.key === cellKey}
+                                    onClick={() => {
+                                      if (selectedCell?.key === cellKey) {
+                                        setSelectedCell(null);
+                                      } else {
+                                        openCohortDrawer(selection);
+                                      }
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        if (selectedCell?.key === cellKey) {
+                                          setSelectedCell(null);
+                                        } else {
+                                          openCohortDrawer(selection);
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    <span className="cbm-cell-head">{headline}</span>
+                                    <small>{parts.join(" · ")}</small>
+                                    {administeredDate ? (
+                                      <small className="cbm-cell-date">{administeredDate}</small>
+                                    ) : done > 0 ? (
+                                      <small className="cbm-cell-date">{copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</small>
+                                    ) : null}
+                                    {exceptionCount > 0 ? (
+                                      <span className="cbm-cell-exception-chip">
+                                        {exceptionCount} {exceptionWord}
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                );
+                              });
+
+                            return (
+                              <tr key={`${farm}-${row.cohort}`}>
+                                <th className="cbm-rowh">
+                                  {row.cohort}
+                                  {rowQualifier(pageContract, row.cohort) ? (
+                                    <span className="cbm-rowh-note">{rowQualifier(pageContract, row.cohort)}</span>
+                                  ) : null}
+                                </th>
+                                {cells}
+                                <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        })()}
         {futureCampaigns.length > 0 && (
           <div className="cbm-future-section">
             <div className="cbm-section-head">
@@ -621,127 +954,221 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           </div>
         )}
 
-        {/* Cohort matrix, FARMWISE: one table per farm, cohort ladder down the side, vaccines
-            across the top, pending count in the cell (red when > 0) with the verified count
-            beneath it so closure is readable without subtracting from the head count. */}
-        {(() => {
-          const ladder = optionGroup(pageContract, "command_board_cohort_ladder").map((o) => o.label);
-          const farms = buildCohortFarms(view.cohortMatrix, ladder);
-          return (
-            <div className="cbm-cohort-section">
-              <div className="cbm-section-head">
-                <h3>{copy(pageContract, "command_board.cohort_matrix.title")}</h3>
-                <span className="cbm-meta">{copy(pageContract, "command_board.cohort_matrix.meta")}</span>
-              </div>
-              {farms.length === 0 ? (
-                <div className="cbm-empty">{copy(pageContract, "command_board.cohort_matrix.empty")}</div>
-              ) : (
-                farms.map(({ farm, vaccines, rows }) => (
-                  <div key={farm} className="cbm-farm-block">
-                    <h4 className="cbm-farm-name">{farm || copy(pageContract, "command_board.cohort_matrix.no_farm")}</h4>
-                    <div className="cbm-hm">
-                      <table className="cbm-heat cbm-cohort-heat">
-                        <thead>
-                          <tr>
-                            <th className="cbm-rowh">{copy(pageContract, "command_board.cohort_matrix.column.stage")}</th>
-                            {vaccines.map((v) => (
-                              <th key={v}>{v}</th>
-                            ))}
-                            <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.flatMap((row) => {
-                            // Three DISJOINT buckets, rendered together: the big number is what
-                            // the OPERATOR still owes, and the sub-line carries what the VERIFIER
-                            // owes (submitted) plus what is closed (verified). Showing pending
-                            // alone made a fully vaccinated, fully submitted park read identically
-                            // to an untouched one, and contradicted the "awaiting verification"
-                            // KPI directly above this table.
-                            const cells = (
-                              pendingOf: Record<string, number>,
-                              submittedOf: Record<string, number>,
-                              verifiedOf: Record<string, number>,
-                              administeredDatesOf: Record<string, AdministeredDateRange>,
-                              label: string,
-                              present: boolean,
-                            ) =>
-                              vaccines.map((v) => {
-                                const pending = pendingOf[v];
-                                if (!present || pending === undefined) {
-                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
-                                }
-                                const awaiting = submittedOf[v] ?? 0;
-                                const done = verifiedOf[v] ?? 0;
-                                // Nothing owed and nothing done: stay neutral rather than
-                                // pretend work was completed. `awaiting` is part of the guard —
-                                // a submitted-but-unverified cell is real work and must render.
-                                if (pending === 0 && awaiting === 0 && done === 0) {
-                                  return <td key={v} className="cbm-cell cbm-na">—</td>;
-                                }
-                                const pendingWord = copy(pageContract, "command_board.cohort_matrix.pending_word");
-                                const submittedWord = copy(pageContract, "command_board.cohort_matrix.submitted_word");
-                                const verifiedWord = copy(pageContract, "command_board.cohort_matrix.verified_word");
-                                const administered = administeredDatesOf[v];
-                                const administeredDate = formatDateSpan(administered?.min, administered?.max);
-                                // The headline number is the count of the state the cell colour
-                                // denotes, so colour and number can never disagree.
-                                const headline = pending > 0 ? pending : awaiting > 0 ? awaiting : done;
-                                // Actual medical dates belong to the VERIFIED doses only; show the
-                                // honest "date unavailable" rather than borrowing the drive's
-                                // planned date.
-                                const dateSuffix = administeredDate
-                                  ? ` · ${administeredDate}`
-                                  : done > 0
-                                    ? ` · ${copy(pageContract, "command_board.cohort_matrix.date_unavailable")}`
-                                    : "";
-                                return (
-                                  <td
-                                    key={v}
-                                    className={`cbm-cell ${pending > 0 ? "cbm-pending" : awaiting > 0 ? "cbm-awaiting" : "cbm-clear"}`}
-                                    title={`${label} · ${v} · ${pending} ${pendingWord}, ${awaiting} ${submittedWord}, ${done} ${verifiedWord}${dateSuffix}`}
-                                  >
-                                    {headline}
-                                    <small>
-                                      {awaiting} {submittedWord} · {done} {verifiedWord}{dateSuffix}
-                                    </small>
-                                  </td>
-                                );
-                              });
-
-                            return [
-                              <tr key={`${farm}-${row.cohort}`}>
-                                <th className="cbm-rowh">{row.cohort}</th>
-                                {cells(row.pending, row.submitted, row.verified, row.administeredDates, row.cohort, row.animals > 0)}
-                                <td className="cbm-cell cbm-na">{row.animals > 0 ? row.animals : "—"}</td>
-                              </tr>,
-                              // The live stages inside this rung, so folding onto the ladder never
-                              // hides the detail the herd actually carries.
-                              ...(row.members.length > 1 || (row.members.length === 1 && row.members[0].label !== row.cohort)
-                                ? row.members.map((member) => (
-                                    <tr key={`${farm}-${row.cohort}-${member.label}`} className="cbm-cohort-sub">
-                                      <th className="cbm-rowh cbm-rowh-sub">{member.label}</th>
-                                      {cells(member.pending, member.submitted, member.verified, member.administeredDates, member.label, true)}
-                                      <td className="cbm-cell cbm-na">{member.animals}</td>
-                                    </tr>
-                                  ))
-                                : []),
-                            ];
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          );
-        })()}
         {/* The verification queue used to render here as its own table, but every count in it
             (shed, dose, awaiting) is already an amber cell in the shed matrix above. Only the
             queue age was unique, so it now rides along in that cell and the duplicate table is
             gone. */}
       </div>
+
+      {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
+          payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
+      {/* The drawer is a CHILD of the scrim, not its sibling: `.drawer` is parked off-canvas by
+          `transform: translateX(100%)` and the only rule that pulls it on screen is the DESCENDANT
+          selector `.dscrim.on .drawer`. As a sibling it mounts, fills with data, and stays
+          invisible -- the click looks dead. */}
+      {closedDrawerOpen && (
+        <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}>
+          <aside
+            className="drawer on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={copy(pageContract, "command_board.kpi.closed_without_dose")}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setClosedDrawerOpen(false);
+            }}
+          >
+            <div className="dh">
+              <div style={{ flex: 1 }}>
+                <h3>{copy(pageContract, "command_board.kpi.closed_without_dose")}</h3>
+                <span>
+                  {view.kpis.closedWithoutDose} {copy(pageContract, "command_board.closed_drawer.animals_word")}
+                </span>
+              </div>
+              <button className="cal-nav" onClick={() => setClosedDrawerOpen(false)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="db">
+              <table className="cbm-closed-table">
+                <thead>
+                  <tr>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.animal")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.location")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.vaccine")}</th>
+                    <th>{copy(pageContract, "command_board.closed_drawer.column.reason")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closedAnimals.map((animal) => (
+                    <tr key={animal.goatId}>
+                      {/* The tag on the animal's ear is what identifies it on the farm, so the
+                          tags lead and the internal id sits under them. An animal may carry two;
+                          both are shown so either ear matches. */}
+                      <td>
+                        {animal.tag1 || animal.tag2 ? (
+                          <>
+                            {animal.tag1 ? <b>{animal.tag1}</b> : null}
+                            {animal.tag2 ? <b className="cbm-closed-tag2">{animal.tag2}</b> : null}
+                            <span className="cbm-closed-tag">{animal.displayId}</span>
+                          </>
+                        ) : (
+                          <b>{animal.displayId}</b>
+                        )}
+                      </td>
+                      {/* Ground location, partition included -- the parent shed name alone would
+                          send a park head to the wrong side of a partitioned shed. */}
+                      <td>
+                        {animal.locationDisplay}
+                        <span className="cbm-closed-park">{animal.parkName}</span>
+                      </td>
+                      <td>{animal.vaccineLabel}</td>
+                      <td>{animal.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {view.kpis.closedWithoutDose > closedAnimals.length ? (
+                <div className="cbm-cohort-detail-muted" style={{ marginTop: 10 }}>
+                  {copy(pageContract, "command_board.closed_drawer.capped")} {view.kpis.closedWithoutDose}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Cohort matrix cell detail drawer. Opens from clicking a cohort matrix cell with the data
+          already in the rendered row. Closes on X, scrim, and Escape. Only one drawer open at a time. */}
+      {selectedCell && (
+        <div className="dscrim on" onClick={() => setSelectedCell(null)}>
+          <aside
+            className="drawer on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · ${selectedCell.cohort} × ${selectedCell.vaccine}`}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSelectedCell(null);
+            }}
+          >
+            <div className="dh">
+              <div style={{ flex: 1 }}>
+                <h3>
+                  {selectedCell.farm || copy(pageContract, "command_board.cohort_matrix.no_farm")} · {selectedCell.cohort} × {selectedCell.vaccine}
+                </h3>
+              </div>
+              <button className="cal-nav" onClick={() => setSelectedCell(null)} title={copy(pageContract, "command_board.cohort_matrix.detail.close")}>
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            <div className="db" style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div className="metagrid">
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.animals")}</div>
+                  <div className="v">{selectedCell.animals}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.pending_word")}</div>
+                  <div className="v">{selectedCell.pending}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</div>
+                  <div className="v">{selectedCell.submitted}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.verified_word")}</div>
+                  <div className="v">{selectedCell.verified}</div>
+                </div>
+                <div>
+                  <div className="k">{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</div>
+                  <div className="v">
+                    {selectedCell.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                  </div>
+                </div>
+              </div>
+
+              {/* The day story: which day the operator actually dosed how many animals. */}
+              <div className="cbm-drawer-section">
+                <b>{copy(pageContract, "command_board.cohort_matrix.detail.per_day")}</b>
+                {selectedCell.days.length > 0 ? (
+                  <ul className="cbm-daylist">
+                    {selectedCell.days.map((day) => (
+                      <li key={day.date}>
+                        <span className="d">{formatDateSpan(day.date, day.date)}</span>
+                        <span className="n">{day.animalCount}</span>
+                        <span className="u">{copy(pageContract, "command_board.cohort_matrix.detail.animals_word")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="cbm-cohort-detail-muted">
+                    {copy(pageContract, "command_board.cohort_matrix.date_unavailable")}
+                  </span>
+                )}
+              </div>
+
+              {/* The exception story: animals whose later dose is accepted while THIS dose is
+                  not. Named, so the CEO can hand the list to a park head. */}
+              <div className="cbm-drawer-section">
+                <b>{copy(pageContract, "command_board.cohort_matrix.detail.exceptions")}</b>
+                {selectedCell.exceptionCount > 0 ? (
+                  <>
+                    <span className="cbm-cohort-detail-exception-count">{selectedCell.exceptionCount}</span>
+                    <ul className="cbm-goatlist">
+                      {selectedCell.exceptionGoats.map((goat) => (
+                        <li key={goat.goatId}>
+                          {goat.displayId}
+                          {goat.tag ? <span className="t">{goat.tag}</span> : null}
+                        </li>
+                      ))}
+                    </ul>
+                    {selectedCell.exceptionCount > selectedCell.exceptionGoats.length ? (
+                      <span className="cbm-cohort-detail-muted">
+                        {copy(pageContract, "command_board.cohort_matrix.detail.capped")} {selectedCell.exceptionCount}
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="cbm-cohort-detail-muted">
+                    {copy(pageContract, "command_board.cohort_matrix.detail.clean")}
+                  </span>
+                )}
+              </div>
+
+              {/* Sub-cohorts breakdown table */}
+              {selectedCell.members.length > 0 ? (
+                <table className="cbm-cohort-detail-table">
+                  <thead>
+                    <tr>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.breakdown")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.column.animals")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.pending_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.submitted_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.verified_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.exception_word")}</th>
+                      <th>{copy(pageContract, "command_board.cohort_matrix.detail.dates")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedCell.members.map((member) => (
+                      <tr key={member.label}>
+                        <td>{member.label}</td>
+                        <td>{member.animals}</td>
+                        <td>{member.pending}</td>
+                        <td>{member.submitted}</td>
+                        <td>{member.verified}</td>
+                        <td>{member.exceptions}</td>
+                        <td>{member.dateSpan || copy(pageContract, "command_board.cohort_matrix.date_unavailable")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : null}
+            </div>
+          </aside>
+        </div>
+      )}
     </section>
   );
 

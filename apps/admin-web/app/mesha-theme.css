@@ -719,6 +719,52 @@
      and from green (closed), so a fully submitted park never reads as untouched. */
   .cbm-cell.cbm-awaiting{background:#5a4a1c;color:#f6e6b8}
   .cbm-cell.cbm-clear{background:#22633c;color:#d6f1e0}
+  /* Cohort cell carries three disjoint counts plus the real administration date span, so it is
+     taller than the shed heat cell and reads top-down: headline, counts, date. */
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell{min-width:146px;height:auto;padding:8px 10px;text-align:left;line-height:1.3}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-head{display:block;font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell small{display:block;font-size:10.5px;font-weight:500;opacity:.88;white-space:nowrap}
+  .cbm-cohort-heat .cbm-cell.cbm-cohort-cell .cbm-cell-date{opacity:.72;font-variant-numeric:tabular-nums}
+  /* An exception rides ON TOP of the state colour: a clean cohort and a cohort with animals whose
+     earlier dose was never accepted must never read as the same block of green. */
+  .cbm-cell-exception-chip{display:inline-block;margin-top:4px;padding:1px 7px;border-radius:9px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;white-space:nowrap}
+  .cbm-cell.cbm-cell-exception{box-shadow:inset 0 0 0 1.5px var(--danger)}
+  .cbm-cell.cbm-cell-on{outline:2px solid var(--brand);outline-offset:-2px}
+  .cbm-rowh-note{display:block;font-size:10px;font-weight:500;color:var(--faint);letter-spacing:0;text-transform:none;margin-top:2px}
+  /* First column stays readable while the vaccine columns scroll horizontally. */
+  .cbm-cohort-heat th.cbm-rowh{position:sticky;left:0;z-index:2;background:var(--panel)}
+  .cbm-daylist,.cbm-goatlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  .cbm-daylist li{display:flex;align-items:baseline;gap:8px;font-size:12.5px}
+  .cbm-daylist .d{color:var(--muted);min-width:96px}
+  .cbm-daylist .n{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .cbm-daylist .u{color:var(--faint);font-size:11px}
+  .cbm-goatlist{flex-direction:row;flex-wrap:wrap;gap:6px}
+  .cbm-goatlist li{border:1px solid var(--line2);border-radius:8px;padding:2px 8px;font-size:11.5px;font-variant-numeric:tabular-nums}
+  .cbm-goatlist .t{color:var(--faint);margin-left:6px}
+  .cbm-cohort-detail-exception-count{display:block;font-size:20px;font-weight:700;color:var(--danger);margin-bottom:6px}
+  .cbm-cohort-detail-muted{color:var(--faint);font-size:11.5px}
+  /* Drilldown sections inside the record drawer. The inline panel's block styles were removed
+     with the panel, but the drawer still renders these sections -- without them the heading ran
+     straight into its own body text. */
+  .drawer .cbm-drawer-section{margin-top:14px}
+  .drawer .cbm-drawer-section>b{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;margin-bottom:6px}
+  .drawer .metagrid{margin-bottom:4px}
+  /* Closed, No Dose tile is an entry point when it has animals behind it, and visibly inert when
+     it does not — the affordance must never promise a list that is empty. */
+  .kpi.kpi-clickable{cursor:pointer}
+  .kpi.kpi-clickable:hover{outline:1px solid var(--line2)}
+  .kpi[aria-disabled="true"]{cursor:default}
+  .cbm-closed-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .cbm-closed-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-closed-table td{padding:8px;border-bottom:1px solid #182219;vertical-align:top}
+  .cbm-closed-tag{display:block;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+  .cbm-closed-tag2{display:block;font-weight:600;font-variant-numeric:tabular-nums}
+  .cbm-closed-park{display:block;color:var(--faint);font-size:11px}
+  .cbm-cohort-hint{color:var(--faint)}
+  .cbm-cohort-note{margin:2px 0 10px;font-size:11.5px;color:var(--muted)}
+  .cbm-cohort-detail-table{width:100%;border-collapse:collapse;font-size:12px}
+  .cbm-cohort-detail-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .cbm-cohort-detail-table td{padding:6px 8px;border-bottom:1px solid #182219;white-space:nowrap;font-variant-numeric:tabular-nums}
   .cbm-queue-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-queue-table th{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
   .cbm-queue-table td{padding:9px 10px;border-bottom:1px solid #182219;color:var(--muted);white-space:nowrap}
