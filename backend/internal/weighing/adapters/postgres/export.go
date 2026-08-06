@@ -134,6 +134,7 @@ type shedInfo struct {
 func (r *Repository) queryCampaignSheds(ctx context.Context, tenantID, campaignID string) ([]shedInfo, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT cs.campaign_shed_id::text,
+		       COALESCE(cs.location_id::text, ''),
 		       cs.display_name,
 		       COALESCE(p.name, ''),
 		       cs.status
@@ -150,7 +151,7 @@ func (r *Repository) queryCampaignSheds(ctx context.Context, tenantID, campaignI
 	var sheds []shedInfo
 	for rows.Next() {
 		var shed shedInfo
-		if err := rows.Scan(&shed.CampaignShedID, &shed.DisplayName, &shed.ParkName, &shed.Status); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.ShedID, &shed.DisplayName, &shed.ParkName, &shed.Status); err != nil {
 			return nil, err
 		}
 		sheds = append(sheds, shed)
