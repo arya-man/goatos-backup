@@ -254,7 +254,7 @@ class ShiftingViewModelEligibilityTest {
         animalIdentifier1 = "CBE-ASSUMED-RFID-00001",
         lifecycleStatus = lifecycle,
         locationPath = GoatLocationPathDto(
-            display = "Coimbatore / $shedName",
+            operationalLocationDisplay = "Coimbatore / $shedName",
             parkId = CBE_PARK_ID,
             parkName = "Coimbatore",
             shedId = shedId,
