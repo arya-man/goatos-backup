@@ -220,8 +220,19 @@ SET workforce_member_id = EXCLUDED.workforce_member_id,
 
 -- Position module duties for every module that the verification registry declares a category for.
 -- These duties authorize the verifier to review proofs in each module's verify queue.
--- Module codes must match the position_module_duties.module_code vocabulary, not navigation keys:
--- the translation happens in backend/internal/verification/adapters/http/duty_module_keys.go.
+-- Module codes are position_module_duties.module_code values, which are NOT the navigation keys.
+-- The canonical list is notificationbridge's own duty modules (moduleVaccination =
+-- "pc.vaccination", moduleWeighing = "weighing", dutyModuleFeed = "feed.direction",
+-- dutyModuleCounts = "counts").
+--
+-- Two vocabularies exist and only ONE of them is forgiving. The verify-queue gate translates
+-- ("vaccination" and "pc.vaccination" both resolve -- see
+-- backend/internal/verification/adapters/http/duty_module_keys.go), but
+-- ResolveModuleDutyRecipients matches module_code EXACTLY. Seeding the navigation spelling
+-- therefore produces a verifier who can open the queue and still receives zero pushes: half
+-- working, silently. That is the same failure recorded on
+-- notificationbridge.PendingNotificationDutyModules, where the seeder emitted only
+-- execute/manage rows and every verifier push in the field resolved to zero devices.
 INSERT INTO position_module_duties (
   tenant_id, position_code, module_code, duty_type, capability_code,
   effective_from, effective_to, status
@@ -237,11 +248,11 @@ SELECT
   'active'
 FROM (
   VALUES
-    ('vaccination'),
+    ('pc.vaccination'),
     ('weighing'),
     ('aas_health'),
     ('counts'),
-    ('feed_direction')
+    ('feed.direction')
 ) AS m(module_code)
 ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from)
 DO UPDATE
