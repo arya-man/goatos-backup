@@ -175,11 +175,12 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	options.ActionTypes = s.actionTypeOptions()
 	options.ModuleKey, options.ModuleLabel, options.Pages = s.pageOptions(params.Category)
 	options.Statuses = []domain.QueueStatusOption{
-		// "All" applies NO status predicate: the repository's status filter is already
-		// `($n = '' OR vi.status = $n)`, so an empty status returns due, approved and rejected
-		// together. It leads the list because an operator scanning Actions wants the whole
-		// picture first (maintainer request 2026-07-30).
-		{Key: "all", Label: "All"},
+		// No "All" option. It was offered from 2026-07-30 until 2026-08-06, when the maintainer
+		// removed it: with the three status chips beside it, "All" earns nothing -- those three
+		// are the ONLY verification statuses, so it can never surface a row the other chips
+		// cannot. The API still ACCEPTS `status=all` (handler.statusAll) for admin-web, the
+		// leadership gallery, and any caller wanting the unfiltered read; it is simply no longer
+		// offered as phone chrome. Labels below are the ones main renamed them to on 2026-08-06.
 		{Key: "due", Label: "To verify", Status: domain.StatusPending},
 		{Key: "approved", Label: "Accepted", Status: domain.StatusApproved},
 		{Key: "rejected", Label: "Rejected", Status: domain.StatusRejected},

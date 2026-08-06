@@ -727,7 +727,7 @@ class ScanViewModelTest {
     }
 
     @Test
-    fun `manual goat tap is draft-only until a physical RFID read supplies durable evidence`() = runTest(dispatcher) {
+    fun `nothing completes a row without a physical RFID read`() = runTest(dispatcher) {
         val scanCaptures = FakeScanCaptureRepository()
         val scanAttempts = FakeScanAttemptRepository()
         val reader = FakeRfidReaderPort()
@@ -748,21 +748,24 @@ class ScanViewModelTest {
         backgroundScope.launch { scanVm.state.collect {} }
         advanceUntilIdle()
 
-        scanVm.onEvent(ScanEvent.Tap)
-        advanceUntilIdle()
-
-        // R50-024: a manual ring tap only advances the draft UI overlay. It must never fabricate
-        // an accepted RFID attempt or a durable roster scan/outbox write — only a subsequent
-        // physical reader event may supply that evidence.
-        assertEquals(ScanStatus.DONE, scanVm.state.value.roster.single().status)
+        // R50-024 narrowed a manual ring tap to "draft-only" but LEFT THE AFFORDANCE. The
+        // maintainer then hit it in the field: tapping the progress ring completed the very animal
+        // a verifier had just REJECTED and re-enabled "Finalize shed" on a shed still holding an
+        // unvaccinated goat. There is now NO manual completion path at all -- nothing on this
+        // screen may advance a row without a physical tag read.
+        assertEquals(
+            "no untouched roster row may read as done before a tag is read",
+            ScanStatus.PENDING,
+            scanVm.state.value.roster.single().status,
+        )
         assertEquals(emptyList<String>(), scanCaptures.tagsForTask("task-1"))
         assertTrue(scanAttempts.calls.isEmpty())
 
         reader.emit("TAG-100")
         advanceUntilIdle()
 
-        // A real reader hit on the same tag now replaces the draft with durable evidence: exactly
-        // one accepted attempt and one roster-scan capture, not a duplicate/second recording.
+        // The physical reader hit is the ONLY thing that completes the row, and it writes durable
+        // evidence: exactly one accepted attempt and one roster-scan capture.
         assertEquals(listOf("TAG-100"), scanCaptures.tagsForTask("task-1"))
         assertEquals(
             listOf(RfidScanAttemptOutcome.ACCEPTED),

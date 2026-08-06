@@ -404,7 +404,6 @@ private fun RfidDrivenVaccinationScanScreen(
         onEvent = { event ->
             when (event) {
                 ScanEvent.Back -> Unit
-                ScanEvent.Tap -> reader.refreshStatus()
                 ScanEvent.OpenList -> rosterExpanded = !rosterExpanded
                 is ScanEvent.OpenTile -> selectedFilter = if (selectedFilter == event.status) null else event.status
                 ScanEvent.Submit -> Unit

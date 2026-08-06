@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -151,16 +152,25 @@ class VerifyDetailViewModel @Inject constructor(
     // key here — with the item's OWN itemId as the fallback for a legacy bundled item
     // (ref_type=sop_submission, several clips under one verdict) or any item with no siblings,
     // so a lone item still resolves to a group of exactly itself.
+    /**
+     * Flips on the FIRST emission from the observed queue, whatever it contained. The empty state
+     * is a definitive claim, so it must wait for an answer; before that the screen shows a
+     * skeleton instead of flashing "No video attached to this item".
+     */
+    private val _hasLoadedOnce = MutableStateFlow(false)
+
     private val observedGroup: StateFlow<List<VerificationQueueItem>> =
         observedQueue
+            .onEach { _hasLoadedOnce.value = true }
             .map { resource -> resource.data?.items?.filter { it.verificationGroupKey() == itemId }.orEmpty() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<VerifyDetailUiState> = combine(
         observedGroup,
         _flags,
-    ) { items, flags ->
-        items.toUiState(flags = flags)
+        _hasLoadedOnce,
+    ) { items, flags, hasLoadedOnce ->
+        items.toUiState(flags = flags).copy(hasLoadedOnce = hasLoadedOnce)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {

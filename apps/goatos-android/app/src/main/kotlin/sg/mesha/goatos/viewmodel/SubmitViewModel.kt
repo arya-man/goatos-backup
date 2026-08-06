@@ -795,6 +795,8 @@ class SubmitViewModel @Inject constructor(
         if (previousScope != submissionScope) {
             savedStateHandle[KEY_SUBMISSION_SCOPE] = submissionScope
             idempotencyKey = stableSubmissionKey(task, activeShedScopeId(task))
+            // A new scope/round has NO submission evidence yet, whatever the old round did.
+            scopeSubmissionAcked = false
             outboxItemId = null
             outboxRecoveryKey = null
             formAnswers = emptyMap()
@@ -838,7 +840,15 @@ class SubmitViewModel @Inject constructor(
         }
     }
 
+    /**
+     * POSITIVE evidence that a submission for the CURRENT scope actually reached the backend:
+     * an outbox row keyed by [stableSubmissionKey] that reached SUCCEEDED. Reset whenever the
+     * scope changes (a rescan after a rejection is a NEW round and carries no evidence yet).
+     */
+    private var scopeSubmissionAcked: Boolean = false
+
     private fun applyItemStatus(item: SyncQueueItem) {
+        if (item.status == SyncItemStatus.SUCCEEDED) scopeSubmissionAcked = true
         when {
             item.status == SyncItemStatus.QUEUED -> _state.update {
                 it.copy(syncState = SyncState.QUEUED, syncLabel = "", syncProgress = 0.2f, canSubmit = false, attemptCount = 0, maxAttempts = 0, lastError = null, isQueueFailed = false, isRetryFailed = false, snackbarMessage = SubmitSnackbarMessage.QUEUED)
@@ -1102,7 +1112,24 @@ class SubmitViewModel @Inject constructor(
             }
             return true
         }
-        return task.state.isSubmissionTerminal()
+        // NO backend shed summary. This is EVERY weighing submit -- the shed-completion summary
+        // endpoint is vaccination-only, so `summary` is always null here for weighing, the block
+        // above never runs, and this line used to `return task.state.isSubmissionTerminal()`:
+        // success inferred from the ABSENCE of a negative. A task left `needs_review` by an
+        // EARLIER round is "terminal", so the screen rendered "Shed record submitted · Synced ·
+        // record on file" while the database held no submission, no completion and no
+        // verification item, and the operator was told the job was done. It shipped twice --
+        // once for vaccination (see the comment above) and once here.
+        //
+        // Require POSITIVE evidence instead: an outbox row for THIS scope's stable submission key
+        // that actually reached SUCCEEDED. Absence of evidence is never acknowledgement.
+        //
+        // Scoped to SHED-scoped submits, which is where rounds exist. A task-level submit has no
+        // round below it, so there the task's own terminal state IS the answer and still acks
+        // (an operator reopening an already-submitted task must not be handed a blank form that
+        // invites a duplicate submission).
+        val shedScoped = activeShedScopeId(task) != null
+        return if (shedScoped) scopeSubmissionAcked else task.state.isSubmissionTerminal()
     }
 
     private fun terminalAckState(task: TaskSummaryDto, form: FormSpec): SubmitUiState =
