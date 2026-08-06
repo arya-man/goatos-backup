@@ -211,6 +211,17 @@ object MeshaIcons {
         "M20 15.5H4M7.5 12 4 15.5 7.5 19",
     )
 
+    /**
+     * Breeding: a mating pair, not the herd-at-large. Distinct from [Goat] (Counts/"Herd
+     * Operations" -- head counts, births, deaths, shifting across the whole herd) on purpose:
+     * both once resolved to [Goat], which put two different verticals under one icon in the
+     * same CEO drawer (found on-device, not by a golden -- see MeshaIconsNavKeyTest).
+     */
+    val Breeding: ImageVector = strokeIcon(
+        "breeding",
+        "M12 20.5c-4-2.7-8-6.3-8-10A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 3.5c0 3.7-4 7.3-8 10z",
+    )
+
     /** Neutral fallback for an unmapped backend key (a generic module tile). */
     val Module: ImageVector = strokeIcon(
         "module",
@@ -245,6 +256,12 @@ object MeshaIcons {
         // -- births, deaths, shifting, head counts. Sharing BarChart with weighing put two
         // different modules under one icon in the same drawer, which is what the verifier's
         // three-identical-grid-icons bug looked like once the keys resolved at all.
+        //
+        // "breeding" is deliberately NOT this glyph: it used to share Goat with "counts", which
+        // put Herd Operations and Breeding under one icon in the same CEO drawer -- the exact bug
+        // class this file's own doc comment warns against ("rather than borrowing another
+        // vertical's glyph"), just introduced by two keys pointing at the same case instead of
+        // one key falling through. See [Breeding] and MeshaIconsNavKeyTest.
         "counts" -> Goat
         // Weighing is the numbers surface: weights and their trend.
         "weighing" -> BarChart
@@ -269,7 +286,8 @@ object MeshaIcons {
         // their own glyphs.
         "milk", "milk_preparation" -> MilkPreparation
         "milk_feeding" -> MilkFeeding
-        "breeding" -> Goat
+        // Breeding is a mating-pair concept, not the herd-at-large -- see [Breeding] doc comment.
+        "breeding" -> Breeding
         "aas_health", "health_adults", "health_kids" -> Health
         // Standalone Verifier section (context/architecture/verifier-app-and-flow.md). The tab is
         // a DECISION queue, so it takes the same CheckCircle as "approvals" above rather than the
