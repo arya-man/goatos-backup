@@ -406,6 +406,15 @@ export function tablePageSizes(page: AdminUiPageContract, tableId: string): numb
   return table(page, tableId).page_size_options;
 }
 
+/**
+ * Whether a backend-declared control is enabled for this principal. Shared because the verifier
+ * surfaces gate on it in more than one place (the drawer's verdict form and the queue's telemetry
+ * emission), and a second hand-rolled copy is how those two drift apart.
+ */
+export function controlEnabled(page: AdminUiPageContract, controlId: string, fallback: boolean): boolean {
+  return page.controls.find((item) => item.id === controlId)?.enabled ?? fallback;
+}
+
 export function control(page: AdminUiPageContract, controlId: string): AdminUiControl {
   const value = page.controls.find((item) => item.id === controlId);
   if (!value) {

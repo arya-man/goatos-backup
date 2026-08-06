@@ -284,10 +284,34 @@ type QueueFilterOptions struct {
 	Statuses             []QueueStatusOption     `json:"statuses"`
 	Parks                []LocationFilterOption  `json:"parks"`
 	Sheds                []LocationFilterOption  `json:"sheds"`
+	Counts               QueueStatusCounts       `json:"counts"`
 	SelectedBusinessDate string                  `json:"selected_business_date,omitempty"`
 	BusinessTimezone     string                  `json:"business_timezone"`
 	MissedOnly           bool                    `json:"missed_only"`
 	HasMissed            bool                    `json:"has_missed"`
+}
+
+// QueueStatusCounts is a whole-filter aggregate row count per verification_item status
+// (pending/approved/rejected), scoped identically to the paginated queue read — tenant,
+// category/vertical/module, park, shed, business date — but computed by ONE indexed GROUP BY query
+// in the repository. It must never be derived by fetching a page and grouping in app/service/
+// frontend state (goatos-code-review scale anti-pattern: "capped read-time rollup presented as
+// truth"), because that silently undercounts once the in-scope backlog exceeds the fetched page.
+//
+// projection-review: membership=verification_items rows with status IN (pending, approved,
+// rejected), unique key (tenant_id, item_id) — one row per verification item;
+// group_key=status; join_cardinality=none — the count query reads a single table, no joined side
+// to fan out; pagination=whole-filter, no LIMIT/OFFSET/cursor, independent of the queue page's
+// keyset window; scope=tenant_id + category + vertical + module + park_id + shed_id + captured_at
+// window, identical to the queue page's own predicates minus status. Disjointness: pending,
+// approved, and rejected are mutually exclusive values of the single `status` column (CHECK-
+// constrained to pending/approved/rejected/withdrawn, withdrawn excluded by the count query) — a
+// verification_items row is in exactly one bucket, so the three counts partition (never overlap)
+// the in-scope backlog.
+type QueueStatusCounts struct {
+	Pending  int `json:"pending"`
+	Approved int `json:"approved"`
+	Rejected int `json:"rejected"`
 }
 
 // MediaItem is one resolved, streamable media reference for display.

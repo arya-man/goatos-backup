@@ -30,11 +30,12 @@ func (e *ErrBatchNotFullyVerified) Error() string {
 
 // ListQueueParams filters + keysets one page of the verifier queue.
 type ListQueueParams struct {
-	TenantID string
-	Category string
-	Vertical string
-	Module   string
-	Status   string // defaults to domain.StatusPending in the app layer.
+	TenantID   string
+	Category   string   // Single category (backward compatible; when Categories is set, this is ignored)
+	Categories []string // Multiple categories for cross-category verifier queries (mutually exclusive with Category)
+	Vertical   string
+	Module     string
+	Status     string // defaults to domain.StatusPending in the app layer.
 	// BusinessDate is the requested Asia/Kolkata capture date (YYYY-MM-DD). MissedOnly selects
 	// pending items captured before today's business-day start; the two scopes are exclusive.
 	BusinessDate string
@@ -69,6 +70,10 @@ type ListQueueParams struct {
 	// instead of letting the item vanish out of the pending queue with no trace. Only producers
 	// that opted into the ack protocol (applier_ack_expected) can ever appear here.
 	AwaitingApplicationOnly bool
+	// IsVerifierQueueRead indicates this is a verifier queue read (verification.review path).
+	// For verifier queue reads, do not clamp BusinessDate to today — return the full pending
+	// backlog ordered oldest-first with the existing keyset cursor.
+	IsVerifierQueueRead bool
 }
 
 // Repository is the Verification module's persistence boundary. Adapters own the outbox insert for
@@ -79,6 +84,20 @@ type Repository interface {
 	// is a no-op that returns the original row (Created=false).
 	CreateItem(ctx context.Context, in domain.CreateItem) (domain.CreateItemResult, error)
 	GetItem(ctx context.Context, tenantID, itemID string) (domain.Item, error)
+	// GetItemCategories batch-resolves item_id -> category for every id in itemIDs in ONE query
+	// (= ANY($1)), never one GetItem per id in a loop -- see the review-event batch validator,
+	// which authorizes every event's item against the caller's categories and would otherwise be
+	// an n-plus-one-fanout over a batch that can legitimately span many items.
+	GetItemCategories(ctx context.Context, tenantID string, itemIDs []string) (map[string]string, error)
+
+	// GetItemProofRefs batch-resolves item_id -> the item's OWN proof ids (media_refs) in ONE query.
+	// Telemetry carries a client-supplied proof_id, and the derived watch facts PARTITION by it, so a
+	// proof belonging to another item (or another module) would silently skew ProofDurationMs and
+	// WatchFraction for this item and the CEO integrity aggregate built on them. The DB FK only
+	// proves the proof EXISTS, not that it belongs here. Batched for the same reason as
+	// GetItemCategories: one flush can span several items, and a per-event lookup would be the
+	// cross-boundary fan-out docs/decisions/scale-anti-patterns.md bans.
+	GetItemProofRefs(ctx context.Context, tenantID string, itemIDs []string) (map[string][]string, error)
 	GetSubmissionItems(ctx context.Context, tenantID, submissionID string) ([]domain.Item, error)
 	// ListQueue returns Limit+1 rows (the app layer trims to Limit and derives next_cursor) ordered
 	// by (captured_at, item_id) ascending — keyset, never OFFSET.
@@ -108,6 +127,20 @@ type Repository interface {
 	// See the adapter for why a verdict needs an ack at all (the applier runs on the durable bus,
 	// so the verdict's submission and its application are different moments).
 	MarkVerdictApplied(ctx context.Context, tenantID, sourceModule, sourceRefType string, sourceRefIDs []string, appliedByModule string) (int, error)
+}
+
+// ReviewEventRepository is the video-review-analytics ingest + read boundary
+// (verification_review_events, migration 000116). Kept as its own interface rather than folded into
+// Repository so a category producer package cannot accidentally depend on write-side verdict
+// methods it has no business calling.
+type ReviewEventRepository interface {
+	// InsertReviewEvents appends one batch of client review-telemetry events. Idempotent per event:
+	// a row whose (tenant_id, client_event_id) already exists is skipped, so a replayed batch (retry
+	// after a network blip) inserts nothing new and returns the count of ACTUALLY new rows.
+	InsertReviewEvents(ctx context.Context, batch domain.ReviewEventBatch) (inserted int, err error)
+	// ItemReviewFacts computes the derived per-actor watch/timing facts for one item from its raw
+	// event stream (bounded by that item's event count; see adapters/postgres/review_events.go for the computation).
+	ItemReviewFacts(ctx context.Context, tenantID, itemID string) ([]domain.ItemReviewFacts, error)
 }
 
 // MediaResolver resolves proof IDs to streamed, signed download URLs via the EXISTING proof storage

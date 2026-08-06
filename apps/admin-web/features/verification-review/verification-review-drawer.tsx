@@ -1,29 +1,29 @@
 "use client";
 
-import Link from "@/components/no-prefetch-link";
 import {
   currentHistoryEntryIsLocalOverlay,
   LOCAL_OVERLAY_URL_CHANGE_EVENT,
   replaceLocalOverlayUrl,
 } from "@/components/local-overlay-link";
-import { ShieldCheck, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Maximize, Minimize, PlayCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
-import { Tag, type Tone } from "@/components/ui-primitives";
-import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
 import { reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
+import { ReviewVideoPlayer } from "./review-video-player";
+import { ReviewEventBuffer } from "./review-events";
+import { submitVerificationReviewEvents } from "./review-events-server";
 
 const PATHNAME = "/actions";
 
-function statusTone(status: VerificationQueueItem["status"]): Tone {
-  if (status === "rejected") return "dng";
-  if (status === "approved") return "ok";
-  return "warn";
+function renderLabelOrFallback(label: string | null | undefined): string {
+  return label && label.trim() ? label : "—";
 }
+
 
 /**
  * Whether the signed-in principal holds a backend-declared control on this page.
@@ -33,10 +33,6 @@ function statusTone(status: VerificationQueueItem["status"]): Tone {
  * `fallback` so an older cached contract degrades to the pre-verdict behaviour instead of throwing
  * the whole drawer, which is why this does not use the throwing `control()` helper.
  */
-function controlEnabled(page: AdminUiPageContract, id: string, fallback: boolean): boolean {
-  return page.controls.find((item) => item.id === id)?.enabled ?? fallback;
-}
-
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
@@ -64,6 +60,9 @@ export function VerificationReviewDrawer({
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
   const closeHref = hrefWithout(searchParams, ["vi_row"]);
+  const currentIndex = item ? items.findIndex((i) => i.item_id === item.item_id) : -1;
+  const canGoBack = currentIndex > 0;
+  const canGoForward = currentIndex >= 0 && currentIndex < items.length - 1;
 
   const syncFromUrl = useCallback((): void => {
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
@@ -98,6 +97,16 @@ export function VerificationReviewDrawer({
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     };
   }, [syncFromUrl]);
+
+  const stepItem = useCallback((direction: 1 | -1): void => {
+    if (!item) return;
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+    const nextItem = items[nextIndex];
+    if (nextItem) {
+      replaceLocalOverlayUrl(hrefWithRow(searchParams, nextItem.item_id));
+    }
+  }, [item, currentIndex, items, searchParams]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -134,13 +143,12 @@ export function VerificationReviewDrawer({
 
   return (
     <>
-      <button
-        type="button"
-        className={`scrim${drawerOpen ? " on" : ""}`}
+      <div
+        className={`vr-modal-scrim${drawerOpen ? " on" : ""}`}
         aria-label={copy(pageContract, "drawer.close_label")}
         aria-hidden={!drawerOpen}
-        tabIndex={drawerOpen ? 0 : -1}
         onClick={closeDrawer}
+        role="presentation"
       />
       <VerificationReviewDrawerPanel
         item={item}
@@ -151,7 +159,12 @@ export function VerificationReviewDrawer({
         onClose={closeDrawer}
         closeButtonRef={closeButtonRef}
         pageContract={pageContract}
-        statusLabel={statusLabels[item.status] ?? item.status}
+        statusLabels={statusLabels}
+        currentIndex={currentIndex}
+        totalItems={items.length}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
+        onStepItem={stepItem}
       />
     </>
   );
@@ -166,7 +179,13 @@ function VerificationReviewDrawerPanel({
   onClose,
   closeButtonRef,
   pageContract,
-  statusLabel,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  statusLabels,
+  currentIndex,
+  totalItems,
+  canGoBack,
+  canGoForward,
+  onStepItem,
 }: {
   item: VerificationQueueItem;
   positions: PositionListResponse | null;
@@ -176,12 +195,150 @@ function VerificationReviewDrawerPanel({
   onClose: () => void;
   closeButtonRef: React.RefObject<HTMLButtonElement | null>;
   pageContract: AdminUiPageContract;
-  statusLabel: string;
+  statusLabels: Record<string, string>;
+  currentIndex: number;
+  totalItems: number;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onStepItem: (direction: 1 | -1) => void;
 }) {
+  // Keyed by item_id so switching items (Prev/Next or a fresh row click) resets the active proof
+  // back to the first one without a setState-in-effect render cascade.
+  const [mediaSelection, setMediaSelection] = useState<{ itemId: string; index: number }>({
+    itemId: item.item_id,
+    index: 0,
+  });
+  // Two-step reject, mirroring the mock: the footer's Reject reveals the reason field first, and a
+  // second press submits — so a rejection can never be recorded without a reason being asked for.
+  const [rejecting, setRejecting] = useState(false);
+  const mediaIndex = mediaSelection.itemId === item.item_id ? mediaSelection.index : 0;
+  const setMediaIndex = (index: number) => setMediaSelection({ itemId: item.item_id, index });
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const playerRef = useRef<HTMLDivElement>(null);
+
+  // Initialize the event buffer with the server action for posting events
+  const eventBuffer = useMemo(() => {
+    return new ReviewEventBuffer((events) => submitVerificationReviewEvents(events));
+  }, []);
+
+  // Emit item_opened when the drawer opens
+  useEffect(() => {
+    if (open) {
+      eventBuffer.recordEvent(
+        item.item_id,
+        "item_opened",
+        {
+          category: item.category,
+          // park_id/shed_id, not the display labels: these are attribution dimensions the CEO
+          // aggregate groups by, and a label is not a stable key.
+          park_id: item.park_id ?? undefined,
+          shed_id: item.shed_id ?? undefined,
+          status: item.status,
+        },
+        item.media[0]?.proof_id,
+      );
+    }
+  }, [open, item.item_id, item.category, item.park_label, item.shed_label, item.status, item.media, eventBuffer]);
+
+  // Emit proof_switched when media changes
+  useEffect(() => {
+    if (item.media[mediaIndex]) {
+      eventBuffer.recordEvent(
+        item.item_id,
+        "proof_switched",
+        {},
+        item.media[mediaIndex].proof_id,
+      );
+    }
+  }, [mediaIndex, item.item_id, item.media, eventBuffer]);
+
+  // Flush on the actual open -> false transition, and on unmount.
+  //
+  // The previous version flushed in the effect cleanup `if (!open)`, which reads backwards: cleanup
+  // sees the PREVIOUS render's `open`, so closing an open drawer ran the cleanup captured with
+  // open=true and skipped the flush entirely. It only ever fired for a drawer that was already
+  // closed — i.e. exactly when there was nothing buffered to send.
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      void eventBuffer.forceFlush();
+    }
+    wasOpenRef.current = open;
+  }, [open, eventBuffer]);
+  useEffect(() => {
+    return () => {
+      // dispose(), not forceFlush(): it flushes AND releases the interval plus the window listeners
+      // this buffer registered, which otherwise accumulate for every drawer that is ever opened.
+      void eventBuffer.dispose();
+    };
+  }, [eventBuffer]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      const newFullscreen = document.fullscreenElement === playerRef.current;
+      setIsFullscreen(newFullscreen);
+      // Emit fullscreen_toggled event
+      const activeMedia = item.media[mediaIndex];
+      if (activeMedia) {
+        eventBuffer.recordEvent(
+          item.item_id,
+          "fullscreen_toggled",
+          { video_position_ms: 0 },
+          activeMedia.proof_id,
+        );
+      }
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, [item.item_id, item.media, mediaIndex, eventBuffer]);
+
+  const toggleFullscreen = useCallback((): void => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    playerRef.current?.requestFullscreen?.().catch(() => {
+      /* full screen unsupported/blocked — the player still shows the video inline */
+    });
+  }, []);
+
+  // Set while the verdict telemetry is being flushed, so the re-submit below is not intercepted again.
+  const verdictTelemetrySentRef = useRef(false);
+
+  // Handle verdict form submission to emit verdict_recorded event.
+  //
+  // The submit is HELD until the telemetry has been posted. Firing it fire-and-forget raced the
+  // Server Action: the verdict write navigates/re-renders, which can tear the page down before the
+  // flush completes, losing the single most important event in the stream — the decision itself,
+  // plus whatever watch events were still buffered behind it. Telemetry failures never block the
+  // verdict: forceFlush() does not throw, and a failed batch is re-queued idempotently.
+  const handleVerdictSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+    if (verdictTelemetrySentRef.current) {
+      verdictTelemetrySentRef.current = false;
+      return; // the re-submit below — let it through to the Server Action
+    }
+    const form = e.currentTarget;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const decision = (submitter?.value ??
+      form.querySelector('button[type="submit"]')?.getAttribute("value")) as "approved" | "rejected";
+    if (!decision) return;
+
+    e.preventDefault();
+    void eventBuffer.recordVerdict(item.item_id, decision).finally(() => {
+      verdictTelemetrySentRef.current = true;
+      // requestSubmit preserves which button submitted, so the Server Action still receives the
+      // approve/reject value; form.submit() would drop it.
+      if (submitter) form.requestSubmit(submitter);
+      else form.requestSubmit();
+    });
+  }, [item.item_id, eventBuffer]);
+
+  const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
   const hasTask = Boolean(item.source.task_id);
   const isFlagged = item.status === "rejected";
   const reworkDisabled = !hasTask || !isFlagged;
   const reassignDisabled = !hasTask || !positions || positions.items.length === 0;
+  const hasEvidence = item.media.length > 0;
   const text = (key: string) => copy(pageContract, key);
 
   // Duty split (verifier-app-and-flow.md §Roles): the verifier records the verdict, the authority
@@ -194,24 +351,18 @@ function VerificationReviewDrawerPanel({
   const verdictSettled = item.status !== "pending";
 
   return (
-      <aside className={`drawer${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
-        <div className="dh">
-          <span className="fic" style={{ background: "var(--brand-soft)", color: "var(--brand-d)" }}>
-            <ShieldCheck className="ic" aria-hidden="true" />
-          </span>
+      <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
+        <div className="vr-modal-hd">
           <div>
-            <div className="mt">{text("drawer.eyebrow")}</div>
-            <h2>
-              {item.category} · {shortId(item.item_id)}
-            </h2>
+            <h2>{item.category} · {shortId(item.item_id)}</h2>
+            <div className="sb">{item.module} · {item.vertical}</div>
           </div>
-          <span className="sp" style={{ flex: 1 }} />
-          <button ref={closeButtonRef} type="button" className="iconbtn" aria-label={text("drawer.close_label")} onClick={onClose}>
-            <X className="ic" />
+          <button ref={closeButtonRef} type="button" className="x" aria-label={text("drawer.close_label")} onClick={onClose}>
+            &times;
           </button>
         </div>
 
-        <div className="dc">
+        <div className="vr-modal-bd">
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
             <div className={feedback.status === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 12 }}>
@@ -220,78 +371,110 @@ function VerificationReviewDrawerPanel({
             </div>
           ) : null}
 
-          {mayAct ? (
-            <div className="note" style={{ marginBottom: 12 }}>
-              {text("drawer.note")}
+          {!hasEvidence && (
+            <div className="warnbox" style={{ marginBottom: 14 }}>
+              <b>{text("verdict.disabled_no_evidence")}</b>
+            </div>
+          )}
+
+          {/* Video Player: Large, centered, capped at 44vh */}
+          {item.media.length === 0 ? (
+            <div className="vr-player" ref={playerRef} style={{ background: "var(--panel-2)", justifyContent: "center" }}>
+              <div className="vr-player-empty">{text("drawer.media.empty")}</div>
+            </div>
+          ) : (
+            <div className="vr-player" ref={playerRef}>
+              {activeMedia?.mime_type?.startsWith("video/") ? (
+                <ReviewVideoPlayer
+                  key={activeMedia.proof_id}
+                  src={activeMedia.download_url}
+                  mimeType={activeMedia.mime_type}
+                  proofId={activeMedia.proof_id}
+                  itemId={item.item_id}
+                  eventBuffer={eventBuffer}
+                />
+              ) : (
+                <div className="vr-player-empty">{text("drawer.media.empty")}</div>
+              )}
+              <button
+                type="button"
+                className="vr-fsbtn"
+                onClick={toggleFullscreen}
+                aria-label={text("drawer.media.fullscreen_label")}
+                title={text("drawer.media.fullscreen_label")}
+              >
+                {isFullscreen ? <Minimize className="ic" /> : <Maximize className="ic" />}
+              </button>
+            </div>
+          )}
+
+          {/* Proof Switcher: Only when 2+ media */}
+          {item.media.length > 1 ? (
+            <div className="vr-proofstrip">
+              {item.media.map((media, index) => (
+                <button
+                  key={media.proof_id}
+                  type="button"
+                  className={`vr-pthumb${index === mediaIndex ? " on" : ""}`}
+                  onClick={() => setMediaIndex(index)}
+                >
+                  <PlayCircle className="ic" />
+                  {media.label || shortId(media.proof_id)}
+                </button>
+              ))}
             </div>
           ) : null}
 
-          <div className="metagrid">
-            <Meta label={text("drawer.meta.status")}>
-              <Tag tone={statusTone(item.status)}>{statusLabel}</Tag>
-            </Meta>
-            <Meta label={text("drawer.meta.reason")}>{item.verdict_reason || "—"}</Meta>
-            {/* The raiser's own words about this work item (for a movement: why the animals are
-                moving). Sits right after status so the reviewer reads the operator's reason
-                before the provenance fields. */}
-            <Meta label={text("drawer.meta.subject_note")}>{item.subject_note || "—"}</Meta>
-            <Meta label={text("drawer.meta.verified_by")}>
-              {item.verified_by_name || (item.verified_by ? shortId(item.verified_by) : "—")}
-            </Meta>
-            <Meta label={text("drawer.meta.verified_at")}>{item.verified_at ? fmtDateTime(item.verified_at) : "—"}</Meta>
-            <Meta label={text("drawer.meta.captured")}>{fmtDateTime(item.captured_at)}</Meta>
-            <Meta label={text("drawer.meta.operator")}>{item.operator_name || (item.operator_id ? shortId(item.operator_id) : "—")}</Meta>
-            <Meta label={text("drawer.meta.shed")}>{item.shed_label || (item.shed_id ? shortId(item.shed_id) : "—")}</Meta>
-            <Meta label={text("drawer.meta.park")}>{item.park_label || (item.park_id ? shortId(item.park_id) : "—")}</Meta>
-            <Meta label={text("drawer.meta.source_module")}>
-              {item.vertical} / {item.module}
-            </Meta>
-            <Meta label={text("drawer.meta.source_task")}>{item.source.task_id ? shortId(item.source.task_id) : "—"}</Meta>
-            <Meta label={text("drawer.meta.source_submission")}>{item.source.submission_id ? shortId(item.source.submission_id) : "—"}</Meta>
+          {/* Facts Grid: Mock anatomy with label/value pairs */}
+          <div className="vr-facts">
+            <div className="vr-fact">
+              <b>{text("drawer.meta.operator")}</b>
+              {renderLabelOrFallback(item.operator_name)}
+            </div>
+            <div className="vr-fact">
+              <b>{text("drawer.meta.captured")}</b>
+              {fmtDateTime(item.captured_at)}
+            </div>
+            <div className="vr-fact">
+              <b>{text("drawer.meta.shed")}</b>
+              {renderLabelOrFallback(item.shed_label)}
+            </div>
+            <div className="vr-fact">
+              <b>{text("drawer.meta.park")}</b>
+              {renderLabelOrFallback(item.park_label)}
+            </div>
+            {item.verified_by_name && (
+              <div className="vr-fact">
+                <b>{text("drawer.meta.verified_by")}</b>
+                {renderLabelOrFallback(item.verified_by_name)}
+              </div>
+            )}
+            {/* Each proof's recorded answer */}
+            {item.media.map((media) =>
+              media.answer ? (
+                <div key={media.proof_id} className="vr-fact">
+                  <b>{media.label || text("drawer.media.title")}</b>
+                  {media.answer}
+                </div>
+              ) : null
+            )}
+            {/* Rejection reason when rejected */}
+            {item.status === "rejected" && item.verdict_reason && (
+              <div className="vr-fact">
+                <b>{text("drawer.meta.reason")}</b>
+                {item.verdict_reason}
+              </div>
+            )}
           </div>
 
-          <section className="card" style={{ marginTop: 14 }}>
-            <div className="hd">
-              <h3>{text("drawer.media.title")}</h3>
-            </div>
-            <div className="bd">
-              {item.media.length === 0 ? (
-                <div className="muted small">{text("drawer.media.empty")}</div>
-              ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {item.media.map((media) => (
-                    <div key={media.proof_id} style={{ display: "grid", gap: 8 }}>
-                      {media.label ? <b>{media.label}</b> : null}
-                      {media.answer ? <div className="small muted">{media.answer}</div> : null}
-                      {media.mime_type?.startsWith("video/") ? (
-                        <video controls preload="metadata" style={{ width: "100%", borderRadius: 8, background: "#000" }}>
-                          <source src={media.download_url} type={media.mime_type} />
-                        </video>
-                      ) : null}
-                      <a href={media.download_url} target="_blank" rel="noreferrer" className="btn sm">
-                        {text("drawer.media.open")} · {shortId(media.proof_id)}
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-
           {mayReview ? (
-            <section className="card" style={{ marginTop: 14 }}>
-              <div className="hd">
-                <h3>{text("verdict.title")}</h3>
-              </div>
-              <div className="bd">
-                <form action={recordVerificationVerdictAction} style={{ display: "grid", gap: 8 }}>
+            <form id="verdict-form" action={recordVerificationVerdictAction} onSubmit={handleVerdictSubmit} style={{ display: "grid", gap: 8 }}>
                   <input type="hidden" name="item_id" value={item.item_id} />
                   {/* Guards THIS item's row: a verdict recorded elsewhere since render makes the
                       submit 409 instead of silently overwriting the other reviewer's decision. */}
                   <input type="hidden" name="row_version" value={item.row_version} />
                   <input type="hidden" name="return_to" value={returnTo} />
-                  <div className="note">{text("verdict.note")}</div>
-                  <label className="fld" style={{ marginBottom: 0 }}>
+                  <label className="fld" style={{ marginBottom: 0, display: rejecting ? "grid" : "none" }}>
                     <span>{text("verdict.reason_label")}</span>
                     {/* Deliberately not `required`: the same field is mandatory for Reject and
                         unused for Approve, so the rule lives in the server action and the backend
@@ -303,35 +486,10 @@ function VerificationReviewDrawerPanel({
                       disabled={verdictSettled}
                     />
                   </label>
-                  <div className="small muted">{text("verdict.reason_required")}</div>
+                  {rejecting ? <div className="small muted">{text("verdict.reason_required")}</div> : null}
                   {verdictSettled ? <div className="note">{text("verdict.disabled_not_pending")}</div> : null}
-                  <div className="df" style={{ padding: 0, border: 0, background: "transparent" }}>
-                    <button
-                      type="submit"
-                      name="decision"
-                      value="approved"
-                      className="btn p"
-                      disabled={verdictSettled}
-                      aria-disabled={verdictSettled}
-                      title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
-                    >
-                      {text("verdict.approve")}
-                    </button>
-                    <button
-                      type="submit"
-                      name="decision"
-                      value="rejected"
-                      className="btn"
-                      disabled={verdictSettled}
-                      aria-disabled={verdictSettled}
-                      title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
-                    >
-                      {text("verdict.reject")}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </section>
+                  {!hasEvidence ? <div className="note">{text("verdict.disabled_no_evidence")}</div> : null}
+            </form>
           ) : null}
 
           {mayAct ? (
@@ -419,28 +577,51 @@ function VerificationReviewDrawerPanel({
           ) : null}
         </div>
 
-        <div className="df">
-          {/* Audit Log is an authority surface. The verifier-only workspace has no Audit Log page
-              contract, so linking her there would dead-end on a route that throws. */}
-          {mayAct ? (
-            <Link href={`/operations/audit?module=${encodeURIComponent(item.module)}`} className="btn" scroll={false}>
-              {text("action.open_audit_log")}
-            </Link>
-          ) : null}
-          <button type="button" className="btn" onClick={onClose}>
-            {text("action.close")}
-          </button>
-        </div>
-      </aside>
-  );
-}
+        <div className="vr-modal-ft">
+          {/* Position indicator and navigation */}
+          <span className="pos">{currentIndex >= 0 ? `${currentIndex + 1} of ${totalItems}` : ""}</span>
 
-function Meta({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <span className="muted small">{label}</span>
-      <b style={{ display: "block", marginTop: 3, overflowWrap: "anywhere" }}>{children}</b>
-    </div>
+          {/* Prev/Next buttons on left */}
+          <button type="button" className="btn" onClick={() => onStepItem(-1)} disabled={!canGoBack} title="Previous item">
+            ← Prev
+          </button>
+          <button type="button" className="btn" onClick={() => onStepItem(1)} disabled={!canGoForward} title="Next item">
+            Next →
+          </button>
+
+          {/* Spacer */}
+          <div style={{ marginLeft: "auto" }} />
+
+          {/* Reject and Accept buttons on right (shown only for verifiers) */}
+          {mayReview ? (
+            <>
+              <button
+                type={rejecting ? "submit" : "button"}
+                onClick={rejecting ? undefined : () => setRejecting(true)}
+                form="verdict-form"
+                name="decision"
+                value="rejected"
+                className="btn"
+                disabled={verdictSettled}
+                title={verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+              >
+                Reject
+              </button>
+              <button
+                type="submit"
+                form="verdict-form"
+                name="decision"
+                value="approved"
+                className="btn p"
+                disabled={verdictSettled || !hasEvidence}
+                title={!hasEvidence ? text("verdict.disabled_no_evidence") : verdictSettled ? text("verdict.disabled_not_pending") : undefined}
+              >
+                Accept
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
   );
 }
 

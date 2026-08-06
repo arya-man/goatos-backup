@@ -792,6 +792,81 @@ tools:
         default: 20
 
   # ----------------------------------------------------------------------------
+  # 11b. Verifier video-review integrity -> ceo_ai.verifier_review_integrity
+  # ----------------------------------------------------------------------------
+  mesha_verifier_review_integrity:
+    kind: postgres-sql
+    source: mesha-postgres-readonly
+    description: |
+      Did a verifier actually WATCH a proof video before deciding, or rubber-stamp
+      it? Per verifier, per park/category/business-day: videos reviewed, median
+      and p90 time-to-verdict, median watch fraction, the count of verdicts
+      recorded BELOW the 90% watch-fraction threshold (the integrity signal --
+      "how many decisions were made without proving a full watch"), how many
+      verdicts sent no review telemetry at all, reject rate, and a reject-reason
+      breakdown. Use for "which verifiers are rubber-stamping proofs", "how fast
+      is verifier X deciding", "how many approvals had under 90% watch time",
+      "verifier reject rate and reasons".
+
+      below_watch_threshold_count and missing_review_telemetry_count are
+      DISTINCT and must not be summed as one number: the first is a KNOWN
+      watch fraction under the bar (a real integrity finding); the second is
+      absent telemetry (a client-wiring gap, not proof of skimming either way).
+      Report them separately when asked "how many rubber-stamped reviews" --
+      state both counts and what each means.
+
+      Business day is Asia/Kolkata, derived from the AUTHORITATIVE backend
+      verified_at timestamp (not client-reported timing). See migration 000114
+      (`ceo_ai.verifier_review_integrity`) for the full grain and derivation.
+    statement: |
+      SELECT
+        verifier_id,
+        park_label,
+        category,
+        business_day,
+        videos_reviewed,
+        median_time_to_verdict_seconds,
+        p90_time_to_verdict_seconds,
+        median_watch_fraction,
+        below_watch_threshold_count,
+        missing_review_telemetry_count,
+        rejected_count,
+        reject_rate,
+        reject_reason_breakdown
+      FROM ceo_ai.verifier_review_integrity
+      WHERE tenant_id = $1::uuid
+        AND ($2::uuid IS NULL OR verifier_id = $2::uuid)
+        AND ($3::text IS NULL OR category = $3)
+        AND ($4::date IS NULL OR business_day >= $4)
+        AND ($5::date IS NULL OR business_day <= $5)
+      ORDER BY business_day DESC, below_watch_threshold_count DESC, verifier_id
+      LIMIT LEAST($6::int, 50)
+    parameters:
+      - name: tenant_id
+        type: string
+        description: Mesha tenant id from the server-side leadership session.
+      - name: verifier_id
+        type: string
+        description: Optional single verifier id.
+        required: false
+      - name: category
+        type: string
+        description: Optional verification category (e.g. vaccination_proof).
+        required: false
+      - name: from_date
+        type: string
+        description: Optional inclusive start business date (YYYY-MM-DD, Asia/Kolkata).
+        required: false
+      - name: to_date
+        type: string
+        description: Optional inclusive end business date (YYYY-MM-DD, Asia/Kolkata).
+        required: false
+      - name: limit
+        type: integer
+        description: Maximum rows.
+        default: 20
+
+  # ----------------------------------------------------------------------------
   # 12. Inventory stock -> ceo_ai.inventory_stock_position
   # ----------------------------------------------------------------------------
   mesha_inventory_stock:
@@ -1060,6 +1135,7 @@ toolsets:
     - mesha_ops_exceptions
     - mesha_sop_execution
     - mesha_verification_queue
+    - mesha_verifier_review_integrity
     - mesha_inventory_stock
     - mesha_workforce_coverage
     - mesha_action_center

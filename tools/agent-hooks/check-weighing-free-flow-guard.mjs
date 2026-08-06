@@ -815,11 +815,39 @@ function isWeighingMigration(rel) {
   return rel.startsWith(`${MIGRATIONS_DIR}/`) && /weighing/i.test(rel) && rel.endsWith(".sql");
 }
 
+// Generated/vendored trees are never source. Skipping them is not just a speed win: `.next` is
+// WRITTEN by the admin-web build job, which ci-local runs CONCURRENTLY with the guards, so walking
+// it raced a live build and crashed the guard with
+// ENOENT scandir apps/admin-web/.next/standalone/... — a directory that existed when readdir listed
+// the parent and was gone microseconds later. A guard that dies on someone else's build output
+// reports RED for a reason that has nothing to do with the diff.
+const SKIP_DIRS = new Set([
+  ".next",
+  "node_modules",
+  ".git",
+  ".gradle",
+  "build",
+  "dist",
+  "out",
+  ".code-review-graph",
+  "graphify-out",
+]);
+
 function walk(dir, matcher, out) {
   if (!existsSync(dir)) return out;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    // Belt and braces for the same race on any tree we do still walk: a directory removed between
+    // the parent listing and this readdir is not a guard failure.
+    if (error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return out;
+    throw error;
+  }
+  for (const entry of entries) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
       walk(path, matcher, out);
     } else if (entry.isFile()) {
       const rel = relative(repo, path);

@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	nethttp "net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,9 +21,10 @@ import (
 )
 
 type Handler struct {
-	service    *app.Service
-	dutyReader VerificationModuleDutyReader
-	log        *slog.Logger
+	service     *app.Service
+	dutyReader  VerificationModuleDutyReader
+	reviewEvent ports.ReviewEventRepository
+	log         *slog.Logger
 }
 
 // VerificationModuleDutyReader resolves the active verify duties held by one authenticated actor.
@@ -48,6 +50,14 @@ func (h *Handler) WithModuleDutyReader(reader VerificationModuleDutyReader) *Han
 	return h
 }
 
+// WithReviewEventRepository wires the video-review-analytics ingest/read repository
+// (verification_review_events, migration 000116). Left optional/nil-safe like the duty reader
+// above so existing wiring call sites do not have to change until they opt in.
+func (h *Handler) WithReviewEventRepository(repo ports.ReviewEventRepository) *Handler {
+	h.reviewEvent = repo
+	return h
+}
+
 func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /verification/queue", h.ListQueue)
 	mux.HandleFunc("GET /verification/action-queue", h.ListActionQueue)
@@ -56,6 +66,8 @@ func Register(mux *nethttp.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /verification/items/{item_id}/close", h.CloseItem)
 	mux.HandleFunc("POST /verification/submissions/{submission_id}/close", h.CloseSubmission)
 	mux.HandleFunc("POST /verification/vaccination-batches/{batch_id}/close", h.CloseVaccinationBatch)
+	mux.HandleFunc("POST /verification/review-events", h.RecordReviewEvents)
+	mux.HandleFunc("GET /verification/items/{item_id}/review-facts", h.GetItemReviewFacts)
 }
 
 type queueItemResponse struct {
@@ -194,8 +206,14 @@ func (h *Handler) listQueue(
 ) {
 	q := r.URL.Query()
 	category := strings.TrimSpace(q.Get("category"))
-	if permission == permissions.VerificationReview && !h.authorizeReviewCategory(w, r, category) {
-		return
+	var categories []string
+	if permission == permissions.VerificationReview {
+		authorizedCategories, ok := h.resolveVerifierCategories(w, r, category)
+		if !ok {
+			return
+		}
+		category = "" // Clear single category if multi-category is used
+		categories = authorizedCategories
 	}
 	limit, ok := parsePositiveLimit(q.Get("limit"))
 	if !ok {
@@ -236,6 +254,7 @@ func (h *Handler) listQueue(
 	params := ports.ListQueueParams{
 		TenantID:             tenantID(r),
 		Category:             category,
+		Categories:           categories,
 		Vertical:             q.Get("vertical"),
 		Module:               q.Get("module"),
 		Status:               status,
@@ -257,6 +276,10 @@ func (h *Handler) listQueue(
 		// changed" are two different moments and the surface has to be able to name the gap.
 		// Status is deliberately left alone -- the caller asks for the state, not for a status.
 		AwaitingApplicationOnly: strings.EqualFold(strings.TrimSpace(q.Get("awaiting_application")), "true"),
+		// IsVerifierQueueRead is true for the verifier queue read (verification.review path),
+		// false for other callers (leadership action queue, alerts). Verifier queue read does NOT
+		// clamp to today — it returns the full pending backlog ordered oldest-first.
+		IsVerifierQueueRead: permission == permissions.VerificationReview && !actionQueue,
 	}
 	result, err := h.service.ListQueue(r.Context(), params)
 	if err != nil {
@@ -307,7 +330,7 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 		h.respondError(w, r, app.NotFound("item_not_found", "verification item not found"))
 		return
 	}
-	if !h.authorizeReviewCategory(w, r, item.Category) {
+	if !h.authorizeSingleCategory(w, r, item.Category) {
 		return
 	}
 	item, err = h.service.RecordVerdict(r.Context(), domain.Verdict{
@@ -329,15 +352,118 @@ func (h *Handler) RecordVerdict(w nethttp.ResponseWriter, r *nethttp.Request) {
 	})
 }
 
-func (h *Handler) authorizeReviewCategory(w nethttp.ResponseWriter, r *nethttp.Request, category string) bool {
+// resolveVerifierCategories returns the authorized categories for a verifier queue read.
+//
+// When category is specified, it validates that single category.
+// When category is empty and the principal is a verifier (has verification.verdict),
+// it resolves ALL categories for the modules the verifier is assigned to, enabling
+// the "All evidence" view across multiple categories.
+// When category is empty and the principal is NOT a verifier (CEO/CxO), it returns
+// all categories (unrestricted view).
+func (h *Handler) resolveVerifierCategories(w nethttp.ResponseWriter, r *nethttp.Request, category string) ([]string, bool) {
 	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
 	if len(grants) == 0 || hasTenantWideRole(grants, tenantID(r), permissions.RoleCEOInternal) {
+		// CEO/CxO has unrestricted access; no category filtering needed
+		return nil, true
+	}
+
+	// If a specific category is provided, validate it
+	if category != "" {
+		module := ""
+		for _, def := range h.service.Categories() {
+			if def.Category == category {
+				module = def.NavigationModule
+				break
+			}
+		}
+		if module == "" {
+			h.respondError(w, r, app.BadRequest("unknown_category", "category is not registered"))
+			return nil, false
+		}
+		if h.dutyReader == nil {
+			h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
+			return nil, false
+		}
+		modules, err := h.dutyReader.ListVerifyModuleKeys(r.Context(), tenantID(r), actorID(r))
+		if err != nil {
+			h.respondError(w, r, err)
+			return nil, false
+		}
+		for _, allowed := range modules {
+			// Compare in NAVIGATION-key space: duties are stored as module codes ("pc.vaccination"),
+			// categories are registered against navigation keys ("vaccination").
+			if navigationModuleForDutyCode(allowed) == module {
+				return []string{category}, true
+			}
+		}
+		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
+		return nil, false
+	}
+
+	// Category is empty: resolve all authorized categories for this verifier
+	if h.dutyReader == nil {
+		// Verifier is not configured with a duty reader, cannot resolve categories
+		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier modules not configured"))
+		return nil, false
+	}
+
+	modules, err := h.dutyReader.ListVerifyModuleKeys(r.Context(), tenantID(r), actorID(r))
+	if err != nil {
+		h.respondError(w, r, err)
+		return nil, false
+	}
+
+	if len(modules) == 0 {
+		// Verifier has no assigned modules, cannot provide a queue
+		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to any module"))
+		return nil, false
+	}
+
+	// Map module keys to categories
+	authorizedCategories := make(map[string]bool)
+	for _, def := range h.service.Categories() {
+		// Check if this category's module is in the verifier's authorized modules
+		defModule := def.NavigationModule
+		for _, dutyModule := range modules {
+			// Compare in NAVIGATION-key space
+			if navigationModuleForDutyCode(dutyModule) == defModule {
+				authorizedCategories[def.Category] = true
+				break
+			}
+		}
+	}
+
+	if len(authorizedCategories) == 0 {
+		// No categories found for the assigned modules
+		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "no categories available for assigned modules"))
+		return nil, false
+	}
+
+	// Convert map to sorted slice for consistent ordering
+	categories := make([]string, 0, len(authorizedCategories))
+	for cat := range authorizedCategories {
+		categories = append(categories, cat)
+	}
+	sort.Strings(categories)
+
+	return categories, true
+}
+
+// authorizeSingleCategory validates authorization for a single specified category.
+// Used by verdict recording and other single-item operations where a category is known.
+func (h *Handler) authorizeSingleCategory(w nethttp.ResponseWriter, r *nethttp.Request, category string) bool {
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) == 0 || hasTenantWideRole(grants, tenantID(r), permissions.RoleCEOInternal) {
+		// CEO/CxO has unrestricted access
 		return true
 	}
+
 	if category == "" {
-		h.respondError(w, r, app.BadRequest("missing_category", "category is required for a verifier queue"))
+		h.respondError(w, r, app.BadRequest("missing_category", "category is required for this operation"))
 		return false
 	}
+
+	// Find the module for this category
 	module := ""
 	for _, def := range h.service.Categories() {
 		if def.Category == category {
@@ -349,15 +475,18 @@ func (h *Handler) authorizeReviewCategory(w nethttp.ResponseWriter, r *nethttp.R
 		h.respondError(w, r, app.BadRequest("unknown_category", "category is not registered"))
 		return false
 	}
+
 	if h.dutyReader == nil {
 		h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
 		return false
 	}
+
 	modules, err := h.dutyReader.ListVerifyModuleKeys(r.Context(), tenantID(r), actorID(r))
 	if err != nil {
 		h.respondError(w, r, err)
 		return false
 	}
+
 	for _, allowed := range modules {
 		// Compare in NAVIGATION-key space: duties are stored as module codes ("pc.vaccination"),
 		// categories are registered against navigation keys ("vaccination").
@@ -365,6 +494,7 @@ func (h *Handler) authorizeReviewCategory(w nethttp.ResponseWriter, r *nethttp.R
 			return true
 		}
 	}
+
 	h.respondError(w, r, app.Forbidden("module_scope_forbidden", "verifier is not assigned to this module"))
 	return false
 }
@@ -561,6 +691,12 @@ func (h *Handler) respondError(w nethttp.ResponseWriter, r *nethttp.Request, err
 		envelope.Code = appErr.Code
 		envelope.Message = appErr.Message
 		envelope.Retryable = appErr.Retryable
+		if len(appErr.FieldErrors) > 0 {
+			envelope.FieldErrors = make([]domain.FieldError, len(appErr.FieldErrors))
+			for i, fe := range appErr.FieldErrors {
+				envelope.FieldErrors[i] = domain.FieldError{Field: fe.Field, Code: fe.Code, Message: fe.Message}
+			}
+		}
 	}
 	httpresponse.WriteError(w, r, h.log, status, envelope, err)
 }
