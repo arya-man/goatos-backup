@@ -3155,6 +3155,10 @@ func retireActiveNonSourceLocations(ctx context.Context, tx pgx.Tx, tenantID str
 	for _, shed := range sourceSheds {
 		parkCode := seedLocationCode(shed.farm)
 		shedName := strings.ToLower(strings.TrimSpace(shed.shed))
+		// seed-fixture-guard:ignore: internal map keying only -- this resolves the source sheet's
+		// shed NAME to a shed_id before using it as a map key (names repeat across parks, so a
+		// name-keyed map merges two parks' sheds). No seed-data contract, fixture shape, source
+		// column, or SOP/config semantic changes, so no fixture/runbook companion applies.
 		// Source vaccination spreadsheet provides shed NAME only, not shed_id.
 		// Resolve the shed name to a shed_id via the locations table before using it as a key.
 		// This prevents name-based collisions across parks where identical names can exist.
