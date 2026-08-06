@@ -150,8 +150,13 @@ interface ScanRosterRowDao {
     /** Distinct goat ids of every DONE/completed animal in the FULL roster (backend-persisted status).
      *  The submit proof gate unions this with the session's local-done overlay to require a synced
      *  proof for every vaccinated animal, page-independent. Bounded by one shed's animal count. */
+    // An OUTSTANDING server status (rejected/due/pending) vetoes the timestamp. A sent-back animal
+    // keeps its scannedAtMs forever -- it really was scanned -- so OR-ing the timestamp in without
+    // that veto kept a rejected animal in the done set, feeding the per-goat proof gate and letting
+    // a reopened animal count as already proven.
     @Query(
         "SELECT DISTINCT goatId FROM scan_roster_row WHERE scopeKey = :scopeKey AND goatId != '' AND " +
+            "LOWER(TRIM(status)) NOT IN ('rejected', 'due', 'pending') AND " +
             "(scannedAtMs IS NOT NULL OR LOWER(status) LIKE '%done%' OR LOWER(status) LIKE '%complete%')"
     )
     fun observeDoneGoatIds(scopeKey: String): Flow<List<String>>

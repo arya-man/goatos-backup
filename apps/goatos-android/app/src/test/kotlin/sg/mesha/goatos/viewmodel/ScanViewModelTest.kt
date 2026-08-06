@@ -1222,6 +1222,67 @@ class ScanViewModelTest {
         return FakeScanExecutionRepository(firstPage = first, continuationPages = continuation)
     }
 
+    /**
+     * PARITY after a verifier REJECTION: the scan screen must not keep an animal green once the
+     * backend reopened its obligation.
+     *
+     * Live repro on Godel 1. The verifier rejected goat 1001's proof, the backend reopened
+     * obligation 3001 to `due`, and the sheds list, the shed drilldown AND the scan roster all
+     * reported "3 targeted / 1 open / 2 done". The scan screen alone showed 3/3 green and offered
+     * "Finalize shed", because a rejected animal keeps its scannedAt forever and the row status was
+     * derived from that timestamp instead of the server status.
+     *
+     * scannedAt is deliberately NON-NULL here: an earlier version of this test left it null, so it
+     * passed without ever exercising the timestamp path while the real device stayed wrong.
+     *
+     * Pairs with the process-recreation tests above, which pin the OPPOSITE case: an unsynced
+     * capture must stay green offline. Only a capture the backend has already seen may be overruled.
+     */
+    @Test
+    fun `a synced capture yields to a reopened obligation after rejection`() = runTest(dispatcher) {
+        val scanCaptures = FakeScanCaptureRepository()
+        scanCaptures.recordScan(
+            taskId = "task-1",
+            fieldKey = ROSTER_SCAN_FIELD_KEY,
+            tag = "901007000504418",
+            goatId = "goat-1",
+            obligationId = "obl-1",
+            capturedAtMs = 1L,
+        )
+        // The backend accepted this capture; the verifier then rejected the proof.
+        scanCaptures.markLocalScanSynced("task-1", ROSTER_SCAN_FIELD_KEY, "901007000504418")
+
+        val vm = ScanViewModel(
+            repo = rosterRepo(
+                listOf(
+                    scanRow("goat-1", "901007000504418", "obl-1")
+                        .copy(status = "due", scannedAt = "2026-08-06T03:40:00Z"),
+                    scanRow("goat-2", "901007000504332", "obl-2").copy(status = "done"),
+                    scanRow("goat-3", "901007000504407", "obl-3").copy(status = "done"),
+                ),
+            ),
+            reader = FakeRfidReaderPort(),
+            scanCaptureRepository = scanCaptures,
+            scanAttemptRepository = FakeScanAttemptRepository(),
+            proofCaptureRepository = FakeProofCaptureRepository(),
+            proofCaptureSource = FakeProofCaptureSource(),
+            bootstrapRepository = FakeCaptureBootstrapRepository(),
+            tasksRepository = FakeTasksRepositoryForCapture(),
+            analytics = sg.mesha.goatos.core.analytics.NoopAnalytics(),
+            savedStateHandle = SavedStateHandle(mapOf("shedId" to "shed-1", "taskId" to "task-1")),
+        )
+        backgroundScope.launch { vm.state.collect {} }
+        advanceUntilIdle()
+
+        val state = vm.state.value
+        assertEquals(
+            "a reopened obligation must not read as DONE",
+            ScanStatus.PENDING,
+            state.roster.first { it.obligationId == "obl-1" }.status,
+        )
+        assertEquals("the ring must match the server's done count", 2, state.doneCount)
+    }
+
 }
 
 private fun scanRow(goatId: String, tag: String, obligationId: String, secondaryTag: String? = null): ScanRosterRowDto =
