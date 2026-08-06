@@ -1042,14 +1042,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
 
       {/* Closed, No Dose record drawer. Opens from the KPI tile with the animals already in the
           payload -- no route re-run, no second fetch. Closes on X, scrim, and Escape. */}
+      {/* The drawer is a CHILD of the scrim, not its sibling: `.drawer` is parked off-canvas by
+          `transform: translateX(100%)` and the only rule that pulls it on screen is the DESCENDANT
+          selector `.dscrim.on .drawer`. As a sibling it mounts, fills with data, and stays
+          invisible -- the click looks dead. */}
       {closedDrawerOpen && (
-        <>
-          <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}></div>
+        <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}>
           <aside
             className="drawer on"
             role="dialog"
             aria-modal="true"
             aria-label={copy(pageContract, "command_board.kpi.closed_without_dose")}
+            onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
               if (e.key === "Escape") setClosedDrawerOpen(false);
             }}
@@ -1101,7 +1105,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
               ) : null}
             </div>
           </aside>
-        </>
+        </div>
       )}
     </section>
   );
