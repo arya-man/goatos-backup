@@ -110,6 +110,8 @@ type Item struct {
 	OperatorName   *string // backend-owned display label for OperatorID
 	ShedID         *string
 	ShedLabel      *string // backend-owned display label for ShedID
+	PartitionLabel *string // raw partition label ('1', 'Part 3') or nil for non-partitioned
+	OperationalLocationDisplay *string // backend-composed operational location (shed + partition). Examples: "Castro 2", "Godel 1 - Part 3", "Yashoda"
 	ParkID         *string
 	ParkLabel      *string // backend-owned display label for ParkID
 	CapturedAt     time.Time
@@ -165,6 +167,7 @@ type CreateItem struct {
 	OperatorID     *string
 	ShedID         *string
 	ParkID         *string
+	PartitionLabel *string // raw partition label ('1', 'Part 3') or nil for non-partitioned
 	CapturedAt     time.Time
 	IdempotencyKey string
 	// ApplierAckExpected: set true only if this producer actually runs an applier
