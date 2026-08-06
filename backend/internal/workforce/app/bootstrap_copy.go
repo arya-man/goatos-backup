@@ -105,7 +105,7 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// "/verify/action" or otherwise flip OpenOnly for the action queue itself -- the verifier's
 			// action queue must stay open-items-only (see the reviewContributions entry below and
 			// ListActionQueue in verification/adapters/http/handler.go).
-			{key: "videos", labelKey: "nav.videos", href: leadershipVideosHref("vaccination"), shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct}, //nav-composition:ignore: registry entry
+			{key: "videos", labelKey: "nav.videos", href: "/vaccination/videos", shared_key: "", priority: 3, requiredPermission: permissions.VerificationAct}, //nav-composition:ignore: registry entry
 			// Vaccination's OWN alerts feed. The href names the feature that owns it, the same
 			// way weighing's does: alerts are feature-scoped by rule, and a generically-named
 			// "/alerts" is what once got copied into weighing's bar, where it 403'd for a

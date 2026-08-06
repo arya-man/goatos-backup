@@ -113,6 +113,8 @@ import sg.mesha.goatos.feature.verify.VerifyDetailEvent
 import sg.mesha.goatos.feature.verify.VerifyDetailScreen
 import sg.mesha.goatos.feature.verify.VerifyQueueEvent
 import sg.mesha.goatos.feature.verify.VerifyQueueScreen
+import sg.mesha.goatos.feature.vaccination.leadership.VaccinationLeadershipVideosScreen
+import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVideoEvent
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_ALL
 import sg.mesha.goatos.core.network.WEIGHING_SCOPE_OPERATORS
 import sg.mesha.goatos.feature.weighing.WeighingExportPreviewScreen
@@ -169,6 +171,7 @@ import sg.mesha.goatos.viewmodel.SubmitViewModel
 import sg.mesha.goatos.viewmodel.TimetableViewModel
 import sg.mesha.goatos.viewmodel.VerifyDetailViewModel
 import sg.mesha.goatos.viewmodel.VerifyQueueViewModel
+import sg.mesha.goatos.viewmodel.VaccinationLeadershipVideosViewModel
 import sg.mesha.goatos.viewmodel.WeighingPlanWizardViewModel
 import sg.mesha.goatos.viewmodel.WeighingGrowthViewModel
 import sg.mesha.goatos.viewmodel.WeighingViewModel
@@ -261,6 +264,10 @@ object Routes {
      * exactly like [WEIGHING_ALERTS].
      */
     const val VACCINATION_ALERTS = "/vaccination/alerts"
+
+    /** Leadership's read-only vaccination videos gallery (full evidence trail).
+     *  Separate from the verifier's /verify* routes. */
+    const val VACCINATION_LEADERSHIP_VIDEOS = "/vaccination/videos"
 
     /** Read-only HRMS shift roster mirror (docs/hr/roster-rbac-design.md) — TRD §14: mobile
      *  never writes positions/leave/backups, all CRUD stays web-only. */
@@ -1852,6 +1859,24 @@ fun AppNavHost(
             val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
+        }
+
+        // Leadership's read-only vaccination videos gallery (full evidence trail:
+        // pending/approved/rejected/closed). Separate from the verifier's verify queue.
+        // Back pops via system back.
+        composable(Routes.VACCINATION_LEADERSHIP_VIDEOS) {
+            val vm: VaccinationLeadershipVideosViewModel = hiltViewModel()
+            val state by vm.state.collectAsStateWithLifecycle()
+            VaccinationLeadershipVideosScreen(
+                state = state,
+                onEvent = { event ->
+                    when (event) {
+                        is VaccinationLeadershipVideoEvent.Refresh -> vm.refresh()
+                        is VaccinationLeadershipVideoEvent.ItemVisible -> vm.onItemVisible(event.index)
+                        is VaccinationLeadershipVideoEvent.PlaybackEvent -> vm.onPlayback(event.event)
+                    }
+                },
+            )
         }
 
         // Weighing's OWN alerts feed. Reuses AlertsScreen -- the renderer is already a dumb,

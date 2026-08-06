@@ -233,6 +233,18 @@ object AnalyticsEvents {
     /** Leadership video playback failed before a usable review could continue. */
     const val WEIGHING_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "weighing_leadership_video_playback_error"
 
+    /** Leadership opened the vaccination verification videos gallery. */
+    const val VACCINATION_LEADERSHIP_VIDEO_VIEWED = "vaccination_leadership_video_viewed"
+
+    /** Leadership started playback of one vaccination proof video. */
+    const val VACCINATION_LEADERSHIP_VIDEO_PLAY_STARTED = "vaccination_leadership_video_play_started"
+
+    /** Leadership ended a bounded playback session for one vaccination proof video. */
+    const val VACCINATION_LEADERSHIP_VIDEO_WATCH_SUMMARY = "vaccination_leadership_video_watch_summary"
+
+    /** Leadership vaccination video playback failed before a usable review could continue. */
+    const val VACCINATION_LEADERSHIP_VIDEO_PLAYBACK_ERROR = "vaccination_leadership_video_playback_error"
+
     /** Leadership opened the weight history chart screen. */
     const val WEIGHT_HISTORY_VIEWED = "weight_history_viewed"
 

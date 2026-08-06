@@ -111,6 +111,7 @@ guardrails:
 	$(MAKE) operational-read-model-contract-guard
 	$(MAKE) critical-animal-action-availability-guard
 	$(MAKE) leadership-assistant-coverage-guard
+	$(MAKE) leadership-verifier-surface-separation-guard
 	$(MAKE) assistant-route-closure-guard
 	$(MAKE) local-ci-evidence-guard
 	$(MAKE) stg-promotion-guard
@@ -234,6 +235,10 @@ critical-animal-action-availability-guard:
 leadership-assistant-coverage-guard:
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs --self-test
 	node tools/agent-hooks/check-leadership-assistant-coverage.mjs
+
+leadership-verifier-surface-separation-guard:
+	node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs --self-test
+	node tools/agent-hooks/check-leadership-verifier-surface-separation.mjs
 
 assistant-route-closure-guard:
 	node tools/agent-hooks/check-assistant-route-closure.mjs --self-test

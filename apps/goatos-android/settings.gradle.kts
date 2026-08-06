@@ -53,6 +53,7 @@ include(":feature:feature-submit")
 include(":feature:feature-record")
 include(":feature:feature-profile")
 include(":feature:feature-timetable")
+include(":feature:feature-vaccination")
 include(":feature:feature-verify")
 include(":feature:feature-weighing")
 

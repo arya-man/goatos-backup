@@ -361,6 +361,60 @@ object AnalyticsFunnels {
         )
     }
 
+    fun trackVaccinationLeadershipVideoPlayStarted(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        durationMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_PLAY_STARTED,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.DURATION_MS to durationMs.toString(),
+            ),
+        )
+    }
+
+    fun trackVaccinationLeadershipVideoWatchSummary(
+        analytics: AnalyticsPort,
+        proofId: String,
+        mimeType: String,
+        watchTimeMs: Long,
+        durationMs: Long,
+        positionMs: Long,
+        percentWatched: Float,
+        seekCount: Int,
+        replayCount: Int,
+        bufferingTimeMs: Long,
+    ) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_WATCH_SUMMARY,
+            mapOf(
+                Params.PROOF_ID to proofId,
+                Params.MIME_TYPE to mimeType,
+                Params.WATCH_TIME_MS to watchTimeMs.toString(),
+                Params.DURATION_MS to durationMs.toString(),
+                Params.POSITION_MS to positionMs.toString(),
+                Params.PERCENT_WATCHED to percentWatched.toInt().toString(),
+                Params.SEEK_COUNT to seekCount.toString(),
+                Params.REPLAY_COUNT to replayCount.toString(),
+                Params.BUFFERING_TIME_MS to bufferingTimeMs.toString(),
+            ),
+        )
+    }
+
+    fun trackVaccinationLeadershipVideoPlaybackError(analytics: AnalyticsPort, proofId: String, reason: String) {
+        safeTrack(
+            analytics,
+            AnalyticsEvents.VACCINATION_LEADERSHIP_VIDEO_PLAYBACK_ERROR,
+            mapOf(Params.PROOF_ID to proofId, Params.REASON to reason),
+        )
+    }
+
     /** Call whenever a queue-scoping filter changes. [dimension] is `park`/`shed`/`module`/
      *  `category`; [action] is `set`/`cleared`, mirroring [AnalyticsEvents.COUNTS_FILTER_APPLIED]. */
     fun trackVerifyQueueFilterApplied(analytics: AnalyticsPort, dimension: String, action: String) {

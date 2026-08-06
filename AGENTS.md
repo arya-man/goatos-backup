@@ -431,6 +431,22 @@ Two traps recorded so the next author does not repeat them:
    `AlertsViewModel.kt`, which is also a violation of the backend-owns-labels
    rule.
 
+Confirmed leadership vs. verifier surface separation (maintainer decision 2026-08-06, STANDING LOCK, CORRECTED for deceptive-helper defect): Leadership (audit/overview, read-only evidence trail) and Verifier (action queue, verdict casting) are SEPARATE SCREENS on SEPARATE ROUTES with NO shared composables, ViewModels, or UI components.
+
+Incident report: on 2026-08-06 morning, the leadership "Videos" navigation item was repointed to resolve directly to a verifier route (`/verify/...`), coupling leadership to verifier UI changes and creating UX confusion (verdict buttons appeared greyed out in leadership screens because leadership rendered verifier composables). CRITICAL CORRECTION: `leadershipVideosHref()` is a deceptively-named helper — it RETURNS `/verify?module=X&status=all`, still a verifier route, NOT a leadership-owned route. The guard was initially checking helper NAMES, not return values, and thus passed the exact defect it should catch. The rule and guard now prevent a recurrence.
+
+**Three bans, machine-enforced by `check-leadership-verifier-surface-separation.mjs`:**
+
+1. **Backend nav routes:** Leadership navigation hrefs emitted by `bootstrap_copy.go` MUST point to leadership-owned routes (e.g., `/videos/module`), NEVER use `leadershipVideosHref()` (which returns `/verify*`), NEVER call `verifyQueueHref()`, and NEVER point directly to `/verify` routes. Why: Leadership and Verifier have SEPARATE routes on SEPARATE screens. When the `/videos` screen is built, leadership nav will use `/videos/module`, not `/verify*`. (CORRECTED: previously stated `leadershipVideosHref()` was correct; it is not — it returns a verifier route.)
+
+2. **Android leadership imports:** Leadership-owned screen files (under `.../leadership/` in feature modules) MUST NOT import from `sg.mesha.goatos.feature.verify`, use verifier composables (e.g., `VerifyDetailScreen`), or use verifier ViewModels. Why: rendering a verifier composable couples leadership to verifier state (permissions, verdict handlers) and makes leadership a thin wrapper around the action queue.
+
+3. **Android leadership controls:** Leadership-owned screen files MUST NOT render verdict buttons (approve/reject/rework/reassign) or verdict-casting UI. Why: verdict casting is verifier-only. Leadership sees the RESULT of a verdict (a status chip), not the action to cast it.
+
+Adversarial self-test: `check-leadership-verifier-surface-separation.mjs` includes a test case `bootstrap-bad-leadership-videos-href-returns-verify` that calls `leadershipVideosHref()` (looks correct by name) and verifies the guard FAILS it (correct) — because the helper returns a verifier route. This proves the guard catches the deceptive-helper defect that the old guard missed.
+
+Canonical source: `docs/decisions/leadership-vs-verifier-surface-separation.md` and `context/architecture/verifier-app-and-flow.md`. Machine enforcement: `make leadership-verifier-surface-separation-guard`. This decision is FINAL and LOCKED; any future cross-surface wiring MUST address why the 2026-08-06 incident is not a risk.
+
 Confirmed vaccination progress rule (maintainer decision 2026-08-03): drive
 progress is **FIELD WORK DONE = completed + submitted**, never completed-only.
 The operator vaccinated the animal, so it counts: a drive whose animals are all
