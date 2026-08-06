@@ -692,7 +692,7 @@ parallel-dispatch-cleanup-guard:
 # real signals, real filesystem state. ~45s of sandboxed sleeps, no Gradle.
 # In run-local-ci.sh it is diff-scoped to a tools/ci/gradle-worktree-lock.sh
 # diff; this target and `make guardrails` always run it.
-# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (19 mutants, ~15min)
+# Self-test: bash tools/ci/check-gradle-worktree-lock.test.sh (19 mutants, ~17min)
 gradle-worktree-lock-guard:
 	bash tools/ci/check-gradle-worktree-lock.sh
 
