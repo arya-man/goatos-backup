@@ -803,6 +803,21 @@ private fun CategoryPill(category: String) {
  * makes the pill worth rendering -- lump-sum and individual do not look alike -- is assertable
  * without a screenshot. Paparazzi happily re-recorded the all-purple version as "correct".
  */
+/**
+ * The row's proof label for an upload status. Every status states its OWN truth.
+ *
+ * MISSING used to fall into a catch-all "Video captured" branch -- the only status that could
+ * ever reach it, since the other three were matched first -- so the one row with no video was
+ * the one that claimed to have one, while Submit stayed blocked demanding the operator record it.
+ */
+@StringRes
+internal fun proofRowLabelRes(status: ProofUploadStatus): Int = when (status) {
+    ProofUploadStatus.MISSING -> R.string.weighing_proof_required
+    ProofUploadStatus.UPLOADING -> R.string.weighing_proof_syncing
+    ProofUploadStatus.FAILED -> R.string.weighing_proof_upload_failed
+    ProofUploadStatus.SYNCED -> R.string.weighing_proof_synced
+}
+
 internal fun categoryPillTone(category: String): Pair<Color, Color> =
     if (category.trim().equals("per_shed_partition", ignoreCase = true)) {
         MeshaColors.Purple to MeshaColors.PurpleX
@@ -1530,18 +1545,13 @@ private fun WeighingFreeFlowFeedRow(
                     R.string.weighing_proof_weight_saved_fmt,
                     row.proofStatusLabel ?: stringResource(R.string.weighing_proof_video_synced),
                 )
-                row.proofUploadStatus == ProofUploadStatus.FAILED ->
-                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_upload_failed)
-                row.proofUploadStatus == ProofUploadStatus.UPLOADING ->
-                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_syncing)
                 row.proofUploadStatus == ProofUploadStatus.SYNCED && !row.backendSynced ->
                     stringResource(
                         R.string.weighing_proof_weight_waiting_fmt,
                         row.proofStatusLabel ?: stringResource(R.string.weighing_proof_synced),
                     )
-                row.proofUploadStatus == ProofUploadStatus.SYNCED ->
-                    row.proofStatusLabel ?: stringResource(R.string.weighing_proof_synced)
-                else -> stringResource(R.string.weighing_proof_captured)
+                else -> row.proofStatusLabel
+                    ?: stringResource(proofRowLabelRes(row.proofUploadStatus))
             },
             color = when {
                 complete -> MeshaColors.Ok
