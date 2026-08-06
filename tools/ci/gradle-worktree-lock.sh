@@ -183,9 +183,9 @@ gradle_lock_dir() {
 # the PATH, not the inode the decision was made about, so a losing racer's `mv`
 # succeeds — it just moves the WINNER'S FRESH lock. Measured 3 processes inside
 # at once with `mv` alone. Hence the break-lock plus the re-read (case h).
-_gradle_lock_break() { # lockdir expected_owner_pid reason expected_inode
-  local lockdir="$1" expect="$2" reason="$3" expect_ino="${4:-}"
-  local brk="${lockdir}.break" graveyard cur_pid="" cur_ino="" now bage
+_gradle_lock_break() { # lockdir expected_owner_pid reason expected_inode [expected_mtime]
+  local lockdir="$1" expect="$2" reason="$3" expect_ino="${4:-}" expect_mtime="${5:-}"
+  local brk="${lockdir}.break" graveyard cur_pid="" cur_ino="" cur_mtime="" now bage
 
   if [ -d "$brk" ]; then
     now="$(date +%s)"
@@ -198,16 +198,19 @@ _gradle_lock_break() { # lockdir expected_owner_pid reason expected_inode
     { IFS="$(printf '\t')" read -r cur_pid _; } <"$lockdir/owner" 2>/dev/null || cur_pid=""
   fi
   cur_ino="$(_gradle_lock_ino "$lockdir")"
-  # The INODE is the load-bearing half. On the malformed-owner decision `expect`
-  # is the EMPTY STRING, and an unreadable owner file also yields cur_pid="", so
-  # the pid comparison degenerates to `"" != ""` — vacuously true — and the
-  # break would `mv` away whatever sits at the path, including a DIFFERENT,
-  # FRESH, LIVE lock created by the winner of this same break after our decision
-  # (whose own owner write then fails ENOENT and drops IT to the unlocked path,
-  # so two builds compile at once — invisibly, because both paths are fail-open).
-  # A recreated lockdir has a different inode, so this returns 1 and the caller
+  cur_mtime="$(_gradle_lock_mtime "$lockdir")"
+  # The INODE and MTIME are the load-bearing re-validations. On the
+  # malformed-owner decision `expect` is the EMPTY STRING, and an unreadable
+  # owner file also yields cur_pid="", so the pid comparison degenerates to
+  # `"" != ""` — vacuously true — and the break would `mv` away whatever sits
+  # at the path, including a DIFFERENT, FRESH, LIVE lock created by the winner
+  # of this same break after our decision (whose own owner write then fails
+  # ENOENT and drops IT to the unlocked path, so two builds compile at once —
+  # invisibly, because both paths are fail-open). A recreated lockdir has a
+  # different inode AND a different mtime, so this returns 1 and the caller
   # re-polls (case r).
   if [ ! -d "$lockdir" ] || [ -z "$cur_ino" ] || [ "${cur_ino}" != "${expect_ino}" ] \
+     || { [ -n "$expect_mtime" ] && [ "$cur_mtime" != "$expect_mtime" ]; } \
      || [ "${cur_pid}" != "${expect}" ]; then
     rm -rf "$brk" 2>/dev/null
     return 1
@@ -274,8 +277,11 @@ gradle_lock_acquire() {
     fi
 
     # mkdir can fail for reasons other than EEXIST. Re-check before treating the
-    # failure as contention (case p).
-    if _gradle_lock_path_unusable "$lockdir"; then
+    # failure as contention. If the path is unusable (case p), fail open
+    # IMMEDIATELY rather than polling for the full timeout: EEXIST means held,
+    # but ENOENT/EACCES/parent-is-a-file means the path can NEVER become
+    # acquirable, so a 30-minute silent stall is worse than a missing lock.
+    if ! mkdir "$lockdir" 2>/dev/null && _gradle_lock_path_unusable "$lockdir"; then
       echo "ci-local: Gradle lock path ${lockdir} is unusable — PROCEEDING WITHOUT THE LOCK (this run is slower, not weaker)" >&2
       return 0
     fi
@@ -331,7 +337,7 @@ gradle_lock_acquire() {
     esac
 
     if [ -n "$decision" ]; then
-      if _gradle_lock_break "$lockdir" "$opid" "$decision" "$ino"; then
+      if _gradle_lock_break "$lockdir" "$opid" "$decision" "$ino" "$oepoch"; then
         continue
       fi
       # Nothing decided or nothing removed: fall through to the throttle and the
@@ -375,7 +381,9 @@ gradle_lock_release() {
   # The start-time identity is the stronger proof and needs no hostname: same
   # pid AND same process start time means this process provably wrote the file.
   # Non-owner-release protection is unchanged — a different process fails the
-  # pid check first, and a recycled pid fails the identity (case q).
+  # pid check first, and a recycled pid fails the identity (case q). Accept
+  # EITHER hostname match OR identity match, so a hostname flap mid-hold does
+  # not leak (case q2).
   if [ "$ohost" != "$(_gradle_lock_host)" ]; then
     [ -n "$oident" ] || return 0
     [ "$oident" = "$(_gradle_lock_pid_identity "$self")" ] || return 0
