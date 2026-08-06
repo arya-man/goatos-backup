@@ -283,6 +283,13 @@ var moduleNavRegistry = map[string]moduleDefinition{ //nav-composition:ignore: t
 			// silently widen or narrow who may write — hiding an item is not access control.
 			{key: "milk_preparation", labelKey: "nav.milk_preparation", href: "/counts/milk-preparation", shared_key: "", priority: 1, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 			{key: "milk_feeding", labelKey: "nav.milk_feeding", href: "/counts/milk-feeding", shared_key: "", priority: 2, requiredPermission: permissions.CountsWrite},             //nav-composition:ignore: registry entry
+			// Colostrum is the newborn end of the same daily milk round: the feeds due today for
+			// kids born today or yesterday (docs/decisions/colostrum-milk-module.md). It renders
+			// EXISTING birth-workflow feed tasks under a day-scoped lens — completing one here and
+			// completing it in Birth are the same write to the same row, so this leaf widens no
+			// authority and duplicates no state. Same CountsWrite grant as its siblings, and Milk
+			// Prep deliberately keeps the landing slot (maintainer decision 2026-08-06).
+			{key: "colostrum", labelKey: "nav.colostrum", href: "/counts/colostrum", shared_key: "", priority: 3, requiredPermission: permissions.CountsWrite}, //nav-composition:ignore: registry entry
 		},
 	},
 	// "approvals" is the decision surface for work RAISED in the field and applied only once
@@ -1025,6 +1032,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":         "Shifting",
 		"nav.milk_preparation": "Milk Prep",
 		"nav.milk_feeding":     "Milk Feeding",
+		"nav.colostrum":        "Colostrum",
 		"nav.feed_direction":   "Feed Direction",
 		"nav.feed_packing":     "Feed Packing",
 		"nav.feed_transport":   "Feed Transport",
@@ -1065,6 +1073,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":         "शिफ्टिंग",
 		"nav.milk_preparation": "दूध तैयारी",
 		"nav.milk_feeding":     "दूध पिलाना",
+		"nav.colostrum":        "खीस",
 		"nav.feed_direction":   "फ़ीड दिशा",
 		"nav.feed_packing":     "फ़ीड पैकिंग",
 		"nav.feed_transport":   "फ़ीड परिवहन",
@@ -1105,6 +1114,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":         "ಸ್ಥಳಾಂತರ",
 		"nav.milk_preparation": "ಹಾಲು ತಯಾರಿ",
 		"nav.milk_feeding":     "ಹಾಲು ಕುಡಿಸುವುದು",
+		"nav.colostrum":        "ಗಿಣ್ಣು ಹಾಲು",
 		"nav.feed_direction":   "ಆಹಾರ ನಿರ್ದೇಶನ",
 		"nav.feed_packing":     "ಆಹಾರ ಪ್ಯಾಕಿಂಗ್",
 		"nav.feed_transport":   "ಆಹಾರ ಸಾಗಣೆ",
@@ -1145,6 +1155,7 @@ var bootstrapLabels = map[string]map[string]string{
 		"nav.shifting":         "షిఫ్టింగ్",
 		"nav.milk_preparation": "పాల తయారీ",
 		"nav.milk_feeding":     "పాలు పట్టించడం",
+		"nav.colostrum":        "జున్నుపాలు",
 		"nav.feed_direction":   "ఫీడ్ దిశ",
 		"nav.feed_packing":     "ఫీడ్ ప్యాకింగ్",
 		"nav.feed_transport":   "ఫీడ్ రవాణా",

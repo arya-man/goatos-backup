@@ -37,7 +37,9 @@ const (
 // WorkflowService is the slice of tasks/app.Service this handler drives.
 type WorkflowService interface {
 	ListWorkflows(ctx context.Context, in tasksapp.ListWorkflowsInput) (domain.WorkflowListPage, error)
+	ListColostrumDay(ctx context.Context, in tasksapp.ListColostrumDayInput) (domain.WorkflowListPage, error)
 	GetWorkflow(ctx context.Context, tenantID, workflowID string) (domain.WorkflowDetail, error)
+	GetColostrumDay(ctx context.Context, tenantID, workflowID, date string) (tasksapp.ColostrumDetail, error)
 	AnswerAction(ctx context.Context, in tasksapp.AnswerActionInput) (domain.ActionWriteResult, error)
 	CompleteAction(ctx context.Context, in tasksapp.CompleteActionInput) (domain.ActionWriteResult, error)
 }
@@ -148,9 +150,12 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	// `colostrum` is a LENS keyword, not a workflow_instances.module value (that stays 'birth').
+	// It selects the same card DTO built from a different grain: the kids with colostrum feeds due
+	// on ONE date, counted over that date's feeds (docs/decisions/colostrum-milk-module.md).
 	module := strings.ToLower(strings.TrimSpace(query.Get("module")))
-	if module != domain.ModuleBirth && module != domain.ModuleDeath {
-		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth or death", nil)
+	if module != domain.ModuleBirth && module != domain.ModuleDeath && module != domain.ModuleColostrum {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_module", "module must be birth, death, or colostrum", nil)
 		return
 	}
 	date := strings.TrimSpace(query.Get("date"))
@@ -161,12 +166,23 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	filter := strings.ToLower(strings.TrimSpace(query.Get("filter")))
-	switch filter {
-	case "", domain.FilterAll, domain.FilterOverdue, domain.FilterDue, domain.FilterCompleted, domain.FilterAwaitingVideo:
-	default:
-		h.writeError(w, r, http.StatusBadRequest, "invalid_filter",
-			"filter must be all, overdue, due, completed, or awaiting_video", nil)
-		return
+	if module == domain.ModuleColostrum {
+		// The colostrum lens has no awaiting_video bucket: verification is enqueued once per WHOLE
+		// kid workflow, so a single day's feeds can never occupy it. Rejecting the filter keeps a
+		// client from rendering a chip that would always read zero.
+		if !domain.ColostrumFilterAllowed(filter) {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_filter",
+				"filter must be all, overdue, due, or completed", nil)
+			return
+		}
+	} else {
+		switch filter {
+		case "", domain.FilterAll, domain.FilterOverdue, domain.FilterDue, domain.FilterCompleted, domain.FilterAwaitingVideo:
+		default:
+			h.writeError(w, r, http.StatusBadRequest, "invalid_filter",
+				"filter must be all, overdue, due, completed, or awaiting_video", nil)
+			return
+		}
 	}
 	pageSize := domain.MaxWorkflowPageSize
 	if raw := strings.TrimSpace(query.Get("page_size")); raw != "" {
@@ -180,14 +196,28 @@ func (h *Handler) ListWorkflows(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	page, err := h.svc.ListWorkflows(r.Context(), tasksapp.ListWorkflowsInput{
-		TenantID: tenantID,
-		Module:   module,
-		Date:     date,
-		Filter:   filter,
-		PageSize: pageSize,
-		Cursor:   strings.TrimSpace(query.Get("cursor")),
-	})
+	var (
+		page domain.WorkflowListPage
+		err  error
+	)
+	if module == domain.ModuleColostrum {
+		page, err = h.svc.ListColostrumDay(r.Context(), tasksapp.ListColostrumDayInput{
+			TenantID: tenantID,
+			Date:     date,
+			Filter:   filter,
+			PageSize: pageSize,
+			Cursor:   strings.TrimSpace(query.Get("cursor")),
+		})
+	} else {
+		page, err = h.svc.ListWorkflows(r.Context(), tasksapp.ListWorkflowsInput{
+			TenantID: tenantID,
+			Module:   module,
+			Date:     date,
+			Filter:   filter,
+			PageSize: pageSize,
+			Cursor:   strings.TrimSpace(query.Get("cursor")),
+		})
+	}
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
@@ -220,13 +250,49 @@ func (h *Handler) GetWorkflow(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, r, http.StatusBadRequest, "missing_workflow_id", "workflow_id is required", nil)
 		return
 	}
+	query := r.URL.Query()
+	lens := strings.ToLower(strings.TrimSpace(query.Get("lens")))
+	if lens != "" && lens != domain.ModuleColostrum {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_lens", "lens must be colostrum when present", nil)
+		return
+	}
+	date := strings.TrimSpace(query.Get("date"))
+	if date != "" {
+		if _, err := time.Parse("2006-01-02", date); err != nil {
+			h.writeError(w, r, http.StatusBadRequest, "invalid_date", "date must be YYYY-MM-DD", nil)
+			return
+		}
+	}
+
+	now := time.Now().UTC()
+	if lens == domain.ModuleColostrum {
+		colostrum, err := h.svc.GetColostrumDay(r.Context(), tenantID, workflowID, date)
+		if err != nil {
+			h.writeDomainError(w, r, err)
+			return
+		}
+		// Rendered rows are the day's feeds; the SIBLING set stays the kid's complete action list.
+		// actionDTO derives blocked/blocked_reason from siblings, and `1st Colostrum` is gated by
+		// four earlier main-section steps that are not colostrum. Passing the filtered list would
+		// report a gated feed as ready and turn an honest "previous_action" into a bare 409 on tap.
+		actions := make([]workflowActionDTO, 0, len(colostrum.Visible))
+		for _, a := range colostrum.Visible {
+			actions = append(actions, actionDTO(a, colostrum.Detail.Actions, now))
+		}
+		httpresponse.WriteJSON(w, http.StatusOK, workflowDetailResponse{
+			workflowCardDTO: cardDTO(colostrum.Detail.Card),
+			Facts:           colostrum.Detail.Facts,
+			Actions:         actions,
+		})
+		return
+	}
+
 	detail, err := h.svc.GetWorkflow(r.Context(), tenantID, workflowID)
 	if err != nil {
 		h.writeDomainError(w, r, err)
 		return
 	}
 	actions := make([]workflowActionDTO, 0, len(detail.Actions))
-	now := time.Now().UTC()
 	for _, a := range detail.Actions {
 		if a.ActionType == domain.ActionTypeApproval {
 			continue

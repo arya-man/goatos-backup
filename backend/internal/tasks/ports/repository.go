@@ -86,6 +86,13 @@ type Repository interface {
 	// ListWorkflows serves one keyset page of cards plus the day's chip counts.
 	ListWorkflows(ctx context.Context, q domain.WorkflowListQuery) (domain.WorkflowListPage, error)
 
+	// ListColostrumDay serves the Colostrum lens: one keyset page of cards for the kids with
+	// colostrum feeds due on ONE business date, counted at that day's grain. It is a different read
+	// from ListWorkflows rather than a filter on it because the birth list keys on the BIRTH date
+	// and counts every operator action, neither of which answers "what colostrum is due today"
+	// (docs/decisions/colostrum-milk-module.md).
+	ListColostrumDay(ctx context.Context, q domain.ColostrumDayQuery) (domain.WorkflowListPage, error)
+
 	// GetWorkflow serves the detail: card header + facts + all action rows.
 	GetWorkflow(ctx context.Context, tenantID, workflowID string, now time.Time) (domain.WorkflowDetail, error)
 

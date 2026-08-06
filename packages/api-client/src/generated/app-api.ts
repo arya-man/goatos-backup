@@ -2388,8 +2388,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List birth/death follow-up workflow cards for one module and business date.
+         * List birth/death/colostrum workflow cards for one module and business date.
          * @description The operator's per-goat SOP work list (docs/decisions/birth-death-workflows.md). A card is one workflow instance opened when a birth applies or a death report is staged (goat.created with origin_type=birth opens the kid track plus the shared mother track; counts.death.reported opens the death evidence trail while the goat remains alive). The card fields (actions_done, actions_total, next_action, awaiting_verification) are write-maintained on every action write, so this list reads workflow_instances alone. Scoped to ONE module (birth or death) and ONE Asia/Kolkata business date (default today IST). Keyset-paginated over (next_due_at ASC NULLS LAST, workflow_id ASC) with a server cap of 20 cards; chips carry the requested day's bucket counts over the same key set the page reads, so page size never changes the chips. overdue_dates contains at most the five most recent PREVIOUS business dates with an open card whose next action is already overdue; it powers the bounded mobile attention popup without fetching historical card pages. Gated on CountsWrite - the operator who records the birth/death runs the follow-up work.
+         *
+         *     module=colostrum is a LENS over the same cards, not a third workflow (docs/decisions/colostrum-milk-module.md). It serves the Colostrum page in the Milk module: the kids with a colostrum feed due on the requested date - the immediate 1st Colostrum plus the birth-time-derived 07:00/11:00/15:00/18:30/22:00 series. Two differences from birth/death, both deliberate. Cards are selected by the date each FEED is due rather than by workflow_instances.event_date, because a kid born yesterday has feeds today. And actions_done/actions_total count only THAT DATE's feeds rather than every operator action, so a kid appears on each of its two dates with independent counters (maintainer decision 2026-08-06 - tomorrow's progress is seen tomorrow). state describes the DAY, and awaiting_verification is always false because verification is enqueued once per whole kid workflow; awaiting_video is therefore rejected as a filter for this module. Completing a feed uses the SAME action write as Birth against the same row - there is no colostrum table and no second copy of the state.
          */
         get: operations["listAppWorkflows"];
         put?: never;
@@ -2410,6 +2412,8 @@ export interface paths {
         /**
          * Get one workflow's card header, context facts, and operator action list.
          * @description The per-goat detail behind a card: the card header, backend-owned context facts (event moment, park/shed, mother link), and every operator action row (at most 18 - the birth kid track's 8 main steps plus up to 10 birth-time-derived colostrum sessions). Every visible operator row, including scheduled colostrum, counts toward actions_total; internal approval/verification rows are omitted. Only the first incomplete action in each section is enabled; later siblings read blocked=true. Tenant-scoped; gated on CountsWrite.
+         *
+         *     lens=colostrum narrows the ROWS to the colostrum feeds due on the given date and re-counts the card header at that day's grain, so the detail cannot disagree with the Colostrum list card the operator tapped (docs/decisions/colostrum-milk-module.md). Blocked state is still computed against the kid's COMPLETE action set: 1st Colostrum sits behind four earlier main-section steps, so a feed can legitimately return blocked=true with blocked_reason=previous_action even though those prerequisites are not themselves rendered here. Clients must show that reason rather than letting the operator tap into a 409.
          */
         get: operations["getAppWorkflow"];
         put?: never;
@@ -12604,7 +12608,7 @@ export interface operations {
     listAppWorkflows: {
         parameters: {
             query: {
-                module: "birth" | "death";
+                module: "birth" | "death" | "colostrum";
                 /** @description Business date (Asia/Kolkata) to list; defaults to today IST. */
                 date?: string;
                 /** @description Card bucket filter; defaults to all (excludes canceled). */
@@ -12637,7 +12641,12 @@ export interface operations {
     };
     getAppWorkflow: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrows the action list to one feature's rows. Only colostrum is defined; omit for the full operator action list. */
+                lens?: "colostrum";
+                /** @description Business date (Asia/Kolkata) the lens is scoped to; defaults to today IST. Ignored when lens is absent. */
+                date?: string;
+            };
             header?: never;
             path: {
                 workflow_id: string;

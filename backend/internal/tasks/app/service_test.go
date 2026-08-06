@@ -110,6 +110,10 @@ func (f *fakeRepo) ListWorkflows(_ context.Context, _ domain.WorkflowListQuery) 
 	return domain.WorkflowListPage{}, nil
 }
 
+func (f *fakeRepo) ListColostrumDay(_ context.Context, _ domain.ColostrumDayQuery) (domain.WorkflowListPage, error) {
+	return domain.WorkflowListPage{}, nil
+}
+
 func (f *fakeRepo) GetWorkflow(_ context.Context, tenantID, workflowID string, _ time.Time) (domain.WorkflowDetail, error) {
 	w, ok := f.workflows[workflowID]
 	if !ok || w.TenantID != tenantID {
