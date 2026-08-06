@@ -413,7 +413,15 @@ ORDER BY label, vi.park_id::text`,
 	}
 
 	shedRows, err := r.pool.Query(ctx, `
-SELECT vi.shed_id::text, COALESCE(vi.partition_label, '') AS partition_label, COALESCE(shed_loc.name, vi.shed_id::text) AS shed_name
+-- Group on the NORMALIZED partition key, not the raw label. Grouping on the raw value
+-- emitted one row for partition_label IS NULL and another for '', which COALESCE then
+-- collapsed to the SAME option id -- the client rendered "Godel 1" twice, two entries
+-- that filter identically. Observed on device, 2026-08-07. The normalization must stay
+-- identical to oploc.NormalizePartition and to the filter predicate that consumes the
+-- key, or an option would select rows other than the ones it counted.
+SELECT vi.shed_id::text,
+       COALESCE(min(NULLIF(btrim(vi.partition_label), '')), '') AS partition_label,
+       COALESCE(shed_loc.name, vi.shed_id::text) AS shed_name
 FROM verification_items vi
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
 WHERE vi.tenant_id = $1::uuid
@@ -428,8 +436,8 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
   AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
-GROUP BY vi.shed_id, vi.partition_label, shed_loc.name
-ORDER BY shed_name, vi.partition_label, vi.shed_id::text`,
+GROUP BY vi.shed_id, regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', ''), shed_loc.name
+ORDER BY shed_name, 2, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,

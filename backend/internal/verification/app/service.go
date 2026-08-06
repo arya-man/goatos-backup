@@ -107,8 +107,14 @@ func (s *Service) ListQueue(ctx context.Context, params ports.ListQueueParams) (
 	if params.ParkID != "" && !uuidutil.IsUUIDString(params.ParkID) {
 		return QueueResult{}, BadRequest("invalid_park", "park_id must be a UUID")
 	}
-	if params.ShedID != "" && !uuidutil.IsUUIDString(params.ShedID) {
-		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID")
+	// The shed filter is an oploc.Key() ("<uuid>#<partition>") because a partitioned
+	// shed yields one filter option per partition and a bare uuid cannot tell them
+	// apart. Validate the SHED HALF only: rejecting the whole value here made every
+	// partitioned shed option a 400 even though the repository decodes the key
+	// correctly, because this check runs first. Found on device, 2026-08-07 --
+	// repository-level tests call the repo directly and never cross this boundary.
+	if shedFilterID, _, _ := strings.Cut(params.ShedID, "#"); params.ShedID != "" && !uuidutil.IsUUIDString(shedFilterID) {
+		return QueueResult{}, BadRequest("invalid_shed", "shed_id must be a UUID, optionally suffixed with #<partition>")
 	}
 	todayStart := biztime.BusinessDayStart(s.now())
 	params.MissedBefore = &todayStart
