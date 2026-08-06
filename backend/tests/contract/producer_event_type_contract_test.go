@@ -1,119 +1,50 @@
+// Package contract holds STATIC guards over the domain-event contract.
+//
+// These read SOURCE, not a database. That distinction is the point: a guard that
+// queries outbox_messages only sees types some other test happened to produce, so a
+// brand-new producer passes CI and then fails silently in production. The relay marks
+// an unrecognised envelope 'failed' with last_error='invalid_event_envelope' on attempt
+// 1, never retries it, never delivers it, and never alerts -- that is how 182 events
+// were lost on stg before anyone noticed.
 package contract
 
 import (
 	"encoding/json"
-	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestProducerEventTypesInEnum verifies that every domain event type emitted by a producer
-// is declared in the domain-event-envelope.schema.json enum.
-//
-// The outbox relay validates each envelope against the schema. An event_type absent from
-// the enum is rejected as invalid_event_envelope, TERMINAL: never retried, never delivered,
-// no alert. The write succeeds, state lands, and the entire downstream leg (consumers,
-// notifications, projections) silently never happens. This test prevents that silent failure.
-//
-// WHAT THIS CHECKS:
-// - Go constants: eventType<Name> = "<a.b.c>" and Event<Name> = "..."
-// - String variables assigned in constant blocks with those patterns
-// - Functions that contain both the eventType parameter AND an INSERT INTO outbox_messages call
-//
-// BLIND SPOTS:
-// - Event types built by string concatenation
-// - Event types in struct fields
-// - Event types passed as bare literals without constant declaration
-// - Versions (schema refs like "calendar.notification.v1") are EXCLUDED from the enum check
-func TestProducerEventTypesInEnum(t *testing.T) {
-	// Load the schema.
-	schemaPath, err := findSchemaPath()
+// eventTypeShape matches the dotted lower-snake naming every domain event uses
+// (goat.created, weighing.observation_accepted, obligation.reopened).
+var eventTypeShape = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`)
+
+// schemaRefShape excludes envelope/schema pointers, which share the dotted shape but are
+// not event types (e.g. "calendar.notification.v1").
+var schemaRefShape = regexp.MustCompile(`\.v[0-9]+$`)
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
-		t.Fatalf("find schema: %v", err)
+		t.Fatalf("resolve repo root: %v", err)
 	}
-
-	enumValues, err := loadEnumFromSchema(schemaPath)
-	if err != nil {
-		t.Fatalf("load enum from schema: %v", err)
-	}
-
-	// Parse all Go source files under backend/internal.
-	backendPath, err := findBackendPath()
-	if err != nil {
-		t.Fatalf("find backend path: %v", err)
-	}
-
-	declaredTypes, problems := findDeclaredEventTypes(backendPath)
-	if len(problems) > 0 {
-		for _, p := range problems {
-			t.Logf("Error: %s", p)
-		}
-	}
-
-	// Check that every declared type is in the enum.
-	var missingTypes []string
-	for eventType := range declaredTypes {
-		if !enumValues[eventType] {
-			missingTypes = append(missingTypes, eventType)
-		}
-	}
-
-	if len(missingTypes) > 0 {
-		t.Errorf(
-			"event types are emitted to outbox_messages but absent from %s enum:\n%s\n"+
-				"The relay will drop these as invalid_event_envelope, and consumers/notifications/projections silently never run.",
-			schemaPath,
-			formatMissingTypes(missingTypes),
-		)
-	}
+	return root
 }
 
-func findSchemaPath() (string, error) {
-	// Start from the test file's location and walk up to the repo root.
-	dir, err := os.Getwd()
+func acceptedEventTypes(t *testing.T) map[string]bool {
+	t.Helper()
+	path := filepath.Join(repoRoot(t), "contracts", "jsonschema", "domain-event-envelope.schema.json")
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
-	}
-	for i := 0; i < 10; i++ {
-		schemaPath := filepath.Join(dir, "contracts/jsonschema/domain-event-envelope.schema.json")
-		if _, err := os.Stat(schemaPath); err == nil {
-			return schemaPath, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", fmt.Errorf("domain-event-envelope.schema.json not found")
-}
-
-func findBackendPath() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for i := 0; i < 10; i++ {
-		backendPath := filepath.Join(dir, "backend/internal")
-		if stat, err := os.Stat(backendPath); err == nil && stat.IsDir() {
-			return backendPath, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "", fmt.Errorf("backend/internal not found")
-}
-
-func loadEnumFromSchema(schemaPath string) (map[string]bool, error) {
-	data, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return nil, err
+		t.Fatalf("read envelope schema: %v", err)
 	}
 	var schema struct {
 		Properties struct {
@@ -122,153 +53,202 @@ func loadEnumFromSchema(schemaPath string) (map[string]bool, error) {
 			} `json:"event_type"`
 		} `json:"properties"`
 	}
-	if err := json.Unmarshal(data, &schema); err != nil {
-		return nil, err
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("parse envelope schema: %v", err)
 	}
-	result := make(map[string]bool)
+	if len(schema.Properties.EventType.Enum) == 0 {
+		t.Fatal("envelope schema declares no event_type enum; this guard would pass vacuously")
+	}
+	accepted := make(map[string]bool, len(schema.Properties.EventType.Enum))
 	for _, e := range schema.Properties.EventType.Enum {
-		result[e] = true
+		accepted[e] = true
 	}
-	return result, nil
+	return accepted
 }
 
-// findDeclaredEventTypes walks backend/internal, parses Go source files, and extracts
-// event types that are produced to outbox_messages. Focuses on explicit constant
-// declarations (eventType<Name> = "a.b.c") which are the primary mechanism for
-// declaring domain events.
-func findDeclaredEventTypes(backendPath string) (map[string]bool, []string) {
-	result := make(map[string]bool)
-	var problems []string
+type emitted struct {
+	eventType string
+	where     string
+}
 
-	// Walk all .go files (except _test.go) and extract eventType constants.
-	err := filepath.Walk(backendPath, func(path string, info os.FileInfo, err error) error {
+// collectEmittedEventTypes returns every string literal that reaches an outbox writer as
+// its event type. BOTH shapes must be covered, because producers use both:
+//
+//  1. A *EventType string constant (obligation, weighing, feeddirection, verification).
+//  2. A literal passed straight to a writer at the call site. calendar's
+//     reminder_cadence.go does exactly this with "calendar.reminder.cadence.queued" -- a
+//     guard that reads only constants misses it and reports green while that event is
+//     being dropped in production. Covering constants alone is not a smaller version of
+//     this check; it is a check that does not catch the bug that motivated it.
+//
+// For case 2 the parameter INDEX is resolved from each writer's own declaration rather
+// than assumed, because the writers disagree (calendar's insertOutbox takes eventType
+// 4th, obligation's insertObligationLifecycleOutbox 5th) and a fixed position reads
+// schemaRef values like "calendar.notification.v1" as event types.
+//
+// An eventType parameter alone is NOT sufficient: weighing's
+// idempotencyResource(ctx, tx, tenantID, eventType, idem, fingerprint) names its
+// idempotency-key namespace "eventType" too, and those namespaces
+// ("weighing.individual_scope_submitted", "weighing.scope_reopened") are not domain
+// events and are correctly absent from the enum. Requiring the function BODY to write
+// outbox_messages separates a real producer from a look-alike; without it this guard
+// reports two findings that are pure noise, and a guard that cries wolf gets deleted.
+func collectEmittedEventTypes(t *testing.T) []emitted {
+	t.Helper()
+	backend := filepath.Join(repoRoot(t), "backend")
+	fset := token.NewFileSet()
+
+	eventTypeParamIndex := map[string]int{}
+	type parsed struct {
+		path string
+		file *ast.File
+	}
+	var files []parsed
+
+	err := filepath.Walk(backend, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return nil
+		if info.IsDir() {
+			base := info.Name()
+			if base == "vendor" || base == "testdata" || strings.HasPrefix(base, ".") {
+				return filepath.SkipDir
 			}
-			source := string(data)
-
-			// Extract all eventType<Name> and Event<Name> constants.
-			// These are the primary declarations of emitted event types.
-			declared := extractEventTypeConstants(source)
-			for eventType := range declared {
-				result[eventType] = true
-			}
+			return nil
 		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, perr := parser.ParseFile(fset, path, nil, 0)
+		if perr != nil {
+			return nil
+		}
+		src, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		files = append(files, parsed{path, f})
+
+		ast.Inspect(f, func(n ast.Node) bool {
+			fn, ok := n.(*ast.FuncDecl)
+			if !ok || fn.Type.Params == nil || fn.Body == nil {
+				return true
+			}
+			bodyStart := fset.Position(fn.Body.Pos()).Offset
+			bodyEnd := fset.Position(fn.Body.End()).Offset
+			if bodyStart < 0 || bodyEnd > len(src) || bodyStart >= bodyEnd {
+				return true
+			}
+			if !strings.Contains(string(src[bodyStart:bodyEnd]), "outbox_messages") {
+				return true
+			}
+			idx := 0
+			for _, field := range fn.Type.Params.List {
+				if len(field.Names) == 0 {
+					idx++
+					continue
+				}
+				for _, name := range field.Names {
+					if strings.EqualFold(name.Name, "eventType") {
+						eventTypeParamIndex[fn.Name.Name] = idx
+					}
+					idx++
+				}
+			}
+			return true
+		})
 		return nil
 	})
 	if err != nil {
-		problems = append(problems, fmt.Sprintf("walk failed: %v", err))
+		t.Fatalf("walk backend: %v", err)
+	}
+	if len(eventTypeParamIndex) == 0 {
+		t.Fatal("found no outbox writer taking an eventType parameter; this guard would pass vacuously")
 	}
 
-	return result, problems
-}
-
-// extractEventTypeConstants finds constant declarations like:
-//   eventTypeShedClosed = "weighing.shed.closed"
-//   EventWeighingObservationVerified = "..."
-//   obligationReopenedEventType = "obligation.reopened"
-// Returns the set of event type values (e.g., "weighing.shed.closed").
-// Requirement: The value must contain at least one dot (e.g., "obligation.reopened"),
-// distinguishing event types from enum values or status names like "vaccination_campaign".
-func extractEventTypeConstants(source string) map[string]bool {
-	result := make(map[string]bool)
-
-	// Pattern 1: Names starting with eventType or Event, values must have at least one dot
-	pattern1 := regexp.MustCompile(`\b(?:eventType|Event)[A-Za-z0-9_]*\s*=\s*"([a-z][a-z0-9_]*\.[a-z0-9_.]*)"`)
-	for _, match := range pattern1.FindAllStringSubmatch(source, -1) {
-		eventType := match[1]
-		// Exclude version suffixes (\.v\d+$)
-		if !regexp.MustCompile(`\.v\d+$`).MatchString(eventType) {
-			result[eventType] = true
+	var found []emitted
+	add := func(lit string, pos token.Pos) {
+		if lit == "" || !eventTypeShape.MatchString(lit) || schemaRefShape.MatchString(lit) {
+			return
 		}
+		p := fset.Position(pos)
+		rel, rerr := filepath.Rel(repoRoot(t), p.Filename)
+		if rerr != nil {
+			rel = p.Filename
+		}
+		found = append(found, emitted{eventType: lit, where: rel + ":" + strconv.Itoa(p.Line)})
 	}
 
-	// Pattern 2: Names ending with EventType (e.g., obligationReopenedEventType)
-	// Also requires at least one dot in the value
-	pattern2 := regexp.MustCompile(`\b[A-Za-z0-9_]*EventType\s*=\s*"([a-z][a-z0-9_]*\.[a-z0-9_.]*)"`)
-	for _, match := range pattern2.FindAllStringSubmatch(source, -1) {
-		eventType := match[1]
-		// Exclude version suffixes
-		if !regexp.MustCompile(`\.v\d+$`).MatchString(eventType) {
-			result[eventType] = true
-		}
-	}
-
-	return result
-}
-
-// extractLiteralEventTypes finds event type strings passed as literals to outbox functions.
-// Filters out false positives by requiring at least 2 dots (3 parts) in the name,
-// which is typical for event types like "feed.direction.completed".
-func extractLiteralEventTypes(source string) map[string]bool {
-	result := make(map[string]bool)
-
-	// Find functions that call known outbox writing functions
-	funcPattern := regexp.MustCompile(`(?s)func\s+[\w*]+\s*\([^)]*\)\s*[^{]*\{(?:[^{}]|{[^}]*})*\}`)
-
-	for _, funcMatch := range funcPattern.FindAllString(source, -1) {
-		// Check if this function writes to outbox_messages either directly or via a helper.
-		isOutboxWriter := strings.Contains(funcMatch, "outbox_messages") ||
-			strings.Contains(funcMatch, "insertOutbox") ||
-			strings.Contains(funcMatch, "insertObligationLifecycleOutbox") ||
-			strings.Contains(funcMatch, "insertProtocolOutbox")
-
-		if !isOutboxWriter {
-			continue
-		}
-
-		// Look for quoted strings with 2+ dots (e.g., "feed.direction.completed").
-		// This heuristic avoids false positives from single-word action names like
-		// "pending", "applied", "rejected" which are typically used as status values, not event types.
-		eventTypePattern := regexp.MustCompile(`"([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){2,})"`)
-		for _, match := range eventTypePattern.FindAllStringSubmatch(funcMatch, -1) {
-			eventType := match[1]
-			// Exclude version suffixes (\.v\d+$)
-			if regexp.MustCompile(`\.v\d+$`).MatchString(eventType) {
-				continue
+	for _, entry := range files {
+		ast.Inspect(entry.file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CallExpr:
+				var name string
+				switch fn := node.Fun.(type) {
+				case *ast.Ident:
+					name = fn.Name
+				case *ast.SelectorExpr:
+					name = fn.Sel.Name
+				}
+				idx, ok := eventTypeParamIndex[name]
+				if !ok || idx >= len(node.Args) {
+					return true
+				}
+				if lit, ok := node.Args[idx].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					if v, uerr := strconv.Unquote(lit.Value); uerr == nil {
+						add(v, lit.Pos())
+					}
+				}
+			case *ast.ValueSpec:
+				for i, ident := range node.Names {
+					if !strings.HasSuffix(ident.Name, "EventType") || i >= len(node.Values) {
+						continue
+					}
+					if lit, ok := node.Values[i].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						if v, uerr := strconv.Unquote(lit.Value); uerr == nil {
+							add(v, lit.Pos())
+						}
+					}
+				}
 			}
-			result[eventType] = true
-		}
-	}
-
-	return result
-}
-
-// isEmittedToOutbox checks whether the given eventType is used in a function that
-// contains an INSERT INTO outbox_messages call. This prevents false positives on
-// idempotency keys and other non-event uses of eventType parameters.
-func isEmittedToOutbox(eventType string, source string) bool {
-	// For a more precise check, extract each function and check independently.
-	// This regex splits on function boundaries.
-	funcPattern := regexp.MustCompile(`(?s)func\s+[\w*]+\s*\([^)]*\)\s*[^{]*\{(?:[^{}]|{[^}]*})*\}`)
-
-	for _, funcMatch := range funcPattern.FindAllString(source, -1) {
-		// Check if this function has outbox_messages.
-		if !strings.Contains(funcMatch, "outbox_messages") {
-			continue
-		}
-
-		// Check if this function uses our eventType.
-		if strings.Contains(funcMatch, `"`+eventType+`"`) {
-			// Double-check: the eventType should be a parameter or referenced constant,
-			// not just any string literal. Verify it's used in a context that makes sense.
-			// For now, if outbox_messages is present and the type string is present, assume it's used.
 			return true
-		}
+		})
 	}
-
-	return false
+	return found
 }
 
-func formatMissingTypes(types []string) string {
-	var lines []string
-	for _, t := range types {
-		lines = append(lines, fmt.Sprintf("  - %s", t))
+// TestEveryProducedEventTypeIsAcceptedByTheEnvelopeContract fails the build when a
+// producer emits an event_type the envelope contract does not accept. It is the check
+// that would have caught obligation.reopened, calendar.reminder.cadence.queued and the
+// three feed.* types before they became undeliverable events in production.
+func TestEveryProducedEventTypeIsAcceptedByTheEnvelopeContract(t *testing.T) {
+	accepted := acceptedEventTypes(t)
+	produced := collectEmittedEventTypes(t)
+	if len(produced) == 0 {
+		t.Fatal("found no produced event types; this guard would pass vacuously")
 	}
-	return strings.Join(lines, "\n")
+
+	unaccepted := map[string][]string{}
+	for _, e := range produced {
+		if !accepted[e.eventType] {
+			unaccepted[e.eventType] = append(unaccepted[e.eventType], e.where)
+		}
+	}
+	if len(unaccepted) == 0 {
+		return
+	}
+	names := make([]string, 0, len(unaccepted))
+	for name := range unaccepted {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		sort.Strings(unaccepted[name])
+		t.Errorf("event_type %q is produced but NOT accepted by contracts/jsonschema/domain-event-envelope.schema.json.\n"+
+			"  emitted at: %s\n"+
+			"  The relay marks this envelope 'failed' (invalid_event_envelope) on attempt 1, never retries it, and\n"+
+			"  never delivers it to any consumer. Add the type to the schema's event_type enum, or emit an\n"+
+			"  already-accepted type.",
+			name, strings.Join(unaccepted[name], ", "))
+	}
 }
