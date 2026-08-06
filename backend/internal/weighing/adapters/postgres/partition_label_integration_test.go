@@ -26,6 +26,46 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 	tenantID := uuid.NewString()
 	parkID := uuid.NewString()
 
+	// The write path resolves partition labels from the shed_partitions CATALOG, not from the
+	// display name -- "Castro 2" (a partition) and "Mandela 1" (an ordinary shed) are the same
+	// shape, so only the catalog can tell them apart. Seed the park, the parent sheds, the
+	// partition-alias locations, and the catalog rows the resolver reads.
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mustExec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Test Tenant', 'active')
+ON CONFLICT DO NOTHING`, tenantID)
+	mustExec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
+
+	castroParentID, godelParentID := uuid.NewString(), uuid.NewString()
+	yashodaID, castroPartID, godelPartID, mandelaID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for _, l := range []struct{ id, name, status string }{
+		{castroParentID, "Castro", "active"},
+		{godelParentID, "Godel 1", "active"},
+		{yashodaID, "Yashoda", "active"},
+		{mandelaID, "Mandela 1", "active"},
+		{castroPartID, "Castro 2", "inactive"},
+		{godelPartID, "Godel 1 - Part 3", "inactive"},
+	} {
+		mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'shed', $4, $5)`, tenantID, l.id, parkID, l.name, l.status)
+	}
+	// Catalog: Castro really has a partition "2"; Godel 1 really has "Part 3". Mandela 1 has NO
+	// catalog partition -- it is an ordinary shed whose name simply ends in a number.
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias'),
+       ($1::uuid, $3::uuid, 'Part 3', '3', 'active', 'location_alias')`, tenantID, castroParentID, godelParentID)
+
+	// The operator must be park-scoped: weighing rejects a campaign whose operator is not granted
+	// on that park (operators are single-park by invariant).
+	operatorID := uuid.NewString()
+	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
+
 	// Create a test campaign
 	campaignID := uuid.NewString()
 	cmd := domain.CreateCampaign{
@@ -35,27 +75,33 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 		PeriodEndDate:     "2026-08-07",
 		StartBusinessDate: "2026-08-03",
 		PlannedCapPerDay:  100,
-		OperatorUserID:    uuid.NewString(),
+		OperatorUserID:    operatorID,
 		CreatedBy:         uuid.NewString(),
 		IdempotencyKey:    "test-partition-label-" + campaignID,
 		Sheds: []domain.CreateCampaignShed{
 			{
-				LocationID:       uuid.NewString(),
+				LocationID:       yashodaID,
 				LocationType:     "shed",
 				DisplayName:      "Yashoda", // Non-partitioned
 				WeighingCategory: domain.CategoryIndividualAnimal,
 			},
 			{
-				LocationID:       uuid.NewString(),
+				LocationID:       castroPartID,
 				LocationType:     "shed",
-				DisplayName:      "Castro 2", // Numeric partition format
+				DisplayName:      "Castro 2", // Numeric partition, PROVEN by the catalog
 				WeighingCategory: domain.CategoryPerShedPartition,
 			},
 			{
-				LocationID:       uuid.NewString(),
+				LocationID:       godelPartID,
 				LocationType:     "shed",
-				DisplayName:      "Godel 1 - Part 3", // Prefixed partition format
+				DisplayName:      "Godel 1 - Part 3", // Worded partition
 				WeighingCategory: domain.CategoryPerShedPartition,
+			},
+			{
+				LocationID:       mandelaID,
+				LocationType:     "shed",
+				DisplayName:      "Mandela 1", // Ordinary shed whose NAME ends in a number
+				WeighingCategory: domain.CategoryIndividualAnimal,
 			},
 		},
 	}
@@ -93,6 +139,17 @@ func TestPartitionLabelExtractedFromDisplayName(t *testing.T) {
 			expectedPartitionLabel:             "Part 3",
 			expectedParentShedName:             "Godel 1",
 			expectedOperationalLocationDisplay: "Godel 1 - Part 3",
+		},
+		{
+			// REGRESSION (both directions): the name looks exactly like the numeric partition case,
+			// but no catalog row exists, so no partition may be invented. An earlier regex split
+			// stamped "1" here; removing the regex then dropped the REAL "Castro 2" partition.
+			// The catalog is what distinguishes them.
+			name:                               "ordinary shed whose name ends in a number",
+			displayName:                        "Mandela 1",
+			expectedPartitionLabel:             "",
+			expectedParentShedName:             "Mandela 1",
+			expectedOperationalLocationDisplay: "Mandela 1",
 		},
 	}
 
@@ -134,6 +191,28 @@ func TestPartitionLabelPersistedInDatabase(t *testing.T) {
 	tenantID := uuid.NewString()
 	parkID := uuid.NewString()
 
+	// Same setup as above: the partition is a CATALOG fact, so the fixture must seed the tenant,
+	// park, parent shed, partition-alias location, the catalog row, and a park-scoped operator.
+	mustExec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	mustExec(`INSERT INTO tenants (tenant_id, name, status) VALUES ($1::uuid, 'Test Tenant', 'active')
+ON CONFLICT DO NOTHING`, tenantID)
+	mustExec(`INSERT INTO locations (tenant_id, location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'active')`, tenantID, parkID)
+	castroParentID, castroPartID := uuid.NewString(), uuid.NewString()
+	mustExec(`INSERT INTO locations (tenant_id, location_id, parent_location_id, location_type, name, status)
+VALUES ($1::uuid, $2::uuid, $4::uuid, 'shed', 'Castro', 'active'),
+       ($1::uuid, $3::uuid, $4::uuid, 'shed', 'Castro 2', 'inactive')`, tenantID, castroParentID, castroPartID, parkID)
+	mustExec(`INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, '2', '2', 'active', 'location_alias')`, tenantID, castroParentID)
+	operatorID := uuid.NewString()
+	mustExec(`INSERT INTO user_scope_grants (tenant_id, user_id, role, scope_type, scope_id, status, valid_from)
+VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, tenantID, operatorID, parkID)
+
 	cmd := domain.CreateCampaign{
 		TenantID:          tenantID,
 		ParkID:            parkID,
@@ -141,12 +220,12 @@ func TestPartitionLabelPersistedInDatabase(t *testing.T) {
 		PeriodEndDate:     "2026-08-07",
 		StartBusinessDate: "2026-08-04",
 		PlannedCapPerDay:  100,
-		OperatorUserID:    uuid.NewString(),
+		OperatorUserID:    operatorID,
 		CreatedBy:         uuid.NewString(),
 		IdempotencyKey:    "test-persist-" + uuid.NewString(),
 		Sheds: []domain.CreateCampaignShed{
 			{
-				LocationID:       uuid.NewString(),
+				LocationID:       castroPartID,
 				LocationType:     "shed",
 				DisplayName:      "Castro 2",
 				WeighingCategory: domain.CategoryPerShedPartition,
