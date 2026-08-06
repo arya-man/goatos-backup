@@ -1537,7 +1537,8 @@ export async function listVerificationQueue(
 
 /**
  * Record the Verifier's approve/reject decision on one verification item
- * (POST /verification/items/{item_id}/verdict, gated on verification.review).
+ * (POST /verification/items/{item_id}/verdict, gated on verification.verdict -- the verifier role
+ * ALONE, never CEO/CxO/director/park-head, per the verdict-exclusivity lock in AGENTS.md).
  *
  * `row_version` is the item's optimistic-concurrency guard: a stale value returns 409 rather than
  * overwriting a verdict someone else recorded between page render and submit. A rejection without
@@ -2577,7 +2578,9 @@ export async function decideAdminWebApproval(args: {
 
 /**
  * Post a batch of verification review events to the backend for proof-of-watching.
- * (POST /verification/review-events, gated on verification.review)
+ * (POST /verification/review-events, gated on verification.verdict -- verifier-only authority.
+ * Reading the derived facts is gated on verification.review instead, so leadership can SEE the
+ * integrity signal it is not allowed to write.)
  *
  * Events are buffered client-side and submitted in batches (max 200 per batch).
  * The client_event_id is the idempotency key: a replay of the same batch with

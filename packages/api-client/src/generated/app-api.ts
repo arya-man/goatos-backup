@@ -2227,7 +2227,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest one batch of verifier video-review telemetry events.
-         * @description CEO integrity signal: proves (or disproves) that a verifier actually WATCHED a proof video rather than rubber-stamping the verdict. The browser flushes a small batch periodically and on unload. Gated on verification.review -- the same permission that already gates seeing the queue/evidence at all.
+         * @description CEO integrity signal: proves (or disproves) that a verifier actually WATCHED a proof video rather than rubber-stamping the verdict. The browser flushes a small batch periodically and Gated on verification.verdict, NOT verification.review. Ingest carries verifier-only authority: this stream measures whether the person who signs the second check actually watched the evidence, so a read-only leadership principal (CEO/CxO hold verification.review for visibility but never verification.verdict) must not be able to write rows into it under their own actor id. Reading the derived facts stays on verification.review -- leadership must be able to SEE the signal it cannot write.
          *
          *     Idempotent per event: client_event_id is a client-minted UUID and is the idempotency key for that one event -- a replayed batch (retry after a network blip) inserts nothing new and `inserted` reports 0 on an exact replay.
          *
@@ -7358,7 +7358,7 @@ export interface components {
         VerificationReviewEvent: {
             /**
              * Format: uuid
-             * @description REQUIRED (a real UUID) for every event type EXCEPT queue_opened. MUST be null/omitted for queue_opened -- that event fires before any item exists (landing on the queue screen), so there is no item to name yet. See migration 000118 (verification_review_events_item_id_scope_check): item_id IS NULL if and only if event_type = 'queue_opened'. Sending a placeholder string for a queue_opened event (e.g. "queue") is REJECTED with a precise 422 field error naming item_id, not accepted and not a generic invalid_json.
+             * @description REQUIRED (a real UUID) for every event type EXCEPT queue_opened. MUST be null/omitted for queue_opened -- that event fires before any item exists (landing on the queue screen), so there is no item to name yet. See migration 000119 (verification_review_events_item_id_scope_check): item_id IS NULL if and only if event_type = 'queue_opened'. Sending a placeholder string for a queue_opened event (e.g. "queue") is REJECTED with a precise 422 field error naming item_id, not accepted and not a generic invalid_json.
              */
             item_id?: string | null;
             /** Format: uuid */
