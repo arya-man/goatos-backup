@@ -112,6 +112,14 @@ data class ShedCompletionSummaryDto(
     @SerialName("submit_enabled") val submitEnabled: Boolean = false,
     @SerialName("blocking_reason") val blockingReason: String? = null,
     @SerialName("submit_state") val submitState: String = "",
+    // True only when a live/accepted submission trail exists for THIS shed's CURRENT round of
+    // eligible obligations. See backend domain.ShedCompletionSummary.RoundSubmitted.
+    @SerialName("round_submitted") val roundSubmitted: Boolean = false,
+    // Deterministic fingerprint of this shed's current obligation-round state; changes value on
+    // submit or verifier-rejection reopen. Opaque -- carried for future round-identity
+    // comparisons, not currently read by any client gate. See
+    // backend domain.ShedCompletionSummary.RoundID.
+    @SerialName("round_id") val roundId: String = "",
 )
 
 @Serializable

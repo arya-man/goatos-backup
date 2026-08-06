@@ -923,3 +923,19 @@ val MIGRATION_32_33: Migration = object : Migration(32, 33) {
         db.execSQL("ALTER TABLE `weighing_observation` ADD COLUMN `reworkReason` TEXT")
     }
 }
+
+// v34 adds obligation_instances.row_version (echoed from the backend as
+// ScanRosterRowDto.obligationRowVersion) to scan_roster_row. Non-nullable with a DEFAULT 0 so
+// existing rows migrate as "cycle 0" — the same value a freshly-inserted pre-server-field row
+// gets from ScanRosterRowEntity's own Kotlin default, so no row observes a spurious cycle change
+// on upgrade. This is the server-issued discriminator CaptureRepository's
+// scanCaptureIdempotencyKey folds into the scan-capture key so a genuinely-new scan after a
+// verifier-rejection reopen (row_version bump) is not deduped away as a replay of the prior
+// cycle's already-synced capture, closing the silent scan-capture data-loss defect.
+val MIGRATION_33_34: Migration = object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "ALTER TABLE `scan_roster_row` ADD COLUMN `obligationRowVersion` INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+}

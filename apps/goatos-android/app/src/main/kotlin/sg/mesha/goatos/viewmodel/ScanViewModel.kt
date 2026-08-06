@@ -600,6 +600,7 @@ class ScanViewModel @Inject constructor(
                 unsynced = locallyDone,
                 goatId = dbRow.goatId,
                 obligationId = dbRow.obligationId,
+                obligationRowVersion = dbRow.obligationRowVersion,
             )
             val tagRole = row.tagRoleFor(target)
             when (row.status) {
@@ -710,6 +711,7 @@ class ScanViewModel @Inject constructor(
                 tag = capturedTag,
                 goatId = row.goatId,
                 obligationId = row.obligationId,
+                obligationRowVersion = row.obligationRowVersion,
                 capturedAtMs = capturedAtMs,
             )
         }

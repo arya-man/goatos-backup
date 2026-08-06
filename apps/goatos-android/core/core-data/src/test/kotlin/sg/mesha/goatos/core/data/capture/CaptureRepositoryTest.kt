@@ -88,9 +88,140 @@ class CaptureRepositoryTest {
             assertEquals(listOf("TAG-001", "TAG-002"), tags)
             assertEquals(2, repo.observeScannedCount("task-1", "goat_scan").first())
             assertEquals(2, sync.scanCalls.size)
-            assertEquals("scan:task-1:goat_scan:tag001", sync.scanCalls[0].idempotencyKey)
+            assertEquals("scan:task-1:goat_scan:tag001:ov0", sync.scanCalls[0].idempotencyKey)
             assertEquals("goat-1", sync.scanCalls[0].request.goatId)
             assertEquals("obl-1", sync.scanCalls[0].request.obligationId)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `accepted re-scan of a tag whose earlier SYNCED capture was reopened still enqueues`() = runTest {
+        // Reproduces the silent-data-loss defect: a tag was captured and SYNCED to the server in
+        // an earlier session (e.g. a verifier rejected the proof and the obligation reopened —
+        // the obligation KEEPS its id, only its status flips). A later ACCEPTED re-scan of the
+        // SAME tag for the SAME task/field must still produce BOTH a durable local capture row
+        // AND an enqueued backend scan-capture — not a silent no-op behind the unique
+        // (taskId, fieldKey, tag) index. On the pre-fix `dao.insert(OnConflictStrategy.IGNORE)`
+        // path this test FAILS: the second recordScan is swallowed, sync.scanCalls stays at 1,
+        // and the row's syncStatus/capturedAtMs are never refreshed for the new cycle.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            // Session 1 (yesterday): tag captured for obligation "obl-1" at row_version 1 and
+            // acknowledged by the server (server-side idempotency_key ends "...:ov1").
+            repo.recordScan(
+                "task-1",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_000L,
+            )
+            repo.markLocalScanSynced("task-1", ROSTER_SCAN_FIELD_KEY, "901007000504418")
+
+            // Session 2 (today): the verifier rejected the proof, the SAME obligation "obl-1"
+            // reopened (row_version bumped 1 -> 2 server-side, echoed on the next roster fetch),
+            // and the operator's re-scan is ACCEPTED (roster reported it PENDING).
+            repo.recordScan(
+                "task-1",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504418",
+                goatId = "goat-1",
+                obligationId = "obl-1",
+                obligationRowVersion = 2,
+                capturedAtMs = 2_000L,
+            )
+
+            // 1) Durable local capture: still exactly one row for this tag (dedup preserved,
+            //    not duplicated), but it now reflects the NEW cycle.
+            val rows = repo.observeScannedTags("task-1", ROSTER_SCAN_FIELD_KEY).first()
+            assertEquals(1, rows.size)
+            assertEquals(2_000L, rows.single().capturedAtMs)
+            assertEquals(CaptureSyncStatus.PENDING, rows.single().syncStatus)
+
+            // 2) Enqueued backend capture: TWO scan-capture outbox writes now exist — the
+            //    original synced one and the fresh one for the reopened cycle.
+            assertEquals(2, sync.scanCalls.size)
+            assertEquals(2_000L, sync.scanCalls[1].request.capturedAtMs)
+            assertEquals("obl-1", sync.scanCalls[1].request.obligationId)
+
+            // 3) THE KEY POINT (maintainer-reported hole): the two outbox writes must carry
+            //    DIFFERENT idempotency keys. Same-tag/same-task/same-field alone builds an
+            //    IDENTICAL key across the reopen, which the backend then treats as a replay of
+            //    an already-recorded capture and silently drops — the request is sent (Room
+            //    layer fixed) but discarded on arrival. Keying on obligationRowVersion is what
+            //    makes cycle 2's capture a genuinely NEW key the server has never seen.
+            val keyCycle1 = sync.scanCalls[0].idempotencyKey
+            val keyCycle2 = sync.scanCalls[1].idempotencyKey
+            assertTrue("reopened-cycle capture must use a NEW idempotency key, got same key twice: $keyCycle1", keyCycle1 != keyCycle2)
+            assertTrue(keyCycle1.endsWith(":ov1"))
+            assertTrue(keyCycle2.endsWith(":ov2"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `network retry of the same scan cycle keeps the same idempotency key`() = runTest {
+        // Companion to the reopen test: retrying the SAME accepted scan (same obligationRowVersion
+        // — no domain reopen happened, just a dropped response / connectivity retry) must NOT mint
+        // a new key, or every retry would duplicate the capture server-side. This is the guardrail
+        // against "just add a timestamp" (explicitly rejected in the maintainer's brief).
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            repo.recordScan(
+                "task-2",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504419",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_000L,
+            )
+            // Local retry before the row synced: dedup at the DB layer keeps this a no-op (no
+            // second outbox call), independent of the server-side key story above.
+            repo.recordScan(
+                "task-2",
+                ROSTER_SCAN_FIELD_KEY,
+                "901007000504419",
+                goatId = "goat-2",
+                obligationId = "obl-2",
+                obligationRowVersion = 1,
+                capturedAtMs = 1_050L,
+            )
+
+            assertEquals(1, sync.scanCalls.size)
+            assertTrue(sync.scanCalls[0].idempotencyKey.endsWith(":ov1"))
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `true repeat scan while original capture is still unsynced stays deduped`() = runTest {
+        // Companion to the reopen test above: the maintainer's explicit instruction is that a
+        // repeat read of the SAME tag in the SAME bucket before the original even reached the
+        // server must NOT weaken dedup. Only a SYNCED-then-rescanned row is treated as fresh.
+        val db = newDb()
+        try {
+            val sync = FakeSyncRepository()
+            val repo = DefaultScanCaptureRepository(db.scannedGoatDao(), syncRepository = sync, dispatchers = unconfinedDispatchers)
+
+            repo.recordScan("task-1", "goat_scan", "TAG-900", goatId = "goat-9", obligationId = "obl-9", capturedAtMs = 1_000L)
+            repo.recordScan("task-1", "goat_scan", "TAG-900", goatId = "goat-9", obligationId = "obl-9", capturedAtMs = 1_500L)
+
+            val rows = repo.observeScannedTags("task-1", "goat_scan").first()
+            assertEquals(1, rows.size)
+            assertEquals(1_000L, rows.single().capturedAtMs) // untouched — still the first write
+            assertEquals(1, sync.scanCalls.size)
         } finally {
             db.close()
         }

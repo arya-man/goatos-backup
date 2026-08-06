@@ -71,7 +71,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 				wantItems := []domain.BootstrapNavigationItem{
 					{Key: "overview", Label: "Overview", Href: "/vaccination"},
 					{Key: "calendar", Label: "Calendar", Href: "/calendar"},
-					{Key: "videos", Label: "Videos", Href: "/verify/action"},
+					{Key: "videos", Label: "Videos", Href: "/verify?module=vaccination&category=vaccination_proof&status=all"},
 					{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 					{Key: "you", Label: "You", Href: "/you"},
 				}

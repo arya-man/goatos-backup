@@ -25,6 +25,7 @@ import sg.mesha.goatos.core.database.capture.RfidScanAttemptDao
 import sg.mesha.goatos.core.database.capture.RfidScanAttemptEntity
 import sg.mesha.goatos.core.database.capture.ScannedGoatDao
 import sg.mesha.goatos.core.database.capture.ScannedGoatEntity
+import sg.mesha.goatos.core.database.capture.ScanUpsertResult
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.sync.syncJson
@@ -54,13 +55,20 @@ interface ScanCaptureRepository {
     fun observeAllForTask(taskId: String): Flow<List<ScannedGoatRow>>
 
     /** Persists one completed tag read to Room first; a repeat tag for the same field is a
-     *  silent no-op (dedup). */
+     *  silent no-op (dedup).
+     *
+     *  [obligationRowVersion] is `obligation_instances.row_version` for [obligationId] — the
+     *  server-issued capture-CYCLE discriminator folded into the outbox idempotency key (see
+     *  [scanCaptureIdempotencyKey]). A verifier rejection bumps this on reopen, so a genuinely
+     *  new scan after a reopen builds a NEW key and reaches the server, while a plain network
+     *  retry of the SAME scan (same row_version) stays on the SAME key and dedupes as before. */
     suspend fun recordScan(
         taskId: String,
         fieldKey: String,
         tag: String,
         goatId: String? = null,
         obligationId: String? = null,
+        obligationRowVersion: Int = 0,
         capturedAtMs: Long? = null,
     )
 
@@ -110,13 +118,18 @@ class DefaultScanCaptureRepository(
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int,
         capturedAtMs: Long?,
     ) {
         val trimmed = tag.trim()
         if (trimmed.isEmpty()) return
         val durableCapturedAtMs = capturedAtMs?.takeIf { it > 0L } ?: clock()
-        val inserted = withContext(dispatchers.io) {
-            dao.insert(
+        // upsertScan (not a plain insert-or-ignore): a tag collision against a STALE row from a
+        // prior/reopened obligation cycle is fresh evidence, not a duplicate, and must still
+        // write through to Room + the outbox. See ScanUpsertResult's kdoc for the incident this
+        // closes (accepted scan attempt, zero durable capture, zero scan-captures POST).
+        val result = withContext(dispatchers.io) {
+            dao.upsertScan(
                 ScannedGoatEntity(
                     id = idGenerator(),
                     taskId = taskId,
@@ -129,13 +142,14 @@ class DefaultScanCaptureRepository(
                 ),
             )
         }
-        if (inserted <= 0L) return
+        if (result == ScanUpsertResult.DUPLICATE) return
         enqueueScanCapture(
             taskId = taskId,
             fieldKey = fieldKey,
             tag = trimmed,
             goatId = goatId,
             obligationId = obligationId,
+            obligationRowVersion = obligationRowVersion,
             capturedAtMs = durableCapturedAtMs,
         )
     }
@@ -197,9 +211,10 @@ class DefaultScanCaptureRepository(
         tag: String,
         goatId: String?,
         obligationId: String?,
+        obligationRowVersion: Int = 0,
         capturedAtMs: Long,
     ) {
-        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, tag)
+        val syncKey = scanCaptureIdempotencyKey(taskId, fieldKey, tag, obligationRowVersion)
         when (val result = syncRepository?.enqueueScanCapture(
             taskId = taskId,
             groupKey = taskId,
@@ -255,8 +270,20 @@ private fun ScannedGoatEntity.toRow() = ScannedGoatRow(
     },
 )
 
-private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String): String =
-    "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}"
+/**
+ * Idempotency key for a scan-capture outbox write, keyed by [obligationRowVersion] — the
+ * server-issued `obligation_instances.row_version` capture-CYCLE discriminator (see
+ * [ScanCaptureRepository.recordScan]'s kdoc) — not a device timestamp, deliberately: a
+ * timestamp would build a NEW key on every network retry and duplicate the capture server-side,
+ * while [obligationRowVersion] stays fixed across retries of the SAME scan (so a retry still
+ * dedupes) and only changes when the DOMAIN reopens the obligation (a verifier rejection), which
+ * is exactly when a fresh capture must reach the server rather than being silently absorbed as a
+ * replay of the prior cycle's already-synced capture. Defaults to 0 for a caller that has not
+ * threaded a row_version yet (pre-existing callers, [enqueuePendingScans] recovery), matching
+ * every fresh row's baseline cycle so first-time enqueues are unaffected.
+ */
+private fun scanCaptureIdempotencyKey(taskId: String, fieldKey: String, tag: String, obligationRowVersion: Int = 0): String =
+    "scan:$taskId:$fieldKey:${tag.filter { it.isLetterOrDigit() }.lowercase()}:ov$obligationRowVersion"
 
 interface ScanAttemptRepository {
     fun observeAttempts(taskId: String): Flow<List<RfidScanAttemptRow>>

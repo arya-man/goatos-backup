@@ -728,6 +728,94 @@ func TestListQueueCanIncludeAllStatusesForLeadershipReview(t *testing.T) {
 	}
 }
 
+// TestLeadershipReviewIncludesClosedItemsWhileActionQueueExcludesThem pins the exact
+// defect the CEO reported: "where are the videos that [are] pending accepted rejected" —
+// the Videos surface silently dropped half his approved vaccination proofs because they
+// had already been closed. Reproduces the real shape from live evidence (2 approved+
+// closed, 2 approved+open would also apply, 1 rejected+open) with the minimal case that
+// isolates the OpenOnly bug: a submission with one approved item that gets closed.
+//
+// The leadership REVIEW read (OpenOnly=false, the shape GET /verification/queue now
+// uses for every principal, leadership included — see the nav-registry fix routing
+// vaccination's "videos" nav item through verifyQueueHref instead of "/verify/action")
+// must still return the closed item: leadership's Videos tab is an audit trail, and a
+// closed item is finished work, not vanished work.
+//
+// The verifier's ACTION queue (OpenOnly=true, GET /verification/action-queue) must keep
+// excluding it: that queue answers "what needs my action right now", and a closed item
+// needs no more action. Do NOT fix the leadership gap by flipping OpenOnly for the action
+// queue (see the reverted "OpenOnly: !actionQueue" change) — that would flood the
+// verifier's actionable list with settled work instead of routing leadership to the
+// correct read.
+func TestLeadershipReviewIncludesClosedItemsWhileActionQueueExcludesThem(t *testing.T) {
+	svc, _ := newTestService()
+	submissionID := "00000000-0000-4000-8000-000000000041"
+	approved, err := svc.CreateItem(context.Background(), domain.CreateItem{
+		TenantID: testTenant, Vertical: "preventive_care", Module: "vaccination", Category: "vaccination_proof",
+		Source: domain.SourceRef{
+			Module:       "vaccination",
+			SubmissionID: &submissionID,
+			RefType:      "vaccination_goat",
+			RefID:        testTenant,
+		},
+		MediaRefs: []string{"proof-approved-closed"}, IdempotencyKey: "approved-closed",
+	})
+	if err != nil {
+		t.Fatalf("CreateItem: %v", err)
+	}
+	if _, err := svc.RecordVerdict(context.Background(), domain.Verdict{
+		TenantID: testTenant, ItemID: approved.Item.ItemID, Decision: domain.DecisionApproved,
+		VerifierID: testTenant, RowVersion: approved.Item.RowVersion,
+	}); err != nil {
+		t.Fatalf("RecordVerdict: %v", err)
+	}
+	closed, err := svc.CloseSubmission(context.Background(), domain.CloseSubmissionAction{
+		TenantID: testTenant, SubmissionID: submissionID, ActorID: testTenant,
+	})
+	if err != nil {
+		t.Fatalf("CloseSubmission: %v", err)
+	}
+	if len(closed) != 1 || closed[0].ClosedAt == nil {
+		t.Fatalf("closed items=%+v, want exactly 1 with ClosedAt set", closed)
+	}
+
+	// Leadership REVIEW read: OpenOnly=false, all statuses. The closed approved item MUST
+	// still be there.
+	review, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof", IncludeAllStatuses: true, OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue (review): %v", err)
+	}
+	foundClosed := false
+	for _, row := range review.Items {
+		if row.Item.ItemID == approved.Item.ItemID {
+			foundClosed = true
+			if row.Item.ClosedAt == nil {
+				t.Fatalf("review item %s lost its ClosedAt", row.Item.ItemID)
+			}
+		}
+	}
+	if !foundClosed {
+		t.Fatalf("leadership review queue dropped the closed approved item; items=%+v", review.Items)
+	}
+
+	// Verifier ACTION queue: OpenOnly=true. The closed item must NOT reappear here — it
+	// needs no action.
+	actionQueue, err := svc.ListQueue(context.Background(), ports.ListQueueParams{
+		TenantID: testTenant, Category: "vaccination_proof", IncludeAllStatuses: true,
+		SubmissionScopedOnly: true, OpenOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("ListQueue (action queue): %v", err)
+	}
+	for _, row := range actionQueue.Items {
+		if row.Item.ItemID == approved.Item.ItemID {
+			t.Fatalf("verifier action queue must exclude the closed item, got it: %+v", row.Item)
+		}
+	}
+}
+
 func TestCloseSubmissionRequiresEveryGoatApprovedAndClosesDriveTogether(t *testing.T) {
 	svc, _ := newTestService()
 	submissionID := "00000000-0000-4000-8000-000000000021"

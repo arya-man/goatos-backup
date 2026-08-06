@@ -3,10 +3,13 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1929,12 +1932,18 @@ proofed_shed AS (
     AND (p.subject_id IS NULL OR p.subject_id = p.scope_id)
 ),
 verification_pending AS (
+  -- SHED-SCOPED. verification_items carries its own shed_id (set from the submitting
+  -- completion's shed at CreateItem time -- internal/sopbridge/vaccination_submission.go), so a
+  -- sibling shed's still-pending verification item must never inflate THIS shed's pending count.
+  -- Before this fix the count was task-wide: any shed on the same shared park drive task with a
+  -- live pending item made every OTHER shed on that task read as "submitted" too.
   SELECT count(*) AS n
   FROM verification_items vi
   WHERE vi.tenant_id = $1
     AND vi.source_task_id = $2
     AND vi.status = 'pending'
     AND vi.closed_at IS NULL
+    AND (NOT $3::boolean OR vi.shed_id = $4)
 ),
 shed_submission_state AS (
   SELECT CASE ss.state
@@ -2009,6 +2018,20 @@ LEFT JOIN shed ON true`,
 		return domain.ShedCompletionSummary{}, err
 	}
 
+	// Round facts: every obligation in this shed's batch (ALL statuses, not just currently
+	// eligible ones) paired with its own row_version. Postgres already bumps
+	// obligation_instances.row_version on the two transitions that define a round --
+	// MarkObligationCompleted at submission (internal/sopbridge/vaccination_submission.go's
+	// OnTaskSubmitted -> obligation.MarkCompleted, fired BEFORE verification, not on accept) and
+	// ReopenObligation on a verifier rejection (internal/vaccination/app/completion.go
+	// RejectExisting -> obligation.ReopenObligation). RoundID is a hash of this fact set, and
+	// RoundSubmitted is computed from the SAME fact set below, so the two can never disagree.
+	roundFacts, err := r.shedCompletionRoundFacts(ctx, tenant, task, shed.Valid, shed)
+	if err != nil {
+		return domain.ShedCompletionSummary{}, err
+	}
+	roundID, roundState, roundSubmitted := shedCompletionRoundState(roundFacts, pendingVerify)
+
 	summary := domain.ShedCompletionSummary{
 		TaskID:           taskID,
 		ShedName:         shedName,
@@ -2019,12 +2042,63 @@ LEFT JOIN shed ON true`,
 		ProofMode:        proofMode,
 		VaccineBreakdown: breakdown,
 		SubmitState:      submitState,
+		RoundID:          roundID,
 	}
 	if proofMode != "shed_level_video" {
-		summary.SubmitState = shedCompletionSubmitState(state, pendingVerify)
+		// Per-goat mode: derive SubmitState/RoundSubmitted from the shed-scoped round-facts
+		// above, never from the shared park-level t.state. See AGENTS.md "Shared vaccination
+		// drive tasks are aggregate bookkeeping only."
+		summary.SubmitState = roundState
+		summary.RoundSubmitted = roundSubmitted
+	} else {
+		// Shed-level mode already derives submit_state from shed-scoped sop_submissions/
+		// proof_refs (shed_submission_state, above); RoundSubmitted mirrors that word rather than
+		// switching this mode's proven-working derivation.
+		summary.RoundSubmitted = shedLevelRoundSubmitted(submitState)
 	}
 	summary.SubmitEnabled, summary.BlockingReason = shedCompletionReadinessForMode(expectedCount, handledCount, proofReady, proofMode, minProofs, maxProofs)
 	return summary, nil
+}
+
+// shedRoundObligationFact is one obligation's identity/version/status inside a shed's batch,
+// used to compute RoundID/RoundSubmitted. Unlike `eligible` in the main query, this is NOT
+// filtered to non-terminal obligations -- a completed obligation IS the round's live evidence
+// until it is either accepted (stays completed) or reopened by rejection (goes back to due).
+func (r *Repository) shedCompletionRoundFacts(ctx context.Context, tenant, task pgtype.UUID, hasShed bool, shed pgtype.UUID) ([]shedRoundObligationFact, error) {
+	rows, err := r.pool.Query(ctx, `
+WITH t AS (
+  SELECT st.task_id, st.tenant_id
+  FROM sop_tasks st
+  WHERE st.tenant_id = $1 AND st.task_id = $2
+),
+batch AS (
+  SELECT ob.batch_id
+  FROM obligation_batches ob
+  JOIN t ON t.tenant_id = ob.tenant_id AND t.task_id = ob.sop_task_id
+)
+SELECT oi.obligation_id::text, oi.row_version, oi.status
+FROM obligation_instances oi
+JOIN batch b ON b.batch_id = oi.batch_id
+JOIN goats g ON g.tenant_id = oi.tenant_id AND g.goat_id = oi.target_id
+WHERE oi.tenant_id = $1
+  AND (NOT $3::boolean OR g.shed_id = $4)
+ORDER BY oi.obligation_id`, tenant, task, hasShed, shed)
+	if err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion round facts: %w", err)
+	}
+	defer rows.Close()
+	var out []shedRoundObligationFact
+	for rows.Next() {
+		var f shedRoundObligationFact
+		if err := rows.Scan(&f.ObligationID, &f.RowVersion, &f.Status); err != nil {
+			return nil, fmt.Errorf("vaccination: shed completion round facts row: %w", err)
+		}
+		out = append(out, f)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("vaccination: shed completion round facts rows: %w", err)
+	}
+	return out, nil
 }
 
 // shedCompletionVaccineBreakdown returns the display-name/count breakdown of vaccines expected in
@@ -2097,23 +2171,81 @@ LIMIT 50`, tenant, task, shed.Valid, shed)
 	return out, nil
 }
 
-// shedCompletionSubmitState maps a generic sop_tasks.state onto the frozen ShedCompletionSummary
-// submit_state vocabulary (draft | submitted | verified | closed).
-func shedCompletionSubmitState(taskState string, pendingVerify int64) string {
-	if pendingVerify > 0 {
-		return "submitted"
+// shedRoundObligationFact is one obligation's identity/version/status snapshot, read by
+// shedCompletionRoundFacts and consumed by shedCompletionRoundState to compute RoundID and
+// RoundSubmitted from the SAME underlying facts.
+type shedRoundObligationFact struct {
+	ObligationID string
+	RowVersion   int64
+	Status       string
+}
+
+// shedCompletionRoundState computes RoundID (a deterministic fingerprint of this shed's current
+// obligation-round state), the frozen ShedCompletionSummary submit_state vocabulary (draft |
+// submitted | verified | closed) for per_goat_video mode, and the unambiguous RoundSubmitted
+// boolean -- all from the SAME per-obligation fact set, so RoundID and RoundSubmitted can never
+// disagree.
+//
+// obligation_instances.status == 'completed' is this shed's "a round was submitted" signal:
+// MarkObligationCompleted flips an obligation to 'completed' the instant a shed submits
+// (internal/sopbridge/vaccination_submission.go OnTaskSubmitted -> obligation.MarkCompleted),
+// BEFORE any verifier review, and it stays 'completed' through acceptance. A verifier REJECTION
+// is the only thing that moves it back off 'completed' (ReopenObligation -> 'due'), which is
+// exactly the live defect this replaces: a reopened obligation on shed A could never reach
+// Submit because the shared park-level sop_tasks.state stayed "needs_review" thanks to a still-
+// pending sibling shed B. Reading each obligation's OWN status/row_version instead of the shared
+// task word fixes that, per AGENTS.md: "Shared vaccination drive tasks are aggregate bookkeeping
+// only. A hidden park/batch-level sop_tasks.state must not be used as per-shed submitted/proof/
+// verification truth."
+//
+//   - open (any non-terminal, non-completed status: scheduled/due/in_progress/deferred) present
+//     anywhere in the shed's batch means the round is NOT fully submitted -> draft/false,
+//     regardless of what any other obligation in the shed is doing.
+//   - no open obligations and at least one 'completed' obligation means every currently-tracked
+//     obligation in this shed has been submitted for verification (or already accepted).
+//     pendingVerify (shed-scoped, vi.shed_id-filtered verification_items) then distinguishes
+//     "submitted, awaiting verifier" from "verified" (pendingVerify == 0, already accepted).
+//   - no open AND no completed obligations (only terminal waived/canceled/superseded, or no
+//     obligations at all) means this shed never had a submittable round -> draft/false.
+func shedCompletionRoundState(facts []shedRoundObligationFact, pendingVerify int64) (roundID, state string, roundSubmitted bool) {
+	if len(facts) == 0 {
+		return "", "draft", false
 	}
-	switch taskState {
-	case "queued", "assigned", "in_progress":
-		return "draft"
-	case "submitted", "needs_review", "rework_requested":
-		return "submitted"
-	case "accepted":
-		return "verified"
-	case "rejected", "canceled":
-		return "closed"
+	parts := make([]string, 0, len(facts))
+	var open, completed int
+	for _, f := range facts {
+		parts = append(parts, f.ObligationID+":"+strconv.FormatInt(f.RowVersion, 10))
+		switch f.Status {
+		case "completed":
+			completed++
+		case "waived", "canceled", "superseded":
+			// Terminal, but not part of this round's "submitted" evidence.
+		default:
+			open++
+		}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	roundID = hex.EncodeToString(sum[:])[:16]
+
+	if open > 0 || completed == 0 {
+		return roundID, "draft", false
+	}
+	if pendingVerify > 0 {
+		return roundID, "submitted", true
+	}
+	return roundID, "verified", true
+}
+
+// shedLevelRoundSubmitted maps the existing shed_level_video submit_state (already derived from
+// shed-scoped sop_submissions/proof_refs by shed_submission_state) onto RoundSubmitted: a live or
+// accepted submission trail for this shed's current round. "closed" (rejected/voided) and "draft"
+// both mean the operator still needs to send a fresh submission.
+func shedLevelRoundSubmitted(state string) bool {
+	switch state {
+	case "submitted", "verified":
+		return true
 	default:
-		return "draft"
+		return false
 	}
 }
 

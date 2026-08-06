@@ -286,8 +286,13 @@ func (h *Handler) listQueue(
 		h.respondError(w, r, err)
 		return
 	}
+	// Drive-closure cards belong to whoever holds verification.act (CEO/Director), NOT to the
+	// endpoint. Gating them on actionQueue meant leadership only saw them because their Videos
+	// nav happened to point at /verify/action; moving that href to the review queue silently
+	// removed the close card. The verifier holds verification.verdict, never act, so this stays
+	// off their queue.
 	var closures []domain.VaccinationBatchClosure
-	if actionQueue {
+	if holdsVerificationPermission(r, permissions.VerificationAct) {
 		closures, err = h.service.ListReadyVaccinationBatchClosures(r.Context(), params)
 		if err != nil {
 			h.respondError(w, r, err)
@@ -649,6 +654,19 @@ func verificationParkScope(r *nethttp.Request, permission string) (bool, []strin
 		return false, nil
 	}
 	return true, permissions.ScopeIDsForPermission(grants, permission, "park")
+}
+
+// holdsVerificationPermission reports whether the caller holds the permission at ANY scope
+// (tenant-wide or on at least one park), independent of which queue endpoint they called.
+func holdsVerificationPermission(r *nethttp.Request, permission string) bool {
+	grants := httpmiddleware.AuthGrantsFromContext(r.Context())
+	if len(grants) == 0 {
+		return false
+	}
+	if hasTenantWidePermission(grants, tenantID(r), permission) {
+		return true
+	}
+	return len(permissions.ScopeIDsForPermission(grants, permission, "park")) > 0
 }
 
 func hasTenantWidePermission(grants []permissions.ActiveGrant, tenant, permission string) bool {
