@@ -77,4 +77,9 @@
     <string name="verify_approve_dialog_confirm">ఆమోదం ఖరారు చేయండి</string>
     <string name="verify_approve_dialog_cancel">రద్దు చేయండి</string>
     <string name="verify_detail_group_accepted">ఈ షెడ్‌లోని అన్ని వీడియోలు ఆమోదించబడ్డాయి</string>
+    <string name="verify_filter_park_title">పార్క్</string>
+    <string name="verify_filter_shed_title">షెడ్</string>
+    <string name="verify_filter_change">మార్చండి</string>
+    <string name="verify_filter_search_hint">వెతకండి</string>
+    <string name="verify_filter_no_matches">సరిపోలికలు లేవు</string>
 </resources>
