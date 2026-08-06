@@ -60,26 +60,33 @@ type OpenCaseResult struct {
 }
 
 type WorkItem struct {
-	SessionID       string    `json:"health_session_id"`
-	CaseID          string    `json:"case_id"`
-	GoatID          string    `json:"goat_id"`
-	GoatDisplayID   string    `json:"goat_display_id"`
-	DiseaseKey      string    `json:"disease_key"`
-	DiseaseName     string    `json:"disease_name"`
-	AgeBand         string    `json:"age_band"`
-	DayNo           int       `json:"day_no"`
-	DurationDays    int       `json:"duration_days"`
-	BusinessDate    string    `json:"business_date"`
-	Session         string    `json:"session"`
-	DueAt           time.Time `json:"due_at"`
-	Status          string    `json:"status"`
-	ParkID          *string   `json:"park_id"`
-	ParkLabel       string    `json:"park_label"`
-	ShedID          *string   `json:"shed_id"`
-	ShedLabel       string    `json:"shed_label"`
-	StepCount       int       `json:"step_count"`
-	MedicationCount int       `json:"medication_count"`
-	HasCriticalStep bool      `json:"has_critical_step"`
+	SessionID     string    `json:"health_session_id"`
+	CaseID        string    `json:"case_id"`
+	GoatID        string    `json:"goat_id"`
+	GoatDisplayID string    `json:"goat_display_id"`
+	DiseaseKey    string    `json:"disease_key"`
+	DiseaseName   string    `json:"disease_name"`
+	AgeBand       string    `json:"age_band"`
+	DayNo         int       `json:"day_no"`
+	DurationDays  int       `json:"duration_days"`
+	BusinessDate  string    `json:"business_date"`
+	Session       string    `json:"session"`
+	DueAt         time.Time `json:"due_at"`
+	Status        string    `json:"status"`
+	ParkID        *string   `json:"park_id"`
+	ParkLabel     string    `json:"park_label"`
+	ShedID        *string   `json:"shed_id"`
+	ShedLabel     string    `json:"shed_label"`
+	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" when the shed is not
+	// partitioned. Never the "whole" sentinel -- see internal/platform/oploc.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is oploc.OperationalLocation{ShedName: ShedLabel,
+	// PartitionLabel: PartitionLabel}.Display(): "Castro 2" for a partition, bare "Yashoda" for a
+	// non-partitioned shed. Never renders "whole".
+	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
+	StepCount                  int    `json:"step_count"`
+	MedicationCount            int    `json:"medication_count"`
+	HasCriticalStep            bool   `json:"has_critical_step"`
 }
 type Summary struct {
 	Total         int `json:"total"`

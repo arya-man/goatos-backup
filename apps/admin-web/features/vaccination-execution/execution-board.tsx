@@ -97,7 +97,9 @@ function groupByPhysicalShed(rows: VaccinationExecutionRow[]): PhysicalShedGroup
   const byKey = new Map<string, PhysicalShedGroup>();
   for (const row of rows) {
     const physicalShed = physicalShedName(row);
-    const key = `${row.parkId}|${physicalShed}`;
+    // Key by shed_id only (no partition), so partitions group under one physical shed.
+    // Display = parent shed name; individual partitions shown per-row via partitionLabel().
+    const key = `${row.parkId}|${row.shedId}`;
     let group = byKey.get(key);
     if (!group) {
       group = { key, physicalShed, rows: [], animals: 0, severity: "ok", operators: [] };

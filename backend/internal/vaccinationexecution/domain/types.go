@@ -1113,6 +1113,7 @@ type CommandBoardDriveOption struct {
 	TargetCount int        `json:"targetCount"`
 	DoseCount   int        `json:"doseCount"`
 	ShedNames   []string   `json:"shedNames"`
+	ShedIds     []string   `json:"shedIds"`
 }
 
 type CommandBoardResponse struct {

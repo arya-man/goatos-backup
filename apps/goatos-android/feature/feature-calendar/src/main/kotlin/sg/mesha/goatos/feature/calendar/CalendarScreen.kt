@@ -1098,8 +1098,30 @@ private fun MonthFilterSheet(
             ),
         )
     }
-    val shedOptions = options.sheds.filter { option ->
+    // Same shed name can exist in more than one park (two Castro, two Gandhi, two Yashoda
+    // sheds). When no park filter narrows the list, disambiguate DISPLAY ONLY by appending the
+    // park name for any label that repeats -- selection still carries the real shed id
+    // (option.value), so this never changes what filter is applied, only what the chip reads.
+    val shedOptionsForPark = options.sheds.filter { option ->
         draft.parkId == null || option.parentValue == draft.parkId
+    }
+    val shedOptions = if (draft.parkId == null) {
+        val labelCounts = shedOptionsForPark.groupingBy { it.label }.eachCount()
+        val parkNameByValue = options.parks.associate { it.value to it.label }
+        shedOptionsForPark.map { option ->
+            if ((labelCounts[option.label] ?: 0) > 1) {
+                val parkName = option.parentValue?.let { parkNameByValue[it] }
+                if (!parkName.isNullOrBlank()) {
+                    option.copy(label = "${option.label} (${parkName})")
+                } else {
+                    option
+                }
+            } else {
+                option
+            }
+        }
+    } else {
+        shedOptionsForPark
     }
 
     ModalBottomSheet(

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -28,6 +29,15 @@ func (f fakeObl) ListOpenByGoat(context.Context, string, string, int32) ([]obldo
 	return f.open, nil
 }
 
+type fakeLoc struct {
+	loc   oploc.OperationalLocation
+	found bool
+}
+
+func (f fakeLoc) GoatLocation(context.Context, string, string) (oploc.OperationalLocation, bool, error) {
+	return f.loc, f.found, nil
+}
+
 func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -45,6 +55,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 			{ObligationID: "o1", RuleID: "r1", ScopeType: "shed", ScopeID: "shed1", BatchID: "b1", DueAt: t0, ClinicalDueAt: t0, ScheduledFor: &t1, Status: "due", Sequence: 1, DoseCode: "et_tt_adult_w1", VaccineLabel: "ET+TT"}, // earliest → next due
 			{ObligationID: "o2", DueAt: t1, Status: "scheduled", Sequence: 2},
 		}},
+		fakeLoc{found: true, loc: oploc.OperationalLocation{ParkID: "park1", ParkName: "CPT", ShedID: "shed1", ShedName: "Castro", PartitionLabel: "2"}},
 	)
 
 	p, err := svc.GetPassport(ctx, "tenant", "goat")
@@ -53,6 +64,9 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	}
 	if p.GoatID != "goat" || len(p.OpenObligations) != 2 || len(p.VaccinationHistory) != 1 {
 		t.Fatalf("passport shape: %+v", p)
+	}
+	if p.OperationalLocationDisplay != "Castro 2" || p.ParkName != "CPT" || p.ShedID != "shed1" || p.PartitionLabel != "2" {
+		t.Fatalf("passport location: %+v", p)
 	}
 	if p.NextDue == nil || p.NextDue.ObligationID != "o1" {
 		t.Fatalf("next due: want o1, got %+v", p.NextDue)
@@ -75,7 +89,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 }
 
 func TestGetPassportEmptyHasNoNextDueAndEmptyArrays(t *testing.T) {
-	svc := NewService(fakeVacc{found: false}, fakeObl{})
+	svc := NewService(fakeVacc{found: false}, fakeObl{}, nil)
 	p, err := svc.GetPassport(context.Background(), "tenant", "goat")
 	if err != nil {
 		t.Fatalf("get passport: %v", err)

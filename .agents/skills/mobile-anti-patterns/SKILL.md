@@ -36,9 +36,9 @@ compute-on-read.
   never fetch/parse a day's events to draw the grid.
 - **A drive is a mix of SHEDS, never grouped by vaccine** (coverage-by-vaccine is a
   metric, not the grouping).
-- **Partition display:** when a shed has partitions (`Castro 1` + `Castro 2`),
-  render the partition label, never collapse into parent. See
-  [`docs/decisions/operational-location-display-contract.md`](../../../docs/decisions/operational-location-display-contract.md).
+- **Partition display (MANDATORY):** when a shed has partitions (`Castro 1` + `Castro 2`),
+  render the partition label, never collapse into parent. Full rule, worked examples,
+  and schema requirements: [`docs/decisions/operational-location-convention.md`](../../../docs/decisions/operational-location-convention.md).
 - Genuinely bounded (e.g. fixed 7-cell week loop) → `// mobile-guard:ignore: <reason>`.
 
 ## Compose lazy-list keys (machine: `make android-compose-lists-guard`)

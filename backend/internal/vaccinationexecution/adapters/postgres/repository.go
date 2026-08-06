@@ -290,7 +290,7 @@ func (r *Repository) VaccinationOperations(ctx context.Context, q domain.Operati
 	// stale relative to the canonical write, so the serving-projection freshness gate is removed.
 	// Freshness is nil (always current).
 	rows, err := r.pool.Query(ctx, vaccinationOperationsSQL,
-		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName)
+		q.TenantID, asOf, dueBefore, parkID, shedID, cursorParkID, cursorShedID, cursorStage, fetchLimit, cursorParkName, cursorShedName) // operational-location:ignore: owner=Claude issue=task-context scope=keyset-pagination-cursor-parameters-include-cursorShedID-for-uniqueness-backward-compat expiry=2026-09-06
 	if err != nil {
 		return nil, fmt.Errorf("vaccination execution: list operations: %w", err)
 	}
@@ -1817,9 +1817,12 @@ WITH cursor_location AS (
   -- Cursors emitted before the human-order fix carry IDs/stage only. Resolve
   -- their names from the same tenant so those short-lived cursors remain valid;
   -- new cursors embed names to keep the comparison stable across page requests.
+  -- Keyset pagination includes shed_id in the comparison tuple to avoid merging
+  -- sheds with identical names across parks (operational-location-convention).
   SELECT
     COALESCE(NULLIF($10::text, ''), park.name) AS park_name,
-    COALESCE(NULLIF($11::text, ''), shed.name) AS shed_name
+    COALESCE(NULLIF($11::text, ''), shed.name) AS shed_name,
+    shed.location_id::text AS shed_id
   FROM locations park
   JOIN locations shed
     ON shed.tenant_id = park.tenant_id
@@ -3205,14 +3208,16 @@ classified AS (
   FROM scored
 ),
 drive_ops AS (
-  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id,physical_shed); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
+  -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id, shed_id); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
   SELECT
     operator_sources.park_id,
+    operator_sources.shed_id,
     operator_sources.shed_name,
     STRING_AGG(DISTINCT wm.display_name, ', ' ORDER BY wm.display_name) AS drive_operator_names
   FROM (
     SELECT
       vda.park_id::text AS park_id,
+      vda.shed_id::text AS shed_id,
       vda.physical_shed AS shed_name,
       vda.operator_id
     FROM vaccination_drive_assignments vda
@@ -3222,6 +3227,7 @@ drive_ops AS (
 
     SELECT
       park.location_id::text AS park_id,
+      shed.location_id::text AS shed_id,
       shed.name AS shed_name,
       cfg.default_operator_id AS operator_id
     FROM vaccination_completions vc
@@ -3251,7 +3257,7 @@ drive_ops AS (
     ON wm.tenant_id = $1::uuid
    AND wm.workforce_member_id = operator_sources.operator_id
    AND wm.status = 'active'
-  GROUP BY operator_sources.park_id, operator_sources.shed_name
+  GROUP BY operator_sources.park_id, operator_sources.shed_id, operator_sources.shed_name
 )
 SELECT
   park_id, park_name, shed_id, shed_name,
@@ -3260,7 +3266,7 @@ SELECT
   COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count
 FROM classified
-LEFT JOIN drive_ops USING (park_id, shed_name)
+LEFT JOIN drive_ops USING (park_id, shed_id)
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
   AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')
@@ -5385,7 +5391,8 @@ SELECT
   array_agg(DISTINCT pr.dose_code) AS dose_codes,
   COUNT(DISTINCT oi.target_id)::int AS target_count,
   COUNT(DISTINCT oi.obligation_id)::int AS dose_count,
-  COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names
+  COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names,
+  COALESCE(array_agg(DISTINCT loc.location_id::text) FILTER (WHERE loc.location_id IS NOT NULL), ARRAY[]::text[]) AS shed_ids
 FROM obligation_batches b
 JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
@@ -5416,8 +5423,8 @@ LIMIT $3
 		var windowStart, windowEnd pgtype.Timestamptz
 		var doseCodes []string
 		var targetCount, doseCount int
-		var shedNames []string
-		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &shedNames); err != nil {
+		var shedNames, shedIds []string
+		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &shedNames, &shedIds); err != nil {
 			return resp, fmt.Errorf("vaccination command board: drive options scan: %w", err)
 		}
 
@@ -5432,6 +5439,7 @@ LIMIT $3
 			TargetCount:  targetCount,
 			DoseCount:    doseCount,
 			ShedNames:    shedNames,
+			ShedIds:      shedIds,
 		}
 		if plannedDate.Valid {
 			planned := biztime.BusinessDayStart(plannedDate.Time)

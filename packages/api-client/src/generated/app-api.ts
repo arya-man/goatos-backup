@@ -5777,6 +5777,8 @@ export interface components {
             doseCount: number;
             /** @description Whole physical sheds assigned to this executable operator day. */
             shedNames: string[];
+            /** @description Location IDs of the physical sheds assigned to this executable operator day. */
+            shedIds?: string[];
         };
         /** @description One column of the shed x vaccine matrix. */
         CommandBoardVaccineColumn: {

@@ -4,7 +4,7 @@ import java.io.ByteArrayInputStream
 import java.io.InputStreamReader
 
 /**
- * ONE row of the backend's weighing export CSV, already split into its 14 named columns.
+ * ONE row of the backend's weighing export CSV, already split into its 15 named columns.
  *
  * The backend's column order is the contract; this class mirrors it field-for-field rather than
  * re-deriving meaning, so a column the backend adds later is a compile error here instead of a
@@ -12,6 +12,7 @@ import java.io.InputStreamReader
  */
 data class WeighingCsvExportRow(
     val park: String,
+    val shedId: String,
     val shedName: String,
     val shedStatus: String,
     val type: String,
@@ -84,25 +85,28 @@ fun parseWeighingExportCsv(bytes: ByteArray): List<WeighingCsvExportRow> {
         rows.add(row)
     }
     if (rows.isEmpty()) return emptyList()
-    // First row is the header; the backend's 14 named columns are the contract, so data rows are
-    // matched by position, not by re-reading the header text.
+    // First row is the header; the backend's 17 named columns are the contract, so data rows are
+    // matched by position, not by re-reading the header text. "Shed ID" sits at index 1 (added so
+    // rows key by id, never by shed NAME -- names repeat across parks), and the two proof-URL
+    // columns remain at 12/13, which pushes the timestamps to 14/15/16.
     return rows.drop(1).mapNotNull { cols ->
-        if (cols.size < 14) return@mapNotNull null
+        if (cols.size < 17) return@mapNotNull null
         WeighingCsvExportRow(
             park = cols[0],
-            shedName = cols[1],
-            shedStatus = cols[2],
-            type = cols[3],
-            scannedIdentifier = cols[4],
-            weightKg = cols[5],
-            averageWeightKg = cols[6],
-            animalCount = cols[7],
-            verificationStatus = cols[8],
-            proofReferenceType = cols[9],
-            proofReference = cols[10],
-            recordedAt = cols[11],
-            dateIst = cols[12],
-            timeIst = cols[13],
+            shedId = cols[1],
+            shedName = cols[2],
+            shedStatus = cols[3],
+            type = cols[4],
+            scannedIdentifier = cols[5],
+            weightKg = cols[6],
+            averageWeightKg = cols[7],
+            animalCount = cols[8],
+            verificationStatus = cols[9],
+            proofReferenceType = cols[10],
+            proofReference = cols[11],
+            recordedAt = cols[14],
+            dateIst = cols[15],
+            timeIst = cols[16],
         )
     }
 }

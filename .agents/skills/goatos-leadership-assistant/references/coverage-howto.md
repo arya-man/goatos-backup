@@ -85,6 +85,25 @@ GRANT SELECT ON ceo_ai.<module>_current TO mesha_ceo_readonly;
 
 ---
 
+## Partition label requirement (all tiers)
+
+When a table/API/view carries location (shed, park, partition, herd position),
+ensure BOTH columns exist in the leadership response:
+- `partition_label` (nullable) — raw stored label ('1', 'Part 3', or NULL/'whole')
+- `operational_location_display` (composed by backend) — user-facing rendition
+
+A subdivided shed must be named with its partition (`Godel 1 - Part 3`,
+space-dash-space); an undivided shed shows the bare name (`Yashoda`, `Castro 2`,
+`Ho Chi Minh 1`). Never render `whole` to users — it is a storage key only.
+Group and key by `shed_id + park`, never by shed name alone (names repeat).
+
+See `docs/decisions/operational-location-convention.md` for the worked examples,
+storage vs. display rules, and the canonical composition helpers per language.
+Add `partition_label` and `operational_location_display` to new location-bearing
+tiers and ensure the assistant's tooling contract states the convention.
+
+---
+
 ## Tier 3b — MCP Toolbox tool
 
 Add a curated tool over the view in `docs/ceo-ai/mcp-toolbox-tools.yaml`

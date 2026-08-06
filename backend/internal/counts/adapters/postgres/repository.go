@@ -2871,10 +2871,7 @@ UNION ALL
 -- aggregate above, since there is no real partition to select.
 SELECT 'shed',
        COALESCE(g.shed_id::text, '') || '#' || ` + partitionKeyExpr + `,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') ||
-         CASE WHEN gsp.partition_label ~* '^part[[:space:]]+'
-              THEN ' - ' || gsp.partition_label
-              ELSE ' ' || gsp.partition_label END,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        count(*), COALESCE(g.park_id::text, ''), btrim(gsp.partition_label)
 FROM goats g
 JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
@@ -2898,10 +2895,7 @@ UNION ALL
 -- one with its real count, so this cannot double count. count(*) is literally 0 for these rows.
 SELECT 'shed',
        sp.shed_id::text || '#' || sp.normalized_label,
-       COALESCE(NULLIF(shed.name, ''), shed.location_code, '') ||
-         CASE WHEN sp.partition_label ~* '^part[[:space:]]+'
-              THEN ' - ' || sp.partition_label
-              ELSE ' ' || sp.partition_label END,
+       COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        0,
        -- park, then the raw partition label (last column)
        -- Park identity must match what the OCCUPIED branches emit, or an empty partition lands
@@ -3105,10 +3099,16 @@ func (r *Repository) GetCountsBreakdown(ctx context.Context, req domain.CountsBr
 			if idx := strings.Index(shedID, "#"); idx >= 0 {
 				shedID = shedID[:idx]
 			}
+			// Compose the operational location display using the shared primitive to avoid drift.
+			// label is the raw shed name from the query; partitionLabel is the raw partition.
+			display := oploc.OperationalLocation{
+				ShedName:       label,
+				PartitionLabel: partitionLabel,
+			}.Display()
 			out.Facets.Sheds = append(out.Facets.Sheds, domain.CountsBreakdownShedFacet{
 				Key: key, Label: label, Count: count, ParkID: parkKey,
 				ShedID: shedID, PartitionLabel: partitionLabel,
-				OperationalLocationDisplay: label,
+				OperationalLocationDisplay: display,
 			})
 		}
 	}
