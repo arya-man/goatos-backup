@@ -89,6 +89,10 @@ data class VerificationQueueRow(
     val title: String,
     val subtitle: String,
     val scopeType: VerifyScopeType = VerifyScopeType.OTHER,
+    // Stable shed identity for grouping/keying. shedLabel is display copy ONLY -- shed names
+    // repeat across parks (two Castro, two Gandhi, two Yashoda), so grouping or keying rows by
+    // shedLabel text can silently merge two different parks' sheds under one header.
+    val shedId: String? = null,
     val shedLabel: String = "",
     val animalLabel: String = "",
     val weightLabel: String = "",
@@ -381,9 +385,18 @@ fun VerifyQueueScreen(
                     } else {
                         state.rows
                     }
-                    val shedGroups = visibleRows.groupBy { it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } } }
-                    shedGroups.forEach { (shedLabel, rows) ->
-                        item(key = "shed-$shedLabel") {
+                    // Group by stable shedId when the row has one -- shedLabel text repeats
+                    // across parks (two Castro, two Gandhi, two Yashoda), so grouping by label
+                    // alone can silently merge two different parks' sheds under one header. Rows
+                    // without a shedId (legacy/non-shed items) fall back to the old label key.
+                    val shedGroups = visibleRows.groupBy {
+                        it.shedId ?: it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
+                    }
+                    shedGroups.forEach { (groupKey, rows) ->
+                        val shedLabel = rows.first().shedLabel.ifBlank {
+                            rows.first().title.ifBlank { rows.first().categoryLabel }
+                        }
+                        item(key = "shed-$groupKey") {
                             ShedGroupHeader(shedLabel = shedLabel, rows = rows)
                         }
                         items(rows, key = { it.id }) { row ->

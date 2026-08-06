@@ -2336,15 +2336,8 @@ SELECT vc.completion_id::text,
        vc.goat_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
-       CASE
-         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole'
-           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')
-         WHEN gsp.partition_label ~* '^part [0-9]+$'
-           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || initcap(gsp.partition_label)
-         WHEN gsp.partition_label ~ '^[0-9]+$'
-           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - Part ' || gsp.partition_label
-         ELSE COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || gsp.partition_label
-       END::text AS shed_label,
+       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at,
@@ -2411,6 +2404,7 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatID,
 			&item.GoatLabel,
 			&item.ShedID,
+			&item.PartitionLabel,
 			&item.ShedLabel,
 			&item.ParkID,
 			&item.ProofRefIDs,

@@ -103,6 +103,11 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
 
     private fun applyResource(resource: Resource<VerificationQueueResponseDto>) {
         val data = resource.data
+        // Keep the query-driving flow in step with the defaulted selection, otherwise the fetch
+        // stays park-unscoped while the UI shows a park as chosen.
+        if (selectedParkId.value == null) {
+            data?.filterOptions?.parks?.firstOrNull()?.id?.let { selectedParkId.value = it }
+        }
         _uiState.update { current ->
             if (data == null) {
                 current
@@ -113,6 +118,12 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
                     parkOptions = data.filterOptions.parks
                         ?.map { VaccinationLeadershipLocationOptionUi(it.id, it.label) }
                         .orEmpty(),
+                    // A park is ALWAYS selected: shed names repeat across parks (two Gandhi, two
+                    // Castro, two Yashoda), so an unscoped "All parks" shed list shows the same
+                    // label twice with no way to tell them apart. Park -> shed is the established
+                    // pattern; default to the first park when nothing is chosen yet.
+                    selectedParkId = current.selectedParkId
+                        ?: data.filterOptions.parks?.firstOrNull()?.id,
                     shedOptions = data.filterOptions.sheds
                         ?.map { VaccinationLeadershipLocationOptionUi(it.id, it.label) }
                         .orEmpty(),

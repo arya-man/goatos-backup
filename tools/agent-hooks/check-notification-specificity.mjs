@@ -80,7 +80,7 @@ const RAW_TOKEN_IN_STRING = /["'`][^"'`]*\b[a-z]+(?:_[a-z]+){2,}\b[^"'`]*["'`]/;
 
 // Tokens/markers that indicate the string (or the surrounding construction) carries real
 // specificity: a location reference, a vaccine/work-item name reference, a count, or a date.
-const LOCATION_MARKERS = /\b(?:park|shed|partition|location|Park|Shed|Partition|Location)\b|parkName|shedName|shedLabel|partitionLabel/;
+const LOCATION_MARKERS = /\b(?:park|shed|partition|location|Park|Shed|Partition|Location)\b|parkName|shedName|shedLabel|partitionLabel/; // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=another-guards-marker-vocabulary-regex-not-a-runtime-grouping-key expiry=2027-08-06
 // `SubjectLabel` / a local `subject` spliced into the copy IS a farm entity: it resolves to the
 // shed or record under review (e.g. "Gandhi 2"), which is exactly the context this rule exists to
 // require. Matched only in concatenation position (`subject +`) so the ordinary English word

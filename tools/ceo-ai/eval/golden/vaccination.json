@@ -111,5 +111,19 @@
       "kind": "scalar_int",
       "sql": "SELECT count(*) FROM public.vaccination_prearrival_history_entries WHERE tenant_id = :'tenant_id'::uuid AND review_status = 'rejected'"
     }
+  },
+  {
+    "id": "vacc-partition-naming",
+    "class": "vaccination_partitioned_location",
+    "question": "What is due for vaccination at the partitions in Gandhi 2 today?",
+    "notes": "Operational location naming: partition_label MUST be rendered in the location display, never omitted or hidden. If Gandhi 2 is subdivided (e.g., has partitions '1' and 'Part 3'), answer must show both as distinct locations (Gandhi 2 1, Gandhi 2 - Part 3, space-dash-space for prefixed labels); never collapse to 'Gandhi 2' alone or emit the literal word 'whole'. Bare shed names (no partition_label) show just the name (Yashoda, Castro 1). Backend composes the display; assistant renders verbatim.",
+    "expect": {
+      "aggregate_first": true,
+      "partition_naming": true,
+      "tiers_any_of": [
+        "api",
+        "cube"
+      ]
+    }
   }
 ]

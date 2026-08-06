@@ -194,8 +194,9 @@ private fun AddDeathTargetCard(animal: ShiftingAnimalUi) {
         // Shed value carries the partition (operationalLocationLabel: "Castro 2", never bare
         // "Castro") — a death record is terminal, so a wrong-looking shed here cannot be corrected
         // later (AGENTS.md: OperationalLocation = park + shed + partition).
-        val hasParts = animal.parkName.isNotBlank() || animal.shedName.isNotBlank()
-        if (hasParts) {
+        // Check shedId (uuid) rather than shedName to determine if location information exists.
+        val hasLocationInfo = animal.parkId.isNotBlank() || animal.shedId.isNotBlank()
+        if (hasLocationInfo) {
             ReadOnlyFact(
                 label = stringResource(R.string.counts_field_park),
                 value = animal.parkName.ifBlank { stringResource(R.string.counts_location_unknown) },

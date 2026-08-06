@@ -1221,7 +1221,7 @@ derived AS (
       ELSE 'assigned'
     END AS owner_state,
     CASE
-      WHEN stateful.batch_id IS NOT NULL THEN
+      WHEN stateful.batch_id IS NOT NULL THEN -- operational-location:ignore: owner=ravi issue=N/A scope=opaque_keyset_cursor_for_pagination_not_user_display expiry=2027-12-31
         'batch:' || stateful.batch_id::text ||
         ':rule:' || stateful.rule_id::text ||
         ':protocol_version:' || stateful.protocol_version_id::text ||

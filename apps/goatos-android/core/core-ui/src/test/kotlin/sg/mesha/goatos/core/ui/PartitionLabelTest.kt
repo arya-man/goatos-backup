@@ -125,3 +125,113 @@ class OperationalLocationLabelTest {
         assertEquals("Yashoda", operationalLocationLabel("Yashoda", "WhOlE"))
     }
 }
+
+/**
+ * CANONICAL golden fixture -- the SAME row shapes and expected display strings are pinned in
+ * three languages so the same fact can never render three different ways:
+ *  - Go:      backend/internal/platform/oploc/golden_fixture_test.go
+ *  - TS:      apps/admin-web/lib/operational-location.test.mjs
+ *  - Kotlin (this file)
+ * Keep row `name` identical across all three files when adding/changing a row.
+ */
+private data class GoldenFixtureRow(
+    val name: String,
+    val shedId: String,
+    val shedName: String,
+    val partitionLabel: String?,
+    val want: String,
+)
+
+private val goldenFixture = listOf(
+    GoldenFixtureRow(
+        name = "subdivided shed, numeric-suffixed name, worded partition",
+        shedId = "shed-godel-1",
+        shedName = "Godel 1",
+        partitionLabel = "Part 3",
+        want = "Godel 1 - Part 3",
+    ),
+    GoldenFixtureRow(
+        name = "subdivided shed, numeric-suffixed name, two-digit worded partition",
+        shedId = "shed-godel-1",
+        shedName = "Godel 1",
+        partitionLabel = "Part 10",
+        want = "Godel 1 - Part 10",
+    ),
+    GoldenFixtureRow(
+        name = "subdivided shed, plain name, bare numeric partition",
+        shedId = "shed-castro-cbe",
+        shedName = "Castro",
+        partitionLabel = "2",
+        want = "Castro 2",
+    ),
+    GoldenFixtureRow(
+        name = "undivided shed, no partition",
+        shedId = "shed-yashoda-cbe",
+        shedName = "Yashoda",
+        partitionLabel = "",
+        want = "Yashoda",
+    ),
+    GoldenFixtureRow(
+        name = "'whole' sentinel must never reach the user",
+        shedId = "shed-yashoda-cbe",
+        shedName = "Yashoda",
+        partitionLabel = "whole",
+        want = "Yashoda",
+    ),
+    GoldenFixtureRow(
+        name = "empty-string label",
+        shedId = "shed-mandela-1",
+        shedName = "Mandela 1",
+        partitionLabel = "",
+        want = "Mandela 1",
+    ),
+    GoldenFixtureRow(
+        name = "NULL label",
+        shedId = "shed-mandela-1",
+        shedName = "Mandela 1",
+        partitionLabel = null,
+        want = "Mandela 1",
+    ),
+    GoldenFixtureRow(
+        name = "two same-named sheds, different parks -- CBE",
+        shedId = "shed-castro-cbe",
+        shedName = "Castro",
+        partitionLabel = "1",
+        want = "Castro 1",
+    ),
+    GoldenFixtureRow(
+        name = "two same-named sheds, different parks -- CPT",
+        shedId = "shed-castro-cpt",
+        shedName = "Castro",
+        partitionLabel = "1",
+        want = "Castro 1",
+    ),
+)
+
+class OperationalLocationGoldenFixtureTest {
+
+    @Test
+    fun `canonical cross-surface golden fixture`() {
+        for (row in goldenFixture) {
+            assertEquals(
+                "row '${row.name}'",
+                row.want,
+                operationalLocationLabel(row.shedName, row.partitionLabel),
+            )
+        }
+    }
+
+    @Test
+    fun `same-named sheds in different parks share a display string (shedId is the real key, not exercised by this pure Kotlin helper)`() {
+        val cbe = goldenFixture.first { it.name.endsWith("-- CBE") }
+        val cpt = goldenFixture.first { it.name.endsWith("-- CPT") }
+        assertEquals(
+            operationalLocationLabel(cbe.shedName, cbe.partitionLabel),
+            operationalLocationLabel(cpt.shedName, cpt.partitionLabel),
+        )
+        // NOTE: this Android helper is display-only; it has no Key()/grouping equivalent to
+        // oploc.Key(). Any Android code that groups/counts by shed must key on shedId, never on
+        // this label -- see oploc's TestGoldenFixtureKeyDistinguishesSameNamedShedsAcrossParks.
+        assert(cbe.shedId != cpt.shedId)
+    }
+}

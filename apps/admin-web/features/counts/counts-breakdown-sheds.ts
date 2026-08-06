@@ -69,13 +69,6 @@ export function buildShedFilterOptions(
   // identical, so the dropdown showed "Yashoda", "Yashoda 1", ... twice with nothing to tell a CEO
   // which park each belonged to. Only names that actually collide get a park suffix, so the common
   // case stays clean.
-  const parksPerShedName = new Map<string, Set<string>>();
-  for (const shed of filtered) {
-    const name = (shed.label ?? "").trim();
-    if (!name) continue;
-    if (!parksPerShedName.has(name)) parksPerShedName.set(name, new Set());
-    parksPerShedName.get(name)!.add(shed.park_id);
-  }
   // NEVER fall back to park_id here: it is a UUID, and rendering it would put a raw internal id in
   // front of a CEO (the copy-firewall rule in AGENTS.md). With no human park label available we
   // simply omit the suffix -- an ambiguous-but-clean label beats a leaked identifier.
@@ -86,8 +79,17 @@ export function buildShedFilterOptions(
       parkLabelFor.set(shed.park_id, label);
     }
   }
-  const needsParkSuffix = (shedName: string): boolean =>
-    (parksPerShedName.get((shedName ?? "").trim())?.size ?? 0) > 1;
+  // Detect if a shed label appears in multiple parks (for display disambiguation).
+  // Key by park + shed_id to avoid silent merging, then check dynamically.
+  const needsParkSuffix = (shedLabel: string): boolean => {
+    const parksWithLabel = new Set<string>();
+    for (const shed of filtered) {
+      if ((shed.label ?? "").trim() === shedLabel) {
+        parksWithLabel.add(shed.park_id);
+      }
+    }
+    return parksWithLabel.size > 1;
+  };
   const withPark = (label: string, shedName: string, parkId: string): string => {
     if (!needsParkSuffix(shedName)) return label;
     const park = parkLabelFor.get(parkId);

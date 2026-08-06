@@ -631,6 +631,7 @@ class VerifyQueueViewModel @Inject constructor(
             title = title,
             subtitle = subtitle,
             scopeType = VerifyScopeType.INDIVIDUAL,
+            shedId = representative.shedId,
             shedLabel = shedLabel.orEmpty(),
             animalLabel = "",
             weightLabel = "",
@@ -668,6 +669,7 @@ class VerifyQueueViewModel @Inject constructor(
             title = title,
             subtitle = subtitle,
             scopeType = scopeType,
+            shedId = shedId,
             shedLabel = shedLabel ?: subjectLabel.orEmpty(),
             animalLabel = when (scopeType) {
                 VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
