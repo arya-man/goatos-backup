@@ -25,6 +25,14 @@
 #     racers at 4 racers x 1 round; mutant (x) removes the RE-VALIDATION, which
 #     case (h) separates at 8 racers x 3 rounds.
 #
+# TRAP, WRITTEN DOWN BECAUSE IT COST A ROUND: perl INTERPOLATES `$` in the
+# REPLACEMENT half too. An unescaped `$oident` / `$$` / `${VAR:-x}` there becomes
+# the empty string or perl's own pid, so the mutant silently mutates something
+# other than what its label claims — and mutant (xi) was consequently caught for
+# the wrong reason, then not caught at all. Every literal `$` in a replacement is
+# `\$`; the only bare `$1` is the capture in (iii). (xvii)/(xviii) use `!`
+# delimiters because an escaped `\}` inside `s{}{}` breaks perl's brace counting.
+#
 # NEVER invokes Gradle. Sleeps and shell only.
 set -uo pipefail
 
@@ -133,28 +141,28 @@ mutate x    "a stale break that does not RE-VALIDATE the owner" \
   's{if \[ ! -d "\$lockdir" \] \|\| \[ "\$\{cur_pid\}" != "\$\{expect\}" \]; then}{if false; then}'
 
 mutate xi   "kill -0 treated as proof of identity" \
-  's{\[ -n "\$oident" \]}{[ -z "$oident" ]}'
+  's{\[ -n "\$oident" \]}{[ -z "\$oident" ]}'
 
 mutate xii  "an owner pid that is the parent, not the acquiring subshell" \
-  's{  host="\$\(_gradle_lock_host\)"\n  _gradle_lock_self; self="\$\{_GRADLE_LOCK_SELF\}"}{  host="$(_gradle_lock_host)"\n  self="$$"}'
+  's{  host="\$\(_gradle_lock_host\)"\n  _gradle_lock_self; self="\$\{_GRADLE_LOCK_SELF\}"}{  host="\$(_gradle_lock_host)"\n  self="\$\$"}'
 
 mutate xiii "a clear_trap that discards a pre-existing EXIT trap" \
   's{eval "\$_GRADLE_LOCK_PRIOR_TRAPS" 2>/dev/null \|\| true}{:}'
 
 mutate xiv  "a break that reports success when it could not take the break-lock" \
-  's{mkdir "\$brk" 2>/dev/null \|\| return 1}{mkdir "$brk" 2>/dev/null || return 0}'
+  's{mkdir "\$brk" 2>/dev/null \|\| return 1}{mkdir "\$brk" 2>/dev/null || return 0}'
 
 mutate xv   "a signal re-raise aimed at \$\$ instead of the acquiring shell" \
-  's{kill "-\$sig" "\$\{_GRADLE_LOCK_SELF:-\$\$\}"}{kill "-$sig" $$}'
+  's{kill "-\$sig" "\$\{_GRADLE_LOCK_SELF:-\$\$\}"}{kill "-\$sig" \$\$}'
 
 mutate xvi  "an install_trap that does not record the acquiring shell" \
   's{  _gradle_lock_self\n  _GRADLE_LOCK_PRIOR_TRAPS=}{  _GRADLE_LOCK_PRIOR_TRAPS=}'
 
 mutate xvii "an unsanitised GOATOS_CI_GRADLE_LOCK_TIMEOUT" \
-  's{timeout="\$\(_gradle_lock_num "\$\{GOATOS_CI_GRADLE_LOCK_TIMEOUT:-1800\}" 1800 GOATOS_CI_GRADLE_LOCK_TIMEOUT\)"}{timeout="${GOATOS_CI_GRADLE_LOCK_TIMEOUT:-1800}"}'
+  's!timeout="\$\(_gradle_lock_num "\$\{GOATOS_CI_GRADLE_LOCK_TIMEOUT:-1800\}" 1800 GOATOS_CI_GRADLE_LOCK_TIMEOUT\)"!timeout="\${GOATOS_CI_GRADLE_LOCK_TIMEOUT:-1800}"!'
 
 mutate xviii "an unsanitised GOATOS_CI_GRADLE_LOCK_STALE_SECONDS" \
-  's{stale="\$\(_gradle_lock_num "\$\{GOATOS_CI_GRADLE_LOCK_STALE_SECONDS:-1500\}" 1500 GOATOS_CI_GRADLE_LOCK_STALE_SECONDS\)"}{stale="${GOATOS_CI_GRADLE_LOCK_STALE_SECONDS:-1500}"}'
+  's!stale="\$\(_gradle_lock_num "\$\{GOATOS_CI_GRADLE_LOCK_STALE_SECONDS:-1500\}" 1500 GOATOS_CI_GRADLE_LOCK_STALE_SECONDS\)"!stale="\${GOATOS_CI_GRADLE_LOCK_STALE_SECONDS:-1500}"!'
 
 mutate xix  "a knob sanitiser that checks shape but not MAGNITUDE" \
   's{if \[ "\$\{#v\}" -gt 9 \]; then}{if false; then}'
