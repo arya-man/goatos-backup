@@ -189,6 +189,66 @@ VALUES
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000203', 'operator', 'park', '91000000-0000-4000-8000-000000000101', 'active', now()),
   ('${tenant_id}'::uuid, '90000000-0000-4000-8000-000000000204', 'operator', 'park', '92000000-0000-4000-8000-000000000101', 'active', now());
 
+-- Workforce positions for the verifier. The verifier must hold active position rows with verify duties
+-- to pass authorization checks in backend/internal/workforce/adapters/postgres/repository.go:ListVerifyModuleKeys.
+-- position_tier MUST be 'assistant', not 'director', because backend/internal/obligation/adapters/postgres/
+-- visit_shot_lock.go branches on "position_tier <> 'director'" and exempts directors from shot-lock enforcement.
+-- A real verifier is not a director and must obey all rules applied to her role.
+INSERT INTO workforce_positions (
+  position_id, tenant_id, workforce_member_id, scope_type, scope_id, position_code,
+  position_tier, status, valid_from, valid_to
+)
+VALUES (
+  '93000000-0000-4000-8000-000000010104'::uuid,
+  '${tenant_id}'::uuid,
+  '93000000-0000-4000-8000-000000000104'::uuid,
+  'tenant',
+  '${tenant_id}'::uuid,
+  'jyothi_verifier',
+  'assistant',
+  'active',
+  now() - interval '1 day',
+  NULL
+)
+ON CONFLICT (tenant_id, scope_type, scope_id, position_code) WHERE status = 'active'
+DO UPDATE
+SET workforce_member_id = EXCLUDED.workforce_member_id,
+    position_tier = EXCLUDED.position_tier,
+    valid_from = EXCLUDED.valid_from,
+    valid_to = EXCLUDED.valid_to,
+    updated_at = now();
+
+-- Position module duties for every module that the verification registry declares a category for.
+-- These duties authorize the verifier to review proofs in each module's verify queue.
+-- Module codes must match the position_module_duties.module_code vocabulary, not navigation keys:
+-- the translation happens in backend/internal/verification/adapters/http/duty_module_keys.go.
+INSERT INTO position_module_duties (
+  tenant_id, position_code, module_code, duty_type, capability_code,
+  effective_from, effective_to, status
+)
+SELECT
+  '${tenant_id}'::uuid,
+  'jyothi_verifier',
+  m.module_code,
+  'verify',
+  'vaccination.verify',
+  now() - interval '1 day',
+  NULL,
+  'active'
+FROM (
+  VALUES
+    ('vaccination'),
+    ('weighing'),
+    ('aas_health'),
+    ('counts'),
+    ('feed_direction')
+) AS m(module_code)
+ON CONFLICT (tenant_id, position_code, module_code, duty_type, effective_from)
+DO UPDATE
+SET status = 'active',
+    effective_to = EXCLUDED.effective_to,
+    updated_at = now();
+
 UPDATE sop_tasks
 SET assigned_to = '90000000-0000-4000-8000-000000000202',
     scope_id = '91000000-0000-4000-8000-000000000101',
