@@ -6,6 +6,14 @@ export type AdminUiOption = AdminWebPageContract["option_groups"][number]["optio
 export type AdminUiControl = AdminWebPageContract["controls"][number];
 
 const COPY_FALLBACKS: Record<string, Record<string, string>> = {
+  "control-tower": {
+    "label.scope": "Scope",
+    "label.detail": "Detail",
+    "label.evidence": "Evidence",
+    "drawer.alert.aria": "Control Tower alert",
+    "drawer.alert.close_label": "Close Control Tower alert",
+    "drawer.alert.guidance": "Use the linked work surfaces to resolve the underlying process gap.",
+  },
   "action-center": {
     "label.drive_over_cap_required": "capacity shortfall",
     "label.drive_medical_defer": "medical defer",
