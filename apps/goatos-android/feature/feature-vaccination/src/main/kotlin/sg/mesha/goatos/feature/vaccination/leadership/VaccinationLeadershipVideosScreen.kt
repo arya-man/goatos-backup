@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,9 +25,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -130,16 +134,18 @@ fun VaccinationLeadershipVideosScreen(
         )
 
         if (state.parkOptions.size > 1) {
-            LeadershipLocationChipRow(
+            LeadershipLocationFilter(
                 allLabel = "All parks",
+                pickerTitle = "Choose a park",
                 options = state.parkOptions,
                 selected = state.selectedParkId,
                 onSelect = { onEvent(VaccinationLeadershipVideoEvent.SelectPark(it)) },
             )
         }
         if (state.shedOptions.size > 1) {
-            LeadershipLocationChipRow(
+            LeadershipLocationFilter(
                 allLabel = "All sheds",
+                pickerTitle = "Choose a shed",
                 options = state.shedOptions,
                 selected = state.selectedShedId,
                 onSelect = { onEvent(VaccinationLeadershipVideoEvent.SelectShed(it)) },
@@ -251,22 +257,116 @@ fun VaccinationLeadershipVideosScreen(
 }
 
 @Composable
-private fun LeadershipLocationChipRow(
+private fun LeadershipLocationFilter(
     allLabel: String,
+    pickerTitle: String,
     options: List<VaccinationLeadershipLocationOptionUi>,
     selected: String?,
     onSelect: (String?) -> Unit,
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.padding(bottom = 8.dp),
-    ) {
-        item {
-            LeadershipChip(label = allLabel, selected = selected == null, onClick = { onSelect(null) })
+    // A park can hold MANY sheds. Past LEADERSHIP_CHIP_ROW_MAX a horizontal chip row hides most of
+    // them off-screen, so the filter becomes a searchable bottom sheet instead (maintainer rule:
+    // wherever this park/shed pattern appears it must paginate and be searchable). Deliberate copy
+    // of the verifier's equivalent -- the two surfaces are allowed to diverge, do NOT refactor
+    // these into one shared component.
+    if (options.size <= LEADERSHIP_CHIP_ROW_MAX) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 8.dp),
+        ) {
+            item {
+                LeadershipChip(label = allLabel, selected = selected == null, onClick = { onSelect(null) })
+            }
+            items(options.filter { it.id != null }, key = { it.id ?: "" }) { option ->
+                LeadershipChip(label = option.label, selected = option.id == selected, onClick = { onSelect(option.id) })
+            }
         }
-        items(options.filter { it.id != null }, key = { it.id ?: "" }) { option ->
-            LeadershipChip(label = option.label, selected = option.id == selected, onClick = { onSelect(option.id) })
+        return
+    }
+
+    var pickerOpen by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.id == selected }?.label ?: allLabel
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(bottom = 8.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MeshaColors.Surf)
+            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(10.dp))
+            .clickable { pickerOpen = true }
+            .minimumInteractiveComponentSize()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(text = selectedLabel, color = MeshaColors.Ink, style = MeshaType.bodyStrong)
+        Text(text = "Change", color = MeshaColors.BrandD, style = MeshaType.cta)
+    }
+    if (pickerOpen) {
+        LeadershipLocationPickerSheet(
+            title = pickerTitle,
+            allLabel = allLabel,
+            options = options,
+            selected = selected,
+            onSelect = { onSelect(it); pickerOpen = false },
+            onDismiss = { pickerOpen = false },
+        )
+    }
+}
+
+/** Options up to this count stay a chip row; beyond it the filter becomes a searchable sheet. */
+internal const val LEADERSHIP_CHIP_ROW_MAX = 6
+
+/** Case-insensitive contains filter for the picker's search field. */
+internal fun filterLeadershipLocationOptions(
+    options: List<VaccinationLeadershipLocationOptionUi>,
+    query: String,
+): List<VaccinationLeadershipLocationOptionUi> {
+    val trimmed = query.trim()
+    if (trimmed.isEmpty()) return options
+    return options.filter { it.label.contains(trimmed, ignoreCase = true) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LeadershipLocationPickerSheet(
+    title: String,
+    allLabel: String,
+    options: List<VaccinationLeadershipLocationOptionUi>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = filterLeadershipLocationOptions(options, query)
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Text(text = title, color = MeshaColors.Ink, style = MeshaType.cardTitle, modifier = Modifier.padding(bottom = 8.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                placeholder = { Text(text = "Search", style = MeshaType.cardSubtitle) },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+            // Bounded window: the sheet is scrollable and lazy, so a park with 100+ sheds renders
+            // a page at a time instead of composing every row.
+            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                items(visible, key = { it.id ?: "all" }) { option ->
+                    Text(
+                        text = option.label.ifBlank { allLabel },
+                        color = if (option.id == selected) MeshaColors.BrandD else MeshaColors.Ink,
+                        style = MeshaType.body,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(option.id) }
+                            .minimumInteractiveComponentSize()
+                            .padding(vertical = 12.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -393,7 +493,14 @@ fun VaccinationLeadershipVideoItemCard(
             Spacer(Modifier.size(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = listOf(item.title, item.shedLabel).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Proof" },
+                    // The backend subject label ALREADY names the shed ("Gandhi 1 · G-003002"), so
+                    // appending shedLabel printed it twice ("Gandhi 1 · G-003002 · Gandhi 1").
+                    // Only add the shed when the label does not already carry it; the Context
+                    // panel in the detail view still shows it as its own field.
+                    text = listOf(item.title, item.shedLabel.takeUnless { item.title.contains(it, ignoreCase = true) }.orEmpty())
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                        .ifBlank { "Proof" },
                     color = MeshaColors.Ink,
                     style = MeshaType.bodyStrong,
                 )
