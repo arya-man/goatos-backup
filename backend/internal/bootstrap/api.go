@@ -872,7 +872,7 @@ func NewAPI(ctx context.Context, cfg Config, log *slog.Logger) (*API, error) {
 	sopHandler := sophttp.NewHandler(sopService, log)
 	vaccinationHandler := vaccinationhttp.NewHandler(vaccinationService, vaccinationCompletion, log).
 		WithManualCampaignGenerator(vaccinationGeneration)
-	passportService := passportapp.NewService(vaccinationService, obligationRepo)
+	passportService := passportapp.NewService(vaccinationService, obligationRepo, obligationRepo)
 	passportHandler := passporthttp.NewHandler(passportService, log)
 	grantSource := permissionspg.NewGrantSource(pool, cfg.Postgres.QueryTimeout)
 	authAuditRecorder := authaudit.NewPostgresRecorder(pool, cfg.Postgres.QueryTimeout)

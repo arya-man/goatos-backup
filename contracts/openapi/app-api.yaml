@@ -9116,13 +9116,15 @@ components:
     FeedTransportTask:
       type: object
       additionalProperties: false
-      required: [task_id, park_id, park_label, shed_id, shed_label, business_date, status, scheduled_at]
+      required: [task_id, park_id, park_label, shed_id, shed_label, business_date, status, scheduled_at, partition_label, operational_location_display]
       properties:
         task_id: { type: string, format: uuid }
         park_id: { type: string, format: uuid }
         park_label: { type: string }
         shed_id: { type: string, format: uuid }
         shed_label: { type: string }
+        partition_label: { type: string }
+        operational_location_display: { type: string }
         business_date: { type: string, format: date }
         status: { type: string, enum: [due, verification_due, rework, completed] }
         operator_id: { type: string, format: uuid }
@@ -18711,6 +18713,10 @@ components:
         - dose_code
         - vaccine_label
         - display_label
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
       properties:
         obligation_id:
           type: string
@@ -18741,6 +18747,18 @@ components:
           type: string
         sequence:
           type: integer
+        shed_id:
+          type: string
+          description: UUID of the shed this obligation is scoped to, or empty if not shed-scoped.
+        shed_name:
+          type: string
+          description: Display name of the shed, or empty if not shed-scoped.
+        partition_label:
+          type: string
+          description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
+        operational_location_display:
+          type: string
+          description: Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not shed-scoped.
     VaccinationPassportHistoryItem:
       type: object
       additionalProperties: false
@@ -18754,6 +18772,10 @@ components:
         - vaccine_label
         - display_label
         - adverse_reaction
+        - shed_id
+        - shed_name
+        - partition_label
+        - operational_location_display
       properties:
         completion_id:
           type: string
@@ -18782,6 +18804,18 @@ components:
           type: string
           format: date-time
           nullable: true
+        shed_id:
+          type: string
+          description: UUID of the shed where this vaccination occurred, or empty if not available.
+        shed_name:
+          type: string
+          description: Display name of the shed, or empty if not available.
+        partition_label:
+          type: string
+          description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
+        operational_location_display:
+          type: string
+          description: Backend-composed display label combining shed name and partition ("Castro - 2" or "Godel 1 - Part 3"). Empty if not available.
     LastAcceptedVaccinationDose:
       type: object
       additionalProperties: false
@@ -21188,7 +21222,7 @@ components:
       additionalProperties: false
       required: [health_session_id, case_id, goat_id, goat_display_id, disease_key, disease_name,
         age_band, day_no, duration_days, business_date, session, due_at, status, park_id, park_label,
-        shed_id, shed_label, step_count, medication_count, has_critical_step]
+        shed_id, shed_label, partition_label, operational_location_display, step_count, medication_count, has_critical_step]
       properties:
         health_session_id: { type: string, format: uuid }
         case_id: { type: string, format: uuid }
