@@ -152,9 +152,6 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			}
 			q.ParkID = &parkID
 		}
-		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
-			q.ParkID = &parkID
-		}
 		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
 			q.ShedID = &shedID
 		}

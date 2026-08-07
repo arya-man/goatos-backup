@@ -109,18 +109,8 @@ func (r *Repository) CompleteShiftingEvent(
 			}
 		}
 		destShedName := ""
-		if current.DestinationPartitionLabel != nil {
-			// Fetch the shed name to compose the location display
-			shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
-			if err == nil {
-				destShedName = shedName
-			}
-		} else {
-			// No partition; fetch shed name for unpartitioned display
-			shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
-			if err == nil {
-				destShedName = shedName
-			}
+		if shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID); err == nil {
+			destShedName = shedName
 		}
 		return domain.ShiftingExecutionResult{
 			ShiftingEventID:             in.ShiftingEventID,
@@ -234,16 +224,8 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 	committed = true
 
 	destShedName := ""
-	if updated.DestinationPartitionLabel != nil {
-		shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
-		if err == nil {
-			destShedName = shedName
-		}
-	} else {
-		shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
-		if err == nil {
-			destShedName = shedName
-		}
+	if shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID); err == nil {
+		destShedName = shedName
 	}
 
 	return domain.ShiftingExecutionResult{

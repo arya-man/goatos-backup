@@ -158,3 +158,73 @@ func assertHealthCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool, la
 		t.Fatalf("%s=%d, want %d", label, got, want)
 	}
 }
+
+// TestGetWorkItemPartitionLabelDisplayMatchesDBRoundTrip proves that collapsing the
+// partition-label subquery in GetWorkItem's SELECT from three evaluations to one
+// (via a LATERAL join, composed in Go through oploc.OperationalLocation.Display()
+// instead of a hand-rolled SQL CASE) left the OUTPUT STRING unchanged: an
+// unpartitioned shed still renders the bare shed name, and a shed with exactly one
+// active partition still renders "<shed> - <partition>".
+func TestGetWorkItemPartitionLabelDisplayMatchesDBRoundTrip(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	medicine := "Meloxicam"
+	dose := "1 ml"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-partition-test", "hash-partition-v1", []domain.SourceProtocol{{
+		DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult,
+		DurationDays: 0, Steps: []domain.ProtocolStep{{
+			DayNo: 1, Session: domain.SessionMorning, Seq: 1,
+			RecordType: "medication", MedicineName: &medicine, DosageText: &dose,
+		}},
+	}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	today := time.Now().In(loc)
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: today,
+		IdempotencyKey: "health-partition-open", RequestFingerprint: "health-partition-open-fp",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+
+	// Unpartitioned: the shed carries no active shed_partitions row, so the display
+	// must be the bare shed name.
+	unpartitioned, err := repo.GetWorkItem(ctx, healthTenant, opened.FirstSessionID)
+	if err != nil {
+		t.Fatalf("get work item (unpartitioned): %v", err)
+	}
+	if unpartitioned.OperationalLocationDisplay != "Health Shed" {
+		t.Fatalf("unpartitioned display=%q, want %q", unpartitioned.OperationalLocationDisplay, "Health Shed")
+	}
+	if unpartitioned.PartitionLabel != "" {
+		t.Fatalf("unpartitioned partition label=%q, want empty", unpartitioned.PartitionLabel)
+	}
+
+	// Partitioned: exactly one active, non-'whole' partition on the shed. Per the
+	// operational-location convention this must render "Health Shed - Part 3".
+	if _, err := pool.Exec(ctx, `
+INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, status, source)
+VALUES ($1::uuid, $2::uuid, 'Part 3', '3', 'active', 'manual')`, healthTenant, healthShed); err != nil {
+		t.Fatalf("seed shed partition: %v", err)
+	}
+
+	partitioned, err := repo.GetWorkItem(ctx, healthTenant, opened.FirstSessionID)
+	if err != nil {
+		t.Fatalf("get work item (partitioned): %v", err)
+	}
+	if partitioned.PartitionLabel != "Part 3" {
+		t.Fatalf("partitioned partition label=%q, want %q", partitioned.PartitionLabel, "Part 3")
+	}
+	if partitioned.OperationalLocationDisplay != "Health Shed - Part 3" {
+		t.Fatalf("partitioned display=%q, want %q", partitioned.OperationalLocationDisplay, "Health Shed - Part 3")
+	}
+}
