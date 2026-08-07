@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vgoats/goatos/backend/internal/permissions"
@@ -798,5 +799,88 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 	}
 	if !foundAlerts {
 		t.Fatalf("visible_navigation must include Alerts for a verifier; got %+v", nav)
+	}
+}
+
+// TestVerifierDrawerHasNoDuplicateOrNamelessModules reproduces what Jyothi's phone actually
+// showed on 2026-08-07: a nameless row at the top of the drawer, then "Feed" twice and
+// "Vaccination" twice -- four rows a verifier cannot tell apart or identify.
+//
+// The grantedModules below are her REAL rows, read from STG. They come from a UNION of two
+// tables that spell the same module differently:
+//
+//	department_module_grants.module_key   position_module_duties.module_code
+//	  counts                                counts          <- same string, collapses
+//	  weighing                              weighing        <- same string, collapses
+//	  vaccination                           pc.vaccination  <- DIFFERENT, both survive
+//	  feed_direction                        feed.direction  <- DIFFERENT, both survive
+//	  milk                                  aas_health
+//
+// normalizeModuleFeatureKey maps pc.vaccination -> vaccination and feed.direction ->
+// feed_direction, but it runs at RENDER time, after both dedupe passes (SQL UNION and
+// verifierFeatureKeys' seen[key]) have already compared raw strings. Dedupe is simply
+// ordered before normalization.
+func TestVerifierDrawerHasNoDuplicateOrNamelessModules(t *testing.T) {
+	const en = localization.DefaultTag
+	jyothiGrantedModules := []string{
+		"aas_health", "counts", "counts", "feed_direction", "feed.direction",
+		"milk", "pc.vaccination", "vaccination", "weighing", "weighing",
+	}
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+
+	t.Run("one module per feature, whichever way the two tables spell it", func(t *testing.T) {
+		modules := modulesFor(grants, jyothiGrantedModules, en)
+		count := map[string]int{}
+		for _, m := range modules {
+			count[m.Key]++
+		}
+		for key, n := range count {
+			if n > 1 {
+				t.Errorf("module %q emitted %d times; the drawer shows %d identical rows", key, n, n)
+			}
+		}
+		// Named explicitly: these are the two pairs that actually shipped.
+		for _, key := range []string{"verify_vaccination", "verify_feed_direction"} {
+			if count[key] != 1 {
+				t.Errorf("%s emitted %d times, want exactly 1", key, count[key])
+			}
+		}
+	})
+
+	t.Run("every module row has a name", func(t *testing.T) {
+		for _, m := range modulesFor(grants, jyothiGrantedModules, en) {
+			if strings.TrimSpace(m.Label) == "" {
+				t.Errorf("module %q rendered with an EMPTY label; the drawer shows a nameless row", m.Key)
+			}
+		}
+	})
+}
+
+// TestEveryVerifierModuleLabelResolvesInTheCopyCatalog is the guard that makes the blank-row
+// class of defect loud instead of silent. localizedBootstrapLabel returns "" for a key the
+// catalog does not contain, so a module whose labelKey is absent ships a nameless row and
+// nothing fails -- which is exactly how verify_aas_health reached a real phone.
+//
+// verificationModuleForFeature derives its labelKey from a four-entry map with a
+// "module."+normalized fallback. That fallback is a GUESS: it happens to be right for milk
+// ("module.milk" exists) and wrong for aas_health (the catalog spells it "module.health").
+// This asserts the guess is correct for every feature the drawer can build, in every locale.
+func TestEveryVerifierModuleLabelResolvesInTheCopyCatalog(t *testing.T) {
+	grants := []domain.GrantSummary{grantWithRole(permissions.RoleVerifier)}
+	features := []string{"aas_health", "counts", "feed_direction", "milk", "vaccination", "weighing", "breeding"}
+
+	for locale := range bootstrapLabels {
+		for _, feature := range features {
+			m := verificationModuleForFeature(feature, grants, locale)
+			if strings.TrimSpace(m.Label) == "" {
+				t.Errorf("feature %q has no label in locale %q (module key %q); localizedBootstrapLabel returned \"\" for a missing catalog key",
+					feature, locale, m.Key)
+			}
+			for _, item := range m.NavItems {
+				if strings.TrimSpace(item.Label) == "" {
+					t.Errorf("feature %q nav item %q has no label in locale %q", feature, item.Key, locale)
+				}
+			}
+		}
 	}
 }

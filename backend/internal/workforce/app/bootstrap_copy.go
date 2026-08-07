@@ -739,6 +739,20 @@ var builtVerifiableFeatures = []string{"vaccination", "weighing", "counts"}
 // everything shipped" default a CEO gets. This is the only way to honor the binding
 // [Verify, Alerts]-per-module ruling (drawer + per-feature bar, never a merged/un-scoped
 // Alerts tab) for a verifier whose grant does not itself name a feature.
+// Dedupe is on the NORMALIZED key, and that ordering is the whole point. grantedModules is a
+// SQL UNION of two tables that spell the same module differently -- department_module_grants
+// says "vaccination" and "feed_direction" where position_module_duties says "pc.vaccination"
+// and "feed.direction". UNION only collapses byte-identical strings, so both spellings arrive
+// here. Comparing raw keys (as this did until 2026-08-07) let each pair through, and since
+// normalizeModuleFeatureKey collapses them a step LATER, at render time, the drawer built two
+// modules with the identical key "verify_vaccination" and showed a verifier two rows labelled
+// "Vaccination" that she could not tell apart. Counts and Weighing were spelled the same in
+// both tables, which is the only reason they were not duplicated too.
+//
+// Normalizing BEFORE the dedupe fixes every present and future spelling drift. Fixing only the
+// data (renaming the duty rows) would clear the symptom and leave the next spelling to
+// re-break it. Returning normalized keys is safe: normalizeModuleFeatureKey is idempotent and
+// candidateModuleKeys already normalizes this result again.
 func verifierFeatureKeys(grantedModules []string) []string {
 	out := make([]string, 0, len(grantedModules))
 	seen := make(map[string]bool, len(grantedModules))
@@ -746,11 +760,12 @@ func verifierFeatureKeys(grantedModules []string) []string {
 		if key == "verification" {
 			continue
 		}
-		if seen[key] {
+		normalized := normalizeModuleFeatureKey(key)
+		if seen[normalized] {
 			continue
 		}
-		seen[key] = true
-		out = append(out, key)
+		seen[normalized] = true
+		out = append(out, normalized)
 	}
 	if len(out) == 0 {
 		return append([]string(nil), builtVerifiableFeatures...)
@@ -768,11 +783,23 @@ func verifierFeatureKeys(grantedModules []string) []string {
 func verificationModuleForFeature(featureKey string, grants []domain.GrantSummary, localeTag string) domain.BootstrapModule {
 	normalized := normalizeModuleFeatureKey(featureKey)
 
+	// This map exists for features whose module key and copy key DIFFER. The
+	// "module."+normalized fallback below is a GUESS that happens to be right when the two
+	// coincide (milk, breeding) and silently wrong when they do not: aas_health guessed
+	// "module.aas_health" while the catalog spells Health "module.health", so
+	// localizedBootstrapLabel returned "" and a verifier got a NAMELESS drawer row -- in
+	// every locale, on a real phone, with nothing failing anywhere (2026-08-07).
+	//
+	// A missing catalog key is invisible by construction, so the guard is a test rather than
+	// a runtime error: TestEveryVerifierModuleLabelResolvesInTheCopyCatalog builds every
+	// feature the drawer can emit, in every locale, and fails on an empty label. Add the
+	// entry HERE when a new feature's copy key differs from its module key.
 	labelKeys := map[string]string{
 		"vaccination":    "module.vaccination",
 		"weighing":       "module.weighing",
 		"counts":         "module.counts",
 		"feed_direction": "module.feed_direction",
+		"aas_health":     "module.health",
 	}
 	labelKey, ok := labelKeys[normalized]
 	if !ok {
