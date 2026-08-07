@@ -543,7 +543,8 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.shed")}</div>
-              <div className="v">{row.shedName}</div>
+              <div className="v">{/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
+              {partitionLabel(row)}</div>
             </div>
             <div>
               <div className="k">{copy(pageContract, "drawer.shed_event.owner_assist")}</div>

@@ -493,7 +493,11 @@ function CalendarEventDrawerPanel({
                 <div style={{ marginTop: 12 }}>
                   <div className="b700" style={{ marginBottom: 8 }}>{copy(pageContract, "calendar.drive.shed_coverage")}</div>
                   <div className="chipset">
-                    {event.shed_labels.map((label) => <Tag key={label} tone="mut">{label}</Tag>)}
+                    {event.shed_labels.map((label, i) => {
+                      const partitionLabel = event.shed_partition_labels?.[i] || null
+                      const displayLabel = operationalLocationLabel({ shedName: label, partitionLabel })
+                      return <Tag key={`${label}-${partitionLabel || 'whole'}`} tone="mut">{displayLabel}</Tag>
+                    })}
                   </div>
                 </div>
               ) : null}
