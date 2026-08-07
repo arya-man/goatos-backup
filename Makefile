@@ -131,6 +131,7 @@ guardrails:
 	$(MAKE) goat-shed-scope-guard
 	$(MAKE) proof-capture-authorization-guard
 	$(MAKE) weighing-free-flow-guard
+	$(MAKE) weighing-close-gate-guard
 	$(MAKE) weighing-operator-scope-guard
 	$(MAKE) weighing-one-operator-per-bucket-guard
 	$(MAKE) weighing-kernel-phase2-guard
@@ -288,6 +289,10 @@ proof-capture-authorization-guard:
 weighing-free-flow-guard:
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs --self-test
 	node tools/agent-hooks/check-weighing-free-flow-guard.mjs
+
+weighing-close-gate-guard:
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test
+	node tools/agent-hooks/check-weighing-close-gate-guard.mjs
 
 weighing-operator-scope-guard:
 	node tools/agent-hooks/check-weighing-operator-scope-guard.mjs --self-test
