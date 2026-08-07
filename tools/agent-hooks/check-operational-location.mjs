@@ -124,11 +124,16 @@ const CHECKS = [
     // not be flagged, or the guard punishes the very code that gets this right.
     // CLOSURE: detect fmt.Sprintf("%s %s", shed, "whole") where the second arg
     // is a string literal "whole" (bypass: was matching only binary + operators).
+    // CLOSURE 2026-08-07: React `key=` expressions use 'whole' as a matching key
+    // (a disambiguator), not user copy — exclude them from the leak check.
     test: (line) => {
       if (!/["'`]whole["'`]/.test(line)) return false;
       if (/COALESCE\s*\([^)]*["'`]whole["'`]/i.test(line)) return false;
       if (/(?:[!=<>]=|=)\s*["'`]whole["'`]|["'`]whole["'`]\s*(?:[!=<>]=|=)/.test(line)) return false;
       if (/NormalizePartition|normalizePartition|WholeSentinel/.test(line)) return false;
+      // React key= expressions are matching keys, not rendered labels — exclude them
+      // Pattern: key={...} or key="..." where 'whole' appears inside
+      if (/key\s*=\s*[\{"].*["'`]whole["'`]/.test(line)) return false;
       // concatenated into a label/display expression via binary operator OR function argument
       return (
         /(?:\|\||\+)\s*["'`]whole["'`]|["'`]whole["'`]\s*(?:\|\||\+)/.test(line) ||
@@ -468,8 +473,12 @@ const CHECKS = [
     // grouping silently merges rows from different parks.
     // Precision: look for patterns like `GROUP BY shed_name` or `key: shed.name`
     // or `parkId.*physicalShedName` (TypeScript, in template literals) that DON'T use shed_id.
+    // CLOSURE 2026-08-07: Canonical helper calls (operationalLocationLabel, Display, PartitionLabel.render,
+    // oploc.OperationalLocation) combine park + shed name correctly — exclude them.
     test: (line) => {
       if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
+      // Canonical helper calls are allowed; they handle the park+shed composition correctly
+      if (/operationalLocationLabel\s*\(|Display\s*\(|PartitionLabel\.render\s*\(|oploc\.OperationalLocation/.test(line)) return false;
 
       // Defect 1: GROUP BY shed_name (not shed_id)
       if (/GROUP\s+BY[^;]*\bshed_?[nN]ame\b/i.test(line)) {
@@ -569,6 +578,53 @@ const CHECKS = [
       return true;
     },
     msg: "Kotlin string concatenation of shed name with partition label; use PartitionLabel.render() instead",
+  },
+  {
+    id: "normalized-label-to-display",
+    // CRITICAL BUG CLOSURE 2026-08-07: `partition_label` has TWO stored forms:
+    // - `partition_label` (human form: "Part 3", "3")
+    // - `normalized_label` (scrubbed matching key: "3")
+    // A query selected `normalized_label` and it reached the screen, so an
+    // operator saw `Mandela 2 - 3` — ambiguous, since "Mandela 2" is the shed
+    // name and "3" is the partition normalized key. This guard flags flows where
+    // `normalized_label` reaches a display/label/name field or a display composer.
+    // ALLOWED uses: `normalized_label` in JOINs, WHERE, GROUP BY, or as a map key.
+    // PRECISION NOTE (2026-08-07 reclassification):
+    // - Match SHED PARTITION normalized_label only: on table/field access (gsp.normalized_label, sp.normalized_label, etc.)
+    // - Exclude comparison operators in WHERE/JOIN contexts (= , <>, !=, etc. on same line)
+    // - Exclude assignment to fields designed to store normalized values (NormalizedSourceLabel, NormalizedLabel, etc.)
+    // - Exclude local variable normalization in other domains (vaccine label normalization, etc.)
+    test: (line) => {
+      if (/^\s*(#|\/\/|--|\*)/.test(line)) return false; // comments
+      // PRECISION: Match SHED PARTITION field access (gsp.normalized_label, sp.normalized_label, partitions.normalized_label)
+      // OR variables/fields in partition context (PartitionLabel: normalized, etc.)
+      const hasShedPartitionFieldAccess = /(?:gsp|sp|partitions)\s*\.\s*normalized_?label/i.test(line);
+      const hasPartitionContextVariable = /[pP]artition\s*.*normalized/i.test(line);
+      if (!hasShedPartitionFieldAccess && !hasPartitionContextVariable) return false;
+
+      // ALLOWED: legitimate uses in JOIN, WHERE, GROUP BY, or map keys on same line
+      if (/JOIN\s+|WHERE\s+|GROUP\s+BY|map.?key|cache.?key|\.key\s*[:=]/.test(line)) return false;
+
+      // ALLOWED: comparison operators (=, <>, !=, LIKE, etc.) in matching predicates
+      if (/normalized_?label\s*(?:=|<>|!=|LIKE|NOT\s+LIKE|IN|NOT\s+IN|~)/.test(line)) return false;
+
+      // ALLOWED: assignment to fields designed to hold normalized values (NormalizedSourceLabel, NormalizedLabel, etc.)
+      if (/(?:Normalized[A-Z]\w*|normalized_[a-z_]*)\s*=/.test(line)) return false;
+
+      // SQL: selecting into a display/label alias
+      if (/AS\s+(?:display|label|name|location)/i.test(line) && /select/i.test(line)) return true;
+      // SQL: passing to a display composer function
+      if (/(?:Display|operationalLocationDisplay|display.?(?:partition|location))\s*\(/i.test(line)) return true;
+      // Go/Kotlin/TS: assigning to a display or label variable
+      if (/(?:display|label)\s*[:=]/i.test(line)) return true;
+      // OperationalLocation{PartitionLabel: ...}
+      if (/PartitionLabel\s*[:=]/i.test(line)) return true;
+      // TS/Kotlin: rendering in template literal or concatenation
+      if (/`.*\$\{|[+]\s*["']/.test(line)) return true;
+
+      return false;
+    },
+    msg: "normalized_label (matching key) flows into a display field or display composer; use partition_label (human form) instead. normalized_label is for SQL JOINs, WHERE, GROUP BY, and map keys only.",
   },
   {
     id: "sql-display-drift",
@@ -1135,6 +1191,155 @@ function selfTest() {
       "apps/goatos-android/core/core-ui/PartitionLabel.kt",
       `  fun render(shed: String, partition: String) = shed + " " + partition`,
       null, // approved location for composition
+    ],
+
+    // CLOSURE FIXTURES FOR JOB 1: whole-leak fix (React key expressions)
+    // Real case: calendar-event-drawer.tsx:499 uses 'whole' as a React KEY disambiguator
+    [
+      "a/calendar-event-drawer.tsx",
+      `  key={\`\${label}-\${partitionLabel || 'whole'}\`}`,
+      null, // React keys are matching keys, not rendered labels
+    ],
+
+    // CLOSURE FIXTURES FOR JOB 1: shed-name-keying fix (canonical helper calls)
+    // Real case: workflows-landing.tsx:246 and :251 call operationalLocationLabel() correctly
+    [
+      "apps/admin-web/features/workflows/workflows-landing.tsx",
+      `  row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })`,
+      null, // canonical helper handles park+shed composition correctly
+    ],
+    [
+      "apps/admin-web/features/count/detail.tsx",
+      `  const label = Display(shedName, partitionLabel)`,
+      null, // Display helper is approved
+    ],
+
+    // JOB 2 FIXTURES: normalized-label-to-display (the new rule)
+    // VIOLATION: SQL selecting normalized_label into a display alias
+    [
+      "backend/internal/counts/queries.sql",
+      `SELECT g.normalized_label AS display_label FROM goat_shed_partitions g`,
+      "normalized-label-to-display",
+    ],
+    // VIOLATION: SQL passing normalized_label to a display composer
+    [
+      "backend/internal/vaccination/queries.sql",
+      `SELECT operational_location_display(s.name, gsp.normalized_label) AS label`,
+      "normalized-label-to-display",
+    ],
+    // VIOLATION: Go assigning normalized_label into a Display field
+    [
+      "backend/internal/counts/domain.go",
+      `  display := NormalizedLabel`,
+      "normalized-label-to-display",
+    ],
+    // VIOLATION: OperationalLocation{PartitionLabel: normalized_label}
+    [
+      "backend/internal/counts/queries.go",
+      `  loc := oploc.OperationalLocation{ShedName: shedName, PartitionLabel: normalizedLabel}`,
+      "normalized-label-to-display",
+    ],
+    // VIOLATION: TypeScript rendering normalized_label in a label expression
+    [
+      "apps/admin-web/features/counts/detail.tsx",
+      `  const label = \`\${shedName} - \${normalizedLabel}\`;`,
+      "normalized-label-to-display",
+    ],
+    // VIOLATION: Kotlin val label = shedName + normalizedLabel
+    [
+      "apps/goatos-android/feature/feature-counts/Detail.kt",
+      `  val label = shedName + " " + normalizedLabel`,
+      "normalized-label-to-display",
+    ],
+
+    // CORRECT: normalized_label in a WHERE clause (legitimate use)
+    [
+      "backend/internal/counts/queries.sql",
+      `SELECT g.id FROM goat_shed_partitions g WHERE g.normalized_label = 'Part 3'`,
+      null, // WHERE clause is a legitimate use
+    ],
+    // CORRECT: normalized_label in a JOIN predicate (legitimate use)
+    [
+      "backend/internal/counts/queries.sql",
+      `JOIN shed_partitions sp ON sp.normalized_label = g.normalized_label`,
+      null, // JOIN is a legitimate use
+    ],
+    // CORRECT: normalized_label in GROUP BY (legitimate use)
+    [
+      "backend/internal/counts/queries.sql",
+      `SELECT g.shed_id, g.normalized_label FROM goat_shed_partitions g GROUP BY g.shed_id, g.normalized_label`,
+      null, // GROUP BY is a legitimate use
+    ],
+    // CORRECT: normalized_label as a map key (legitimate use)
+    [
+      "apps/admin-web/features/counts/detail.tsx",
+      `  const partitionsByKey = new Map<string, Partition>();\n  partitions.forEach(p => partitionsByKey.set(p.normalizedLabel, p));`,
+      null, // map key is a legitimate use
+    ],
+    // CORRECT: using partition_label instead of normalized_label for display
+    [
+      "backend/internal/counts/queries.sql",
+      `SELECT operational_location_display(s.name, gsp.partition_label) AS label`,
+      null, // partition_label (human form) is correct for display
+    ],
+
+    // RECLASSIFICATION FIXTURES (2026-08-07: false-positive exemptions)
+    // These fixtures establish that the refined rule correctly exempts legitimate uses:
+
+    // EXEMPT: local variable normalization in vaccine label domain
+    [
+      "backend/internal/vaccination/domain/vaccinelabels.go",
+      `  if label := matrixDoseDisplayLabel(normalized); label != "" {`,
+      null, // local variable "normalized" is vaccine label code, not shed partition normalized_label
+    ],
+
+    // EXEMPT: comparison operator in WHERE clause filtering
+    [
+      "backend/internal/counts/adapters/postgres/shifting_execution.go",
+      `AND sp.normalized_label = regexp_replace(lower(btrim($3::text)), '^part[[:space:]]+', '')`,
+      null, // comparison operator (=) in WHERE context is legitimate matching key use
+    ],
+
+    // EXEMPT: JOIN ON predicate for matching
+    [
+      "backend/internal/weighing/adapters/postgres/shed_partition_resolve.go",
+      ` AND sp.normalized_label = lower(btrim(regexp_replace(`,
+      null, // JOIN ON predicate with comparison operator is legitimate matching
+    ],
+
+    // EXEMPT: assignment to field designed to hold normalized values
+    [
+      "backend/internal/locations/adapters/postgres/repository.go",
+      `item.NormalizedSourceLabel = textPtr(normalizedLabel)`,
+      null, // NormalizedSourceLabel field is designed to store normalized values, not display
+    ],
+
+    // EXEMPT: comparison in WHERE clause via CASE statement
+    [
+      "backend/internal/counts/adapters/postgres/shifting_destinations.go",
+      `regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label`,
+      null, // comparison operator (=) in WHERE filtering context is legitimate
+    ],
+
+    // REAL DEFECT: selecting normalized_label into a display-named column (still flagged)
+    [
+      "backend/internal/counts/queries.sql",
+      `SELECT gsp.normalized_label AS display_shed_label FROM goat_shed_partitions gsp`,
+      "normalized-label-to-display", // selecting into AS display_* is the defect
+    ],
+
+    // REAL DEFECT: passing normalized_label to a display composer (still flagged)
+    [
+      "backend/internal/vaccination/queries.sql",
+      `SELECT Display(shed.name, gsp.normalized_label) AS label`,
+      "normalized-label-to-display", // passing to Display() is the defect
+    ],
+
+    // REAL DEFECT: assigning to a display variable (still flagged)
+    [
+      "backend/internal/counts/domain.go",
+      `display := shedName + " - " + normalizedLabel`,
+      "normalized-label-to-display", // assigning to display variable is the defect
     ],
   ];
 

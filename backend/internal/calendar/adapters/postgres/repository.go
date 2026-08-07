@@ -2361,6 +2361,49 @@ func scanCalendarEvent(rows eventScanner) (domain.CalendarEvent, error) {
 	return scanCalendarEventWithDetail(rows, nil, nil)
 }
 
+// dedupeParallelArrays removes duplicate shed/partition label pairs from index-parallel arrays.
+// The SQL layer emits shed_labels and shed_partition_labels with duplicates because the inner grain
+// is shed × animal × rule (each shed repeats once per animal). This function dedupes in Go by
+// collapsing to one entry per (shed_label, partition_label) pair, preserving order.
+// If the arrays become misaligned (shed_labels and shed_partition_labels have different lengths
+// after deduping), returns the bare shed_labels only (no partition pairing for that entry).
+func dedupeParallelArrays(shedLabels, partitionLabels []string) ([]string, []string) {
+	if len(shedLabels) == 0 {
+		return shedLabels, partitionLabels
+	}
+
+	type shedPair struct {
+		shed      string
+		partition string
+	}
+	seen := make(map[string]bool)
+	var deduped []shedPair
+	var dedupedSheds, dedupedPartitions []string
+
+	for i, shed := range shedLabels {
+		partition := ""
+		if i < len(partitionLabels) {
+			partition = partitionLabels[i]
+		}
+		// Use shed + partition as the dedup key. If shed appears multiple times with the same
+		// partition, keep only the first. If it appears with different partitions, keep all.
+		key := shed + "|" + partition
+		if !seen[key] {
+			seen[key] = true
+			deduped = append(deduped, shedPair{shed: shed, partition: partition})
+			dedupedSheds = append(dedupedSheds, shed)
+			dedupedPartitions = append(dedupedPartitions, partition)
+		}
+	}
+
+	// Verify index parity: if the arrays don't stay aligned, fall back to bare shed labels only.
+	if len(dedupedSheds) != len(dedupedPartitions) {
+		return dedupedSheds, nil
+	}
+
+	return dedupedSheds, dedupedPartitions
+}
+
 // composeDriveShedDisplay closes DEFECT 1 (calendar drive-shed rows carried no partition): it is
 // the single place that turns a shed name plus an optional resolved partition label into the
 // operator-facing location string, via the shared oploc.Display() rule -- never hand-rolled with
@@ -2399,7 +2442,7 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		&event.SummaryPrimary, &event.SummarySecondary, &event.SummaryTertiary,
 		&event.ShedCount, &event.VaccineCount, &event.DriveCount, &event.CatchUpCount,
 		&event.ScheduledCount, &event.DeferredCount, &event.ReviewCount,
-		&event.ShedLabels, &event.VaccineLabels, &driveSummaryRaw,
+		&event.ShedLabels, &event.ShedPartitionLabels, &event.VaccineLabels, &driveSummaryRaw,
 	}
 	if detail != nil {
 		dest = append(dest, detail)
@@ -2444,6 +2487,12 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 	if linksOut != nil {
 		*linksOut = links
 	}
+
+	// Dedupe shed_labels and shed_partition_labels since the SQL grain duplicates them
+	// (shed × animal × rule, so each shed repeats once per animal). Deduping in Go preserves
+	// order while collapsing duplicates. If arrays become misaligned, fall back to bare shed labels.
+	event.ShedLabels, event.ShedPartitionLabels = dedupeParallelArrays(event.ShedLabels, event.ShedPartitionLabels)
+
 	return event, nil
 }
 
