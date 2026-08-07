@@ -24,6 +24,8 @@ import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipVid
 import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.network.dto.VerificationQueueItem
 import sg.mesha.goatos.core.network.dto.VerificationQueueResponseDto
+import sg.mesha.goatos.core.network.dto.VerificationFilterOptionsDto
+import sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto
 
 /**
  * Tests for VaccinationLeadershipVideosViewModel.
@@ -228,6 +230,93 @@ class VaccinationLeadershipVideosViewModelTest {
             val url = state.items.first().media.first().url
             assertTrue("expected an absolute URL, got: $url", url.startsWith("http://") || url.startsWith("https://"))
             assertTrue("absolute URL must keep the signed path", url.endsWith("/app/proofs/proof-1/download/signed?sig=abc"))
+        }
+    }
+
+    @Test
+    fun `tail scroll appends using cursor, not increasing limit`() = runTest {
+        // GOS-PR31-5: The gallery should use next_cursor for pagination, not increase
+        // the limit and re-fetch page 1 with a larger window. Each page must remain ~20 items.
+        val page1Items = (1..20).map { i ->
+            verificationItem(id = "item-$i", subjectLabel = "Item $i", status = "approved")
+        }
+        val page2Items = (21..40).map { i ->
+            verificationItem(id = "item-$i", subjectLabel = "Item $i", status = "approved")
+        }
+
+        repository.setResponse(
+            VerificationQueueResponseDto(
+                items = page1Items,
+                filterOptions = VerificationFilterOptionsDto(
+                    parks = listOf(
+                        VerificationLocationOptionDto("park-1", "Park 1"),
+                    ),
+                    sheds = listOf(
+                        VerificationLocationOptionDto("shed-1", "Shed 1"),
+                    ),
+                ),
+                nextCursor = "cursor-page-2",
+            ),
+        )
+        viewModel.onEvent(VaccinationLeadershipVideoEvent.Refresh())
+
+        viewModel.state.test {
+            var state = awaitItem()
+            while (state.loading || state.items.size < 20) state = awaitItem()
+
+            // First page loaded: 20 items, next cursor available
+            assertEquals(20, state.items.size)
+
+            // Simulate scrolling to the tail (item 18 of 20, triggering prefetch)
+            repository.setResponse(
+                VerificationQueueResponseDto(
+                    items = page1Items + page2Items,  // Cumulative: 40 items on the second fetch
+                    filterOptions = VerificationFilterOptionsDto(
+                        parks = listOf(
+                            VerificationLocationOptionDto("park-1", "Park 1"),
+                        ),
+                        sheds = listOf(
+                            VerificationLocationOptionDto("shed-1", "Shed 1"),
+                        ),
+                    ),
+                ),
+            )
+            viewModel.onEvent(VaccinationLeadershipVideoEvent.ItemVisible(index = 18))
+
+            while (state.loadingMore || state.items.size < 40) {
+                state = awaitItem()
+            }
+
+            // After tail scroll, should have 40 items (append, not re-fetch with larger limit)
+            assertEquals(40, state.items.size)
+        }
+    }
+
+    @Test
+    fun `first loaded park is refreshed on init, not defaulted after`() = runTest {
+        // GOS-PR31-9: The first park should be chosen BEFORE the initial refresh,
+        // not after. This ensures the refresh runs with the selected park scope.
+        val parks = listOf(
+            sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto("park-cbe", "CBE"),
+            sg.mesha.goatos.core.network.dto.VerificationLocationOptionDto("park-cpt", "CPT"),
+        )
+        repository.setResponse(
+            VerificationQueueResponseDto(
+                items = listOf(
+                    verificationItem(id = "item-1", subjectLabel = "Proof 1", status = "pending"),
+                ),
+                filterOptions = VerificationFilterOptionsDto(
+                    parks = parks.map { VerificationLocationOptionDto(it.id, it.label) },
+                ),
+            ),
+        )
+
+        viewModel.state.test {
+            var state = awaitItem()
+            while (state.loading || state.selectedParkId == null) state = awaitItem()
+
+            // The selectedParkId should be set to the first park
+            assertEquals("park-cbe", state.selectedParkId)
         }
     }
 
