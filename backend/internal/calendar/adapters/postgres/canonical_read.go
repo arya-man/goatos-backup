@@ -1184,6 +1184,22 @@ obligation_drive_animal_coverage AS (
   GROUP BY park_id, due_date
 ),
 obligation_drive_shed_animals AS (
+  -- DEFECT-1 fix (calendar shed-partition awareness, see AGENTS.md operational-location
+  -- convention): a drive's per-shed row previously carried only shed_id/shed_name, so a shed
+  -- that is actually one partition of a larger physical building rendered as the bare parent
+  -- shed name ("Mandela 2") with no way to tell an operator which partition the drive is in.
+  --
+  -- Rule applied here (per the DEFECT 1 judgement call): partition truth for a goat comes from
+  -- goat_shed_partitions (per-animal), never a stored snapshot column. Per shed *within this
+  -- drive's animal membership*:
+  --   - every animal in the shed shares the SAME real partition   -> compose "Shed - Partition"
+  --   - the shed's animals span MORE THAN ONE partition            -> render the bare shed name
+  --     (a drive spanning every partition of a shed has no single partition to show; that is
+  --     correct, not a bug -- do not invent one)
+  --   - no animal in the shed carries a real partition (all 'whole')-> render the bare shed name
+  -- Composition uses the canonical oploc.Display() rule in Go (see below); this CTE only
+  -- resolves the single-or-none partition label per shed so Go never re-derives it from a raw
+  -- per-goat join.
   SELECT
     per_shed.park_id,
     per_shed.due_date,
@@ -1191,7 +1207,8 @@ obligation_drive_shed_animals AS (
       jsonb_build_object(
         'shed_id', per_shed.shed_id::text,
         'shed_name', per_shed.shed_name,
-        'total_animals', per_shed.total_animals
+        'total_animals', per_shed.total_animals,
+        'partition_label', per_shed.single_partition_label
       )
       ORDER BY per_shed.shed_name, per_shed.shed_id::text
     ) AS sheds
@@ -1201,11 +1218,25 @@ obligation_drive_shed_animals AS (
       m.due_date,
       m.shed_id,
       COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text) AS shed_name,
-      count(DISTINCT m.animal_id) FILTER (WHERE m.animal_id IS NOT NULL)::int AS total_animals
+      count(DISTINCT m.animal_id) FILTER (WHERE m.animal_id IS NOT NULL)::int AS total_animals,
+      -- single_partition_label is non-NULL ONLY when every animal in this shed (within the
+      -- drive's membership) resolves to the SAME real (non-'whole') partition. count(DISTINCT
+      -- gsp.partition_label) over just the partitioned animals tells us how many distinct real
+      -- partitions are represented; > 1 means the shed spans multiple partitions and must stay
+      -- bare per the rule above.
+      CASE
+        WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+          THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+        ELSE NULL
+      END AS single_partition_label
     FROM obligation_drive_membership m
     LEFT JOIN locations l
       ON l.tenant_id = $1::uuid
      AND l.location_id = m.shed_id
+    LEFT JOIN goat_shed_partitions gsp
+      ON gsp.tenant_id = $1::uuid
+     AND gsp.goat_id = m.animal_id
+     AND gsp.shed_id = m.shed_id
     WHERE m.shed_id IS NOT NULL
     GROUP BY m.park_id, m.due_date, m.shed_id, COALESCE(NULLIF(l.name, ''), l.location_code, m.shed_id::text)
   ) per_shed

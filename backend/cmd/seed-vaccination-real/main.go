@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -751,6 +752,50 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 	})
 }
 
+// upsertShedPartitionsCatalog populates the shed_partitions catalog from the partitions
+// being seeded in goat_shed_partitions. For each unique (shed_id, partition_label) pair,
+// insert a row into shed_partitions if it doesn't already exist.
+func upsertShedPartitionsCatalog(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow) error {
+	// Collect unique (shed_id, partition_label) pairs from the rows.
+	// Skip rows with empty partition_label (non-partitioned sheds).
+	partitions := make(map[string]string) // key: shed_id, value: partition_label (only non-empty ones)
+	for _, row := range rows {
+		if row.partitionLabel != "" && row.shedID != "" {
+			partitions[row.shedID] = row.partitionLabel
+		}
+	}
+
+	if len(partitions) == 0 {
+		return nil // No partitions to add
+	}
+
+	// Normalize partition labels (same logic as the migration)
+	normalizePartition := func(label string) string {
+		normalized := strings.ToLower(strings.TrimSpace(label))
+		// Remove 'Part ' or 'part ' prefix
+		normalized = regexp.MustCompile(`^part\s+`).ReplaceAllString(normalized, "")
+		return normalized
+	}
+
+	// Insert each partition into shed_partitions
+	for shedID, partitionLabel := range partitions {
+		normalizedLabel := normalizePartition(partitionLabel)
+		if normalizedLabel == "whole" {
+			continue // Never catalog the sentinel
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO shed_partitions (tenant_id, shed_id, partition_label, normalized_label, source, status)
+			VALUES ($1, $2, $3, $4, 'manual', 'active')
+			ON CONFLICT (tenant_id, shed_id, normalized_label) DO NOTHING`,
+			tenantID, shedID, partitionLabel, normalizedLabel); err != nil {
+			return fmt.Errorf("insert shed partition catalog: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func upsertSeedGoatIdentifiers(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow) error {
 	for _, gi := range rows {
 		if gi.animalIdentifier1 == "" {
@@ -1167,6 +1212,9 @@ func seed(ctx context.Context, pool *pgxpool.Pool, pgCfg platformpg.Config, tena
 	}
 	if err := upsertSeedGoats(ctx, tx, tenantID, goatRows, custodianPartyID); err != nil {
 		return st, fmt.Errorf("insert goats: %w", err)
+	}
+	if err := upsertShedPartitionsCatalog(ctx, tx, tenantID, goatRows); err != nil {
+		return st, fmt.Errorf("populate shed_partitions catalog: %w", err)
 	}
 	if err := verifyActiveGoatsHaveShedInTx(ctx, tx, tenantID); err != nil {
 		return st, err
@@ -2756,6 +2804,13 @@ func verifyActiveGoatsUsePhysicalShedLocationsInTx(ctx context.Context, tx pgx.T
 	if offenders != 0 {
 		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
 	}
+	// Verify that every goat_shed_partitions entry has a corresponding shed_partitions catalog row
+	if err := tx.QueryRow(ctx, shedPartitionsCatalogInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition catalog: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition catalog invariant failed: %d active animals have goat_shed_partitions entries without matching shed_partitions catalog rows; all partitions must be catalogued", offenders)
+	}
 	return nil
 }
 
@@ -2772,6 +2827,13 @@ func verifyActiveGoatsUsePhysicalShedLocations(ctx context.Context, pool *pgxpoo
 	}
 	if offenders != 0 {
 		return fmt.Errorf("shed partition invariant failed: %d active animals are missing goat_shed_partitions lineage; planner must receive physical shed plus partition, not infer from location names", offenders)
+	}
+	// Verify that every goat_shed_partitions entry has a corresponding shed_partitions catalog row
+	if err := pool.QueryRow(ctx, shedPartitionsCatalogInvariantSQL(), tenantID).Scan(&offenders); err != nil {
+		return fmt.Errorf("verify shed partition catalog: %w", err)
+	}
+	if offenders != 0 {
+		return fmt.Errorf("shed partition catalog invariant failed: %d active animals have goat_shed_partitions entries without matching shed_partitions catalog rows; all partitions must be catalogued", offenders)
 	}
 	return nil
 }
@@ -2806,6 +2868,20 @@ WHERE g.tenant_id = $1::uuid
     OR btrim(gsp.partition_label) = ''
     OR btrim(gsp.source_shed_name) = ''
   )`
+}
+
+func shedPartitionsCatalogInvariantSQL() string {
+	return `
+SELECT count(*)
+FROM goat_shed_partitions gsp
+LEFT JOIN shed_partitions sp
+  ON sp.tenant_id = gsp.tenant_id
+ AND sp.shed_id = gsp.shed_id
+ AND sp.normalized_label = regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '')
+WHERE gsp.tenant_id = $1::uuid
+  AND btrim(gsp.partition_label) <> ''
+  AND regexp_replace(lower(btrim(gsp.partition_label)), '^part[[:space:]]+', '') <> 'whole'
+  AND sp.shed_id IS NULL`
 }
 
 func verifyVaccinationObligationsShedScopedInTx(ctx context.Context, tx pgx.Tx, tenantID string) error {

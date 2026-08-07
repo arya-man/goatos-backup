@@ -7,7 +7,6 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionLabel, optionTone, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
-import { operationalLocationLabel } from "@/lib/operational-location";
 
 function Stat({ label, value, tone, pageContract }: { label: string; value: number; tone: Tone; pageContract: AdminUiPageContract }) {
   return (
@@ -76,8 +75,7 @@ export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContrac
   const s = shed.summary;
   // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
   const owner = shed.rows.find((r) => r.owner?.operatorName)?.owner ?? shed.rows[0]?.owner;
-  // Partition label and display come from the rows (same row set as owner when available).
-  const partitionLabel = shed.rows.find((r) => r.owner?.operatorName)?.partition_label ?? shed.rows[0]?.partition_label;
+  // Operational display comes from the rows (same row set as owner when available).
   const operationalDisplay = shed.rows.find((r) => r.owner?.operatorName)?.operational_location_display ?? shed.rows[0]?.operational_location_display;
   // Shed display label: use operational_location_display from API when available (includes partition info),
   // otherwise use bare shed name. Built outside JSX to avoid line-level name+id pattern detection.

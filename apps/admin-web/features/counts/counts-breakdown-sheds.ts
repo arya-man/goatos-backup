@@ -1,4 +1,5 @@
 import type { BreakdownFilterOption } from "./counts-breakdown-filters";
+import { hasOperationalPartition, operationalLocationLabel } from "@/lib/operational-location";
 
 /**
  * One entry of the backend's park-scoped, live-herd shed filter vocabulary
@@ -120,7 +121,10 @@ export function buildShedFilterOptions(
         key: `${parkId}|${shedId}|${row.partition_label}`,
         value: `${shedId}|${row.partition_label}`,
         label: withPark(
-          row.operational_location_display || `${row.label} ${row.partition_label}`,
+          row.operational_location_display || operationalLocationLabel({
+            shedName: row.label,
+            partitionLabel: row.partition_label,
+          }),
           row.label,
           parkId,
         ),
