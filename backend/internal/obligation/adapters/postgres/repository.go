@@ -22,6 +22,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/obligation/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 )
@@ -6236,4 +6237,25 @@ WHERE suffix > 0 AND suffix < 2000`, tenant, baseKey).Scan(&nextSuffix)
 		nextSuffix = 1
 	}
 	return nextSuffix, nil
+}
+
+// ResolveShedLocation resolves a shed to its operational location (name + partition).
+// Used by the passport service to enrich obligation data with location information.
+func (r *Repository) ResolveShedLocation(ctx context.Context, tenantID, shedID string) (oploc.OperationalLocation, error) {
+	ctx, cancel := r.withTimeout(ctx)
+	defer cancel()
+	tenant, err := pgconv.UUID(tenantID)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: tenant id: %w", err)
+	}
+	shed, err := pgconv.UUID(shedID)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: shed id: %w", err)
+	}
+	row := r.pool.QueryRow(ctx, oploc.ShedScopedLocationSQL, tenant, shed)
+	loc, err := oploc.ResolveShedLocation(ctx, row)
+	if err != nil {
+		return oploc.OperationalLocation{}, fmt.Errorf("obligation: resolve shed location: %w", err)
+	}
+	return loc, nil
 }

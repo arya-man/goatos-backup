@@ -51,10 +51,39 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	}
 	// projection-review: producer unique=(tenant_id,business_date,shed_id); consumer match/group uses
 	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
+	// Partition label uses the canonical ShedScopedLocationSQL pattern: fetch exactly ONE real partition
+	// per shed and render bare shed name if multiple or none exist.
 	rows, err := r.pool.Query(ctx, `
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
-       coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at
+       coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
+       COALESCE((
+         SELECT sp.partition_label
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), ''),
+       CASE WHEN COALESCE((
+         SELECT sp.partition_label
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '') = '' THEN s.name
+       ELSE s.name || ' - ' || COALESCE((
+         SELECT sp.partition_label
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '') END
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -73,7 +102,7 @@ ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID,
 	out := make([]ports.FeedTransportTask, 0, q.Limit+1)
 	for rows.Next() {
 		var x ports.FeedTransportTask
-		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt); err != nil {
+		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt, &x.PartitionLabel, &x.OperationalLocationDisplay); err != nil {
 			return ports.FeedTransportTaskPage{}, err
 		}
 		out = append(out, x)
