@@ -300,7 +300,7 @@ export async function VaccinationShedBoard({
                           className="shed-summary-row-link"
                           scroll={false}
                           prefetch={false}
-                          aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.shedName}`}
+                          aria-label={`${copy(pageContract, "action.open_shed_board")} ${row.operationalLocationDisplay || row.shedName}`}
                         />
                       ) : null}
                       <span className="shed-summary-cell-content">
@@ -318,7 +318,7 @@ export async function VaccinationShedBoard({
                         undefined,
                         true,
                       )}
-                      {cell(<ClipText title={row.shedName}>{row.shedName}</ClipText>)}
+                      {cell(<ClipText title={row.operationalLocationDisplay || row.shedName}>{row.operationalLocationDisplay || row.shedName}</ClipText>)}
                       {cell(row.animals, "muted")}
                       {cell(row.due)}
                       {cell(row.done, "muted")}

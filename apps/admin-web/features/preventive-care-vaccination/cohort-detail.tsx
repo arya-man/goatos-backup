@@ -91,7 +91,7 @@ export function VaccinationCohortDetail({
                     <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
-                          <b>{`${c.stage} · ${c.shedName}`}</b>
+                          <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                           <div className="muted small">{c.parkName}</div>
                         </LocalOverlayLink>
                       </td>
