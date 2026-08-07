@@ -623,8 +623,8 @@ INSERT INTO vaccination_drive_assignments (
 	}
 
 	execProjectionSQL(t, ctx, pool, "move only ppr", `
-INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
+INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05',DATE '2026-08-05','CEO postponement',$3)`,
 		testTenant, testPark, testOperator)
 
 	july, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
@@ -2932,6 +2932,86 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestPartitionLabelReflectsCurrentLocationNotStaleAssignmentSnapshot(t *testing.T) {
+	t.Log("OL-13: goat moves to a different partition AFTER drive assignment; command board shows CURRENT partition, not stale assignment snapshot")
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	seedVaccinationExecutionProjection(t, ctx, pool)
+
+	// Move the goat to a different partition (goat_shed_partitions stores current location).
+	// The assignment still carries the old partition ('whole'), but resolved_partitions CTE
+	// must use the CURRENT goat location from goat_shed_partitions.
+	testShed2 := "70000000-0000-4000-8000-000000000099"
+	execProjectionSQL(t, ctx, pool, "create second subdivided shed",
+		`INSERT INTO locations (location_id, tenant_id, parent_location_id, location_type, name, status)
+		 VALUES ($1, $2, $3, 'shed', 'Test Shed Part 1', 'active')`,
+		testShed2, testTenant, testPark)
+
+	// Seed catalog: this shed has partition '1'
+	execProjectionSQL(t, ctx, pool, "create partition 1",
+		`INSERT INTO shed_partitions (tenant_id, shed_id, normalized_label, partition_label, source)
+		 VALUES ($1, $2, '1', 'Part 1', 'manual')`,
+		testTenant, testShed2)
+
+	// Seed test goat for partition move
+	testMovePartitionGoat := "80000000-0000-4000-8000-000000000097"
+	testMovePartitionObl := "80000000-0000-4000-8000-000000000098"
+	execProjectionSQL(t, ctx, pool, "create test goat for partition move",
+		`INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, current_location_id, park_id, shed_id, management_stage, health_status)
+		 VALUES ($1, $2, 'alive', 'goat', $3, 'female', $4, $5, $4, 'K1', 'healthy')`,
+		testMovePartitionGoat, testTenant, testParty, testShed2, testPark)
+
+	// Initially map goat to partition '1'
+	execProjectionSQL(t, ctx, pool, "map goat to partition 1",
+		`INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+		 VALUES ($1, $2, $3, 'Part 1', 'Test Shed')`,
+		testTenant, testMovePartitionGoat, testShed2)
+
+	// Create drive assignment with the goat at partition '1'
+	execProjectionSQL(t, ctx, pool, "drive assignment partition 1",
+		`INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count)
+		 VALUES ($1, $2, '2026-06-24'::date, $3, $4, $5, 'Test Shed', 'Part 1', 1)`,
+		testTenant, testBatch, testOperator, testPark, testShed2)
+
+	// Seed obligation for the goat at the assignment
+	insertProjectionObligation(t, ctx, pool, testMovePartitionObl, testBatch, testMovePartitionGoat, "scheduled", "2026-06-24 00:00:00+00", "test-move-partition")
+
+	// NOW move the goat to a DIFFERENT partition: 'whole' (bare case)
+	// Update the goat_shed_partitions to reflect the new location.
+	execProjectionSQL(t, ctx, pool, "move goat from Part 1 to whole (bare)",
+		`UPDATE goat_shed_partitions SET partition_label='whole' WHERE tenant_id=$1 AND goat_id=$2 AND shed_id=$3`,
+		testTenant, testMovePartitionGoat, testShed2)
+
+	// Query the execution board
+	repo := NewRepository(pool, 5*time.Second)
+	parkID := testPark
+	shedID := testShed2
+	rows, err := repo.ListVaccinationExecution(ctx, domain.ExecutionQuery{
+		TenantID: testTenant,
+		ParkID:   &parkID,
+		ShedID:   &shedID,
+		Limit:    100,
+		AsOf:     time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("ListVaccinationExecution error = %v", err)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("expected execution rows, got 0")
+	}
+
+	// Assert: partition_label should be 'whole' (the CURRENT location), not 'Part 1' (stale assignment).
+	row := rows[0]
+	if row.Partition != "" && row.Partition != "whole" {
+		t.Fatalf("partition_label = %q want 'whole' (current) or bare, not 'Part 1' (stale assignment)", row.Partition)
+	}
+	// If partition is empty string or 'whole', that's the correct case (reflects current location).
+	t.Logf("partition_label correctly shows current location: %q (not stale assignment 'Part 1')", row.Partition)
 }
 
 func TestVaccinationOperationsProjectionReadLatency(t *testing.T) {

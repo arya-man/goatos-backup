@@ -1540,6 +1540,7 @@ grouped AS (
       MAX(shed.name)
     ) AS physical_shed,
     COALESCE(
+      resolved_partitions.partition_label,
       (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
         FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
       'whole'
@@ -1596,6 +1597,9 @@ grouped AS (
     ON animal_counts.park_uuid = located.park_uuid
    AND animal_counts.shed_uuid = located.shed_uuid
    AND animal_counts.batch_id IS NOT DISTINCT FROM located.batch_id
+  LEFT JOIN resolved_partitions
+    ON resolved_partitions.park_uuid = located.park_uuid
+   AND resolved_partitions.shed_uuid = located.shed_uuid
   WHERE located.park_uuid IS NOT NULL
     AND ($2::text = '' OR located.park_uuid = $2::uuid)
     AND ($3::text = '' OR located.shed_uuid = $3::uuid)
@@ -1603,7 +1607,7 @@ grouped AS (
       $15::text = ''
       OR located.conducted_by IN (SELECT workforce_member_id FROM operator_scope_member)
     )
-  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id
+  GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, resolved_partitions.partition_label
 ),
 enriched AS (
   SELECT
