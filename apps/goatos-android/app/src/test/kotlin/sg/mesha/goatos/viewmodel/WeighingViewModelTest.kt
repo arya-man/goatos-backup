@@ -1679,6 +1679,23 @@ class WeighingViewModelTest {
         private val plannerParkBuckets: WeighingPlannerParkBucketsCache = WeighingPlannerParkBucketsCache(),
     ) : WeighingRepository {
 
+        // Cursor-append stubs. These fakes exercise the READ path; Ok(0) means "no further
+        // page", which leaves every existing assertion about page CONTENTS unchanged.
+        override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> = AppResult.Ok(0)
+
+        override suspend fun appendTaskBuckets(campaignId: String): AppResult<Int> = AppResult.Ok(0)
+
+        override suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int> = AppResult.Ok(0)
+
+        override suspend fun appendLeadershipVideos(): AppResult<Int> = AppResult.Ok(0)
+
+        override suspend fun appendPlannerParkBuckets(
+            periodStartDate: String,
+            parkId: String,
+            excludeCampaignId: String?,
+        ): AppResult<Int> = AppResult.Ok(0)
+
+
         /** Every campaign id this fake was asked to export, in order. */
         val exportCalls = mutableListOf<String>()
 
