@@ -24,8 +24,10 @@ export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
 export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"] & {
-  // Backend emits these fields (2026-08 contract update); generated type is not yet current.
-  // Extend the ActionCenterObligation type so references already light up when contract lands.
+  // The Go producer (processintegrity/domain.Row) emits BOTH of these; the generated client
+  // has not been regenerated since the schema gained them. Narrow extension rather than `any`
+  // so the call sites are type-checked today and need no edit when the client is regenerated.
+  // Both are optional here precisely because the generated type cannot yet prove them.
   partition_label?: string | null;
   operational_location_display?: string | null;
 };
