@@ -997,6 +997,19 @@ proofs AS (
      OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
    )
   WHERE vcr.tenant_id = $1::uuid
+    -- ...but NOT an attempt that has since been redone, mirroring the identical exclusion in the
+    -- expected CTE above. The denominator (expected) and the numerator (proofs) MUST agree on what
+    -- counts as a completion: excluding superseded rejections from one side only made proof_count
+    -- exceed completion_count by exactly the redone animals (7 vs 5), so the readiness gate failed
+    -- and the close button vanished again. Same rule, both sides.
+    AND NOT EXISTS (
+      SELECT 1
+      FROM vaccination_completions live
+      WHERE live.tenant_id = vcr.tenant_id
+        AND live.batch_id = vcr.batch_id
+        AND live.goat_id = vcr.goat_id
+        AND live.status IN ('recorded', 'accepted')
+    )
     AND vi.category = $2
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
