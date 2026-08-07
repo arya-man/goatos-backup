@@ -12,7 +12,7 @@ import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-c
 import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
+import { loadReassignPositionsAction, reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
@@ -36,7 +36,6 @@ function renderLabelOrFallback(label: string | null | undefined): string {
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
-  positions,
   searchParams,
   feedback,
   pageContract,
@@ -44,7 +43,6 @@ export function VerificationReviewDrawer({
 }: {
   items: VerificationQueueItem[];
   initialSelectedId?: string;
-  positions: PositionListResponse | null;
   searchParams: RouteSearchParams;
   feedback: { status?: string; code?: string };
   pageContract: AdminUiPageContract;
@@ -135,9 +133,33 @@ export function VerificationReviewDrawer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeDrawer, drawerOpen]);
 
+  // The re-assign roster loads WHEN A ROW OPENS, not on page load. It used to be an unconditional
+  // SSR fetch of 500 staff positions on the Actions page, awaited before the queue could paint,
+  // for a control only reachable from inside this drawer -- and then filtered down to the one park
+  // the item belongs to anyway. Now it is fetched per park, on demand, and cached per park for the
+  // life of the page so re-opening rows in the same park costs nothing.
+  const openParkID = drawerOpen ? (item?.park_id ?? "") : "";
+  const [positionsByPark, setPositionsByPark] = useState<Record<string, PositionListResponse | null>>({});
+  useEffect(() => {
+    if (!openParkID || openParkID in positionsByPark) return;
+    let cancelled = false;
+    // Marked in-flight before awaiting so a second open of the same park cannot race a duplicate
+    // request in; the real answer overwrites this entry when it lands.
+    setPositionsByPark((prev) => (openParkID in prev ? prev : { ...prev, [openParkID]: null }));
+    void loadReassignPositionsAction(openParkID).then((loaded) => {
+      if (!cancelled) setPositionsByPark((prev) => ({ ...prev, [openParkID]: loaded }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [openParkID, positionsByPark]);
+
   if (!item) return null;
-  const scopedPositions: PositionListResponse | null = positions
-    ? { ...positions, items: positions.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
+  // Still narrowed here: the endpoint is asked for this park, and this re-asserts it so a widened
+  // backend response can never offer the verifier a position from another park.
+  const loadedPositions = positionsByPark[item.park_id ?? ""] ?? null;
+  const scopedPositions: PositionListResponse | null = loadedPositions
+    ? { ...loadedPositions, items: loadedPositions.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
     : null;
   const returnTo = hrefWithRow(searchParams, item.item_id);
 
