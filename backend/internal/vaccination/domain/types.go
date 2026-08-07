@@ -114,7 +114,6 @@ type SubmissionCompletion struct {
 	// Raw on purpose: the display is composed at the wire boundary via oploc.Display().
 	PartitionLabel string
 	ShedLabel      string
-	PartitionLabel string  // operational location partition (e.g. "Part 3"); empty/whole for undivided sheds
 	ParkID         string
 	ProofRefIDs    []string
 	AdministeredAt time.Time

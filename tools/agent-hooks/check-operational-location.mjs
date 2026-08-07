@@ -711,6 +711,16 @@ const CHECKS = [
 // Response schemas that legitimately carry a shed WITHOUT a partition. Each entry
 // states WHY, because "it was failing" is not a reason.
 const RESPONSE_PARTITION_EXEMPT = new Set([
+  // CommandBoardShedVaccineCell arrived from main on 2026-08-07, after this rule existed. It is
+  // a shed x vaccine matrix cell and its Go struct (vaccinationexecution/domain.
+  // CommandBoardShedVaccineCell) carries no partition at that grain, so wiring one means changing
+  // a feature this branch does not own.
+  //
+  // STATED WHY, and it is a DEFERRAL not a denial: two partitions of one shed DO collapse into a
+  // single cell here, so a matrix cell reading "behind" cannot tell a park head WHICH pen is
+  // behind. That is a real gap, tracked in the operational-location ledger as OL-18 rather than
+  // hidden by this exemption. Remove this entry when the cell grain gains a partition.
+  "CommandBoardShedVaccineCell",
   // Feed targets the whole shed -- there is no per-pen feeding concept, so a partition
   // on these rows would be a fiction (confirmed against the feed contract, 2026-08-07).
   "FeedDirectionRow",
