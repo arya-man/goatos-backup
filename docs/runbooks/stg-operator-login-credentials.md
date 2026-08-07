@@ -64,18 +64,28 @@ Field roles and vaccination capacity:
   phone (Approvals module) and on admin-web `/approvals`. It is a PER-PERSON
   authority granted by name alongside their job role — `pc_director` and
   `growth_director` themselves carry no approval permission, so a future holder
-  of either job inherits none. The named list is `countsApproverEmails` in
+  of either job inherits none. The named list is `perPersonGrants` in
   `backend/cmd/seed-stg-login-grants/approvers.go`; adding an email there is the
-  act of granting the authority. Chandrakant's grant materializes ACTIVE at seed
-  (his Firebase UID is committed); Dinakar's is staged as a pending grant and
-  activates on his next sign-in, because his UID is not committed to this repo.
-  See `docs/runbooks/current-active-rbac-roles.md` -> "`counts_approver` is
-  granted by NAME".
-- Dinakar is a director user (`growth_director`), not an `operator` grant. He
-  has both-park Growth visibility and can execute Weighing scan/submit/reopen
-  flows because backend permissions expose `weighing_execute` in
-  `/app/bootstrap`. He does **not** get Vaccination, does **not** add vaccination
-  operator capacity, and does **not** get Counts.
+  act of granting the authority. Both grants materialize ACTIVE at seed:
+  Chandrakant's Firebase UID is committed, and Dinakar's user_id is resolved from
+  his existing `workforce_members` roster row (his UID is not committed to this
+  repo). See `docs/runbooks/current-active-rbac-roles.md` -> "`counts_approver`
+  is granted by NAME".
+- **Since 2026-08-07 both also hold `operator`, and Dinakar also holds
+  `pc_director`.** The `operator` grant gives them the ground surface their
+  director roles omit — `counts.write` capture (birth/death/shifting), weighing
+  execute, and the feed reads. Dinakar keeps `growth_director` alongside
+  `pc_director`, so Weighing still has an accountable director. Neither gains
+  vaccination drive capacity: the operator pool reads `workforce_positions`
+  (`position_tier <> 'director'`), not the RBAC role.
+- Dinakar's base job role is `growth_director`, giving both-park Growth
+  visibility and Weighing scan/submit/reopen (backend permissions expose
+  `weighing_execute` in `/app/bootstrap`). Superseded in part on 2026-08-07: the
+  per-person grants above now also give him Vaccination (`pc_director`), Counts
+  capture (`operator` -> `counts.write`) and approval authority
+  (`counts_approver`). What has NOT changed is vaccination drive capacity — his
+  `workforce_positions` tier is `director`, which the operator pool query
+  excludes, so he still adds none.
 - Counts (Herd Operations) is active for the `weighing_ops` department only
   (maintainer decision 2026-08-05). It remains `inactive` for the `health`
   department; `preventive_care` already carried it before that decision. Do not
