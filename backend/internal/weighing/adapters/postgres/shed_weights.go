@@ -154,6 +154,31 @@ lump AS (
    AND sh.verification_status <> 'rejected'
   WHERE s.weighing_category = 'per_shed_partition'
 ),
+-- Whole-shed average movement across the FULL window span, per LOCATION rather than
+-- per bucket: each weigh of a shed is its own bucket, so the history lives across
+-- buckets and a per-bucket view would see one point and no trend.
+shed_span AS (
+  SELECT s.location_id,
+         min(sh.average_weight_kg) FILTER (WHERE sh.rn_first = 1) AS first_avg,
+         min(sh.average_weight_kg) FILTER (WHERE sh.rn_last = 1)  AS last_avg,
+         max(sh.d) - min(sh.d)                                    AS span_days
+  FROM scoped s
+  JOIN (
+    SELECT o.campaign_shed_id, o.average_weight_kg,
+           (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id ORDER BY o.accepted_at)      AS rn_first,
+           row_number() OVER (PARTITION BY cs2.location_id ORDER BY o.accepted_at DESC) AS rn_last
+    FROM weighing_shed_observations o
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = o.campaign_shed_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
+    WHERE o.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND o.withdrawn_at IS NULL AND o.verification_status <> 'rejected'
+      AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+  ) sh ON sh.campaign_shed_id = s.campaign_shed_id
+  WHERE s.weighing_category = 'per_shed_partition'
+  GROUP BY s.location_id
+  HAVING max(sh.d) > min(sh.d)
+),
 per_bucket AS (
   SELECT s.*,
          COALESCE(ind.animals, lump.animals, 0)      AS animals,
@@ -184,8 +209,12 @@ SELECT b.location_id, b.park_id,
        COALESCE(pk.name, ''), COALESCE(sh.name, ''),
        b.weighing_category, b.bucket_status,
        b.animals, b.avg_kg, b.total_kg, b.last_weighed,
-       b.ge_lower, b.ge_upper, b.threshold_basis
+       b.ge_lower, b.ge_upper, b.threshold_basis,
+       CASE WHEN ss.span_days > 0
+            THEN (ss.last_avg - ss.first_avg) * 1000.0 / ss.span_days END,
+       COALESCE(ss.span_days, 0)
 FROM latest_bucket b
+LEFT JOIN shed_span ss ON ss.location_id = b.location_id
 LEFT JOIN locations sh ON sh.location_id = b.location_id
 LEFT JOIN locations pk ON pk.location_id = b.park_id
 ORDER BY COALESCE(pk.name, ''), COALESCE(sh.name, '')
@@ -211,11 +240,13 @@ LIMIT $7`
 			geLower     int
 			geUpper     int
 			basis       int
+			shedGain    *float64
+			spanDays    int
 		)
 		if err := rows.Scan(&row.LocationID, &row.ParkID, &row.ParkName, &row.ShedDisplayName,
 			&row.WeighingCategory, &row.BucketStatus,
 			&animals, &avgKg, &totalKg, &lastWeighed,
-			&geLower, &geUpper, &basis); err != nil {
+			&geLower, &geUpper, &basis, &shedGain, &spanDays); err != nil {
 			return domain.ShedWeights{}, err
 		}
 		row.AnimalsWeighed = animals
@@ -228,6 +259,8 @@ LIMIT $7`
 		if lastWeighed != nil {
 			row.LastWeighedDate = lastWeighed.Format("2006-01-02")
 		}
+		row.ShedAverageGainGPerDay = shedGain
+		row.GainSpanDays = spanDays
 		out.Rows = append(out.Rows, row)
 
 		summary.ShedsInScope++
