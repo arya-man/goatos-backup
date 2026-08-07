@@ -239,6 +239,28 @@ function VerificationReviewDrawerPanel({
   // missing while the only box she could type it into had just disappeared, and pressing Reject
   // again simply repeated the error. It was an inescapable loop.
   const [rejecting, setRejecting] = useState(feedback.code === "missing_reason");
+  // The reason TEXT is state, not just DOM, because the Reject button's type depends on it: an
+  // empty reason must never be submittable. Seeding `rejecting` open (above) was not enough on its
+  // own -- it also flipped Reject straight to type=submit, so the next click re-posted an empty
+  // reason and bounced with the same error. Correct-by-construction beats a better error message.
+  const [reason, setReason] = useState("");
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const reasonReady = reason.trim().length > 0;
+
+  // When the reason field opens -- by pressing Reject, or seeded by the server's missing_reason --
+  // put the caret in it AND scroll it into view. The modal body is a scrolling column with the
+  // verdict footer pinned below it, so on a short viewport the field opens BELOW the fold: the
+  // verifier presses Reject, the screen looks unchanged, and the box she is being asked to fill is
+  // off-screen under the footer. Focus alone is not enough -- it does not reliably scroll inside an
+  // overflow container -- so the scroll is explicit.
+  useEffect(() => {
+    if (!rejecting) return;
+    const field = reasonRef.current;
+    if (!field) return;
+    field.focus();
+    field.scrollIntoView({ block: "nearest" });
+  }, [rejecting]);
+
   const mediaIndex = mediaSelection.itemId === item.item_id ? mediaSelection.index : 0;
   const setMediaIndex = (index: number) => setMediaSelection({ itemId: item.item_id, index });
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -522,10 +544,13 @@ function VerificationReviewDrawerPanel({
                         unused for Approve, so the rule lives in the server action and the backend
                         (422), not in a per-button HTML attribute. */}
                     <textarea
+                      ref={reasonRef}
                       name="reason"
                       rows={2}
                       placeholder={text("verdict.reason_placeholder")}
                       disabled={verdictSettled}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
                     />
                   </label>
                   {rejecting ? <div className="small muted">{text("verdict.reason_required")}</div> : null}
@@ -571,9 +596,20 @@ function VerificationReviewDrawerPanel({
           {/* Reject and Accept buttons on right (shown only for verifiers) */}
           {mayReview ? (
             <>
+              {/* type=submit ONLY once a reason exists. While the box is empty this stays a plain
+                  button that opens/refocuses the field, so an empty rejection cannot be POSTed at
+                  all -- the server's 422 becomes unreachable from the UI instead of something the
+                  verifier has to read and recover from. */}
               <button
-                type={rejecting ? "submit" : "button"}
-                onClick={rejecting ? undefined : () => setRejecting(true)}
+                type={rejecting && reasonReady ? "submit" : "button"}
+                onClick={
+                  rejecting && reasonReady
+                    ? undefined
+                    : () => {
+                        setRejecting(true);
+                        reasonRef.current?.focus();
+                      }
+                }
                 form="verdict-form"
                 name="decision"
                 value="rejected"
