@@ -4,7 +4,7 @@
 -- item's source at creation time (e.g., from goat_shed_partitions for vaccination items).
 --
 -- LOCK SAFETY: ADD COLUMN nullable is a fast catalog-only change (no table rewrite).
--- The partition-aware index is built CONCURRENTLY in 000125, which cannot share this
+-- The partition-aware index is built CONCURRENTLY in 000128, which cannot share this
 -- migration: goose's NO TRANSACTION marker applies to the WHOLE migration, so keeping the
 -- concurrent index here would either run it inside a transaction (Postgres rejects it outright)
 -- or strip the transaction from this ALTER + backfill, losing their atomicity.
