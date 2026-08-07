@@ -13,6 +13,10 @@
 /.next/
 # The e2e run uses its own build dir, which .next/ does not cover.
 /.next-e2e/
+# A second dev server (GOATOS_DEV_DIST_DIR) running beside an existing one on
+# another port writes here — same reason as .next-e2e above: its own build dir,
+# not covered by .next/, and 80MB+ of webpack output that must never be committed.
+/.next-weights/
 /out/
 
 # production

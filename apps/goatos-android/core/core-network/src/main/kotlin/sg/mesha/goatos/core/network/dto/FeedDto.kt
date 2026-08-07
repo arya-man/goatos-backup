@@ -163,8 +163,20 @@ data class FeedDirectionRowDto(
      * grouping columns the backend generates on — NOT from list position.
      */
     val grainKey: String
-        get() = listOf(shedId, workflow, rationGroup, experimentArm, shedTag, sessionNo.toString())
-            .joinToString("|")
+        get() = listOf(
+            shedId,
+            // PARTITION IS PART OF THE IDENTITY, not just the label. A feed row's grain is the
+            // OPERATIONAL LOCATION, so Castro 1 and Castro 2 share a shed_id and agree on every
+            // other column here. Leaving the partition out made them the SAME key -- and because
+            // this is the Room primary key, one silently OVERWROTE the other: the sheet showed
+            // "Castro - 2" and no Castro 1 at all, a dropped pen rather than a mislabelled one.
+            partitionLabel.orEmpty(),
+            workflow,
+            rationGroup,
+            experimentArm,
+            shedTag,
+            sessionNo.toString(),
+        ).joinToString("|")
 }
 
 /** Whole-filtered-scope rollup (invariant to limit/offset). */
@@ -222,7 +234,11 @@ data class FeedPackingRowDto(
     @SerialName("blocked_reasons") val blockedReasons: List<FeedBlockedReasonDto> = emptyList(),
 ) {
     val grainKey: String
-        get() = listOf(shedId, workflow, sessionNo.toString()).joinToString("|")
+        // Same rule as the direction row, and it bites harder here: this key had ONLY
+        // shedId|workflow|sessionNo, so every partition of a shed collapsed into a single bag line.
+        // One bag per OPERATIONAL LOCATION is the whole point -- Castro 1 and Castro 2 are packed
+        // separately and can carry very different quantities.
+        get() = listOf(shedId, partitionLabel.orEmpty(), workflow, sessionNo.toString()).joinToString("|")
 
     companion object {
         const val STATUS_READY = "ready"
