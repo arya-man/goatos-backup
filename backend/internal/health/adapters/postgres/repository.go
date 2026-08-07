@@ -63,7 +63,7 @@ func (r *Repository) OpenCase(ctx context.Context, in domain.OpenCaseInput) (dom
 	err = tx.QueryRow(ctx, `
 SELECT g.lifecycle_status, coalesce(g.age_band,''), g.park_id::text, g.shed_id::text, gsp.partition_label
 FROM goats g
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
 WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid
 FOR SHARE OF g`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
