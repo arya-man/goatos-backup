@@ -60,7 +60,12 @@ func TestRolePermissionMatrix(t *testing.T) {
 		{RoleCEOInternal, VerificationReview, true},
 		{RoleOperator, VerificationReview, false},
 		{RoleParkHead, VerificationReview, false},
-		{RolePCDirector, VerificationReview, false},
+		// pc_director READS the queue (maintainer decision 2026-08-08). This row asserted false
+		// until then, which is why the backend-composed nav offered the PC Director a Videos entry
+		// whose only backing read 403'd on-device. The PC Director owns Vaccination, so the person
+		// accountable for the module must be able to see the evidence trail for it. He still may
+		// NOT sign the verdict -- VerificationVerdict stays verifier-only, asserted below.
+		{RolePCDirector, VerificationReview, true},
 		// DECIDING on it is the Verifier's alone (maintainer decision 2026-08-03). CEO/CxO reads the
 		// same queue and still closes the work, but may not sign off the second check on itself.
 		{RoleVerifier, VerificationVerdict, true},
