@@ -2065,13 +2065,13 @@ func scanItemRow(row rowScanner) (domain.Item, error) {
 
 func scanItem(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                            domain.Item
-		sourceTaskID, sourceSubmissionID                                *string
+		item                                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                                *string
 		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel, subjectNote                                       *string
-		mediaJSON                                                       []byte
-		appliedByModule                                                 *string
-		verifiedAt, closedAt, appliedAt                                 *time.Time
+		subjectLabel, subjectNote                                                       *string
+		mediaJSON                                                                       []byte
+		appliedByModule                                                                 *string
+		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
@@ -2111,14 +2111,14 @@ func scanItem(row rowScanner) (domain.Item, error) {
 
 func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                            domain.Item
-		sourceTaskID, sourceSubmissionID                                *string
+		item                                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                                *string
 		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel, subjectNote                                       *string
-		operatorName, verifiedByName, shedLabel, parkLabel              *string
-		appliedByModule                                                 *string
-		mediaJSON                                                       []byte
-		verifiedAt, closedAt, appliedAt                                 *time.Time
+		subjectLabel, subjectNote                                                       *string
+		operatorName, verifiedByName, shedLabel, parkLabel                              *string
+		appliedByModule                                                                 *string
+		mediaJSON                                                                       []byte
+		verifiedAt, closedAt, appliedAt                                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
