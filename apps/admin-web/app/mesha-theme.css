@@ -2031,3 +2031,9 @@ select:disabled { opacity: .45; }
 .metricseg a.on{background:var(--panel);color:var(--brand-d)}
 .card .h{display:flex;align-items:center;gap:8px}
 .wbars-empty{display:grid;place-items:center;text-align:center;padding:0 14px}
+
+/* The Weights metric strip. The default 12px grid gap made six cards read as one
+   slab; these are separate figures and want visible air between them. */
+.kpi-row{gap:16px}
+.kpi-row .kpi{padding:14px 16px}
+@media(max-width:1080px){.kpi-row{gap:12px}}

@@ -172,7 +172,15 @@ export async function WeighingWeightsPage({
         )
       : [];
 
-  const losingAll = growth.ok ? growth.data.losing_animals : [];
+  // Biggest loss first: the kid that dropped most is the one to go and look at.
+  // Sorted on the CHANGE, not the daily rate, because that is what the table shows
+  // and a reader ordering by an unshown column has no way to check the order.
+  const losingAll = (growth.ok ? growth.data.losing_animals : [])
+    .slice()
+    .sort(
+      (a, b) =>
+        a.latest_weight_kg - a.previous_weight_kg - (b.latest_weight_kg - b.previous_weight_kg),
+    );
   const losingSlice = losingAll.slice(losingOffset, losingOffset + DEFAULT_LIMIT);
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
@@ -261,7 +269,7 @@ export async function WeighingWeightsPage({
         {periodStart} – {periodEnd}
       </p>
 
-      <section className="grid g6" aria-label={copy(pageContract, "section.sheds.aria")}>
+      <section className="grid g6 kpi-row" aria-label={copy(pageContract, "section.sheds.aria")}>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.kids.label")}</div>
           <div className="val">{summary.animals_weighed.toLocaleString("en-IN")}</div>
@@ -317,7 +325,7 @@ export async function WeighingWeightsPage({
       </section>
 
       {perParkGain.length > 0 ? (
-        <section className="grid g3" aria-label={copy(pageContract, "section.park_gain.aria")}>
+        <section className="grid g3 kpi-row" aria-label={copy(pageContract, "section.park_gain.aria")}>
           <div className="kpi">
             <div className="lab">
               {copy(pageContract, "kpi.park_gain.all")} {copy(pageContract, "kpi.park_gain.suffix")}
