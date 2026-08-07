@@ -1162,7 +1162,7 @@ class DefaultWeighingRepository(
                     keys.pruneOutsideNewestQueries(WEIGHING_CACHED_TASK_FILTERS)
                 }
                 AppResult.Ok(response.items.size)
-            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing tasks.")) }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next weighing tasks.")) }
         }
 
     override suspend fun appendTaskBuckets(campaignId: String): AppResult<Int> =
@@ -1208,7 +1208,7 @@ class DefaultWeighingRepository(
                     keys.pruneOutsideNewestQueries(WEIGHING_CACHED_TASKS)
                 }
                 AppResult.Ok(response.items.size)
-            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more records for this task.")) }
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next records for this task.")) }
         }
 
     override fun observeLeadershipShed(
@@ -1305,7 +1305,7 @@ class DefaultWeighingRepository(
                 keys.pruneOrphans()
             }
             AppResult.Ok(response.individual.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more records for this shed.")) }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next records for this shed.")) }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -1432,7 +1432,7 @@ class DefaultWeighingRepository(
                 leadershipRecordKeyDao?.pruneOrphans()
             }
             AppResult.Ok(response.items.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing videos.")) }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -1706,7 +1706,7 @@ class DefaultWeighingRepository(
                 keys.pruneOutsideNewestQueries(WEIGHING_CACHED_BUCKET_PARKS)
             }
             AppResult.Ok(response.sheds.size)
-        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing planner buckets.")) }
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not fetch the next planner buckets.")) }
     }
 
     /**

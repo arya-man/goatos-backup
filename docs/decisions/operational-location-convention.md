@@ -316,11 +316,11 @@ A migration, domain field, decoder helper, OpenAPI entry, and two client DTOs ca
 
 ### Rule 5: Confirm the Repo Path Before Editing
 
-This workspace has multiple checkouts (`/Users/ravi/mesha/goatos`, `/Users/ravi/mesha/goatos-land`, review worktrees). An agent who does not confirm its tree will edit the wrong one.
+This workspace has multiple checkouts (`<another checkout>`, `<this repo>`, review worktrees). An agent who does not confirm its tree will edit the wrong one.
 
 **Rule for delegated work:** state the absolute repo path in the brief and confirm with `git rev-parse --show-toplevel` before the first edit.
 
-**Defect:** Subagent edited `/Users/ravi/mesha/goatos/docs/decisions/...` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/...` and reported files "don't exist" when simply in the wrong tree.
+**Defect:** Subagent edited `<another checkout>/docs/decisions/...` instead of `<this repo>/docs/decisions/...` and reported files "don't exist" when simply in the wrong tree.
 
 ---
 

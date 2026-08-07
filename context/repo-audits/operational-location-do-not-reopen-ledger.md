@@ -450,20 +450,20 @@ WHERE NOT EXISTS (
 
 ### RULE-5: Confirm the Repo Path Before Editing
 
-**Defect:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `/Users/ravi/mesha/goatos/docs/decisions/operational-location-convention.md` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/operational-location-convention.md`. Work was unusable and had to be discarded.
+**Defect:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `<another checkout>/docs/decisions/operational-location-convention.md` instead of `<this repo>/docs/decisions/operational-location-convention.md`. Work was unusable and had to be discarded.
 
 **Statement:** This workspace has multiple checkouts. An agent who does not confirm its tree will edit the wrong one. "File not found" means check the tree before concluding the code is missing.
 
 **Verification:** For delegated work:
 1. State the absolute repo path in the brief  
 2. Confirm with `git rev-parse --show-toplevel` before the first edit
-3. Expected: `/Users/ravi/mesha/goatos-land` for this repo
+3. Expected: the repo root named in your brief
 
 **Guard Proof:**
 ```bash
 # Every agent must log its repo root at session start
 git rev-parse --show-toplevel
-# Expected output: /Users/ravi/mesha/goatos-land
+# Expected output: the repo root you were told to work in
 ```
 
 ---
