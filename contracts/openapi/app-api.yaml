@@ -18790,6 +18790,24 @@ components:
       properties:
         goat_id:
           type: string
+        park_id:
+          type: string
+          description: UUID of the park the goat is currently assigned to. Empty if location unknown.
+        park_name:
+          type: string
+          description: Display name of the park. Empty if location unknown.
+        shed_id:
+          type: string
+          description: UUID of the physical shed. Empty if location unknown.
+        shed_name:
+          type: string
+          description: Display name of the physical shed. Empty if location unknown.
+        partition_label:
+          type: string
+          description: Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'.
+        operational_location_display:
+          type: string
+          description: Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown.
         next_due:
           anyOf:
             - $ref: "#/components/schemas/VaccinationPassportDue"
