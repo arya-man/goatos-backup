@@ -19,6 +19,8 @@ import { SopChecklist } from "./sop-checklist";
 import { actionWorkTitle } from "./action-center-presenters";
 import { EvidenceMedia } from "./evidence-media";
 
+const OPEN_FALLBACK_MS = 50;
+
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
   broken: "high",
   at_risk: "med",
@@ -80,33 +82,52 @@ export function ActionCenterLocalDrawer({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
+  const openFallbackRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
 
-  const showDrawer = useCallback((row: ActionCenterObligation): void => {
-    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+  // The open class must never depend on one animation frame landing: a busy or
+  // backgrounded tab can skip it, leaving a mounted drawer parked off-screen
+  // behind its scrim (shade visible, no panel). A timer races the frame.
+  const cancelPendingOpen = useCallback((): void => {
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setDisplayedRow(row);
-    openFrameRef.current = window.requestAnimationFrame(() => {
-      setDrawerOpen(true);
-      openFrameRef.current = null;
-    });
+    if (openFallbackRef.current !== null) window.clearTimeout(openFallbackRef.current);
+    openFrameRef.current = null;
+    openFallbackRef.current = null;
   }, []);
 
+  const showDrawer = useCallback(
+    (row: ActionCenterObligation): void => {
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setDisplayedRow(row);
+      cancelPendingOpen();
+      const open = (): void => {
+        cancelPendingOpen();
+        setDrawerOpen(true);
+      };
+      openFrameRef.current = window.requestAnimationFrame(open);
+      openFallbackRef.current = window.setTimeout(open, OPEN_FALLBACK_MS);
+    },
+    [cancelPendingOpen],
+  );
+
   const hideDrawer = useCallback((): void => {
-    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+    cancelPendingOpen();
     if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     setDrawerOpen(false);
     closeTimerRef.current = window.setTimeout(() => {
       setDisplayedRow(undefined);
       closeTimerRef.current = null;
     }, 280);
-  }, []);
+  }, [cancelPendingOpen]);
 
-  useEffect(() => () => {
-    if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
-    if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      cancelPendingOpen();
+      if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
+    },
+    [cancelPendingOpen],
+  );
 
   useEffect(() => {
     function syncSelectionFromUrl(): void {
@@ -120,9 +141,10 @@ export function ActionCenterLocalDrawer({
     window.addEventListener("popstate", syncSelectionFromUrl);
     window.addEventListener("hashchange", syncSelectionFromUrl);
     window.addEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
-    const initialFrame = window.requestAnimationFrame(syncSelectionFromUrl);
+    // Sync immediately; a deep-linked drawer must not wait for a frame a hidden
+    // or busy tab may never deliver.
+    syncSelectionFromUrl();
     return () => {
-      window.cancelAnimationFrame(initialFrame);
       window.removeEventListener("popstate", syncSelectionFromUrl);
       window.removeEventListener("hashchange", syncSelectionFromUrl);
       window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncSelectionFromUrl);
