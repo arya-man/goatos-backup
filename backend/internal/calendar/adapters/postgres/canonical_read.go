@@ -533,47 +533,17 @@ batch_events AS (
         goat_shed.location_id,
         CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.location_id END
       ))::int AS shed_count,
-      -- shed_labels now includes partition information per shed (when all animals in the shed share
-      -- the same real partition, the partition is included; otherwise bare shed name only).
-      -- This uses the same partition-detection logic as obligation_drive_shed_animals (see the
-      -- "DEFECT-1 fix" CTE around line 1187-1244): count distinct partitions per shed to determine
-      -- if a single partition can be attributed to the whole shed. The subquery groups by shed_id
-      -- to resolve the partition per shed before aggregating back to the batch level.
-      (SELECT coalesce(jsonb_agg(jsonb_build_object(
-        'shed_name', per_shed.shed_name,
-        'partition_label', per_shed.single_partition_label
-      ) ORDER BY per_shed.shed_name), '[]'::jsonb)
-      FROM (
-        SELECT
-          COALESCE(goat_shed2.location_id, (CASE WHEN scope_loc2.location_type = 'shed' THEN scope_loc2.location_id END))::uuid AS shed_id,
-          COALESCE(goat_shed2.name, CASE WHEN scope_loc2.location_type = 'shed' THEN scope_loc2.name END) AS shed_name,
-          CASE
-            WHEN count(DISTINCT gsp2.partition_label) FILTER (WHERE gsp2.partition_label IS NOT NULL AND gsp2.partition_label <> 'whole') = 1
-              THEN min(gsp2.partition_label) FILTER (WHERE gsp2.partition_label IS NOT NULL AND gsp2.partition_label <> 'whole')
-            ELSE NULL
-          END AS single_partition_label
-        FROM obligation_instances oi2
-        LEFT JOIN goats g2
-          ON g2.tenant_id = oi2.tenant_id
-         AND oi2.target_type = 'goat'
-         AND g2.goat_id = oi2.target_id
-         AND g2.merged_into_goat_id IS NULL
-        LEFT JOIN locations goat_shed2
-          ON goat_shed2.tenant_id = oi2.tenant_id
-         AND goat_shed2.location_id = g2.shed_id
-         AND goat_shed2.location_type = 'shed'
-        LEFT JOIN goat_shed_partitions gsp2
-          ON gsp2.tenant_id = oi2.tenant_id
-         AND gsp2.goat_id = oi2.target_id
-         AND gsp2.shed_id = g2.shed_id
-        LEFT JOIN locations scope_loc2
-          ON scope_loc2.tenant_id = ob.tenant_id AND scope_loc2.location_id = ob.scope_id
-        WHERE oi2.tenant_id = ob.tenant_id AND oi2.batch_id = ob.batch_id
-        GROUP BY
-          COALESCE(goat_shed2.location_id, (CASE WHEN scope_loc2.location_type = 'shed' THEN scope_loc2.location_id END)),
-          COALESCE(goat_shed2.name, CASE WHEN scope_loc2.location_type = 'shed' THEN scope_loc2.name END)
-      ) per_shed
-      WHERE per_shed.shed_name IS NOT NULL
+      array_agg(DISTINCT COALESCE(
+        goat_shed.name,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+      ) ORDER BY COALESCE(
+        goat_shed.name,
+        CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+      )) FILTER (
+        WHERE COALESCE(
+          goat_shed.name,
+          CASE WHEN scope_loc.location_type = 'shed' THEN scope_loc.name END
+        ) IS NOT NULL
       ) AS shed_labels,
       -- Cross-surface parity: count DISTINCT animals (like the single-shed drive path at
       -- count(DISTINCT oi.target_id) above and the operator drive schedule), NOT
