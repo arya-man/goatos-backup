@@ -133,6 +133,10 @@ data class FeedDirectionRowDto(
     @SerialName("park_label") val parkLabel: String = "",
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("shed_label") val shedLabel: String = "",
+    // A feed row's grain is the OPERATIONAL LOCATION, not the shed: Castro 1 and Castro 2 are two
+    // rows sharing one shed_id. Render shed + partition together via PartitionLabel.display -- the
+    // bare shed name would print two identical lines for two different pens.
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("shed_tag") val shedTag: String = "",
     @SerialName("breed") val breed: String = "",
     @SerialName("ration_group") val rationGroup: String = "",
@@ -198,6 +202,10 @@ data class FeedPackingRowDto(
     @SerialName("park_label") val parkLabel: String = "",
     @SerialName("shed_id") val shedId: String = "",
     @SerialName("shed_label") val shedLabel: String = "",
+    // One bag per operational location. Two "Castro" lines with no partition leave the packer
+    // unable to tell which pen either bag is for, and the quantities can differ sharply when some
+    // partitions run an authored experiment and the rest the per-head grid.
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int = 0,
     @SerialName("session_label") val sessionLabel: String = "",
     @SerialName("workflow") val workflow: String = "",

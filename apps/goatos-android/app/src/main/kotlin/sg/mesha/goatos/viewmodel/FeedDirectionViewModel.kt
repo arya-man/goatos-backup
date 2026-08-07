@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
@@ -275,7 +276,10 @@ class FeedDirectionViewModel @Inject constructor(
         parkId = parkId,
         shedId = shedId,
         sessionNo = sessionNo,
-        shedLabel = shedLabel,
+        // Shed + partition, never the bare shed name: a feed/packing row is one OPERATIONAL
+        // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
+        // identical "Castro" lines the operator cannot tell apart.
+        shedLabel = operationalLocationLabel(shedLabel, partitionLabel),
         shedTag = shedTag,
         breed = breed,
         rationGroup = rationGroup,
