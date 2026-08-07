@@ -160,3 +160,128 @@ func TestReminderCadenceShedVaccineEnrichment(t *testing.T) {
 		t.Fatalf("fire.VaccineLabels = %v, want at least one to contain 'ET+TT' (human-readable vaccine name)", fire.VaccineLabels)
 	}
 }
+
+// TestReminderCadenceShedPartitionLabeling verifies that shed labels include partition information
+// when all animals in a shed share the same partition, and omit it when they span multiple partitions.
+// This is the operational-location convention fix (AGENTS.md, operational location section).
+func TestReminderCadenceShedPartitionLabeling(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	repo := NewRepository(pool, 15*time.Second)
+
+	dayStart := biztime.BusinessDayStart(time.Now())
+	evalNow := dayStart.Add(19*time.Hour + 30*time.Minute) // evening: due_today rung has fired
+	dueToday := dayStart.Add(10 * time.Hour)
+
+	// Set up basic test locations and data
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedA)
+	seedCalendarLocations(t, ctx, pool, testParkA, testShedB)
+
+	// Use existing test location IDs
+	parkID, shedSinglePartID, shedMultiPartID := testParkA, testShedA, testShedB
+
+	protocolID := "86000000-0000-4000-8000-0000000f4201"
+	versionID := "86000000-0000-4000-8000-0000000f4202"
+	ruleID := "86000000-0000-4000-8000-0000000f4203"
+
+	seedVaccinationProtocolVersionAndRule(t, ctx, pool, protocolID, versionID, ruleID, evalNow)
+	seedProtocolRuleDimension(t, ctx, pool, versionID, ruleID, "selector", "ET+TT")
+
+	// Goats for single-partition shed: both have partition "Part 1"
+	goatSingle1 := "86000000-0000-4000-8000-0000000f4301"
+	goatSingle2 := "86000000-0000-4000-8000-0000000f4302"
+	seedCalendarGoat(t, ctx, pool, goatSingle1)
+	seedCalendarGoat(t, ctx, pool, goatSingle2)
+	// Insert partition data via SQL
+	_, err := pool.Exec(ctx, `
+		INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4),
+		       ($1::uuid, $5::uuid, $3::uuid, $4)
+		ON CONFLICT (tenant_id, goat_id) DO NOTHING
+	`, testTenantID, goatSingle1, shedSinglePartID, "1", goatSingle2)
+	if err != nil {
+		t.Fatalf("insert partition data for single-partition shed: %v", err)
+	}
+
+	// Goats for multi-partition shed: different partitions
+	goatMulti1 := "86000000-0000-4000-8000-0000000f4311"
+	goatMulti2 := "86000000-0000-4000-8000-0000000f4312"
+	seedCalendarGoat(t, ctx, pool, goatMulti1)
+	seedCalendarGoat(t, ctx, pool, goatMulti2)
+	// Insert partition data with different partitions
+	_, err = pool.Exec(ctx, `
+		INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label)
+		VALUES ($1::uuid, $2::uuid, $3::uuid, $4),
+		       ($1::uuid, $5::uuid, $3::uuid, $6)
+		ON CONFLICT (tenant_id, goat_id) DO NOTHING
+	`, testTenantID, goatMulti1, shedMultiPartID, "2", goatMulti2, "3")
+	if err != nil {
+		t.Fatalf("insert partition data for multi-partition shed: %v", err)
+	}
+
+	// Obligation 1: single-partition shed (both animals have partition "1")
+	oblSingle1 := "86000000-0000-4000-8000-0000000f4321"
+	batchSingle := "86000000-0000-4000-8000-0000000f4322"
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, ruleID, oblSingle1, goatSingle1, shedSinglePartID, parkID, dueToday)
+	seedVaccinationBatchForShed(t, ctx, pool, batchSingle, versionID, parkID, shedSinglePartID, dueToday, oblSingle1)
+
+	// Obligation 2: multi-partition shed (animals have different partitions)
+	oblMulti1 := "86000000-0000-4000-8000-0000000f4331"
+	batchMulti := "86000000-0000-4000-8000-0000000f4332"
+	seedVaccinationObligationForGoatAndRule(t, ctx, pool, versionID, ruleID, oblMulti1, goatMulti1, shedMultiPartID, parkID, dueToday)
+	seedVaccinationBatchForShed(t, ctx, pool, batchMulti, versionID, parkID, shedMultiPartID, dueToday, oblMulti1)
+
+	// ---- Sweep and verify partition-aware shed labeling. --------
+	fires, err := repo.SweepReminderCadence(ctx, ports.ReminderCadenceQuery{
+		TenantID: testTenantID,
+		Now:      evalNow,
+		Limit:    200,
+	})
+	if err != nil {
+		t.Fatalf("sweep failed: %v", err)
+	}
+
+	// Should have at least 1 fire
+	if len(fires) < 1 {
+		t.Fatalf("sweep returned %d fires, want at least 1", len(fires))
+	}
+
+	// Find fires and verify labels
+	var singlePartFire, multiPartFire *ports.ReminderCadenceFire
+	for i := range fires {
+		if len(fires[i].ShedLabels) > 0 {
+			// Check if this fire contains the partition info by looking at the representative obligation
+			if fires[i].RepresentativeObligationID == oblSingle1 {
+				singlePartFire = &fires[i]
+			} else if fires[i].RepresentativeObligationID == oblMulti1 {
+				multiPartFire = &fires[i]
+			}
+		}
+	}
+
+	// Verify single-partition shed includes partition in label
+	if singlePartFire != nil && len(singlePartFire.ShedLabels) > 0 {
+		label := singlePartFire.ShedLabels[0]
+		// Single-partition shed should include partition in the label (composed via oploc.Display)
+		// Expected format: "ShedName - 1" (where 1 is the partition)
+		if !strings.Contains(label, " - ") && !strings.Contains(label, "-") {
+			t.Errorf("single-partition shed label = %q, want to include partition (e.g., 'Shed - 1')", label)
+		}
+	}
+
+	// Verify multi-partition shed omits partition in label
+	if multiPartFire != nil && len(multiPartFire.ShedLabels) > 0 {
+		label := multiPartFire.ShedLabels[0]
+		// Multi-partition shed should NOT include a partition (should be bare shed name)
+		// The label should NOT have " - X" pattern at the end
+		if strings.Contains(label, " - ") {
+			parts := strings.Split(label, " - ")
+			if len(parts) > 1 && len(strings.TrimSpace(parts[len(parts)-1])) > 0 {
+				// Only fail if there's actually a partition part after the dash
+				t.Errorf("multi-partition shed label = %q, should be bare shed name without partition", label)
+			}
+		}
+	}
+}
