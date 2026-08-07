@@ -86,6 +86,19 @@ function enabledNavHrefs(contract: AdminWebBootstrapResponse): string[] {
   ].map((item) => item.href);
 }
 
+function contractRoutePaths(contract: AdminWebBootstrapResponse): Set<string> {
+  return new Set(contract.pages.map((page) => hrefPathname(page.href)));
+}
+
+function navItemHasRoute(item: NavItem, routePaths: Set<string>): boolean {
+  const path = hrefPathname(item.href);
+  return routePaths.has(path) || routePaths.has(path.replace(/\/[^/]+$/g, "/{param}"));
+}
+
+function contractRoutedNavItems(items: NavItem[], routePaths: Set<string>): NavItem[] {
+  return items.filter((item) => navItemHasRoute(item, routePaths));
+}
+
 /**
  * Query keys that tell apart nav entries sharing one route, keyed by href.
  *
@@ -173,8 +186,12 @@ export function MeshaShell({
   const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
-  const primary = contract.navigation.primary;
-  const groups = contract.navigation.groups;
+  const routePaths = useMemo(() => contractRoutePaths(contract), [contract]);
+  const primary = useMemo(() => contractRoutedNavItems(contract.navigation.primary, routePaths), [contract, routePaths]);
+  const groups = useMemo(() => contract.navigation.groups.map((group) => ({
+    ...group,
+    leaves: contractRoutedNavItems(group.leaves, routePaths),
+  })), [contract, routePaths]);
   // Nav chrome is 100% backend-owned. The frontend NEVER counts modules, checks
   // role, or computes chrome — it renders the enum only. Fail open:
   // anything other than an explicit "minimal" keeps the sidebar, so a contract

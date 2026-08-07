@@ -328,6 +328,8 @@ func pages() []domain.PageContract {
 		page("workflows", "/workflows", "/workflows", "Workflows", "Config → obligation → SOP → proof → verification → completion workflow records.", "command-lens",
 			[]domain.TableContract{table("workflow-catalog", "Workflow catalog", "/vaccination/action-center", []string{"workflow", "stage", "owner", "next_action", "status"}, "wf_row")}),
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
+		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
+			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
 		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
 			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
