@@ -87,6 +87,7 @@ derived_park AS (
   LEFT JOIN locations p
     ON p.tenant_id = m.tenant_id
    AND p.location_id = m.parent_location_id
+  -- projection-review: membership=the Mandela 2 parent shed rows this script derives its park from; group_key=(m.tenant_id, m.parent_location_id, p.name); join_cardinality=locations is joined by (tenant_id, location_id) which is its primary key, so the join is strictly 1:1 and cannot inflate park_active_count; pagination=none -- this is a one-shot evidence SELECT a human reads before deciding, never a paged surface; scope=one tenant, asserted in STEP 0.
   GROUP BY m.tenant_id, m.parent_location_id, p.name
 )
 SELECT tenant_id, park_id, park_name, park_active_count
@@ -130,6 +131,7 @@ LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = l.tenant_id AND gsp.shed_i
 WHERE l.status = 'active'
   AND l.location_type = 'shed'
   AND l.name LIKE 'Mandela 1 - Part %'
+-- projection-review: membership=the 10 active 'Mandela 1 - Part %' alias location rows; group_key=(l.location_id, l.name); join_cardinality=goat_shed_partitions is per-goat and therefore 1:N, which is exactly why the counts here are aggregated rather than joined row-for-row -- a bare join would report one row per goat and read as more sheds than exist; pagination=none, this is a one-shot evidence SELECT read by a human; scope=one tenant, asserted in STEP 0.
 GROUP BY l.location_id, l.name
 ORDER BY l.name;
 -- EXPECTED (2026-08-07 baseline): exactly 10 rows (Part 1..10), all three

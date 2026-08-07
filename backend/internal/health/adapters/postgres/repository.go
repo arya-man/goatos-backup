@@ -387,6 +387,7 @@ CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status E
 COALESCE(part.partition_label, '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
+-- projection-review: membership=active shed_partitions rows for the case's shed; group_key=(sp.tenant_id, sp.shed_id); join_cardinality=pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so joining it onto a health case cannot fan the case row out; pagination=none added -- this join sits under the existing work-item read and adds no rows, so page boundaries are unchanged; scope=tenant plus the case's own shed_id.
 LEFT JOIN (
   SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
   FROM shed_partitions sp

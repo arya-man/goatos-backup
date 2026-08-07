@@ -52,6 +52,7 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	}
 	// projection-review: producer unique=(tenant_id,business_date,shed_id); consumer match/group uses
 	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
+	// projection-review: membership=feed_transport_tasks for one tenant and business date, optionally narrowed by actor, park, shed and status; group_key=none on the row read (one row per task), and the partition join groups shed_partitions by (tenant_id, shed_id); join_cardinality=the partition subquery is pre-aggregated to ONE row per shed by GROUP BY tenant_id, shed_id with HAVING count(*) = 1, so it cannot fan a task row out; pagination=keyset on t.task_id with LIMIT n+1, applied after all filters, and the partition join adds no rows so page boundaries are unchanged; scope=tenant plus optional park/shed resolved from canonical location ids.
 	// Returns the shed name and the partition as SEPARATE columns; oploc.Display() composes them
 	// in Go below. The display rule lives in exactly one place -- a CASE that concatenates them
 	// here is a second implementation, and six of those are what shipped 'Godel 1 1' and
@@ -112,6 +113,7 @@ ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID,
 }
 
 func (r *Repository) listTransportFilterOptions(ctx context.Context, q ports.ListTransportTasksParams) (ports.FeedTransportFilterOptions, error) {
+	// projection-review: membership=feed_transport_tasks for the tenant/date/actor filter vocabulary, not the current page; group_key=(t.park_id, p.name) for parks and (t.shed_id, s.name, part.partition_label) for sheds; join_cardinality=the partition join is pre-aggregated to ONE row per shed (GROUP BY tenant_id, shed_id HAVING count(*) = 1), so it cannot duplicate a filter option; pagination=none by design -- filter vocabulary is whole-date scoped so the dropdown never narrows to the visible page; scope=tenant plus optional park, applied before grouping.
 	// Filter vocabulary is whole-date and actor scoped, not derived from the current 20-row page.
 	// The selected park narrows only the shed vocabulary; status/shed filters never hide choices.
 	rows, err := r.pool.Query(ctx, `
