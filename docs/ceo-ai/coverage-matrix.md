@@ -1025,3 +1025,9 @@ only, and closing it would mean designing a clinical reporting view that nothing
 currently populates. Recorded here so the gap is visible rather than silently
 inherited: when the Health module is switched on, its case/session/administration
 grain needs a real coverage decision, not an exclusion.
+
+## Verifier Actions subject labels: excluded internal lookup (2026-08-07)
+
+| Surface | Decision | Reason |
+| --- | --- | --- |
+| `func:CampaignShedLocation` (weighing postgres repository) | EXCLUDED | A display-label lookup, not a reporting surface. It reads `weighing_campaign_sheds.location_id` + `display_name` by primary key so a weighing verification item's `subject_label` can name the shed and partition the clip was shot in (previously the lump-sum literal "Whole shed", and nothing at all on individual captures). It introduces NO new fact, table, event, or state: both columns are already flattened onto the campaign-shed bucket at creation time, and the value is composed into a string a human verifier reads on `/actions`. Nothing here is aggregatable and nothing is a KPI. Leadership weighing answers stay on the governed weighing aggregates and `ceo_ai.*` views, exactly as the existing weighing rows in this matrix record. If leadership later asks a shed-level weighing-coverage question, that becomes a real coverage row against an aggregate — not this per-item label helper. |
