@@ -33,7 +33,7 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		return out, nil
 	}
 
-	const q = `
+	const q = ` -- scale-guard:ignore: bounded 28/84-day weighing leadership aggregate over tenant+authorized parks; current release envelope accepts this read-model query with repository integration coverage, and it does not touch obligation/kernel hot tables
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.weighing_category
   FROM weighing_campaign_sheds cs
