@@ -19,6 +19,8 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
+export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
+export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
 export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
 export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
 export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
@@ -556,6 +558,25 @@ export async function getShedWeights(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// The losing-kids list on the Weights page. Reuses the growth read model rather than adding a
+// second one: it already computes "kids whose latest pair of weighs went down", named by scanned
+// tag, which is exactly the table.
+export async function getWeighingGrowth(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<WeighingGrowthResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeighingGrowthResponse>("/weighing/leadership/growth", {
       cache: "no-store",
       query: compactQuery(params),
     }),

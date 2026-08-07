@@ -1,12 +1,17 @@
 import { redirect } from "next/navigation";
-import { Scale, Warehouse } from "lucide-react";
+import { Scale, TrendingDown, Warehouse } from "lucide-react";
 
 import { SvgBars } from "@/components/svg-bars";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
 import { copy, optionGroup, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { firstAuthRequiredError, getShedWeights, type ShedWeightsRow } from "@/lib/api/server";
+import {
+  firstAuthRequiredError,
+  getShedWeights,
+  getWeighingGrowth,
+  type ShedWeightsRow,
+} from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { one, type RouteSearchParams } from "@/lib/search-params";
 
@@ -47,9 +52,9 @@ function kg(value: number, fractionDigits = 1): string {
   });
 }
 
-// A whole-shed weigh cannot say how many of its animals cleared a weight threshold, and can
-// never produce a per-animal figure. The mode therefore has to be visible on every row, or a
-// reader reasonably assumes both kinds of row answer the same questions.
+// A whole-shed weigh cannot say how many of its kids cleared a weight threshold, and can never
+// produce a per-animal figure. The mode has to be visible on every row, or a reader reasonably
+// assumes both kinds of row answer the same questions.
 function modeTag(row: ShedWeightsRow, pageContract: AdminUiPageContract) {
   return row.weighing_category === "individual_animal"
     ? { tone: "info" as const, label: copy(pageContract, "value.weighing.individual") }
@@ -68,12 +73,16 @@ export async function WeighingWeightsPage({
   const modeFilter = one(params, "weighing") ?? "all";
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
+  const losingOffset = boundedOffset(one(params, "losing_offset"));
 
-  const result = await getShedWeights({ park_id: parkFilter || undefined });
+  const [weights, growth] = await Promise.all([
+    getShedWeights({ park_id: parkFilter || undefined }),
+    getWeighingGrowth({ park_id: parkFilter || undefined }),
+  ]);
 
-  if (firstAuthRequiredError(result)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth)) redirect(INTERNAL_LOGIN_PATH);
 
-  if (!result.ok) {
+  if (!weights.ok) {
     return (
       <section className="card">
         <h2 className="h">{copy(pageContract, "error.load.title")}</h2>
@@ -82,15 +91,19 @@ export async function WeighingWeightsPage({
     );
   }
 
-  const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = result.data;
+  const { rows, summary, parks, period_start: periodStart, period_end: periodEnd } = weights.data;
 
-  // Mode narrowing happens here because the response already carries every shed in scope. It
-  // changes the TABLE and the chart only — the KPI cards keep reporting the backend's
-  // whole-filter truth, which is what they are for. Re-deriving a card from the visible slice
-  // is the capped read-time rollup anti-pattern and would make the two disagree.
+  // Mode narrowing changes the TABLE and CHART only. The KPI cards keep reporting the backend's
+  // whole-filter truth — recomputing a card from the visible slice is the capped read-time rollup
+  // anti-pattern and would make the cards disagree with the table.
   const visibleRows =
     modeFilter === "all" ? rows : rows.filter((row) => row.weighing_category === modeFilter);
   const slice = visibleRows.slice(offset, offset + limit);
+
+  // Losing kids come from the growth read, which already computes "latest pair went down".
+  // A growth failure must not take the whole page down: the weights half is independent.
+  const losingAll = growth.ok ? growth.data.losing_animals : [];
+  const losingSlice = losingAll.slice(losingOffset, losingOffset + DEFAULT_LIMIT);
 
   const modeOptions = optionGroup(pageContract, "weighing_mode");
   const filterFields: WorklistFilterField[] = [
@@ -111,9 +124,9 @@ export async function WeighingWeightsPage({
     },
   ];
 
-  const columns = tableLabels(pageContract, "shed-weights");
+  const shedColumns = tableLabels(pageContract, "shed-weights");
+  const losingColumns = tableLabels(pageContract, "losing-kids");
 
-  // Chart reads the FILTERED rows so it and the table below always describe the same set.
   const chartData = visibleRows
     .filter((row) => row.animals_weighed > 0)
     .slice()
@@ -135,60 +148,60 @@ export async function WeighingWeightsPage({
         pageContract={pageContract}
       />
 
-      <section className="kpis" aria-label={copy(pageContract, "section.sheds.aria")}>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.kids.label")}</div>
-          <div className="kv">{summary.animals_weighed.toLocaleString("en-IN")}</div>
-          <div className="muted small">{copy(pageContract, "kpi.kids.sub")}</div>
+      <section className="grid g4" aria-label={copy(pageContract, "section.sheds.aria")}>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.kids.label")}</div>
+          <div className="val">{summary.animals_weighed.toLocaleString("en-IN")}</div>
+          <div className="dl">{copy(pageContract, "kpi.kids.sub")}</div>
         </div>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.total.label")}</div>
-          <div className="kv">{kg(summary.total_weight_kg, 0)} kg</div>
-          <div className="muted small">{copy(pageContract, "note.total_weight")}</div>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.total.label")}</div>
+          <div className="val">{kg(summary.total_weight_kg, 0)} kg</div>
+          <div className="dl">{copy(pageContract, "kpi.total.sub")}</div>
         </div>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.average.label")}</div>
-          {/* A null average means nothing was weighed. Rendering 0.0 kg would read as a herd
-              that weighs nothing — a different, untrue statement. */}
-          <div className="kv">
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.average.label")}</div>
+          {/* Null average means nothing was weighed. Rendering 0.0 kg would read as a herd that
+              weighs nothing — a different, untrue statement. */}
+          <div className="val">
             {summary.average_weight_kg == null
               ? copy(pageContract, "empty.no_data.title")
               : `${kg(summary.average_weight_kg)} kg`}
           </div>
-          <div className="muted small">{copy(pageContract, "kpi.average.sub")}</div>
+          <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
         </div>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.over30.label")}</div>
-          <div className="kv">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
-          {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
-              nothing to them, so showing them against animals_weighed would understate them. */}
-          <div className="muted small">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
-            {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.over35.label")}</div>
-          <div className="kv">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
-          <div className="muted small">
-            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
-            {copy(pageContract, "kpi.threshold.basis")}
-          </div>
-        </div>
-        <div className="card kpi">
-          <div className="kl">{copy(pageContract, "kpi.sheds.label")}</div>
-          <div className="kv">
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.sheds.label")}</div>
+          <div className="val">
             {summary.sheds_weighed} / {summary.sheds_in_scope}
           </div>
-          <div className="muted small">
+          <div className="dl">
             {periodStart} – {periodEnd}
+          </div>
+        </div>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
+          <div className="val">{summary.at_or_above_30kg.toLocaleString("en-IN")}</div>
+          {/* The threshold counts carry their OWN denominator: a whole-shed weigh contributes
+              nothing to them, so showing them against animals_weighed would understate them. */}
+          <div className="dl">
+            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
+            {copy(pageContract, "kpi.threshold.basis")}
+          </div>
+        </div>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.over35.label")}</div>
+          <div className="val">{summary.at_or_above_35kg.toLocaleString("en-IN")}</div>
+          <div className="dl">
+            {summary.threshold_basis_animals.toLocaleString("en-IN")}{" "}
+            {copy(pageContract, "kpi.threshold.basis")}
           </div>
         </div>
       </section>
 
       <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
         <h2 className="h">
-          <Scale size={15} aria-hidden /> {copy(pageContract, "chart.average.title")}
+          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.average.title")}
         </h2>
         <p className="muted small">{copy(pageContract, "chart.average.caption")}</p>
         <SvgBars
@@ -202,9 +215,9 @@ export async function WeighingWeightsPage({
 
       <section className="card" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">
-          <Warehouse size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
+          <Warehouse className="ic" size={15} aria-hidden /> {copy(pageContract, "section.sheds.title")}
         </h2>
-        <p className="muted small">{copy(pageContract, "note.no_cadence")}</p>
+        <p className="muted small">{copy(pageContract, "note.total_weight")}</p>
 
         {slice.length === 0 ? (
           <div className="empty">
@@ -225,7 +238,7 @@ export async function WeighingWeightsPage({
               <table className="tbl">
                 <thead>
                   <tr>
-                    {columns.map((label) => (
+                    {shedColumns.map((label) => (
                       <th key={label}>{label}</th>
                     ))}
                   </tr>
@@ -274,6 +287,65 @@ export async function WeighingWeightsPage({
         )}
 
         <p className="muted small">{copy(pageContract, "note.threshold_basis")}</p>
+      </section>
+
+      <section className="card" aria-label={copy(pageContract, "section.losing.aria")}>
+        <h2 className="h">
+          <TrendingDown className="ic" size={15} aria-hidden />{" "}
+          {copy(pageContract, "section.losing.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "section.losing.caption")}</p>
+
+        {losingSlice.length === 0 ? (
+          <div className="empty">
+            <b>{copy(pageContract, "empty.losing.title")}</b>
+            <span className="muted small">{copy(pageContract, "empty.losing.body")}</span>
+          </div>
+        ) : (
+          <>
+            <div className="tablewrap">
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    {losingColumns.map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {losingSlice.map((animal) => (
+                    <tr key={`${animal.scanned_identifier}-${animal.latest_weigh_date}`}>
+                      <td>
+                        <b>{animal.scanned_identifier}</b>
+                      </td>
+                      <td>{animal.shed_display_name}</td>
+                      <td className="num">{kg(animal.previous_weight_kg)} kg</td>
+                      <td className="num">{kg(animal.latest_weight_kg)} kg</td>
+                      <td className="num">
+                        <Tag tone="dng">
+                          {kg(animal.latest_weight_kg - animal.previous_weight_kg)} kg
+                        </Tag>
+                      </td>
+                      <td className="num">{Math.round(animal.days_between)}</td>
+                      <td className="num">{animal.latest_weigh_date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <WorklistPager
+              pageContract={pageContract}
+              offset={losingOffset}
+              limit={DEFAULT_LIMIT}
+              rowCount={losingSlice.length}
+              hasMore={losingOffset + losingSlice.length < losingAll.length}
+              noun={copy(pageContract, "pager.losing_noun")}
+              pageSizeOptions={[DEFAULT_LIMIT]}
+              hrefForOffset={(next) => hrefWith(params, { losing_offset: String(next) })}
+              hrefForLimit={() => hrefWith(params, {})}
+            />
+          </>
+        )}
       </section>
     </>
   );
