@@ -32,9 +32,25 @@ log "stopping existing local phone/api launch agents"
 launchctl bootout "$launch_domain/sg.mesha.goatos.android-dev-api" >/dev/null 2>&1 || true
 launchctl bootout "$launch_domain/$label" >/dev/null 2>&1 || true
 
-pid="$(lsof -ti tcp:8080 -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+# Phone QA must NEVER take a default port. 3300 (admin-web), 8080 (API) and 5433
+# (database) carry the maintainer's LOCAL REPLICA OF STG DATA, and parallel agent
+# sessions share this laptop -- freeing one by killing its holder kills another
+# session's stack. This script used to hardcode 8080 and even killed-checked it,
+# so following the sanctioned path WAS the violation (2026-08-07). The device
+# always calls its own localhost:8080, so only the host side moves: no APK
+# rebuild and no token re-mint are needed.
+host_port="${GOATOS_PHONE_QA_PORT:-8081}"
+case "$host_port" in
+  3300|8080|5433) die "refusing default port $host_port for phone QA; those carry the maintainer's stg replica (see AGENTS.md)" ;;
+esac
+pid="$(lsof -ti tcp:"$host_port" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
 if [ -n "$pid" ]; then
-  die "port 8080 is already in use by pid $pid; stop it before running phone QA"
+  # Only ever reclaim OUR OWN phone-qa API. Any other holder is someone else's work.
+  if ps -o command= -p "$pid" 2>/dev/null | grep -q 'goatos-api-phone-qa'; then
+    log "reclaiming port $host_port from a previous phone-qa API (pid $pid)"
+  else
+    die "port $host_port is in use by pid $pid, which is NOT a phone-qa API; pick another GOATOS_PHONE_QA_PORT"
+  fi
 fi
 
 cat >"$plist" <<EOF
@@ -77,7 +93,7 @@ cat >"$plist" <<EOF
     <key>GOATOS_AUTH_MAX_TOKEN_TTL</key>
     <string>${GOATOS_AUTH_MAX_TOKEN_TTL:-24h}</string>
     <key>GOATOS_HTTP_ADDR</key>
-    <string>127.0.0.1:8080</string>
+    <string>127.0.0.1:$host_port</string>
     <key>GOATOS_ALLOW_STALE_LOCAL_STACK</key>
     <string>1</string>
     <key>GOATOS_LOCAL_MEDIA_SIGNING_SECRET</key>
@@ -92,14 +108,15 @@ launchctl enable "$launch_domain/$label" >/dev/null 2>&1 || true
 launchctl kickstart -k "$launch_domain/$label" >/dev/null 2>&1 || true
 
 for _ in $(seq 1 60); do
-  code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/readyz || true)"
+  code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$host_port/readyz" || true)"
   [ "$code" = "204" ] && break
   sleep 0.5
 done
-[ "${code:-}" = "204" ] || die "API did not become ready on :8080; see $api_log"
+[ "${code:-}" = "204" ] || die "API did not become ready on :$host_port; see $api_log"
 
-adb reverse tcp:8080 tcp:8080 >/dev/null
-log "API is on :8080 using ${DATABASE_URL%%\?*}; installing Android as $user_id"
+# Device-side stays 8080 (the APK's baked base URL); host side is the QA port.
+adb reverse tcp:8080 tcp:"$host_port" >/dev/null
+log "API is on :$host_port using ${DATABASE_URL%%\?*}; device localhost:8080 -> laptop:$host_port; installing Android as $user_id"
 
 GOATOS_LOCAL_USER_ID="$user_id" \
 GOATOS_TENANT_ID="$tenant_id" \
