@@ -387,6 +387,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/app/weighing/shed-weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         *
+         *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
+         *
+         *     Weighing is free-flow and isolated from the herd, so no field here carries breed, sex, age or management stage, and no shed is ever reported "overdue": there is no weighing cadence.
+         */
+        get: operations["appGetWeighingShedWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -6922,6 +6946,61 @@ export interface components {
             /** Format: date */
             latest_weigh_date: string;
         };
+        /** @description ONE shed's most recent weigh. Grain is the physical shed, not the campaign bucket. */
+        WeighingShedWeightsRow: {
+            /** Format: uuid */
+            location_id: string;
+            /** Format: uuid */
+            park_id: string;
+            park_name: string;
+            /** @description Canonical shed name from the location record, never the free-text name typed when the task was planned. */
+            shed_display_name: string;
+            /** @enum {string} */
+            weighing_category: "individual_animal" | "per_shed_partition";
+            /** @description Count of ANIMALS, not captures: distinct scanned tags for a per-animal shed, the declared head count for a whole-shed weigh. */
+            animals_weighed: number;
+            /** Format: double */
+            average_weight_kg: number;
+            /**
+             * Format: double
+             * @description Weight of the animals actually weighed. NOT the shed's total weight -- free-flow weighing has no roster, so nothing knows which animals were missed.
+             */
+            total_weight_kg: number;
+            /**
+             * Format: date
+             * @description Business date of the most recent accepted weigh. Absent when the shed is planned but not yet weighed, which is a fact and not a fault.
+             */
+            last_weighed_date?: string;
+            /** @enum {string} */
+            bucket_status: "pending" | "in_progress" | "completed" | "canceled";
+        };
+        /** @description WHOLE-FILTER rollup behind the KPI cards. Paging changes rows only, never these numbers. */
+        WeighingShedWeightsSummary: {
+            sheds_weighed: number;
+            sheds_in_scope: number;
+            animals_weighed: number;
+            /** Format: double */
+            total_weight_kg: number;
+            /**
+             * Format: double
+             * @description Weighted mean over ANIMALS (total / animals), never the mean of per-shed averages. Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
+             */
+            average_weight_kg?: number | null;
+            at_or_above_30kg: number;
+            at_or_above_35kg: number;
+            /** @description The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only. A whole-shed weigh reports one average and cannot say how many of its animals cleared a threshold, so it contributes nothing here. Rendering the counts against animals_weighed instead would understate the share. */
+            threshold_basis_animals: number;
+        };
+        WeighingShedWeightsResponse: {
+            /** @description Park filter vocabulary, limited to the caller's authorized scope. */
+            parks: components["schemas"]["WeighingPark"][];
+            summary: components["schemas"]["WeighingShedWeightsSummary"];
+            rows: components["schemas"]["WeighingShedWeightsRow"][];
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+        };
         /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
         WeighingGrowthADGResponse: {
             /**
@@ -9246,6 +9325,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingGrowthADGResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    appGetWeighingShedWeights: {
+        parameters: {
+            query?: {
+                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-shed weights and the whole-filter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingShedWeightsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -847,6 +847,65 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /app/weighing/shed-weights:
+    get:
+      tags:
+        - Weighing
+      operationId: appGetWeighingShedWeights
+      summary: Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
+      description: >
+        Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is
+        optional; when omitted the response covers every park the caller is authorized to
+        monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates
+        (YYYY-MM-DD) and default to the last 28 days ending today.
+
+
+        GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive
+        campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate
+        and never changes with paging.
+
+
+        Weighing is free-flow and isolated from the herd, so no field here carries breed,
+        sex, age or management stage, and no shed is ever reported "overdue": there is no
+        weighing cadence.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The park to report on. When omitted, covers the caller's own authorized-park scope.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-shed weights and the whole-filter summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingShedWeightsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/leadership/sheds:
     get:
       tags:
@@ -18088,6 +18147,129 @@ components:
         days_between:
           type: number
         latest_weigh_date:
+          type: string
+          format: date
+    WeighingShedWeightsRow:
+      type: object
+      additionalProperties: false
+      description: >-
+        ONE shed's most recent weigh. Grain is the physical shed, not the campaign bucket.
+      required:
+        - location_id
+        - park_id
+        - park_name
+        - shed_display_name
+        - weighing_category
+        - animals_weighed
+        - average_weight_kg
+        - total_weight_kg
+        - bucket_status
+      properties:
+        location_id:
+          type: string
+          format: uuid
+        park_id:
+          type: string
+          format: uuid
+        park_name:
+          type: string
+        shed_display_name:
+          type: string
+          description: >-
+            Canonical shed name from the location record, never the free-text name typed
+            when the task was planned.
+        weighing_category:
+          type: string
+          enum: [individual_animal, per_shed_partition]
+        animals_weighed:
+          type: integer
+          description: >-
+            Count of ANIMALS, not captures: distinct scanned tags for a per-animal shed, the
+            declared head count for a whole-shed weigh.
+        average_weight_kg:
+          type: number
+          format: double
+        total_weight_kg:
+          type: number
+          format: double
+          description: >-
+            Weight of the animals actually weighed. NOT the shed's total weight -- free-flow
+            weighing has no roster, so nothing knows which animals were missed.
+        last_weighed_date:
+          type: string
+          format: date
+          description: >-
+            Business date of the most recent accepted weigh. Absent when the shed is planned
+            but not yet weighed, which is a fact and not a fault.
+        bucket_status:
+          type: string
+          enum: [pending, in_progress, completed, canceled]
+    WeighingShedWeightsSummary:
+      type: object
+      additionalProperties: false
+      description: >-
+        WHOLE-FILTER rollup behind the KPI cards. Paging changes rows only, never these numbers.
+      required:
+        - sheds_weighed
+        - sheds_in_scope
+        - animals_weighed
+        - total_weight_kg
+        - at_or_above_30kg
+        - at_or_above_35kg
+        - threshold_basis_animals
+      properties:
+        sheds_weighed:
+          type: integer
+        sheds_in_scope:
+          type: integer
+        animals_weighed:
+          type: integer
+        total_weight_kg:
+          type: number
+          format: double
+        average_weight_kg:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            Weighted mean over ANIMALS (total / animals), never the mean of per-shed averages.
+            Null when nothing was weighed, so a client never renders 0.0 kg for "no data".
+        at_or_above_30kg:
+          type: integer
+        at_or_above_35kg:
+          type: integer
+        threshold_basis_animals:
+          type: integer
+          description: >-
+            The real denominator for the two threshold counts: animals in PER-ANIMAL sheds only.
+            A whole-shed weigh reports one average and cannot say how many of its animals cleared
+            a threshold, so it contributes nothing here. Rendering the counts against
+            animals_weighed instead would understate the share.
+    WeighingShedWeightsResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - parks
+        - summary
+        - rows
+        - period_start
+        - period_end
+      properties:
+        parks:
+          type: array
+          description: Park filter vocabulary, limited to the caller's authorized scope.
+          items:
+            $ref: "#/components/schemas/WeighingPark"
+        summary:
+          $ref: "#/components/schemas/WeighingShedWeightsSummary"
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/WeighingShedWeightsRow"
+        period_start:
+          type: string
+          format: date
+        period_end:
           type: string
           format: date
     WeighingGrowthADGResponse:

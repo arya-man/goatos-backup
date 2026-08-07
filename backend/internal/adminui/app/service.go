@@ -127,6 +127,19 @@ func navigation() domain.NavigationContract {
 					navLeaf("counts-milk-preparation", "Milk Preparation", "/counts/milk-preparation", nil),
 				},
 			},
+			// Weighing is its own vertical, owned by the Growth Director. Its icon must
+			// not be the syringe token (Vaccination) or bar-chart-3 (Counts): weights are
+			// a distinct operating domain, and Counts already owns the census chart token.
+			//
+			// Only the Weights read-out lives on admin-web. Planning, execution, proof
+			// capture and the verifier queue are phone surfaces and are deliberately NOT
+			// mirrored here — this is the oversight lens, not a second console.
+			{
+				ID: "weighing", Label: "Weighing", Icon: "scale", DefaultOpen: false,
+				Leaves: []domain.NavigationItem{
+					navLeafDomain("weighing-weights", "Weights", "/weighing/weights", "weighing.weights", nil),
+				},
+			},
 			// Feed is a VERTICAL (business operating domain), alongside Preventive Care (PC),
 			// Procurement and Counts. Its icon must not be the syringe/injection token — that
 			// belongs to the Vaccination module under Preventive Care (PC).
@@ -362,6 +375,15 @@ func pages() []domain.PageContract {
 			[]domain.TableContract{table("herd-register", "Herd Register", "/goats/search", []string{"display_id", "tag_1", "tag_2", "park", "shed", "breed", "sex", "weight", "lifecycle", "health", "breeding"}, "goat_id")}),
 		page("counts-breakdown", "/counts/breakdown", "/counts/breakdown", "Counts Breakdown", "Live head counts grouped by farm, stage, breed, gender and shed, with distribution charts.", "module-surface",
 			[]domain.TableContract{tableP("detail-breakdown", "Detail Breakdown", "/counts/breakdown", []string{"farm", "stage", "breed", "gender", "shed", "count"}, "breakdown_row", []int{10, 25, 50})}),
+		// Weighing — the admin-web oversight read-out.
+		//
+		// Weighing is FREE-FLOW and ISOLATED: it records a scanned tag and a weight and
+		// never resolves that tag to an animal. So this page carries NO breed, sex, age
+		// or management-stage column, and no ₹ value — none of those facts exist in
+		// weighing's tables and reaching into the herd tables for them is prohibited.
+		// The columns below are the complete honest set.
+		page("weighing-weights", "/weighing/weights", "/weighing/weights", "Kids — Weights", "Latest weight per shed across both capture modes, with park and period filters.", "module-surface",
+			[]domain.TableContract{tableP("shed-weights", "Sheds", "/app/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "status"}, "location_id", []int{10, 25, 50})}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
 		// ---------------------------------------------------------------------------
@@ -1991,6 +2013,60 @@ func pageSpecificCopy(id string) map[string]string {
 			"table.hf_evidence.administered":    "Administered",
 			"table.hf_evidence.evidence":        "Evidence",
 			"table.hf_evidence.review":          "Review",
+		}
+	case "weighing-weights":
+		// Every visible string on /weighing/weights. The renderer owns layout only.
+		//
+		// COPY FIREWALL: farm language throughout. No "lump sum", "bucket",
+		// "observation", "campaign shed" or "per_shed_partition" reaches a screen —
+		// those are storage words. The operator-facing words are "Whole shed" and
+		// "Per animal".
+		return map[string]string{
+			"crumb":                      "Weighing",
+			"filter.park.label":          "Park",
+			"filter.park.all":            "All parks",
+			"filter.weighing.label":      "Weighing",
+			"filter.weighing.all":        "All",
+			"filter.weighing.individual": "Per animal",
+			"filter.weighing.lump":       "Whole shed",
+			"filter.period.label":        "Period",
+			"filter.period.4w":           "Last 4 weeks",
+			"filter.period.12w":          "Last 12 weeks",
+			"kpi.kids.label":             "Kids weighed",
+			"kpi.kids.sub":               "in the selected period",
+			"kpi.total.label":            "Total weight",
+			"kpi.total.sub":              "weight of the kids actually weighed",
+			"kpi.average.label":          "Average weight",
+			"kpi.average.sub":            "per kid, across every shed",
+			"kpi.over30.label":           "Over 30 kg",
+			"kpi.over35.label":           "Over 35 kg",
+			"kpi.threshold.basis":        "of kids weighed one by one",
+			"kpi.sheds.label":            "Sheds weighed",
+			"chart.average.title":        "Average weight by shed",
+			"chart.average.caption":      "Heaviest first. Scroll for the rest.",
+			"chart.average.aria":         "Average weight for each shed",
+			"section.sheds.title":        "Sheds",
+			"section.sheds.aria":         "Weight by shed",
+			"table.sheds.park":           "Park",
+			"table.sheds.shed":           "Shed",
+			"table.sheds.weighing":       "Weighing",
+			"table.sheds.animals":        "Kids weighed",
+			"table.sheds.average":        "Avg weight",
+			"table.sheds.total":          "Total weight",
+			"table.sheds.last":           "Last weighed",
+			"table.sheds.status":         "Status",
+			"value.weighing.individual":  "Per animal",
+			"value.weighing.lump":        "Whole shed",
+			"value.never_weighed":        "Not weighed yet",
+			"empty.no_data.title":        "No data available",
+			"empty.no_data.body":         "No shed was weighed in this period. Try a longer period or another park.",
+			"empty.filtered.title":       "No data available",
+			"empty.filtered.body":        "No shed matches these filters.",
+			"note.total_weight":          "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
+			"note.threshold_basis":       "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
+			"note.no_cadence":            "There is no weighing schedule, so a shed with no recent weigh is not late.",
+			"error.load.title":           "Weights could not be loaded",
+			"error.load.body":            "Try again in a moment.",
 		}
 	case "counts-breakdown":
 		return map[string]string{
@@ -3795,6 +3871,8 @@ func pageOptionGroups(id string) []domain.OptionGroup {
 		return withGenericOptionGroups(countsBreakdownOptionGroups())
 	case "milk-preparation":
 		return withGenericOptionGroups(nil)
+	case "weighing-weights":
+		return withGenericOptionGroups(weighingWeightsOptionGroups())
 	case "feed-direction", "feed-packing", "feed-config":
 		return withGenericOptionGroups(feedOptionGroups())
 	case "calendar":
@@ -5214,6 +5292,34 @@ func processIntegrityOptionGroups() []domain.OptionGroup {
 
 func option(key, label, title, tone string) domain.Option {
 	return domain.Option{Key: key, Label: label, Title: title, Enabled: true, Tone: tone}
+}
+
+// weighingWeightsOptionGroups is the filter vocabulary for /weighing/weights.
+//
+// The capture-mode keys are the STORED enum values so the client round-trips them
+// to the API unchanged, while the labels are farm language — the renderer must
+// never show "per_shed_partition" or invent "Lump sum" of its own.
+//
+// weighing_parks is declared EMPTY on purpose: parks are live tenant rows, not
+// contract constants, and compilePages injects them from ReferenceFamilies. A
+// hardcoded park list here would be the banned pattern.
+func weighingWeightsOptionGroups() []domain.OptionGroup {
+	return []domain.OptionGroup{
+		{
+			ID: "weighing_mode", Options: []domain.Option{
+				option("all", "All", "Both ways of weighing", ""),
+				option("individual_animal", "Per animal", "Each kid scanned and weighed on its own", "info"),
+				option("per_shed_partition", "Whole shed", "One total for the shed, with a head count", ""),
+			},
+		},
+		{
+			ID: "weighing_period", Options: []domain.Option{
+				option("28", "Last 4 weeks", "", ""),
+				option("84", "Last 12 weeks", "", ""),
+			},
+		},
+		{ID: "weighing_parks", Options: []domain.Option{}},
+	}
 }
 
 // shedStatusOptionGroup is the merged CEO status headline vocabulary for the shed-wise table + shed

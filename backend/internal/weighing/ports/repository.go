@@ -436,6 +436,16 @@ type Repository interface {
 	// does no scoping of its own.
 	GetLeadershipGrowthADG(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.GrowthADG, error)
 
+	// GetShedWeights returns one row per SHED (not per campaign bucket) carrying that
+	// shed's most recent weigh inside the half-open period [periodStart, periodEnd),
+	// plus the whole-filter KPI rollup behind it. Both capture modes are covered:
+	// per-animal sheds aggregate their deduplicated scans, lump-sum sheds report their
+	// live shed observation, and the two are SELECTED between by weighing_category
+	// rather than summed. See domain.ShedWeights for the grain and threshold-basis
+	// contract. parkIDs must be non-empty and already authorization-checked by the
+	// caller: this method does no scoping of its own.
+	GetShedWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.ShedWeights, error)
+
 	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
 	// It streams CSV-formatted rows to the provided writer, including both individual
 	// and lump-sum observations, with verification status and proof references.

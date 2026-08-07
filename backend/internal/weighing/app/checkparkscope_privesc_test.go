@@ -301,6 +301,10 @@ func (r *parkScopeCheckRepo) GetLeadershipGrowthADG(context.Context, string, []s
 	return domain.GrowthADG{}, nil
 }
 
+func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, time.Time, time.Time) (domain.ShedWeights, error) {
+	return domain.ShedWeights{}, nil
+}
+
 func (r *parkScopeCheckRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }

@@ -777,6 +777,11 @@ func compilePages(pages []domain.PageContract, families ReferenceFamilies, input
 			out[i].OptionGroups = mergeOptionGroupReferences(out[i].OptionGroups, "feed_items", families.FeedItems, "")
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_parks", optionsFromReferences(families.Parks, "info"))
 			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "feed_breeds", optionsFromReferences(families.Breeds, ""))
+		case "weighing-weights":
+			// Live park vocabulary, same injection path Feed uses. The contract declares
+			// the group empty; the parks themselves are tenant rows and must never be
+			// constants in contract code.
+			out[i].OptionGroups = replaceOptionGroup(out[i].OptionGroups, "weighing_parks", optionsFromReferences(families.Parks, "info"))
 		case "dlq-center":
 			out[i].OptionGroups = compileDLQOptionGroups(out[i].OptionGroups, input)
 		case "verification-review":
@@ -1238,6 +1243,12 @@ func permissionsForNav(id string) []string {
 		return []string{permissions.ProcurementRead}
 	case "counts-herd", "counts-breakdown":
 		return []string{permissions.GoatRead}
+	case "weighing-weights":
+		// The MONITOR capability, matching /app/weighing/shed-weights. Weights is an
+		// oversight read-out, not a planning surface, so it must not gate on
+		// WeighingPlan (CEO-only): the Growth Director owns weighing oversight and
+		// would otherwise be locked out of the estate they are accountable for.
+		return []string{permissions.WeighingMonitor}
 	case "audit-log":
 		return []string{permissions.OperatorsViewAudit}
 	case "dlq-center":

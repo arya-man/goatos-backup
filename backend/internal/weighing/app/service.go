@@ -1396,6 +1396,27 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 	// If park_id was omitted, this is the herd-wide view: reuse authorizedParkSet, the SAME
 	// park-scope helper GetLeadershipShedVideos/ListLeadershipSheds already use, to compute the
 	// caller's own authorized-park set -- never a wider one -- and aggregate across exactly that.
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	if scopeErr != nil {
+		return domain.GrowthADG{}, scopeErr
+	}
+
+	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+}
+
+// resolveMonitorParkScope turns an OPTIONAL park_id into the concrete park list a
+// leadership read may aggregate over, under permissions.WeighingMonitor.
+//
+// If the caller named a park: WeighingMonitor is a CAPABILITY check, not a scope
+// check, so the actor's authorized parks are resolved and the requested park must
+// be inside them — otherwise a park-scoped monitor could read another park's herd
+// by naming its id. If park_id was omitted, this is the herd-wide view and the
+// answer is exactly the caller's own authorized-park set, never a wider one.
+//
+// Extracted so every leadership read resolves scope identically. Two reads
+// inlining the same forty lines is how one of them silently drifts into a weaker
+// check.
+func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Actor, parkID string) ([]string, error) {
 	var parkIDs []string
 	if parkID != "" {
 		grants := httpmiddleware.AuthGrantsFromContext(ctx)
@@ -1409,37 +1430,118 @@ func (s *Service) GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor
 				}
 			}
 			if !found {
-				return domain.GrowthADG{}, ports.ErrNotFound
+				return nil, ports.ErrNotFound
 			}
 		}
-		parkIDs = []string{parkID}
-	} else {
-		authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.WeighingMonitor)
-		if tenantWide {
-			// Tenant-wide monitor: every park in the tenant, exactly like GetWeightHistory
-			// resolves its own "all parks" case.
-			allParks, err := s.repo.ListParks(ctx, actor.TenantID)
-			if err != nil {
-				return domain.GrowthADG{}, err
-			}
-			for _, p := range allParks {
-				parkIDs = append(parkIDs, p.ParkID)
-			}
-		} else {
-			for id := range authorizedParks {
-				parkIDs = append(parkIDs, id)
-			}
-		}
-		if len(parkIDs) == 0 {
-			// Park-scoped grants that carry no monitor capability anywhere: the actor passed the
-			// flat role gate but owns no park here. An unrestricted read would be the escalation
-			// this whole path exists to prevent, so the answer is a 404, matching
-			// ListLeadershipSheds's identical no-scope case.
-			return domain.GrowthADG{}, ports.ErrNotFound
-		}
+		return []string{parkID}, nil
 	}
 
-	return s.repo.GetLeadershipGrowthADG(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	authorizedParks, tenantWide := authorizedParkSet(ctx, actor.TenantID, permissions.WeighingMonitor)
+	if tenantWide {
+		// Tenant-wide monitor: every park in the tenant, exactly like GetWeightHistory
+		// resolves its own "all parks" case.
+		allParks, err := s.repo.ListParks(ctx, actor.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range allParks {
+			parkIDs = append(parkIDs, p.ParkID)
+		}
+	} else {
+		for id := range authorizedParks {
+			parkIDs = append(parkIDs, id)
+		}
+	}
+	if len(parkIDs) == 0 {
+		// Park-scoped grants that carry no monitor capability anywhere: the actor passed the
+		// flat role gate but owns no park here. An unrestricted read would be the escalation
+		// this whole path exists to prevent, so the answer is a 404, matching
+		// ListLeadershipSheds's identical no-scope case.
+		return nil, ports.ErrNotFound
+	}
+	return parkIDs, nil
+}
+
+// GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
+// with its most recent weigh in the window, plus the whole-filter KPI rollup.
+//
+// Same capability and scope rules as GetLeadershipGrowthADG — this is a leadership
+// read of the same estate, so it must not be reachable on a weaker check.
+func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.ShedWeights{}, ports.ErrForbidden
+	}
+	parkID = strings.TrimSpace(parkID)
+	if parkID != "" && !uuidutil.IsUUIDString(parkID) {
+		return domain.ShedWeights{}, ports.ErrInvalidArgument
+	}
+	from := strings.TrimSpace(fromBusinessDate)
+	to := strings.TrimSpace(toBusinessDate)
+	if from != "" && !isBusinessDate(from) {
+		return domain.ShedWeights{}, ports.ErrInvalidArgument
+	}
+	if to != "" && !isBusinessDate(to) {
+		return domain.ShedWeights{}, ports.ErrInvalidArgument
+	}
+
+	// TIME GRAIN IS THE BUSINESS DAY, never an hour offset: a weigh belongs to the
+	// Asia/Kolkata day it happened on, so the window is anchored on business-day
+	// boundaries rather than a now±N clock instant.
+	loc := biztime.DefaultLocation()
+	now := time.Now().In(loc)
+	var periodStart, periodEndInclusive time.Time
+	var err error
+	if to == "" {
+		periodEndInclusive = biztime.BusinessDayStart(now)
+	} else {
+		periodEndInclusive, err = time.ParseInLocation("2006-01-02", to, loc)
+		if err != nil {
+			return domain.ShedWeights{}, ports.ErrInvalidArgument
+		}
+	}
+	if from == "" {
+		periodStart = periodEndInclusive.AddDate(0, 0, -(domain.ShedWeightsDefaultPeriodDays - 1))
+	} else {
+		periodStart, err = time.ParseInLocation("2006-01-02", from, loc)
+		if err != nil {
+			return domain.ShedWeights{}, ports.ErrInvalidArgument
+		}
+	}
+	if periodEndInclusive.Before(periodStart) {
+		return domain.ShedWeights{}, ports.ErrInvalidArgument
+	}
+	// The repository period is half-open [periodStart, periodEnd): the caller's LAST
+	// day is inclusive, so the exclusive boundary is midnight the day AFTER it.
+	periodEndExclusive := periodEndInclusive.AddDate(0, 0, 1)
+
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
+	if scopeErr != nil {
+		return domain.ShedWeights{}, scopeErr
+	}
+
+	out, err := s.repo.GetShedWeights(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+
+	// The park filter vocabulary is BACKEND-OWNED and scoped: it lists exactly the
+	// parks this caller may monitor, so the client never invents a park label and
+	// never offers a park the caller cannot read.
+	parks, err := s.repo.ListParks(ctx, actor.TenantID)
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+	allowed := make(map[string]struct{}, len(parkIDs))
+	for _, id := range parkIDs {
+		allowed[id] = struct{}{}
+	}
+	out.Parks = out.Parks[:0]
+	for _, p := range parks {
+		if _, ok := allowed[p.ParkID]; ok {
+			out.Parks = append(out.Parks, domain.GrowthPark{ParkID: p.ParkID, Name: p.Name})
+		}
+	}
+	return out, nil
 }
 
 // producer routes too broadly.
