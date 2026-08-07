@@ -18,6 +18,15 @@ import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
 import { submitVerificationReviewEvents } from "./review-events-server";
 
+/**
+ * Loading, failed, and genuinely-empty are THREE different things to a verifier.
+ *
+ * They were all collapsed into `null`, so a slow network, a backend outage, and a park that really
+ * has no active staff positions all rendered the same disabled picker reading "no staff positions
+ * available" -- a busy control that looks broken, and an outage that looks like configuration.
+ */
+type RosterLoad = { state: "loading" | "loaded" | "failed"; data: PositionListResponse | null };
+
 const PATHNAME = "/actions";
 
 function renderLabelOrFallback(label: string | null | undefined): string {
@@ -36,6 +45,7 @@ function renderLabelOrFallback(label: string | null | undefined): string {
 export function VerificationReviewDrawer({
   items,
   initialSelectedId,
+  actionTypeLabels,
   searchParams,
   feedback,
   pageContract,
@@ -43,6 +53,9 @@ export function VerificationReviewDrawer({
 }: {
   items: VerificationQueueItem[];
   initialSelectedId?: string;
+  // Backend-owned module/page labels, keyed by category, composed once by the page so the drawer
+  // subtitle and the queue's ACTION TYPE column can never disagree.
+  actionTypeLabels: Record<string, string>;
   searchParams: RouteSearchParams;
   feedback: { status?: string; code?: string };
   pageContract: AdminUiPageContract;
@@ -138,28 +151,46 @@ export function VerificationReviewDrawer({
   // for a control only reachable from inside this drawer -- and then filtered down to the one park
   // the item belongs to anyway. Now it is fetched per park, on demand, and cached per park for the
   // life of the page so re-opening rows in the same park costs nothing.
+  //
+  // `requestedParks` is a REF, not state, and the effect depends on openParkID ALONE. An earlier
+  // version tracked in-flight parks in `positionsByPark` state and listed it as a dependency: the
+  // effect's own first action was a setState, which produced a new object identity, re-ran the
+  // effect, and React ran the PREVIOUS effect's cleanup -- flipping `cancelled` to true on the
+  // closure owning the still-pending request. The response was then always discarded, and the
+  // `already requested` guard stopped it ever retrying. The picker sat permanently on its
+  // "no staff positions" state for every park. A ref does not participate in rendering, so
+  // marking a park in flight cannot re-trigger the effect that is fetching it.
   const openParkID = drawerOpen ? (item?.park_id ?? "") : "";
-  const [positionsByPark, setPositionsByPark] = useState<Record<string, PositionListResponse | null>>({});
+  const requestedParks = useRef<Set<string>>(new Set());
+  const [positionsByPark, setPositionsByPark] = useState<Record<string, RosterLoad>>({});
   useEffect(() => {
-    if (!openParkID || openParkID in positionsByPark) return;
+    if (!openParkID || requestedParks.current.has(openParkID)) return;
+    requestedParks.current.add(openParkID);
     let cancelled = false;
-    // Marked in-flight before awaiting so a second open of the same park cannot race a duplicate
-    // request in; the real answer overwrites this entry when it lands.
-    setPositionsByPark((prev) => (openParkID in prev ? prev : { ...prev, [openParkID]: null }));
-    void loadReassignPositionsAction(openParkID).then((loaded) => {
-      if (!cancelled) setPositionsByPark((prev) => ({ ...prev, [openParkID]: loaded }));
-    });
+    setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: "loading", data: null } }));
+    loadReassignPositionsAction(openParkID)
+      .then((loaded) => {
+        if (cancelled) return;
+        setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: loaded ? "loaded" : "failed", data: loaded } }));
+      })
+      .catch(() => {
+        // A rejected server action must not leave the picker claiming the roster is empty, and
+        // must never surface as an unhandled rejection.
+        if (cancelled) return;
+        requestedParks.current.delete(openParkID);
+        setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: "failed", data: null } }));
+      });
     return () => {
       cancelled = true;
     };
-  }, [openParkID, positionsByPark]);
+  }, [openParkID]);
 
   if (!item) return null;
   // Still narrowed here: the endpoint is asked for this park, and this re-asserts it so a widened
   // backend response can never offer the verifier a position from another park.
-  const loadedPositions = positionsByPark[item.park_id ?? ""] ?? null;
-  const scopedPositions: PositionListResponse | null = loadedPositions
-    ? { ...loadedPositions, items: loadedPositions.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
+  const rosterLoad: RosterLoad = positionsByPark[item.park_id ?? ""] ?? { state: "loading", data: null };
+  const scopedPositions: PositionListResponse | null = rosterLoad.data
+    ? { ...rosterLoad.data, items: rosterLoad.data.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
     : null;
   const returnTo = hrefWithRow(searchParams, item.item_id);
 
@@ -175,6 +206,8 @@ export function VerificationReviewDrawer({
       <VerificationReviewDrawerPanel
         item={item}
         positions={scopedPositions}
+        rosterState={rosterLoad.state}
+        actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
         returnTo={returnTo}
         feedback={feedback}
         open={drawerOpen}
@@ -195,6 +228,8 @@ export function VerificationReviewDrawer({
 function VerificationReviewDrawerPanel({
   item,
   positions,
+  rosterState,
+  actionTypeLabel,
   returnTo,
   feedback,
   open,
@@ -211,6 +246,8 @@ function VerificationReviewDrawerPanel({
 }: {
   item: VerificationQueueItem;
   positions: PositionListResponse | null;
+  rosterState: RosterLoad["state"];
+  actionTypeLabel: string;
   returnTo: string;
   feedback: { status?: string; code?: string };
   open: boolean;
@@ -359,9 +396,25 @@ function VerificationReviewDrawerPanel({
   const hasTask = Boolean(item.source.task_id);
   const isFlagged = item.status === "rejected";
   const reworkDisabled = !hasTask || !isFlagged;
-  const reassignDisabled = !hasTask || !positions || positions.items.length === 0;
   const hasEvidence = item.media.length > 0;
   const text = (key: string) => copy(pageContract, key);
+  // Loading / failed / genuinely-empty are three different messages. Collapsing them made a busy
+  // control look broken and an outage look like configuration.
+  const rosterUnavailable = rosterState !== "loaded" || !positions || positions.items.length === 0;
+  const reassignDisabled = !hasTask || rosterUnavailable;
+  const reassignDisabledReason = !hasTask
+    ? text("reassign.disabled_no_task")
+    : rosterState === "loading"
+      ? text("reassign.loading_roster")
+      : rosterState === "failed"
+        ? text("reassign.roster_unavailable")
+        : text("reassign.disabled_no_roster");
+  // The heading is the same sentence the verifier clicked in the queue -- shed, animal/tag,
+  // vaccine, weight -- falling back to operator/shed only when the backend sent no subject. It is
+  // never the item id: an id tells her nothing about the video she is about to judge.
+  const subjectHeading = item.subject_label?.trim()
+    ? item.subject_label
+    : [item.operator_name, item.shed_label].filter(Boolean).join(" · ") || text("drawer.eyebrow");
 
   // Duty split (verifier-app-and-flow.md §Roles): the verifier records the verdict, the authority
   // acts on the source task. A principal sees only the half they hold — showing the other half
@@ -376,8 +429,13 @@ function VerificationReviewDrawerPanel({
       <div className={`vr-modal${open ? " on" : ""}`} aria-label={text("drawer.aria")} aria-hidden={!open} inert={!open}>
         <div className="vr-modal-hd">
           <div>
-            <h2>{item.category} · {shortId(item.item_id)}</h2>
-            <div className="sb">{item.module} · {item.vertical}</div>
+            {/* This heading used to be the raw category token joined to a shortened item id, over
+                the raw module/vertical pair -- a config token plus a UUID as the headline of the
+                review surface. The locked spec bans rendering an id as a label, and the raw
+                vertical/module pair is the same leak just removed from the queue table. The
+                verifier needs the sentence she clicked: shed, animal/tag, vaccine, weight. */}
+            <h2>{subjectHeading}</h2>
+            <div className="sb">{actionTypeLabel}</div>
           </div>
           <button ref={closeButtonRef} type="button" className="x" aria-label={text("drawer.close_label")} onClick={onClose}>
             &times;
@@ -563,14 +621,14 @@ function VerificationReviewDrawerPanel({
                   <textarea name="reason" rows={2} placeholder={text("reassign.reason_placeholder")} disabled={reassignDisabled} required />
                 </label>
                 {reassignDisabled ? (
-                  <div className="note">{!hasTask ? text("reassign.disabled_no_task") : text("reassign.disabled_no_roster")}</div>
+                  <div className="note">{reassignDisabledReason}</div>
                 ) : null}
                 <button
                   type="submit"
                   className="btn"
                   disabled={reassignDisabled}
                   aria-disabled={reassignDisabled}
-                  title={reassignDisabled ? (!hasTask ? text("reassign.disabled_no_task") : text("reassign.disabled_no_roster")) : undefined}
+                  title={reassignDisabled ? reassignDisabledReason : undefined}
                 >
                   {text("reassign.submit")}
                 </button>
