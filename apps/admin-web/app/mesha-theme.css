@@ -2037,3 +2037,9 @@ select:disabled { opacity: .45; }
 .kpi-row{gap:16px}
 .kpi-row .kpi{padding:14px 16px}
 @media(max-width:1080px){.kpi-row{gap:12px}}
+
+/* The Weights page owns its own vertical rhythm. `.wrap` is block layout with no
+   gap and its children carry no margins, so without this every section — the two
+   metric rows included — sits flush against the next with a literal 0px between
+   them. Scoped to this page so the shared container is untouched. */
+.weights-page{display:flex;flex-direction:column;gap:16px}
