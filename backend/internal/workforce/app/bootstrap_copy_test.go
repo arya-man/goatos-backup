@@ -373,6 +373,97 @@ func TestNewDirectorRolesGetTheirOwnModuleOffer(t *testing.T) {
 	})
 }
 
+// TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob pins the 2026-08-07 maintainer decision:
+// Chandrakant and Dinakar get the Herd Operations (Counts) capture module ON TOP OF their existing
+// director access, and they get it because THEY hold counts.write on their own grant row (a tenant
+// `operator` grant layered on the director job), never because of the director job itself.
+//
+// The negative half is the point of the test. A bare pc_director / growth_director -- a future
+// holder of either job with no personal operator grant -- must still resolve NO counts module, or
+// the per-person grant has silently become a per-job one and the one-module-one-director
+// segregation lock is reversed.
+func TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob(t *testing.T) {
+	const en = localization.DefaultTag
+
+	hasKey := func(keys []string, want string) bool {
+		for _, k := range keys {
+			if k == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	// The two named people: director job + the personal tenant `operator` grant that carries
+	// counts.write. This is exactly what user_scope_grants holds for them in STG today.
+	perPerson := map[string][]domain.GrantSummary{
+		"Chandrakant (pc_director + operator)": {
+			grantWithRole(permissions.RolePCDirector),
+			grantWithRole(permissions.RoleOperator),
+		},
+		"Dinakar (growth_director + pc_director + operator)": {
+			grantWithRole(permissions.RoleGrowthDirector),
+			grantWithRole(permissions.RolePCDirector),
+			grantWithRole(permissions.RoleOperator),
+		},
+	}
+	for name, grants := range perPerson {
+		t.Run(name+" is offered Herd Operations", func(t *testing.T) {
+			if !permissions.RoleHasPermission(permissions.RoleOperator, permissions.CountsWrite) {
+				t.Fatal("operator no longer carries counts.write; this grant no longer confers capture")
+			}
+			if keys := leadershipModuleKeys(grants); !hasKey(keys, "counts") {
+				t.Fatalf("leadership module keys = %v, want counts offered", keys)
+			}
+			// The offer must actually RENDER -- these people hold counts.write, so unlike
+			// health_director the Counts drawer row and its capture tabs are real.
+			if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; !ok {
+				t.Fatal("Counts module did not render for a principal holding counts.write")
+			}
+			// ...and it is ADDITIVE: their existing director access is untouched.
+			keys := moduleKeySet(modulesFor(grants, nil, en))
+			for _, want := range []string{"vaccination", "weighing"} {
+				if _, ok := keys[want]; !ok {
+					t.Fatalf("module %q disappeared; Counts must be added on top, not swapped in", want)
+				}
+			}
+		})
+	}
+
+	// park_head is the trap this offer must not fall into. It holds counts.write ON THE ROLE, so
+	// keying the offer on the permission instead of the grant silently hands the capture module to
+	// every park head -- caught by TestCountsModuleRoleMatrix when exactly that was tried. Asserted
+	// here too so the reason travels with the offer it constrains.
+	t.Run("park_head holds counts.write on the role and is still NOT offered Herd Operations", func(t *testing.T) {
+		if !permissions.RoleHasPermission(permissions.RoleParkHead, permissions.CountsWrite) {
+			t.Skip("park_head no longer holds counts.write; this trap no longer exists")
+		}
+		grants := []domain.GrantSummary{grantWithRole(permissions.RoleParkHead)}
+		if keys := leadershipModuleKeys(grants); hasKey(keys, "counts") {
+			t.Fatalf("park_head offered counts (keys=%v); the offer is keyed on a role-wide permission, not the per-person grant", keys)
+		}
+		if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; ok {
+			t.Fatal("Counts module rendered for a bare park_head")
+		}
+	})
+
+	// The negative half: the JOB alone confers nothing.
+	for _, role := range []string{permissions.RolePCDirector, permissions.RoleGrowthDirector} {
+		t.Run("bare "+role+" is NOT offered Herd Operations", func(t *testing.T) {
+			grants := []domain.GrantSummary{grantWithRole(role)}
+			if permissions.RoleHasPermission(role, permissions.CountsWrite) {
+				t.Fatalf("%s now holds counts.write on the ROLE; that hands Counts to every future holder of the job", role)
+			}
+			if keys := leadershipModuleKeys(grants); hasKey(keys, "counts") {
+				t.Fatalf("bare %s offered counts (keys=%v); the per-person grant became per-job", role, keys)
+			}
+			if _, ok := moduleKeySet(modulesFor(grants, nil, en))["counts"]; ok {
+				t.Fatalf("Counts module rendered for a bare %s", role)
+			}
+		})
+	}
+}
+
 // TestMultiModuleVerifierDrawer locks the verifier nav composition for ≥2 verify duties.
 // A verifier with VerificationReview permission and verify duty on multiple features
 // gets a drawer with one entry per feature, following the CEO/leadership pattern.

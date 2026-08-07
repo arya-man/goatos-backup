@@ -695,6 +695,30 @@ block — block-scoped enforcement in `check-stg-operator-scope.mjs`), and a ten
 reads `workforce_positions` with `position_tier <> 'director'` rather than the RBAC
 role.
 
+Extended 2026-08-07 (same day, second decision): those two ALSO get the Herd
+Operations (Counts) CAPTURE module on the phone — birth, death, shifting — and
+they get it the per-person way, keyed on the explicit `operator` GRANT they hold,
+never on their director job. `leadershipModuleKeys` offers `counts` when
+`hasRole(grants, RoleOperator)`. A bare `pc_director` or `growth_director` is still
+offered nothing, so a future holder of either job inherits no capture, and the
+segregation lock above stands unchanged.
+
+Why the GRANT and not the `counts.write` PERMISSION, which reads like the obvious
+key and is wrong: `park_head` holds `counts.write` on the ROLE, and
+`TestCountsModuleRoleMatrix` pins that a park head does NOT get the capture module.
+Keying the offer on the permission compiled, passed the new test, and silently
+handed Counts to every park head — the same per-job widening one layer over. That
+pre-existing test is what caught it. The offer is now keyed on the `operator` grant,
+which is exactly what `perPersonGrants` layers onto a named individual.
+
+Note also that leadership module offers are NOT reachable from the database:
+`candidateModuleKeys` returns `leadershipModuleKeys(grants)` for any principal
+holding a leadership role and never consults `department_module_grants`. Giving a
+director a module is therefore always a code change — there is no grant row that
+does it. Pinned by `TestHerdOperationsIsOfferedPerPersonNotPerDirectorJob`
+(mutation-tested three ways: branch removed, keyed on the job, keyed on the
+permission — each turns it red).
+
 Same change closed a copy-firewall defect on that queue: the phone used to render
 `Raised by <uuid>` and `to shed <uuid>` because it composed the row's copy itself
 from the echoed payload and had no name source. The backend now owns both lines

@@ -567,6 +567,32 @@ func leadershipModuleKeys(grants []domain.GrantSummary) []string {
 	if grantsHavePermission(grants, permissions.CountsApproveAccess) {
 		keys = appendMissing(keys, "approvals")
 	}
+	// Herd Operations (Counts) capture is offered the SAME per-person way as approvals above, and
+	// for the same reason (maintainer decision 2026-08-07, extending "rbac per person, not per
+	// group"). A leadership principal who has been granted counts.write ON THEIR OWN GRANT ROW --
+	// today Chandrakant and Dinakar, each holding a tenant `operator` grant alongside their
+	// director job -- gets the capture module. Their job roles are untouched.
+	//
+	// Read this together with the health_director branch above, because the two look contradictory
+	// and are not. That branch offers "counts" on the JOB because health_director is the documented
+	// Counts OWNER; it renders nothing today precisely because that role holds no counts.write.
+	// This branch offers it on the PERMISSION, so ownership and access stay separate decisions.
+	//
+	// Deliberately NOT keyed on pc_director / growth_director. Keying it on either job would hand
+	// Counts to every future holder of that job, reverse the one-module-one-director segregation
+	// lock (permissions.TestDirectorHoldsNoOtherModulesCapabilities asserts pc_director holds no
+	// CountsRead), and override health_director as the Counts owner. That exact alternative was
+	// offered to the maintainer and declined; see AGENTS.md -> Approvals-on-mobile rule.
+	//
+	// Nor is it keyed on the counts.write PERMISSION, which reads like the natural choice and is
+	// wrong: park_head holds counts.write on the ROLE, and TestCountsModuleRoleMatrix pins that a
+	// park head does NOT get the capture module. Keying on the permission therefore widened the
+	// offer to that job as well -- the same defect one layer over. The explicit `operator` GRANT is
+	// the per-person fact: it is what perPersonGrants layers onto a named individual (and what the
+	// stg-operator-scope guard makes them justify), so it names the person, not the job.
+	if hasRole(grants, permissions.RoleOperator) {
+		keys = appendMissing(keys, "counts")
+	}
 	return keys
 }
 
