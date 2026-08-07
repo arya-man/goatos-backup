@@ -55,6 +55,20 @@ BEGIN
               AND candidate.source_ref_type = 'vaccination_goat'
               AND candidate.partition_label IS NULL
               AND candidate.shed_id IS NOT NULL
+              -- Only rows that will ACTUALLY update. Without this, a row with no
+              -- matching goat_shed_partitions (a goat that moved: allowed to stay
+              -- NULL by design) is re-selected at the head of EVERY batch, never
+              -- updates, and drives rows_updated to 0 -- exiting the loop while
+              -- eligible rows with higher item_ids are still unprocessed. A few
+              -- old moved-goat rows near the front would strand the rest of a
+              -- production verifier queue.
+              AND EXISTS (
+                    SELECT 1
+                    FROM public.goat_shed_partitions g
+                    WHERE g.tenant_id = candidate.tenant_id
+                      AND g.goat_id = (candidate.source_ref_id::uuid)
+                      AND g.shed_id = candidate.shed_id
+              )
             ORDER BY candidate.item_id
             LIMIT batch_size
         )
