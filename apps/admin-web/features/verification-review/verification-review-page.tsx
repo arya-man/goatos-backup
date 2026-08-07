@@ -328,7 +328,7 @@ function QueueRow({
       <td>
         {cell(item.subject_label?.trim()
           ? item.subject_label
-          : `${item.operator_name || "—"} · ${item.shed_label || "—"}`)}
+          : `${item.operator_name || "—"} · ${item.operational_location_display || item.shed_label || "—"}`)}
       </td>
       <td className="muted" style={{ whiteSpace: "nowrap" }}>
         {cell(fmtDateTime(item.captured_at))}

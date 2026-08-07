@@ -67,6 +67,9 @@ data class VerificationQueueItem(
     @SerialName("operator_name") val operatorName: String? = null,
     @SerialName("shed_id") val shedId: String? = null,
     @SerialName("partition_label") val partitionLabel: String? = null,
+    // Render THIS verbatim -- the backend composes it (shed + partition). Reading shedLabel
+    // instead is what kept a partitioned shed reading bare "Godel 1" after the wire was fixed.
+    @SerialName("operational_location_display") val operationalLocationDisplay: String? = null,
     @SerialName("shed_label") val shedLabel: String? = null,
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("park_label") val parkLabel: String? = null,

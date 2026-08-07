@@ -501,7 +501,7 @@ function VerificationReviewDrawerPanel({
             </div>
             <div className="vr-fact">
               <b>{text("drawer.meta.shed")}</b>
-              {renderLabelOrFallback(item.shed_label)}
+              {renderLabelOrFallback(item.operational_location_display || item.shed_label)}
             </div>
             <div className="vr-fact">
               <b>{text("drawer.meta.park")}</b>
