@@ -806,14 +806,132 @@ type ShedAnimalQuery struct {
 // tell a bug from real outstanding work. It names that residual rather than removing those
 // animals from Targets, so Targets stays the roster the operator was handed and the withdrawal
 // stays visible instead of being quietly deducted.
+// MissedNotGiven is evaluated FIRST in the partition chain, ahead of DosesVerified. It has to be:
+// the chain folds to one row per ANIMAL via bool_or, so while verified led the chain a single
+// accepted dose anywhere in an animal's history swallowed every missed dose it also held. On the
+// live stg board that hid 137 animals carrying a missed ET+TT dose inside DosesVerified and left
+// OverdueNotGiven reading 0 -- the board reported animals with a missed dose as green. A missed dose
+// is the one fact a preventive-care board exists to surface, so it outranks every other state an
+// animal can also be in. The partition stays disjoint and exhaustive:
+// missed + verified + awaiting + overdue + scheduled + closedWithoutDose = targets.
 type CommandBoardKPI struct {
 	Targets              int `json:"targets"`
+	MissedNotGiven       int `json:"missedNotGiven"`
 	DosesVerified        int `json:"dosesVerified"`
 	AwaitingVerification int `json:"awaitingVerification"`
 	OverdueNotGiven      int `json:"overdueNotGiven"`
 	ScheduledAhead       int `json:"scheduledAhead"`
 	ClosedWithoutDose    int `json:"closedWithoutDose"`
 }
+
+// CommandBoardShedVaccineCell is one shed x VACCINE cell, dose collapsed, reported as a FLAG and
+// not a count.
+//
+// The shed matrix next to it is dose-QUALIFIED on purpose (ET+TT Dose 1 / Dose 2 / Revaccination are
+// separate columns) because leadership asks for per-dose figures, and an earlier vaccine-collapse
+// was reverted: it SUMMED the doses, so a cell exceeded its own cohort head count. This cell is not
+// that revert. It carries no sum -- State is bool_or over the shed's doses for that vaccine -- so
+// collapsing doses cannot over-count by construction, and the two matrices answer different
+// questions rather than contradicting each other.
+//
+// The row a park head actually asks for is "is anything behind in this shed, for this vaccine,
+// today" -- not how many, not which dose, not what is scheduled next quarter. BehindAnimals is
+// carried only so the flag can be explained on hover; the cell's meaning is State.
+type CommandBoardShedVaccineCell struct {
+	// ShedID is the cell's IDENTITY and clients must group on it. ShedName is a label: the live
+	// tenant runs 175 sheds under 99 distinct names ("Godel 1" exists in two parks), so grouping by
+	// name merges two parks' sheds into one row and reports one park's red cell against the other's
+	// shed. ParkName is carried so two same-named sheds can be told apart on screen.
+	ShedID      string `json:"shedId"`
+	ShedName    string `json:"shedName"`
+	ParkName    string `json:"parkName,omitempty"`
+	VaccineCode string `json:"vaccineCode"`
+	// State is one of:
+	//   "behind"      at least one animal holds a missed or past-due dose of this vaccine with NO
+	//                 proof of any kind against it                     -> RED
+	//   "verifying"   dose given, proof recorded, verifier has not accepted it yet -> AMBER
+	//   "ok"          this vaccine is scheduled in this shed, nothing behind -> GREEN
+	//   "not_planned" this shed has no obligation for this vaccine at all    -> GREY
+	// not_planned is NAMED rather than left as an absent cell. A blank told the reader nothing about
+	// whether the vaccine was clean, un-generated, or genuinely out of protocol for that shed -- and
+	// BLUE_TONGUE is configured tenant-wide while generating zero obligations, which a blank column
+	// would have hidden entirely.
+	State string `json:"state"`
+	// VerifyingAnimals is dose-given-proof-recorded-verifier-has-not-looked. It is NOT part of
+	// BehindAnimals and must never be added to it: one is a herd problem, the other is a desk
+	// problem, and merging them is what made the board report 76 vaccinated goats as unvaccinated.
+	VerifyingAnimals int `json:"verifyingAnimals"`
+	// BehindAnimals is rendered ON the red cell, not hidden behind a hover. "How many are missing,
+	// each vaccine, shed wise" is half the original ask; a bare dot answers only "is anything wrong"
+	// and forces a second question for the number that makes the row actionable. It is a count of
+	// DISTINCT animals, so it can never exceed the shed's head count the way a dose SUM would.
+	BehindAnimals int `json:"behindAnimals"`
+	TotalAnimals  int `json:"totalAnimals"`
+	// ProofVideos are the shed's vaccination clips for the day these doses were recorded. They hang
+	// off the CELL, not off each animal: proof is filmed per shed for the operator day (Sumathi 1
+	// has five clips covering 76 goats), so attaching one to every animal row repeated a single link
+	// 76 times and implied per-goat footage that does not exist.
+	ProofVideos []CommandBoardShedVideo `json:"proofVideos,omitempty"`
+	// FlaggedAnimals names the animals behind BOTH flagged states -- genuinely behind AND waiting on
+	// a verifier -- capped at CommandBoardShedVaccineAnimalListCap. It was called behindAnimalsList
+	// while it already carried verifier-backlog rows, so the field name told a client the opposite
+	// of what the payload contained. Each row carries AwaitingVerification, which is what separates
+	// the two; the COUNTS above stay whole-scope truth and this list is the evidence behind them.
+	FlaggedAnimals []CommandBoardShedVaccineAnimal `json:"flaggedAnimals,omitempty"`
+}
+
+// CommandBoardShedVaccineAnimal is one animal behind a shed x vaccine cell.
+//
+// Identity is the TAG a person reads off the animal, with the internal display id only as a
+// fallback label -- an operator sent to a shed cannot act on a UUID. Status and DueAt are carried
+// because "missed" and "past due, sweeper has not run" are the same red to a park head but
+// different facts to whoever has to fix it.
+type CommandBoardShedVaccineAnimal struct {
+	GoatID    string `json:"goatId"`
+	DisplayID string `json:"displayId"`
+	// Tag / Tag2 are the animal's EAR TAGS -- what identifies it standing in the shed. Most of the
+	// herd carries two, so showing only the primary leaves an operator reading the other ear unable
+	// to match the animal to the row. DisplayID is an internal id and is a fallback for an animal
+	// with no active tag, never an identity.
+	Tag    string `json:"tag"`
+	Tag2   string `json:"tag2,omitempty"`
+	Status string `json:"status"`
+	// AwaitingVerification says the dose WAS GIVEN and its proof is queued for a verifier. Without
+	// this the drawer read "missed" against animals the operator had already vaccinated on the day
+	// they were due, which is an accusation rather than a status.
+	AwaitingVerification bool       `json:"awaitingVerification"`
+	RecordedAt           *time.Time `json:"recordedAt,omitempty"`
+	// LocationDisplay is the animal's GROUND location: park + physical shed + partition. The shed
+	// name alone sends a person to "Godel 1" when the animal is in "Godel 1 - Part 3" -- a different
+	// pen, and a wasted trip on any partitioned shed.
+	LocationDisplay string     `json:"locationDisplay"`
+	PartitionLabel  string     `json:"partitionLabel,omitempty"`
+	DueAt           *time.Time `json:"dueAt,omitempty"`
+}
+
+// CommandBoardVaccineColumn is one column of the shed x vaccine matrix: the protocol CODE the cells
+// are keyed by, plus the human LABEL to print in the header.
+type CommandBoardVaccineColumn struct {
+	Code string `json:"code"`
+	// Label is empty when the canonical labeller does not know the code. Clients should fall back to
+	// the code rather than hide the column: a vaccine the catalogue defines but the label table has
+	// not caught up with is a gap worth seeing, not one worth hiding.
+	Label string `json:"label"`
+}
+
+// CommandBoardShedVideo is one proof clip a verifier has to watch, at SHED-and-day grain.
+type CommandBoardShedVideo struct {
+	// Path is the playback path, never a bare id: the signed GCS URL is minted per request by the
+	// proof service and the client must not have to know how it is built.
+	Path       string     `json:"path"`
+	UploadedAt *time.Time `json:"uploadedAt,omitempty"`
+	DurationMS int64      `json:"durationMs,omitempty"`
+}
+
+// CommandBoardShedVaccineAnimalListCap bounds the drill-down across ALL behind cells in one board
+// read. The list is evidence for a flag, not a worklist, and the cell's count remains whole-scope
+// truth, so the UI must say the list is partial rather than let a truncated list read as complete.
+const CommandBoardShedVaccineAnimalListCap = 500
 
 // CommandBoardClosedWithoutDoseAnimal names one animal behind the ClosedWithoutDose tile.
 //
@@ -1012,9 +1130,23 @@ type CommandBoardResponse struct {
 	// CommandBoardClosedWithoutDoseListCap. The COUNT on the tile stays whole-scope truth.
 	ClosedWithoutDoseAnimals []CommandBoardClosedWithoutDoseAnimal `json:"closedWithoutDoseAnimals"`
 	ShedDoseMatrix           []ShedDoseMatrixCell                  `json:"shedDoseMatrix"`
-	WeeklyGiven              []WeeklyGivenRow                      `json:"weeklyGiven"`
-	VerificationQueue        []VerificationQueueRow                `json:"verificationQueue"`
-	Freshness                *ProjectionFreshness                  `json:"freshness,omitempty"`
+	// ShedVaccineMatrix is the dose-collapsed red/green companion to ShedDoseMatrix. Every shed in
+	// scope appears against every vaccine the tenant's protocol defines, including vaccines that
+	// generated no obligations, so "this column is missing" and "this column is clean" stay
+	// distinguishable.
+	ShedVaccineMatrix []CommandBoardShedVaccineCell `json:"shedVaccineMatrix"`
+	// ShedVaccineColumns is the column order for ShedVaccineMatrix: the tenant's full vaccine
+	// catalogue, not the distinct codes present in the cells. Deriving columns from the cells would
+	// silently drop any vaccine with zero obligations everywhere.
+	//
+	// Each column carries its LABEL as well as its code, produced by the one canonical vaccine
+	// labeller on the server. Letting the client map codes to labels puts a second, drifting copy of
+	// that table in the frontend, which the admin-UI contract guard rejects: visible copy must
+	// originate server-side.
+	ShedVaccineColumns []CommandBoardVaccineColumn `json:"shedVaccineColumns"`
+	WeeklyGiven        []WeeklyGivenRow            `json:"weeklyGiven"`
+	VerificationQueue  []VerificationQueueRow      `json:"verificationQueue"`
+	Freshness          *ProjectionFreshness        `json:"freshness,omitempty"`
 }
 
 type CommandBoardQuery struct {
