@@ -27,7 +27,18 @@ type shedWeightsRepo struct {
 func (r *shedWeightsRepo) GetShedWeights(_ context.Context, _ string, parkIDs []string, start, end time.Time) (domain.ShedWeights, error) {
 	r.gotParkIDs = append([]string(nil), parkIDs...)
 	r.gotStart, r.gotEnd = start, end
-	return r.shedWeights, nil
+	out := r.shedWeights
+	// The real repository builds the park vocabulary from the scope it was handed.
+	// Mirroring that here keeps this test honest: it still proves the caller's scope
+	// is what reaches the read, rather than asserting on a list the fake invented.
+	for _, park := range r.parks {
+		for _, id := range parkIDs {
+			if park.ParkID == id {
+				out.Parks = append(out.Parks, domain.GrowthPark{ParkID: park.ParkID, Name: park.Name})
+			}
+		}
+	}
+	return out, nil
 }
 
 func (r *shedWeightsRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
@@ -88,7 +99,8 @@ func TestGetShedWeightsOmittedParkIDUsesOnlyAuthorizedParks(t *testing.T) {
 		t.Fatalf("expected repository scoped to park A only, got %v", repo.gotParkIDs)
 	}
 	// The park filter vocabulary is backend-owned AND scoped: offering park B here
-	// would advertise a park this caller cannot read.
+	// would advertise a park this caller cannot read. The repository builds it from
+	// the scope, so this asserts the scope that reached it.
 	if len(out.Parks) != 1 || out.Parks[0].ParkID != swParkA {
 		t.Fatalf("park vocabulary must be limited to authorized parks, got %+v", out.Parks)
 	}

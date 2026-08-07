@@ -1600,23 +1600,9 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 		return domain.ShedWeights{}, err
 	}
 
-	// The park filter vocabulary is BACKEND-OWNED and scoped: it lists exactly the
-	// parks this caller may monitor, so the client never invents a park label and
-	// never offers a park the caller cannot read.
-	parks, err := s.repo.ListParks(ctx, actor.TenantID)
-	if err != nil {
-		return domain.ShedWeights{}, err
-	}
-	allowed := make(map[string]struct{}, len(parkIDs))
-	for _, id := range parkIDs {
-		allowed[id] = struct{}{}
-	}
-	out.Parks = out.Parks[:0]
-	for _, p := range parks {
-		if _, ok := allowed[p.ParkID]; ok {
-			out.Parks = append(out.Parks, domain.GrowthPark{ParkID: p.ParkID, Name: p.Name})
-		}
-	}
+	// The park filter vocabulary is BACKEND-OWNED and scoped — the repository builds
+	// it from the same park list it was handed, labelled exactly as the rows are, so
+	// the dropdown and the table can never disagree.
 	return out, nil
 }
 
