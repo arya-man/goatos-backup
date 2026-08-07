@@ -45,6 +45,7 @@ type Service interface {
 	ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error)
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error)
+	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 }
 
@@ -104,6 +105,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/weighing/alerts", h.ListAlerts)
 	mux.HandleFunc("GET /app/weighing/weight-history", h.GetWeightHistory)
 	mux.HandleFunc("GET /app/weighing/leadership/growth", h.GetLeadershipGrowthADG)
+	mux.HandleFunc("GET /app/weighing/shed-weights", h.GetShedWeights)
 }
 
 // ListAlerts serves the weighing alerts feed. Title and empty-state copy travel
@@ -146,6 +148,21 @@ func (h *Handler) GetWeightHistory(w http.ResponseWriter, r *http.Request) {
 //     last 90 days ending today when omitted.
 func (h *Handler) GetLeadershipGrowthADG(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.GetLeadershipGrowthADG(
+		r.Context(),
+		actor(r),
+		r.URL.Query().Get("park_id"),
+		r.URL.Query().Get("from"),
+		r.URL.Query().Get("to"),
+	)
+	h.respond(w, r, result, err)
+}
+
+// GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
+// with its latest weigh, plus the whole-filter KPI rollup. `park_id` is optional
+// (omit for every park the caller may monitor); `from`/`to` are INCLUSIVE
+// Asia/Kolkata business dates (YYYY-MM-DD).
+func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetShedWeights(
 		r.Context(),
 		actor(r),
 		r.URL.Query().Get("park_id"),
