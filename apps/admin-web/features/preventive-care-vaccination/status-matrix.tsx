@@ -150,7 +150,7 @@ export function VaccinationStatusMatrix({
                     ? scopeHref("/vaccination", scope, {}, { vacc_record: matrixRecordId(c, firstProtocol.protocolId) })
                     : null;
                   return (
-                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
+                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
                       <td>
                         {cohortHref ? (
                           <LocalOverlayLink href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
@@ -230,5 +230,5 @@ export function VaccinationStatusMatrix({
 }
 
 function matrixRecordId(cohort: VaccinationOperationsResponse["cohorts"][number], protocolId: string): string {
-  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}|${protocolId}`;
+  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}|${cohort.partitionLabel ?? ""}|${protocolId}`;
 }
