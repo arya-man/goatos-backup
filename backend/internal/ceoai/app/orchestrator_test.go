@@ -178,6 +178,34 @@ func TestModelPlannedMissedVaccinationAPIReadBecomesAggregateMissedMetric(t *tes
 	}
 }
 
+func TestAllParksVaccinationQuestionDropsInjectedPageScope(t *testing.T) {
+	exec := &fakeExec{
+		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
+			{Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
+		}},
+	}
+	reg := NewRegistry(nil, nil, nil)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "vaccination_shed_summary", Route: domain.RouteAPI, Params: map[string]any{
+			"park_id": "00000000-0000-4000-8000-000000003001",
+			"shed_id": "00000000-0000-4000-8000-000000004001",
+		}},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	_, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals missed vaccination across all parks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := exec.last.Params["park_id"]; ok {
+		t.Fatalf("park_id should be dropped for all-parks question: %+v", exec.last.Params)
+	}
+	if _, ok := exec.last.Params["shed_id"]; ok {
+		t.Fatalf("shed_id should be dropped for all-parks question: %+v", exec.last.Params)
+	}
+}
+
 func TestModelPlannedVaccinationGraphAPIReadCarriesShedSeriesIntent(t *testing.T) {
 	exec := &fakeExec{
 		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
