@@ -586,6 +586,12 @@ interface WeighingRepository {
     /** Fetches ONE page of a task's shed buckets into Room. */
     suspend fun refreshTaskBuckets(campaignId: String, reset: Boolean = true): AppResult<Int>
 
+    /** Appends the next page of task list using the stored cursor. */
+    suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int>
+
+    /** Appends the next page of task buckets using the stored cursor. */
+    suspend fun appendTaskBuckets(campaignId: String): AppResult<Int>
+
     /**
      * Downloads the task's full CSV export (every shed, including ones with nothing captured).
      *
@@ -613,11 +619,17 @@ interface WeighingRepository {
      */
     suspend fun refreshLeadershipShed(campaignId: String, campaignShedId: String, reset: Boolean = true): AppResult<Int>
 
+    /** Appends the next page of records for a shed using the stored cursor. */
+    suspend fun appendLeadershipShed(campaignId: String, campaignShedId: String): AppResult<Int>
+
     /** The leadership videos gallery from Room, as a BOUNDED window of shed buckets. */
     fun observeLeadershipVideos(windowSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE): Flow<List<WeighingLeadershipShed>>
 
     /** Fetches ONE page of the videos gallery — one task page, then each of its buckets. */
     suspend fun refreshLeadershipVideos(reset: Boolean = true): AppResult<Int>
+
+    /** Appends the next page of videos gallery using the stored cursor. */
+    suspend fun appendLeadershipVideos(): AppResult<Int>
 
     /**
      * The PARK-grain planner catalog from Room: EVERY park the planner may use on that date.
@@ -668,6 +680,13 @@ interface WeighingRepository {
         periodStartDate: String,
         parkId: String,
         reset: Boolean = true,
+        excludeCampaignId: String? = null,
+    ): AppResult<Int>
+
+    /** Appends the next page of park buckets using the stored cursor. */
+    suspend fun appendPlannerParkBuckets(
+        periodStartDate: String,
+        parkId: String,
         excludeCampaignId: String? = null,
     ): AppResult<Int>
 
@@ -1094,6 +1113,104 @@ class DefaultWeighingRepository(
             }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this task.")) }
         }
 
+    override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
+            val db = database ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
+            val rows = taskDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
+            val keys = taskKeyDao ?: return@withContext AppResult.Err("Weighing tasks are not configured.")
+            val key = taskListQueryKey(scope, parkId)
+            val cursor = keys.get(key)?.nextCursor?.takeIf { it.isNotBlank() }
+                ?: return@withContext AppResult.Ok(0)
+            runCatching {
+                val response = client.listWeighingCampaigns(
+                    scope = scope,
+                    cursor = cursor,
+                    limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                    parkId = parkId?.takeIf { it.isNotBlank() },
+                )
+                val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
+                val now = clock()
+                db.withTransaction {
+                    val startIndex = rows.nextSortIndex(key)
+                    rows.upsertAll(
+                        response.items.mapIndexed { index, item ->
+                            WeighingTaskRowEntity(
+                                queryKey = key,
+                                campaignId = item.campaignId,
+                                sortIndex = startIndex + index,
+                                dtoJson = cacheJson.encodeToString(item),
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                    keys.upsert(
+                        WeighingTaskRemoteKeyEntity(
+                            queryKey = key,
+                            nextCursor = nextCursor,
+                            endReached = nextCursor.isNullOrBlank(),
+                            activeCount = response.counts.active,
+                            completedCount = response.counts.completed,
+                            canPublish = response.capabilities.canPublish,
+                            canEnd = response.capabilities.canEnd,
+                            canReopen = response.capabilities.canReopen,
+                            updatedAt = now,
+                        ),
+                    )
+                    // Prune overflow without clearing the query since we're appending
+                    rows.pruneOutsideNewestQueries(WEIGHING_CACHED_TASK_FILTERS)
+                    keys.pruneOutsideNewestQueries(WEIGHING_CACHED_TASK_FILTERS)
+                }
+                AppResult.Ok(response.items.size)
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing tasks.")) }
+        }
+
+    override suspend fun appendTaskBuckets(campaignId: String): AppResult<Int> =
+        withContext(Dispatchers.IO) {
+            val client = api ?: return@withContext AppResult.Err("This task is not configured.")
+            val db = database ?: return@withContext AppResult.Err("This task is not configured.")
+            val rows = bucketDao ?: return@withContext AppResult.Err("This task is not configured.")
+            val keys = bucketKeyDao ?: return@withContext AppResult.Err("This task is not configured.")
+            val cursor = keys.get(campaignId)?.nextCursor?.takeIf { it.isNotBlank() }
+                ?: return@withContext AppResult.Ok(0)
+            runCatching {
+                val response = client.listWeighingCampaignSheds(
+                    campaignId = campaignId,
+                    cursor = cursor,
+                    limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                )
+                val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
+                val now = clock()
+                db.withTransaction {
+                    val startIndex = rows.nextSortIndex(campaignId)
+                    rows.upsertAll(
+                        response.items.mapIndexed { index, item ->
+                            WeighingTaskBucketRowEntity(
+                                campaignId = campaignId,
+                                campaignShedId = item.campaignShedId,
+                                sortIndex = startIndex + index,
+                                dtoJson = cacheJson.encodeToString(item),
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                    keys.upsert(
+                        WeighingTaskBucketRemoteKeyEntity(
+                            campaignId = campaignId,
+                            nextCursor = nextCursor,
+                            endReached = nextCursor.isNullOrBlank(),
+                            totalCount = response.totalCount,
+                            updatedAt = now,
+                        ),
+                    )
+                    // Prune overflow without clearing the query since we're appending
+                    rows.pruneOutsideNewestQueries(WEIGHING_CACHED_TASKS)
+                    keys.pruneOutsideNewestQueries(WEIGHING_CACHED_TASKS)
+                }
+                AppResult.Ok(response.items.size)
+            }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more records for this task.")) }
+        }
+
     override fun observeLeadershipShed(
         campaignId: String,
         campaignShedId: String,
@@ -1153,6 +1270,42 @@ class DefaultWeighingRepository(
             }
             AppResult.Ok(response.individual.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load this shed.")) }
+    }
+
+    override suspend fun appendLeadershipShed(
+        campaignId: String,
+        campaignShedId: String,
+    ): AppResult<Int> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing is not configured.")
+        val db = database ?: return@withContext AppResult.Err("Weighing is not configured.")
+        val keys = leadershipRecordKeyDao ?: return@withContext AppResult.Err("Weighing is not configured.")
+        val shedKey = weighingShedKey(campaignId, campaignShedId)
+        val cursor = keys.get(shedKey)?.nextCursor?.takeIf { it.isNotBlank() }
+            ?: return@withContext AppResult.Ok(0)
+        runCatching {
+            val response = client.getWeighingLeadershipShedVideos(
+                campaignId = campaignId,
+                campaignShedId = campaignShedId,
+                cursor = cursor,
+                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+            ).shed
+            db.withTransaction {
+                writeLeadershipShedPage(
+                    shedKey = shedKey,
+                    dto = response,
+                    clearRecords = false,
+                    periodLabel = response.periodLabel,
+                    galleryQueryKey = null,
+                    gallerySortIndex = null,
+                )
+                leadershipShedDao?.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
+                leadershipRecordDao?.pruneOutsideNewestQueries(WEIGHING_CACHED_SHEDS)
+                keys.pruneOutsideNewestQueries(WEIGHING_CACHED_SHEDS)
+                leadershipRecordDao?.pruneOrphans()
+                keys.pruneOrphans()
+            }
+            AppResult.Ok(response.individual.size)
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more records for this shed.")) }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -1236,6 +1389,50 @@ class DefaultWeighingRepository(
             }
             AppResult.Ok(response.items.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing videos.")) }
+    }
+
+    override suspend fun appendLeadershipVideos(): AppResult<Int> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        val db = database ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        val sheds = leadershipShedDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        val keys = galleryKeyDao ?: return@withContext AppResult.Err("Weighing videos are not configured.")
+        val cursor = keys.get(WEIGHING_VIDEOS_QUERY_KEY)?.nextCursor?.takeIf { it.isNotBlank() }
+            ?: return@withContext AppResult.Ok(0)
+        runCatching {
+            val response = client.listWeighingLeadershipSheds(
+                cursor = cursor,
+                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+            )
+            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
+            val now = clock()
+            db.withTransaction {
+                val startIndex = sheds.nextGallerySortIndex(WEIGHING_VIDEOS_QUERY_KEY)
+                response.items.forEachIndexed { index, dto ->
+                    writeLeadershipShedPage(
+                        shedKey = weighingShedKey(dto.campaignId, dto.campaignShedId),
+                        dto = dto,
+                        clearRecords = false,
+                        periodLabel = dto.periodLabel,
+                        galleryQueryKey = WEIGHING_VIDEOS_QUERY_KEY,
+                        gallerySortIndex = startIndex + index,
+                        keepDeeperRecords = true,
+                    )
+                }
+                keys.upsert(
+                    WeighingLeadershipGalleryRemoteKeyEntity(
+                        queryKey = WEIGHING_VIDEOS_QUERY_KEY,
+                        nextCursor = nextCursor,
+                        endReached = nextCursor.isNullOrBlank(),
+                        updatedAt = now,
+                    ),
+                )
+                // Prune overflow without clearing the query since we're appending, not resetting
+                sheds.pruneOutsideNewest(WEIGHING_CACHED_SHEDS)
+                leadershipRecordDao?.pruneOrphans()
+                leadershipRecordKeyDao?.pruneOrphans()
+            }
+            AppResult.Ok(response.items.size)
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing videos.")) }
     }
 
     override fun observePlannerCatalog(periodStartDate: String): Flow<WeighingPlannerCatalogCache> {
@@ -1455,6 +1652,61 @@ class DefaultWeighingRepository(
             }
             AppResult.Ok(response.sheds.size)
         }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load weighing planner.")) }
+    }
+
+    override suspend fun appendPlannerParkBuckets(
+        periodStartDate: String,
+        parkId: String,
+        excludeCampaignId: String?,
+    ): AppResult<Int> = withContext(Dispatchers.IO) {
+        val client = api ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        val db = database ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        val catalog = plannerDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        val keys = plannerKeyDao ?: return@withContext AppResult.Err("Weighing planner is not configured.")
+        if (parkId.isBlank()) return@withContext AppResult.Ok(0)
+        val queryKey = plannerBucketQueryKey(periodStartDate, parkId, excludeCampaignId)
+        val cursor = keys.get(queryKey)?.nextCursor?.takeIf { it.isNotBlank() }
+            ?: return@withContext AppResult.Ok(0)
+        runCatching {
+            val response = client.getWeighingPlannerParkBuckets(
+                parkId = parkId,
+                periodStartDate = periodStartDate,
+                cursor = cursor,
+                limit = WEIGHING_LEADERSHIP_PAGE_SIZE,
+                excludeCampaignId = excludeCampaignId,
+            )
+            val nextCursor = response.nextCursor.nextWeighingCursorAfter(cursor)
+            val now = clock()
+            db.withTransaction {
+                val startIndex = catalog.nextShedSortIndex(queryKey)
+                catalog.upsertSheds(
+                    response.sheds.mapIndexed { offset, shed ->
+                        WeighingPlannerShedRowEntity(
+                            queryKey = queryKey,
+                            locationId = shed.locationId,
+                            parkId = parkId,
+                            parkName = "",
+                            sortIndex = startIndex + offset,
+                            shedJson = cacheJson.encodeToString(shed),
+                            existingCampaignJson = null,
+                            updatedAt = now,
+                        )
+                    },
+                )
+                keys.upsert(
+                    WeighingPlannerRemoteKeyEntity(
+                        queryKey = queryKey,
+                        nextCursor = nextCursor,
+                        endReached = nextCursor.isNullOrBlank(),
+                        updatedAt = now,
+                    ),
+                )
+                // Prune overflow without clearing the query since we're appending
+                catalog.pruneShedsOutsideNewestQueries(WEIGHING_CACHED_BUCKET_PARKS)
+                keys.pruneOutsideNewestQueries(WEIGHING_CACHED_BUCKET_PARKS)
+            }
+            AppResult.Ok(response.sheds.size)
+        }.getOrElse { AppResult.Err(it.userFacingMessage("Could not load more weighing planner buckets.")) }
     }
 
     /**
