@@ -196,7 +196,7 @@ func TestLeadershipDrawerCompositionPerRole(t *testing.T) {
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(verify.NavItems) != len(wantItems) {
@@ -507,7 +507,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantVaccItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(vaccModule.NavItems) != len(wantVaccItems) {
@@ -531,7 +531,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		}
 		wantWeighItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=weighing&category=weighing_proof"},
-			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=weighing_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/weighing/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(weighModule.NavItems) != len(wantWeighItems) {
@@ -644,7 +644,7 @@ func TestMultiModuleVerifierDrawer(t *testing.T) {
 		// alerts tab label never names the feature; the href's category still scopes it.
 		wantItems := []domain.BootstrapNavigationItem{
 			{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-			{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+			{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 			{Key: "you", Label: "You", Href: "/you"},
 		}
 		if len(modules[0].NavItems) != len(wantItems) {
@@ -762,7 +762,7 @@ func TestBootstrapAlertsPerModule(t *testing.T) {
 		if alerts.Label != wantAlertsLabel {
 			t.Fatalf("module %q alerts label = %q, want the generic %q (the tab must not name the feature the verifier is already inside)", m.Key, alerts.Label, wantAlertsLabel)
 		}
-		wantHref := "/verify/alerts?category=" + wantCategory
+		wantHref := wantVerifierAlertsHref(m.Key, wantCategory)
 		if alerts.Href != wantHref {
 			t.Fatalf("module %q alerts href = %q, want %q (category must match what the feature's verification-bridge writes to verification_items.category, not just the module name)", m.Key, alerts.Href, wantHref)
 		}
@@ -882,5 +882,18 @@ func TestEveryVerifierModuleLabelResolvesInTheCopyCatalog(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// wantVerifierAlertsHref mirrors verifierAlertsHref: a module with its OWN lifecycle feed points
+// there, everything else keeps the pending-queue href.
+func wantVerifierAlertsHref(feature, category string) string {
+	switch strings.TrimPrefix(feature, "verify_") {
+	case "vaccination":
+		return "/vaccination/alerts"
+	case "weighing":
+		return "/weighing/alerts"
+	default:
+		return "/verify/alerts?category=" + category
 	}
 }

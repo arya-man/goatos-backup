@@ -848,7 +848,7 @@ func verificationModuleForFeature(featureKey string, grants []domain.GrantSummar
 	category := verificationCategoryForFeature(normalized)
 	items := []moduleNavContribution{
 		{key: "verify", labelKey: "nav.verify", href: verifyQueueHref(normalized), shared_key: "", priority: 0, requiredPermission: permissions.VerificationReview},
-		{key: "alerts", labelKey: "nav.alerts", href: "/verify/alerts?category=" + category, shared_key: "", priority: 20, requiredPermission: ""},
+		{key: "alerts", labelKey: "nav.alerts", href: verifierAlertsHref(normalized, category), shared_key: "", priority: 20, requiredPermission: ""},
 		{key: "you", labelKey: "nav.you", href: "/you", shared_key: "you", priority: 100, requiredPermission: ""},
 	}
 
@@ -1278,6 +1278,32 @@ func verifyQueueHref(normalizedFeatureKey string) string {
 // list rather than an error, so the Alerts tab would look permanently empty
 // instead of broken. An unmapped module falls back to "<module>_proof", which is
 // the convention every current category follows.
+
+// verifierAlertsHref points the verifier's Alerts tab at the MODULE'S OWN lifecycle feed when the
+// module has one, instead of at /verify/alerts.
+//
+// /verify/alerts is the pending verification QUEUE with status forced to pending -- byte-for-byte
+// the same rows the Verify tab already shows. So the verifier had two tabs rendering one list, and
+// "Alerts" told him nothing he had not already seen. That was reported repeatedly from the device.
+//
+// A module feed is a different thing: it is the transitions ROUTED TO THIS PERSON (a proof came in
+// for review, a record closed), read from notification_requests and scoped to the module by its
+// message_key prefix. That is what an alerts tab is supposed to be, and it is what the operator
+// already gets.
+//
+// Falls back to the queue href for any module with no feed of its own, so counts and feed keep
+// exactly their current behaviour rather than losing a tab.
+func verifierAlertsHref(normalizedFeatureKey, category string) string {
+	switch normalizedFeatureKey {
+	case "vaccination":
+		return "/vaccination/alerts"
+	case "weighing":
+		return "/weighing/alerts"
+	default:
+		return "/verify/alerts?category=" + category
+	}
+}
+
 func verificationCategoryForFeature(normalizedFeatureKey string) string {
 	switch normalizedFeatureKey {
 	case "vaccination":

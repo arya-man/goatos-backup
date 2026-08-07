@@ -175,7 +175,7 @@ func TestProfileEntryPlacementFollowsModuleCount(t *testing.T) {
 func TestProfileEntryPlacementIsLoadBearing(t *testing.T) {
 	bar := []domain.BootstrapNavigationItem{
 		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 		{Key: navItemKeyYou, Label: "You", Href: "/you"},
 	}
 	modules := []domain.BootstrapModule{

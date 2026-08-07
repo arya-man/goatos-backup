@@ -59,8 +59,8 @@ func TestVerifierBarLinksAreFeatureScopedAndClientResolvable(t *testing.T) {
 			if byKey["verify"] != wantVerify {
 				t.Fatalf("verify href = %q, want %q -- without the category the client scopes this queue by guessing the module", byKey["verify"], wantVerify)
 			}
-			if alerts := byKey["alerts"]; alerts != "/verify/alerts?category="+tc.wantCategory {
-				t.Fatalf("alerts href = %q, want /verify/alerts?category=%s -- an alerts feed with no category is not feature-scoped", alerts, tc.wantCategory)
+			if alerts := byKey["alerts"]; alerts != wantVerifierAlertsHref(tc.feature, tc.wantCategory) {
+				t.Fatalf("alerts href = %q, want %s -- an alerts feed with no category is not feature-scoped", alerts, tc.wantCategory)
 			}
 		})
 	}
