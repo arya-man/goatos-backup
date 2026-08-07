@@ -121,12 +121,6 @@ class WeighingPlanWizardViewModel @Inject constructor(
         ),
     )
 
-    /**
-     * How many cached SHED rows of the CHOSEN park the bucket step observes. Sheds, not parks: the
-     * park read has no cursor and offers every park, while a single park holds 76+ sheds and is the
-     * only side that pages. Bounded by the cache ceiling.
-     */
-    private val bucketWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
     private var observeCatalogJob: Job? = null
     private var observeBucketsJob: Job? = null
 
@@ -351,12 +345,20 @@ class WeighingPlanWizardViewModel @Inject constructor(
             return
         }
         if (date == null || parkId == null || bucketsEndReached) return
-        if (bucketWindow.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
-            bucketWindow.value =
-                (bucketWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
+        if (bucketsRefreshInFlight) return
+        bucketsRefreshInFlight = true
+        raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE, loading = true)
+        viewModelScope.launch {
+            try {
+                when (val result = repository.appendPlannerParkBuckets(date, parkId, current.editCampaignId)) {
+                    is AppResult.Ok -> raw.value = raw.value.copy(message = null)
+                    is AppResult.Err -> raw.value = raw.value.copy(message = result.message)
+                }
+            } finally {
+                bucketsRefreshInFlight = false
+                raw.value = raw.value.copy(loading = false)
+            }
         }
-        raw.value = current.copy(bucketCap = current.bucketCap + WEIGHING_PAGE_SIZE)
-        refreshParkBuckets(date, parkId, reset = false)
     }
 
     /**
@@ -634,16 +636,13 @@ class WeighingPlanWizardViewModel @Inject constructor(
      * sheds, so this is a real keyset page -- and a failed refresh leaves the cached buckets on
      * screen instead of emptying the picker.
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
     private fun loadParkBuckets(isoDate: String, parkId: String) {
-        bucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         bucketsEndReached = false
         observeBucketsJob?.cancel()
         val excludeCampaignId = raw.value.editCampaignId
         observeBucketsJob = viewModelScope.launch {
-            bucketWindow.flatMapLatest { window ->
-                repository.observePlannerParkBuckets(isoDate, parkId, window, excludeCampaignId)
-            }.collect { cached ->
+            repository.observePlannerParkBuckets(isoDate, parkId, WEIGHING_LEADERSHIP_PAGE_SIZE, excludeCampaignId)
+                .collect { cached ->
                 // A stale emission for a park the planner has already moved off must not repopulate
                 // the list under the new park.
                 if (raw.value.parkId != parkId) return@collect
@@ -665,7 +664,7 @@ class WeighingPlanWizardViewModel @Inject constructor(
      * writes no loading state of its own, so it cannot fight the pager.
      */
     private fun refreshBucketAvailability(isoDate: String, parkId: String) {
-        val pages = (bucketWindow.value / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
+        val pages = (raw.value.buckets.size / WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtLeast(1)
         val excludeCampaignId = raw.value.editCampaignId
         viewModelScope.launch {
             when (
