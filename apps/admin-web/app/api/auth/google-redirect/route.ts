@@ -16,7 +16,8 @@ export async function POST(request: NextRequest) {
   const csrfBody = formValue(form, "g_csrf_token");
   const csrfCookie = request.cookies.get("g_csrf_token")?.value.trim() ?? "";
   const nextPath = safeNextPath(state);
-  const redirectUrl = new URL(LOGIN_PATH, request.url);
+  const publicOrigin = publicRequestOrigin(request);
+  const redirectUrl = new URL(LOGIN_PATH, publicOrigin);
   redirectUrl.searchParams.set("next", nextPath);
 
   if (!csrfBody || csrfBody !== csrfCookie) {
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.redirect(redirectUrl, 303);
   response.cookies.set(GOOGLE_REDIRECT_CREDENTIAL_COOKIE, credential, {
     httpOnly: true,
-    secure: request.nextUrl.protocol === "https:",
+    secure: publicOrigin.protocol === "https:",
     sameSite: "lax",
     path: COOKIE_PATH,
     maxAge: GOOGLE_REDIRECT_CREDENTIAL_MAX_AGE_SECONDS,
@@ -43,13 +44,15 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const credential = request.cookies.get(GOOGLE_REDIRECT_CREDENTIAL_COOKIE)?.value.trim() ?? "";
+  const hasCredential = Boolean(credential && isLikelyJwt(credential));
   const response = NextResponse.json(
-    credential && isLikelyJwt(credential) ? { credential } : { error: "google_redirect_credential_missing" },
-    { status: credential && isLikelyJwt(credential) ? 200 : 404, headers: { "Cache-Control": "no-store" } },
+    hasCredential ? { credential } : { error: "google_redirect_credential_missing" },
+    { status: hasCredential ? 200 : 404, headers: { "Cache-Control": "no-store" } },
   );
+  const publicOrigin = publicRequestOrigin(request);
   response.cookies.set(GOOGLE_REDIRECT_CREDENTIAL_COOKIE, "", {
     httpOnly: true,
-    secure: request.nextUrl.protocol === "https:",
+    secure: publicOrigin.protocol === "https:",
     sameSite: "lax",
     path: COOKIE_PATH,
     maxAge: 0,
@@ -60,6 +63,24 @@ export async function GET(request: NextRequest) {
 function formValue(form: FormData, key: string): string {
   const value = form.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function publicRequestOrigin(request: NextRequest): URL {
+  const canonicalHost = normalizeHost(process.env.GOATOS_CANONICAL_DASHBOARD_HOST);
+  const forwardedHost = normalizeHost(request.headers.get("x-forwarded-host"));
+  const host = canonicalHost || forwardedHost || normalizeHost(request.headers.get("host")) || request.nextUrl.host;
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const protocol = canonicalHost
+    ? "https"
+    : forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : request.nextUrl.protocol.replace(/:$/, "");
+  return new URL(`${protocol || "https"}://${host}`);
+}
+
+function normalizeHost(value: string | null | undefined): string {
+  const host = (value ?? "").split(",")[0]?.trim().toLowerCase().replace(/\/+$/, "") ?? "";
+  return host.replace(/:(443|80)$/, "");
 }
 
 function safeNextPath(value: string): string {
