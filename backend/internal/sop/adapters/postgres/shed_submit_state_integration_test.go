@@ -702,3 +702,103 @@ func TestSharedParentTaskIsNotAcceptedWhileASiblingSubmissionHasOpenItems(t *tes
 		t.Fatalf("task state = %q, want %q -- SubmitTask refuses an accepted task, so the rework could never be submitted", taskState, "rework_requested")
 	}
 }
+
+// A re-submit after a rejection creates a NEW submission carrying the same goats. Approving the
+// goat in the newest cycle must also settle its items in the EARLIER cycles, or those stranded
+// 'needs_review' rows hold the parent task open forever and no close button ever appears -- even
+// though every animal's LATEST verdict is approved.
+//
+// Real shape, 2026-08-08: G-006004 rejected 19:54, re-submitted and rejected again 20:53,
+// re-submitted and APPROVED 20:57. Three submissions, task stuck at needs_review.
+func TestApprovingTheLatestCycleSettlesTheSupersededOnes(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		actorID    = "77600000-0000-4000-8000-000000000001"
+		verifierID = "77600000-0000-4000-8000-000000000009"
+		sopID      = "77600000-0000-4000-8000-000000000002"
+		sopVersion = "77600000-0000-4000-8000-000000000003"
+		taskID     = "77600000-0000-4000-8000-000000000004"
+		shedID     = "77600000-0000-4000-8000-000000000005"
+		subOld     = "77600000-0000-4000-8000-00000000000a" // first attempt, rejected
+		subNew     = "77600000-0000-4000-8000-00000000000b" // re-submit, approved
+		goat       = "77600000-0000-4000-8000-000000000011"
+	)
+
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.supersede_regression', 'Supersede regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":false}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Supersede task', 'needs_review', 'shed', $5::uuid, 3)`,
+		taskID, tenantID, sopID, sopVersion, shedID)
+	execShedSubmitState(t, ctx, pool, "old submission",
+		`INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, submitted_at, state, answers, proof_refs, row_version, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, now() - interval '60 minutes', 'needs_review', '{}'::jsonb, '[]'::jsonb, 1, 'supersede:old')`,
+		subOld, tenantID, taskID, sopVersion, actorID)
+	execShedSubmitState(t, ctx, pool, "new submission",
+		`INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, submitted_at, state, answers, proof_refs, row_version, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, now(), 'needs_review', '{}'::jsonb, '[]'::jsonb, 1, 'supersede:new')`,
+		subNew, tenantID, taskID, sopVersion, actorID)
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+		 VALUES ('77600000-0000-4000-8000-0000000000f0'::uuid, $1::uuid, 'park', 'Supersede Park', 'active')`,
+		tenantID)
+	execShedSubmitState(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'Supersede Shed', '77600000-0000-4000-8000-0000000000f0'::uuid, 'active')`,
+		shedID, tenantID)
+
+	var custodian string
+	if err := pool.QueryRow(ctx, `INSERT INTO parties (party_id, party_type, display_name, status)
+		VALUES (gen_random_uuid(), 'org', 'Supersede custodian', 'active') RETURNING party_id::text`).Scan(&custodian); err != nil {
+		t.Fatalf("seed custodian: %v", err)
+	}
+	execShedSubmitState(t, ctx, pool, "goat",
+		`INSERT INTO goats (goat_id, tenant_id, species, sex, lifecycle_status, custodian_party_id, shed_id)
+		 VALUES ($1::uuid, $2::uuid, 'goat', 'female', 'alive', $3::uuid, $4::uuid)`,
+		goat, tenantID, custodian, shedID)
+
+	// The SAME goat appears in both cycles -- that is what a re-submit does.
+	for _, sub := range []string{subOld, subNew} {
+		execShedSubmitState(t, ctx, pool, "submission item",
+			`INSERT INTO sop_submission_items (item_id, tenant_id, task_id, submission_id, goat_id, item_key, state, result)
+			 VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat:' || $4::text, 'needs_review', '{}'::jsonb)`,
+			tenantID, taskID, sub, goat)
+	}
+
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.AcceptSubmissionItemVerification(ctx, tenantID, subNew, goat, verifierID); err != nil {
+		t.Fatalf("accept newest cycle: %v", err)
+	}
+
+	var oldItemState string
+	if err := pool.QueryRow(ctx,
+		`SELECT state FROM sop_submission_items WHERE submission_id = $1::uuid AND goat_id = $2::uuid`,
+		subOld, goat).Scan(&oldItemState); err != nil {
+		t.Fatalf("read superseded item state: %v", err)
+	}
+	if oldItemState == "needs_review" {
+		t.Fatalf("superseded item is still needs_review -- it strands the parent task open forever, so a drive whose every animal is APPROVED never becomes closeable")
+	}
+
+	var taskState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM sop_tasks WHERE task_id = $1::uuid`, taskID).Scan(&taskState); err != nil {
+		t.Fatalf("read task state: %v", err)
+	}
+	if taskState != "accepted" {
+		t.Fatalf("task state = %q, want %q -- every item is settled, so the drive must be closeable", taskState, "accepted")
+	}
+}

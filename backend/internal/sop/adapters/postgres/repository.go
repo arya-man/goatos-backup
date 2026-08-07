@@ -1512,6 +1512,7 @@ RETURNING item_id::text`, tenantID, submissionID, goatID, actorID)
 	if err != nil {
 		return err
 	}
+
 	updatedItemIDs := make([]string, 0, 1)
 	for rows.Next() {
 		var itemID string
@@ -1526,6 +1527,35 @@ RETURNING item_id::text`, tenantID, submissionID, goatID, actorID)
 		return err
 	}
 	rows.Close()
+
+	// SUPERSEDE this goat's items in EARLIER submissions under the same task.
+	//
+	// A rejection makes the operator re-submit, and every re-submit creates a NEW submission
+	// carrying the same goats. The accept above is scoped to ONE submission_id, so approving the
+	// goat in the newest cycle left its items in the older cycles sitting at 'needs_review'
+	// forever -- nothing else ever visits them. Those stranded items then held the parent task
+	// open, so a drive whose every animal had a final APPROVED verdict never became closeable and
+	// no close button appeared for CEO/Director (observed 2026-08-08: G-006004 rejected 19:54,
+	// rejected again 20:53, approved 20:57, with three submissions left half-resolved).
+	//
+	// 'skipped', not 'accepted': these attempts were superseded, not verified. They are history.
+	// The task roll-up treats accepted+skipped as closed, so this is what lets the parent settle.
+	if _, err := tx.Exec(ctx, `
+UPDATE sop_submission_items si
+SET state = 'skipped'
+FROM sop_submissions s
+WHERE si.tenant_id = $1::uuid
+  AND si.submission_id = s.submission_id
+  AND s.tenant_id = si.tenant_id
+  AND s.task_id = (SELECT task_id FROM sop_submissions WHERE tenant_id = $1::uuid AND submission_id = $2::uuid)
+  AND si.goat_id = $3::uuid
+  AND si.submission_id <> $2::uuid
+  AND si.state = 'needs_review'
+  AND s.submitted_at < (SELECT submitted_at FROM sop_submissions WHERE tenant_id = $1::uuid AND submission_id = $2::uuid)`,
+		tenantID, submissionID, goatID); err != nil {
+		return fmt.Errorf("sop: supersede earlier verification items for goat: %w", err)
+	}
+
 
 	var matchingItems int
 	if err := tx.QueryRow(ctx, `
