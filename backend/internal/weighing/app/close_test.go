@@ -337,6 +337,12 @@ func (r *multiParkScenarioRepo) CloseCampaign(context.Context, domain.CloseComma
 	return domain.CloseResult{Status: domain.StatusClosed}, nil
 }
 
+// CampaignShedLocation is inert here: this fake exercises park-scope authorization, not
+// the verifier's shed/partition label.
+func (r *multiParkScenarioRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (r *multiParkScenarioRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
 	if campaign, ok := r.campaigns[campaignID]; ok {
 		if campaign.TenantID == tenantID {

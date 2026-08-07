@@ -101,6 +101,81 @@ func TestRecordShedObservationVerificationSubjectNamesTotalWeightAndCount(t *tes
 	}
 }
 
+// The verifier works a queue that MIXES sheds, so every item must name the shed it was shot in --
+// and name the PARTITION with it, because the partition is the pen the animals actually stand in.
+// Before this, an individual item read "Tag 9010... · 28.1 kg" and a lump-sum item read the
+// hardcoded literal "Whole shed · 732.0 kg · 31 goats": neither named a shed at all, so every
+// lump-sum row in every shed of every park rendered byte-identical, and no row anywhere carried a
+// partition. fakeRepo.CampaignShedLocation returns testShedDisplay ("Godel 1 - Part 3").
+func TestVerificationSubjectNamesShedAndPartition(t *testing.T) {
+	operator := domain.Actor{TenantID: testTenant, UserID: testOp, Roles: []string{permissions.RoleOperator}}
+
+	t.Run("individual", func(t *testing.T) {
+		enqueuer := &captureVerificationEnqueuer{}
+		service := NewService(&animalObservationRepo{}).WithVerificationEnqueuer(enqueuer)
+		if _, err := service.RecordAnimalObservation(context.Background(), operator, domain.RecordAnimalObservation{
+			CampaignID:        "00000000-0000-4000-8000-000000000501",
+			CampaignShedID:    "00000000-0000-4000-8000-000000000801",
+			ScannedIdentifier: "901007000504407",
+			WeightKg:          12,
+			ProofArtifactID:   proofOne,
+			IdempotencyKey:    "scan-subject-shed-1",
+		}); err != nil {
+			t.Fatalf("record animal observation: %v", err)
+		}
+		if got := enqueuer.received.SubjectLabel; !strings.Contains(got, testShedDisplay) {
+			t.Fatalf("individual verification subject = %q, want it to name shed+partition %q", got, testShedDisplay)
+		}
+	})
+
+	t.Run("lump sum", func(t *testing.T) {
+		enqueuer := &captureVerificationEnqueuer{}
+		service := NewService(&shedObservationRepo{}).WithVerificationEnqueuer(enqueuer)
+		if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+			CampaignID:       "00000000-0000-4000-8000-000000000501",
+			CampaignShedID:   "00000000-0000-4000-8000-000000000801",
+			WeightKg:         250,
+			AnimalCount:      10,
+			ProofArtifactID:  proofOne,
+			ProofArtifactIDs: []string{proofOne, proofTwo},
+			IdempotencyKey:   "shed-subject-shed-1",
+		}); err != nil {
+			t.Fatalf("record shed observation: %v", err)
+		}
+		got := enqueuer.received.SubjectLabel
+		if !strings.Contains(got, testShedDisplay) {
+			t.Fatalf("lump-sum verification subject = %q, want it to name shed+partition %q", got, testShedDisplay)
+		}
+		// The literal that used to stand in for the shed's name. It must be gone, not merely
+		// prefixed by one -- "Godel 1 - Part 3 · Whole shed · 250.0 kg" would still be the bug.
+		if strings.Contains(strings.ToLower(got), "whole shed") {
+			t.Fatalf("lump-sum verification subject = %q, want the placeholder %q replaced by the real shed", got, "Whole shed")
+		}
+	})
+
+	// A lump-sum capture has no per-animal expected location, so obs.ExpectedLocationID is empty
+	// on exactly the shed-grain item -- which is how every lump-sum verification row landed with a
+	// NULL shed_id, invisible to the verifier's shed filter and blank in the drawer's Shed field.
+	t.Run("lump sum carries a shed id", func(t *testing.T) {
+		enqueuer := &captureVerificationEnqueuer{}
+		service := NewService(&shedObservationRepo{}).WithVerificationEnqueuer(enqueuer)
+		if _, err := service.RecordShedObservation(context.Background(), operator, domain.RecordShedObservation{
+			CampaignID:       "00000000-0000-4000-8000-000000000501",
+			CampaignShedID:   "00000000-0000-4000-8000-000000000801",
+			WeightKg:         250,
+			AnimalCount:      10,
+			ProofArtifactID:  proofOne,
+			ProofArtifactIDs: []string{proofOne, proofTwo},
+			IdempotencyKey:   "shed-subject-shed-2",
+		}); err != nil {
+			t.Fatalf("record shed observation: %v", err)
+		}
+		if got := strings.TrimSpace(enqueuer.received.ShedID); got == "" {
+			t.Fatal("lump-sum verification item carried no shed_id; the verifier's shed filter and drawer cannot resolve it")
+		}
+	})
+}
+
 // Lump-sum has no per-animal identity in free-flow. The subject must not invent one.
 func TestRecordShedObservationVerificationSubjectInventsNoAnimalIdentity(t *testing.T) {
 	enqueuer := &captureVerificationEnqueuer{}

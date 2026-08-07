@@ -22,6 +22,11 @@ const (
 	testPark     = "00000000-0000-4000-8000-000000000201"
 	testOp       = "00000000-0000-4000-8000-000000000301"
 	testShed     = "00000000-0000-4000-8000-000000000401"
+	// testShedLocationID / testShedDisplay back fakeRepo.CampaignShedLocation. The display carries
+	// a partition suffix on purpose: the partition is the pen the animals actually stand in, and
+	// it was missing from every weighing verification label before this.
+	testShedLocationID = "00000000-0000-4000-8000-000000000404"
+	testShedDisplay    = "Godel 1 - Part 3"
 	secondShed   = "00000000-0000-4000-8000-000000000402"
 	perShedScope = "00000000-0000-4000-8000-000000000403"
 	animalOne    = "00000000-0000-4000-8000-000000000601"
@@ -1029,6 +1034,13 @@ func (f fakeRepo) CampaignParkID(context.Context, string, string) (string, error
 	return testPark, nil
 }
 
+// CampaignShedLocation answers the shed-name/partition lookup the verification enqueue makes.
+// The display deliberately carries a partition suffix so the subject-label tests assert the
+// partition survives into the verifier's sentence rather than an unpartitioned happy path.
+func (f fakeRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return testShedLocationID, testShedDisplay, nil
+}
+
 // ListAlerts is the inert default; alerts_test.go's recordingAlertsRepo overrides
 // it where the call's arguments are the thing under test.
 func (f fakeRepo) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
@@ -1295,6 +1307,12 @@ func (r *scenarioRepo) RecordShedObservation(_ context.Context, cmd domain.Recor
 }
 
 func (r *scenarioRepo) RefreshAvailability(context.Context, string, string) error { return nil }
+
+// CampaignShedLocation is inert in this fake: it does not exercise the verifier's
+// shed/partition subject label.
+func (r *scenarioRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
 
 func (r *scenarioRepo) CampaignParkID(context.Context, string, string) (string, error) {
 	return testPark, nil
