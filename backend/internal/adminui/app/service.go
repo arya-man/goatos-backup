@@ -993,11 +993,11 @@ func pageSpecificCopy(id string) map[string]string {
 			// filter.action_type / filter.all_action_types were REMOVED with the action-type
 			// dropdown itself (maintainer decision 2026-08-07): the left nav is the only scope
 			// selector on this screen. Shed remains the one filter.
-			"filter.apply":                  "Apply filters",
-			"filter.clear_all":              "Clear filters",
-			"action.open_details":           "Details",
-			"action.close":                  "Close",
-			"action.open_audit_log":         "Open Audit Log",
+			"filter.apply":          "Apply filters",
+			"filter.clear_all":      "Clear filters",
+			"action.open_details":   "Details",
+			"action.close":          "Close",
+			"action.open_audit_log": "Open Audit Log",
 			// Keyset pagination, so there is no page NUMBER the backend can hand out and no
 			// OFFSET to jump with (docs/decisions/scale-anti-patterns.md bans OFFSET here). The
 			// client walks forward on next_cursor and back down a trail of the cursors it has
