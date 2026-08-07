@@ -174,6 +174,65 @@ The guard checks:
 
 ---
 
+## Round 2 — 2026-08-07: the CONTRACT-vs-STRUCT class (found on a physical phone)
+
+OL-1..OL-9 were all "the value is there but rendered/keyed wrong". This round is a
+DIFFERENT class and the guard could not see any of it: **the value never left the
+backend at all.** A partitioned shed rendered as a bare "Mandela 2" on the operator
+drive list while the DB held `Part 3` correctly in two places.
+
+### OL-10 — the OpenAPI schema declared fields the Go struct never carried
+`contracts/openapi/app-api.yaml` -> `VaccinationExecutionRow` declared
+`partition_label`, `source_shed_name` and `operational_location_display`. The Go
+`ExecutionRow` carried none of them. Silent drift: the contract promised a location
+the payload could not express, and every client faithfully rendered what it got.
+**Rule:** a field in the schema is a claim about the payload. Adding it to the
+contract without the struct is worse than omitting both -- it makes the gap invisible
+to a reader of either file alone.
+
+### OL-11 — the guard only inspected `*Request` schemas
+`tools/agent-hooks/check-operational-location.mjs` gated its OpenAPI partition rule on
+`/Request$/.test(header)`. Write paths were enforced; **every response schema was
+unguarded**, which is where OL-10 shipped. An audit then found 9 more response schemas
+carrying a shed with no partition.
+**Rule:** a guard that only sees write paths does not enforce a display convention.
+
+### OL-12 — presence-keyed rules cannot detect absence
+Every other rule in that guard keys on partition being MENTIONED (a bad separator, a
+'whole' leak, a name-keyed GROUP BY). A surface that forgot partitions entirely names
+them nowhere, so no rule can fire. The guard's own header admitted this blind spot for
+one rule; the structural check was never built.
+**Rule:** for a MANDATORY field, the check must be "location-bearing => field present",
+not "field present => field correct".
+
+### OL-13 — three partition sources, and the screen read the stale one
+`shed_partitions` (catalog of partitions that EXIST) and `goat_shed_partitions`
+(per-goat placement) were both correct; the drive list read
+`vaccination_drive_assignments.partition_label`, a SNAPSHOT that nothing re-derives
+after a shed is partitioned. Weighing had already solved this
+(`weighing/adapters/postgres/shed_partition_resolve.go` resolves from the catalog at
+read time); vaccination trusted the stored column.
+**Rule:** never trust a snapshot column for DISPLAY. Resolve from the catalog at read
+time, or reconcile the snapshot when the catalog changes.
+
+### OL-14 — no seed writes the `shed_partitions` catalog
+Zero writers under `backend/cmd/`. The catalog is populated once by migration 000112
+(backfilled FROM `goat_shed_partitions`) and never again, so any seeded partition is
+invisible to every catalog-driven picker and empty partitions are unreachable as
+shifting destinations. The seed's own invariant check asserted per-goat rows but never
+a catalog row, so the gap was silent to its own validation.
+**Rule:** a seed that creates a partitioned shed writes ALL THREE of catalog, per-goat
+placement, and any assignment snapshot -- and asserts all three.
+
+### OL-15 — name-keyed grouping that merges COUNTS, not just labels
+`apps/admin-web/features/preventive-care-vaccination/command-board-view.tsx`
+`buildShedGrid()` keyed by bare `shedName`, so two same-named sheds in different parks
+AND two partitions of one shed collapsed into one row **with their animal counts summed
+together**. OL-2 was the label version of this; this is the arithmetic version.
+**Rule:** name-keying is a data-correctness bug, not a cosmetic one.
+
+---
+
 ## Do-Not-Reopen Statement
 
 This ledger documents defects that were surfaced but not all fixed in 2026-08-06. The decision to codify the convention (ADR) and add the guard is FINAL.

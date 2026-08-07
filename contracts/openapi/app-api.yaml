@@ -13807,6 +13807,19 @@ components:
         shed_id:
           type: string
           format: uuid
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operational_location_display:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shed_name:
           type: string
         cohort_id:
@@ -14201,6 +14214,12 @@ components:
         shed_id:
           type: string
           format: uuid
+        operational_location_display:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shed_name:
           type: string
         partition_label:
@@ -14652,6 +14671,19 @@ components:
         shedId:
           type: string
           format: uuid
+        partitionLabel:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operationalLocationDisplay:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shedName:
           type: string
         stage:
@@ -15560,6 +15592,19 @@ components:
         shedId:
           type: string
           format: uuid
+        partitionLabel:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operationalLocationDisplay:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shedName:
           type: string
         animalStages:
@@ -16783,6 +16828,19 @@ components:
         shedId:
           type: string
           format: uuid
+        partitionLabel:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operationalLocationDisplay:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shedName:
           type: string
         animals:
@@ -19351,6 +19409,19 @@ components:
         shedId:
           type: string
           format: uuid
+        partitionLabel:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operationalLocationDisplay:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shedName:
           type: string
         reasonCode:
@@ -21495,6 +21566,19 @@ components:
         park_id: { type: [string, "null"], format: uuid }
         park_label: { type: string }
         shed_id: { type: [string, "null"], format: uuid }
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label for the shed ('1', 'Part 3'). Null or absent
+            means the shed is non-partitioned. Never the literal string 'whole' --
+            that is a matching key, not user copy.
+        operational_location_display:
+          type: string
+          description: >-
+            User-facing location label composed by the backend (oploc.Display()).
+            No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'.
+            Clients RENDER this; they must not re-compose it.
         shed_label: { type: string }
         step_count: { type: integer, minimum: 0 }
         medication_count: { type: integer, minimum: 0 }
