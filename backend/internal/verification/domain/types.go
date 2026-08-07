@@ -101,25 +101,23 @@ type Item struct {
 	// SubjectNote is optional free text from whoever RAISED the underlying work, shown to the
 	// verifier during review. Kept separate from SubjectLabel on purpose: the label is
 	// system-composed identity ("Shed move · 12 animals"), this is a human's words about it.
-	SubjectNote                *string
-	Source                     SourceRef
-	MediaRefs                  []string // proof_artifact IDs; signed URLs resolved at read time.
-	Status                     string
-	VerdictReason              *string
-	OperatorID                 *string
-	OperatorName               *string // backend-owned display label for OperatorID
-	ShedID                     *string
-	ShedLabel                  *string // backend-owned display label for ShedID
-	PartitionLabel             *string // raw partition label ('1', 'Part 3') or nil for non-partitioned
-	OperationalLocationDisplay *string // backend-composed operational location (shed + partition). Examples: "Castro 2", "Godel 1 - Part 3", "Yashoda"
-	ParkID                     *string
-	ParkLabel                  *string // backend-owned display label for ParkID
-	CapturedAt                 time.Time
-	VerifiedBy                 *string
-	VerifiedByName             *string // backend-owned display label for VerifiedBy
-	VerifiedAt                 *time.Time
-	ClosedBy                   *string
-	ClosedAt                   *time.Time
+	SubjectNote    *string
+	Source         SourceRef
+	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
+	Status         string
+	VerdictReason  *string
+	OperatorID     *string
+	OperatorName   *string // backend-owned display label for OperatorID
+	ShedID         *string
+	ShedLabel      *string // backend-owned display label for ShedID
+	ParkID         *string
+	ParkLabel      *string // backend-owned display label for ParkID
+	CapturedAt     time.Time
+	VerifiedBy     *string
+	VerifiedByName *string // backend-owned display label for VerifiedBy
+	VerifiedAt     *time.Time
+	ClosedBy       *string
+	ClosedAt       *time.Time
 	// ApplierAckExpected is the producing module's declaration that it runs an
 	// applier which acks back. Producers that have not wired an ack leave it
 	// false and their items never enter VerdictStateApplying -- better silent
@@ -167,7 +165,6 @@ type CreateItem struct {
 	OperatorID     *string
 	ShedID         *string
 	ParkID         *string
-	PartitionLabel *string // raw partition label ('1', 'Part 3') or nil for non-partitioned
 	CapturedAt     time.Time
 	IdempotencyKey string
 	// ApplierAckExpected: set true only if this producer actually runs an applier

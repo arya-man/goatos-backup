@@ -4,7 +4,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"strings"
 	"time"
 
@@ -279,17 +278,6 @@ func scanRow(rows rowScanner) (domain.Row, domain.Cursor, error) {
 	row.SOPSubmissionID = textPtr(submissionID)
 	row.CompletionID = textPtr(completionID)
 	row.PartitionLabel = textPtr(partitionLabel)
-	// Compose the location display in Go, next to the partition it depends on. The schema
-	// declares this field and admin-web's Action Center reads it; leaving it empty made a
-	// partitioned shed render as a bare "Godel 1". oploc drops the 'whole' sentinel, so an
-	// unpartitioned shed correctly yields just the shed name.
-	row.OperationalLocationDisplay = oploc.OperationalLocation{
-		ParkID:         row.ParkID,
-		ParkName:       row.ParkName,
-		ShedID:         row.ShedID,
-		ShedName:       row.ShedName,
-		PartitionLabel: partitionLabel.String,
-	}.Display()
 	row.CohortID = textPtr(cohortID)
 	row.GoatID = textPtr(goatID)
 	row.DriveName = textPtr(driveName)
@@ -1233,7 +1221,7 @@ derived AS (
       ELSE 'assigned'
     END AS owner_state,
     CASE
-      WHEN stateful.batch_id IS NOT NULL THEN -- operational-location:ignore: owner=ravi issue=N/A scope=opaque_keyset_cursor_for_pagination_not_user_display expiry=2027-12-31
+      WHEN stateful.batch_id IS NOT NULL THEN
         'batch:' || stateful.batch_id::text ||
         ':rule:' || stateful.rule_id::text ||
         ':protocol_version:' || stateful.protocol_version_id::text ||

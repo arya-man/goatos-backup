@@ -59,7 +59,7 @@ func TestVerificationApprovedNotificationIncludesSpecificDetails(t *testing.T) {
 
 			// Simulate the enrichment without a database
 			enrich := enrichApprovedNotificationCopy(context.Background(), nil, nil, nil, "test-tenant",
-				tt.module, "", "", "", "", "")
+				tt.module, "", "", "", "")
 			// Without actual database lookups, should fall back to empty.
 			if enrich != "" {
 				t.Fatalf("expected empty enrichment without database, got %q", enrich)

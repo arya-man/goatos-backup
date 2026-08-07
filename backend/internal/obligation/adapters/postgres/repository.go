@@ -2063,7 +2063,6 @@ func (r *Repository) ListUnbatchedDueForVersion(ctx context.Context, tenantID, v
 			ScopeID:                  row.ScopeID,
 			ParkID:                   row.ParkID,
 			ShedName:                 row.ShedName,
-			PartitionLabel:           row.PartitionLabel,
 			TargetID:                 row.TargetID,
 			TargetSpecies:            row.TargetSpecies,
 			TargetAnimalStage:        row.TargetAnimalStage,
@@ -2109,8 +2108,12 @@ WITH candidates AS (
          oi.scope_type AS scope_type,
          oi.scope_id AS scope_id_key,
          COALESCE(g.park_id::text, '')::text AS park_id,
-         COALESCE(shed.name, '')::text AS shed_name,
-         COALESCE(gsp.partition_label, '')::text AS partition_label,
+         CASE
+           WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+           WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+           WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+           ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+         END::text AS shed_name,
          oi.target_id AS target_id_key,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text ELSE '' END AS target_species,
          CASE WHEN oi.target_type = 'goat' THEN COALESCE(asl.stage_code, g.management_stage, '')::text ELSE '' END AS target_animal_stage,
@@ -2165,7 +2168,6 @@ SELECT obligation_id_key::text AS obligation_id,
        scope_id_key::text AS scope_id,
        park_id,
        shed_name,
-       partition_label,
        target_id_key::text AS target_id,
        target_species, target_animal_stage,
        target_reproductive_status, due_at, window_start, window_end, batching_hold_count, first_batching_hold_until
@@ -2257,7 +2259,7 @@ func (r *Repository) listUnbatchedDueForVersionKeysetSnapshot(ctx context.Contex
 		var u domain.UnbatchedDue
 		var windowStart, windowEnd, firstHold *time.Time
 		if err := rows.Scan(
-			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.PartitionLabel, &u.TargetID,
+			&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.TargetID,
 			&u.TargetSpecies, &u.TargetAnimalStage, &u.TargetReproductiveStatus,
 			&u.DueAt, &windowStart, &windowEnd, &u.BatchingHoldCount, &firstHold,
 		); err != nil {
@@ -2377,8 +2379,12 @@ WITH candidates AS (
 SELECT o.obligation_id::text,
        o.rule_id::text,
        COALESCE(o.scope_id::text, '')::text AS shed_id,
-       COALESCE(shed.name, '')::text AS shed_name,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        COALESCE(o.target_id::text, '')::text AS target_id,
        o.due_at,
        o.window_start,
@@ -2484,7 +2490,6 @@ LIMIT $12`, tenant, version, pgconv.Timestamptz(dueBefore), nullableTimestamptzO
 			&row.RuleID,
 			&row.ShedID,
 			&row.ShedName,
-			&row.PartitionLabel,
 			&row.TargetID,
 			&row.DueAt,
 			&windowStart,
@@ -3211,8 +3216,12 @@ SELECT oi.obligation_id::text,
        oi.scope_type,
        oi.scope_id::text,
        COALESCE(g.park_id::text, '')::text AS park_id,
-       COALESCE(shed.name, '')::text AS shed_name,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         WHEN gsp.partition_label ~* '^part [0-9]+$' THEN COALESCE(shed.name, '')::text || ' - ' || initcap(gsp.partition_label)
+         WHEN gsp.partition_label ~ '^[0-9]+$' THEN COALESCE(shed.name, '')::text || ' - Part ' || gsp.partition_label
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        oi.target_id::text,
        oi.due_at
 FROM obligation_instances oi
@@ -3235,7 +3244,7 @@ ORDER BY oi.obligation_id`, tenant, batch)
 	defer qrows.Close()
 	for qrows.Next() {
 		var u domain.UnbatchedDue
-		if err := qrows.Scan(&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.PartitionLabel, &u.TargetID, &u.DueAt); err != nil {
+		if err := qrows.Scan(&u.ObligationID, &u.RuleID, &u.ScopeType, &u.ScopeID, &u.ParkID, &u.ShedName, &u.TargetID, &u.DueAt); err != nil {
 			return "", time.Time{}, nil, nil, false, fmt.Errorf("obligation: scan rebuild obligation: %w", err)
 		}
 		rows = append(rows, u)

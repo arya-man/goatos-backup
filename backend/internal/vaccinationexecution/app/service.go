@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"sort"
 	"strings"
 	"time"
@@ -167,50 +166,15 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		stages = append(stages, stage)
 	}
 	sort.Strings(stages)
-	// The header obeys the SAME agree-or-go-bare rule the rest of this module applies:
-	// compose a partition ONLY when every row here resolves to the same real one. Taking
-	// rows[0] verbatim was wrong -- GetShedDrilldown filters by shed_id ONLY, and a real
-	// shed genuinely spans several partitions (migration 000112 records Yashoda with
-	// partitions 1,2,3,4,6,7,8,9,10), so the header would have shown whichever partition
-	// happened to sort first as if it were the whole shed's location. Spanning several
-	// means the shed itself is the honest answer.
-	headerPartition := ""
-	for i, r := range rows {
-		label := ""
-		if r.PartitionLabel != nil {
-			label = strings.TrimSpace(*r.PartitionLabel)
-		}
-		if !oploc.IsPartitioned(label) {
-			headerPartition = ""
-			break
-		}
-		if i == 0 {
-			headerPartition = label
-			continue
-		}
-		if !oploc.SamePartition(headerPartition, label) {
-			headerPartition = ""
-			break
-		}
-	}
-	headerLoc := oploc.OperationalLocation{
-		ParkID:         head.ParkID,
-		ParkName:       head.ParkName,
-		ShedID:         head.ShedID,
-		ShedName:       head.ShedName,
-		PartitionLabel: headerPartition,
-	}
 	return domain.ShedDrilldown{
-		ParkID:                     head.ParkID,
-		ParkName:                   head.ParkName,
-		ShedID:                     head.ShedID,
-		ShedName:                   head.ShedName,
-		AnimalStages:               stages,
-		Drives:                     drives,
-		Rows:                       rows,
-		Summary:                    summary,
-		PartitionLabel:             head.PartitionLabel,
-		OperationalLocationDisplay: headerLoc.Display(),
+		ParkID:       head.ParkID,
+		ParkName:     head.ParkName,
+		ShedID:       head.ShedID,
+		ShedName:     head.ShedName,
+		AnimalStages: stages,
+		Drives:       drives,
+		Rows:         rows,
+		Summary:      summary,
 	}, true, nil
 }
 
@@ -258,13 +222,8 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 		if !ok {
 			idx = len(cohorts)
 			cohortIndex[key] = idx
-			// Compose the operational location display using the resolved partition from SQL.
-			// The SQL resolves to a single partition only when all scoped goats agree; otherwise
-			// it returns nil and the bare shed name displays (never invented partition).
-			cohortPartition, cohortDisplay := operationalLocationFor(r.ParkID, r.ParkName, r.ShedID, r.ShedName, r.PartitionLabel)
 			cohorts = append(cohorts, domain.OperationsCohort{
 				ParkID: r.ParkID, ParkName: r.ParkName, ShedID: r.ShedID, ShedName: r.ShedName,
-				PartitionLabel: cohortPartition, OperationalLocationDisplay: cohortDisplay,
 				Stage: r.Stage, AgeBand: r.AgeBand, WorkState: domain.WorkStateCompleted, Cells: []domain.OperationsCell{},
 			})
 		}
@@ -438,42 +397,18 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partition == "" {
 		partition = "whole"
 	}
-	// The operational-location contract: a screen renders ONLY the composed display, so
-	// a partitioned shed reads "Mandela 2 - Part 3" and never a bare "Mandela 2". The raw
-	// `partition` above still carries the 'whole' sentinel, which is a matching key and
-	// must not reach a screen -- oploc drops it. Composing here (not on the client) keeps
-	// Go, admin-web and Android from drifting apart; see docs/decisions/operational-location-convention.md.
-	loc := oploc.OperationalLocation{
-		ParkID:         p.ParkID,
-		ParkName:       p.ParkName,
-		ShedID:         p.ShedID,
-		ShedName:       physicalShed,
-		PartitionLabel: partition,
-	}
-	var partitionLabel *string
-	if oploc.IsPartitioned(partition) {
-		label := strings.TrimSpace(partition)
-		partitionLabel = &label
-	}
-	var sourceShedName *string
-	if raw := strings.TrimSpace(p.ShedName); raw != "" && raw != physicalShed {
-		sourceShedName = &raw
-	}
 	return domain.ExecutionRow{
-		ParkID:                     p.ParkID,
-		ParkName:                   p.ParkName,
-		ShedID:                     p.ShedID,
-		ShedName:                   p.ShedName,
-		PhysicalShed:               physicalShed,
-		Partition:                  partition,
-		PartitionLabel:             partitionLabel,
-		SourceShedName:             sourceShedName,
-		OperationalLocationDisplay: loc.Display(),
-		AnimalStage:                p.AnimalStage,
-		TargetCount:                targetCount,
-		OpenCount:                  openCount,
-		DoneCount:                  doneCount,
-		AcceptedCount:              p.CompletionAccepted,
+		ParkID:        p.ParkID,
+		ParkName:      p.ParkName,
+		ShedID:        p.ShedID,
+		ShedName:      p.ShedName,
+		PhysicalShed:  physicalShed,
+		Partition:     partition,
+		AnimalStage:   p.AnimalStage,
+		TargetCount:   targetCount,
+		OpenCount:     openCount,
+		DoneCount:     doneCount,
+		AcceptedCount: p.CompletionAccepted,
 		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
 		// rejected) -- must match the verifier's own /verification/queue, which only ever
 		// surfaces pending items. A rejected completion is a resolved verdict, not open review
@@ -801,15 +736,7 @@ func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (doma
 	}
 	rows := make([]domain.GapRow, 0, len(projections))
 	for _, p := range projections {
-		// KNOWN GAP (same as the cohort path): the gaps projection carries no partition,
-		// so the display is the bare shed name until the query selects one. Never blank.
-		gapShedName := ""
-		if p.ShedName != nil {
-			gapShedName = *p.ShedName
-		}
-		gapPartition, gapDisplay := operationalLocationFor("", "", "", gapShedName, "")
 		rows = append(rows, domain.GapRow{
-			PartitionLabel: gapPartition, OperationalLocationDisplay: gapDisplay,
 			GoatID:            p.GoatID,
 			DisplayID:         p.DisplayID,
 			AnimalIdentifier1: p.AnimalIdentifier1,
@@ -897,11 +824,7 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 	for _, p := range projections {
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
-		// KNOWN GAP: the shed-summary projection carries no partition yet; emit the bare
-		// shed name rather than a blank label. Tracked in the operational-location ledger.
-		shedPartition, shedDisplay := operationalLocationFor(p.ParkID, p.ParkName, p.ShedID, p.ShedName, "")
 		rows = append(rows, domain.ShedSummaryRow{
-			PartitionLabel: shedPartition, OperationalLocationDisplay: shedDisplay,
 			ParkID:             p.ParkID,
 			ParkName:           p.ParkName,
 			ShedID:             p.ShedID,
@@ -984,26 +907,22 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 	if err != nil {
 		return domain.ShedDetailResponse{}, false, err
 	}
-	// Agree-or-go-bare, same rule as the rest of this module.
-	shedDetailPartition, shedDetailDisplay := operationalLocationFor(p.ParkID, p.ParkName, p.ShedID, p.ShedName, p.PartitionLabel)
 	return domain.ShedDetailResponse{
-		Source:                     domain.SourceAPI,
-		ParkID:                     p.ParkID,
-		ParkName:                   p.ParkName,
-		ShedID:                     p.ShedID,
-		ShedName:                   p.ShedName,
-		PartitionLabel:             shedDetailPartition,
-		OperationalLocationDisplay: shedDetailDisplay,
-		Animals:                    p.Animals,
-		Due:                        p.DueAnimals,
-		Done:                       p.Animals - p.DueAnimals,
-		Sessions:                   p.Sessions,
-		Manager:                    manager,
-		Backup:                     backup,
-		Capacity:                   p.Capacity,
-		Status:                     p.Status,
-		PlannedSessions:            planned,
-		Vaccines:                   aggregateShedVaccines(ops),
+		Source:          domain.SourceAPI,
+		ParkID:          p.ParkID,
+		ParkName:        p.ParkName,
+		ShedID:          p.ShedID,
+		ShedName:        p.ShedName,
+		Animals:         p.Animals,
+		Due:             p.DueAnimals,
+		Done:            p.Animals - p.DueAnimals,
+		Sessions:        p.Sessions,
+		Manager:         manager,
+		Backup:          backup,
+		Capacity:        p.Capacity,
+		Status:          p.Status,
+		PlannedSessions: planned,
+		Vaccines:        aggregateShedVaccines(ops),
 	}, true, nil
 }
 
@@ -1277,21 +1196,4 @@ func operatorConfigChangePayload(parkID string) []byte {
 // weekly given, and verification queue.
 func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	return s.repo.VaccinationCommandBoard(ctx, q)
-}
-
-// operationalLocationFor composes the location contract for a row that already knows
-// its physical shed and raw partition. The raw value carries the 'whole' sentinel --
-// a matching key, never user copy -- so a non-partitioned shed yields a nil label and
-// the bare shed name. Composed via oploc so Go, admin-web and Android cannot drift.
-func operationalLocationFor(parkID, parkName, shedID, shedName, rawPartition string) (*string, string) {
-	loc := oploc.OperationalLocation{
-		ParkID: parkID, ParkName: parkName, ShedID: shedID,
-		ShedName: shedName, PartitionLabel: rawPartition,
-	}
-	var label *string
-	if oploc.IsPartitioned(rawPartition) {
-		trimmed := strings.TrimSpace(rawPartition)
-		label = &trimmed
-	}
-	return label, loc.Display()
 }

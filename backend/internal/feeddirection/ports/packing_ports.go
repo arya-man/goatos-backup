@@ -58,6 +58,8 @@ type CompletePackingResult struct {
 	// a rework re-submit). It is false on an idempotent replay, an already-pending no-op, or an
 	// already-completed no-op -- so the enqueue fires exactly once per real pending transition.
 	NewlyPending bool
+	// ShedName and PartitionLabel are carried for verification enqueue label composition.
+	ShedName, PartitionLabel string
 }
 
 // VerifiedPacking identifies one VERIFIED (status='completed') shed-session for the packing

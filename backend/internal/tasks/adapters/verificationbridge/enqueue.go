@@ -58,6 +58,9 @@ func (e *DeathEvidenceEnqueuer) EnqueueDeathEvidenceVerification(ctx context.Con
 }
 
 func (e *DeathEvidenceEnqueuer) EnqueueBirthEvidenceVerification(ctx context.Context, in tasksapp.BirthVerificationEnqueueRequest) error {
+	// The subject label is already composed in the service with location info.
+	// Format: "Child birth evidence · 2026-08-07 · Godel 1 - Part 3"
+	// or     "Mother birth evidence · 2026-08-07 · Godel 1"
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
 		TenantID:     in.TenantID,
 		Vertical:     tasksdomain.VerificationVerticalCounts,

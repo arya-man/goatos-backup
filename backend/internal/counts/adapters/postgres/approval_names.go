@@ -101,9 +101,9 @@ WHERE g.tenant_id = $1::uuid AND g.goat_id = ANY($2::uuid[])`, tenantID, goats)
 			return out, err
 		}
 		for rows.Next() {
-			var goatID, parkName, shedName string // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=keyed-by-goat_id-park-and-shed-resolved-by-JOIN-on-location_id-names-are-display-only-never-a-grouping-key expiry=2027-08-06
+			var goatID, parkName, shedName string
 			var partitionLabel *string
-			if err := rows.Scan(&goatID, &parkName, &shedName, &partitionLabel); err != nil { // operational-location:ignore: owner=ravi issue=partition-sweep-2026-08-06 scope=scan-destinations-for-the-id-joined-query-above-keyed-by-goat_id-names-display-only expiry=2027-08-06
+			if err := rows.Scan(&goatID, &parkName, &shedName, &partitionLabel); err != nil {
 				rows.Close()
 				return out, err
 			}

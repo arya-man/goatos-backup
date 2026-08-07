@@ -78,31 +78,17 @@ type Owner struct {
 }
 
 type ExecutionRow struct {
-	ParkID       string `json:"parkId"`
-	ParkName     string `json:"parkName"`
-	ShedID       string `json:"shedId"`
-	ShedName     string `json:"shedName"`
-	PhysicalShed string `json:"physicalShed,omitempty"`
-	// Partition is the LEGACY field: it carries the raw stored value including the
-	// 'whole' sentinel, which is a matching key and must never reach a screen. The
-	// three fields below are the operational-location contract (already declared in
-	// contracts/openapi/app-api.yaml -> VaccinationExecutionRow); the struct simply
-	// never carried them, so the operator drive list rendered a partitioned shed as a
-	// bare "Mandela 2" instead of "Mandela 2 - Part 3". Observed on a phone 2026-08-07.
-	Partition string `json:"partition,omitempty"`
-	// PartitionLabel is the raw label ('1', 'Part 3'), nil when the shed is not
-	// partitioned -- never the 'whole' sentinel.
-	PartitionLabel *string `json:"partition_label"`
-	// SourceShedName is the original partition-bearing name the row normalized FROM.
-	SourceShedName *string `json:"source_shed_name"`
-	// OperationalLocationDisplay is the ONLY string a screen may render for location.
-	// Composed by oploc.Display() so Go, admin-web and Android cannot drift.
-	OperationalLocationDisplay string `json:"operational_location_display"`
-	AnimalStage                string `json:"animalStage"`
-	TargetCount                int    `json:"targetCount"`
-	OpenCount                  int    `json:"openCount"`
-	DoneCount                  int    `json:"doneCount"`
-	AcceptedCount              int    `json:"acceptedCount"`
+	ParkID        string `json:"parkId"`
+	ParkName      string `json:"parkName"`
+	ShedID        string `json:"shedId"`
+	ShedName      string `json:"shedName"`
+	PhysicalShed  string `json:"physicalShed,omitempty"`
+	Partition     string `json:"partition,omitempty"`
+	AnimalStage   string `json:"animalStage"`
+	TargetCount   int    `json:"targetCount"`
+	OpenCount     int    `json:"openCount"`
+	DoneCount     int    `json:"doneCount"`
+	AcceptedCount int    `json:"acceptedCount"`
 	// ReviewCount is the number of items currently AWAITING A VERDICT (completion recorded but
 	// not yet accepted or rejected) -- it must always match what the verifier's own
 	// /verification/queue returns for the same scope. It EXCLUDES rejected items: a rejection is
@@ -207,12 +193,6 @@ type ShedDrilldown struct {
 	Drives       []DriveSummary       `json:"drives"`
 	Rows         []ExecutionRow       `json:"rows"`
 	Summary      ShedDrilldownSummary `json:"summary"`
-	// PartitionLabel is the raw stored label ('1', 'Part 3'), or nil for a
-	// non-partitioned shed. Rendered in the header via OperationalLocationDisplay.
-	PartitionLabel *string `json:"partitionLabel,omitempty"`
-	// OperationalLocationDisplay is the backend-composed location (e.g. "Castro - 2"),
-	// never hand-rolled on the client, so admin-web and mobile stay in sync.
-	OperationalLocationDisplay string `json:"operationalLocationDisplay"`
 }
 
 type ExecutionQuery struct {
@@ -285,11 +265,6 @@ type OperationsCohort struct {
 	WorkState WorkState        `json:"workState"`
 	Counts    OperationsCounts `json:"counts"`
 	Cells     []OperationsCell `json:"cells"`
-	// Operational location contract. The OpenAPI schema declares both; a struct that
-	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
-	// shed render bare on the operator's phone (2026-08-07).
-	PartitionLabel             *string `json:"partitionLabel"`
-	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 type OperationsResponse struct {
@@ -325,10 +300,6 @@ type OperationsRow struct {
 	RejectedCount     int
 	TotalCount        int
 	Freshness         *ProjectionFreshness
-	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
-	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
-	// rendering a bare shed name when a partition exists.
-	PartitionLabel string
 }
 
 type OperationsQuery struct {
@@ -544,10 +515,6 @@ type GapProjectionRow struct {
 	ShedID            *string
 	ShedName          *string
 	ReasonCode        GapReasonCode
-	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
-	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
-	// rendering a bare shed name when a partition exists.
-	PartitionLabel *string
 }
 
 type GapRow struct {
@@ -565,11 +532,6 @@ type GapRow struct {
 	ShedName          *string       `json:"shedName,omitempty"`
 	ReasonCode        GapReasonCode `json:"reasonCode"`
 	ReasonLabel       string        `json:"reasonLabel"`
-	// Operational location contract. The OpenAPI schema declares both; a struct that
-	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
-	// shed render bare on the operator's phone (2026-08-07).
-	PartitionLabel             *string `json:"partitionLabel"`
-	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 type GapsQuery struct {
@@ -679,11 +641,6 @@ type ShedSummaryRow struct {
 	DriveOperatorNames []string       `json:"driveOperatorNames,omitempty"`
 	Capacity           CapacityStatus `json:"capacity"`
 	Status             ShedStatus     `json:"status"`
-	// Operational location contract. The OpenAPI schema declares both; a struct that
-	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
-	// shed render bare on the operator's phone (2026-08-07).
-	PartitionLabel             *string `json:"partitionLabel"`
-	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 // ShedOwnershipScope is one shed row whose owner cells need enrichment. ParkID is the center/park scope
@@ -764,10 +721,6 @@ type ShedSummaryProjection struct {
 	NextDue            *time.Time
 	TotalCount         int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
 	Freshness          *ProjectionFreshness
-	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
-	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
-	// rendering a bare shed name when a partition exists.
-	PartitionLabel string
 }
 
 // ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----
@@ -823,11 +776,6 @@ type ShedDetailResponse struct {
 	Status          ShedStatus       `json:"status"`
 	PlannedSessions []PlannedSession `json:"plannedSessions"`
 	Vaccines        []ShedVaccineRow `json:"vaccines"`
-	// The shed-detail HEADER. Without these it rendered a bare "Mandela 2" while the rows
-	// beneath it already carried the composed location (same class as the verifier queue and
-	// the submit header: the wire type dropped what the layer below had resolved).
-	PartitionLabel             *string `json:"partitionLabel"`
-	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 // ShedAnimalQuery is the keyset-paginated per-shed animal list query (separate endpoint so the large
@@ -1005,11 +953,7 @@ type CommandBoardClosedWithoutDoseAnimal struct {
 	Tag1 string `json:"tag1,omitempty"`
 	Tag2 string `json:"tag2,omitempty"`
 	// LocationDisplay is the farm-readable operational location, partition included.
-	// Wire name is operational_location_display -- the ONE canonical name for this concept
-	// across Go, OpenAPI, admin-web and Android (see the guard's oploc-display-wire-name
-	// rule). Shipping it as a bare `locationDisplay` split the contract and is exactly the
-	// silent-drift shape this branch exists to remove (2026-08-07).
-	LocationDisplay string `json:"operational_location_display"`
+	LocationDisplay string `json:"locationDisplay"`
 	ParkName        string `json:"parkName"`
 	ShedName        string `json:"shedName"`
 	PartitionLabel  string `json:"partitionLabel,omitempty"`
@@ -1169,7 +1113,6 @@ type CommandBoardDriveOption struct {
 	TargetCount int        `json:"targetCount"`
 	DoseCount   int        `json:"doseCount"`
 	ShedNames   []string   `json:"shedNames"`
-	ShedIds     []string   `json:"shedIds"`
 }
 
 type CommandBoardResponse struct {

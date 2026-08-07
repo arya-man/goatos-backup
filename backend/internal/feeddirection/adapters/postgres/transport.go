@@ -179,10 +179,11 @@ func (r *Repository) SubmitTransportAttempt(ctx context.Context, p ports.SubmitT
 	}
 	if !reservation.proceed {
 		var res ports.SubmitTransportResult
-		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text
+		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text,coalesce(l.name,''),coalesce(l.partition_label,'')
 FROM feed_transport_attempts a
 JOIN feed_transport_tasks t ON t.tenant_id=a.tenant_id AND t.task_id=a.task_id
-WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID)
+LEFT JOIN locations l ON l.tenant_id=a.tenant_id AND l.location_id=t.shed_id
+WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 		if err != nil {
 			return res, err
 		}
@@ -194,7 +195,10 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 	}
 	var status, assigned string
 	var res ports.SubmitTransportResult
-	err = tx.QueryRow(ctx, `SELECT status,coalesce(operator_id::text,''),park_id::text,shed_id::text FROM feed_transport_tasks WHERE tenant_id=$1::uuid AND task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &assigned, &res.ParkID, &res.ShedID)
+	err = tx.QueryRow(ctx, `SELECT status,coalesce(operator_id::text,''),park_id::text,shed_id::text,coalesce(l.name,''),coalesce(l.partition_label,'')
+FROM feed_transport_tasks t
+LEFT JOIN locations l ON l.tenant_id=t.tenant_id AND l.location_id=t.shed_id
+WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &assigned, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable
 	}

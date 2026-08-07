@@ -19,7 +19,6 @@ import (
 
 	calendarports "github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/eventbus"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	verificationdomain "github.com/vgoats/goatos/backend/internal/verification/domain"
 )
 
@@ -317,18 +316,14 @@ type VerificationEventPayload struct {
 	OperatorID   string             `json:"operator_id"`
 	ShedID       string             `json:"shed_id"`
 	ParkID       string             `json:"park_id"`
-	// PartitionLabel is the raw stored label ('1', 'Part 3') or empty for a non-partitioned shed.
-	// Composed with shed name via oploc.Display() to render the full operational location
-	// in notification copy (GAP 2: verification approval notifications must name the exact partition).
-	PartitionLabel string             `json:"partition_label"`
-	Decision       string             `json:"decision"` // "approved" | "rejected" (verdict events)
-	Status         string             `json:"status"`   // status alias kept alongside decision
-	Reason         string             `json:"reason"`   // optional rework reason
-	VerifiedBy     string             `json:"verified_by"`
-	ClosedBy       string             `json:"closed_by"`
-	BatchID        string             `json:"batch_id"`
-	CapturedAt     string             `json:"captured_at"`
-	Source         verificationSource `json:"source"`
+	Decision     string             `json:"decision"` // "approved" | "rejected" (verdict events)
+	Status       string             `json:"status"`   // status alias kept alongside decision
+	Reason       string             `json:"reason"`   // optional rework reason
+	VerifiedBy   string             `json:"verified_by"`
+	ClosedBy     string             `json:"closed_by"`
+	BatchID      string             `json:"batch_id"`
+	CapturedAt   string             `json:"captured_at"`
+	Source       verificationSource `json:"source"`
 }
 
 // legacyHandledVaccination reports whether this item is ALSO covered by the legacy
@@ -616,7 +611,7 @@ func (c *VerificationEventConsumer) handleVerdictApproved(ctx context.Context, p
 	approvedTitle := profile.approvedTitle
 	approvedBody := profile.approvedBody
 	approvedBodyEnriched := enrichApprovedNotificationCopy(ctx, c.locations, c.vaccineLabels, c.logger,
-		tenantID, p.Module, parkID, p.ShedID, p.PartitionLabel, p.Category, p.Source.TaskID)
+		tenantID, p.Module, parkID, p.ShedID, p.Category, p.Source.TaskID)
 	if approvedBodyEnriched != "" {
 		approvedBody = approvedBodyEnriched
 	}
@@ -793,15 +788,11 @@ func (c *VerificationEventConsumer) handleItemWithdrawn(ctx context.Context, p V
 //	FROM: "The proof is ready for operational closure."
 //	TO:   "Weighing proof for Shed B (Park Name) is verified."
 //
-// When the shed is partitioned (GAP 2), the location includes the partition:
-//
-//	TO:   "ET+TT vaccination proof for Godel 1 - Part 3 (Park Name) is verified."
-//
 // Enrichment is optional: location / vaccine lookups are best-effort, and transient failures
 // gracefully degrade to the fallback copy rather than blocking notification delivery.
 func enrichApprovedNotificationCopy(ctx context.Context, locations locationNameSource,
 	vaccineLabels vaccineLabelSource, logger *slog.Logger,
-	tenantID, module, parkID, shedID, partitionLabel, category, sourceTaskID string) string {
+	tenantID, module, parkID, shedID, category, sourceTaskID string) string {
 	parkID = strings.TrimSpace(parkID)
 	shedID = strings.TrimSpace(shedID)
 	category = strings.TrimSpace(category)
@@ -809,32 +800,23 @@ func enrichApprovedNotificationCopy(ctx context.Context, locations locationNameS
 	sourceTaskID = strings.TrimSpace(sourceTaskID)
 
 	// Resolve park and shed names (ONE batched query, not one per name).
-	parkName, shedName := "", "" // operational-location:ignore: owner=Claude issue=task-context scope=name-resolution-variable-declaration-keyed-correctly-by-parkID-and-shedID expiry=2026-09-06
+	parkName, shedName := "", ""
 	if locations != nil {
 		locNames := locations.ResolveNames(ctx, tenantID, parkID, shedID)
 		parkName = locNames[parkID]
 		shedName = locNames[shedID]
 	}
 
-	// Build a farm-readable operational location using canonical composition (GAP 2).
-	// When a shed is partitioned, the partition is included in the display:
-	// "Godel 1 - Part 3" instead of bare "Godel 1". If the location spans multiple
-	// partitions or none exist, the bare shed name is rendered (never invented "whole").
-	// Use oploc.Display() so all surfaces (mobile, admin-web, notifications) render
-	// locations identically and the maintainer cannot accidentally break parity.
+	// Build a farm-readable location phrase. "Shed A" or "Shed A (Park Name)".
 	location := ""
-	if shedName != "" {
-		location = oploc.OperationalLocation{
-			ShedName:       shedName,
-			PartitionLabel: partitionLabel,
-		}.Display()
-	}
-	if location != "" && parkName != "" {
-		location = location + " (" + parkName + ")"
-	} else if location == "" && parkName != "" {
+	switch {
+	case shedName != "" && parkName != "":
+		location = shedName + " (" + parkName + ")"
+	case shedName != "":
+		location = shedName
+	case parkName != "":
 		location = parkName
-	}
-	if location == "" {
+	default:
 		// Neither park nor shed resolved; fall back to generic copy.
 		return ""
 	}
