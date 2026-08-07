@@ -1107,3 +1107,10 @@ func TestIdentifierAddedRecordsTagPrerequisiteWithoutCompletingVideoTask(t *test
 		t.Fatalf("redelivered tag completion: %v", err)
 	}
 }
+
+// FetchShedDetails satisfies ports.Repository for the fake. The subject-label composer degrades
+// to the location-less label when this returns empty, so returning zero values keeps every
+// pre-existing fake-based test asserting its original label.
+func (f *fakeRepo) FetchShedDetails(ctx context.Context, tenantID, shedID string) (string, string, error) {
+	return "", "", nil
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -1269,6 +1270,28 @@ func findAction(actions []domain.WorkflowAction, actionID string) int {
 		}
 	}
 	return -1
+}
+
+// FetchShedDetails fetches the shed name and partition label for a given shed ID.
+// Returns empty strings if the shed is not found or has no active partition.
+func (r *Repository) FetchShedDetails(ctx context.Context, tenantID, shedID string) (string, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+
+	// Canonical resolver: oploc owns the query AND the column choice. Do not inline a
+	// SELECT here -- writing a bespoke one is how normalized_label ('3') got rendered in
+	// place of partition_label ('Part 3').
+	loc, err := oploc.ResolveShedLocation(ctx, r.pool.QueryRow(ctx, oploc.ShedScopedLocationSQL,
+		tenantID, shedID))
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Unresolvable shed: caller degrades to its location-less label.
+			return "", "", nil
+		}
+		return "", "", fmt.Errorf("tasks: fetch shed details: %w", err)
+	}
+	return loc.ShedName, loc.PartitionLabel, nil
 }
 
 func deref(s *string) string {

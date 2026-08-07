@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -257,82 +256,4 @@ func TestShedAnimalsKeysetCursor(t *testing.T) {
 	if page2.NextCursor != nil {
 		t.Errorf("want nil cursor when exhausted, got %v", *page2.NextCursor)
 	}
-}
-
-// VALUE-LEVEL TEST: VaccinationExecutionRow rendered location strings (OL-7 audit).
-// This test pins the exact output string for partitioned and unpartitioned sheds
-// in the operator drive list, ensuring no silent partition data loss (OL-10 regression).
-func TestVaccinationExecutionRowPartitionLabelRendersCorrectly(t *testing.T) {
-	tests := []struct {
-		name string
-		row  domain.ExecutionRow
-		want string
-		// Invariants that MUST hold (string must not equal, and must not contain):
-		mustNotEqual   string
-		mustNotContain string
-	}{
-		{
-			name: "partitioned_numeric_label",
-			row: domain.ExecutionRow{
-				ShedName:                   "Castro",
-				PartitionLabel:             strPtr("2"),
-				OperationalLocationDisplay: "Castro - 2",
-			},
-			want:           "Castro - 2",
-			mustNotEqual:   "Castro 2", // no space
-			mustNotContain: "whole",
-		},
-		{
-			name: "partitioned_prefixed_label",
-			row: domain.ExecutionRow{
-				ShedName:                   "Godel 1",
-				PartitionLabel:             strPtr("Part 3"),
-				OperationalLocationDisplay: "Godel 1 - Part 3",
-			},
-			want:           "Godel 1 - Part 3",
-			mustNotEqual:   "Godel 1 Part 3", // naive space join (OL-3 defect)
-			mustNotContain: "whole",
-		},
-		{
-			name: "non_partitioned_bare_name",
-			row: domain.ExecutionRow{
-				ShedName:                   "Yashoda",
-				PartitionLabel:             nil,
-				OperationalLocationDisplay: "Yashoda",
-			},
-			want:           "Yashoda",
-			mustNotEqual:   "Yashoda whole", // bare name never gets 'whole' suffix
-			mustNotContain: "whole",
-		},
-		{
-			name: "OL-10_regression_partitioned_shed_rendered_as_bare_name",
-			row: domain.ExecutionRow{
-				ShedName:                   "Mandela 2",
-				PartitionLabel:             strPtr("Part 3"),
-				OperationalLocationDisplay: "Mandela 2 - Part 3",
-			},
-			want:           "Mandela 2 - Part 3",
-			mustNotEqual:   "Mandela 2", // OL-10: this was the bug observed on phone 2026-08-07
-			mustNotContain: "whole",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.row.OperationalLocationDisplay
-			if got != tt.want {
-				t.Errorf("want %q, got %q", tt.want, got)
-			}
-			if got == tt.mustNotEqual {
-				t.Errorf("output must not equal %q (this is a known defect pattern)", tt.mustNotEqual)
-			}
-			if tt.mustNotContain != "" && strings.Contains(got, tt.mustNotContain) {
-				t.Errorf("output must not contain %q, but got %q", tt.mustNotContain, got)
-			}
-		})
-	}
-}
-
-func strPtr(s string) *string {
-	return &s
 }

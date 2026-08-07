@@ -147,6 +147,8 @@ type ShiftingExecutionResult struct {
 
 	DestinationParkID string
 	DestinationShedID string
+	// DestinationShedName and DestinationPartitionLabel are carried for verification enqueue label composition.
+	DestinationShedName, DestinationPartitionLabel string
 
 	// SourceParkID / SourceShedID record where the animals stood before the applied move, so the
 	// completion is a full audit trail (from -> to) rather than destination-only. By the P0-1

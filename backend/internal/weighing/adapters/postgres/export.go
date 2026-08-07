@@ -64,7 +64,6 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 	// capture path is banned from doing. The scanned identifier is what was actually read.
 	header := []string{
 		"Park",
-		"Shed ID",
 		"Shed Name",
 		"Shed Status",
 		"Type",
@@ -111,7 +110,7 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 		// opposite of what an export is for. The row says plainly that nothing was captured.
 		if individualRows == 0 && lumpSumRows == 0 {
 			if err := csvWriter.Write([]string{
-				csvText(shed.ParkName), csvText(shed.ShedID), csvText(shed.DisplayName), shed.Status, "not weighed",
+				csvText(shed.ParkName), csvText(shed.DisplayName), shed.Status, "not weighed",
 				"", "", "", "", "", "", "", "", "", "", "", "",
 			}); err != nil {
 				return err
@@ -125,7 +124,6 @@ func (r *Repository) ExportCampaignCSV(ctx context.Context, tenantID, campaignID
 type shedInfo struct {
 	CampaignShedID string
 	DisplayName    string
-	ShedID         string
 	ParkName       string
 	Status         string
 }
@@ -134,7 +132,6 @@ type shedInfo struct {
 func (r *Repository) queryCampaignSheds(ctx context.Context, tenantID, campaignID string) ([]shedInfo, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT cs.campaign_shed_id::text,
-		       COALESCE(cs.location_id::text, ''),
 		       cs.display_name,
 		       COALESCE(p.name, ''),
 		       cs.status
@@ -151,7 +148,7 @@ func (r *Repository) queryCampaignSheds(ctx context.Context, tenantID, campaignI
 	var sheds []shedInfo
 	for rows.Next() {
 		var shed shedInfo
-		if err := rows.Scan(&shed.CampaignShedID, &shed.ShedID, &shed.DisplayName, &shed.ParkName, &shed.Status); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.DisplayName, &shed.ParkName, &shed.Status); err != nil {
 			return nil, err
 		}
 		sheds = append(sheds, shed)
@@ -200,7 +197,6 @@ func (r *Repository) writeIndividualObservationsToCSV(ctx context.Context, tenan
 
 		row := []string{
 			csvText(shed.ParkName),
-			csvText(shed.ShedID),
 			csvText(shed.DisplayName),
 			shed.Status,
 			"individual",
@@ -267,7 +263,6 @@ func (r *Repository) writeLumpSumObservationToCSV(ctx context.Context, tenantID 
 
 	row := []string{
 		csvText(shed.ParkName),
-		csvText(shed.ShedID),
 		csvText(shed.DisplayName),
 		shed.Status,
 		"lumpsum",
