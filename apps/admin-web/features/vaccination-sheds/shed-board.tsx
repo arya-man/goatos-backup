@@ -309,7 +309,7 @@ export async function VaccinationShedBoard({
                     </td>
                   );
                   return (
-                    <tr key={row.shedId} className="shed-summary-row">
+                    <tr key={`${row.shedId}|${row.partitionLabel ?? ""}`} className="shed-summary-row">
                       {cell(
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                           <MapPin className="ic" style={{ width: 13, opacity: 0.75, flexShrink: 0 }} aria-hidden="true" />
