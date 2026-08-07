@@ -1,7 +1,7 @@
 -- +goose Up
 -- +goose NO TRANSACTION
--- Partition-aware read index for health_cases, split out of 000123 for the same reason 000125 is
--- split out of 000121: goose applies "-- +goose NO TRANSACTION" to the ENTIRE migration, so a
+-- Partition-aware read index for health_cases, split out of 000123 for the same reason 000128 is
+-- split out of 000127: goose applies "-- +goose NO TRANSACTION" to the ENTIRE migration, so a
 -- CREATE INDEX CONCURRENTLY sitting after transactional statements runs inside that transaction
 -- and fails with:
 --   ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block

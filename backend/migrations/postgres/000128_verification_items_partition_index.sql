@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose NO TRANSACTION
--- Partition-aware read index for verification_items, split out of 000121 so it can be built
+-- Partition-aware read index for verification_items, split out of 000127 so it can be built
 -- CONCURRENTLY. goose applies "-- +goose NO TRANSACTION" to the ENTIRE migration, not to the
 -- statement it precedes, so a concurrent index sitting after a transactional ALTER + backfill
 -- runs inside that transaction and fails with:
