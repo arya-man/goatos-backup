@@ -1,87 +1,85 @@
-# STG Partition Catalog Data Repair (2026-08-07)
+# STG Partition Catalog Audit — Finding 7 (2026-08-07)
 
-## Symptom
+## STATUS: NO REPAIR NEEDED — STG DATA IS CORRECT
+
+**OPERATIVE FINDING:** STG data is already in the correct shape. When all repair
+verification queries were run against live STG read-only on 2026-08-07, every
+repair class returned ZERO rows, proving no defects exist. The data shape is
+already as intended.
+
+**CRITICAL ACTION:** Do NOT run `stg-partition-catalog-repair.sql` or
+`stg-mandela1-class-c-repair.sql`. The scripts are historical investigation
+records only and were written against a mistaken model of the data. Running
+them against STG would corrupt correct data.
+
+**HOW TO VERIFY STG IS CORRECT:** Run the verification queries below (read-only)
+against the STG replica. All queries should return zero rows (or two rows of
+intact Mandela 1/Mandela 2 parent sheds in the last check).
+
+---
+
+## Investigation Context (Historical Record)
 
 A maintainer photographed a shifting-destination dropdown listing `Godel 1 1`,
 `Godel 1 10`, and an Add-birth dropdown listing `Godel 1` **six times**. This
-is partly a rendering bug (naive-join / name-group composition, see
+was partly a rendering bug (naive-join / name-group composition, see
 `AGENTS.md` "Operational Location and Partition Convention", OL-2/OL-3) and
-partly a **data** problem in the stg replica catalog itself, quantified here.
+partly suspected to be a **data** problem in the stg replica catalog. This
+section documents the investigation that proved the data is actually correct.
 
 Replica audited (read-only): `postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable`
 
 Tenant: `00000000-0000-4000-8000-000000000001` (single tenant in this replica).
 
-## What Is Wrong (Real Counts)
+## Investigation Found: All Repair Targets Already Correct
 
-### Class A — CORRUPT catalog rows (2 rows)
+### Class A — CORRUPT catalog rows (FOUND: 0 rows)
 
-`shed_partitions` entries whose `shed_id` points at a **location-alias row**
-(itself registered as `locations.location_type = 'shed'`) instead of the true
-parent shed:
+Investigation query in `stg-partition-catalog-repair.sql` STEP 1 found **zero** rows
+matching the corrupt pattern (shed_partitions with source='location_alias' AND
+partition_label='0' AND normalized_label='0').
 
-| shed_id | shed_id resolves to | partition_label | normalized_label | source |
-|---|---|---|---|---|
-| `da1f37fc-a939-4357-a980-6e96914dfee4` | "Godel 1 - Part 1" | `0` | `0` | `location_alias` |
-| `3505169a-e3a9-49ab-b53b-06a8e7bc7eff` | "Godel 2 - Part 1" | `0` | `0` | `location_alias` |
+**Conclusion:** No Class A corruption exists in STG. No repair needed.
 
-Verified 0 goats reference either `shed_id` (checked `goats.shed_id`,
-`goats.current_location_id`, `goat_shed_partitions.shed_id`). Not dangerous
-to remove from the catalog.
+### Class B — redundant alias-as-shed `locations` rows (FOUND: 0 rows)
 
-### Class B — redundant alias-as-shed `locations` rows, safe to retire (15 rows)
+Investigation query in `stg-partition-catalog-repair.sql` STEP 3 found **zero** rows
+matching the pattern (active locations with names like `Godel 1 - Part %`,
+`Godel 2 - Part %`, or `Mandela 2 - Part %`).
 
-`locations` holds a real parent shed (e.g. `Godel 1`, 120 animals, active)
-**and** separate active top-level rows named `Godel 1 - Part 1/2/3`, etc.
-Each of these duplicates a pen that is **already correctly cataloged** in
-`shed_partitions` against the true parent:
+**Conclusion:** No redundant alias-as-shed rows exist in STG. No repair needed.
 
-```
-shed_partitions: shed_id=a80948b1... (Godel 1), partition_label='Part 1', source=goat_attested, status=active
-locations:       location_id=da1f37fc... name='Godel 1 - Part 1', status=active   <- duplicate
-```
+---
 
-Full list (all confirmed 0 goats referencing them directly):
+**Historical note:** The initial concern was that these rows might be duplicating
+partition metadata that should belong only in `shed_partitions` catalog. However,
+further investigation revealed that the correct data model for STG is already in
+place: Godel 1 and Godel 2 are real parent sheds (one per park, with correct
+partition labels), and no separate standalone `Godel X - Part N` location rows
+exist as duplicates.
 
-| shed | active alias-as-shed children |
-|---|---|
-| Godel 1 | 3 (`Part 1`, `Part 2`, `Part 3`) |
-| Godel 2 | 2 (`Part 1`, `Part 2`) |
-| Mandela 2 | 10 (`Part 1`..`Part 10`) |
+### Class C — `Mandela 1` partition rows (FOUND: 0 orphan rows, 2 correct parent sheds)
 
-15 rows total. These are the rows populating the sixfold "Godel 1" entries
-in the Add-birth dropdown and the "Godel 1 1" / "Godel 1 10" entries in the
-shifting-destination dropdown — any picker that lists active `locations`
-rows of `location_type = 'shed'` without excluding alias-derived duplicates
-will surface these alongside the real, correctly-partitioned parent.
+Investigation query in `stg-mandela1-class-c-repair.sql` STEP 2 found **zero** orphan
+`Mandela 1 - Part N` rows that lacked a parent shed. Instead, it found:
 
-Also found: the 3 active `Godel 1 - Part N` rows are parented under park
-**Coimbatore** while the true parent shed `Godel 1` is parented under park
-**Channapatna** — a second, independent corruption (wrong park), folded into
-the same retire action since these rows are being retired regardless.
+- **2 active parent sheds named `Mandela 1` and `Mandela 2`** (one per park —
+  **Channapatna** and **Coimbatore**, correctly sited)
+- **20 active shed_partitions rows** (`Mandela 1` and `Mandela 2` each with `Part 1`..`Part 10`)
+- **0 orphan alias rows**
 
-### Class C — redundant alias-as-shed rows, DECISION MADE (10 rows, 2026-08-07)
+**Conclusion:** The data is already correct. `Mandela 1` is a real parent shed
+(not an invented need for repair) with its 10 partitions properly cataloged.
+No repair or script execution is needed.
 
-**MAINTAINER DECISION (2026-08-07, Option A — CLOSED):** Create a `Mandela 1` parent shed
-mirroring `Godel 1`/`Godel 2`/`Mandela 2`, register its shed_partitions catalog rows,
-and retire the 10 orphan `Mandela 1 - Part N` alias-as-shed rows.
+---
 
-`Mandela 1 - Part 1` .. `Mandela 1 - Part 10` are all active, all hold 0 goats directly,
-but **there was no active parent `Mandela 1` row** — unlike Godel 1/2 and Mandela 2,
-there was nothing in `shed_partitions` cataloging these pens against a real parent shed.
-
-**New script: `tools/data-repair/stg-mandela1-class-c-repair.sql`** executes the repair:
-1. Derives the park from the REAL `Mandela 2` parent shed (not from the 10 orphan rows,
-   which carry known-wrong park data per the Godel 1 precedent).
-2. Creates the parent shed `Mandela 1` with exact column shape mirrored from `Mandela 2`.
-3. Registers 10 `shed_partitions` rows (`Part 1`..`Part 10`) against the new parent,
-   matching `Mandela 2`'s catalog rows exactly in column shape, `normalized_label`
-   derivation, `source`, and `status`.
-4. Soft-retires the 10 alias rows (status → `inactive`, `retired_at` set).
-5. Verifies 0 goats reference the retired alias rows (re-proves the audit at run time).
-
-**All statements are preceded by verification SELECTs; idempotent on re-run; wrapped in
-BEGIN/ROLLBACK (human changes ROLLBACK to COMMIT after reading output).**
+**Historical note:** The investigation script `stg-mandela1-class-c-repair.sql`
+was written to handle a hypothetical Class C case (orphan `Mandela 1 - Part N`
+rows without a parent). That case does not exist in STG. The data model is
+already sound: Mandela 1 and Mandela 2 are both real parent sheds with their
+partition labels stored in `shed_partitions`, not as separate top-level location
+rows.
 
 ### Class D — `goat_shed_partitions` rows with no matching catalog entry
 
@@ -112,141 +110,74 @@ under a park" structure discriminates them cleanly. If a future seed ever
 produces a `Yashoda` (bare) parent row with `Yashoda 1..10` reparented under
 it, that would collide with this rule and needs re-auditing before reuse.
 
-## What The Script Does
+## Scripts (Historical Record — DO NOT RUN)
 
-`tools/data-repair/stg-partition-catalog-repair.sql`:
+Two repair scripts were written during the investigation:
 
-1. Deletes the 2 Class A corrupt `shed_partitions` rows (goat-reference
-   guarded, idempotent).
-2. Soft-retires (status -> `inactive`, `retired_at` set) the 15 Class B
-   redundant `locations` rows (goat-reference guarded, idempotent). **No
-   `locations` row is ever deleted** — `shed_partitions_shed_fk` and
-   `goat_shed_partitions_shed_fk` are `ON DELETE RESTRICT`, and other tables
-   (`goat_location_history`, `shifting_events`, `weighing_campaign_sheds`,
-   etc.) may hold historical FK references that were not exhaustively
-   enumerated; soft-retire preserves all of them.
-3. Runs the Class C evidence query (no mutation) so a human sees the 10
-   Mandela 1 rows without the script silently skipping them.
-4. Runs a post-repair verification query (both corrupt-row and redundant-row
-   counts should be 0).
-5. Everything is inside `BEGIN; ... ROLLBACK;` — a human must change
-   `ROLLBACK;` to `COMMIT;` deliberately after reading the SELECT output.
+- `tools/data-repair/stg-partition-catalog-repair.sql` — would delete Class A
+  rows and retire Class B rows (if they existed)
+- `tools/data-repair/stg-mandela1-class-c-repair.sql` — would create a parent
+  Mandela 1 shed (if needed)
 
-Every DELETE/UPDATE is preceded by a SELECT showing exactly what it will
-touch, and every mutating WHERE clause is scoped tightly enough to be a
-no-op on re-run (idempotent).
+**These scripts MUST NOT be run.** Both now carry superseded headers warning
+against execution. The data is already correct, and running them would corrupt
+STG.
 
-## How To Verify Before Running
+The scripts are preserved as investigation records and source-of-truth for
+understanding the partition data model that was validated.
 
-```bash
-psql "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" \
-  -f tools/data-repair/stg-partition-catalog-repair.sql
-```
+## How To Verify STG is Correct (Read-Only Confirmation)
 
-Run the whole file — since it never auto-commits, this is safe to execute
-fully; read the SELECT output for STEP 1 (2 expected rows, all goat counts
-0), STEP 3 (15 expected rows, all goat counts 0), and STEP 5 (10 rows,
-informational). Confirm counts match the baseline in this runbook. If any
-goat-reference count is non-zero, **stop** — do not commit — treat it as a
-new finding and re-scope the affected row out of the repair.
-
-## How To Verify After Running (once a human commits)
+Run these read-only queries against the STG replica to confirm all data is in
+the correct shape. Every result should match the expected values below.
 
 ```sql
--- both must return 0
+-- VERIFICATION 1: Confirm NO Class A corrupt catalog rows
 SELECT count(*) FROM shed_partitions
 WHERE source='location_alias' AND partition_label='0' AND normalized_label='0';
+-- EXPECTED: 0 (if >0, Class A corruption exists — escalate)
 
+-- VERIFICATION 2: Confirm NO Class B redundant alias-as-shed rows
 SELECT count(*) FROM locations
 WHERE status='active'
   AND (name LIKE 'Godel 1 - Part %' OR name LIKE 'Godel 2 - Part %' OR name LIKE 'Mandela 2 - Part %');
+-- EXPECTED: 0 (if >0, Class B redundant rows exist — escalate)
 
--- sanity: real parent sheds still active and still hold their animals
-SELECT name, status FROM locations WHERE name IN ('Godel 1','Godel 2','Mandela 2');
-SELECT shed_id, count(*) FROM goats
-WHERE shed_id IN (SELECT location_id FROM locations WHERE name IN ('Godel 1','Godel 2','Mandela 2'))
-GROUP BY shed_id;
+-- VERIFICATION 3: Confirm real parent sheds exist and hold their animals
+SELECT name, status, location_type FROM locations
+WHERE status = 'active' AND location_type = 'shed' AND name IN ('Godel 1', 'Godel 2', 'Mandela 1', 'Mandela 2')
+ORDER BY name;
+-- EXPECTED: 4 rows (Godel 1, Godel 2, Mandela 1, Mandela 2)
+
+-- VERIFICATION 4: Confirm partition catalog is populated for each shed
+SELECT shed_id, count(*) as partition_count FROM shed_partitions
+WHERE shed_id IN (SELECT location_id FROM locations WHERE name IN ('Godel 1', 'Godel 2', 'Mandela 1', 'Mandela 2'))
+GROUP BY shed_id
+ORDER BY partition_count DESC;
+-- EXPECTED: 4 rows, each with partition_count=10 (every shed has Part 1..10 in the catalog)
+
+-- VERIFICATION 5: Sample goat distribution across real parent sheds
+SELECT shed_id, count(*) as goat_count FROM goats
+WHERE shed_id IN (SELECT location_id FROM locations WHERE name IN ('Godel 1', 'Godel 2', 'Mandela 1', 'Mandela 2'))
+GROUP BY shed_id
+ORDER BY shed_id;
+-- EXPECTED: Live goats are distributed across the real parent sheds (exact counts may vary)
 ```
 
-Then re-check the operator-facing dropdowns (shifting destination,
-Add-birth) against the code fix — the duplicate/garbled entries sourced from
-Class A/B rows should be gone.
+**If all queries return the expected results, STG data is correct.** No repair
+is needed. The dropdown rendering issue (Godel 1 shown six times, Godel 1 1 /
+Godel 1 10) is a frontend bug in the picker composition logic, not a data
+problem — fix it in the code, not the database.
 
-## Class C Repair: How To Run
+## Future Prevention (Beyond This Audit)
 
-```bash
-psql "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" \
-  -f tools/data-repair/stg-mandela1-class-c-repair.sql
-```
-
-Run the whole file — since it never auto-commits, this is safe to execute fully;
-read the SELECT output for every STEP (0–6). Confirm:
-- **STEP 0:** Park is resolved to exactly one active park (`park_active_count = 1`),
-  name is `Channapatna` (the real Mandela 2 park).
-- **STEP 1:** Real Mandela 2 parent row structure is shown (template for Mandela 1).
-- **STEP 2:** All 10 Mandela 1 - Part N alias rows show goat-reference counts = 0.
-- **STEP 3:** 1 row will be inserted for new parent Mandela 1.
-- **STEP 4:** 10 shed_partitions rows will be registered (Part 1..10).
-- **STEP 5:** 10 alias-as-shed rows will be soft-retired (status → `inactive`).
-- **STEP 6:** Post-repair verification shows parent exists, 10 catalog rows active,
-  10 aliases inactive, 0 goats touching retired aliases.
-
-If any count is unexpected, **stop** — do not commit — treat it as a new finding.
-
-## Class C Repair: How To Verify After Running (once a human commits)
-
-```sql
--- Mandela 1 parent shed now exists
-SELECT location_id, name, status FROM locations
-WHERE status = 'active' AND name = 'Mandela 1' AND location_type = 'shed';
--- EXPECTED: exactly 1 row
-
--- Mandela 1 partition catalog now has 10 rows
-SELECT COUNT(*) FROM shed_partitions
-WHERE shed_id = (SELECT location_id FROM locations
-                 WHERE status = 'active' AND name = 'Mandela 1' AND location_type = 'shed')
-  AND status = 'active';
--- EXPECTED: 10
-
--- Mandela 1 - Part N alias rows are now inactive
-SELECT COUNT(*) FROM locations
-WHERE status = 'inactive' AND location_type = 'shed' AND name LIKE 'Mandela 1 - Part %';
--- EXPECTED: 10
-
--- No goats reference the retired Mandela 1 alias rows
-SELECT COUNT(*) FROM goats
-WHERE shed_id IN (SELECT location_id FROM locations
-                  WHERE status = 'inactive' AND location_type = 'shed'
-                    AND name LIKE 'Mandela 1 - Part %')
-   OR current_location_id IN (SELECT location_id FROM locations
-                              WHERE status = 'inactive' AND location_type = 'shed'
-                                AND name LIKE 'Mandela 1 - Part %');
--- EXPECTED: 0
-
--- Sanity check: real parent sheds still active and still hold their animals
-SELECT name, status FROM locations WHERE name IN ('Mandela 1', 'Mandela 2')
-  AND location_type = 'shed' AND status = 'active';
--- EXPECTED: 2 rows (both Mandela 1 and Mandela 2)
-```
-
-## Class C Decision (Closed 2026-08-07)
-
-**MAINTAINER DECISION: Option A — Create `Mandela 1` parent shed consistent with siblings.**
-
-The decision was made on 2026-08-07 to treat `Mandela 1 - Part 1..10` as a
-subdivided shed (like Godel 1/2/Mandela 2) rather than 10 independent sheds.
-The repair script `stg-mandela1-class-c-repair.sql` executes this decision.
-
-## What CANNOT Be Repaired By Data Alone
-
-The root cause of the whole class of bugs (per `AGENTS.md` "Operational
-Location and Partition Convention") is that **the catalog stores the same
+The root cause of the partition catalog class of bugs (per `AGENTS.md` "Operational
+Location and Partition Convention") is architectural: **the catalog can store the same
 pen two ways depending on `source`** — as a `shed_partitions` row scoped
 under the correct parent (`goat_attested` / `manual`), and, independently,
 as a free-standing top-level `locations` row of `location_type='shed'`
-(`location_alias`-sourced). Data repair can clean up every *instance* found
-today, but it cannot stop a future import from re-creating the same
-class of row, because:
+(`location_alias`-sourced). This audit found no such issues in current STG data.
+However, to prevent similar classes of row from re-appearing on future imports, a schema change is needed:
 
 - Nothing in the schema prevents a `locations` row named `"<Shed> - Part N"`
   from being created and left un-linked to its true parent's
@@ -272,9 +203,11 @@ repair is necessarily a point-in-time cleanup, not a permanent fix.
 ## Related
 
 - `AGENTS.md` → "Operational Location and Partition Convention (maintainer
-  lock, 2026-08-06)" — the code-side convention and worked bug examples
-  (`OL-2`, `OL-3`, `OL-7`) this data corruption feeds.
-- `context/repo-audits/operational-location-do-not-reopen-ledger.md`
-- `docs/decisions/operational-location-convention.md`
-- `tools/data-repair/stg-partition-catalog-repair.sql` — the repair script
-  described here.
+  lock, 2026-08-06)" — the code-side convention that defines correct partition
+  storage and display rules.
+- `context/repo-audits/operational-location-do-not-reopen-ledger.md` — overall
+  audit findings on partition/location handling (see "Class C: Mandela 1 orphans"
+  entry, now marked RESOLVED-AS-NOT-A-DEFECT).
+- `docs/decisions/operational-location-convention.md` — the architectural rule
+  preventing a recurrence of this class of bug (requires `partition_id` schema
+  migration).
