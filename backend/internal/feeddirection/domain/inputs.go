@@ -95,10 +95,64 @@ type ConfigSnapshot struct {
 	ShedFactorsByKey map[string]string
 	// Sessions is the park's active session split, in display order.
 	Sessions []SessionTemplate
-	// ExperimentByShedID holds the hand-authored absolute quantities, keyed by shed id. A shed
-	// present here is an experiment shed; that presence is the whole selection rule for the
+	// ExperimentByLocation holds the hand-authored absolute quantities keyed by
+	// ExperimentLocationKey(shedID, partitionLabel) -- an OPERATIONAL LOCATION, not a shed.
+	// A location present here is an experiment; that presence is the whole selection rule for the
 	// experiment planner.
-	ExperimentByShedID map[string][]ExperimentCell
+	//
+	// Keyed by shed alone until 2026-08-07, which could not express the authored data: CBE's
+	// Godel 2 has eight partitions of which only Parts 3, 4 and 5 are experiments, so "is this shed
+	// an experiment?" had no correct answer. A non-partitioned shed keys on 'whole' and behaves
+	// exactly as before.
+	ExperimentByLocation map[string][]ExperimentCell
+}
+
+// ExperimentLocationKey is the lookup key for ExperimentByLocation: one operational location.
+// The separator is a unit separator so a shed id or partition label can never forge another key.
+func ExperimentLocationKey(shedID, partitionLabel string) string {
+	return shedID + "\x1f" + PartitionMatchKey(partitionLabel)
+}
+
+// PartitionGrains is one operational location's grains, carrying the RAW label for display.
+type PartitionGrains struct {
+	PartitionLabel string
+	Grains         []ShedGrain
+}
+
+// SplitGrainsByPartition buckets a shed's projected grains into one entry per operational location.
+//
+// A shed with no partitions returns exactly one entry with an empty label -- identical to the
+// pre-2026-08-07 whole-shed input, so a non-partitioned shed's sheet is unchanged byte for byte.
+//
+// Grouping is on the MATCHING key (so "Part 3" and "part 3" are one partition and cannot be split
+// into two rows by an authoring variant), while the entry keeps the FIRST raw label seen for
+// display. Order is deterministic: partitions come out in the order they first appear in the
+// projection's own stable ordering, never Go map order, or the same request could page differently
+// on two runs.
+func SplitGrainsByPartition(grains []ShedGrain) []PartitionGrains {
+	if len(grains) == 0 {
+		// A shed in scope with no projected grains still needs one input: the planners decide what an
+		// empty shed produces (a blocked row, or nothing), and dropping it here would silently remove
+		// the shed from the sheet instead.
+		return []PartitionGrains{{}}
+	}
+	order := make([]string, 0, 4)
+	byKey := make(map[string]*PartitionGrains, 4)
+	for _, grain := range grains {
+		key := PartitionMatchKey(grain.PartitionLabel)
+		entry, seen := byKey[key]
+		if !seen {
+			entry = &PartitionGrains{PartitionLabel: grain.PartitionLabel}
+			byKey[key] = entry
+			order = append(order, key)
+		}
+		entry.Grains = append(entry.Grains, grain)
+	}
+	out := make([]PartitionGrains, 0, len(order))
+	for _, key := range order {
+		out = append(out, *byKey[key])
+	}
+	return out
 }
 
 // PlannedFeedItems is the DISTINCT set of feed items this park declares across all of its
@@ -166,6 +220,10 @@ func ShedFactorKey(shedID, feedItem string) string {
 type ShedGrain struct {
 	ManagementStage string
 	Breed           string
+	// PartitionLabel is the grain's RAW operational partition ("1", "Part 3"), empty for a shed with
+	// no partitions. The counts projection has always returned it; Feed used to drop it here, which
+	// is why a shed could only ever be wholly experimental or wholly not.
+	PartitionLabel string
 	// HeadCount is the PROJECTED head count for the target date: live herd plus the movements that
 	// are approved but not yet executed.
 	HeadCount int64
@@ -179,7 +237,42 @@ type ShedGrain struct {
 type ShedInput struct {
 	ShedID    string
 	ShedLabel string
-	Grains    []ShedGrain
+	// PartitionLabel scopes this input to ONE operational location (shed + partition), which is the
+	// unit a planner is selected for. A shed with no partitions has exactly one ShedInput with an
+	// empty label; a partitioned shed has one per partition, so Godel 2 can run its authored
+	// experiment on Parts 3/4/5 while Parts 1/2/6/7/8 stay on the per-head ration grid.
+	//
+	// Rows still carry ShedID, so paging by shed keeps every partition of a shed on one page and the
+	// "a shed's grains never straddle a page boundary" invariant is unchanged.
+	PartitionLabel string
+	Grains         []ShedGrain
+}
+
+// PartitionKey is the MATCHING token for this input's partition: 'whole' when there is none. It
+// mirrors the generated feed_experiment_config.partition_key so an authored cell and a live grain
+// meet on the same key. Never render it -- 'whole' is a key, never copy.
+func (s ShedInput) PartitionKey() string { return PartitionMatchKey(s.PartitionLabel) }
+
+// PartitionMatchKey is the EXACT Go twin of the migration's generated
+// feed_experiment_config.partition_key expression, and the two must be changed together or an
+// authored cell stops meeting its live grain.
+//
+// NULL, "" and a whitespace-only label all mean "not partitioned" and collapse to 'whole', matching
+// the operational-location rule. Everything else goes through NormalizeConfigKey, the same
+// feed_config_norm twin the rest of this config uses -- so "Part 3", "part 3" and "Part  3" are one
+// partition and cannot be split into two by an authoring whitespace variant.
+//
+// Deliberately NOT the counts projection's partition normalization, which additionally strips a
+// leading "part " ("Part 3" -> "3"). That token is for matching inside counts; here BOTH sides of
+// the comparison are feed's own (the authored label and the raw grain label), so feed normalizes
+// them its own single way. Mixing the two would make "Part 3" and "3" different keys on one side
+// and identical on the other.
+func PartitionMatchKey(label string) string {
+	normalized := NormalizeConfigKey(label)
+	if normalized == "" {
+		return "whole"
+	}
+	return normalized
 }
 
 // ---------------------------------------------------------------------------

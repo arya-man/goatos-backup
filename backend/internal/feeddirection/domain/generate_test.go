@@ -52,7 +52,7 @@ func testConfig() ConfigSnapshot {
 			{SessionNo: 1, Label: "Morning", SplitFraction: "0.5000", Items: testSlots()},
 			{SessionNo: 2, Label: "Evening", SplitFraction: "0.5000", Items: testSlots()},
 		},
-		ExperimentByShedID: map[string][]ExperimentCell{},
+		ExperimentByLocation: map[string][]ExperimentCell{},
 	}
 	return cfg
 }
@@ -701,7 +701,7 @@ func TestZeroHeadCountProducesZeroNotBlocked(t *testing.T) {
 func TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 	// A ration rate for the same grain exists and must be IGNORED: this shed is not on the grid.
@@ -744,7 +744,7 @@ func TestExperimentStrategyUsesAbsoluteKgAndIgnoresHeadCount(t *testing.T) {
 func TestExperimentRowCarriesTheLiveBreedAndShedTagOfTheAnimalsInTheShed(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "39.000", Category: "Sheep M NEW"},
 	}
 
@@ -798,7 +798,7 @@ func TestExperimentShedTagNormalizesButNeverBlocksOnAnUnknownStage(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := testConfig()
-			cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+			cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 				{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "10.000", Category: "Trial A"},
 			}
 			rows := generate(cfg, shed(ShedGrain{ManagementStage: tc.stage, Breed: "Beetal", HeadCount: 4}), 1)
@@ -829,7 +829,7 @@ func TestExperimentShedTagNormalizesButNeverBlocksOnAnUnknownStage(t *testing.T)
 func TestExperimentRowNamesEveryBreedAndStageInAMixedShed(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "20.000", Category: "Sheep M NEW"},
 	}
 
@@ -866,7 +866,7 @@ func TestExperimentRowNamesEveryBreedAndStageInAMixedShed(t *testing.T) {
 func TestExperimentQuantityIsUnaffectedByBreedAndTagReporting(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
 	}
 
@@ -905,7 +905,7 @@ func TestExperimentQuantityIsUnaffectedByBreedAndTagReporting(t *testing.T) {
 func TestPackingLineCarriesTheExperimentArm(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "78.000", Category: "Sheep M NEW"},
 	}
 
@@ -961,7 +961,7 @@ func TestExperimentPlannerTakesPrecedenceOverTheGrid(t *testing.T) {
 		t.Fatalf("without experiment rows the planner is %q, want %q", normal.Workflow(), WorkflowNormal)
 	}
 
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "9.000", Category: "Trial B"},
 	}
 	experiment := NewPlannerSet().PlannerFor(in, cfg)
@@ -1346,7 +1346,7 @@ func TestExperimentShedIgnoresTheSessionSlotRecipe(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig()
 	// The park's sessions declare Concentrate and Hybrid; the experiment shed is fed neither.
-	cfg.ExperimentByShedID[testShedID] = []ExperimentCell{
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
 		{FeedItemLabel: "RGS Concentrate", FeedItemKey: "rgs_concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
 	}
 
@@ -1402,4 +1402,128 @@ func TestBuildPackingRowsPanicsOnBlockedItemWithNilReason(t *testing.T) {
 	}()
 	BuildPackingRows(rows, cfg.FeedItems)
 	t.Fatal("unreachable: panic expected before this point")
+}
+
+// TestMixedShedRunsExperimentAndGridPartitionsSideBySide is the case that forced experiment config
+// to become partition-aware (maintainer decision 2026-08-07).
+//
+// CBE's Godel 2 holds EIGHT partitions and only Parts 3, 4 and 5 are authored experiments; Parts 1
+// and 2 are ordinary per-head-grid sheds. Until this change ExperimentByShedID was keyed by shed
+// alone, so "is Godel 2 an experiment?" had no correct answer: yes overfed the 141 grid animals off
+// an absolute shed total, no overfed the experiment partitions off the grid (measured on the real
+// data as CBE concentrate 398.8 kg against the workbook's 182.0 kg).
+//
+// Both halves must come out of ONE shed in ONE pass: the experiment partitions on their authored
+// absolute kg, the grid partitions on grams-per-head, and the shed's total equal to their sum.
+func TestMixedShedRunsExperimentAndGridPartitionsSideBySide(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	// Parts 3 and 4 are authored experiments. Part 1 is not, and must stay on the grid.
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 3")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "12.000", Category: "Trial A"},
+	}
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "Part 4")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "8.000", Category: "Trial B"},
+	}
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
+
+	grains := []ShedGrain{
+		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 46, PartitionLabel: "Part 3"},
+		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 44, PartitionLabel: "Part 4"},
+		{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 56, PartitionLabel: "Part 1"},
+	}
+
+	var rows []DirectionRow
+	for _, part := range SplitGrainsByPartition(grains) {
+		in := ShedInput{ShedID: testShedID, ShedLabel: "Godel 2", PartitionLabel: part.PartitionLabel, Grains: part.Grains}
+		rows = append(rows, generate(cfg, in, 1)...)
+	}
+
+	byPartition := map[string]DirectionRow{}
+	for _, row := range rows {
+		if row.ShedID != testShedID {
+			t.Fatalf("row escaped its shed: shed_id=%q", row.ShedID)
+		}
+		byPartition[row.PartitionLabel] = row
+	}
+	for _, want := range []string{"Part 1", "Part 3", "Part 4"} {
+		if _, ok := byPartition[want]; !ok {
+			t.Fatalf("no row for %q; partitions present: %v", want, byPartition)
+		}
+	}
+
+	// The two authored partitions are experiments, on ABSOLUTE kg, independent of head count.
+	for _, tc := range []struct{ partition, wantKg, wantArm string }{
+		{"Part 3", "6.000", "Trial A"}, // 12 kg x 0.5 session split
+		{"Part 4", "4.000", "Trial B"}, // 8 kg x 0.5
+	} {
+		row := byPartition[tc.partition]
+		if row.Workflow != WorkflowExperiment {
+			t.Fatalf("%s workflow = %q, want %q", tc.partition, row.Workflow, WorkflowExperiment)
+		}
+		if got := *itemOf(t, row, "Concentrate").QuantityKg; got != tc.wantKg {
+			t.Fatalf("%s quantity = %q, want %q (absolute kg, never scaled by head)", tc.partition, got, tc.wantKg)
+		}
+		if !row.HeadCountInformational {
+			t.Fatalf("%s head count is not marked informational", tc.partition)
+		}
+	}
+
+	// Part 1 was never authored, so it must stay on the grid: 56 head x 1000 g x 0.5 = 28.000 kg.
+	// If the experiment leaked across the whole shed this row would carry an absolute total instead.
+	grid := byPartition["Part 1"]
+	if grid.Workflow != WorkflowNormal {
+		t.Fatalf("Part 1 workflow = %q, want %q -- an unauthored partition must stay on the ration grid",
+			grid.Workflow, WorkflowNormal)
+	}
+	if got := *itemOf(t, grid, "Concentrate").QuantityKg; got != "28.000" {
+		t.Fatalf("Part 1 quantity = %q, want \"28.000\" (56 head x 1000 g x 0.5)", got)
+	}
+	if grid.HeadCountInformational {
+		t.Fatal("Part 1 head count marked informational; a grid row's head count is what scales it")
+	}
+}
+
+// A shed with NO partitions must behave exactly as it did before this change: one input, one row,
+// and an experiment authored with no partition still applies to it.
+func TestNonPartitionedShedIsUnchangedByThePartitionSplit(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.ExperimentByLocation[ExperimentLocationKey(testShedID, "")] = []ExperimentCell{
+		{FeedItemLabel: "Concentrate", FeedItemKey: "concentrate", AbsoluteKg: "10.000", Category: "Trial A"},
+	}
+	grains := []ShedGrain{{ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep", HeadCount: 30}}
+
+	parts := SplitGrainsByPartition(grains)
+	if len(parts) != 1 || parts[0].PartitionLabel != "" {
+		t.Fatalf("split produced %d entries (%+v), want exactly one unpartitioned entry", len(parts), parts)
+	}
+	in := ShedInput{ShedID: testShedID, ShedLabel: "Shed 1", PartitionLabel: parts[0].PartitionLabel, Grains: parts[0].Grains}
+	rows := generate(cfg, in, 1)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	if rows[0].PartitionLabel != "" {
+		t.Fatalf("partition_label = %q, want empty for a shed with no partitions", rows[0].PartitionLabel)
+	}
+	if got := *itemOf(t, rows[0], "Concentrate").QuantityKg; got != "5.000" {
+		t.Fatalf("quantity = %q, want \"5.000\"", got)
+	}
+}
+
+// 'whole' is a MATCHING key, never copy, and a label variant must not split one partition in two.
+func TestPartitionMatchKeyNormalizesLabelVariantsAndBlank(t *testing.T) {
+	t.Parallel()
+	for _, blank := range []string{"", "   "} {
+		if got := PartitionMatchKey(blank); got != "whole" {
+			t.Fatalf("PartitionMatchKey(%q) = %q, want \"whole\"", blank, got)
+		}
+	}
+	if a, b := PartitionMatchKey("Part 3"), PartitionMatchKey("part  3"); a != b {
+		t.Fatalf("label variants split a partition: %q vs %q", a, b)
+	}
+	// Two partitions of one shed must never collapse onto each other.
+	if PartitionMatchKey("Part 3") == PartitionMatchKey("Part 4") {
+		t.Fatal("Part 3 and Part 4 share a match key")
+	}
 }

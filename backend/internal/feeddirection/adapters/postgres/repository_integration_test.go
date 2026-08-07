@@ -375,7 +375,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Concentrate', 12.000, 40, 'Trial A', 'act
 		t.Fatal("a shed factor materialized for a shed that has none")
 	}
 
-	cells := snapshot.ExperimentByShedID[fdShedB]
+	cells := snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedB, "")]
 	if len(cells) != 1 {
 		t.Fatalf("experiment cells = %d, want 1 (the retired row is excluded)", len(cells))
 	}
@@ -386,7 +386,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, 'Concentrate', 12.000, 40, 'Trial A', 'act
 		t.Fatalf("category = %q, want \"Trial A\"", cells[0].Category)
 	}
 	// head_count is not even read: it is informational and must never reach a multiplier.
-	if len(snapshot.ExperimentByShedID[fdShedA]) != 0 {
+	if len(snapshot.ExperimentByLocation[domain.ExperimentLocationKey(fdShedA, "")]) != 0 {
 		t.Fatal("a non-experiment shed acquired experiment cells")
 	}
 }
