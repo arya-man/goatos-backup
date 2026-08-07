@@ -52,42 +52,29 @@ func (r *Repository) ListTransportTasks(ctx context.Context, q ports.ListTranspo
 	}
 	// projection-review: producer unique=(tenant_id,business_date,shed_id); consumer match/group uses
 	// the same columns. locations park and shed joins are 1:1 by (tenant_id,location_id). No ratios.
-	// Partition label uses the canonical ShedScopedLocationSQL pattern: fetch exactly ONE real partition
-	// per shed and render bare shed name if multiple or none exist.
+	// Returns the shed name and the partition as SEPARATE columns; oploc.Display() composes them
+	// in Go below. The display rule lives in exactly one place -- a CASE that concatenates them
+	// here is a second implementation, and six of those are what shipped 'Godel 1 1' and
+	// 'Mandela 2 - 3' to operators.
 	rows, err := r.pool.Query(ctx, `
 SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
        coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
-       COALESCE((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), ''),
-       CASE WHEN COALESCE((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '') = '' THEN s.name
-       ELSE s.name || ' - ' || COALESCE((
-         SELECT min(sp.partition_label)
-         FROM shed_partitions sp
-         WHERE sp.tenant_id = t.tenant_id
-           AND sp.shed_id = t.shed_id
-           AND sp.status = 'active'
-           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-         HAVING count(*) = 1
-       ), '') END
+       coalesce(part.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
+-- ONE grouped join, evaluated once, instead of the same correlated subquery repeated four
+-- times. Agree-or-go-bare is HAVING count(*) = 1: exactly one real partition resolves, several
+-- or none go bare.
+LEFT JOIN (
+  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
+  FROM shed_partitions sp
+  WHERE sp.status = 'active'
+    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  GROUP BY sp.tenant_id, sp.shed_id
+  HAVING count(*) = 1
+) part ON part.tenant_id = t.tenant_id AND part.shed_id = t.shed_id
 LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=t.current_attempt_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
@@ -103,9 +90,10 @@ ORDER BY t.task_id LIMIT $8`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID,
 	out := make([]ports.FeedTransportTask, 0, q.Limit+1)
 	for rows.Next() {
 		var x ports.FeedTransportTask
-		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt, &x.PartitionLabel, &x.OperationalLocationDisplay); err != nil {
+		if err := rows.Scan(&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate, &x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt, &x.PartitionLabel); err != nil {
 			return ports.FeedTransportTaskPage{}, err
 		}
+		x.OperationalLocationDisplay = oploc.OperationalLocation{ShedName: x.ShedLabel, PartitionLabel: x.PartitionLabel}.Display()
 		out = append(out, x)
 	}
 	if err := rows.Err(); err != nil {
