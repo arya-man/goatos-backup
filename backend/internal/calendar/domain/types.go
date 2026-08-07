@@ -128,44 +128,41 @@ type DriveShedSummary struct {
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
 type CalendarEvent struct {
-	EventID                    string          `json:"event_id"`
-	EventType                  string          `json:"event_type"`
-	OwnerKey                   string          `json:"owner_key"`
-	Title                      string          `json:"title"`
-	Subtitle                   string          `json:"subtitle"`
-	Aggregated                 bool            `json:"aggregated"`
-	AllDay                     bool            `json:"all_day"`
-	SummaryPrimary             string          `json:"summary_primary"`
-	SummarySecondary           string          `json:"summary_secondary"`
-	SummaryTertiary            string          `json:"summary_tertiary"`
-	Status                     string          `json:"status"`
-	Severity                   string          `json:"severity"`
-	DueAt                      time.Time       `json:"due_at"`
-	WindowStart                *time.Time      `json:"window_start"`
-	WindowEnd                  *time.Time      `json:"window_end"`
-	Timezone                   string          `json:"timezone"`
-	TimezoneSource             string          `json:"timezone_source"`
-	ParkID                     *string         `json:"park_id"`
-	ParkCode                   *string         `json:"park_code"`
-	ShedID                     *string         `json:"shed_id"`
-	ShedName                   *string         `json:"shed_name"`
-	CohortID                   *string         `json:"cohort_id"`
-	CohortName                 *string         `json:"cohort_name"`
-	TargetType                 string          `json:"target_type"`
-	TargetCount                int             `json:"target_count"`
-	ShedCount                  int             `json:"shed_count"`
-	VaccineCount               int             `json:"vaccine_count"`
-	DriveCount                 int             `json:"drive_count"`
-	CatchUpCount               int             `json:"catch_up_count"`
-	ScheduledCount             int             `json:"scheduled_count"`
-	DeferredCount              int             `json:"deferred_count"`
-	ReviewCount                int             `json:"review_count"`
-	ShedLabels                 []string        `json:"shed_labels"`
-	// ShedPartitions carries the partition label for each corresponding ShedLabels entry,
+	EventID          string     `json:"event_id"`
+	EventType        string     `json:"event_type"`
+	OwnerKey         string     `json:"owner_key"`
+	Title            string     `json:"title"`
+	Subtitle         string     `json:"subtitle"`
+	Aggregated       bool       `json:"aggregated"`
+	AllDay           bool       `json:"all_day"`
+	SummaryPrimary   string     `json:"summary_primary"`
+	SummarySecondary string     `json:"summary_secondary"`
+	SummaryTertiary  string     `json:"summary_tertiary"`
+	Status           string     `json:"status"`
+	Severity         string     `json:"severity"`
+	DueAt            time.Time  `json:"due_at"`
+	WindowStart      *time.Time `json:"window_start"`
+	WindowEnd        *time.Time `json:"window_end"`
+	Timezone         string     `json:"timezone"`
+	TimezoneSource   string     `json:"timezone_source"`
+	ParkID           *string    `json:"park_id"`
+	ParkCode         *string    `json:"park_code"`
+	ShedID           *string    `json:"shed_id"`
+	ShedName         *string    `json:"shed_name"`
+	CohortID         *string    `json:"cohort_id"`
+	CohortName       *string    `json:"cohort_name"`
+	TargetType       string     `json:"target_type"`
+	TargetCount      int        `json:"target_count"`
+	ShedCount        int        `json:"shed_count"`
+	VaccineCount     int        `json:"vaccine_count"`
+	DriveCount       int        `json:"drive_count"`
+	CatchUpCount     int        `json:"catch_up_count"`
+	ScheduledCount   int        `json:"scheduled_count"`
+	DeferredCount    int        `json:"deferred_count"`
+	ReviewCount      int        `json:"review_count"`
+	ShedLabels       []string   `json:"shed_labels"`
 	// used to compose the full operational location display (e.g. "Castro - 2") when a
-	// partition exists. Parallel to ShedLabels: len(ShedPartitions) = len(ShedLabels).
 	// A nil entry means no partition resolved (multi-partition shed, or non-partitioned).
-	ShedPartitions             []*string       `json:"shed_partitions,omitempty"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`
@@ -386,19 +383,13 @@ type CalendarDriveTarget struct {
 	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
 	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
 	ShedName          *string   `json:"shed_name,omitempty"`
-	// PartitionLabel is the raw stored label ('1', 'Part 3') or nil for a non-partitioned shed.
-	// Composed with ShedName via oploc.Display() to render the full operational location.
-	PartitionLabel *string `json:"partition_label,omitempty"`
-	// OperationalLocationDisplay is the backend-composed location (e.g. "Castro - 2"),
-	// never hand-rolled on the client, so admin-web and mobile stay in sync.
-	OperationalLocationDisplay *string `json:"operational_location_display,omitempty"`
-	Stage                      *string `json:"stage"`
-	LifecycleStatus            *string `json:"lifecycle_status,omitempty"`
-	HealthStatus               *string `json:"health_status,omitempty"`
-	ExitReason                 *string `json:"exit_reason,omitempty"`
-	DeferReason                *string `json:"defer_reason,omitempty"`
-	Status                     string  `json:"status"`
-	ScheduledAt                time.Time `json:"scheduled_at"`
+	Stage             *string   `json:"stage"`
+	LifecycleStatus   *string   `json:"lifecycle_status,omitempty"`
+	HealthStatus      *string   `json:"health_status,omitempty"`
+	ExitReason        *string   `json:"exit_reason,omitempty"`
+	DeferReason       *string   `json:"defer_reason,omitempty"`
+	Status            string    `json:"status"`
+	ScheduledAt       time.Time `json:"scheduled_at"`
 }
 
 type CalendarDriveTargetListResponse struct {
