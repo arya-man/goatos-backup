@@ -5221,6 +5221,10 @@ export interface components {
             park_name: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partition_label?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operational_location_display?: string;
             shed_name: string;
             /** Format: uuid */
             cohort_id?: string;
@@ -5368,6 +5372,8 @@ export interface components {
             park_name: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operational_location_display?: string;
             shed_name: string;
             partition_label?: string | null;
             drive_name?: string;
@@ -5546,6 +5552,10 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partitionLabel?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operationalLocationDisplay?: string;
             shedName: string;
             stage: string;
             ageBand?: string;
@@ -5894,6 +5904,10 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partitionLabel?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operationalLocationDisplay?: string;
             shedName: string;
             animalStages: string[];
             drives: components["schemas"]["VaccinationExecutionDriveSummary"][];
@@ -6415,6 +6429,10 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partitionLabel?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operationalLocationDisplay?: string;
             shedName: string;
             animals: number;
             due: number;
@@ -7408,6 +7426,10 @@ export interface components {
             parkName: string;
             /** Format: uuid */
             shedId?: string;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partitionLabel?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operationalLocationDisplay?: string;
             shedName?: string;
             reasonCode: components["schemas"]["VaccinationGapReasonCode"];
             reasonLabel: string;
@@ -8330,6 +8352,10 @@ export interface components {
             park_label: string;
             /** Format: uuid */
             shed_id: string | null;
+            /** @description Raw stored partition label for the shed ('1', 'Part 3'). Null or absent means the shed is non-partitioned. Never the literal string 'whole' -- that is a matching key, not user copy. */
+            partition_label?: string | null;
+            /** @description User-facing location label composed by the backend (oploc.Display()). No partition -> bare shed name; partitioned -> 'Godel 1 - Part 3'. Clients RENDER this; they must not re-compose it. */
+            operational_location_display?: string;
             shed_label: string;
             step_count: number;
             medication_count: number;
