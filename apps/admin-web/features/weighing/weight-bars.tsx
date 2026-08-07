@@ -21,6 +21,7 @@ export function WeightBars({
   unit,
   chartLabel,
   size = "tall",
+  wide = false,
 }: {
   data: readonly WeightBar[];
   /** Resolved from the page contract by the caller. */
@@ -30,6 +31,12 @@ export function WeightBars({
   chartLabel: string;
   /** "tall" for the shed/breed row, "short" for the sex/stage row. */
   size?: "tall" | "short";
+  /**
+   * Widen the label column. For a full-width card whose labels carry two facts —
+   * the load number AND its supplier — the half-width column clips the supplier off,
+   * which is the one thing that label exists to show.
+   */
+  wide?: boolean;
 }) {
   // A bar can only be drawn with a positive length. Non-positive values are real
   // data, so they are not silently dropped — the caller's empty copy has to explain
@@ -66,7 +73,10 @@ export function WeightBars({
   };
 
   return (
-    <ul className={`wbars ${size === "short" ? "wbars-short" : "wbars-tall"}`} aria-label={chartLabel}>
+    <ul
+      className={`wbars ${size === "short" ? "wbars-short" : "wbars-tall"}${wide ? " wbars-wide" : ""}`}
+      aria-label={chartLabel}
+    >
       {bars.map((bar) => (
         <li className="wbar" key={bar.key}>
           <span className="wbl" title={bar.label}>

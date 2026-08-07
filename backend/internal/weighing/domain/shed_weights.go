@@ -115,6 +115,48 @@ type ShedWeightsSummary struct {
 	ThresholdBasisAnimals int `json:"threshold_basis_animals"`
 }
 
+// LoadGainBucket is one PROCUREMENT LOAD's growth, blended across the sheds that
+// load was placed into.
+//
+// The load a shed's animals came from is authored in weighing_shed_load_tags, a
+// weighing-owned mapping — weighing never reads procurement's tables, so the
+// isolation rule is untouched. See that migration for why the mapping is
+// shed-level and what it therefore cannot do.
+//
+// GRAIN: one row per load_ref that has at least one weighed, unambiguously tagged
+// shed. A shed carrying TWO loads is excluded from every load in this list and
+// counted in LoadUnattributedSheds instead: one shed average cannot be split
+// between two suppliers, and apportioning it by head count would invent a
+// distribution nobody measured.
+type LoadGainBucket struct {
+	// LoadRef is the farm's own load number, rendered verbatim.
+	LoadRef string `json:"load_ref"`
+	// OwnerName is the supplier the load was bought from. Empty when unrecorded —
+	// clients show the load alone rather than inventing a label.
+	OwnerName string `json:"owner_name,omitempty"`
+	// Sheds counts the tagged sheds behind this load that carry a weigh.
+	Sheds int `json:"sheds"`
+	// Animals is the head count at each shed's LATEST weigh, summed. It is the
+	// denominator both figures below are weighted by.
+	Animals int `json:"animals"`
+	// AverageWeightKg is a weighted mean over ANIMALS across the load's sheds, never
+	// a mean of per-shed averages, which would let a 10-head shed pull as hard as a
+	// 73-head one.
+	AverageWeightKg float64 `json:"average_weight_kg"`
+	// GainGPerDay blends each shed's own last-two-weighs movement, weighted by head
+	// count. Nil when no shed in the load was weighed twice — a load with a single
+	// weigh has a weight but no growth, and reporting 0 would read as "flat".
+	//
+	// IT IS SHED-AVERAGE MOVEMENT, NOT PER-ANIMAL GROWTH, and carries every caveat
+	// ShedWeightsRow.ShedAverageGainGPerDay does: a shed's population changes between
+	// weighs, so if the lightest animals leave the average rises while no animal
+	// gained a gram.
+	GainGPerDay *float64 `json:"gain_g_per_day,omitempty"`
+	// GainSpanDays is the widest span any contributing shed was measured over, so a
+	// figure drawn from two days can be discounted on sight rather than hidden.
+	GainSpanDays int `json:"gain_span_days,omitempty"`
+}
+
 // ShedWeights is the full response.
 type ShedWeights struct {
 	// Parks is the park vocabulary for the filter, restricted to the caller's own
@@ -122,6 +164,14 @@ type ShedWeights struct {
 	Parks   []GrowthPark       `json:"parks"`
 	Summary ShedWeightsSummary `json:"summary"`
 	Rows    []ShedWeightsRow   `json:"rows"`
+	// ByLoad is the procurement-load breakdown, strongest grower first. Empty when no
+	// shed in scope carries a load tag, which is the normal state until the mapping
+	// is authored for a tenant.
+	ByLoad []LoadGainBucket `json:"by_load"`
+	// LoadUnattributedSheds counts weighed sheds that carry NO load tag or MORE THAN
+	// ONE. Returned so the gap between the load chart and the shed table is legible
+	// as unmapped rather than looking like missing weighing data.
+	LoadUnattributedSheds int `json:"load_unattributed_sheds"`
 	// PeriodStart / PeriodEnd echo the RESOLVED window (YYYY-MM-DD, Asia/Kolkata) so
 	// the screen labels what it is actually showing rather than what it asked for.
 	PeriodStart string `json:"period_start"`

@@ -2132,6 +2132,10 @@ select:disabled { opacity: .45; }
 .wbars::-webkit-scrollbar{width:8px}
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 .wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px}
+/* Full-width cards can afford a real label column. 132px is sized for the half-width
+   charts and clips a load's supplier name to "131 · Krishnamorrth…", which defeats the
+   point of putting the supplier on the label. */
+.wbars-wide .wbar{grid-template-columns:250px minmax(0,1fr) 68px}
 .wbar .wbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
 .wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;position:relative}
 .wbar .wbt i{display:block;height:100%;border-radius:5px;background:var(--brand)}

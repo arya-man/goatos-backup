@@ -7216,10 +7216,37 @@ export interface components {
             parks: components["schemas"]["WeighingPark"][];
             summary: components["schemas"]["WeighingShedWeightsSummary"];
             rows: components["schemas"]["WeighingShedWeightsRow"][];
+            /** @description Growth per procurement load, strongest grower first. Empty until the shed-to-load mapping is authored for the tenant. */
+            by_load: components["schemas"]["WeighingLoadGainBucket"][];
+            /** @description Weighed sheds carrying no load tag, or more than one. Returned so the gap between the load chart and the shed table reads as unmapped rather than as missing weighing data. */
+            load_unattributed_sheds: number;
             /** Format: date */
             period_start: string;
             /** Format: date */
             period_end: string;
+        };
+        /** @description One procurement load's growth, blended across the sheds it was placed into. Attribution is SHED-level: a shed carrying two loads is excluded from every load and counted in load_unattributed_sheds instead, because one shed average cannot be split between two suppliers. */
+        WeighingLoadGainBucket: {
+            /** @description The farm's own load number, rendered verbatim. */
+            load_ref: string;
+            /** @description Supplier the load was bought from. Absent when unrecorded. */
+            owner_name?: string;
+            /** @description Tagged sheds behind this load that carry a weigh. */
+            sheds: number;
+            /** @description Head count at each contributing shed's latest weigh, summed. This is the denominator both figures below are weighted by. */
+            animals: number;
+            /**
+             * Format: double
+             * @description Weighted mean over animals, never a mean of per-shed averages.
+             */
+            average_weight_kg: number;
+            /**
+             * Format: double
+             * @description Each shed's last-two-weighs movement, blended by head count. Absent when no shed in the load was weighed twice — a load with a single weigh has a weight but no growth, and 0 would read as flat. This is shed-average movement, NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram.
+             */
+            gain_g_per_day?: number;
+            /** @description Widest span any contributing shed was measured over, so a figure drawn from two days can be discounted on sight rather than hidden. */
+            gain_span_days?: number;
         };
         /** @description CEO-tier ADG / growth read model for a park or the herd. Weighing is free-flow: there is no weighing cadence rule, so no field here reports an "overdue" or "missed" weigh, and no target/benchmark ADG value is included anywhere. */
         WeighingGrowthADGResponse: {
