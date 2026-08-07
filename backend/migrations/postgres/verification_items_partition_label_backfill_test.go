@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -289,5 +290,98 @@ WHERE tenant_id = $1::uuid AND source_module = 'vaccination' AND partition_label
 	}
 	if backfilledCount != rowCount {
 		t.Fatalf("backfilled rows = %d, want %d (some rows left behind by keyset batching)", backfilledCount, rowCount)
+	}
+}
+
+// TestBackfillPartitionLabelDoesNotStrandEligibleRowsBehindUnmatchedOnes_RealPostgres is the
+// regression for the early-exit defect: the candidate set used to select rows purely on
+// "partition_label IS NULL", including rows that can never match goat_shed_partitions (a goat
+// that moved -- allowed to stay NULL by design). Those rows are re-selected at the head of
+// EVERY batch, never update, and drive rows_updated to 0, which exits the loop while eligible
+// rows with higher item_ids are still unprocessed. In production a handful of old moved-goat
+// rows at the front would strand the rest of the verifier queue.
+//
+// item_id is a random uuid, so insertion order is NOT batch order. The ids are pinned
+// explicitly below so the unmatched rows are guaranteed to occupy the whole first batch --
+// otherwise the shape under test is only reproduced by luck.
+func TestBackfillPartitionLabelDoesNotStrandEligibleRowsBehindUnmatchedOnes_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	backfillSQL := extractBackfillSQL(t)
+
+	tenantID := seedBackfillTenant(t, ctx, pool)
+	oldShedID := seedBackfillShed(t, ctx, pool, tenantID, "Stranding Old Shed")
+	newShedID := seedBackfillShed(t, ctx, pool, tenantID, "Stranding New Shed")
+
+	// 501 UNMATCHED items (> batch_size 500), pinned to the LOWEST item_ids so they fill the
+	// entire first batch. Each goat lives in newShedID but its item points at oldShedID, so the
+	// shed-matched join can never satisfy them.
+	const unmatchedCount = 501
+	for i := 0; i < unmatchedCount; i++ {
+		goatID := seedBackfillGoat(t, ctx, pool, tenantID, newShedID)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '2', 'Stranding New Shed 2')
+`, tenantID, goatID, newShedID); err != nil {
+			t.Fatalf("insert goat_shed_partitions (unmatched %d): %v", i, err)
+		}
+		itemID := seedPendingVaccinationVerificationItem(t, ctx, pool, tenantID, goatID, oldShedID,
+			fmt.Sprintf("backfill-test:strand-unmatched-%d", i))
+		if _, err := pool.Exec(ctx,
+			`UPDATE verification_items SET item_id = $2::uuid WHERE item_id = $1::uuid`,
+			itemID, fmt.Sprintf("00000000-0000-4000-8000-%012d", i)); err != nil {
+			t.Fatalf("pin unmatched item_id %d: %v", i, err)
+		}
+	}
+
+	// 3 ELIGIBLE items pinned to the HIGHEST item_ids, so they sort strictly after every
+	// unmatched row. Under the old candidate set these are never reached.
+	eligible := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		goatID := seedBackfillGoat(t, ctx, pool, tenantID, newShedID)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, partition_label, source_shed_name)
+VALUES ($1::uuid, $2::uuid, $3::uuid, '9', 'Stranding New Shed 9')
+`, tenantID, goatID, newShedID); err != nil {
+			t.Fatalf("insert goat_shed_partitions (eligible %d): %v", i, err)
+		}
+		itemID := seedPendingVaccinationVerificationItem(t, ctx, pool, tenantID, goatID, newShedID,
+			fmt.Sprintf("backfill-test:strand-eligible-%d", i))
+		pinned := fmt.Sprintf("ffffffff-ffff-4fff-8fff-%012d", i)
+		if _, err := pool.Exec(ctx,
+			`UPDATE verification_items SET item_id = $2::uuid WHERE item_id = $1::uuid`,
+			itemID, pinned); err != nil {
+			t.Fatalf("pin eligible item_id %d: %v", i, err)
+		}
+		eligible = append(eligible, pinned)
+	}
+
+	runBackfill(t, ctx, pool, backfillSQL)
+
+	for i, itemID := range eligible {
+		var label *string
+		if err := pool.QueryRow(ctx,
+			`SELECT partition_label FROM verification_items WHERE item_id = $1::uuid`, itemID).Scan(&label); err != nil {
+			t.Fatalf("read eligible item %d: %v", i, err)
+		}
+		if label == nil || *label != "9" {
+			t.Fatalf("eligible item %d got partition_label = %v, want \"9\" -- %d unmatched rows ahead of it stranded the backfill",
+				i, label, unmatchedCount)
+		}
+	}
+
+	// The unmatched rows must still be NULL: staying NULL is correct, being skipped is not.
+	var stillNull int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM verification_items
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND partition_label IS NULL
+`, tenantID, oldShedID).Scan(&stillNull); err != nil {
+		t.Fatalf("count unmatched: %v", err)
+	}
+	if stillNull != unmatchedCount {
+		t.Fatalf("unmatched rows with NULL partition_label = %d, want %d", stillNull, unmatchedCount)
 	}
 }
