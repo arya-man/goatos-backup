@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
@@ -422,6 +422,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const driveOptions = useMemo(
     () => enrichDriveOptions(board.driveOptions ?? [], board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
     [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
@@ -438,7 +439,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     if (selection?.driveBatchId) params.set("cb_drive", selection.driveBatchId); else params.delete("cb_drive");
     if (selection?.parkId) params.set("cb_drive_park", selection.parkId); else params.delete("cb_drive_park");
     const query = params.toString();
-    router.push(query ? `?${query}` : "?", { scroll: false });
+    startTransition(() => {
+      router.push(query ? `?${query}` : "?", { scroll: false });
+    });
   };
 
   const vaccineOptions = useMemo(() => {
@@ -532,8 +535,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           className="cbm-select cbm-select-wide"
           value={driveBatchId ? driveSelectionValue(driveBatchId, driveParkId) : ""}
           onChange={(e) => selectDrive(e.target.value)}
-          disabled={driveOptions.length === 0}
-          aria-disabled={driveOptions.length === 0}
+          disabled={driveOptions.length === 0 || isPending}
+          aria-disabled={driveOptions.length === 0 || isPending}
+          aria-busy={isPending}
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
