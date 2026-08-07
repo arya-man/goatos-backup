@@ -7336,6 +7336,18 @@ export interface components {
         };
         VaccinationPassport: {
             goat_id: string;
+            /** @description UUID of the park the goat is currently assigned to. Empty if location unknown. */
+            park_id?: string;
+            /** @description Display name of the park. Empty if location unknown. */
+            park_name?: string;
+            /** @description UUID of the physical shed. Empty if location unknown. */
+            shed_id?: string;
+            /** @description Display name of the physical shed. Empty if location unknown. */
+            shed_name?: string;
+            /** @description Raw partition label ('1', 'Part 3'), or empty string for non-partitioned sheds. Never the literal string 'whole'. */
+            partition_label?: string;
+            /** @description Backend-composed display label combining shed name and partition ("Castro 2" or "Godel 1 - Part 3"). Bare shed name for non-partitioned sheds. Empty if location unknown. */
+            operational_location_display?: string;
             next_due: components["schemas"]["VaccinationPassportDue"] | null;
             open_obligations: components["schemas"]["VaccinationPassportDue"][];
             last_accepted: components["schemas"]["LastAcceptedVaccinationDose"] | null;
