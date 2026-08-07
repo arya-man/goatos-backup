@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Scale, TrendingDown, Warehouse } from "lucide-react";
+import { Scale, TrendingDown, TrendingUp, Warehouse } from "lucide-react";
 
 import { SvgBars } from "@/components/svg-bars";
 import { Tag } from "@/components/ui-primitives";
@@ -45,6 +45,15 @@ function hrefWith(searchParams: RouteSearchParams, updates: Record<string, strin
   return query ? `${PAGE_PATH}?${query}` : PAGE_PATH;
 }
 
+// Inclusive Asia/Kolkata business dates, which is what the API's from/to expect.
+function businessDayWindow(days: number): { from: string; to: string } {
+  const now = new Date();
+  const istToday = new Date(now.getTime() + (5.5 * 60 - now.getTimezoneOffset()) * 60_000);
+  const to = istToday.toISOString().slice(0, 10);
+  const fromDate = new Date(istToday.getTime() - (days - 1) * 86_400_000);
+  return { from: fromDate.toISOString().slice(0, 10), to };
+}
+
 function kg(value: number, fractionDigits = 1): string {
   return value.toLocaleString("en-IN", {
     minimumFractionDigits: fractionDigits,
@@ -75,9 +84,14 @@ export async function WeighingWeightsPage({
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
 
+  // Period is a business-day window, not a clock offset: a weigh belongs to the
+  // Asia/Kolkata day it happened on.
+  const periodDays = one(params, "period") === "84" ? 84 : 28;
+  const window = businessDayWindow(periodDays);
+
   const [weights, growth] = await Promise.all([
-    getShedWeights({ park_id: parkFilter || undefined }),
-    getWeighingGrowth({ park_id: parkFilter || undefined }),
+    getShedWeights({ park_id: parkFilter || undefined, ...window }),
+    getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
   ]);
 
   if (firstAuthRequiredError(weights, growth)) redirect(INTERNAL_LOGIN_PATH);
@@ -102,6 +116,23 @@ export async function WeighingWeightsPage({
 
   // Losing kids come from the growth read, which already computes "latest pair went down".
   // A growth failure must not take the whole page down: the weights half is independent.
+  // Per-park gain cards. This fans out one call per PARK, which is a handful of
+  // rows (two today), never a paginated entity list — the banned shape is draining
+  // a cursor, not asking a bounded vocabulary. Skipped entirely when the caller
+  // already narrowed to one park, because the headline above is then that park's.
+  const perParkGain =
+    parkFilter === "" && parks.length > 1
+      ? await Promise.all(
+          parks.map(async (park) => {
+            const result = await getWeighingGrowth({ park_id: park.park_id, ...window });
+            return {
+              name: park.name,
+              median: result.ok ? result.data.headline.median_adg_g_per_day : null,
+            };
+          }),
+        )
+      : [];
+
   const losingAll = growth.ok ? growth.data.losing_animals : [];
   const losingSlice = losingAll.slice(losingOffset, losingOffset + DEFAULT_LIMIT);
 
@@ -114,6 +145,16 @@ export async function WeighingWeightsPage({
       value: parkFilter,
       allowAll: true,
       options: parks.map((park) => ({ value: park.park_id, label: park.name })),
+    },
+    {
+      kind: "select",
+      param: "period",
+      label: copy(pageContract, "filter.period.label"),
+      value: String(periodDays),
+      options: optionGroup(pageContract, "weighing_period").map((option) => ({
+        value: option.key,
+        label: option.label,
+      })),
     },
     {
       kind: "select",
@@ -135,6 +176,20 @@ export async function WeighingWeightsPage({
       key: row.location_id,
       label: row.shed_display_name,
       value: Number(row.average_weight_kg.toFixed(1)),
+    }));
+
+  const headlineGain = growth.ok ? growth.data.headline.median_adg_g_per_day : null;
+
+  // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
+  // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
+  const gainChartData = (growth.ok ? growth.data.shed_leaderboard : [])
+    .filter((shed) => shed.adg_pair_count > 0)
+    .slice()
+    .sort((a, b) => b.median_adg_g_per_day - a.median_adg_g_per_day)
+    .map((shed) => ({
+      key: shed.location_id,
+      label: shed.display_name,
+      value: Math.round(shed.median_adg_g_per_day),
     }));
 
   const hasAnyData = summary.animals_weighed > 0;
@@ -197,7 +252,53 @@ export async function WeighingWeightsPage({
             {copy(pageContract, "kpi.threshold.basis")}
           </div>
         </div>
+        <div className="kpi">
+          <div className="lab">{copy(pageContract, "kpi.gain.label")}</div>
+          {/* insufficient_data is a real state: a park where nothing was weighed twice has NO
+              gain, and printing 0 g/day would read as a herd that stopped growing. */}
+          <div className="val">
+            {headlineGain == null ? copy(pageContract, "empty.no_data.title") : `${Math.round(headlineGain)} g`}
+          </div>
+          <div className="dl">
+            {headlineGain == null
+              ? copy(pageContract, "kpi.gain.none")
+              : copy(pageContract, "kpi.gain.sub")}
+          </div>
+        </div>
       </section>
+
+      {perParkGain.length > 0 ? (
+        <section className="grid g4" aria-label={copy(pageContract, "section.park_gain.aria")}>
+          <div className="kpi">
+            <div className="lab">
+              {copy(pageContract, "kpi.park_gain.all")} {copy(pageContract, "kpi.park_gain.suffix")}
+            </div>
+            <div className="val">
+              {headlineGain == null
+                ? copy(pageContract, "empty.no_data.title")
+                : `${Math.round(headlineGain)} g`}
+            </div>
+            <div className="dl">{copy(pageContract, "kpi.gain.sub")}</div>
+          </div>
+          {perParkGain.map((park) => (
+            <div className="kpi" key={park.name}>
+              <div className="lab">
+                {park.name} {copy(pageContract, "kpi.park_gain.suffix")}
+              </div>
+              <div className="val">
+                {park.median == null
+                  ? copy(pageContract, "empty.no_data.title")
+                  : `${Math.round(park.median)} g`}
+              </div>
+              <div className="dl">
+                {park.median == null
+                  ? copy(pageContract, "kpi.gain.none")
+                  : copy(pageContract, "kpi.gain.sub")}
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
         <h2 className="h">
@@ -209,6 +310,27 @@ export async function WeighingWeightsPage({
           emptyLabel={copy(pageContract, "empty.no_data.body")}
           valueNoun="kg"
           chartLabel={copy(pageContract, "chart.average.aria")}
+          maxBars={12}
+        />
+      </section>
+
+      <section className="card" aria-label={copy(pageContract, "chart.gain.aria")}>
+        <h2 className="h">
+          <TrendingUp className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.gain.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "chart.gain.caption")}</p>
+        <SvgBars
+          data={gainChartData}
+          emptyLabel={
+            // The bar chart can only draw positive values. Sheds that DO have a second weigh
+            // but are losing would otherwise fall through to "needs a second weigh", which is
+            // simply untrue for them.
+            gainChartData.length > 0 && gainChartData.every((shed) => shed.value <= 0)
+              ? copy(pageContract, "empty.gain.all_losing")
+              : copy(pageContract, "empty.gain.body")
+          }
+          valueNoun="g"
+          chartLabel={copy(pageContract, "chart.gain.aria")}
           maxBars={12}
         />
       </section>
