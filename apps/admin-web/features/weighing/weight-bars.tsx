@@ -34,15 +34,36 @@ export function WeightBars({
   // A bar can only be drawn with a positive length. Non-positive values are real
   // data, so they are not silently dropped — the caller's empty copy has to explain
   // them, which is why this returns the empty state rather than an empty box.
-  const bars = data.filter((bar) => bar.value > 0);
+  // EVERY value renders, gain or loss. Filtering to value > 0 silently dropped every
+  // losing shed and every losing kid — which is precisely the row a reader is looking
+  // for. Only a genuinely empty series shows the empty state.
+  const bars = data.filter((bar) => Number.isFinite(bar.value));
   if (bars.length === 0) {
+    // Same fixed box as the populated list, so toggling a chart between weight and
+    // gain never makes the row jump.
     return (
-      <div className="muted small" style={{ padding: "18px 2px", textAlign: "center" }}>
-        {emptyLabel}
+      <div className={`wbars-empty ${size === "short" ? "wbars-short" : "wbars-tall"}`} role="note">
+        <span className="muted small">{emptyLabel}</span>
       </div>
     );
   }
-  const max = Math.max(...bars.map((bar) => bar.value));
+
+  // Bars are drawn from a ZERO baseline, not from the smallest value: a loss has to
+  // read as crossing zero, not as a short positive bar. The axis spans min..max with
+  // zero always inside it, so the baseline sits where zero actually falls — hard left
+  // when everything is positive, mid-track when the series straddles zero.
+  const lo = Math.min(0, ...bars.map((bar) => bar.value));
+  const hi = Math.max(0, ...bars.map((bar) => bar.value));
+  const span = hi - lo || 1;
+  const zeroPct = ((0 - lo) / span) * 100;
+  const geometry = (value: number) => {
+    const width = (Math.abs(value) / span) * 100;
+    return {
+      left: value >= 0 ? zeroPct : zeroPct - width,
+      width: Math.max(width, 0.6),
+      negative: value < 0,
+    };
+  };
 
   return (
     <ul className={`wbars ${size === "short" ? "wbars-short" : "wbars-tall"}`} aria-label={chartLabel}>
@@ -52,9 +73,18 @@ export function WeightBars({
             {bar.label}
           </span>
           <span className="wbt">
-            <i style={{ width: `${Math.max((bar.value / max) * 100, 1.5)}%` }} />
+            {/* The zero rule only appears when the series actually straddles zero;
+                on an all-positive chart it would sit on the axis and read as noise. */}
+            {lo < 0 && hi > 0 ? <b className="wbzero" style={{ left: `${zeroPct}%` }} /> : null}
+            <i
+              className={geometry(bar.value).negative ? "neg" : undefined}
+              style={{
+                marginLeft: `${geometry(bar.value).left}%`,
+                width: `${geometry(bar.value).width}%`,
+              }}
+            />
           </span>
-          <span className="wbv">
+          <span className={`wbv${bar.value < 0 ? " neg" : ""}`}>
             {bar.value.toLocaleString("en-IN", { maximumFractionDigits: 1 })} {unit}
           </span>
         </li>
