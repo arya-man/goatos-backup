@@ -8,12 +8,10 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -21,7 +19,6 @@ import sg.mesha.goatos.core.analytics.AnalyticsEvents
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShedCache
@@ -59,25 +56,16 @@ class WeighingShedDetailViewModel @Inject constructor(
     private val campaignId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_ARG).orEmpty()
     private val campaignShedId = savedStateHandle.get<String>(Routes.WEIGHING_CAMPAIGN_SHED_ARG).orEmpty()
 
-    /**
-     * How many cached records the screen observes. Grows ONE page at a time on scroll and is held
-     * to the cache's own ceiling: the observed Room read is a bounded window, never the whole
-     * bucket, so the over-fetch cannot move from the network into the database.
-     */
-    private val recordWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
     private val loading = MutableStateFlow(false)
     private val busy = MutableStateFlow(false)
     private val message = MutableStateFlow<String?>(null)
     private val failure = MutableStateFlow<String?>(null)
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     private val cache: StateFlow<WeighingLeadershipShedCache> =
         if (campaignId.isBlank() || campaignShedId.isBlank()) {
             flowOf(WeighingLeadershipShedCache())
         } else {
-            recordWindow.flatMapLatest { window ->
-                repository.observeLeadershipShed(campaignId, campaignShedId, window)
-            }
+            repository.observeLeadershipShed(campaignId, campaignShedId, WEIGHING_LEADERSHIP_PAGE_SIZE)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingLeadershipShedCache())
 
     val state: StateFlow<WeighingShedDetailUiState> =
@@ -102,7 +90,6 @@ class WeighingShedDetailViewModel @Inject constructor(
         if (campaignId.isBlank() || campaignShedId.isBlank()) return
         if (loading.value) return
         loading.value = true
-        recordWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         viewModelScope.launch {
             try {
                 when (val result = repository.refreshLeadershipShed(campaignId, campaignShedId, reset = true)) {
@@ -133,16 +120,12 @@ class WeighingShedDetailViewModel @Inject constructor(
     fun onRecordRowVisible(index: Int) {
         val visible = state.value.records.size
         if (visible == 0 || index < visible - RECORDS_PREFETCH_DISTANCE) return
-        if (recordWindow.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
-            recordWindow.value =
-                (recordWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
-        }
         if (!cache.value.canLoadMoreRecords) return
         if (loading.value) return
         loading.value = true
         viewModelScope.launch {
             try {
-                when (val result = repository.refreshLeadershipShed(campaignId, campaignShedId, reset = false)) {
+                when (val result = repository.appendLeadershipShed(campaignId, campaignShedId)) {
                     is AppResult.Ok -> failure.value = null
                     is AppResult.Err -> failure.value = result.message
                 }

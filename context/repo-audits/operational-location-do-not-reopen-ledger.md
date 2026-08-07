@@ -66,7 +66,7 @@ Session 2026-08-06 audited location naming, storage, and display across the Goat
 **Found:** Weighing task assignments lack a partition column  
 **Defect:** `weighing_campaign_sheds` assigns weighing work to sheds but does not store `partition_label`.  
 **Status:** PARTIALLY CLOSED
-- SQL layer: ✓ CLOSED — migration 000122_weighing_campaign_sheds_partition_label.sql (line 21) adds `partition_label text`; backfill via two paths: (1) catalog-first from shed_partitions (line 26-31), (2) fallback name-parsing for legacy/unresolved rows (line 44-73); verification query (line 75-122)  
+- SQL layer: ✓ CLOSED — migration 000129_weighing_campaign_sheds_partition_label.sql (line 21) adds `partition_label text`; backfill via two paths: (1) catalog-first from shed_partitions (line 26-31), (2) fallback name-parsing for legacy/unresolved rows (line 44-73); verification query (line 75-122)  
 - Go struct: ✗ OPEN — `backend/internal/obligation/adapters/postgres/sqlc/models.go` `WeighingCampaignShed` struct carries NO `partition_label` field  
 - Wire/render: ✗ OPEN — unconfirmed whether queries select and return `partition_label` in API responses  
 **Blocker:** SQL is ready and backfilled; Go struct and API contract must be updated.  
