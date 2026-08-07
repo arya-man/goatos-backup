@@ -904,10 +904,24 @@ expected AS (
       -- rejected-count read 0, and the drive offered a Close button while an animal was still
       -- waiting to be redone. Close is only allowed when EVERY video in the drive, across all its
       -- sheds, has been verified.
-      SELECT batch_id, goat_id
-      FROM vaccination_completion_rejections
-      WHERE tenant_id = $1::uuid
-        AND batch_id IS NOT NULL
+      SELECT vcr.batch_id, vcr.goat_id
+      FROM vaccination_completion_rejections vcr
+      WHERE vcr.tenant_id = $1::uuid
+        AND vcr.batch_id IS NOT NULL
+        -- ...but NOT one that has since been redone. A sent-back animal that was re-vaccinated and
+        -- re-approved has BOTH an archived rejection and a live completion, so counting both made
+        -- completion_count exceed the number of proofs that can ever exist (5 live + 2 archived = 7
+        -- against 5 proofs). The gate proof_count = completion_count then failed permanently and
+        -- the drive could never be closed -- the animal was punished twice for being redone.
+        -- Superseded rejections are history; the live completion carries its latest verdict.
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vaccination_completions live
+          WHERE live.tenant_id = vcr.tenant_id
+            AND live.batch_id = vcr.batch_id
+            AND live.goat_id = vcr.goat_id
+            AND live.status IN ('recorded', 'accepted')
+        )
     ) vc
     GROUP BY vc.batch_id
   ) completion_counts
@@ -943,7 +957,14 @@ proofs AS (
      OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
    )
   WHERE vc.tenant_id = $1::uuid
-    AND vc.status = 'recorded'
+    -- 'accepted' as well as 'recorded'. Approving the last video FLIPS the completion from
+    -- 'recorded' to 'accepted', so a proofs CTE scoped to 'recorded' alone went empty exactly when
+    -- the drive finished: proof_count fell to 0, the gate proof_count = completion_count could
+    -- never hold, and the drive became un-closeable BY BEING FULLY APPROVED. The sibling
+    -- sibling expected CTE above already counts IN ('recorded','accepted'); the two halves of it
+    -- disagreed about what a completion is (observed 2026-08-08: 5/5 approved, close button absent
+    -- for CEO and Director).
+    AND vc.status IN ('recorded', 'accepted')
     AND vi.category = $2
     AND ($3 = '' OR vi.vertical = $3)
     AND ($4 = '' OR vi.module = $4)
@@ -1024,6 +1045,23 @@ proofs AS (
       )
     )
 ),
+-- LATEST VERDICT PER PROOF. A rejection makes the operator re-shoot, so one completion/goat can
+-- carry SEVERAL verification_items over time: rejected, rejected again, finally approved. The
+-- readiness gate below gates on rejected_completion_count = 0, so counting every historical row
+-- meant a superseded rejection held the drive open FOREVER -- the close button never appeared for
+-- CEO/Director even though every animal's latest verdict was approved (observed 2026-08-08:
+-- G-006004 rejected 19:54, rejected again 20:53, approved 20:57; drive permanently unclosable).
+--
+-- DISTINCT ON keeps exactly one row per (batch, completion, goat) -- the newest verdict -- so a
+-- superseded rejection becomes history instead of outstanding work. It does NOT weaken the gate:
+-- a proof whose LATEST verdict is rejected or still pending is counted exactly as before, which is
+-- the property the archive UNION above was added to protect.
+latest_proofs AS (
+  SELECT DISTINCT ON (batch_id, completion_id, goat_id)
+    batch_id, completion_id, goat_id, item_id, status, closed_at, park_id, shed_id
+  FROM proofs
+  ORDER BY batch_id, completion_id, goat_id, closed_at DESC NULLS LAST, item_id DESC
+),
 -- projection-review: membership=vaccination_completions with non-null batch_id is the executed medical membership, independent of later obligation reassignment; group_key=batch_id; join_cardinality=verification_items may be one-to-many per submission/completion, so readiness counts DISTINCT completion_id while user-facing totals and status buckets count DISTINCT goat_id, and assignment rows are pre-aggregated inside expected; pagination=all completion/proof rows are reduced to one whole-batch rollup before the final LIMIT 20 closure page; scope=park/shed filters use explicit batch_scope rows from assignment or verification facts, never a generic hierarchy COALESCE
 rollup AS (
   SELECT
@@ -1073,7 +1111,7 @@ rollup AS (
     COUNT(DISTINCT p.item_id) FILTER (WHERE p.status = 'pending')::int AS pending_videos,
     COUNT(DISTINCT p.shed_id)::int AS shed_count
   FROM expected e
-  JOIN proofs p ON p.batch_id = e.batch_id
+  JOIN latest_proofs p ON p.batch_id = e.batch_id
 	  GROUP BY e.batch_id, e.protocol_version_id, e.park_id, e.park_label, e.shed_labels, e.planned_shed_count, e.start_date, e.end_date, e.completion_count, e.total_count
 )
 SELECT batch_id, drive_key, drive_label, batch_label, park_id, park_label, start_date, end_date,
