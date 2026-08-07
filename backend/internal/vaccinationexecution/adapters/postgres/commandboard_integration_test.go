@@ -54,47 +54,50 @@ func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool
 
 	// Parks
 	execProjectionSQL(t, ctx, pool, "park 1",
-		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Park A', 'park', NULL, 'active')`,
 		cmdBoardPark1, tenantID)
 	execProjectionSQL(t, ctx, pool, "park 2",
-		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Park B', 'park', NULL, 'active')`,
 		cmdBoardPark2, tenantID)
 
 	// Sheds
 	execProjectionSQL(t, ctx, pool, "shed 1 in park 1",
-		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 1', 'shed', $3, 'active')`,
 		cmdBoardShed1, tenantID, cmdBoardPark1)
 	execProjectionSQL(t, ctx, pool, "shed 2 in park 2",
-		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
+		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 2', 'shed', $3, 'active')`,
 		cmdBoardShed2, tenantID, cmdBoardPark2)
 
-	// Management stage and animal_stage_lookup
-	execProjectionSQL(t, ctx, pool, "management stage",
-		`INSERT INTO management_stages (management_stage_id, tenant_id, code, name)
-		 VALUES ('70000000-0000-4000-8000-000005000001', $1, 'K1', 'K1 kids')`,
-		tenantID)
+	// Custodian party for goats
+	custodianPartyID := "70000000-0000-4000-8000-000000500001"
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status)
+		 VALUES ($1, 'person', 'Test Custodian', 'active')`,
+		custodianPartyID)
+
+	// Animal stage lookup
 	execProjectionSQL(t, ctx, pool, "animal stage lookup",
-		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, display_name)
+		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, name)
 		 VALUES ($1, 'K1', 'K1 kids')`,
 		tenantID)
 
 	// Goats
 	execProjectionSQL(t, ctx, pool, "goat 1 in shed 1",
-		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-01')`,
-		cmdBoardGoat1, tenantID, cmdBoardShed1)
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob, custodian_party_id)
+		 VALUES ($1, $2, 'M', 'alive', 'K1', $3, '2025-01-01', $4)`,
+		cmdBoardGoat1, tenantID, cmdBoardShed1, custodianPartyID)
 	execProjectionSQL(t, ctx, pool, "goat 2 in shed 1",
-		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-		 VALUES ($1, $2, 'F', 'active', 'K1', $3, '2025-01-02')`,
-		cmdBoardGoat2, tenantID, cmdBoardShed1)
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob, custodian_party_id)
+		 VALUES ($1, $2, 'F', 'alive', 'K1', $3, '2025-01-02', $4)`,
+		cmdBoardGoat2, tenantID, cmdBoardShed1, custodianPartyID)
 	execProjectionSQL(t, ctx, pool, "goat 3 in shed 2",
-		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-03')`,
-		cmdBoardGoat3, tenantID, cmdBoardShed2)
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob, custodian_party_id)
+		 VALUES ($1, $2, 'M', 'alive', 'K1', $3, '2025-01-03', $4)`,
+		cmdBoardGoat3, tenantID, cmdBoardShed2, custodianPartyID)
 
 	// Protocol and rules
 	execProjectionSQL(t, ctx, pool, "protocol",
@@ -573,13 +576,16 @@ func TestVaccinationCommandBoardStatusBucketsMultiCompletion(t *testing.T) {
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 1', 'shed', $3, 'active')`,
 		testShedID, testTenantID, testParkID)
-	execProjectionSQL(t, ctx, pool, "management stage",
-		`INSERT INTO management_stages (management_stage_id, tenant_id, code, name)
-		 VALUES ('70000000-0000-4000-8000-000005000099', $1, 'K1', 'K1 kids')`,
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status)
+		 VALUES ('70000000-0000-4000-8000-000000500099', 'person', 'Test Custodian', 'active')`)
+	execProjectionSQL(t, ctx, pool, "animal stage lookup",
+		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, name)
+		 VALUES ($1, 'K1', 'K1 kids')`,
 		testTenantID)
 	execProjectionSQL(t, ctx, pool, "goat",
-		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-01')`,
+		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob, custodian_party_id)
+		 VALUES ($1, $2, 'M', 'alive', 'K1', $3, '2025-01-01', '70000000-0000-4000-8000-000000500099')`,
 		testGoatID, testTenantID, testShedID)
 	execProjectionSQL(t, ctx, pool, "protocol",
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, rule_dsl, status, published_at)
@@ -682,10 +688,17 @@ func TestVaccinationCommandBoardShedDoseDateShiftOneCellPerState(t *testing.T) {
 	execProjectionSQL(t, ctx, pool, "shed",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_location_id, status)
 		 VALUES ($1, $2, 'Shed 77', 'shed', $3, 'active')`, shedID, tenantID, parkID)
+	execProjectionSQL(t, ctx, pool, "custodian party",
+		`INSERT INTO parties (party_id, party_type, display_name, status)
+		 VALUES ('70000000-0000-4000-8000-000000500077', 'person', 'Test Custodian', 'active')`)
+	execProjectionSQL(t, ctx, pool, "animal stage lookup",
+		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, name)
+		 VALUES ($1, 'Non-Pregnant', 'Non-Pregnant')`,
+		tenantID)
 	for i, goatID := range []string{goatA, goatB} {
 		execProjectionSQL(t, ctx, pool, "goat",
-			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
-			 VALUES ($1, $2, 'female', 'active', 'Non-Pregnant', $3, '2024-01-01')`, goatID, tenantID, shedID)
+			`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob, custodian_party_id)
+			 VALUES ($1, $2, 'female', 'alive', 'Non-Pregnant', $3, '2024-01-01', '70000000-0000-4000-8000-000000500077')`, goatID, tenantID, shedID)
 		_ = i
 	}
 	execProjectionSQL(t, ctx, pool, "protocol version",

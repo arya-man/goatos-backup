@@ -489,9 +489,9 @@ func TestShedSummaryDriveOperatorsIncludesAcceptedCompletedDefaultOperatorOneToM
 	execProjectionSQL(t, ctx, pool, "remove persisted drive assignment rows",
 		`DELETE FROM vaccination_drive_assignments WHERE tenant_id=$1`, testTenant)
 	execProjectionSQL(t, ctx, pool, "default drive operator config",
-		`INSERT INTO vaccination_operator_assignment_config (tenant_id, park_id, active_operators_per_day, default_operator_id)
-		 VALUES ($1, $2, 1, $3)
-		 ON CONFLICT (tenant_id, park_id) DO UPDATE SET default_operator_id=EXCLUDED.default_operator_id`,
+		`INSERT INTO vaccination_operator_assignment_config (tenant_id, park_id, active_operators_per_day, default_operator_id, selected_operator_ids)
+		 VALUES ($1, $2, 1, $3, ARRAY[$3]::uuid[])
+		 ON CONFLICT (tenant_id, park_id) DO UPDATE SET default_operator_id=EXCLUDED.default_operator_id, selected_operator_ids=EXCLUDED.selected_operator_ids`,
 		testTenant, testPark, testOperator)
 	execProjectionSQL(t, ctx, pool, "accepted completed drive history",
 		`UPDATE obligation_instances SET status='completed', completed_at=TIMESTAMPTZ '2026-06-24 09:00:00+00' WHERE tenant_id=$1 AND obligation_id=$2`,
@@ -623,8 +623,8 @@ INSERT INTO vaccination_drive_assignments (
 	}
 
 	execProjectionSQL(t, ctx, pool, "move only ppr", `
-INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05','CEO postponement',$3)`,
+INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+VALUES ($1,$2,'PPR',DATE '2026-07-22',DATE '2026-08-05',DATE '2026-08-05','CEO postponement',$3)`,
 		testTenant, testPark, testOperator)
 
 	july, err := repo.DriveAssignments(ctx, domain.DriveAssignmentQuery{
@@ -806,14 +806,14 @@ func TestListVaccinationExecutionMultipleDimensionsOneToManyPageBoundaryExecutio
 
 	assertExecutionBusinessDate("no override keeps raw assignment date", "2026-06-24")
 	execProjectionSQL(t, ctx, pool, "unrelated vaccine override ignored",
-		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+		 VALUES ($1, $2, 'PPR', DATE '2026-06-24', DATE '2026-06-30', DATE '2026-06-30', 'different vaccine should not move ET_TT', $3)`,
 		testTenant, testPark, testOperator)
 	assertExecutionBusinessDate("different vaccine override ignored", "2026-06-24")
 
 	execProjectionSQL(t, ctx, pool, "matching vaccine override moves execution date",
-		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, reason, created_by)
-		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', 'move ET_TT execution', $3)`,
+		`INSERT INTO vaccination_drive_date_overrides (tenant_id, park_id, vaccine_code, original_drive_date, override_date, requested_override_date, reason, created_by)
+		 VALUES ($1, $2, 'ET_TT', DATE '2026-06-24', DATE '2026-06-30', DATE '2026-06-30', 'move ET_TT execution', $3)`,
 		testTenant, testPark, testOperator)
 	assertExecutionBusinessDate("active matching override moves execution date", "2026-06-30")
 
