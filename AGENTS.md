@@ -1330,6 +1330,38 @@ Tables and response structs that **must** carry partition: `verification_items`,
 
 Group and key by `shed_id` (UUID) + park, NEVER by shed NAME. Names repeat across parks (two `Castro`, two `Gandhi`, two `Yashoda`). Name-keyed grouping silently merges parks — OL-2 worked example: six duplicate `Godel 1` rows in a shed selector because six partitions got grouped as one "Godel 1" row instead of six disjoint rows.
 
+### Rule 5a: Use the Canonical FETCH, Not Just the Canonical Display
+
+Composing the display has had a shared helper for a while. FETCHING the parts did not, so
+every site wrote its own `SELECT` -- and the schema offers two columns that look
+interchangeable and are not:
+
+```
+partition_label   'Part 3'   HUMAN label -- the only one that may be displayed
+normalized_label  '3'        scrubbed MATCHING KEY -- joins only, never a screen
+```
+
+Selecting the wrong one compiles, passes review, and renders `Mandela 2 - 3` to an operator.
+That defect shipped, was fixed, and was then REINTRODUCED hours later by a change in another
+module that hand-wrote the same query. Centralising the fetch makes the mistake unavailable
+rather than merely discouraged.
+
+```
+backend/internal/platform/oploc/resolve.go
+  ShedScopedLocationSQL   the ONE query resolving a shed id -> (shed name, partition label)
+  ResolveShedLocation()   scans it into an OperationalLocation
+```
+
+It bakes in the three rules that keep being re-derived wrong: `partition_label` never
+`normalized_label`; `'whole'` filtered so it cannot reach a caller; and agree-or-go-bare via
+`HAVING count(*) = 1` rather than `ORDER BY ... LIMIT 1`, which fabricates an answer that
+silently flips as partitions change. An unresolvable shed returns the zero value with a nil
+error, so callers DEGRADE to their location-less label instead of rendering a raw uuid or a
+dangling separator.
+
+Do not inline a partition `SELECT`. If a set-based read model genuinely cannot call into Go,
+mirror `oploc.Display()` exactly and name it in a comment as the contract being mirrored.
+
 ### Rule 5: Use Canonical Composition, Never Hand-Roll
 
 Shared location helpers exist in ONE place per language; use them instead of re-deriving:
