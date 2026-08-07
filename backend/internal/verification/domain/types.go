@@ -110,6 +110,8 @@ type Item struct {
 	OperatorName   *string // backend-owned display label for OperatorID
 	ShedID         *string
 	ShedLabel      *string // backend-owned display label for ShedID
+	PartitionLabel *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
+	OperationalLocationDisplay *string // backend-owned composed location display ("Castro 2", "Godel 1 - Part 3")
 	ParkID         *string
 	ParkLabel      *string // backend-owned display label for ParkID
 	CapturedAt     time.Time

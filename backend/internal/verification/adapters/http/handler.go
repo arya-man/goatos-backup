@@ -15,6 +15,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/httpmiddleware"
 	"github.com/vgoats/goatos/backend/internal/platform/httpresponse"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/verification/app"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -91,6 +92,8 @@ type queueItemResponse struct {
 	OperatorName   *string            `json:"operator_name,omitempty"` // backend-owned display label
 	ShedID         *string            `json:"shed_id,omitempty"`
 	ShedLabel      *string            `json:"shed_label,omitempty"` // backend-owned display label
+	PartitionLabel *string            `json:"partition_label,omitempty"` // raw partition label ('1', 'Part 3'); omitted for non-partitioned
+	OperationalLocationDisplay *string `json:"operational_location_display,omitempty"` // backend-owned composed location ("Castro 2", "Godel 1 - Part 3")
 	ParkID         *string            `json:"park_id,omitempty"`
 	ParkLabel      *string            `json:"park_label,omitempty"` // backend-owned display label
 	CapturedAt     string             `json:"captured_at"`
@@ -139,6 +142,23 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 	if media == nil {
 		media = []domain.MediaItem{}
 	}
+	// Compose operational_location_display from shed and partition labels
+	var operationalLocationDisplay *string
+	if row.Item.ShedLabel != nil {
+		partLabel := ""
+		if row.Item.PartitionLabel != nil {
+			partLabel = *row.Item.PartitionLabel
+		}
+		loc := oploc.OperationalLocation{
+			ShedName:       *row.Item.ShedLabel,
+			PartitionLabel: partLabel,
+		}
+		display := loc.Display()
+		if display != "" {
+			operationalLocationDisplay = &display
+		}
+	}
+
 	return queueItemResponse{
 		ItemID:            row.Item.ItemID,
 		Vertical:          row.Item.Vertical,
@@ -153,6 +173,8 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		OperatorName:      row.Item.OperatorName,
 		ShedID:            row.Item.ShedID,
 		ShedLabel:         row.Item.ShedLabel,
+		PartitionLabel:    row.Item.PartitionLabel,
+		OperationalLocationDisplay: operationalLocationDisplay,
 		ParkID:            row.Item.ParkID,
 		ParkLabel:         row.Item.ParkLabel,
 		CapturedAt:        row.Item.CapturedAt.Format(rfc3339Nano),
