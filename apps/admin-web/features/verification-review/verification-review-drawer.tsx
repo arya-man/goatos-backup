@@ -217,7 +217,13 @@ function VerificationReviewDrawerPanel({
   });
   // Two-step reject, mirroring the mock: the footer's Reject reveals the reason field first, and a
   // second press submits — so a rejection can never be recorded without a reason being asked for.
-  const [rejecting, setRejecting] = useState(false);
+  //
+  // Seeded from the feedback code, which is what makes the failure RECOVERABLE. Submitting with an
+  // empty reason redirects back with va_code=missing_reason, and the drawer re-mounts -- which
+  // reset this to false and HID the reason field again. The verifier was told the reason was
+  // missing while the only box she could type it into had just disappeared, and pressing Reject
+  // again simply repeated the error. It was an inescapable loop.
+  const [rejecting, setRejecting] = useState(feedback.code === "missing_reason");
   const mediaIndex = mediaSelection.itemId === item.item_id ? mediaSelection.index : 0;
   const setMediaIndex = (index: number) => setMediaSelection({ itemId: item.item_id, index });
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -343,6 +349,9 @@ function VerificationReviewDrawerPanel({
   const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
   const text = (key: string) => copy(pageContract, key);
   const hasEvidence = item.media.length > 0;
+  // feedback.<code> is the backend-owned human sentence for a server error code; an unmapped code
+  // renders nothing extra rather than printing the token itself.
+  const feedbackMessage = (code: string) => copy(pageContract, `feedback.${code}`, "");
 
   // The heading is the same sentence the verifier clicked in the queue -- shed, animal/tag,
   // vaccine, weight -- falling back to operator/shed only when the backend sent no subject. It is
@@ -381,8 +390,11 @@ function VerificationReviewDrawerPanel({
           <VerificationReviewActionTelemetry status={feedback.status} code={feedback.code} />
           {feedback.status ? (
             <div className={feedback.status === "success" ? "alert ok" : "alert warn"} style={{ marginBottom: 12 }}>
-              <b>{feedback.status === "success" ? text("feedback.done") : text("feedback.failed")}</b>&nbsp;
-              {feedback.code ?? ""}
+              {/* The raw server code (missing_reason, permission_denied, ...) is an internal token
+                  and must not be the sentence a verifier reads. Resolve it to backend-owned copy,
+                  falling back to the generic failure line rather than leaking the token. */}
+              <b>{feedback.status === "success" ? text("feedback.done") : text("feedback.failed")}</b>
+              {feedback.code ? <>&nbsp;{feedbackMessage(feedback.code)}</> : null}
             </div>
           ) : null}
 
