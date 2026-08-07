@@ -31,6 +31,20 @@ type WeightDemographicBucket struct {
 	AverageWeightKg float64 `json:"average_weight_kg"`
 }
 
+// WeightGainBucket is the same dimension measured as DAILY GAIN instead of weight.
+// It is a separate type, not a field on the weight bucket, because the two range
+// over different animals: weight covers every animal weighed once, gain covers only
+// those weighed twice. Sharing a row would imply one population.
+type WeightGainBucket struct {
+	Label string `json:"label"`
+	// Animals is the count of animals with at least one computable gain — always
+	// fewer than the weight bucket's count, and often far fewer.
+	Animals int `json:"animals"`
+	// MedianGainGPerDay is the median across those animals. Median, not mean, so one
+	// scale misread cannot swing a whole breed.
+	MedianGainGPerDay float64 `json:"median_gain_g_per_day"`
+}
+
 type WeightDemographics struct {
 	// ByBreed and BySex cover per-animal weighs only.
 	ByBreed []WeightDemographicBucket `json:"by_breed"`
@@ -38,6 +52,11 @@ type WeightDemographics struct {
 	// ByStage covers per-animal weighs PLUS whole-shed weighs attributed to their
 	// shed's cohort, which is why its total exceeds the other two.
 	ByStage []WeightDemographicBucket `json:"by_stage"`
+	// The same three dimensions measured as daily gain. A whole-shed weigh yields no
+	// per-animal gain at all, so unlike ByStage these cover scanned animals only.
+	GainByBreed []WeightGainBucket `json:"gain_by_breed"`
+	GainBySex   []WeightGainBucket `json:"gain_by_sex"`
+	GainByStage []WeightGainBucket `json:"gain_by_stage"`
 	// Coverage, reported so the difference between the three is visible instead of
 	// reading as missing data. An unresolved tag is a real weigh of an animal the
 	// herd register does not know.

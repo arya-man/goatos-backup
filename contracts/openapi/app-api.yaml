@@ -18306,10 +18306,23 @@ components:
           type: number
           format: double
           description: "Mean of each animal's LATEST weight in the window -- a weighted mean over animals."
+    WeighingWeightGainBucket:
+      type: object
+      additionalProperties: false
+      required: [label, animals, median_gain_g_per_day]
+      properties:
+        label: {type: string}
+        animals:
+          type: integer
+          description: "Animals with a computable gain -- always fewer than the weight bucket's count."
+        median_gain_g_per_day:
+          type: number
+          format: double
+          description: "Median across those animals, so one scale misread cannot swing a breed."
     WeighingWeightDemographicsResponse:
       type: object
       additionalProperties: false
-      required: [by_breed, by_sex, by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals]
+      required: [by_breed, by_sex, by_stage, gain_by_breed, gain_by_sex, gain_by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals]
       properties:
         by_breed:
           type: array
@@ -18323,6 +18336,16 @@ components:
           type: array
           description: "Per-animal weighs plus whole-shed weighs attributed to their shed's cohort."
           items: {$ref: "#/components/schemas/WeighingWeightDemographicBucket"}
+        gain_by_breed:
+          type: array
+          description: "Same dimension as daily gain. Scanned animals only -- a whole-shed weigh yields no per-animal gain."
+          items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
+        gain_by_sex:
+          type: array
+          items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
+        gain_by_stage:
+          type: array
+          items: {$ref: "#/components/schemas/WeighingWeightGainBucket"}
         resolved_animals: {type: integer}
         unresolved_animals:
           type: integer

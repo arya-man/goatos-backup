@@ -51,6 +51,32 @@ latest AS (
     AND btrim(o.scanned_identifier) <> ''
   ORDER BY lower(btrim(o.scanned_identifier)), o.accepted_at DESC, o.observation_id DESC
 ),
+-- Consecutive-weigh pairs per tag, for the gain dimensions. A same-business-day
+-- pair is excluded: an animal cannot meaningfully gain inside one day, so that is
+-- a re-weigh or a double scan, and dividing by a fraction of a day manufactures
+-- enormous numbers (the -3,108,762 g/day headline this rule exists to prevent).
+obs AS (
+  SELECT lower(btrim(o.scanned_identifier)) AS tag, o.weight_kg,
+         (o.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+  FROM weighing_observations o
+  JOIN scoped s ON s.campaign_shed_id = o.campaign_shed_id AND s.tenant_id = o.tenant_id
+  WHERE o.tenant_id = $1::uuid
+    AND o.accepted_at >= $3::timestamptz AND o.accepted_at < $4::timestamptz
+    AND o.verification_status <> 'rejected' AND btrim(o.scanned_identifier) <> ''
+),
+paired AS (
+  SELECT tag, weight_kg, d,
+         lag(weight_kg) OVER (PARTITION BY tag ORDER BY d) AS prev_w,
+         lag(d) OVER (PARTITION BY tag ORDER BY d) AS prev_d
+  FROM obs
+),
+-- One gain per ANIMAL (the median of its own pairs), so an animal weighed six
+-- times does not outvote one weighed twice inside a breed.
+animal_gain AS (
+  SELECT tag, percentile_cont(0.5) WITHIN GROUP (
+           ORDER BY (weight_kg - prev_w) * 1000.0 / (d - prev_d)) AS g
+  FROM paired WHERE prev_d IS NOT NULL AND d > prev_d GROUP BY tag
+),
 ident AS (
   SELECT DISTINCT ON (lower(btrim(gi.identifier_value)))
          lower(btrim(gi.identifier_value)) AS tag, gi.goat_id
@@ -63,6 +89,12 @@ resolved AS (
   FROM latest l
   LEFT JOIN ident i ON i.tag = l.tag
   LEFT JOIN goats g ON g.goat_id = i.goat_id AND g.tenant_id = $1::uuid
+),
+resolved_gain AS (
+  SELECT ag.g, gt.breed, gt.sex, gt.management_stage
+  FROM animal_gain ag
+  LEFT JOIN ident i ON i.tag = ag.tag
+  LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
 ),
 shed_stage AS (
   SELECT g.shed_id, min(g.management_stage) AS stage
@@ -103,15 +135,26 @@ SELECT
          SELECT ss.stage, sum(l.animal_count)::bigint, sum(l.animal_count * l.average_weight_kg)::float8
          FROM lump l JOIN shed_stage ss ON ss.shed_id = l.location_id GROUP BY ss.stage
        ) parts GROUP BY stage
-     ) st)`
+     ) st),
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (SELECT breed, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
+             FROM resolved_gain WHERE breed IS NOT NULL GROUP BY breed) gb),
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (SELECT sex, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
+             FROM resolved_gain WHERE sex IS NOT NULL GROUP BY sex) gx),
+  (SELECT COALESCE(jsonb_agg(jsonb_build_array(management_stage, n, g) ORDER BY n DESC), '[]'::jsonb)
+     FROM (SELECT management_stage, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
+             FROM resolved_gain WHERE management_stage IS NOT NULL GROUP BY management_stage) gs)`
 
 	var (
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
 		breedJSON, sexJSON, stageJSON                               []byte
+		gainBreedJSON, gainSexJSON, gainStageJSON                   []byte
 	)
 	if err := r.pool.QueryRow(ctx, q, tenantID, parkIDs, periodStart, periodEnd).Scan(
 		&resolvedCount, &unresolvedCount, &lumpTotal, &lumpUnattributed,
 		&breedJSON, &sexJSON, &stageJSON,
+		&gainBreedJSON, &gainSexJSON, &gainStageJSON,
 	); err != nil {
 		return domain.WeightDemographics{}, err
 	}
@@ -128,6 +171,15 @@ SELECT
 		return domain.WeightDemographics{}, err
 	}
 	if out.ByStage, err = decodeWeightDemographicBuckets(stageJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByBreed, err = decodeWeightGainBuckets(gainBreedJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainBySex, err = decodeWeightGainBuckets(gainSexJSON); err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	if out.GainByStage, err = decodeWeightGainBuckets(gainStageJSON); err != nil {
 		return domain.WeightDemographics{}, err
 	}
 	return out, nil
@@ -159,6 +211,22 @@ func decodeWeightDemographicBuckets(raw []byte) ([]domain.WeightDemographicBucke
 			continue
 		}
 		out = append(out, domain.WeightDemographicBucket{Label: label, Animals: animals, AverageWeightKg: avg})
+	}
+	return out, nil
+}
+
+// decodeWeightGainBuckets mirrors decodeWeightDemographicBuckets for the gain
+// dimensions, whose value is g/day rather than kg.
+func decodeWeightGainBuckets(raw []byte) ([]domain.WeightGainBucket, error) {
+	rows, err := decodeWeightDemographicBuckets(raw)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.WeightGainBucket, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.WeightGainBucket{
+			Label: row.Label, Animals: row.Animals, MedianGainGPerDay: row.AverageWeightKg,
+		})
 	}
 	return out, nil
 }

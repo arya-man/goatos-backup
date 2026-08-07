@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Scale, TrendingDown, TrendingUp, Warehouse } from "lucide-react";
+import { Scale, TrendingDown, Warehouse } from "lucide-react";
 
 import { WeightBars } from "./weight-bars";
 import { Tag } from "@/components/ui-primitives";
@@ -71,6 +71,36 @@ function modeTag(row: ShedWeightsRow, pageContract: AdminUiPageContract) {
     : { tone: "mut" as const, label: copy(pageContract, "value.weighing.lump") };
 }
 
+// One toggle per chart, rendered as links so the page stays a server component and
+// each chart's choice survives a reload and a shared URL. Defined at module scope:
+// declaring a component inside render recreates its type every pass.
+function MetricToggle({
+  param,
+  current,
+  params,
+  pageContract,
+}: {
+  param: string;
+  current: "weight" | "adg";
+  params: RouteSearchParams;
+  pageContract: AdminUiPageContract;
+}) {
+  return (
+    <span className="metricseg">
+      {(["adg", "weight"] as const).map((option) => (
+        <a
+          key={option}
+          className={option === current ? "on" : ""}
+          href={hrefWith(params, { [param]: option })}
+          aria-current={option === current ? "true" : undefined}
+        >
+          {copy(pageContract, option === "adg" ? "metric.gain" : "metric.weight")}
+        </a>
+      ))}
+    </span>
+  );
+}
+
 export async function WeighingWeightsPage({
   searchParams,
   pageContract,
@@ -84,6 +114,13 @@ export async function WeighingWeightsPage({
   const limit = boundedLimit(one(params, "limit"));
   const offset = boundedOffset(one(params, "offset"));
   const losingOffset = boundedOffset(one(params, "losing_offset"));
+  // Each chart toggles independently. Default is DAILY GAIN, not weight — the
+  // question the screen exists to answer is whether the kids are growing.
+  const metric = (name: string) => (one(params, name) === "weight" ? "weight" : "adg");
+  const shedMetric = metric("shed_metric");
+  const breedMetric = metric("breed_metric");
+  const sexMetric = metric("sex_metric");
+  const stageMetric = metric("stage_metric");
 
   // Period is a business-day window, not a clock offset: a weigh belongs to the
   // Asia/Kolkata day it happened on.
@@ -197,6 +234,18 @@ export async function WeighingWeightsPage({
 
   const hasAnyData = summary.animals_weighed > 0;
 
+  // A dimension has a weight series and, separately, a gain series over the smaller
+  // set of animals weighed twice. Selecting between them here keeps the two
+  // populations from being conflated in one row.
+  const dimensionBars = (
+    kind: "weight" | "adg",
+    weightBuckets: readonly { label: string; average_weight_kg: number }[],
+    gainBuckets: readonly { label: string; median_gain_g_per_day: number }[],
+  ) =>
+    kind === "weight"
+      ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
+      : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
+
   return (
     <>
       <WorklistFilters
@@ -305,28 +354,37 @@ export async function WeighingWeightsPage({
       <div className="grid g2">
         <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
           <h2 className="h">
-            <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.average.title")}
+            <Scale className="ic" size={15} aria-hidden />{" "}
+            {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
+            <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
           </h2>
-          <p className="muted small">{copy(pageContract, "chart.average.caption")}</p>
+          <p className="muted small">
+            {shedMetric === "adg" ? copy(pageContract, "chart.gain.caption") : copy(pageContract, "chart.average.caption")}
+          </p>
           <WeightBars
-            data={chartData}
-            emptyLabel={copy(pageContract, "empty.no_data.body")}
-            unit="kg"
-            chartLabel={copy(pageContract, "chart.average.aria")}
+            data={shedMetric === "adg" ? gainChartData : chartData}
+            emptyLabel={
+              shedMetric === "adg"
+                ? gainChartData.length > 0 && gainChartData.every((s2) => s2.value <= 0)
+                  ? copy(pageContract, "empty.gain.all_losing")
+                  : copy(pageContract, "empty.metric.no_gain")
+                : copy(pageContract, "empty.no_data.body")
+            }
+            unit={shedMetric === "adg" ? "g" : "kg"}
+            chartLabel={copy(pageContract, shedMetric === "adg" ? "chart.gain.aria" : "chart.average.aria")}
             size="tall"
           />
         </section>
         <section className="card" aria-label={copy(pageContract, "chart.breed.aria")}>
-          <h2 className="h">{copy(pageContract, "chart.breed.title")}</h2>
+          <h2 className="h">
+            {copy(pageContract, "chart.breed.title")}
+            <MetricToggle param="breed_metric" current={breedMetric} params={params} pageContract={pageContract} />
+          </h2>
           <p className="muted small">{copy(pageContract, "section.demographics.caption")}</p>
           <WeightBars
-            data={(demo?.by_breed ?? []).map((bucket) => ({
-              key: bucket.label,
-              label: bucket.label,
-              value: Number(bucket.average_weight_kg.toFixed(1)),
-            }))}
-            emptyLabel={copy(pageContract, "empty.demographics.body")}
-            unit="kg"
+            data={dimensionBars(breedMetric, demo?.by_breed ?? [], demo?.gain_by_breed ?? [])}
+            emptyLabel={copy(pageContract, breedMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
+            unit={breedMetric === "adg" ? "g" : "kg"}
             chartLabel={copy(pageContract, "chart.breed.aria")}
             size="tall"
           />
@@ -336,29 +394,27 @@ export async function WeighingWeightsPage({
       {/* Row 2 — sex and stage. Few rows each, so a shorter box. */}
       <div className="grid g2">
         <section className="card" aria-label={copy(pageContract, "chart.sex.aria")}>
-          <h2 className="h">{copy(pageContract, "chart.sex.title")}</h2>
+          <h2 className="h">
+            {copy(pageContract, "chart.sex.title")}
+            <MetricToggle param="sex_metric" current={sexMetric} params={params} pageContract={pageContract} />
+          </h2>
           <WeightBars
-            data={(demo?.by_sex ?? []).map((bucket) => ({
-              key: bucket.label,
-              label: bucket.label,
-              value: Number(bucket.average_weight_kg.toFixed(1)),
-            }))}
-            emptyLabel={copy(pageContract, "empty.demographics.body")}
-            unit="kg"
+            data={dimensionBars(sexMetric, demo?.by_sex ?? [], demo?.gain_by_sex ?? [])}
+            emptyLabel={copy(pageContract, sexMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
+            unit={sexMetric === "adg" ? "g" : "kg"}
             chartLabel={copy(pageContract, "chart.sex.aria")}
             size="short"
           />
         </section>
         <section className="card" aria-label={copy(pageContract, "chart.stage.aria")}>
-          <h2 className="h">{copy(pageContract, "chart.stage.title")}</h2>
+          <h2 className="h">
+            {copy(pageContract, "chart.stage.title")}
+            <MetricToggle param="stage_metric" current={stageMetric} params={params} pageContract={pageContract} />
+          </h2>
           <WeightBars
-            data={(demo?.by_stage ?? []).map((bucket) => ({
-              key: bucket.label,
-              label: bucket.label,
-              value: Number(bucket.average_weight_kg.toFixed(1)),
-            }))}
-            emptyLabel={copy(pageContract, "empty.demographics.body")}
-            unit="kg"
+            data={dimensionBars(stageMetric, demo?.by_stage ?? [], demo?.gain_by_stage ?? [])}
+            emptyLabel={copy(pageContract, stageMetric === "adg" ? "empty.metric.no_gain" : "empty.demographics.body")}
+            unit={stageMetric === "adg" ? "g" : "kg"}
             chartLabel={copy(pageContract, "chart.stage.aria")}
             size="short"
           />
@@ -373,24 +429,6 @@ export async function WeighingWeightsPage({
             : ""}
         </p>
       ) : null}
-
-      <section className="card" aria-label={copy(pageContract, "chart.gain.aria")}>
-        <h2 className="h">
-          <TrendingUp className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.gain.title")}
-        </h2>
-        <p className="muted small">{copy(pageContract, "chart.gain.caption")}</p>
-        <WeightBars
-          data={gainChartData}
-          emptyLabel={
-            gainChartData.length > 0 && gainChartData.every((shed) => shed.value <= 0)
-              ? copy(pageContract, "empty.gain.all_losing")
-              : copy(pageContract, "empty.gain.body")
-          }
-          unit="g"
-          chartLabel={copy(pageContract, "chart.gain.aria")}
-          size="short"
-        />
-      </section>
 
       <section className="card" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">
