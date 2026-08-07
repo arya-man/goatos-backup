@@ -102,6 +102,7 @@ data class CalendarItem(
     val targetCount: Int = 0,
     val vaccineLabels: List<String> = emptyList(),
     val shedLabels: List<String> = emptyList(),
+    val shedPartitionLabels: List<String?> = emptyList(),
     val dateLabel: String = "",
     val dateKey: String? = null,
     val parkLabel: String = "",
