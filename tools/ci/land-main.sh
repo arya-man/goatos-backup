@@ -133,7 +133,19 @@ while [ "$attempt" -le "$max_attempts" ]; do
     if [ "$bypass_local_ci" = "1" ]; then
       echo "land-main: GOATOS_BYPASS_LOCAL_CI=1; skipping make ci-local and exact-SHA local-CI receipt"
     else
-      make ci-local
+      # Pick the variant the PUSH GUARD will demand. The guard rejects a receipt marked
+      # screenshots="skipped-with-ui-diff" when the diff touches Android UI/snapshots, so
+      # hardcoding `make ci-local` here made landing STRUCTURALLY IMPOSSIBLE for any
+      # Android-UI change: land-main wrote a receipt its own guard then refused, and the
+      # remedy it printed ("run make land-main") re-ran the same failing path. Observed
+      # 2026-08-07. Detected against the same base land-main just rebased onto.
+      ci_target="ci-local"
+      if git diff --name-only origin/main...HEAD 2>/dev/null \
+        | grep -qE '^apps/goatos-android/.*\.(kt|kts|xml|png|webp)$'; then
+        ci_target="ci-local-screenshots"
+        echo "land-main: diff touches Android UI -> running make ${ci_target} (Paparazzi proof required by the push guard)"
+      fi
+      make "$ci_target"
     fi
   fi
 
