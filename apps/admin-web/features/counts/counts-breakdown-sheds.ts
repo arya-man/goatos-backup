@@ -1,5 +1,8 @@
 import type { BreakdownFilterOption } from "./counts-breakdown-filters";
-import { hasOperationalPartition, operationalLocationLabel } from "@/lib/operational-location";
+import { hasOperationalPartition, operationalLocationLabel } // Relative, not the "@/lib" alias: this module is imported directly by
+// counts-breakdown-sheds.test.mjs under `node --test`, which does not resolve the
+// tsconfig path alias, so the alias made the whole test file fail to load.
+from "../../lib/operational-location.ts";
 
 /**
  * One entry of the backend's park-scoped, live-herd shed filter vocabulary
