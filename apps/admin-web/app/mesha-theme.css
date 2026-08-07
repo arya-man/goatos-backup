@@ -532,7 +532,12 @@
   .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
-  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+  /* flex-shrink:0 is load-bearing. .vr-modal-bd is a flex COLUMN with overflow-y:auto, so its
+     children shrink below their content by default -- this panel was being squeezed from its
+     63.5px content height down to 26px, and its own overflow:hidden then clipped every value away.
+     The verifier saw four headings (OPERATOR / CAPTURED AT / SHED / PARK) with nothing under them,
+     which is precisely the set of facts the locked spec says she checks the video against. */
+  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden;flex-shrink:0}
   .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
   .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
   .grid{display:grid;gap:14px}
