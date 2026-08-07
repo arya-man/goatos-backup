@@ -32,20 +32,37 @@ func extractBackfillSQL(t *testing.T) string {
 		t.Fatalf("000127 migration missing %q marker after Up block", downMarker)
 	}
 
-	// Skip past the "-- +goose Up" / "-- +goose NO TRANSACTION" directive lines themselves; the
-	// ADD COLUMN has already run when pgtest bootstraps the template DB, so re-running it here
-	// would fail on a duplicate column. Start from the backfill's own SET statements.
+	// The ADD COLUMN has already run when pgtest bootstraps the template DB (it's part of the
+	// same migration file, applied once when the template is built), so re-running it here
+	// would fail on a duplicate column. Extract only the backfill DO block itself -- the real
+	// executable batching/commit logic under test -- prefixed with its own SET statements so
+	// the lock/statement timeouts still apply exactly as they do in the real migration.
 	upBlock := body[firstNoTx:downIdx]
 	setIdx := strings.Index(upBlock, "SET lock_timeout")
 	if setIdx < 0 {
 		t.Fatalf("000127 migration missing backfill SET lock_timeout statement")
 	}
-	return upBlock[setIdx:]
+	setEndMarker := "statement_timeout = '30s';"
+	setEndIdx := strings.Index(upBlock, setEndMarker)
+	if setEndIdx < 0 {
+		t.Fatalf("000127 migration missing backfill SET statement_timeout statement")
+	}
+	setStatements := upBlock[setIdx : setEndIdx+len(setEndMarker)]
+
+	doIdx := strings.Index(upBlock, "DO $$")
+	if doIdx < 0 {
+		t.Fatalf("000127 migration missing backfill DO $$ block")
+	}
+	return setStatements + "\n" + upBlock[doIdx:]
 }
 
 // runBackfill re-executes the migration's own backfill SQL against pool, using a dedicated
 // autocommit connection since the migration is NO TRANSACTION and its DO block issues an
 // internal COMMIT after every keyset batch (which is only legal outside an explicit BEGIN).
+// Each top-level statement is sent as its OWN simple-query message: Postgres implicitly wraps
+// an entire multi-statement simple-query STRING in one transaction block, which would make the
+// DO block's internal per-batch COMMIT illegal ("invalid transaction termination") even on an
+// otherwise-autocommit connection.
 func runBackfill(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql string) {
 	t.Helper()
 	conn, err := pool.Acquire(ctx)
@@ -54,9 +71,46 @@ func runBackfill(t *testing.T, ctx context.Context, pool *pgxpool.Pool, sql stri
 	}
 	defer conn.Release()
 
-	if _, err := conn.Exec(ctx, sql); err != nil {
-		t.Fatalf("run backfill SQL: %v", err)
+	for _, stmt := range splitTopLevelStatements(sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			t.Fatalf("run backfill statement (%.60s...): %v", strings.TrimSpace(stmt), err)
+		}
 	}
+}
+
+// splitTopLevelStatements splits a small SQL script into top-level statements, treating a
+// "DO $$ ... $$;" block as one indivisible statement (it contains its own internal semicolons).
+func splitTopLevelStatements(sql string) []string {
+	var stmts []string
+	remaining := sql
+	for {
+		remaining = strings.TrimLeft(remaining, " \t\n")
+		if remaining == "" {
+			break
+		}
+		if strings.HasPrefix(remaining, "DO $$") {
+			end := strings.Index(remaining, "$$;")
+			if end < 0 {
+				stmts = append(stmts, remaining)
+				break
+			}
+			end += len("$$;")
+			stmts = append(stmts, remaining[:end])
+			remaining = remaining[end:]
+			continue
+		}
+		semi := strings.Index(remaining, ";")
+		if semi < 0 {
+			stmts = append(stmts, remaining)
+			break
+		}
+		stmts = append(stmts, remaining[:semi+1])
+		remaining = remaining[semi+1:]
+	}
+	return stmts
 }
 
 func seedBackfillTenant(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
