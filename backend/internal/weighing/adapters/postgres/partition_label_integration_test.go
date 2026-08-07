@@ -131,7 +131,7 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 			displayName:                        "Castro 2",
 			expectedPartitionLabel:             "2",
 			expectedParentShedName:             "Castro",
-			expectedOperationalLocationDisplay: "Castro 2",
+			expectedOperationalLocationDisplay: "Castro - 2",
 		},
 		{
 			name:                               "prefixed partition format",
@@ -261,7 +261,7 @@ VALUES ($1::uuid, $2::uuid, 'operator', 'park', $3::uuid, 'active', now())`, ten
 	if retrievedShed.PartitionLabel != "2" {
 		t.Errorf("partition_label mismatch: got %q, want '2'", retrievedShed.PartitionLabel)
 	}
-	if retrievedShed.OperationalLocationDisplay != "Castro 2" {
-		t.Errorf("operational_location_display mismatch: got %q, want 'Castro 2'", retrievedShed.OperationalLocationDisplay)
+	if retrievedShed.OperationalLocationDisplay != "Castro - 2" {
+		t.Errorf("operational_location_display mismatch: got %q, want 'Castro - 2'", retrievedShed.OperationalLocationDisplay)
 	}
 }

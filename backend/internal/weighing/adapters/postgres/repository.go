@@ -366,7 +366,7 @@ VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, re-stated on every edit: an edit that moved the task's park
     -- or weigh date must move its buckets with it, or the duplicate guard would
     -- keep defending the OLD slot and stop defending the new one.
-    $8::uuid, $9::date)
+    $8::uuid, $9::date, $10)
 ON CONFLICT (tenant_id, campaign_id, location_id)
 DO UPDATE SET
   park_id=EXCLUDED.park_id,
