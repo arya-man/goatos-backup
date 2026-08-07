@@ -9,13 +9,6 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
-    // Lets a module that is exercised directly by `node --test` import a shared lib with an
-    // explicit .ts extension. Without it, a tested feature module could not import
-    // lib/operational-location at all (the "@/" alias is invisible to the node test runner,
-    // and an extensionless relative path is invisible to node's resolver) -- which is exactly
-    // why counts-breakdown-sheds.ts had hand-rolled its own shed+partition composition and
-    // reproduced the "Godel 1 1" defect the shared helper exists to prevent. Safe with
-    // noEmit: tsc never rewrites these paths.
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
