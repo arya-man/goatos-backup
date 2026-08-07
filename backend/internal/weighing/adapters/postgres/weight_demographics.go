@@ -96,12 +96,54 @@ resolved_gain AS (
   LEFT JOIN ident i ON i.tag = ag.tag
   LEFT JOIN goats gt ON gt.goat_id = i.goat_id AND gt.tenant_id = $1::uuid
 ),
+-- A whole-shed weigh is attributed by the cohort its shed holds. The bucket points
+-- at a PARTITION (Castro 1), but the herd register puts the animals on the physical
+-- shed (Castro) — 266 live goats on the parent, zero on each partition. Looking only
+-- at the partition therefore found nothing and silently dropped every whole-shed
+-- weigh from these charts.
+--
+-- So each bucket resolves to its partition's own residents when it has any, and
+-- otherwise to its parent shed's. HAVING count(DISTINCT ...) = 1 is what keeps this
+-- honest: Castro's residents share one breed, one sex and one stage, so it can be
+-- attributed; Godel 2 holds nine breeds and six stages, so it is attributed to
+-- nothing rather than guessed at.
+shed_cohort AS (
+  -- projection-review: membership=one row per location that resolves to a set of live goats, either its own or its physical shed's; group_key=src.location_id, exactly the GROUP BY; join_cardinality=goats is 0..N per resolved shed and is COLLAPSED by the aggregate to one row per location, and the resolved_id subquery is LIMIT 1 so it can never fan a location out; pagination=NONE, this is a lookup joined 0..1 into the lump-sum arms; scope=tenant_id on both the locations scan and the goats join
+  --
+  -- Ratio key sets: the breeds/sexes/stages counts and the min() values they gate range over the IDENTICAL grouped row set — same FROM, same GROUP BY, no branch adds a join — so a breeds count of 1 provably means the single breed min(breed) returns.
+  SELECT src.location_id,
+         min(g.breed)            FILTER (WHERE TRUE) AS breed,
+         min(g.sex)              FILTER (WHERE TRUE) AS sex,
+         min(g.management_stage) FILTER (WHERE TRUE) AS stage,
+         count(DISTINCT g.breed)            AS breeds,
+         count(DISTINCT g.sex)              AS sexes,
+         count(DISTINCT g.management_stage) AS stages
+  FROM (
+    -- The partition's parent is the PARK, not the physical shed: "Castro 1" hangs off
+    -- Coimbatore, not off "Castro". So the fallback resolves by NAME within the same
+    -- park — "Castro 1" -> "Castro" — which is the same storage-vs-display split
+    -- AGENTS.md describes, where a partition is stored as shed + label.
+    --
+    -- Matched within the park, never globally: two parks both hold a "Castro", and a
+    -- name-only match would merge them.
+    SELECT l.location_id, COALESCE(
+      CASE WHEN EXISTS (SELECT 1 FROM goats gg WHERE gg.tenant_id = $1::uuid
+                          AND gg.lifecycle_status = 'alive' AND gg.shed_id = l.location_id)
+           THEN l.location_id END,
+      (SELECT phys.location_id FROM locations phys
+        WHERE phys.tenant_id = l.tenant_id
+          AND phys.parent_location_id = l.parent_location_id
+          AND phys.location_type = 'shed'
+          AND phys.name = regexp_replace(l.name, '\s*(-\s*)?(Part\s*)?[0-9]+$', '')
+        LIMIT 1)) AS resolved_id
+    FROM locations l WHERE l.tenant_id = $1::uuid
+  ) src
+  JOIN goats g ON g.shed_id = src.resolved_id AND g.tenant_id = $1::uuid
+   AND g.lifecycle_status = 'alive'
+  GROUP BY src.location_id
+),
 shed_stage AS (
-  SELECT g.shed_id, min(g.management_stage) AS stage
-  FROM goats g
-  WHERE g.tenant_id = $1::uuid AND g.lifecycle_status = 'alive' AND g.management_stage IS NOT NULL
-  GROUP BY g.shed_id
-  HAVING count(DISTINCT g.management_stage) = 1
+  SELECT location_id, stage FROM shed_cohort WHERE stages = 1
 ),
 lump AS (
   SELECT s.location_id, sh.animal_count, sh.average_weight_kg
@@ -118,13 +160,23 @@ SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NULL),
   (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l),
   (SELECT COALESCE(sum(l.animal_count), 0) FROM lump l
-     LEFT JOIN shed_stage ss ON ss.shed_id = l.location_id WHERE ss.stage IS NULL),
+     LEFT JOIN shed_stage ss ON ss.location_id = l.location_id WHERE ss.stage IS NULL),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, avg) ORDER BY n DESC), '[]'::jsonb)
-     FROM (SELECT breed, count(*) n, avg(weight_kg)::float8 avg FROM resolved
-            WHERE breed IS NOT NULL GROUP BY breed) b),
+     FROM (SELECT breed, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
+             SELECT breed, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
+              WHERE breed IS NOT NULL GROUP BY breed
+             UNION ALL
+             SELECT sc.breed, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
+              FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id
+              WHERE sc.breeds = 1 GROUP BY sc.breed) bp GROUP BY breed) b),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, avg) ORDER BY n DESC), '[]'::jsonb)
-     FROM (SELECT sex, count(*) n, avg(weight_kg)::float8 avg FROM resolved
-            WHERE sex IS NOT NULL GROUP BY sex) x),
+     FROM (SELECT sex, sum(n)::bigint n, (sum(total)/NULLIF(sum(n),0))::float8 avg FROM (
+             SELECT sex, count(*)::bigint n, sum(weight_kg)::float8 total FROM resolved
+              WHERE sex IS NOT NULL GROUP BY sex
+             UNION ALL
+             SELECT sc.sex, sum(l.animal_count)::bigint, sum(l.animal_count*l.average_weight_kg)::float8
+              FROM lump l JOIN shed_cohort sc ON sc.location_id = l.location_id
+              WHERE sc.sexes = 1 GROUP BY sc.sex) sp GROUP BY sex) x),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(stage, n, avg) ORDER BY n DESC), '[]'::jsonb)
      FROM (
        SELECT stage, sum(n)::bigint n, (sum(total) / NULLIF(sum(n), 0))::float8 avg
@@ -133,7 +185,7 @@ SELECT
          FROM resolved WHERE management_stage IS NOT NULL GROUP BY management_stage
          UNION ALL
          SELECT ss.stage, sum(l.animal_count)::bigint, sum(l.animal_count * l.average_weight_kg)::float8
-         FROM lump l JOIN shed_stage ss ON ss.shed_id = l.location_id GROUP BY ss.stage
+         FROM lump l JOIN shed_stage ss ON ss.location_id = l.location_id GROUP BY ss.stage
        ) parts GROUP BY stage
      ) st),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
