@@ -69,7 +69,7 @@ func TestApprovedCopyNamesDoseFromSourceTaskWhenCategoryIsRegistryCategory(t *te
 	labels := &fakeVaccineLabels{byTaskID: map[string][]string{doseTask: {"ET", "TT"}}}
 
 	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, "vaccination_proof", doseTask)
+		doseTenant, "vaccination", dosePark, doseShed, "", "vaccination_proof", doseTask)
 
 	want := "ET+TT vaccination proof for Shed A (CPT) is verified."
 	if body != want {
@@ -93,7 +93,7 @@ func TestApprovedCopyStillPrefersRealRuleIDWhenSent(t *testing.T) {
 	}
 
 	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, doseRule, doseTask)
+		doseTenant, "vaccination", dosePark, doseShed, "", doseRule, doseTask)
 
 	if !strings.HasPrefix(body, "PPR · Booster vaccination proof") {
 		t.Fatalf("approved body = %q, want the rule-id label to win", body)
@@ -109,9 +109,70 @@ func TestApprovedCopyFallsBackToGenericWhenTaskHasNoDoses(t *testing.T) {
 	labels := &fakeVaccineLabels{}
 
 	body := enrichApprovedNotificationCopy(context.Background(), doseLocations(), labels, nil,
-		doseTenant, "vaccination", dosePark, doseShed, "vaccination_proof", doseTask)
+		doseTenant, "vaccination", dosePark, doseShed, "", "vaccination_proof", doseTask)
 
 	if body != "vaccination proof for Shed A (CPT) is verified." {
 		t.Fatalf("approved body = %q, want the generic vaccination sentence", body)
+	}
+}
+
+// TestApprovedCopyComposesPartitionWhenPresent (GAP 2) verifies that verification approval
+// notifications include the partition label when a shed is subdivided. The location must be
+// composed via oploc.Display() so all surfaces (mobile, admin-web, notifications) render
+// locations identically.
+func TestApprovedCopyComposesPartitionWhenPresent(t *testing.T) {
+	locations := fakeLocationNames{
+		dosePark: "CBE",
+		doseShed: "Godel 1",
+	}
+	labels := &fakeVaccineLabels{byTaskID: map[string][]string{doseTask: {"ET", "TT"}}}
+
+	// Single partition resolved across all animals in this shed row.
+	body := enrichApprovedNotificationCopy(context.Background(), locations, labels, nil,
+		doseTenant, "vaccination", dosePark, doseShed, "Part 3", "vaccination_proof", doseTask)
+
+	want := "ET+TT vaccination proof for Godel 1 - Part 3 (CBE) is verified."
+	if body != want {
+		t.Fatalf("approved body = %q, want %q", body, want)
+	}
+}
+
+// TestApprovedCopyStaysBareWhenMultiPartitionShed (GAP 2) verifies that locations spanning
+// multiple partitions (or none) stay bare. A partition is only composed when SQL resolved a
+// single shared partition across every animal in the shed; multi-partition or non-partitioned
+// sheds render as the bare shed name. This is the "correct, never a bug" case: an event
+// genuinely scoped to a whole shed has no single partition to show.
+func TestApprovedCopyStaysBareWhenMultiPartitionShed(t *testing.T) {
+	locations := fakeLocationNames{
+		dosePark: "CBE",
+		doseShed: "Godel 1",
+	}
+	labels := &fakeVaccineLabels{byTaskID: map[string][]string{doseTask: {"ET", "TT"}}}
+
+	// No partition resolved; the shed-wide drive has animals in multiple partitions.
+	body := enrichApprovedNotificationCopy(context.Background(), locations, labels, nil,
+		doseTenant, "vaccination", dosePark, doseShed, "", "vaccination_proof", doseTask)
+
+	want := "ET+TT vaccination proof for Godel 1 (CBE) is verified."
+	if body != want {
+		t.Fatalf("approved body = %q, want %q (bare shed, never invented)", body, want)
+	}
+}
+
+// TestApprovedCopyWorksForWeighingWithPartition (GAP 2) verifies that partition composition
+// works for all modules, not just vaccination. Weighing, feed, counts, and other verification
+// modules must all render partitioned locations correctly.
+func TestApprovedCopyWorksForWeighingWithPartition(t *testing.T) {
+	locations := fakeLocationNames{
+		dosePark: "CBE",
+		doseShed: "Castro",
+	}
+
+	body := enrichApprovedNotificationCopy(context.Background(), locations, nil, nil,
+		doseTenant, "weighing", dosePark, doseShed, "2", "weighing_proof", "")
+
+	want := "weighing proof for Castro - 2 (CBE) is verified."
+	if body != want {
+		t.Fatalf("approved body = %q, want %q", body, want)
 	}
 }

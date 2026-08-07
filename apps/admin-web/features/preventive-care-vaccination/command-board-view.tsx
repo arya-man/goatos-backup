@@ -1348,7 +1348,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       {/* Ground location, partition included -- the parent shed name alone would
                           send a park head to the wrong side of a partitioned shed. */}
                       <td>
-                        {animal.locationDisplay}
+                        {animal.operational_location_display}
                         <span className="cbm-closed-park">{animal.parkName}</span>
                       </td>
                       <td>{animal.vaccineLabel}</td>

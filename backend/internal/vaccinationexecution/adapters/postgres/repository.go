@@ -652,11 +652,13 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 		var nextDue, lastDose pgtype.Timestamptz
 		var vaccineNames []string
 		var animals, overdue, due, inProgress, scheduled, missed, deferred, accepted, proofPending, rejected, total int64
+		var partitionLabel pgtype.Text
 		if err := rows.Scan(
 			&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Stage, &ageBand,
 			&row.ProtocolID, &row.ProtocolName, &animals, &nextDue, &lastDose,
 			&vaccineNames,
 			&overdue, &due, &inProgress, &scheduled, &missed, &deferred, &accepted, &proofPending, &rejected, &total,
+			&partitionLabel,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan operations: %w", err)
 		}
@@ -679,6 +681,9 @@ func scanOperationsRows(rows pgx.Rows, freshness *domain.ProjectionFreshness) ([
 		row.RejectedCount = int(rejected)
 		row.TotalCount = int(total)
 		row.Freshness = freshness
+		if partitionLabel.Valid {
+			row.PartitionLabel = partitionLabel.String
+		}
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -716,9 +721,9 @@ func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([
 	out := []domain.GapProjectionRow{}
 	for rows.Next() {
 		var row domain.GapProjectionRow
-		var aid1, aid2, shedID, shedName pgtype.Text
+		var aid1, aid2, shedID, shedName, partitionLabel pgtype.Text
 		var reasonCode string
-		if err := rows.Scan(&row.GoatID, &row.DisplayID, &aid1, &aid2, &row.ParkID, &row.ParkName, &shedID, &shedName, &reasonCode); err != nil {
+		if err := rows.Scan(&row.GoatID, &row.DisplayID, &aid1, &aid2, &row.ParkID, &row.ParkName, &shedID, &shedName, &reasonCode, &partitionLabel); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan gaps: %w", err)
 		}
 		row.AnimalIdentifier1 = textPtr(aid1)
@@ -726,6 +731,7 @@ func (r *Repository) VaccinationGaps(ctx context.Context, q domain.GapsQuery) ([
 		row.ShedID = textPtr(shedID)
 		row.ShedName = textPtr(shedName)
 		row.ReasonCode = domain.GapReasonCode(reasonCode)
+		row.PartitionLabel = textPtr(partitionLabel)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -1006,6 +1012,7 @@ const zeroUUID = "00000000-0000-0000-0000-000000000000"
 // mobile card; each is a single indexed lookup on goat_identifiers_goat_status_idx (goat_id, status) over
 // the already-bounded (<= LIMIT) keyset window, not a full-table scan — same idiom as calendar
 // ListDriveTargets. A goat with no active tag of a type yields NULL (rendered as "—" on the card).
+// The LEFT JOIN on goat_shed_partitions resolves the partition label (1:1 on tenant_id, goat_id).
 const vaccinationGapsSQL = `
 SELECT
   g.goat_id::text,
@@ -1016,7 +1023,8 @@ SELECT
   park.name,
   g.shed_id::text,
   shed.name,
-  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END
+  CASE WHEN g.dob IS NULL THEN 'no_date_of_birth' ELSE 'no_breed_on_record' END,
+  gsp.partition_label
 FROM goats g
 JOIN locations park
   ON park.tenant_id = $1::uuid
@@ -1036,6 +1044,10 @@ LEFT JOIN goat_identifiers aid2
  AND aid2.goat_id = g.goat_id
  AND aid2.identifier_type = 'animal_identifier_2'
  AND aid2.status = 'active'
+LEFT JOIN goat_shed_partitions gsp
+  ON gsp.tenant_id = $1::uuid
+ AND gsp.goat_id = g.goat_id
+ AND gsp.shed_id = g.shed_id
 WHERE g.tenant_id = $1::uuid
   AND g.lifecycle_status = 'alive'
   AND g.merged_into_goat_id IS NULL
@@ -2097,10 +2109,30 @@ cohort_page AS (
     lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
     effective.stage COLLATE "C" ASC
   LIMIT $9
+),
+cohort_partitions AS (
+  -- Resolve partition labels per (park, shed) from the animals in this cohort.
+  -- Only emit a partition when every scoped goat resolves to the SAME real (non-'whole')
+  -- partition; if animals span multiple partitions or none are partitioned, return NULL.
+  -- The join to goat_shed_partitions is 1:1 (PK is tenant_id, goat_id) so it cannot fan out.
+  SELECT DISTINCT ON (effective.park_uuid, effective.shed_uuid)
+    effective.park_uuid,
+    effective.shed_uuid,
+    CASE
+      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+      ELSE NULL
+    END AS partition_label
+  FROM effective
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = $1::uuid
+   AND gsp.goat_id = effective.goat_id
+   AND gsp.shed_id = effective.shed_uuid
+  GROUP BY effective.park_uuid, effective.shed_uuid
 )
--- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) selected by cohort_page; join_cardinality=completions and terminal events are pre-aggregated to one row per obligation, goat/protocol/location joins are tenant-keyed 1:1, and COUNT(DISTINCT goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before this final aggregate so page size cannot split a group or alter its totals; scope=tenant plus explicit optional park/shed filters with park resolved from direct goat park or shed parent.
+-- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name) selected by cohort_page; join_cardinality=completions and terminal events are pre-aggregated to one row per obligation, goat/protocol/location joins are tenant-keyed 1:1, and COUNT(DISTINCT goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before this final aggregate so page size cannot split a group or alter its totals; scope=tenant plus explicit optional park/shed filters with park resolved from direct goat park or shed parent. cohort_partitions is 1:1 on (park_uuid, shed_uuid).
 SELECT
-  -- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name); join_cardinality=cohort_page joins on the grouped cohort key and goat/protocol/location dimensions are tenant-keyed 1:1, while COUNT(DISTINCT effective.goat_id) protects animal membership; pagination=cohort_page keysets whole cohort groups before final aggregation; scope=tenant plus explicit optional park/shed filters.
+  -- projection-review: membership=effective vaccination obligation rows inside the tenant due horizon after as-of status reconstruction; group_key=(park_uuid,shed_uuid,stage,protocol_id,protocol_name); join_cardinality=cohort_page joins on the grouped cohort key and goat/protocol/location dimensions are tenant-keyed 1:1, while COUNT(DISTINCT effective.goat_id) protects animal membership; cohort_partitions is 1:1 on (park_uuid, shed_uuid); pagination=cohort_page keysets whole cohort groups before final aggregation; scope=tenant plus explicit optional park/shed filters.
   effective.park_uuid,
   park.name AS park_name,
   effective.shed_uuid,
@@ -2129,7 +2161,8 @@ SELECT
   COUNT(*) FILTER (WHERE effective.eff_status = 'completed' AND effective.completion_status = 'accepted')::bigint AS accepted_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'recorded')::bigint AS proof_pending_count,
   COUNT(*) FILTER (WHERE effective.completion_status = 'rejected')::bigint AS rejected_count,
-  COUNT(*)::bigint AS total_count
+  COUNT(*)::bigint AS total_count,
+  cohort_part.partition_label
 FROM effective
 JOIN cohort_page page
   ON page.park_uuid = effective.park_uuid
@@ -2145,7 +2178,10 @@ JOIN locations park
  AND park.location_id = effective.park_uuid
  AND park.location_type = 'park'
  AND park.status = 'active'
-GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name
+LEFT JOIN cohort_partitions cohort_part
+  ON cohort_part.park_uuid = effective.park_uuid
+ AND cohort_part.shed_uuid = effective.shed_uuid
+GROUP BY effective.park_uuid, park.name, effective.shed_uuid, shed.name, effective.stage, effective.protocol_id, effective.protocol_name, cohort_part.partition_label
 ORDER BY
   lower(park.name) COLLATE "C" ASC, park.name COLLATE "C" ASC, effective.park_uuid ASC,
   lower(shed.name) COLLATE "C" ASC, shed.name COLLATE "C" ASC, effective.shed_uuid ASC,
@@ -2970,11 +3006,15 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 		var row domain.ShedSummaryProjection
 		var lastDone, nextDue pgtype.Timestamptz
 		var capacityStatus, shedStatus, driveOperatorNames string
-		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount); err != nil {
+		var partitionLabel pgtype.Text
+		if err := rows.Scan(&row.ParkID, &row.ParkName, &row.ShedID, &row.ShedName, &row.Animals, &row.DueAnimals, &row.OpenCells, &row.Sessions, &capacityStatus, &shedStatus, &lastDone, &nextDue, &driveOperatorNames, &row.TotalCount, &partitionLabel); err != nil {
 			return nil, fmt.Errorf("vaccination execution: scan shed summary: %w", err)
 		}
 		row.Capacity, row.Status = domain.CapacityStatus(capacityStatus), domain.ShedStatus(shedStatus)
 		row.LastDone, row.NextDue = timePtr(lastDone), timePtr(nextDue)
+		if partitionLabel.Valid {
+			row.PartitionLabel = partitionLabel.String
+		}
 		for _, name := range strings.Split(driveOperatorNames, ",") {
 			name = strings.TrimSpace(name)
 			if name != "" {
@@ -3207,6 +3247,30 @@ classified AS (
     END AS shed_status
   FROM scored
 ),
+shed_partitions AS (
+  -- Resolve partition labels per shed from the animals in that shed. Only emit a partition
+  -- when every scoped goat resolves to the SAME real (non-'whole') partition; if animals span
+  -- multiple partitions or none are partitioned, return NULL. The join to goat_shed_partitions
+  -- is 1:1 (PK is tenant_id, goat_id) so it cannot fan out.
+  SELECT DISTINCT
+    g.shed_id,
+    CASE
+      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+      ELSE NULL
+    END AS partition_label
+  FROM alive
+  JOIN goats g
+    ON g.tenant_id = $1::uuid
+   AND g.shed_id = alive.shed_uuid
+   AND g.lifecycle_status = 'alive'
+   AND g.merged_into_goat_id IS NULL
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = $1::uuid
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  GROUP BY g.shed_id
+),
 drive_ops AS (
   -- projection-review: membership=vaccination_drive_assignments rows at persisted operator/date/physical-shed/partition grain plus accepted seed-history completions whose source packet resolves to the park default operator; group_key=(park_id, shed_id); join_cardinality=workforce_members is tenant+operator keyed 1:1, completion->goat is 1:1 by goat_id, shed->park is 1:1 by location parent, and DISTINCT operator names prevents partition/history rows from duplicating visible operators; pagination=drive_ops is pre-aggregated before the classified shed OFFSET/LIMIT window so page boundaries cannot change operator membership; scope=tenant plus optional park/shed filters applied by the outer classified shed row.
   SELECT
@@ -3264,9 +3328,12 @@ SELECT
   animals, due_animals, open_cells, sessions, capacity_status, shed_status,
   last_done, next_due,
   COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
-  COUNT(*) OVER()::bigint AS total_count
+  COUNT(*) OVER()::bigint AS total_count,
+  sp.partition_label
 FROM classified
 LEFT JOIN drive_ops USING (park_id, shed_id)
+LEFT JOIN shed_partitions sp
+  ON sp.shed_id = classified.shed_uuid
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
   AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')

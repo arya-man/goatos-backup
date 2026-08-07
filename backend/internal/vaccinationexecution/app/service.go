@@ -167,15 +167,29 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		stages = append(stages, stage)
 	}
 	sort.Strings(stages)
+	// Compose the shed header's operational location from the first row's partition
+	// (all rows for the same ShedID must have the same resolved partition).
+	headerLoc := oploc.OperationalLocation{
+		ParkID:         head.ParkID,
+		ParkName:       head.ParkName,
+		ShedID:         head.ShedID,
+		ShedName:       head.ShedName,
+		PartitionLabel: "",
+	}
+	if head.PartitionLabel != nil {
+		headerLoc.PartitionLabel = *head.PartitionLabel
+	}
 	return domain.ShedDrilldown{
-		ParkID:       head.ParkID,
-		ParkName:     head.ParkName,
-		ShedID:       head.ShedID,
-		ShedName:     head.ShedName,
-		AnimalStages: stages,
-		Drives:       drives,
-		Rows:         rows,
-		Summary:      summary,
+		ParkID:                     head.ParkID,
+		ParkName:                   head.ParkName,
+		ShedID:                     head.ShedID,
+		ShedName:                   head.ShedName,
+		AnimalStages:               stages,
+		Drives:                     drives,
+		Rows:                       rows,
+		Summary:                    summary,
+		PartitionLabel:             head.PartitionLabel,
+		OperationalLocationDisplay: headerLoc.Display(),
 	}, true, nil
 }
 
@@ -223,12 +237,10 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 		if !ok {
 			idx = len(cohorts)
 			cohortIndex[key] = idx
-			// KNOWN GAP: OperationsRow does not carry a partition yet -- the operations SQL
-			// never selects one, so we cannot compose it here without a query change. Emit the
-			// bare shed name as the display (never blank, so no client renders an empty label)
-			// and a nil partition, which is TRUE for an unpartitioned shed and honest-but-
-			// incomplete for a partitioned one. Tracked in the operational-location ledger.
-			cohortPartition, cohortDisplay := operationalLocationFor(r.ParkID, r.ParkName, r.ShedID, r.ShedName, "")
+			// Compose the operational location display using the resolved partition from SQL.
+			// The SQL resolves to a single partition only when all scoped goats agree; otherwise
+			// it returns nil and the bare shed name displays (never invented partition).
+			cohortPartition, cohortDisplay := operationalLocationFor(r.ParkID, r.ParkName, r.ShedID, r.ShedName, r.PartitionLabel)
 			cohorts = append(cohorts, domain.OperationsCohort{
 				ParkID: r.ParkID, ParkName: r.ParkName, ShedID: r.ShedID, ShedName: r.ShedName,
 				PartitionLabel: cohortPartition, OperationalLocationDisplay: cohortDisplay,
