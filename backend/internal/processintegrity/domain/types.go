@@ -156,9 +156,13 @@ type Row struct {
 	ShedID         string  `json:"shed_id"`
 	ShedName       string  `json:"shed_name"`
 	PartitionLabel *string `json:"partition_label,omitempty"`
-	CohortID       *string `json:"cohort_id,omitempty"`
-	GoatID         *string `json:"goat_id,omitempty"`
-	AnimalStage    string  `json:"animal_stage"`
+	// The composed label the client renders. The schema declares it and admin-web reads it;
+	// without it here the Action Center card falls back to a bare shed name and a partitioned
+	// shed reads "Godel 1" instead of "Godel 1 - Part 3" (2026-08-07).
+	OperationalLocationDisplay string  `json:"operational_location_display"`
+	CohortID                   *string `json:"cohort_id,omitempty"`
+	GoatID                     *string `json:"goat_id,omitempty"`
+	AnimalStage                string  `json:"animal_stage"`
 
 	ProtocolID        string  `json:"protocol_id"`
 	ProtocolVersionID string  `json:"protocol_version_id"`
