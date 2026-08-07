@@ -182,54 +182,47 @@ backend at all.** A partitioned shed rendered as a bare "Mandela 2" on the opera
 drive list while the DB held `Part 3` correctly in two places.
 
 ### OL-10 — the OpenAPI schema declared fields the Go struct never carried
-`contracts/openapi/app-api.yaml` -> `VaccinationExecutionRow` declared
-`partition_label`, `source_shed_name` and `operational_location_display`. The Go
-`ExecutionRow` carried none of them. Silent drift: the contract promised a location
-the payload could not express, and every client faithfully rendered what it got.
-**Rule:** a field in the schema is a claim about the payload. Adding it to the
-contract without the struct is worse than omitting both -- it makes the gap invisible
-to a reader of either file alone.
+
+**Found:** Vaccination drive list missing partition in verify queue and submit header  
+**Defect:** `contracts/openapi/app-api.yaml` -> `VaccinationExecutionRow` declared `partition_label`, `source_shed_name`, and `operational_location_display`. The Go `ExecutionRow` struct carried NONE of them. Silent drift: the contract promised a location the payload could not express, and every client faithfully rendered what it got (bare shed name).  
+**Root Cause:** OpenAPI schema was authored independently from the Go struct, and nobody verified field-by-field parity.  
+**Impact:** Two surfaces rendered bare shed names when both should have shown `Godel 1 - Part 3` (verifier queue item header, shed-detail submit confirmation).  
+**Rule:** A field in the schema is a CLAIM about the payload. Adding it to the contract without the struct is worse than omitting both — it makes the gap invisible to a reader of either file alone.
 
 ### OL-11 — the guard only inspected `*Request` schemas
-`tools/agent-hooks/check-operational-location.mjs` gated its OpenAPI partition rule on
-`/Request$/.test(header)`. Write paths were enforced; **every response schema was
-unguarded**, which is where OL-10 shipped. An audit then found 9 more response schemas
-carrying a shed with no partition.
-**Rule:** a guard that only sees write paths does not enforce a display convention.
+
+**Found:** 9 response schemas carrying shed fields without partition declared  
+**Defect:** `tools/agent-hooks/check-operational-location.mjs` gated its OpenAPI partition rule on `/Request$/.test(header)`. Write paths were enforced; **every response schema was unguarded**, which is where OL-10 shipped.  
+**Impact:** Partition-bearing tables could omit the field from their response contracts and the guard would not fire.  
+**Rule:** A guard that only sees write paths does not enforce a display convention. Location is a READ contract issue.
 
 ### OL-12 — presence-keyed rules cannot detect absence
-Every other rule in that guard keys on partition being MENTIONED (a bad separator, a
-'whole' leak, a name-keyed GROUP BY). A surface that forgot partitions entirely names
-them nowhere, so no rule can fire. The guard's own header admitted this blind spot for
-one rule; the structural check was never built.
-**Rule:** for a MANDATORY field, the check must be "location-bearing => field present",
-not "field present => field correct".
+
+**Found:** Mobile verification screen missing partition in location display  
+**Defect:** Every other rule in the guard keys on partition being MENTIONED (bad separator, 'whole' leak, name-keyed GROUP BY). A surface that forgot partitions entirely names them nowhere, so no rule can fire. The guard's own header admitted this blind spot for one rule; the structural check was never built.  
+**Impact:** A brand-new location response field could omit the partition, pass the guard (because it mentioned no partition at all to check), and ship.  
+**Rule:** For a MANDATORY field, the check must be `location_bearing_response => partition_field_present`, not `partition_present => field_correct`. Structural absence requires structural enforcement.
 
 ### OL-13 — three partition sources, and the screen read the stale one
-`shed_partitions` (catalog of partitions that EXIST) and `goat_shed_partitions`
-(per-goat placement) were both correct; the drive list read
-`vaccination_drive_assignments.partition_label`, a SNAPSHOT that nothing re-derives
-after a shed is partitioned. Weighing had already solved this
-(`weighing/adapters/postgres/shed_partition_resolve.go` resolves from the catalog at
-read time); vaccination trusted the stored column.
-**Rule:** never trust a snapshot column for DISPLAY. Resolve from the catalog at read
-time, or reconcile the snapshot when the catalog changes.
+
+**Found:** Operator drive list showed bare shed when database had correct partition  
+**Defect:** `shed_partitions` (catalog of partitions that EXIST) and `goat_shed_partitions` (per-goat placement) were both correct in the database. The drive list read `vaccination_drive_assignments.partition_label`, a SNAPSHOT COLUMN that nothing re-derives after a shed is re-partitioned. Weighing had already solved this (`weighing/adapters/postgres/shed_partition_resolve.go` resolves from the catalog at read time); vaccination trusted the stored column.  
+**Impact:** Operator drive list was stale if a shed's partitions changed since the drive was created; no partition showed even though the animals' current location had one.  
+**Rule:** Never trust a snapshot column for DISPLAY. Resolve from the catalog (`locations`, `shed_partitions`) at read time, or reconcile the snapshot column when the catalog changes.
 
 ### OL-14 — no seed writes the `shed_partitions` catalog
-Zero writers under `backend/cmd/`. The catalog is populated once by migration 000112
-(backfilled FROM `goat_shed_partitions`) and never again, so any seeded partition is
-invisible to every catalog-driven picker and empty partitions are unreachable as
-shifting destinations. The seed's own invariant check asserted per-goat rows but never
-a catalog row, so the gap was silent to its own validation.
-**Rule:** a seed that creates a partitioned shed writes ALL THREE of catalog, per-goat
-placement, and any assignment snapshot -- and asserts all three.
+
+**Found:** No seeded partition appeared in partition pickers  
+**Defect:** Zero writers under `backend/cmd/`. The `shed_partitions` catalog is populated once by migration 000112 (backfilled FROM `goat_shed_partitions`) and never again. Any seed-created partition is invisible to every catalog-driven picker and empty partitions are unreachable as shifting destinations. The seed's own invariant check asserted per-goat rows but never a catalog row, so the gap was silent.  
+**Impact:** Seeds with partitioned sheds created `goat_shed_partitions` rows but left `shed_partitions` empty, making those partitions unavailable in operators' shifting/weighing pickers.  
+**Rule:** A seed that creates a partitioned shed writes ALL THREE: the catalog (`shed_partitions`), per-goat placement (`goat_shed_partitions`), and any assignment snapshot column — and asserts all three in the seed's own invariant check.
 
 ### OL-15 — name-keyed grouping that merges COUNTS, not just labels
-`apps/admin-web/features/preventive-care-vaccination/command-board-view.tsx`
-`buildShedGrid()` keyed by bare `shedName`, so two same-named sheds in different parks
-AND two partitions of one shed collapsed into one row **with their animal counts summed
-together**. OL-2 was the label version of this; this is the arithmetic version.
-**Rule:** name-keying is a data-correctness bug, not a cosmetic one.
+
+**Found:** Command Board shed grid showing doubled animal count for partitioned sheds  
+**Defect:** `apps/admin-web/features/preventive-care-vaccination/command-board-view.tsx` `buildShedGrid()` keyed by bare `shedName`. Two same-named sheds in different parks AND two partitions of one shed collapsed into one row **with their animal counts summed together**. OL-2 was the label version (six Godel 1 rows became one); this is the arithmetic version.  
+**Impact:** Vaccination Board showed `Godel 1: 450 animals` on one card when the truth was `Godel 1 Part 3: 225 animals` + `Godel 1 Part 4: 225 animals` (separate partitions, summed by name key).  
+**Rule:** Name-keying is a data-correctness bug, not a cosmetic one. It corrupts counts and makes cross-park sheds indistinguishable.
 
 ---
 
