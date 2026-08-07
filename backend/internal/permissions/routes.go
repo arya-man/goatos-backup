@@ -264,6 +264,7 @@ var protectedRoutes = []Route{
 	// CEO-tier ADG / growth aggregate: herd-level Average Daily Gain read model, park-scoped.
 	{OperationID: "getWeighingLeadershipGrowthADG", Method: "GET", Pattern: "/app/weighing/leadership/growth", Permissions: []string{WeighingMonitor}},
 	{OperationID: "getWeighingShedWeights", Method: "GET", Pattern: "/app/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
+	{OperationID: "adminGetWeighingShedWeights", Method: "GET", Pattern: "/weighing/shed-weights", Permissions: []string{WeighingMonitor}},
 	{OperationID: "appRecordWeighingAnimalObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/animal-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appRecordWeighingShedObservation", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/shed-observations", Permissions: []string{WeighingExecute}},
 	{OperationID: "appSubmitWeighingScope", Method: "POST", Pattern: "/app/weighing/campaigns/{campaign_id}/sheds/{campaign_shed_id}/submit", Permissions: []string{WeighingExecute}},

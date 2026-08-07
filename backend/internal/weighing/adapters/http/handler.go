@@ -106,6 +106,10 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET /app/weighing/weight-history", h.GetWeightHistory)
 	mux.HandleFunc("GET /app/weighing/leadership/growth", h.GetLeadershipGrowthADG)
 	mux.HandleFunc("GET /app/weighing/shed-weights", h.GetShedWeights)
+	// Same read, admin-web prefix. Both prefixes are how this module already exposes
+	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
+	// bare path, the phone calls /app.
+	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
 }
 
 // ListAlerts serves the weighing alerts feed. Title and empty-state copy travel

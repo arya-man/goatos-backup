@@ -411,6 +411,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/shed-weights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
+         * @description Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is optional; when omitted the response covers every park the caller is authorized to monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 28 days ending today.
+         *
+         *     GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate and never changes with paging.
+         *
+         *     Weighing is free-flow and isolated from the herd, so no field here carries breed, sex, age or management stage, and no shed is ever reported "overdue": there is no weighing cadence.
+         */
+        get: operations["adminGetWeighingShedWeights"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -9335,6 +9359,36 @@ export interface operations {
         };
     };
     appGetWeighingShedWeights: {
+        parameters: {
+            query?: {
+                /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-shed weights and the whole-filter summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingShedWeightsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingShedWeights: {
         parameters: {
             query?: {
                 /** @description The park to report on. When omitted, covers the caller's own authorized-park scope. */

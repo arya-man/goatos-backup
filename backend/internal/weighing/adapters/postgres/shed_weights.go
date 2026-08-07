@@ -17,7 +17,9 @@ import (
 // identifier or vaccination table is touched, which is why this read can offer
 // no breed, sex or stage dimension.
 //
-// projection-review:
+// projection-review: membership=one row per (park_id, location_id) selected from weighing_campaign_sheds; group_key=(park_id, location_id) via DISTINCT ON in latest_bucket; join_cardinality=every joined side is 0..1 against a bucket (campaigns PK, locations PK x2, LATERAL scalar aggregate, and weighing_shed_observations 0..1 GIVEN withdrawn_at IS NULL), so no side can multiply a shed row; pagination=NONE, bounded by MaxShedWeightsRows, and the summary is a whole-result aggregate over every scoped shed rather than the returned page; scope=tenant_id + park_id = ANY($2)
+//
+// The proof behind each field:
 //
 //	PRODUCER UNIQUENESS vs CONSUMER MATCH KEYS, side by side:
 //	  weighing_campaign_sheds       unique on (campaign_shed_id)            [PK]
@@ -52,11 +54,6 @@ import (
 //	SELECTS by category rather than summing the two. It must not null-test them instead:
 //	ind.scan_count is a count() and returns 0, never NULL, for a bucket with no scans — the
 //	exact defect 000080 had to repair in the ceo_ai twin of this rollup.
-//
-//	membership=one row per (park_id, location_id) selected from weighing_campaign_sheds;
-//	group_key=(park_id, location_id); pagination=NONE (bounded by MaxShedWeightsRows, and the
-//	summary is a whole-result aggregate computed over `scoped`, never over the returned rows);
-//	scope=tenant_id + park_id = ANY($2)
 //
 // SCALE: bounded by tenant + an explicit park list + a business-date window on
 // accepted_at, all of which are index-leading columns. The per-animal rollup runs
@@ -93,6 +90,8 @@ WITH scoped AS (
     AND cs.status <> 'canceled'
 ),
 ind AS (
+  -- projection-review: membership=scoped buckets whose weighing_category is individual_animal, each joined to its own deduplicated scans; group_key=s.campaign_shed_id (weighing_campaign_sheds PK, so one row per bucket); join_cardinality=LATERAL latest is 1 row per DISTINCT scanned tag and the GROUP BY collapses it to exactly 1 row per bucket, no side multiplies; pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id carried into the correlated subquery
+  --
   -- ONE ROW PER ANIMAL, NOT ONE PER CAPTURE.
   --
   -- weighing_observations keeps history instead of deleting (000061 stamps
@@ -134,7 +133,9 @@ ind AS (
   GROUP BY s.campaign_shed_id
 ),
 lump AS (
-  -- withdrawn_at IS NULL is REQUIRED, not decorative: 000067 replaced the total
+  -- projection-review: membership=scoped buckets whose weighing_category is per_shed_partition, joined to their LIVE shed observation; group_key=s.campaign_shed_id (no aggregation -- the uidx makes this 1:1); join_cardinality=weighing_shed_observations 0..1 GIVEN withdrawn_at IS NULL (UNIQUE weighing_shed_observations_one_open_scope_uidx, PARTIAL, per 000067); pagination=NONE, bounded by the outer LIMIT and the tenant+park+date window; scope=s.tenant_id joined explicitly
+  --
+  -- withdrawn_at IS REQUIRED, not decorative: 000067 replaced the total
   -- uniqueness on this table with a PARTIAL one over live rows, so a reopened and
   -- resubmitted bucket legitimately holds several rows and joining them all fans
   -- the shed out past its declared grain.

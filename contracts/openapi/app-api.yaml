@@ -906,6 +906,65 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/shed-weights:
+    get:
+      tags:
+        - Weighing
+      operationId: adminGetWeighingShedWeights
+      summary: Latest weight per shed, across both ways of weighing, plus the whole-filter rollup.
+      description: >
+        Requires WeighingMonitor, park-scoped exactly like leadership/growth. `park_id` is
+        optional; when omitted the response covers every park the caller is authorized to
+        monitor, never wider. `from`/`to` are INCLUSIVE Asia/Kolkata business dates
+        (YYYY-MM-DD) and default to the last 28 days ending today.
+
+
+        GRAIN: one row per SHED, not per campaign bucket -- a shed weighed in consecutive
+        campaigns reports its most recent weigh only. `summary` is a WHOLE-FILTER aggregate
+        and never changes with paging.
+
+
+        Weighing is free-flow and isolated from the herd, so no field here carries breed,
+        sex, age or management stage, and no shed is ever reported "overdue": there is no
+        weighing cadence.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The park to report on. When omitted, covers the caller's own authorized-park scope.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Per-shed weights and the whole-filter summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingShedWeightsResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/leadership/sheds:
     get:
       tags:
