@@ -398,11 +398,17 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
   },
 };
 
-export function copy(page: AdminUiPageContract, key: string): string {
+export function copy(page: AdminUiPageContract, key: string, whenAbsent?: string): string {
   const value = page.copy[key];
   if (typeof value !== "string") {
     const fallback = COPY_FALLBACKS[page.route_id]?.[key];
     if (fallback) return fallback;
+    // `whenAbsent` is for OPEN key spaces only -- keys derived at runtime from data, such as
+    // `feedback.<server error code>`, where the set is defined by the backend's error vocabulary
+    // and not every member is guaranteed to have copy. Passing it is an explicit statement that a
+    // miss is expected and renders nothing. Fixed keys still throw, which is what keeps a missing
+    // contract key a loud build/runtime failure instead of a blank label.
+    if (whenAbsent !== undefined) return whenAbsent;
     throw new Error(`Admin-web page contract ${page.route_id} missing copy key ${key}`);
   }
   return value;
