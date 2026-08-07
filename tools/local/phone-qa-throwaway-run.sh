@@ -6,6 +6,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 backend_dir="$repo_root/backend"
 api_bin="$repo_root/.codex-goatos-render/bin/goatos-api-phone-qa"
+relay_bin="$repo_root/.codex-goatos-render/bin/goatos-outbox-relay-phone-qa"
+relay_label="sg.mesha.goatos.phone-qa-outbox-relay"
 api_log_dir="$repo_root/.codex-goatos-render/logs"
 api_log="$api_log_dir/phone-qa-api.log"
 label="sg.mesha.goatos.phone-qa-api"
@@ -27,6 +29,12 @@ mkdir -p "$(dirname "$api_bin")" "$api_log_dir" "$(dirname "$plist")"
 
 log "building backend API"
 (cd "$backend_dir" && go build -buildvcs=false -o "$api_bin" ./cmd/api)
+# The API alone CANNOT process a domain event. Verdicts, shifting, feed and counts all publish to
+# outbox_messages and a SEPARATE relay drains them onto the event bus. Without it every message
+# sits `pending` forever: a verifier REJECT is written but never applied, so the operator's screen
+# keeps showing the animal as done and no rework appears. That cost a full QA session on
+# 2026-08-08 and read as "the accept/reject fix regressed" when the code was fine.
+(cd "$backend_dir" && go build -buildvcs=false -o "$relay_bin" ./cmd/outbox-relay)
 
 log "stopping existing local phone/api launch agents"
 launchctl bootout "$launch_domain/sg.mesha.goatos.android-dev-api" >/dev/null 2>&1 || true
@@ -102,6 +110,51 @@ cat >"$plist" <<EOF
 </dict>
 </plist>
 EOF
+
+relay_plist="$HOME/Library/LaunchAgents/$relay_label.plist"
+relay_log="$api_log_dir/outbox-relay.log"
+launchctl bootout "$launch_domain/$relay_label" >/dev/null 2>&1 || true
+cat >"$relay_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$relay_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$relay_bin</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>$backend_dir</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>$relay_log</string>
+  <key>StandardErrorPath</key>
+  <string>$relay_log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>DATABASE_URL</key>
+    <string>$DATABASE_URL</string>
+    <key>GOATOS_ENV</key>
+    <string>${GOATOS_ENV:-local}</string>
+    <key>GOATOS_TENANT_ID</key>
+    <string>$tenant_id</string>
+    <key>GOATOS_OUTBOX_PUBLISHER</key>
+    <string>eventbus</string>
+    <key>GOATOS_OUTBOX_ALLOW_NONDURABLE</key>
+    <string>1</string>
+    <key>GOATOS_ALLOW_STALE_LOCAL_STACK</key>
+    <string>1</string>
+  </dict>
+</dict>
+</plist>
+EOF
+launchctl bootstrap "$launch_domain" "$relay_plist" >/dev/null 2>&1 || true
+launchctl enable "$launch_domain/$relay_label" >/dev/null 2>&1 || true
 
 launchctl bootstrap "$launch_domain" "$plist" >/dev/null
 launchctl enable "$launch_domain/$label" >/dev/null 2>&1 || true
