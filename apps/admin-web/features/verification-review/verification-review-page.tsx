@@ -50,7 +50,17 @@ export async function VerificationReviewPage({
   const actionTypes = queue.ok ? queue.data.filter_options.action_types : [];
   const statuses = queue.ok ? queue.data.filter_options.statuses : [];
   const sheds = queue.ok ? queue.data.filter_options.sheds : [];
-  const typeLabels = new Map(actionTypes.map((option) => [option.category, `${option.module_label} · ${option.label}`]));
+  // "Vaccination · Vaccination" and "Weighing · Weighing" were what this produced for every row in
+  // those two modules: the category registry gives a module label and a page label, and for a
+  // module with a single page they are the same word (bootstrap/api.go). Joining them
+  // unconditionally turned the column into a stutter that carried no information. Join only when
+  // the page actually narrows the module ("Feed · Feed Packing", "Counts · Birth").
+  const typeLabels = new Map(
+    actionTypes.map((option) => [
+      option.category,
+      option.label === option.module_label ? option.label : `${option.module_label} · ${option.label}`,
+    ]),
+  );
   // Row/drawer labels map an ITEM's status to its display label, so the statusless "All" tab is
   // excluded — it is a filter tab, never a status a row can be in.
   const statusOptionsWithStatus = statuses.filter(
@@ -109,21 +119,22 @@ export async function VerificationReviewPage({
         <section className="card vr-board" style={{ minWidth: 0 }}>
         <div className="bt">{copy(pageContract, "board.title")}</div>
 
-        <div className="vr-frow">
-          <form action={PATHNAME} style={{ display: "contents" }}>
-            {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "va_status", "va_code"])}
-            <div className="vr-fld fld" style={{ marginBottom: 0 }}>
-              <label htmlFor="verification-action-type">{copy(pageContract, "filter.action_type")}</label>
-              <select id="verification-action-type" name="category" className="vr-selbtn" defaultValue={category ?? ""}>
-                <option value="">{copy(pageContract, "filter.all_action_types")}</option>
-                {actionTypes.map((option) => (
-                  <option key={option.key} value={option.category}>
-                    {option.module_label} · {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {sheds.length ? (
+        {/* The action-type select was REMOVED (maintainer decision 2026-08-07). The left nav
+            already scopes this screen -- every leaf sets ?category= -- so the dropdown was a
+            second, competing scope control for a choice the verifier had just made in the sidebar.
+            It was also wrong: its defaultValue never matched the URL category, so it sat on an
+            unrelated action type on every category the nav could reach.
+
+            Shed is now the only filter, so the whole row is conditional on there being sheds to
+            choose between: without this, a module with no shed options (Birth, Death) rendered an
+            Apply/Clear pair with nothing to apply. */}
+        {sheds.length ? (
+          <div className="vr-frow">
+            <form action={PATHNAME} style={{ display: "contents" }}>
+              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "va_status", "va_code"])}
+              {/* Carries the sidebar's scope through the submit; without it, filtering by shed
+                  would silently widen the queue back to every module. */}
+              {category ? <input type="hidden" name="category" value={category} /> : null}
               <div className="vr-fld fld" style={{ marginBottom: 0 }}>
                 <label htmlFor="verification-shed">{copy(pageContract, "filter.shed")}</label>
                 <select id="verification-shed" name="shed_id" className="vr-selbtn" defaultValue={shedId ?? ""}>
@@ -135,21 +146,24 @@ export async function VerificationReviewPage({
                   ))}
                 </select>
               </div>
-            ) : null}
-            <button type="submit" className="btn sm">
-              <Filter className="ic" aria-hidden="true" />
-              {copy(pageContract, "filter.apply")}
-            </button>
-          </form>
-          <Link
-            href={hrefWith(sp, { category: null, shed_id: null, status: null, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
-            replace
-            scroll={false}
-            className="lk small"
-          >
-            {copy(pageContract, "filter.clear_all")}
-          </Link>
-        </div>
+              <button type="submit" className="btn sm">
+                <Filter className="ic" aria-hidden="true" />
+                {copy(pageContract, "filter.apply")}
+              </button>
+            </form>
+            {/* Deliberately does NOT clear `category`: that is the sidebar's selection, not a
+                filter the verifier set here. Clearing it stranded her on every module's queue at
+                once while the nav still highlighted the one she had picked. */}
+            <Link
+              href={hrefWith(sp, { shed_id: null, status: null, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
+              replace
+              scroll={false}
+              className="lk small"
+            >
+              {copy(pageContract, "filter.clear_all")}
+            </Link>
+          </div>
+        ) : null}
 
         {statuses.length ? (
           <div className="vr-legend">
@@ -263,9 +277,6 @@ function QueueRow({
           </span>
           {actionTypeLabel}
         </div>)}
-      </td>
-      <td>
-        {cell(<>{item.vertical} / {item.module}</>)}
       </td>
       <td>
         {cell(item.subject_label?.trim()
