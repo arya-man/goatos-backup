@@ -1,12 +1,12 @@
 WITH base AS (
   SELECT goat_id, farm, date,
     REGEXP_REPLACE(UPPER(TRIM(shed)), r'\s+', ' ') shed_norm,
-    breed, gender, goat_type,
+    breed, gender, goat_type, shed_tag,
     AVG(CAST(avg_weight_kg AS FLOAT64)) wt
   FROM `goatos-sheets.weights.weights_db_clean_dev`
   WHERE goat_id IS NOT NULL AND TRIM(goat_id) NOT IN ('','No tag','-','NA')
     AND avg_weight_kg IS NOT NULL
-  GROUP BY 1,2,3,4,5,6,7
+  GROUP BY 1,2,3,4,5,6,7,8
 ),
 n AS (
   SELECT *,
@@ -28,12 +28,14 @@ seq AS (
     LAST_VALUE(partition_no) OVER(PARTITION BY goat_id ORDER BY date
       ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) cur_partition,
     LAST_VALUE(farm) OVER(PARTITION BY goat_id ORDER BY date
-      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) cur_farm
+      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) cur_farm,
+    LAST_VALUE(shed_tag) OVER(PARTITION BY goat_id ORDER BY date
+      ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) cur_tag
   FROM n
 )
 SELECT goat_id, ANY_VALUE(cur_farm) farm, ANY_VALUE(cur_shed_base) shed,
   ANY_VALUE(cur_partition) part, ANY_VALUE(breed) breed, ANY_VALUE(gender) gender,
-  ANY_VALUE(goat_type) goat_type,
+  ANY_VALUE(goat_type) goat_type, ANY_VALUE(cur_tag) shed_tag,
   ANY_VALUE(n_weighings) n_weighings,
   ANY_VALUE(first_date) first_date, ROUND(ANY_VALUE(first_wt),2) first_wt,
   ANY_VALUE(last_date) last_date, ROUND(ANY_VALUE(last_wt),2) last_wt,

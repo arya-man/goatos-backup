@@ -1,5 +1,5 @@
 WITH w AS (
-  SELECT goat_id, ANY_VALUE(farm) farm, ANY_VALUE(shed) shed, ANY_VALUE(breed) breed,
+  SELECT goat_id, ANY_VALUE(farm) farm, ANY_VALUE(shed) shed, ANY_VALUE(shed_tag) shed_tag, ANY_VALUE(breed) breed,
          ANY_VALUE(gender) gender, ANY_VALUE(goat_type) goat_type, date,
          AVG(CAST(avg_weight_kg AS FLOAT64)) wt, COUNT(*) same_day_rows,
          MAX(CAST(avg_weight_kg AS FLOAT64))-MIN(CAST(avg_weight_kg AS FLOAT64)) same_day_spread
@@ -12,6 +12,7 @@ p AS (
     LAG(wt) OVER(PARTITION BY goat_id ORDER BY date) pw,
     LAG(date) OVER(PARTITION BY goat_id ORDER BY date) pd,
     LAG(shed) OVER(PARTITION BY goat_id ORDER BY date) pshed,
+    LAG(shed_tag) OVER(PARTITION BY goat_id ORDER BY date) ptag,
     LEAD(wt) OVER(PARTITION BY goat_id ORDER BY date) nw,
     LEAD(date) OVER(PARTITION BY goat_id ORDER BY date) nd
   FROM w
@@ -20,7 +21,7 @@ ev AS (SELECT goat_id, event_type, event_date, shifting_reason, src_shed, dst_sh
        FROM `goatos-sheets.goatsDB.goat_activity_timeline`),
 bd AS (SELECT goat_id, MIN(birth_date) birth_date FROM ev WHERE birth_date IS NOT NULL GROUP BY 1)
 SELECT
-  p.goat_id, p.farm, p.shed, p.pshed, p.breed, p.gender, p.goat_type,
+  p.goat_id, p.farm, p.shed, p.pshed, p.shed_tag, p.ptag, p.breed, p.gender, p.goat_type,
   p.pd AS prev_date, p.pw AS prev_wt, p.date AS cur_date, p.wt AS cur_wt,
   p.nd AS next_date, p.nw AS next_wt,
   p.same_day_rows, p.same_day_spread,

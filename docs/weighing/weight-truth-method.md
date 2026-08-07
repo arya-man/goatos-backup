@@ -26,7 +26,7 @@ weighings, so the legacy sheet is the only source for this history.
 
 | Source | Used for |
 |---|---|
-| `weights.weights_db_clean_dev` | every weighing: date, park, shed, shed tag, breed, sex, animal id, average weight, animal type |
+| `weights.weights_db_clean_dev` | every weighing: date, park, shed, **shed tag (the management stage)**, breed, sex, animal id, average weight, animal type |
 | `healthDB.diagnosis_clean_table` | health tickets — disease, symptoms, status, date, per animal |
 | `goatsDB.goat_activity_timeline` | birth / purchase / sale / death / abortion, and every shifting with its free-text reason, source shed and destination shed |
 | `goatsDB.goat_activity_timeline` (`mother_id`) | kiddings, resolved to the mother |
@@ -62,7 +62,7 @@ than from a query anyone else can run, which is why they were wrong until the au
 |---|---|
 | `sql/enrich.sql` | every consecutive pair where the animal came out **lighter**, joined to health, kidding, abortion and shifting records covering the interval **or falling within a rule-specific lookback before it** — see the Lookback notes in §5a |
 | `sql/enrich_pos.sql` | the same for pairs where it came out **heavier** |
-| `sql/animals.sql` | per-animal series: first and last weighing, span, overall rate, current park / shed / partition |
+| `sql/animals.sql` | per-animal series: first and last weighing, span, overall rate, current park / shed / partition / **stage** |
 | `sql/shedlevel.sql` | whole-shed readings — per shed-day aggregate weight, 146 rows |
 
 **Shed and partition are normalised in `animals.sql` and `shedlevel.sql` only.** There,
@@ -178,7 +178,8 @@ reverse. There are two programs, and neither runs these sections in sequence.
 `recovery_after_care` (5a) → `normal_growth` (5e).
 
 `shed_figure_copied` is in neither list: it is an overlay applied after both programs, and it
-beats every code above (§11).
+beats every code above (§11). The shed-tag rules in §5a0 are tested immediately before the
+joined-record rules in §5a, on both paths.
 
 Three consequences worth stating plainly:
 
@@ -193,6 +194,28 @@ Three consequences worth stating plainly:
   reasoning and is an open decision, not a settled one.
 - **`recovery_after_care` (5a) runs after the 5d growth ceilings.** Nine gains whose shifting
   record names care are filed `above_growth_ceiling` (6) or `implausible_gain` (3) instead.
+
+### 5a0. Rules grounded in the shed tag
+
+`shed_tag` on every weighing row carries the animal's management stage, and it changes
+between weighings. It is the strongest evidence on this page because it is recorded per
+weighing, by the same person doing the weighing, rather than joined from another system.
+
+Values present: `K1` `K2` `K3` `K4` `F1` `F2` (the growing ladder — note **K0 does not exist
+in this data and K4 does**), plus `ICU`, `PREGNANT`, `NON-PREGNANT`, `MILKING`, `FLUSHING`,
+`BUCKS`, `MOTHER`, `MIXED`.
+
+| Rule | Fires when | Confidence |
+|---|---|---|
+| `icu_stay` | either weighing carries the `ICU` tag — the animal was under care across this window. **224 changes involve ICU**; the tag moves `K4 → ICU` on the way in and `ICU → K4` on the way out | 0.9 |
+| `icu_recovery` | the earlier weighing was `ICU` and the later one is not, and the gain is under the hard ceiling — catch-up after recovery | 0.9 |
+| `stage_move` | the tag moved between two stages on the growing ladder. **448 changes.** A stage move changes the ration, and at weaning removes milk | 0.85 / 0.8 |
+| `kidded_by_tag` | the tag moved off `PREGNANT` or `MOTHER` onto `NON-PREGNANT`, `MILKING` or `F2` | 0.85 |
+| `lactation` | either weighing carries `MILKING` | 0.8 |
+
+These rules were added after the shed tag was noticed. Before them, an ICU stay — the exact
+scenario this page was asked to explain — had no rule at all and fell through to
+`no_recorded_cause` or `implausible_rate`.
 
 ### 5a. Rules grounded in a joined record
 
