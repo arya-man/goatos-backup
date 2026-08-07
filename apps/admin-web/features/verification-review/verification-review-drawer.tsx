@@ -23,6 +23,13 @@ import { submitVerificationReviewEvents } from "./review-events-server";
    then a lazy per-park load; now that the picker is not on this screen, the verifier's queue does
    not read the roster at all. One less read on a screen with a sub-500ms budget. */
 
+// The open class must never depend on ONE animation frame landing. A busy or backgrounded tab can
+// skip it, and this component's own effect cleanup cancels it whenever syncFromUrl changes identity
+// -- leaving a mounted drawer parked off-screen behind its scrim: shade visible, no panel. A timer
+// races the frame, and whichever lands first wins. Same remedy as b76a7c1dd applied to the shared
+// hook and the Action Center drawer; THIS drawer keeps a private copy of the logic and was missed.
+const OPEN_FALLBACK_MS = 50;
+
 const PATHNAME = "/actions";
 
 function renderLabelOrFallback(label: string | null | undefined): string {
@@ -63,6 +70,7 @@ export function VerificationReviewDrawer({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const openFrameRef = useRef<number | null>(null);
+  const openFallbackRef = useRef<number | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const item = items.find((candidate) => candidate.item_id === displayedId);
   const drawerOpen = Boolean(activeId && item);
@@ -76,14 +84,20 @@ export function VerificationReviewDrawer({
     if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
     const id = new URL(window.location.href).searchParams.get("vi_row") ?? undefined;
     const selected = items.find((candidate) => candidate.item_id === id);
+    if (openFallbackRef.current !== null) window.clearTimeout(openFallbackRef.current);
     if (selected) {
       triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setActiveId(undefined);
       setDisplayedId(selected.item_id);
-      openFrameRef.current = window.requestAnimationFrame(() => {
-        setActiveId(selected.item_id);
+      const open = (): void => {
+        if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+        if (openFallbackRef.current !== null) window.clearTimeout(openFallbackRef.current);
         openFrameRef.current = null;
-      });
+        openFallbackRef.current = null;
+        setActiveId(selected.item_id);
+      };
+      openFrameRef.current = window.requestAnimationFrame(open);
+      openFallbackRef.current = window.setTimeout(open, OPEN_FALLBACK_MS);
       return;
     }
     setActiveId(undefined);
@@ -101,6 +115,7 @@ export function VerificationReviewDrawer({
       window.removeEventListener(LOCAL_OVERLAY_URL_CHANGE_EVENT, syncFromUrl);
       window.removeEventListener("popstate", syncFromUrl);
       if (openFrameRef.current !== null) window.cancelAnimationFrame(openFrameRef.current);
+      if (openFallbackRef.current !== null) window.clearTimeout(openFallbackRef.current);
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current);
     };
   }, [syncFromUrl]);
