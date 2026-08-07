@@ -30,6 +30,7 @@ export async function VerificationReviewPage({
   const shedId = one(sp, "shed_id")?.trim();
   const scope = parseScope(sp);
   const selectedId = one(sp, "vi_row");
+  const trail = decodeTrail(one(sp, "vi_trail"));
 
   // ONE read on the critical path. The staff roster the re-assign picker offers used to be fetched
   // here too -- listStaffPositions with limit 500, awaited alongside the queue on every load -- for
@@ -133,7 +134,7 @@ export async function VerificationReviewPage({
         {sheds.length ? (
           <div className="vr-frow">
             <form action={PATHNAME} style={{ display: "contents" }}>
-              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "va_status", "va_code"])}
+              {hiddenInputs(sp, ["category", "shed_id", "vi_row", "vi_cursor", "vi_trail", "va_status", "va_code"])}
               {/* Carries the sidebar's scope through the submit; without it, filtering by shed
                   would silently widen the queue back to every module. */}
               {category ? <input type="hidden" name="category" value={category} /> : null}
@@ -157,7 +158,7 @@ export async function VerificationReviewPage({
                 filter the verifier set here. Clearing it stranded her on every module's queue at
                 once while the nav still highlighted the one she had picked. */}
             <Link
-              href={hrefWith(sp, { shed_id: null, status: null, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
+              href={hrefWith(sp, { shed_id: null, status: null, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null })}
               replace
               scroll={false}
               className="lk small"
@@ -172,7 +173,7 @@ export async function VerificationReviewPage({
             {statusOptionsWithStatus.map((option) => (
               <Link
                 key={option.key}
-                href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, va_status: null, va_code: null })}
+                href={hrefWith(sp, { status: option.status, vi_row: null, vi_cursor: null, vi_trail: null, va_status: null, va_code: null })}
                 replace
                 scroll={false}
                 className={`vr-lg${status === option.status ? " on" : ""}`}
@@ -224,11 +225,55 @@ export async function VerificationReviewPage({
           </table>
         </div>
 
-        {queue.ok && queue.data.next_cursor ? (
-          <div className="pager" style={{ marginTop: 12 }}>
-            <Link href={hrefWith(sp, { vi_cursor: queue.data.next_cursor, vi_row: null, va_status: null, va_code: null })} className="btn sm" replace scroll={false}>
-              {copy(pageContract, "pagination.next")}
-            </Link>
+        {/* Keyset pagination. The queue read is cursor-based (OFFSET is banned on this path), so
+            there is no page number to jump to and no way to read backwards from a cursor alone.
+            `vi_trail` carries the cursors already consumed, newest last: Next pushes the cursor
+            that produced the CURRENT page, Previous pops it and re-reads with the one beneath. Each
+            direction is therefore a real indexed keyset read.
+
+            Before this the pager was a lone forward link: no way back without the browser button,
+            and no indication of where in the backlog the verifier was -- 33 pending items at 20 a
+            page, with nothing saying which 20 these were. Every label here stays backend-owned
+            (pagination.previous / pagination.position / pagination.next). */}
+        {queue.ok && (queue.data.next_cursor || trail.length) ? (
+          <div className="pager" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10 }}>
+            {trail.length ? (
+              <Link
+                href={hrefWith(sp, {
+                  vi_cursor: trail[trail.length - 1] || null,
+                  vi_trail: encodeTrail(trail.slice(0, -1)),
+                  vi_row: null,
+                  va_status: null,
+                  va_code: null,
+                })}
+                className="btn sm"
+                replace
+                scroll={false}
+              >
+                {copy(pageContract, "pagination.previous")}
+              </Link>
+            ) : null}
+            <span className="small muted">
+              {copy(pageContract, "pagination.position")} {trail.length + 1}
+            </span>
+            {queue.data.next_cursor ? (
+              <Link
+                href={hrefWith(sp, {
+                  vi_cursor: queue.data.next_cursor,
+                  // The cursor that produced THIS page becomes the way back to it. "" is a real
+                  // trail entry (the first page has no cursor) and must survive the round trip.
+                  vi_trail: encodeTrail([...trail, one(sp, "vi_cursor") ?? ""]),
+                  vi_row: null,
+                  va_status: null,
+                  va_code: null,
+                })}
+                className="btn sm"
+                replace
+                scroll={false}
+              >
+                {copy(pageContract, "pagination.next")}
+              </Link>
+            ) : null}
           </div>
         ) : null}
         </section>
@@ -334,4 +379,39 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
     }
     return value ? [<input key={key} type="hidden" name={key} value={value} />] : [];
   });
+}
+
+/**
+ * The cursor trail behind the current page, oldest first.
+ *
+ * Keyset pagination can only read FORWARD from a cursor, so "previous" is served by remembering
+ * the cursors already consumed rather than by an OFFSET jump. Entries are URL-encoded and joined
+ * with "~", a character the base64url cursors the backend issues never contain, so a cursor can
+ * never be split in half by the delimiter.
+ *
+ * The empty string is a legitimate entry: it is the first page, which is read with no cursor at
+ * all. Dropping it would make Previous skip page one.
+ *
+ * Bounded at MAX_TRAIL: a verifier walking a long backlog must not grow an unbounded URL. Past
+ * that the oldest entries are dropped, so Previous still walks back through the recent pages and
+ * simply cannot reach the very first one -- the status pills reset the queue for that.
+ */
+const MAX_TRAIL = 40;
+
+function decodeTrail(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split("~").map((entry) => {
+    try {
+      return decodeURIComponent(entry);
+    } catch {
+      // A hand-edited or truncated URL must not throw the whole page; treat it as the first page.
+      return "";
+    }
+  });
+}
+
+function encodeTrail(trail: string[]): string | null {
+  const bounded = trail.slice(-MAX_TRAIL);
+  if (!bounded.length) return null;
+  return bounded.map((entry) => encodeURIComponent(entry)).join("~");
 }

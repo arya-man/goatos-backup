@@ -998,7 +998,13 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.open_details":           "Details",
 			"action.close":                  "Close",
 			"action.open_audit_log":         "Open Audit Log",
+			// Keyset pagination, so there is no page NUMBER the backend can hand out and no
+			// OFFSET to jump with (docs/decisions/scale-anti-patterns.md bans OFFSET here). The
+			// client walks forward on next_cursor and back down a trail of the cursors it has
+			// already used, so "previous" is a real keyset read, not an offset.
 			"pagination.next":               "Next page",
+			"pagination.previous":           "Previous page",
+			"pagination.position":           "Page",
 			"state.queue_unavailable":       "Actions are unavailable",
 			"state.queue_unavailable_body":  "The verification queue could not be loaded from the backend.",
 			"state.empty":                   "No actions match the selected action type, status, park, and date.",
