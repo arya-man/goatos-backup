@@ -288,8 +288,8 @@ func (s *Service) enqueueBirthWorkflowIfReady(ctx context.Context, tenantID, wor
 	return s.enqueuer.EnqueueBirthEvidenceVerification(ctx, BirthVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
 		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
-		SubjectLabel: appendLocation(subject+" birth evidence · "+review.EventDate, shedName, partitionLabel),
-		CapturedAt: s.now().UTC(),
+		SubjectLabel:   appendLocation(subject+" birth evidence · "+review.EventDate, shedName, partitionLabel),
+		CapturedAt:     s.now().UTC(),
 		IdempotencyKey: birthEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
 	})
 }

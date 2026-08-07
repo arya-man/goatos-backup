@@ -113,16 +113,16 @@ func (r *Repository) CompleteShiftingEvent(
 			destShedName = shedName
 		}
 		return domain.ShiftingExecutionResult{
-			ShiftingEventID:             in.ShiftingEventID,
-			EventStatus:                 current.EventStatus,
-			DestinationParkID:           destParkID,
-			DestinationShedID:           destShedID,
-			DestinationShedName:         destShedName,
-			DestinationPartitionLabel:   derefOrEmpty(current.DestinationPartitionLabel),
-			MovedGoatIDs:                goatIDs,
-			RaiseComment:                current.RaiseComment,
-			AppliedAt:                   current.AppliedAt,
-			AppliedBy:                   current.AppliedBy,
+			ShiftingEventID:           in.ShiftingEventID,
+			EventStatus:               current.EventStatus,
+			DestinationParkID:         destParkID,
+			DestinationShedID:         destShedID,
+			DestinationShedName:       destShedName,
+			DestinationPartitionLabel: derefOrEmpty(current.DestinationPartitionLabel),
+			MovedGoatIDs:              goatIDs,
+			RaiseComment:              current.RaiseComment,
+			AppliedAt:                 current.AppliedAt,
+			AppliedBy:                 current.AppliedBy,
 		}, true, nil
 	}
 
@@ -229,14 +229,14 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 	}
 
 	return domain.ShiftingExecutionResult{
-		ShiftingEventID:             in.ShiftingEventID,
-		EventStatus:                 updated.EventStatus,
-		DestinationParkID:           destParkID,
-		DestinationShedID:           destShedID,
-		DestinationShedName:         destShedName,
-		DestinationPartitionLabel:   derefOrEmpty(updated.DestinationPartitionLabel),
-		MovedGoatIDs:                goatIDs,
-		RaiseComment:                current.RaiseComment,
+		ShiftingEventID:           in.ShiftingEventID,
+		EventStatus:               updated.EventStatus,
+		DestinationParkID:         destParkID,
+		DestinationShedID:         destShedID,
+		DestinationShedName:       destShedName,
+		DestinationPartitionLabel: derefOrEmpty(updated.DestinationPartitionLabel),
+		MovedGoatIDs:              goatIDs,
+		RaiseComment:              current.RaiseComment,
 	}, false, nil
 }
 
@@ -645,17 +645,17 @@ RETURNING applied_at, applied_by::text`, tenantID, shiftingEventID, appliedAt.UT
 		srcShed = *sourceShedID
 	}
 	return domain.ShiftingExecutionResult{
-		ShiftingEventID:             shiftingEventID,
-		EventStatus:                 domain.ShiftingEventStatusApplied,
-		SourceParkID:                srcPark,
-		SourceShedID:                srcShed,
-		DestinationParkID:           destParkID,
-		DestinationShedID:           destShedID,
-		DestinationShedName:         destShedName,
-		DestinationPartitionLabel:   derefOrEmpty(current.DestinationPartitionLabel),
-		MovedGoatIDs:                moved.MovedGoatIDs,
-		AppliedAt:                   &stampedAt,
-		AppliedBy:                   &stampedBy,
+		ShiftingEventID:           shiftingEventID,
+		EventStatus:               domain.ShiftingEventStatusApplied,
+		SourceParkID:              srcPark,
+		SourceShedID:              srcShed,
+		DestinationParkID:         destParkID,
+		DestinationShedID:         destShedID,
+		DestinationShedName:       destShedName,
+		DestinationPartitionLabel: derefOrEmpty(current.DestinationPartitionLabel),
+		MovedGoatIDs:              moved.MovedGoatIDs,
+		AppliedAt:                 &stampedAt,
+		AppliedBy:                 &stampedBy,
 	}, nil
 }
 
