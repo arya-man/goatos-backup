@@ -282,3 +282,98 @@ func TestShedWeightsDateShiftHonoursHalfOpenWindow(t *testing.T) {
 		}
 	}
 }
+
+const (
+	shedWeightsCampaignFourWeek  = "00000000-0000-4000-8000-00000000b001"
+	shedWeightsScopeFourWeek     = "00000000-0000-4000-8000-00000000b101"
+	shedWeightsCampaignShortSpan = "00000000-0000-4000-8000-00000000b002"
+	shedWeightsScopeShortSpan    = "00000000-0000-4000-8000-00000000b102"
+)
+
+func seedShedWeightsCampaign(t *testing.T, ctx context.Context, pool *pgxpool.Pool, campaignID, start string) {
+	t.Helper()
+	execWeighingTestSQL(t, ctx, pool, `
+INSERT INTO weighing_campaigns (campaign_id, tenant_id, park_id, period_start_date, period_end_date, start_business_date, status, planned_cap_per_day, operator_user_id, created_by)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4::date, $4::date + 6, $4::date, 'published', 100, $5::uuid, $5::uuid)
+ON CONFLICT (campaign_id) DO NOTHING`, campaignID, repoTenant, repoPark, start, repoOperator)
+}
+
+// FOUR-WEEK BASELINE. A whole-shed row must not use the immediately previous
+// weigh when a proper four-week baseline exists. Castro-style data has 3 Aug as
+// latest, 29 Jul as the previous row, and 6 Jul exactly four weeks earlier; the
+// dashboard must render the 6 Jul -> 3 Aug rate.
+func TestShedWeightsFourWeekGainOneToManyPageBoundaryParkScopeStatusMatrixUsesBaselineNotPreviousEntry(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedLoadSecondCampaign(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignFourWeek, "2026-07-29")
+	repo := NewRepository(pool, 5*time.Second)
+
+	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 24.53125, 64,
+		time.Date(2026, 7, 6, 6, 0, 0, 0, time.UTC))
+	seedLoadBucket(t, ctx, pool, shedWeightsScopeFourWeek, shedWeightsCampaignFourWeek, repoPerShed, "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, shedWeightsScopeFourWeek, shedWeightsCampaignFourWeek, repoShedProof, 29.21875, 64,
+		time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
+		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, row := range out.Rows {
+		if row.LocationID != repoPerShed {
+			continue
+		}
+		if row.ShedAverageGainGPerDay == nil {
+			t.Fatal("four-week baseline must produce a gain")
+		}
+		if got := fmt.Sprintf("%.1f", *row.ShedAverageGainGPerDay); got != "223.7" {
+			t.Fatalf("gain must use 6 Jul -> 3 Aug, not 29 Jul -> 3 Aug: got %s g/day", got)
+		}
+		if row.GainSpanDays != 28 {
+			t.Fatalf("span must be 28 days, got %d", row.GainSpanDays)
+		}
+		return
+	}
+	t.Fatal("expected the per-shed row")
+}
+
+// NO SHORT-SPAN FALLBACK. If the only older row is a few days before latest, the
+// 4-week ADG is unknown. Returning last-two here would show a plausible but wrong
+// short-interval number on a card labelled as four-week growth.
+func TestShedWeightsGainDoesNotFallbackToTooRecentPreviousEntry(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	seedShedWeightsCampaign(t, ctx, pool, shedWeightsCampaignShortSpan, "2026-07-29")
+	repo := NewRepository(pool, 5*time.Second)
+
+	seedLoadBucket(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoPerShed, "per_shed_partition")
+	seedLoadLumpWeigh(t, ctx, pool, shedWeightsScopeShortSpan, shedWeightsCampaignShortSpan, repoShedProofTwo, 29.21875, 64,
+		time.Date(2026, 7, 29, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, repoShedScope, repoCampaign, repoShedProof, 30.793650793650794, 63,
+		time.Date(2026, 8, 3, 6, 0, 0, 0, time.UTC))
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	for _, row := range out.Rows {
+		if row.LocationID != repoPerShed {
+			continue
+		}
+		if row.ShedAverageGainGPerDay != nil {
+			t.Fatalf("short-span previous row must not produce 4-week ADG, got %.1f", *row.ShedAverageGainGPerDay)
+		}
+		return
+	}
+	t.Fatal("expected the per-shed row")
+}

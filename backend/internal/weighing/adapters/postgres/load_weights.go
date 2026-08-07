@@ -72,7 +72,7 @@ lump_daily AS (
    AND o.tenant_id        = s.tenant_id
    AND o.withdrawn_at IS NULL
    AND o.verification_status <> 'rejected'
-   AND o.accepted_at >= $3::timestamptz
+   AND o.accepted_at >= $3::timestamptz - interval '35 days'
    AND o.accepted_at <  $4::timestamptz
   WHERE s.weighing_category = 'per_shed_partition'
 ),
@@ -97,7 +97,7 @@ ind_daily AS (
            o.weight_kg
     FROM weighing_observations o
     WHERE o.tenant_id = $1::uuid
-      AND o.accepted_at >= $3::timestamptz
+      AND o.accepted_at >= $3::timestamptz - interval '35 days'
       AND o.accepted_at <  $4::timestamptz
       -- A rejected proof is not a real weight. Pending IS included: an unverified
       -- weight is still a measurement, matching shed_weights.go and growth.go.
@@ -136,20 +136,30 @@ ranked AS (
   FROM daily
 ),
 shed_latest AS (
-  SELECT location_id, avg_kg, animals FROM ranked WHERE rn = 1
+  SELECT location_id, avg_kg, animals
+  FROM ranked
+  WHERE rn = 1
+    AND d >= ($3::timestamptz AT TIME ZONE 'Asia/Kolkata')::date
 ),
 shed_gain AS (
-  -- LAST TWO WEIGHS and the days between them, matching the shed chart and the
-  -- legacy dashboard's adg_goat_last2. A full-span figure averages away the present:
-  -- a shed that stalled last week still reads well if it grew a month ago.
-  SELECT location_id,
-         (max(avg_kg) FILTER (WHERE rn = 1) - max(avg_kg) FILTER (WHERE rn = 2)) * 1000.0
-           / NULLIF(max(d) FILTER (WHERE rn = 1) - max(d) FILTER (WHERE rn = 2), 0) AS g_per_day,
-         max(d) FILTER (WHERE rn = 1) - max(d) FILTER (WHERE rn = 2)                AS span_days
-  FROM ranked
-  WHERE rn <= 2
-  GROUP BY location_id
-  HAVING count(*) = 2
+  -- Four-week movement matching the shed chart: latest weigh against the weigh
+  -- closest to 28 days earlier, with weekly tolerance and no too-recent last-row
+  -- fallback.
+  SELECT latest.location_id,
+         (latest.avg_kg - baseline.avg_kg) * 1000.0
+           / NULLIF(latest.d - baseline.d, 0) AS g_per_day,
+         latest.d - baseline.d                AS span_days
+  FROM ranked latest
+  JOIN LATERAL (
+    SELECT avg_kg, d
+    FROM daily baseline
+    WHERE baseline.location_id = latest.location_id
+      AND baseline.d < latest.d
+      AND abs(baseline.d - (latest.d - 28)) <= 7
+    ORDER BY abs(baseline.d - (latest.d - 28)), baseline.d DESC
+    LIMIT 1
+  ) baseline ON true
+  WHERE latest.rn = 1
 ),
 tag AS (
   -- EXACTLY ONE load per shed, or the shed is not attributed at all. See the
