@@ -404,6 +404,21 @@ func (h *Handler) resolveVerifierCategories(w nethttp.ResponseWriter, r *nethttp
 		// CEO/CxO has unrestricted access; no category filtering needed
 		return nil, true
 	}
+	// A principal who cannot cast a VERDICT is not a verifier, and the module-duty scoping below
+	// exists to keep ONE verifier inside the modules he is on duty for. Gating an oversight READ
+	// on verify duties denies the queue to leadership entirely: the PC Director has no
+	// position_module_duties row, so this returned 403 "verifier is not assigned to any module"
+	// for a role whose whole job is to watch that module (observed on-device 2026-08-08, once the
+	// missing verification.review grant was fixed and the request finally reached this gate).
+	//
+	// This restores the behaviour the function's own doc describes -- "when the principal is NOT a
+	// verifier ... unrestricted view" -- which was implemented as a check for the CEO ROLE rather
+	// than for the absence of the verdict PERMISSION, so every other leadership role fell through
+	// into the verifier path. Read-only: casting a verdict is separately gated on
+	// VerificationVerdict, which these principals do not hold.
+	if !grantsAuthorize(grants, permissions.VerificationVerdict) {
+		return nil, true
+	}
 
 	// If a specific category is provided, validate it
 	if category != "" {
@@ -830,4 +845,17 @@ func unknownJSONField(err error) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(msg[idx+len(marker):]), true
+}
+
+// grantsAuthorize reports whether any active grant's role carries the permission. It is the
+// permission-space counterpart to hasTenantWideRole: scoping decisions that mean "is this a
+// verifier?" must key on the CAPABILITY, not on one named role, or every role added later
+// silently takes the wrong branch.
+func grantsAuthorize(grants []permissions.ActiveGrant, permission string) bool {
+	for _, grant := range grants {
+		if permissions.RoleHasPermission(grant.Role, permission) {
+			return true
+		}
+	}
+	return false
 }
