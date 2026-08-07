@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/md5"
 	"fmt"
 	"testing"
 	"time"
@@ -13,16 +14,15 @@ import (
 )
 
 const (
-	cmdBoardTestTenant = "00000000-0000-4000-8000-000000000001"
-	cmdBoardPark1      = "70000000-0000-4000-8000-000001000001"
-	cmdBoardPark2      = "70000000-0000-4000-8000-000001000002"
-	cmdBoardShed1      = "70000000-0000-4000-8000-000002000001"
-	cmdBoardShed2      = "70000000-0000-4000-8000-000002000002"
-	cmdBoardGoat1      = "70000000-0000-4000-8000-000003000001"
-	cmdBoardGoat2      = "70000000-0000-4000-8000-000003000002"
-	cmdBoardGoat3      = "70000000-0000-4000-8000-000003000003"
-	cmdBoardBatch1     = "70000000-0000-4000-8000-000004000001"
-	cmdBoardBatch2     = "70000000-0000-4000-8000-000004000002"
+	cmdBoardPark1 = "70000000-0000-4000-8000-000001000001"
+	cmdBoardPark2 = "70000000-0000-4000-8000-000001000002"
+	cmdBoardShed1 = "70000000-0000-4000-8000-000002000001"
+	cmdBoardShed2 = "70000000-0000-4000-8000-000002000002"
+	cmdBoardGoat1 = "70000000-0000-4000-8000-000003000001"
+	cmdBoardGoat2 = "70000000-0000-4000-8000-000003000002"
+	cmdBoardGoat3 = "70000000-0000-4000-8000-000003000003"
+	cmdBoardBatch1 = "70000000-0000-4000-8000-000004000001"
+	cmdBoardBatch2 = "70000000-0000-4000-8000-000004000002"
 	// protocol_rules.rule_id is a uuid column and dose_code is NOT NULL, so the rule fixtures
 	// carry both. The dose codes are what the display mapper turns into the dose-qualified
 	// labels the board renders.
@@ -32,83 +32,97 @@ const (
 	cmdBoardDoseCodePPR = "ppr_adult"
 )
 
-func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+// deriveTenantID generates a stable, unique tenant ID from the test name to isolate fixture data.
+// Each test gets its own tenant to avoid parallel-execution collisions on the tenants_pkey constraint.
+func deriveTenantID(testName string) string {
+	// Hash the test name to a deterministic 16-byte value
+	hash := md5.Sum([]byte(testName))
+	// Format as UUID v4: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (8-4-4-4-12 hex digits)
+	return fmt.Sprintf("%08x-%04x-4%03x-%04x-%012x",
+		(uint32(hash[0])<<24)|(uint32(hash[1])<<16)|(uint32(hash[2])<<8)|uint32(hash[3]),
+		(uint16(hash[4])<<8)|uint16(hash[5]),
+		(uint16(hash[6])&0x0fff),
+		((uint16(hash[8])&0x3f)|0x80)<<8|uint16(hash[9]),
+		(uint64(hash[10])<<40)|(uint64(hash[11])<<32)|(uint64(hash[12])<<24)|(uint64(hash[13])<<16)|(uint64(hash[14])<<8)|uint64(hash[15]))
+}
+
+func seedCommandBoardProjection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tenantID string) {
 	// Tenant
 	execProjectionSQL(t, ctx, pool, "tenant",
 		`INSERT INTO tenants (tenant_id, name, status) VALUES ($1, 'Test Org', 'active')`,
-		cmdBoardTestTenant)
+		tenantID)
 
 	// Parks
 	execProjectionSQL(t, ctx, pool, "park 1",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
 		 VALUES ($1, $2, 'Park A', 'park', NULL, 'active')`,
-		cmdBoardPark1, cmdBoardTestTenant)
+		cmdBoardPark1, tenantID)
 	execProjectionSQL(t, ctx, pool, "park 2",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
 		 VALUES ($1, $2, 'Park B', 'park', NULL, 'active')`,
-		cmdBoardPark2, cmdBoardTestTenant)
+		cmdBoardPark2, tenantID)
 
 	// Sheds
 	execProjectionSQL(t, ctx, pool, "shed 1 in park 1",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
 		 VALUES ($1, $2, 'Shed 1', 'shed', $3, 'active')`,
-		cmdBoardShed1, cmdBoardTestTenant, cmdBoardPark1)
+		cmdBoardShed1, tenantID, cmdBoardPark1)
 	execProjectionSQL(t, ctx, pool, "shed 2 in park 2",
 		`INSERT INTO locations (location_id, tenant_id, name, location_type, parent_id, status)
 		 VALUES ($1, $2, 'Shed 2', 'shed', $3, 'active')`,
-		cmdBoardShed2, cmdBoardTestTenant, cmdBoardPark2)
+		cmdBoardShed2, tenantID, cmdBoardPark2)
 
 	// Management stage and animal_stage_lookup
 	execProjectionSQL(t, ctx, pool, "management stage",
 		`INSERT INTO management_stages (management_stage_id, tenant_id, code, name)
 		 VALUES ('70000000-0000-4000-8000-000005000001', $1, 'K1', 'K1 kids')`,
-		cmdBoardTestTenant)
+		tenantID)
 	execProjectionSQL(t, ctx, pool, "animal stage lookup",
 		`INSERT INTO animal_stage_lookup (tenant_id, stage_code, display_name)
 		 VALUES ($1, 'K1', 'K1 kids')`,
-		cmdBoardTestTenant)
+		tenantID)
 
 	// Goats
 	execProjectionSQL(t, ctx, pool, "goat 1 in shed 1",
 		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
 		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-01')`,
-		cmdBoardGoat1, cmdBoardTestTenant, cmdBoardShed1)
+		cmdBoardGoat1, tenantID, cmdBoardShed1)
 	execProjectionSQL(t, ctx, pool, "goat 2 in shed 1",
 		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
 		 VALUES ($1, $2, 'F', 'active', 'K1', $3, '2025-01-02')`,
-		cmdBoardGoat2, cmdBoardTestTenant, cmdBoardShed1)
+		cmdBoardGoat2, tenantID, cmdBoardShed1)
 	execProjectionSQL(t, ctx, pool, "goat 3 in shed 2",
 		`INSERT INTO goats (goat_id, tenant_id, sex, lifecycle_status, management_stage, shed_id, dob)
 		 VALUES ($1, $2, 'M', 'active', 'K1', $3, '2025-01-03')`,
-		cmdBoardGoat3, cmdBoardTestTenant, cmdBoardShed2)
+		cmdBoardGoat3, tenantID, cmdBoardShed2)
 
 	// Protocol and rules
 	execProjectionSQL(t, ctx, pool, "protocol",
 		`INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, rule_dsl, status, published_at)
 		 VALUES ('70000000-0000-4000-8000-000006000001', $1, '70000000-0000-4000-8000-000006000000', '{}', 'published', now())`,
-		cmdBoardTestTenant)
+		tenantID)
 
 	// ET rule
 	execProjectionSQL(t, ctx, pool, "ET rule",
 		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, vaccine_labels, eligibility_dsl)
 		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', $3, ARRAY['ET+TT'], '{}')`,
-		cmdBoardRuleET, cmdBoardTestTenant, cmdBoardDoseCodeET)
+		cmdBoardRuleET, tenantID, cmdBoardDoseCodeET)
 
 	// PPR rule
 	execProjectionSQL(t, ctx, pool, "PPR rule",
 		`INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, vaccine_labels, eligibility_dsl)
 		 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', $3, ARRAY['PPR'], '{}')`,
-		cmdBoardRulePPR, cmdBoardTestTenant, cmdBoardDoseCodePPR)
+		cmdBoardRulePPR, tenantID, cmdBoardDoseCodePPR)
 
 	// Drive batches
 	execProjectionSQL(t, ctx, pool, "batch 1",
 		`INSERT INTO vaccination_drive_batches (batch_id, tenant_id, planned_date, status)
 		 VALUES ($1, $2, '2026-07-25', 'open')`,
-		cmdBoardBatch1, cmdBoardTestTenant)
+		cmdBoardBatch1, tenantID)
 	execProjectionSQL(t, ctx, pool, "batch 2",
 		`INSERT INTO vaccination_drive_batches (batch_id, tenant_id, planned_date, status)
 		 VALUES ($1, $2, '2026-07-26', 'open')`,
-		cmdBoardBatch2, cmdBoardTestTenant)
+		cmdBoardBatch2, tenantID)
 }
 
 // TestVaccinationCommandBoardOneToManyMultipleDimensions tests that a single goat with multiple
@@ -120,25 +134,26 @@ func TestVaccinationCommandBoardOneToManyMultipleDimensions(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// Create two obligations for goat1: ET and PPR
 	execProjectionSQL(t, ctx, pool, "obligation ET goat1",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000007000001', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
 		asOf.Add(-1*24*time.Hour))
 
 	execProjectionSQL(t, ctx, pool, "obligation PPR goat1",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000007000002', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR,
 		asOf.Add(-1*24*time.Hour))
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:     cmdBoardTestTenant,
+		TenantID:     tenantID,
 		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
@@ -186,7 +201,8 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDateCohortAdminis
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 
 	// Two obligations: due on different dates than administered
 	dueDateEarlier := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)   // Wednesday
@@ -196,17 +212,17 @@ func TestVaccinationCommandBoardDateShiftScheduledDateExecutionDateCohortAdminis
 	execProjectionSQL(t, ctx, pool, "obligation due 7/22",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000008000001', $1, $2, $3, 'shed', $4, $5, 'completed', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
 		dueDateEarlier)
 
 	execProjectionSQL(t, ctx, pool, "completion administered 7/24",
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
 		 VALUES ('70000000-0000-4000-8000-000009000001', $1, $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
-		cmdBoardTestTenant, "70000000-0000-4000-8000-000008000001", adminDateLater)
+		tenantID, "70000000-0000-4000-8000-000008000001", adminDateLater)
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:     cmdBoardTestTenant,
+		TenantID:     tenantID,
 		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
@@ -259,27 +275,28 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// Create obligations in both parks
 	execProjectionSQL(t, ctx, pool, "obligation in park 1 shed",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000010000001', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
 		asOf.Add(-1*24*time.Hour))
 
 	execProjectionSQL(t, ctx, pool, "obligation in park 2 shed",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000010000002', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET,
 		asOf.Add(-1*24*time.Hour))
 
 	repo := NewRepository(pool, 5*time.Second)
 
 	// Query without park filter: should get both
 	respAll, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:     cmdBoardTestTenant,
+		TenantID:     tenantID,
 		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
@@ -299,7 +316,7 @@ func TestVaccinationCommandBoardParkScopeTenantIsolation(t *testing.T) {
 
 	t.Run("CohortAdministeredRangeParkScope", func(t *testing.T) {
 		respPark, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-			TenantID:     cmdBoardTestTenant,
+			TenantID:     tenantID,
 			AsOf:         asOf,
 			DriveBatchID: stringPtr(cmdBoardBatch1),
 			ParkID:       stringPtr(cmdBoardPark1),
@@ -327,7 +344,8 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// Create obligations in different states:
@@ -335,43 +353,43 @@ func TestVaccinationCommandBoardStatusMatrixEveryStatusStatusBuckets(t *testing.
 	execProjectionSQL(t, ctx, pool, "obligation verified",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000011000001', $1, $2, $3, 'shed', $4, $5, 'completed', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
 		asOf.Add(-2*24*time.Hour))
 	execProjectionSQL(t, ctx, pool, "completion verified",
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
 		 VALUES ('70000000-0000-4000-8000-000012000001', $1, $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
-		cmdBoardTestTenant, "70000000-0000-4000-8000-000011000001",
+		tenantID, "70000000-0000-4000-8000-000011000001",
 		asOf.Add(-2*24*time.Hour))
 
 	// 2. Awaiting verification (recorded + null verified_at)
 	execProjectionSQL(t, ctx, pool, "obligation awaiting",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000011000002', $1, $2, $3, 'shed', $4, $5, 'completed', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET,
+		tenantID, cmdBoardBatch1, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET,
 		asOf.Add(-1*24*time.Hour))
 	execProjectionSQL(t, ctx, pool, "completion awaiting",
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
 		 VALUES ('70000000-0000-4000-8000-000012000002', $1, $2, 'recorded', $3::timestamptz, NULL)`,
-		cmdBoardTestTenant, "70000000-0000-4000-8000-000011000002",
+		tenantID, "70000000-0000-4000-8000-000011000002",
 		asOf.Add(-1*24*time.Hour))
 
 	// 3. Overdue not given (scheduled + due_at < now, no completion)
 	execProjectionSQL(t, ctx, pool, "obligation overdue",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000011000003', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRulePPR,
+		tenantID, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRulePPR,
 		asOf.Add(-3*24*time.Hour))
 
 	// 4. Scheduled future (scheduled + due_at >= now)
 	execProjectionSQL(t, ctx, pool, "obligation scheduled ahead",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-000011000004', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR,
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR,
 		asOf.Add(2*24*time.Hour))
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:     cmdBoardTestTenant,
+		TenantID:     tenantID,
 		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
@@ -442,7 +460,8 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// Create multiple obligations and completions to test ordering stability
@@ -455,18 +474,18 @@ func TestVaccinationCommandBoardPaginationPageBoundaryMultiPage(t *testing.T) {
 		execProjectionSQL(t, ctx, pool, fmt.Sprintf("obligation %d", i),
 			`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 			 VALUES ($1, $2, $3, $4, 'shed', $5, $6, 'completed', $7::timestamptz)`,
-			oblID, cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
+			oblID, tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET,
 			adminDate.Add(-24*time.Hour))
 
 		execProjectionSQL(t, ctx, pool, fmt.Sprintf("completion %d", i),
 			`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, status, administered_at, verified_at)
 			 VALUES ($1, $2, $3, 'recorded', $4::timestamptz, NULL)`,
-			complID, cmdBoardTestTenant, oblID, adminDate)
+			complID, tenantID, oblID, adminDate)
 	}
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID:     cmdBoardTestTenant,
+		TenantID:     tenantID,
 		AsOf:         asOf,
 		DriveBatchID: stringPtr(cmdBoardBatch1),
 	})
@@ -943,7 +962,8 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	const (
@@ -967,7 +987,7 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		execProjectionSQL(t, ctx, pool, "obligation batch "+b.id,
 			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, window_start, window_end)
 			 VALUES ($1, $2, '70000000-0000-4000-8000-000006000001', 'shed', $3, $4, $5::date, $5::timestamptz, $6::timestamptz)`,
-			b.id, cmdBoardTestTenant, b.scopeID, b.status, b.windowStart, b.windowEnd)
+			b.id, tenantID, b.scopeID, b.status, b.windowStart, b.windowEnd)
 	}
 
 	// The early park-1 batch carries FOUR obligations: two vaccines × two goats. If the
@@ -980,23 +1000,23 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 				`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 				 VALUES ($1, $2, $3, $4, 'shed', $5, $6, 'scheduled', $7::timestamptz)`,
 				fmt.Sprintf("70000000-0000-4000-8000-00000a00000%d", obligationID),
-				cmdBoardTestTenant, obBatchEarly, goat, cmdBoardShed1, rule, asOf)
+				tenantID, obBatchEarly, goat, cmdBoardShed1, rule, asOf)
 		}
 	}
 	execProjectionSQL(t, ctx, pool, "drive-option obligation late",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000010', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, obBatchLate, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+		tenantID, obBatchLate, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
 	execProjectionSQL(t, ctx, pool, "drive-option obligation park2",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000011', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, obBatchPark2, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
+		tenantID, obBatchPark2, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
 
 	repo := NewRepository(pool, 5*time.Second)
 
 	// Park 1 scope: the park-2 batch must not appear, and the four-obligation batch appears once.
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID: cmdBoardTestTenant,
+		TenantID: tenantID,
 		AsOf:     asOf,
 		ParkID:   stringPtr(cmdBoardPark1),
 	})
@@ -1062,7 +1082,7 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 
 	// Park 2 scope sees only its own batch — scope narrows both ways.
 	park2Resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID: cmdBoardTestTenant,
+		TenantID: tenantID,
 		AsOf:     asOf,
 		ParkID:   stringPtr(cmdBoardPark2),
 	})
@@ -1087,7 +1107,8 @@ func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucke
 	pool := pgtest.StartPostgres(t, ctx)
 	defer pool.Close()
 
-	seedCommandBoardProjection(t, ctx, pool)
+	tenantID := deriveTenantID(t.Name())
+	seedCommandBoardProjection(t, ctx, pool, tenantID)
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	// goat1+goat2 sit in shed1 (park 1); goat3 sits in shed2 (park 2). All share stage K1, so a
@@ -1095,30 +1116,30 @@ func TestVaccinationCommandBoardCohortFarmwiseScopeHierarchyOneToManyStatusBucke
 	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat1",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000b000001', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
 	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat2 accepted",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000b000002', $1, $2, $3, 'shed', $4, $5, 'completed', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET, asOf)
+		tenantID, cmdBoardBatch1, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET, asOf)
 	// A second vaccine on goat1 — the animal count must stay 1 for this cohort, not 2.
 	execProjectionSQL(t, ctx, pool, "cohort farm obligation park1 goat1 second vaccine",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000b000003', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR, asOf)
+		tenantID, cmdBoardBatch1, cmdBoardGoat1, cmdBoardShed1, cmdBoardRulePPR, asOf)
 	execProjectionSQL(t, ctx, pool, "cohort farm obligation park2 goat3",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000b000004', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
+		tenantID, cmdBoardBatch1, cmdBoardGoat3, cmdBoardShed2, cmdBoardRuleET, asOf)
 
 	// goat2's ET dose is verifier-accepted, so it must land in verified and NOT in pending.
 	execProjectionSQL(t, ctx, pool, "cohort farm accepted completion",
 		`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at)
 		 VALUES ('70000000-0000-4000-8000-00000c000001', $1, '70000000-0000-4000-8000-00000b000002', $2, 'accepted', $3::timestamptz, $3::timestamptz)`,
-		cmdBoardTestTenant, cmdBoardGoat2, asOf)
+		tenantID, cmdBoardGoat2, asOf)
 
 	repo := NewRepository(pool, 5*time.Second)
 	resp, err := repo.VaccinationCommandBoard(ctx, domain.CommandBoardQuery{
-		TenantID: cmdBoardTestTenant,
+		TenantID: tenantID,
 		AsOf:     asOf,
 	})
 	if err != nil {
