@@ -273,6 +273,8 @@ func (a *Assistant) ask(ctx context.Context, q domain.Question, opts askOptions)
 	// and by how much (e.g. "155% of capacity").
 	plan.SubQuestions = ensureUtilizationForOverload(q.Text, plan.SubQuestions)
 
+	normalizeVaccinationIntent(q.Text, plan.SubQuestions)
+
 	// Thread the resolved as-of business instant into every sub-question's
 	// params (P1-4). Question.AsOf was already resolved above but previously
 	// stopped at the top of the pipeline — SubQuestion/executor signatures
@@ -512,6 +514,37 @@ func ensureUtilizationForOverload(questionText string, subs []domain.SubQuestion
 		ToolName:    "operator_vaccination_utilization",
 		Params:      map[string]any{"group_by": "operator_label"},
 	})
+}
+
+var missedVaccinationIntent = regexp.MustCompile(`(?i)(missed|missing|not\s+done|not\s+vaccinated).{0,60}(vaccine|vaccination|vaccinat|shot|dose)|(vaccine|vaccination|vaccinat|shot|dose).{0,60}(missed|missing|not\s+done|not\s+vaccinated)`)
+
+func normalizeVaccinationIntent(questionText string, subs []domain.SubQuestion) {
+	low := strings.ToLower(questionText)
+	wantsMissed := missedVaccinationIntent.MatchString(questionText)
+	wantsOverdue := wantsMissed || strings.Contains(low, "overdue") || strings.Contains(low, "behind") || strings.Contains(low, "late")
+	wantsGraph := plotRequested(questionText) || strings.Contains(low, "by shed") || strings.Contains(low, "per shed")
+	wantsHowMany := strings.Contains(low, "how many") || strings.Contains(low, "count")
+	for i := range subs {
+		if subs[i].ToolName != "vaccination_shed_summary" && subs[i].ToolName != "vaccination_due" &&
+			subs[i].ToolName != "vaccination_due_today" && subs[i].ToolName != "vaccination_overdue" {
+			continue
+		}
+		if subs[i].Params == nil {
+			subs[i].Params = map[string]any{}
+		}
+		if wantsMissed {
+			subs[i].Params["vaccination_intent"] = "missed"
+			subs[i].Params["_fallback_from_tool"] = "vaccination_overdue"
+		} else if wantsOverdue {
+			subs[i].Params["vaccination_intent"] = "overdue"
+			subs[i].Params["_fallback_from_tool"] = "vaccination_overdue"
+		}
+		if wantsGraph {
+			subs[i].Params["group_by"] = "shed_label"
+		} else if wantsHowMany && wantsOverdue {
+			subs[i].Params["aggregate_total"] = "true"
+		}
+	}
 }
 
 func (a *Assistant) strictRecompose(results []domain.ToolResult) string {

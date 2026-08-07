@@ -49,11 +49,13 @@ type fakeExec struct {
 	spec   ports.ToolSpec
 	result domain.ToolResult
 	calls  int
+	last   domain.SubQuestion
 }
 
 func (f *fakeExec) Spec() ports.ToolSpec { return f.spec }
 func (f *fakeExec) Execute(_ context.Context, _ domain.Actor, sub domain.SubQuestion) (domain.ToolResult, error) {
 	f.calls++
+	f.last = sub
 	r := f.result
 	r.Route = domain.RouteAPI
 	r.ToolName = sub.ToolName
@@ -145,6 +147,63 @@ func TestOperationalQuestionRoutesToAPINotCube(t *testing.T) {
 	}
 	if !strings.Contains(ans.Answer, "310") {
 		t.Fatalf("expected 310, got %q", ans.Answer)
+	}
+}
+
+func TestModelPlannedMissedVaccinationAPIReadBecomesAggregateMissedMetric(t *testing.T) {
+	exec := &fakeExec{
+		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
+			{Label: "Vaccinations missed", Value: "0", Scope: "all parks"},
+		}},
+	}
+	reg := NewRegistry(nil, nil, nil)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "vaccination_shed_summary", Route: domain.RouteAPI},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "how many animals missed vaccine"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.last.Params["vaccination_intent"] != "missed" {
+		t.Fatalf("vaccination_intent=%v want missed", exec.last.Params["vaccination_intent"])
+	}
+	if exec.last.Params["aggregate_total"] != "true" {
+		t.Fatalf("aggregate_total=%v want true", exec.last.Params["aggregate_total"])
+	}
+	if strings.Contains(ans.Answer, "could not be retrieved") || !strings.Contains(ans.Answer, "Vaccinations missed") {
+		t.Fatalf("expected clean missed-vaccination answer, got %q", ans.Answer)
+	}
+}
+
+func TestModelPlannedVaccinationGraphAPIReadCarriesShedSeriesIntent(t *testing.T) {
+	exec := &fakeExec{
+		spec: ports.ToolSpec{Name: "vaccination_shed_summary", Route: domain.RouteAPI},
+		result: domain.ToolResult{Surface: "Mesha read API", Facts: []domain.Fact{
+			{Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Gandhi"},
+			{Label: "Vaccinations overdue", Value: "0", Scope: "CBE / Godel 1"},
+		}},
+	}
+	reg := NewRegistry(nil, nil, nil)
+	reg.Register(exec)
+	prov := &fakeProvider{byModel: true, plan: domain.Plan{SubQuestions: []domain.SubQuestion{
+		{ID: "0", ToolName: "vaccination_shed_summary", Route: domain.RouteAPI},
+	}}}
+	a := NewAssistant(Config{}, Deps{Provider: prov, Registry: reg})
+	ans, err := a.Ask(context.Background(), domain.Question{Actor: leadershipActor(), Text: "show vaccination overdue by shed as graph"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exec.last.Params["vaccination_intent"] != "overdue" {
+		t.Fatalf("vaccination_intent=%v want overdue", exec.last.Params["vaccination_intent"])
+	}
+	if exec.last.Params["group_by"] != "shed_label" {
+		t.Fatalf("group_by=%v want shed_label", exec.last.Params["group_by"])
+	}
+	if ans.Chart == nil {
+		t.Fatal("expected normalized API facts to produce a chart")
 	}
 }
 

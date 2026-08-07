@@ -87,10 +87,13 @@ export type CeoAiStreamHandlers = {
   onError?: (message: string, status?: number) => void;
 };
 
+type AskPageScope = { park_id?: string; shed_id?: string };
+
 type AskArgs = {
   question: string;
   conversationId?: string;
   locale?: string;
+  pageScope?: AskPageScope;
   signal?: AbortSignal;
   // No-progress window (ms) after which a slow/unavailable Vertex is degraded
   // instead of hanging forever. The timer is armed before connect and re-armed
@@ -200,6 +203,7 @@ async function readComposed(
       question: args.question,
       conversation_id: args.conversationId,
       locale: args.locale,
+      page_scope: args.pageScope,
       stream: true,
     }),
     signal,

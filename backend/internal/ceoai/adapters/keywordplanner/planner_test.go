@@ -19,11 +19,12 @@ func plan(t *testing.T, text string) domain.Plan {
 
 func TestKPIRoutesToCube(t *testing.T) {
 	cases := map[string]struct{ tool string }{
-		"how many goats do we have":  {"active_animals"},
-		"which sheds are overdue":    {"vaccination_overdue"},
-		"vaccination adherence week": {"vaccination_compliance"},
-		"mortality this month":       {"mortality_rate"},
-		"what is due today":          {"vaccination_due"},
+		"how many goats do we have":       {"active_animals"},
+		"which sheds are overdue":         {"vaccination_overdue"},
+		"vaccination adherence week":      {"vaccination_compliance"},
+		"mortality this month":            {"mortality_rate"},
+		"what is due today":               {"vaccination_due"},
+		"how many animals missed vaccine": {"vaccination_overdue"},
 	}
 	for q, want := range cases {
 		pl := plan(t, q)
