@@ -674,13 +674,26 @@ Counts owner. `TestApprovalsModuleIsPerPersonAndLeavesCountsCaptureOnly` and
 `TestCountsApproverRoleCarriesOnlyApprovalAuthority` both go red if it is tried;
 both were mutation-tested when written.
 
-The named list is `countsApproverEmails` in
+The named list is `perPersonGrants` in
 `backend/cmd/seed-stg-login-grants/approvers.go` — adding an email there IS the
 act of granting approval authority, on the phone and admin-web alike (one
 permission, one set of routes, two surfaces). Role catalog row: migration
 `000108_counts_approver_role.sql`. Canonical prose:
 `docs/runbooks/current-active-rbac-roles.md` -> "`counts_approver` is granted by
 NAME".
+
+Reaffirmed and widened 2026-08-07: `perPersonGrants` is now the general
+"this person, not this job" list. Chandrakant holds `counts_approver` + `operator`
+alongside `pc_director`; Dinakar holds `counts_approver` + `pc_director` +
+`growth_director` + `operator`. The maintainer was offered the alternative of
+moving counts authority onto the `pc_director` ROLE and declined it, so the lock
+above stands unchanged. Two consequences worth carrying forward: those `operator`
+grants are TENANT-scoped (allowed only because they are layered on directors, and
+each must carry a `stg-operator-scope: tenant approved` justification in its own
+block — block-scoped enforcement in `check-stg-operator-scope.mjs`), and a tenant
+`operator` grant does NOT add anyone to the vaccination drive operator pool, which
+reads `workforce_positions` with `position_tier <> 'director'` rather than the RBAC
+role.
 
 Same change closed a copy-firewall defect on that queue: the phone used to render
 `Raised by <uuid>` and `to shed <uuid>` because it composed the row's copy itself

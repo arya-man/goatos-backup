@@ -10,7 +10,7 @@ that role in backend permissions, Android navigation, seed docs, and tests.
 | --- | --- | --- | --- |
 | `ceo_internal` | CEO/CXO/founder visibility and override | `tenant` | founder/builder cohort |
 | `operator` | Ground execution and scanning for the modules explicitly granted to that person | `park` only for real field users | Amit, Darshan, Sagar, Pramod, Kumar Sharath |
-| `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant |
+| `pc_director` | Preventive Care Director; Vaccination visibility/action across parks | `tenant` when both parks are needed | Chandrakant, Dinakar (added per person 2026-08-07) |
 | `growth_director` | Growth Director; Weighing visibility/action across parks | `tenant` when both parks are needed | Dinakar |
 | `feed_director` | Feed Director; owns the FEED chain (config/ration grid, dispatch sheet, packing worklist, feed proof oversight) across parks | `tenant` when both parks are needed | Feed Director cohort |
 | `health_director` | Health Director; owns COUNTS (census / herd register) and health/tagging identity. DISTINCT from `pc_director` | `tenant` when both parks are needed | Health Director cohort |
@@ -48,8 +48,43 @@ The role carries the three approval permissions and **nothing else** — no
 `app.bootstrap`, no `admin_web.bootstrap`, no counts read/write. A grant of it
 alone is inert: the holder must already have a job role to have any way in. The
 named list lives in `backend/cmd/seed-stg-login-grants/approvers.go`
-(`countsApproverEmails`); adding an email there is the act of granting the
-authority.
+(`perPersonGrants`); adding an email there is the act of granting the authority.
+
+### Per-person grants beyond approval (maintainer decision 2026-08-07)
+
+`perPersonGrants` is now the general "this person, not this job" list, not only
+the approver roster. Each entry names an individual and the roles they hold
+**alongside** the job role a prior seed already gave them; permissions union
+across a caller's active `user_scope_grants` rows, so listing several roles is
+additive.
+
+Current STG entries:
+
+| Person | Job role (from the roster seed) | Added per person | Why |
+| --- | --- | --- | --- |
+| Chandrakant | `pc_director` | `counts_approver`, `operator` | Approve births/deaths/shifting; carry the operator surface (`counts.write` capture, weighing/feed reads) his director role does not include |
+| Dinakar | `growth_director` (Weighing owner), `operator` | `counts_approver`, `pc_director`, `growth_director`, `operator` | Same approval authority, plus Preventive Care authority; keeps `growth_director` so Weighing still has an accountable director |
+
+Two properties of this list that a later change will be tempted to break:
+
+- **The `operator` grants here are tenant-scoped**, which the operator-scope
+  invariant otherwise forbids. They are allowed because they are layered on
+  directors whose remit spans both parks, not on park staff accounts, and each
+  one carries a `stg-operator-scope: tenant approved` justification in its own
+  block. `tools/agent-hooks/check-stg-operator-scope.mjs` fails the build if a
+  tenant-scoped operator grant appears there without one — block-scoped, so an
+  annotation copied from a neighbouring entry does not satisfy it.
+- **A tenant `operator` grant does not make someone a vaccination operator.**
+  The drive operator pool reads `workforce_positions` with
+  `position_tier <> 'director'`
+  (`backend/internal/obligation/adapters/postgres/visit_shot_lock.go`), never the
+  RBAC role, so neither person is pulled into drive auto-assignment and the CPT
+  rehearsal invariant ("Chandrakant is director-only monitoring scope") still
+  holds.
+
+The 2026-08-07 decision was taken against the stated alternative of moving counts
+authority onto the `pc_director` role itself. That was declined for the reasons
+in the section above; do not re-propose it as a simplification.
 
 ## Dormant Catalog Roles
 
