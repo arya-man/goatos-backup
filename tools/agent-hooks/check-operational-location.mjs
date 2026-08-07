@@ -665,6 +665,30 @@ const CHECKS = [
         /\b(?:shed|location)?[._]?name\b/i.test(line) &&
         !/Display\s*\(|render\s*\(|operational_location_display/i.test(line);
       if (bareConcat) return true;
+      // MULTI-LINE concatenation. The single-line check above needs the name AND the partition
+      // on one line. Real drift does not oblige: a Feed Transport list query composed
+      //     ELSE s.name || ' - ' || COALESCE((
+      //       SELECT min(sp.partition_label) ...
+      // where the concat operator and the partition sit on DIFFERENT lines, so the rule walked
+      // past it and the query shipped. If a line concatenates a *_name column and a partition
+      // appears in the surrounding window, that is the same defect wearing a line break.
+      const concatsAName =
+        /\|\||CONCAT\s*\(/i.test(line) &&
+        /\b(?:shed|location)?[._]?name\b/i.test(line) &&
+        !/Display\s*\(|render\s*\(|operational_location_display/i.test(line);
+      // A concat inside a MATCHING predicate is not a display: `loc.name LIKE shed.name || ' %'`
+      // joins rows, it never reaches a screen. Excluded explicitly, because the first version of
+      // this widened rule flagged exactly that and a guard that cries wolf gets switched off.
+      const isMatchPredicate = /\bLIKE\b|\bSIMILAR\s+TO\b|~\*?\s|\bON\b\s|\bWHERE\b|\bAND\b\s+\w+\.\w+\s*=/i.test(line);
+      if (concatsAName && !isMatchPredicate) {
+        const near = lines
+          .slice(Math.max(0, lineIndex - 2), Math.min(lines.length, lineIndex + 10))
+          .join(" ");
+        if (/partition_label|normalized_label/i.test(near) &&
+            !/Display\s*\(|render\s*\(|operational_location_display/i.test(near)) {
+          return true;
+        }
+      }
       if (!/CASE\s+WHEN|WHEN\s+|THEN\s+/.test(line)) return false;
       // Scan a bounded window to find CASE...WHEN...partition...THEN pattern
       const window = lines
