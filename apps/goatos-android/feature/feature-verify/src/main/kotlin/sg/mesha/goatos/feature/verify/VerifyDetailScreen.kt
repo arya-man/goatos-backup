@@ -565,7 +565,12 @@ private fun VerifyVideoPlayer(
     // 403 on an expired signed URL is invisible everywhere except the server log.
     val playerFactory = LocalProofPlayerFactory.current
     val view = LocalView.current
-    var isFullscreen by rememberSaveable(media.signedUrl) { mutableStateOf(false) }
+    // Keyed on the PROOF, never on the signed URL. The queue re-signs every GCS URL on each fetch
+    // (15-minute TTL, fresh X-Goog-Date/X-Goog-Signature), and this screen refreshes on open and
+    // in the background -- so the SAME clip arrives with a different string, repeatedly. Keying
+    // player state on that string rebuilt the player behind a PlayerView that was never rebound,
+    // and the verifier got a blank box: "first time I can see it, second time it is blank".
+    var isFullscreen by rememberSaveable(media.proofSubject) { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
     // ONE video is prepared at a time, and only after the reader asks for it.
@@ -578,14 +583,30 @@ private fun VerifyVideoPlayer(
     //
     // `armed` flips on the first play tap. Until then the row shows its poster and costs no
     // decoder. Reader-facing behaviour is unchanged: tap play, it plays.
-    var armed by remember(media.signedUrl) { mutableStateOf(false) }
+    var armed by remember(media.proofSubject) { mutableStateOf(false) }
     // This row's own bounds in window coordinates, refreshed on every layout pass (scroll included)
     // — compared against [viewportBounds] to decide whether this player should keep running.
     var rowBounds by remember { mutableStateOf<Rect?>(null) }
-    val player = remember(media.signedUrl) {
+    val player = remember(media.proofSubject) {
         playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             playWhenReady = false
+        }
+    }
+    // A re-signed URL for the SAME proof must reach the player WITHOUT tearing it down, or the
+    // clip the verifier is watching restarts from zero every time a background refresh lands.
+    // It is adopted only while the clip has not started (see [shouldAdoptRefreshedUrl]): an
+    // untouched row picks up the fresh signature for its first prepare(), and a clip already
+    // being watched is left alone -- the URL it is streaming stays valid for its own window.
+    LaunchedEffect(media.signedUrl, player) {
+        if (shouldAdoptRefreshedUrl(
+                playbackState = player.playbackState,
+                armed = armed,
+                currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString(),
+                refreshedUri = media.signedUrl,
+            )
+        ) {
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
         }
     }
     // prepare() (the call that allocates the hardware decoder) is fired synchronously from the
@@ -705,7 +726,19 @@ private fun VerifyVideoPlayer(
             //
             // The verifier stays without a controller by design: they must WATCH the proof, not
             // scrub it. Everyone else who may see the video may seek within it.
-            update = { view -> view.useController = controlsEnabled },
+            //
+            // The PLAYER is rebound here for the same "factory runs once" reason, and that half was
+            // missing until 2026-08-07. Whenever the remembered player was replaced, DisposableEffect
+            // released the old instance while this PlayerView went on holding it -- a released player
+            // renders nothing, so the row went permanently blank with no error anywhere. Rebinding is
+            // what actually fixes that; keying the player on the proof (above) stops the needless
+            // swap in the first place. Keep BOTH: the key stops the churn, this survives it.
+            update = { view ->
+                if (view.player !== player) {
+                    view.player = player
+                }
+                view.useController = controlsEnabled
+            },
             modifier = Modifier.fillMaxSize(),
         )
         // READ-ONLY time readout. Deliberately NOT the media3 controller: turning that on would
@@ -877,6 +910,34 @@ private fun formatClock(ms: Long): String {
 }
 
 /**
+ * Whether a freshly re-signed URL for the SAME proof should replace the player's media item.
+ *
+ * The queue re-signs every GCS URL on each fetch (15-minute TTL, new X-Goog-Date and
+ * X-Goog-Signature), and this screen refreshes on open and in the background. So the identical
+ * clip keeps arriving as a different string, several times per viewing session.
+ *
+ * Adopt it only while the clip has NOT started:
+ *   - not started (STATE_IDLE and never armed) -> take the fresh signature, so the first prepare()
+ *     uses a URL with a full window ahead of it rather than one already minutes old.
+ *   - buffering / ready / ended, or armed -> leave it alone. Swapping the media item under a clip
+ *     the verifier is watching restarts it from zero, and re-watching a 3-second proof is the job.
+ *     The URL it is already streaming stays valid for its own window.
+ *
+ * Blank [refreshedUri] is never adopted: an empty media item renders nothing, which is the exact
+ * failure this whole area exists to prevent.
+ */
+internal fun shouldAdoptRefreshedUrl(
+    playbackState: Int,
+    armed: Boolean,
+    currentUri: String?,
+    refreshedUri: String,
+): Boolean =
+    refreshedUri.isNotBlank() &&
+        currentUri != refreshedUri &&
+        !armed &&
+        playbackState == Player.STATE_IDLE
+
+/**
  * Whether a video row is still "visible enough" in the list's scrollable viewport to keep
  * playing, given both rects in the SAME coordinate space (window coordinates in production —
  * see the `onGloballyPositioned` call sites above).
@@ -960,7 +1021,10 @@ private fun FullscreenVideoDialog(
     val playerFactory = LocalProofPlayerFactory.current
     var isPlaying by remember { mutableStateOf(true) }
     val currentOnPlayback by rememberUpdatedState(onPlayback)
-    val player = remember(media.signedUrl) {
+    // Keyed on the PROOF, not the signed URL -- same reason as the inline player: a background
+    // refresh re-signs the URL of the clip already on screen, and rebuilding the player mid-watch
+    // would restart the proof from zero (or blank it, before the rebind below existed).
+    val player = remember(media.proofSubject) {
         playerFactory.create(context).apply {
             setMediaItem(MediaItem.fromUri(Uri.parse(media.signedUrl)))
             prepare()
@@ -1032,8 +1096,16 @@ private fun FullscreenVideoDialog(
                         keepScreenOn = true
                     }
                 },
-                // Same reason as the inline player: the factory runs once, the bootstrap flag lands later.
-                update = { view -> view.useController = controlsEnabled },
+                // Same reason as the inline player: the factory runs once, the bootstrap flag lands
+                // later -- and the player must be rebound for the same reason, or a refresh landing
+                // while fullscreen is open leaves this dialog holding a released player and showing
+                // nothing.
+                update = { view ->
+                    if (view.player !== player) {
+                        view.player = player
+                    }
+                    view.useController = controlsEnabled
+                },
                 modifier = Modifier.fillMaxSize(),
             )
             PlayPauseButton(
