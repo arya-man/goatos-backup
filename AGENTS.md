@@ -1489,9 +1489,119 @@ Before committing a change that adds, modifies, or displays a partition:
    - [ ] If a partition picker or grouping changed, confirm cross-surface agreement on counts/labels (Calendar vs. Vaccination Board vs. Herd Register)
    - [ ] Run `make operational-location-guard` — must pass
 
+### Five Hard Rules From Session 2026-08-07 (MUST-ENCODE)
+
+These rules cost real bugs today. Each one makes a class of defect impossible. Encode them in every subagent brief and code review:
+
+#### Rule 1: An Undivided Shed Whose Name Ends in a Number Is Never Split
+
+`Yashoda 2` is a SHED NAME, whole. It renders `Yashoda 2`, never `Yashoda - 2`. Same for `Ho Chi Minh 1`. The trailing number is part of the name, not a partition. Contrast with a genuinely partitioned shed: `Mandela 1` + `Part 2` renders `Mandela 1 - Part 2`.
+
+**Defect discovered:** A test fixture fed `operationalLocationLabel("Yashoda", "2")` and its expectation was "corrected" to `Yashoda - 2`. The formatter was right for those inputs; the FIXTURE was wrong, and it taught every reader that `Yashoda - 2` is a real label. **Rule: a fixture that asserts a shape the farm does not have is a defect even when the assertion passes.** Never hand-wave away green tests on wrong data shapes.
+
+**Verification:** Grep for every shed name in `backend/migrations/postgres/` backfill scripts and seed code. Match against the master registry (`wiki/Sheds DB.xlsx`). Names with trailing numbers must be checked: if they appear in `goat_shed_partitions` or `shed_partitions` with a partition suffix (e.g., `Yashoda` + partition `2`), they ARE split; if they appear ONLY in `locations` with NULL partition, they are NOT split.
+
+```bash
+# Grep evidence: check seed code for undivided shed names
+grep -n "Yashoda\|Ho Chi Minh" backend/cmd/seed-*/main.go
+# Should show: only whole sheds, no partition assignments
+```
+
+#### Rule 2: A Required Contract Field Must Be Populated on Every Construction Path, in the Same Change
+
+Marking a field `required` in OpenAPI while the Go struct lacks it, or has it and never fills it, ships a contract the client cannot rely on. This happened EIGHT times on this branch.
+
+**Defect discovered:** `operational_location_display` was marked required on `WeighingShedVideos` in OpenAPI while the serving struct had neither field nor composition logic. Clients faithfully rendered null/absent.
+
+**The checklist (mandatory):** SQL column → scan destination → Go struct field → populated at every construction site → wire DTO → OpenAPI → generated client → a renderer that actually reads it. A gap at ANY hop renders bare location end to end.
+
+**Verification:** For every location-bearing response field added:
+1. Grep the SQL schema for the column
+2. Grep the repository's SELECT clauses for the column in the same query
+3. Grep the Go struct for the corresponding field
+4. Grep the adapter/builder for an assignment to that field
+5. Grep OpenAPI for the declared response field
+6. Run `npm run client:generate` (admin-web) or `make build-android` (mobile) and confirm the generated client includes the field
+
+If ANY step is missing, the field is a contract lie.
+
+```bash
+# Grep evidence: every handoff from SQL to OpenAPI
+grep -n "partition_label\|operational_location_display" backend/internal/*/adapters/postgres/repository.go
+grep -n "partition_label\|operational_location_display" backend/internal/*/domain/types.go
+grep -n "PartitionLabel\|OperationalLocationDisplay" contracts/openapi/app-api.yaml
+```
+
+#### Rule 3: Scaffolded Is Not Wired
+
+A migration, a domain field, a decoder helper, an OpenAPI entry and two client DTOs can all exist while the repository and handler touch none of them. **The verification partition feature sat in exactly that state; its composite-key decoder was called only by its own unit test.** Field-presence tests and pure-formatter unit tests both passed while real output was wrong.
+
+**Defect discovered:** A partition feature added SQL migration (000125), domain field (`PartitionLabel`), decoder helper (`parsePartitionLabel`), OpenAPI schema (`PartitionLabel`), and client DTOs — yet the serving handler never called the decoder, never populated the field, and real API responses carried null/missing partition.
+
+**Rule: a feature is not done until a test asserts the OUTPUT STRING on a real round trip.** Field-presence tests and pure-formatter unit tests both pass for scaffolding. Proof requires:
+1. Insert a test shed with partition into the test DB (e.g., `Godel 1 - Part 3`)
+2. Call the API/screen that READS that shed
+3. Assert the RETURNED STRING exactly matches the database round-trip (e.g., `operational_location_display = 'Godel 1 - Part 3'`)
+
+```bash
+# Grep evidence: verify the handler calls the decoder/resolver
+grep -A 20 "func.*weighing.*List" backend/internal/weighing/adapters/postgres/repository.go | grep -i partition
+# Should show: a call to oploc.ResolveShed or direct SelectPartition in the query
+```
+
+#### Rule 4: Verify Data Against the Live Database Before Writing a Repair
+
+~500 lines of guarded repair SQL, a runbook and a decision process were written against a mistaken reading of STG inferred from code and a stale audit. A single read-only check showed every repair class returns ZERO rows.
+
+**Defect discovered:** Repair scripts were generated to handle hypothetical `Mandela 1` partition-catalog orphans that never existed in STG. The database read showed 10 partitions correctly cataloged, no orphans, no breakage.
+
+**Rule: query the live database FIRST; a repair script written from inferred shape is a destructive operation aimed at a problem that may not exist.**
+
+**Verification before writing ANY repair:**
+1. Run a read-only verification query against STG via the runbook (`docs/runbooks/google-cloud-environments.md`)
+2. Confirm the defect class exists and quantify affected rows
+3. Verify the repair will not delete correct data (dry-run with `RETURNING` to see target rows)
+4. Only after proof of existence, write the repair
+
+```bash
+# Grep evidence: verification queries must run before repair authoring
+# Example: count orphan partition-catalog rows BEFORE repair authoring
+SELECT COUNT(*) FROM shed_partitions sp
+WHERE NOT EXISTS (
+  SELECT 1 FROM locations l
+  WHERE l.tenant_id = sp.tenant_id
+  AND l.shed_id = sp.shed_id
+);
+# MUST return > 0 before any repair is written
+```
+
+#### Rule 5: Confirm the Repo Path Before Editing
+
+This workspace has multiple checkouts (`/Users/ravi/mesha/goatos`, `/Users/ravi/mesha/goatos-land`, review worktrees). An agent did a full task in the wrong one and the work was unusable; it also reported that files "don't exist" when it was simply in the wrong tree.
+
+**Defect discovered:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `/Users/ravi/mesha/goatos/docs/decisions/operational-location-convention.md` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/operational-location-convention.md`.
+
+**Rule for delegated work:** state the absolute repo path in the brief and confirm with `git rev-parse --show-toplevel` before the first edit. "File not found" means check the tree before concluding the code is missing.
+
+```bash
+# Grep evidence: verify every agent logs its repo root
+# Expected in every agent session start:
+git rev-parse --show-toplevel  # Must print /Users/ravi/mesha/goatos-land
+```
+
+### Settled Model for Partition Documentation
+
+**State this plainly wherever partitions are described**, because it was misread twice today:
+
+- A shed is `Mandela 1` (physical building name)
+- Its pens are partitions `Part 1`, `Part 2`, etc., stored as `partition_label` under that shed
+- **Verified read-only against live STG on 2026-08-07**
+- Partitions are NOT separate shed rows and must NOT be restructured into them
+- The old `Mandela 1 - Part N` location rows are INACTIVE aliases only (legacy data shape)
+
 ### Subagent Brief Rule
 
-**If you delegate location-bearing work to a subagent, include this rule in the brief.** Quote the worked examples and name what makes the work location-bearing ("updates shed-scoped queries" or "adds a location picker"). An agent never told the boundary will cross it reasonably.
+**If you delegate location-bearing work to a subagent, include this rule in the brief.** Quote the worked examples, the five rules above, and name what makes the work location-bearing ("updates shed-scoped queries" or "adds a location picker"). An agent never told the boundary will cross it reasonably.
 
 ### Related Documentation
 
