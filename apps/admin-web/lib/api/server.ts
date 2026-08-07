@@ -19,6 +19,9 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
+export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
+export type ShedWeightsRow = AppApiComponents["schemas"]["WeighingShedWeightsRow"];
+export type ShedWeightsSummary = AppApiComponents["schemas"]["WeighingShedWeightsSummary"];
 export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPage"];
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
@@ -530,6 +533,29 @@ export async function getMilkPreparation(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<MilkPreparationPage>("/counts/milk-preparation", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Weighing — the admin-web Weights read-out.
+//
+// ONE request serves the whole screen. `summary` is a WHOLE-FILTER aggregate computed by the
+// backend over every shed in scope, so this layer must never re-derive a KPI by summing `rows`:
+// rows are bounded, the summary is not, and the two would silently disagree the moment the
+// estate outgrows the row cap.
+export async function getShedWeights(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<ShedWeightsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<ShedWeightsResponse>("/weighing/shed-weights", {
       cache: "no-store",
       query: compactQuery(params),
     }),
