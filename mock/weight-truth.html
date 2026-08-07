@@ -152,7 +152,18 @@ tr.parthead td{background:var(--panel-2);font-size:12px;color:var(--ink-2)}
 .ev{font-family:var(--mono);font-size:12px;color:var(--ink-2);background:var(--bg);border:1px solid var(--line-2);
   border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-word}
 .empty{padding:34px;text-align:center;color:var(--ink-3)}
-tr.more td{padding:16px;font-size:12.5px}
+.pager{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 2px 0}
+.pgbtn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:7px;
+  padding:6px 11px;font:inherit;font-size:13px;cursor:pointer}
+.pgbtn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.pgbtn:disabled{opacity:.38;cursor:default}
+.pgbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pgnow{font-size:13px;color:var(--ink-2);padding:0 4px}
+.pgnow b{font-family:var(--mono)}
+.pgcount{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.pgsize{font-size:12.5px;color:var(--ink-3);display:flex;align-items:center;gap:6px}
+.pgsize select{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+  border-radius:6px;padding:5px 7px;font:inherit;font-size:12.5px}
 .spin{display:inline-block;width:11px;height:11px;margin-right:7px;vertical-align:-1px;
   border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -350,6 +361,7 @@ svg.traj{width:100%;height:150px;display:block}
         <thead><tr><th>Animal</th><th>Park · shed · part</th><th>Breed / sex</th><th>Weighings</th>
         <th>First</th><th>Last</th><th>Overall ADG</th><th>Spikes / drops</th><th>Leading flag</th></tr></thead>
         <tbody id="animalRows"></tbody></table></div>
+      <div id="pagerA"></div>
     </section>
 
     <section>
@@ -371,6 +383,7 @@ svg.traj{width:100%;height:150px;display:block}
         <thead><tr><th>Animal</th><th>Park · shed · part</th><th>From</th><th>To</th><th>Change</th>
         <th>kg/day</th><th>Status</th><th>What we think happened</th></tr></thead>
         <tbody id="eventRows"></tbody></table></div>
+      <div id="pagerE"></div>
     </section>
 
     <section>
@@ -462,14 +475,34 @@ function cutoff(w){if(!w)return '0000-01-01';const d=new Date(MAXDATE+'T00:00:00
 let F={weeks:4,mode:'',park:'',verdict:'',dir:'',type:'',reason:'',shed:'',qa:'',qe:'',sa:'adg',se:'pct'};
 let sel=null;
 let win={};
-const PAGE=25;                     /* one screenful, then more as you scroll */
-let showA=PAGE, showE=PAGE;
+let sizeA=25, sizeE=25;            /* rows per page, user-settable */
+let pgA=1, pgE=1;
 let sigA='', sigE='';
 function pageReset(){
   const a=[F.weeks,F.mode,F.park,F.verdict,F.dir,F.type,F.reason,F.shed,F.qa,F.sa].join('|');
   const e=[F.weeks,F.mode,F.park,F.verdict,F.dir,F.type,F.reason,F.shed,F.qe,F.se].join('|');
-  if(a!==sigA){sigA=a;showA=PAGE}
-  if(e!==sigE){sigE=e;showE=PAGE}
+  if(a!==sigA){sigA=a;pgA=1}
+  if(e!==sigE){sigE=e;pgE=1}
+}
+function pageSlice(rows,pg,size){
+  const pages=Math.max(1,Math.ceil(rows.length/size));
+  const p=Math.min(pg,pages);
+  return {rows:rows.slice((p-1)*size,p*size),page:p,pages};
+}
+function pagerHTML(id,p,pages,total,size,noun){
+  if(!total)return '';
+  return `<div class="pager">
+    <button class="pgbtn" type="button" data-pg="${id}:first" ${p===1?'disabled':''} aria-label="First page">&laquo;</button>
+    <button class="pgbtn" type="button" data-pg="${id}:prev" ${p===1?'disabled':''}>&lsaquo; Previous</button>
+    <span class="pgnow">Page <b>${p}</b> of ${pages}</span>
+    <button class="pgbtn" type="button" data-pg="${id}:next" ${p===pages?'disabled':''}>Next &rsaquo;</button>
+    <button class="pgbtn" type="button" data-pg="${id}:last" ${p===pages?'disabled':''} aria-label="Last page">&raquo;</button>
+    <span class="pgcount">${((p-1)*size+1).toLocaleString()}–${Math.min(p*size,total).toLocaleString()} of ${total.toLocaleString()} ${noun}</span>
+    <label class="pgsize">Rows
+      <select data-pgsize="${id}">${[25,50,100].map(n=>
+        `<option value="${n}"${n===size?' selected':''}>${n}</option>`).join('')}</select>
+    </label>
+  </div>`;
 }
 
 /* filter bars */
@@ -953,8 +986,10 @@ function render(){
           .filter(a=>!F.reason||scope.some(x=>x.gid===a.id&&x.r===F.reason))
           .filter(a=>!F.verdict||(badBy[a.id]?.[F.verdict]>0));
   AL.sort({adg:(x,y)=>(win[x.id]?.adg??9)-(win[y.id]?.adg??9),bad:(x,y)=>y.bad-x.bad,n:(x,y)=>y.n-x.n}[F.sa]);
-  $('ca').textContent=`${Math.min(showA,AL.length).toLocaleString()} of ${AL.length.toLocaleString()} animals`;
-  $('animalRows').innerHTML=(AL.slice(0,showA).map(a=>{
+  $('ca').textContent=`${AL.length.toLocaleString()} animals`;
+  lastCountA=AL.length;
+  const sliceA=pageSlice(AL,pgA,sizeA); pgA=sliceA.page;
+  $('animalRows').innerHTML=(sliceA.rows.map(a=>{
     const flags=scope.filter(x=>x.gid===a.id&&x.v!=='valid');
     const topc=flags.length?flags.sort((p,q)=>q.conf-p.conf)[0].r:null;
     const m=topc?REASONS[topc]:null;
@@ -967,9 +1002,8 @@ function render(){
       <td class="num ${win[a.id]?.adg==null?'':(win[a.id].adg<0?'neg':'pos')}">${win[a.id]?.adg==null?`— <span class="sub">${win[a.id]&&win[a.id].days<4?Math.round(win[a.id].days)+' d apart, too close to rate':'one weighing'}</span>`:(win[a.id].adg>0?'+':'')+Math.round(win[a.id].adg*1000)+' g/d'}</td>
       <td class="num">${cntBy[a.id]?.gain??0} / ${cntBy[a.id]?.drop??0}<br><span class="sub">${badBy[a.id]?.valid??0}/${badBy[a.id]?.invalid??0}/${badBy[a.id]?.unexplained??0}</span></td>
       <td>${m?`<span class="tag t-${m[0]}">${m[1]}</span>`:'<span class="tag t-none">clean</span>'}</td></tr>`}).join('')
-    || `<tr><td colspan="9" class="empty">No animals match.</td></tr>`)
-    +(AL.length>showA?`<tr class="more" data-more="A"><td colspan="9" class="empty">
-        <span class="spin"></span> Loading more · ${showA.toLocaleString()} of ${AL.length.toLocaleString()}</td></tr>`:'');
+    || `<tr><td colspan="9" class="empty">No animals match.</td></tr>`);
+  $('pagerA').innerHTML=pagerHTML('A',sliceA.page,sliceA.pages,AL.length,sizeA,'animals');
 
   $('animalRows').onclick=e=>{const tr=e.target.closest('[data-aid]');if(!tr)return;
     lastFocus={list:'animalRows',key:tr.dataset.aid};
@@ -980,7 +1014,7 @@ function render(){
   /* 06 events */
   let EL=E.filter(e=>!F.qe||(e.gid+' '+e.shed).toLowerCase().includes(F.qe));
   EL.sort({pct:(x,y)=>Math.abs(y.pct)-Math.abs(x.pct),adg:(x,y)=>Math.abs(y.adg)-Math.abs(x.adg),date:(x,y)=>x.cd<y.cd?1:-1}[F.se]);
-  $('ce').textContent=`${Math.min(showE,EL.length).toLocaleString()} of ${EL.length.toLocaleString()} changes`;
+  $('ce').textContent=`${EL.length.toLocaleString()} changes`;
 
   /* everything currently narrowing the page, in one place, each removable */
   (function(){
@@ -1003,7 +1037,9 @@ function render(){
       `<button class="clearall" type="button" data-clear="__all">${on.length>1?`Clear all ${on.length} filters`:'Clear this filter'}</button>`:'';
   })();
 
-  $('eventRows').innerHTML=(EL.slice(0,showE).map(e=>{
+  lastCountE=EL.length;
+  const sliceE=pageSlice(EL,pgE,sizeE); pgE=sliceE.page;
+  $('eventRows').innerHTML=(sliceE.rows.map(e=>{
     const m=REASONS[e.r]||['unexplained',e.r,''];const i=EVENTS.indexOf(e);
     return `<tr class="click" tabindex="0" data-i="${i}" ${sel===i?'aria-selected="true"':''}>
       <td class="num">${esc(e.gid)}</td>
@@ -1014,9 +1050,8 @@ function render(){
       <td class="num ${e.dir==='drop'?'neg':'pos'}">${e.adg>0?'+':''}${e.adg}</td>
       <td><span class="tag t-${m[0]}">${VLAB[m[0]]}</span><br><span class="sub">${m[1]}</span></td>
       <td style="max-width:400px;font-size:12.5px;color:var(--ink-2)">${esc(e.why)}</td></tr>`}).join('')
-    || `<tr><td colspan="8" class="empty">No changes match.</td></tr>`)
-    +(EL.length>showE?`<tr class="more" data-more="E"><td colspan="8" class="empty">
-        <span class="spin"></span> Loading more · ${showE.toLocaleString()} of ${EL.length.toLocaleString()}</td></tr>`:'');
+    || `<tr><td colspan="8" class="empty">No changes match.</td></tr>`);
+  $('pagerE').innerHTML=pagerHTML('E',sliceE.page,sliceE.pages,EL.length,sizeE,'changes');
   $('eventRows').onclick=e=>{const tr=e.target.closest('[data-i]');if(!tr)return;
     lastFocus={list:'eventRows',key:tr.dataset.i}; sel=+tr.dataset.i; detail(EVENTS[sel]); render();};
   $('eventRows').onkeydown=e=>{if(e.key!=='Enter'&&e.key!==' ')return;
@@ -1024,6 +1059,27 @@ function render(){
 }
 
 $('shedPick').onchange=()=>render();
+function pagerClick(e){
+  const b=e.target.closest('[data-pg]'); if(!b||b.disabled)return;
+  const [id,act]=b.dataset.pg.split(':');
+  const total=id==='A'?lastCountA:lastCountE, size=id==='A'?sizeA:sizeE;
+  const pages=Math.max(1,Math.ceil(total/size));
+  let p=id==='A'?pgA:pgE;
+  p={first:1,prev:Math.max(1,p-1),next:Math.min(pages,p+1),last:pages}[act];
+  if(id==='A')pgA=p; else pgE=p;
+  render();
+  const t=$(id==='A'?'animalRows':'eventRows').closest('section');
+  t.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function pagerSize(e){
+  const sel=e.target.closest('[data-pgsize]'); if(!sel)return;
+  if(sel.dataset.pgsize==='A'){sizeA=+sel.value;pgA=1} else {sizeE=+sel.value;pgE=1}
+  render();
+}
+let lastCountA=0,lastCountE=0;
+['pagerA','pagerE'].forEach(id=>{$(id).addEventListener('click',pagerClick);
+  $(id).addEventListener('change',pagerSize)});
+
 $('activeFilters').onclick=e=>{const b=e.target.closest('[data-clear]');if(!b)return;
   const k=b.dataset.clear;
   const resetSeg=(id,f)=>[...$(id).children].forEach(c=>c.setAttribute('aria-pressed',String(c.dataset.v===F[f])));
@@ -1240,31 +1296,6 @@ $('csv').onclick=()=>{
   const csv=rows.map(r=>r.map(c=>`"${String(c??'').replace(/"/g,'""')}"`).join(',')).join('\n');
   const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
   const a=document.createElement('a');a.href=u;a.download='weight-truth.csv';a.click();URL.revokeObjectURL(u)};
-
-/* the next page loads itself when its footer comes into view — no button to hunt for */
-const pager=new IntersectionObserver(es=>{
-  let grew=false;
-  es.forEach(en=>{if(!en.isIntersecting)return;
-    if(en.target.dataset.more==='A'){showA+=PAGE;grew=true} else {showE+=PAGE;grew=true}});
-  if(grew)render();
-},{rootMargin:'320px'});
-const observePagers=()=>document.querySelectorAll('tr.more').forEach(el=>pager.observe(el));
-/* fallback for viewports where the observer never fires */
-let paging=false;
-function growVisible(){
-  if(paging)return;
-  const vh=window.innerHeight||document.documentElement.clientHeight||800;
-  let grew=false;
-  document.querySelectorAll('tr.more').forEach(el=>{
-    const r=el.getBoundingClientRect();
-    if(r.top<vh+320&&r.bottom>-320){
-      if(el.dataset.more==='A')showA+=PAGE; else showE+=PAGE; grew=true}
-  });
-  if(grew){paging=true;render();paging=false}
-}
-window.addEventListener('scroll',()=>requestAnimationFrame(growVisible),{passive:true});
-const _render=render;
-render=function(){_render.apply(this,arguments);observePagers()};
 
 /* number the sections by their order on the page, so inserts never collide */
 document.querySelectorAll('.shead .snum').forEach((n,i)=>n.textContent=String(i+1).padStart(2,'0'));
