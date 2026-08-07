@@ -223,8 +223,15 @@ func operationsResponseFromRows(rows []domain.OperationsRow, limit int) (domain.
 		if !ok {
 			idx = len(cohorts)
 			cohortIndex[key] = idx
+			// KNOWN GAP: OperationsRow does not carry a partition yet -- the operations SQL
+			// never selects one, so we cannot compose it here without a query change. Emit the
+			// bare shed name as the display (never blank, so no client renders an empty label)
+			// and a nil partition, which is TRUE for an unpartitioned shed and honest-but-
+			// incomplete for a partitioned one. Tracked in the operational-location ledger.
+			cohortPartition, cohortDisplay := operationalLocationFor(r.ParkID, r.ParkName, r.ShedID, r.ShedName, "")
 			cohorts = append(cohorts, domain.OperationsCohort{
 				ParkID: r.ParkID, ParkName: r.ParkName, ShedID: r.ShedID, ShedName: r.ShedName,
+				PartitionLabel: cohortPartition, OperationalLocationDisplay: cohortDisplay,
 				Stage: r.Stage, AgeBand: r.AgeBand, WorkState: domain.WorkStateCompleted, Cells: []domain.OperationsCell{},
 			})
 		}
@@ -761,7 +768,15 @@ func (s *Service) VaccinationGaps(ctx context.Context, q domain.GapsQuery) (doma
 	}
 	rows := make([]domain.GapRow, 0, len(projections))
 	for _, p := range projections {
+		// KNOWN GAP (same as the cohort path): the gaps projection carries no partition,
+		// so the display is the bare shed name until the query selects one. Never blank.
+		gapShedName := ""
+		if p.ShedName != nil {
+			gapShedName = *p.ShedName
+		}
+		gapPartition, gapDisplay := operationalLocationFor("", "", "", gapShedName, "")
 		rows = append(rows, domain.GapRow{
+			PartitionLabel: gapPartition, OperationalLocationDisplay: gapDisplay,
 			GoatID:            p.GoatID,
 			DisplayID:         p.DisplayID,
 			AnimalIdentifier1: p.AnimalIdentifier1,
@@ -849,7 +864,11 @@ func (s *Service) ShedSummary(ctx context.Context, q domain.ShedSummaryQuery) (d
 	for _, p := range projections {
 		total = p.TotalCount // window COUNT(*) OVER() — identical on every row of the filtered set
 		owners := ownersByShed[p.ShedID]
+		// KNOWN GAP: the shed-summary projection carries no partition yet; emit the bare
+		// shed name rather than a blank label. Tracked in the operational-location ledger.
+		shedPartition, shedDisplay := operationalLocationFor(p.ParkID, p.ParkName, p.ShedID, p.ShedName, "")
 		rows = append(rows, domain.ShedSummaryRow{
+			PartitionLabel: shedPartition, OperationalLocationDisplay: shedDisplay,
 			ParkID:             p.ParkID,
 			ParkName:           p.ParkName,
 			ShedID:             p.ShedID,
@@ -1221,4 +1240,21 @@ func operatorConfigChangePayload(parkID string) []byte {
 // weekly given, and verification queue.
 func (s *Service) VaccinationCommandBoard(ctx context.Context, q domain.CommandBoardQuery) (domain.CommandBoardResponse, error) {
 	return s.repo.VaccinationCommandBoard(ctx, q)
+}
+
+// operationalLocationFor composes the location contract for a row that already knows
+// its physical shed and raw partition. The raw value carries the 'whole' sentinel --
+// a matching key, never user copy -- so a non-partitioned shed yields a nil label and
+// the bare shed name. Composed via oploc so Go, admin-web and Android cannot drift.
+func operationalLocationFor(parkID, parkName, shedID, shedName, rawPartition string) (*string, string) {
+	loc := oploc.OperationalLocation{
+		ParkID: parkID, ParkName: parkName, ShedID: shedID,
+		ShedName: shedName, PartitionLabel: rawPartition,
+	}
+	var label *string
+	if oploc.IsPartitioned(rawPartition) {
+		trimmed := strings.TrimSpace(rawPartition)
+		label = &trimmed
+	}
+	return label, loc.Display()
 }
