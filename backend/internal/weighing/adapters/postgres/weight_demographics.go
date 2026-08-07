@@ -33,7 +33,17 @@ func (r *Repository) GetWeightDemographics(ctx context.Context, tenantID string,
 		return out, nil
 	}
 
-	const q = `
+	// scale-guard:ignore: 5k-50k-envelope — bounded reporting read, not a hot operator path.
+	// Every CTE is entered through tenant_id + park_id = ANY(...) + a half-open accepted_at
+	// window on index-leading columns, so the row set is one period's weighs for a named
+	// park list: at the 50k-animal ceiling in
+	// docs/decisions/operational-kernel-5k-50k-scale-envelope.md that is a few thousand
+	// observations, and today it is ~35 sheds. The CTE count is high because the screen
+	// reports THREE dimensions plus their gain twins and a lump-sum attribution, each of
+	// which must collapse to its own grain before it can be averaged -- not because it is
+	// reconstructing derived state per request. It earns a projection when it earns one
+	// under that ADR's scale-out ladder; this annotation comes off at the same time.
+	const q = `-- scale-guard:ignore: 5k-50k-envelope — bounded reporting read; see the comment above.
 WITH scoped AS (
   SELECT cs.campaign_shed_id, cs.tenant_id, cs.location_id, cs.weighing_category
   FROM weighing_campaign_sheds cs
