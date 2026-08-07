@@ -296,6 +296,12 @@ var protectedRoutes = []Route{
 	// core operator app actions (scan the shed roster, reschedule an obligation),
 	// so gating them on admin-tier perms 403s every field operator. The admin
 	// /vaccination/* routes above stay on their existing admin-tier perms.
+	// Vaccination's OWN alerts feed, the twin of appListWeighingAlerts. It carries
+	// VaccinationAlertsRead -- the SAME route-scoped permission the control-tower
+	// feed uses -- so the operator keeps the access the 2026-08-04 fix gave them
+	// and no role gains anything new. The feed's audience is enforced inside the
+	// query by member_id equality, so this permission opens the tab, not the data.
+	{OperationID: "appListVaccinationAlerts", Method: "GET", Pattern: "/app/vaccination/alerts", AnyPermissions: []string{VaccinationAlertsRead, ObligationRead, VaccinationRead}},
 	{OperationID: "appListVaccinationExecution", Method: "GET", Pattern: "/app/vaccination/execution", Permissions: []string{AppBootstrap}},
 	{OperationID: "appGetVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}", Permissions: []string{AppBootstrap}},
 	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{AppBootstrap}},

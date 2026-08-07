@@ -24,10 +24,15 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/uuidutil"
 	vaccexecapp "github.com/vgoats/goatos/backend/internal/vaccinationexecution/app"
 	vaccexecd "github.com/vgoats/goatos/backend/internal/vaccinationexecution/domain"
+	vaccexecports "github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
 // Reader is the vaccination execution read slice required by this handler.
 type Reader interface {
+	// ListAlerts serves the vaccination module's OWN alerts feed (the phone's
+	// Alerts tab). Audience is enforced inside the query by member_id equality,
+	// so a caller can only ever read notifications addressed to them.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (vaccexecd.AlertPage, error)
 	VaccinationExecution(ctx context.Context, q vaccexecd.ExecutionQuery) ([]vaccexecd.ExecutionRow, error)
 	VaccinationExecutionPage(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ExecutionResponse, error)
 	ShedDrilldown(ctx context.Context, q vaccexecd.ExecutionQuery) (vaccexecd.ShedDrilldown, bool, error)
@@ -161,6 +166,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("PUT /vaccination/capacity-config", h.PutCapacityConfig)
 	mux.HandleFunc("GET /vaccination/operator-assignment/config", h.GetOperatorAssignmentConfig)
 	mux.HandleFunc("PUT /vaccination/operator-assignment/config", h.PutOperatorAssignmentConfig)
+	mux.HandleFunc("GET /app/vaccination/alerts", h.ListAlerts)
 	mux.HandleFunc("GET /app/vaccination/execution", h.ListVaccinationExecution)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}", h.GetShedDrilldown)
 	mux.HandleFunc("GET /app/vaccination/execution/sheds/{shed_id}/roster", h.ScanRoster)
@@ -1494,6 +1500,57 @@ func (h *Handler) PutOperatorAssignmentConfig(w http.ResponseWriter, r *http.Req
 		return
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, updated)
+}
+
+// ListAlerts serves GET /app/vaccination/alerts -- the vaccination module's OWN
+// alerts feed, the twin of GET /app/weighing/alerts.
+//
+// WHY IT EXISTS: the Alerts tab used to render the control-tower GAP summary
+// (/control-tower/vaccination), which reports process gaps and knows nothing
+// about lifecycle transitions. So every "proof rework", "proof approved" and
+// "record closed" notification the vaccination consumers had been writing was
+// invisible on the phone -- 41 of them sat unread during the 2026-08-08 QA run
+// while the tab showed nothing.
+//
+// SCOPE: the query filters on context->>'member_id' = the caller, so the feed is
+// already "my own alerts" and cannot leak another person's row. Park scope is
+// therefore passed wide here rather than re-deriving capability park lists: a
+// narrower park filter could only ever hide alerts that were addressed to this
+// caller on purpose.
+func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	limit := vaccexecd.AlertPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			h.badRequest(w, r, "invalid_limit", "limit must be a positive integer")
+			return
+		}
+		limit = parsed
+	}
+	if limit > vaccexecd.MaxAlertPageSize {
+		limit = vaccexecd.MaxAlertPageSize
+	}
+
+	actorID := httpmiddleware.ActorIDFromContext(r.Context())
+	if actorID == "" {
+		h.badRequest(w, r, "actor_required", "vaccination alerts require an authenticated caller")
+		return
+	}
+
+	page, err := h.reader.ListAlerts(
+		r.Context(), tenantID(r), actorID,
+		true, nil,
+		strings.TrimSpace(r.URL.Query().Get("cursor")), limit,
+	)
+	if err != nil {
+		if errors.Is(err, vaccexecports.ErrInvalidArgument) {
+			h.badRequest(w, r, "invalid_cursor", "the paging cursor is not valid")
+			return
+		}
+		h.internal(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 func (h *Handler) internal(w http.ResponseWriter, r *http.Request, err error) {

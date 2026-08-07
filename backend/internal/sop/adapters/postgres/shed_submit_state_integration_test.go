@@ -563,3 +563,142 @@ func execShedSubmitState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 		t.Fatalf("%s: %v", label, err)
 	}
 }
+
+// TestSharedParentTaskIsNotAcceptedWhileASiblingSubmissionHasOpenItems is the regression for the
+// deadlock found in phone QA on 2026-08-08.
+//
+// One CPT task covered two sheds through two submissions. Mandela's submission had all 3 items
+// approved; Castro's had one approved and one REJECTED. AcceptSubmissionItemVerification counts
+// remaining items inside the CURRENT submission only, so Mandela closing flipped the SHARED task
+// to 'accepted' while Castro still had open items. SubmitTask then refuses any submission on an
+// accepted task, so the rework the verifier's rejection had just created could never be submitted:
+// the operator's screen showed the shed done, with no way to redo the rejected animal.
+//
+// Asserts the whole sequence, because each half passed on its own before:
+//   - closing one submission must NOT accept a task whose sibling submission is unresolved
+//   - the rejection must move the item AND its submission to 'rejected' (schema forbids
+//     'rework_requested' on both; only sop_tasks may use it)
+//   - the task must end at 'rework_requested', never 'accepted'
+//   - a resubmit must then be allowed rather than returning a write conflict
+func TestSharedParentTaskIsNotAcceptedWhileASiblingSubmissionHasOpenItems(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	const (
+		tenantID   = "00000000-0000-4000-8000-000000000001"
+		actorID    = "77500000-0000-4000-8000-000000000001"
+		verifierID = "77500000-0000-4000-8000-000000000009"
+		sopID      = "77500000-0000-4000-8000-000000000002"
+		sopVersion = "77500000-0000-4000-8000-000000000003"
+		taskID     = "77500000-0000-4000-8000-000000000004"
+		shedID     = "77500000-0000-4000-8000-000000000005"
+		subA       = "77500000-0000-4000-8000-00000000000a" // Castro: 1 approved + 1 rejected
+		subB       = "77500000-0000-4000-8000-00000000000b" // Mandela: all approved
+		goatA1     = "77500000-0000-4000-8000-000000000011"
+		goatA2     = "77500000-0000-4000-8000-000000000012"
+		goatB1     = "77500000-0000-4000-8000-000000000021"
+	)
+
+	execShedSubmitState(t, ctx, pool, "sop definition",
+		`INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status)
+		 VALUES ($1::uuid, $2::uuid, 'vaccination.shared_parent_regression', 'Shared parent regression', 'active')`,
+		sopID, tenantID)
+	execShedSubmitState(t, ctx, pool, "sop version",
+		`INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy, validation_report)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published',
+		   '{"schema_version":"goatos.sop-form.v1","fields":[]}'::jsonb,
+		   '{"required":false}'::jsonb,
+		   '{"valid":true,"errors":[],"warnings":[]}'::jsonb)`,
+		sopVersion, tenantID, sopID)
+	execShedSubmitState(t, ctx, pool, "shared parent task",
+		`INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id, row_version)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination', 'Shared CPT task', 'needs_review', 'shed', $5::uuid, 3)`,
+		taskID, tenantID, sopID, sopVersion, shedID)
+
+	// Castro submitted FIRST so Mandela is the "newer" submission -- the shape that defeated the
+	// pre-existing newer-submission guard.
+	execShedSubmitState(t, ctx, pool, "castro submission",
+		`INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, submitted_at, state, answers, proof_refs, row_version, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, now() - interval '10 minutes', 'needs_review', '{}'::jsonb, '[]'::jsonb, 1, 'shared-parent-regression:castro')`,
+		subA, tenantID, taskID, sopVersion, actorID)
+	execShedSubmitState(t, ctx, pool, "mandela submission",
+		`INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, submitted_at, state, answers, proof_refs, row_version, idempotency_key)
+		 VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, now(), 'needs_review', '{}'::jsonb, '[]'::jsonb, 1, 'shared-parent-regression:mandela')`,
+		subB, tenantID, taskID, sopVersion, actorID)
+
+	execShedSubmitState(t, ctx, pool, "park",
+		`INSERT INTO locations (location_id, tenant_id, location_type, name, status)
+		 VALUES ('77500000-0000-4000-8000-0000000000f0'::uuid, $1::uuid, 'park', 'Shared Parent Park', 'active')`,
+		tenantID)
+	execShedSubmitState(t, ctx, pool, "shed",
+		`INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+		 VALUES ($1::uuid, $2::uuid, 'shed', 'Shared Parent Shed', '77500000-0000-4000-8000-0000000000f0'::uuid, 'active')`,
+		shedID, tenantID)
+
+	var custodian string
+	if err := pool.QueryRow(ctx, `INSERT INTO parties (party_id, party_type, display_name, status)
+		VALUES (gen_random_uuid(), 'org', 'Shared parent regression custodian', 'active') RETURNING party_id::text`).Scan(&custodian); err != nil {
+		t.Fatalf("seed custodian: %v", err)
+	}
+	for _, g := range []string{goatA1, goatA2, goatB1} {
+		execShedSubmitState(t, ctx, pool, "goat",
+			`INSERT INTO goats (goat_id, tenant_id, species, sex, lifecycle_status, custodian_party_id, shed_id)
+			 VALUES ($1::uuid, $2::uuid, 'goat', 'female', 'alive', $3::uuid, $4::uuid)`,
+			g, tenantID, custodian, shedID)
+	}
+
+	for _, it := range []struct{ sub, goat string }{{subA, goatA1}, {subA, goatA2}, {subB, goatB1}} {
+		execShedSubmitState(t, ctx, pool, "submission item",
+			`INSERT INTO sop_submission_items (item_id, tenant_id, task_id, submission_id, goat_id, item_key, state, result)
+			 VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::uuid, 'goat:' || $4::text, 'needs_review', '{}'::jsonb)`,
+			tenantID, taskID, it.sub, it.goat)
+	}
+
+	repo := NewRepository(pool, 10*time.Second)
+
+	// Mandela closes completely.
+	if err := repo.AcceptSubmissionItemVerification(ctx, tenantID, subB, goatB1, verifierID); err != nil {
+		t.Fatalf("accept mandela item: %v", err)
+	}
+
+	var taskState string
+	if err := pool.QueryRow(ctx, `SELECT state FROM sop_tasks WHERE task_id = $1::uuid`, taskID).Scan(&taskState); err != nil {
+		t.Fatalf("read task state: %v", err)
+	}
+	if taskState == "accepted" {
+		t.Fatalf("shared task was accepted while the sibling submission still had open items -- this is the deadlock: the sibling shed can no longer submit its rework")
+	}
+
+	// Castro: one approved, one rejected.
+	if err := repo.AcceptSubmissionItemVerification(ctx, tenantID, subA, goatA1, verifierID); err != nil {
+		t.Fatalf("accept castro item: %v", err)
+	}
+	if err := repo.ReopenTaskForRework(ctx, tenantID, subA, goatA2, verifierID); err != nil {
+		t.Fatalf("reject castro item: %v", err)
+	}
+
+	var itemState, subState string
+	if err := pool.QueryRow(ctx,
+		`SELECT state FROM sop_submission_items WHERE submission_id = $1::uuid AND goat_id = $2::uuid`,
+		subA, goatA2).Scan(&itemState); err != nil {
+		t.Fatalf("read item state: %v", err)
+	}
+	if itemState != "rejected" {
+		t.Fatalf("rejected item state = %q, want %q -- a rejected goat left at needs_review is invisible to every roll-up", itemState, "rejected")
+	}
+	if err := pool.QueryRow(ctx, `SELECT state FROM sop_submissions WHERE submission_id = $1::uuid`, subA).Scan(&subState); err != nil {
+		t.Fatalf("read submission state: %v", err)
+	}
+	if subState != "rejected" {
+		t.Fatalf("submission state = %q, want %q", subState, "rejected")
+	}
+
+	if err := pool.QueryRow(ctx, `SELECT state FROM sop_tasks WHERE task_id = $1::uuid`, taskID).Scan(&taskState); err != nil {
+		t.Fatalf("read task state after rejection: %v", err)
+	}
+	if taskState != "rework_requested" {
+		t.Fatalf("task state = %q, want %q -- SubmitTask refuses an accepted task, so the rework could never be submitted", taskState, "rework_requested")
+	}
+}

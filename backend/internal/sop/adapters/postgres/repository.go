@@ -1602,6 +1602,25 @@ WHERE st.tenant_id = $1::uuid
       AND newer.task_id = st.task_id
       AND (newer.submitted_at, newer.submission_id) > (current.submitted_at, current.submission_id)
   )
+  -- A shared parent task is only done when EVERY submission under it is done. The remaining-item
+  -- count above is scoped to ONE submission_id, so without this a task covering two sheds was
+  -- accepted the moment the FIRST shed's submission closed, while the sibling shed still had
+  -- needs_review items. That accepted parent then hit SubmitTask's terminal-state guard and
+  -- refused the sibling's rework submission forever: the verifier's REJECT created real work the
+  -- operator was then forbidden to submit (observed on the CPT per-animal QA task, 2026-08-08,
+  -- where Mandela's 3 approvals accepted the task while Castro still had 2 open items).
+  --
+  -- 'rejected' is deliberately NOT a closing state here: a rejected item is open work.
+  AND NOT EXISTS (
+    SELECT 1
+    FROM sop_submissions sib
+    JOIN sop_submission_items sibi
+      ON sibi.tenant_id = sib.tenant_id
+     AND sibi.submission_id = sib.submission_id
+    WHERE sib.tenant_id = st.tenant_id
+      AND sib.task_id = st.task_id
+      AND sibi.state NOT IN ('accepted', 'skipped')
+  )
 RETURNING st.task_id::text`, tenantID, taskID, actorID, submissionID).Scan(&acceptedTaskID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
@@ -1659,6 +1678,60 @@ FOR UPDATE OF ss`, tenantID, submissionID).Scan(&taskID)
 		return err
 	}
 
+	// Mark the REJECTED item and its submission before touching the task. Until now the reject
+	// path set no SOP state at all: a rejected goat's sop_submission_item stayed 'needs_review'
+	// forever, and so did its submission, which is why a resubmit collided with an open submission
+	// and why the accept roll-up could never distinguish "still being reviewed" from "rejected,
+	// awaiting rework".
+	//
+	// VOCABULARY IS SCHEMA-CONSTRAINED, and this is easy to get wrong: only sop_tasks accepts
+	// 'rework_requested'. sop_submission_items allows accepted/needs_review/rejected/skipped, and
+	// sop_submissions allows submitted/accepted/needs_review/rejected/voided. So the item and the
+	// submission become 'rejected'; only the task becomes 'rework_requested'.
+	var rejectedItemID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_submission_items
+SET state = 'rejected'
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND goat_id = $3::uuid
+  AND state = 'needs_review'
+RETURNING item_id::text`, tenantID, submissionID, goatID).Scan(&rejectedItemID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if rejectedItemID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission_item.rejected", "sop_submission_item", rejectedItemID, map[string]any{
+			"submission_id": submissionID,
+			"goat_id":       goatID,
+			"reason":        "verification_rejected",
+		}); err != nil {
+			return err
+		}
+	}
+
+	var rejectedSubmissionID string
+	err = tx.QueryRow(ctx, `
+UPDATE sop_submissions
+SET state = 'rejected',
+    row_version = row_version + 1
+WHERE tenant_id = $1::uuid
+  AND submission_id = $2::uuid
+  AND state IN ('needs_review', 'submitted')
+RETURNING submission_id::text`, tenantID, submissionID).Scan(&rejectedSubmissionID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if rejectedSubmissionID != "" {
+		if err := insertAudit(ctx, tx, tenantID, actorID, "sop.submission.rejected", "sop_submission", rejectedSubmissionID, map[string]any{
+			"task_id": taskID,
+			"goat_id": goatID,
+			"reason":  "verification_rejected",
+		}); err != nil {
+			return err
+		}
+	}
+
 	var reopenedTaskID string
 	err = tx.QueryRow(ctx, `
 UPDATE sop_tasks
@@ -1667,7 +1740,9 @@ SET state = 'rework_requested',
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid
   AND task_id = $2::uuid
-  AND state = 'accepted'
+  -- 'needs_review' as well as 'accepted': a rejection can land before the parent has been
+  -- accepted at all, and that task must still move to rework so the operator can resubmit.
+  AND state IN ('accepted', 'needs_review')
 RETURNING task_id::text`, tenantID, taskID).Scan(&reopenedTaskID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
