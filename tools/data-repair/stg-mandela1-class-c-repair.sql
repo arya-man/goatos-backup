@@ -1,5 +1,20 @@
 -- ============================================================================
--- stg-mandela1-class-c-repair.sql
+-- SUPERSEDED: DO NOT RUN — STG DATA ALREADY CORRECT
+--
+-- This script is a historical record of Class C investigation from 2026-08-07
+-- and MUST NOT BE EXECUTED. When run against live STG read-only (2026-08-07),
+-- the Class C rows showed ZERO matches:
+--   * Mandela 1 - Part N orphan alias rows: 0 (expected 10, found 0)
+--   * Active parent Mandela 1 shed: 2 (one per park — correct, not a defect)
+--
+-- The data is already in the intended shape: Mandela 1 and Mandela 2 are real
+-- parent sheds, their Part 1..10 are partition labels, not separate rows.
+-- Running this repair would create a duplicate parent and silently overwrite
+-- the correct state. Use the verification queries below to confirm STG is
+-- correct instead of running repairs.
+--
+-- ============================================================================
+-- ORIGINAL HEADER (2026-08-07):
 --
 -- Repairs Class C from the STG partition catalog audit (2026-08-07):
 -- Creates a parent shed `Mandela 1` to replace 10 orphan alias-as-shed

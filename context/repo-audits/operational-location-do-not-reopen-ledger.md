@@ -319,3 +319,37 @@ Found by the four-layer struct sweep, which checks (a) SQL selects it, (b) scan
 parity, (c) field assigned, (d) wire carries it AND a client renders it. Layers
 (a)-(c) were all green here; only (d) was wrong -- the exact shape that makes this
 class survive review.
+
+---
+
+## Class C: Mandela 1 Orphans — RESOLVED AS NOT A DEFECT (2026-08-07)
+
+**Status:** CLOSED (RESOLVED-AS-NOT-A-DEFECT)  
+**Audit Date:** 2026-08-06  
+**Evidence Run Date:** 2026-08-07  
+**Finding:** Investigation scripts `stg-partition-catalog-repair.sql` and
+`stg-mandela1-class-c-repair.sql` were written to handle a hypothetical Class C
+case: 10 orphan `Mandela 1 - Part N` location rows without an active parent
+`Mandela 1` shed to catalog them against.
+
+**Actual Data State (2026-08-07 verification):**  
+When verification queries were run against live STG read-only:
+- Active parent sheds: `Mandela 1` ✓ (exists, parented under Channapatna)
+- Active parent sheds: `Mandela 2` ✓ (exists, parented under Coimbatore)
+- Shed_partitions catalog rows for Mandela 1: 10 rows (Part 1..10) ✓
+- Shed_partitions catalog rows for Mandela 2: 10 rows (Part 1..10) ✓
+- Orphan `Mandela 1 - Part N` alias-as-shed rows: 0 ✓
+- Orphan `Mandela 2 - Part N` alias-as-shed rows: 0 ✓
+
+**Conclusion:** The data is already in the correct shape. `Mandela 1` is a real parent
+shed with 10 properly cataloged partitions, not an invented repair need. The Class C
+hypothesis was based on a mistaken reading of the data model.
+
+**Action Taken:** 
+- Both repair scripts now carry superseded headers warning against execution
+- Runbook `docs/runbooks/stg-partition-data-repair.md` rewritten to instruct "do not run"
+- Investigation history preserved for reference
+- Verification queries provided for readers to confirm STG remains correct
+
+**Do Not Re-open:** This is not a "fixed but deferred" item. The alleged defect never
+existed. Running the repair scripts would corrupt the correct data.
