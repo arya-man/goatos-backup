@@ -127,7 +127,7 @@ func (r *Repository) listTransportFilterOptions(ctx context.Context, q ports.Lis
 	// Filter vocabulary is whole-date and actor scoped, not derived from the current 20-row page.
 	// The selected park narrows only the shed vocabulary; status/shed filters never hide choices.
 	rows, err := r.pool.Query(ctx, `
-SELECT 'park', t.park_id::text, p.name
+SELECT 'park', t.park_id::text, p.name, ''
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
@@ -137,12 +137,15 @@ UNION ALL
 -- The filter DROPDOWN must name the same place the rows name. A bare s.name hides the
 -- partition, so two pens of one shed read as one option and the operator cannot tell which
 -- they picked. Composed here with the same agree-or-go-bare rule the row reads use.
-SELECT 'shed', t.shed_id::text, s.name || coalesce(' - ' || part.partition_label, '')
+SELECT 'shed', t.shed_id::text, s.name, coalesce(part.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
 -- Partition resolved by a GROUPED JOIN, not a correlated subquery: correlating on t.tenant_id
 -- inside a query that groups by (t.shed_id, s.name) makes tenant_id an ungrouped outer column
 -- and Postgres rejects it (42803). Agree-or-go-bare is kept by HAVING count(*) = 1.
+-- The name and the partition come back as SEPARATE columns and are composed in Go by
+-- oploc.Display(). Concatenating them here would be a second implementation of the display
+-- rule living in SQL -- exactly the drift the guard blocks.
 LEFT JOIN (
   SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
   FROM shed_partitions sp
@@ -162,11 +165,13 @@ ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 	defer rows.Close()
 	var options ports.FeedTransportFilterOptions
 	for rows.Next() {
-		var kind string
+		var kind, shedName, partitionLabel string
 		var option ports.FeedTransportFilterOption
-		if err := rows.Scan(&kind, &option.ID, &option.Label); err != nil {
+		if err := rows.Scan(&kind, &option.ID, &shedName, &partitionLabel); err != nil {
 			return ports.FeedTransportFilterOptions{}, err
 		}
+		// Compose through the shared primitive so the dropdown reads exactly like the rows.
+		option.Label = oploc.OperationalLocation{ShedName: shedName, PartitionLabel: partitionLabel}.Display()
 		if kind == "park" {
 			options.Parks = append(options.Parks, option)
 		} else {
