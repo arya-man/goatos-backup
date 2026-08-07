@@ -1304,10 +1304,10 @@ Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh
 
 Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
 - No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
-  sheds per Rule 1 — never `Castro 1`, which Rule 1 defines as shed `Castro` +
-  partition `1` and therefore has a partitioned display, `Castro 1` shown WITH
+  sheds per Rule 1 — never `Castro - 1`, which Rule 1 defines as shed `Castro` +
+  partition `1` and therefore has a partitioned display, `Castro - 1` shown WITH
   its partition, not an unpartitioned example)
-- Has partition → `Castro 2` (numeric) or `Godel 1 - Part 3` (prefixed)
+- Has partition → `Castro - 2` (numeric) or `Godel 1 - Part 3` (prefixed)
 
 **NEVER render:**
 - `Yashoda whole` — `'whole'` is a matching key, never user copy

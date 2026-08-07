@@ -92,8 +92,8 @@ ensure BOTH columns exist in the leadership response:
 - `partition_label` (nullable) — raw stored label ('1', 'Part 3', or NULL/'whole')
 - `operational_location_display` (composed by backend) — user-facing rendition
 
-A subdivided shed must be named with its partition (`Godel 1 - Part 3`,
-space-dash-space); an undivided shed shows the bare name (`Yashoda`, `Castro 2`,
+A subdivided shed must be named with its partition (`Godel 1 - Part 3` or `Castro - 2`,
+space-dash-space); an undivided shed shows the bare name (`Yashoda`,
 `Ho Chi Minh 1`). Never render `whole` to users — it is a storage key only.
 Group and key by `shed_id + park`, never by shed name alone (names repeat).
 

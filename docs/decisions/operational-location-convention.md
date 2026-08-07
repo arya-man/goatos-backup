@@ -166,7 +166,7 @@ This is the maintainer's critical insight (2026-08-05):
 | Layer | Meaning | Example |
 |-------|---------|---------|
 | **Storage** (backend database) | Normalization for querying efficiency | `shed_name='Castro'` + `partition_label='2'` |
-| **Product** (user-facing surfaces) | ALWAYS show both when partition exists | `Castro 2` (for numeric suffix) or `Godel 1 - Part 3` (for prefixed) |
+| **Product** (user-facing surfaces) | ALWAYS show both when partition exists | `Castro - 2` (for numeric suffix) or `Godel 1 - Part 3` (for prefixed) |
 
 Both halves must always be read together when working on location-bearing features.
 

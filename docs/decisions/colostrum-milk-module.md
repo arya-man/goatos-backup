@@ -181,7 +181,7 @@ Android
 - Cross-surface: the same fixture makes Birth and Colostrum agree on that day's counts.
 
 Guards to run: `mobile-guard`, `nav-composition-guard`, `aggregate-projection-guard`,
-`scale-guard`, `operational-location-guard` (cards carry `partition_label` — "Castro 2",
+`scale-guard`, `operational-location-guard` (cards carry `partition_label` — "Castro - 2",
 never "Castro"), `telemetry-guard`, `ui-vaccine-labels-guard`,
 `leadership-assistant-coverage-guard` (a new read surface needs a coverage row or a
 recorded exclusion), then `make ci-local` on the exact SHA.
