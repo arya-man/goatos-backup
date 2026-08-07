@@ -69,11 +69,10 @@ type ShedWeightsRow struct {
 	// lightest animals leave, the average rises while no animal gained a gram. It
 	// answers "is this shed getting heavier", which is a real and different question.
 	//
-	// Measured across the FULL span (first weigh to last) rather than between
-	// consecutive weighs. Consecutive pairs are unusably noisy at this grain: the same
-	// shed produced 45 g/day one week and 391 the next, and a two-day gap produced
-	// +1,532 g/day — 1.5 kg per animal per day, which is impossible and is really the
-	// short span amplifying a small change in composition.
+	// Measured against the weigh closest to four weeks before the latest weigh, with
+	// a weekly tolerance for slipped capture dates. If there is no older row near
+	// that four-week baseline, the value stays nil instead of falling back to the
+	// immediately previous entry and manufacturing a noisy short-span rate.
 	ShedAverageGainGPerDay *float64 `json:"shed_average_gain_g_per_day,omitempty"`
 	// GainSpanDays is the span that gain was measured over, so a reader can discount a
 	// figure drawn from two days against one drawn from a month. A short span is not
@@ -143,9 +142,10 @@ type LoadGainBucket struct {
 	// a mean of per-shed averages, which would let a 10-head shed pull as hard as a
 	// 73-head one.
 	AverageWeightKg float64 `json:"average_weight_kg"`
-	// GainGPerDay blends each shed's own last-two-weighs movement, weighted by head
-	// count. Nil when no shed in the load was weighed twice — a load with a single
-	// weigh has a weight but no growth, and reporting 0 would read as "flat".
+	// GainGPerDay blends each shed's own four-week-baseline movement, weighted by
+	// head count. Nil when no shed in the load has a usable baseline near four weeks
+	// before its latest weigh — a load with only recent repeats has a weight but no
+	// defensible four-week growth, and reporting 0 would read as "flat".
 	//
 	// IT IS SHED-AVERAGE MOVEMENT, NOT PER-ANIMAL GROWTH, and carries every caveat
 	// ShedWeightsRow.ShedAverageGainGPerDay does: a shed's population changes between

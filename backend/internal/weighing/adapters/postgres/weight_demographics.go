@@ -156,17 +156,18 @@ lump AS (
   WHERE s.weighing_category = 'per_shed_partition'
 ),
 lump_span AS (
-  -- LAST TWO weighs and the days between them, matching the shed rows and the legacy
-  -- adg_goat_last2 shape. A full-span figure hides a shed that has just stalled.
+  -- Four-week movement matching the shed rows: anchor on the latest weigh and
+  -- compare it with the weigh closest to 28 days earlier, allowing weekly capture
+  -- slippage but not falling back to a too-recent previous row.
   --
-  -- projection-review: membership=one row per lump-sum location with at least two weighs in the window; group_key=location_id, exactly the GROUP BY; join_cardinality=weighing_shed_observations 0..N per location and COLLAPSED by the aggregate to one row, campaign_sheds 1 per bucket (PK), campaigns 1 per campaign (PK); pagination=NONE, joined 0..1 into the gain arms; scope=tenant_id + park_id = ANY($2)
+  -- projection-review: membership=one row per lump-sum location with a latest weigh and a baseline near four weeks earlier; group_key=location_id via latest.rn=1 plus LATERAL LIMIT 1; join_cardinality=baseline is 0..1 per latest row, campaign_sheds 1 per bucket (PK), campaigns 1 per campaign (PK); pagination=NONE, joined 0..1 into the gain arms; scope=tenant_id + park_id = ANY($2)
   --
-  -- Ratio key sets: the two averages and the day gap are drawn from the SAME two rows of the SAME location, so the division is always one shed against its own previous weigh.
-  SELECT sh.location_id,
-         (max(sh.average_weight_kg) FILTER (WHERE sh.rn = 1)
-        - max(sh.average_weight_kg) FILTER (WHERE sh.rn = 2)) * 1000.0
-          / NULLIF(max(sh.d) FILTER (WHERE sh.rn = 1) - max(sh.d) FILTER (WHERE sh.rn = 2), 0) AS g_per_day,
-         max(sh.animal_count) FILTER (WHERE sh.rn = 1)                                          AS animals
+  -- Ratio key sets: the two averages and the day gap are drawn from the SAME
+  -- location, so the division is always one shed against its own four-week baseline.
+  SELECT latest.location_id,
+         (latest.average_weight_kg - baseline.average_weight_kg) * 1000.0
+          / NULLIF(latest.d - baseline.d, 0) AS g_per_day,
+         latest.animal_count                 AS animals
   FROM (
     SELECT cs2.location_id, so.average_weight_kg, so.animal_count,
            (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
@@ -177,10 +178,24 @@ lump_span AS (
     WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
       AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
       AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
-  ) sh
-  WHERE sh.rn <= 2
-  GROUP BY sh.location_id
-  HAVING count(*) = 2
+  ) latest
+  JOIN LATERAL (
+    SELECT cs2.location_id, so.average_weight_kg,
+           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d
+    FROM weighing_shed_observations so
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
+    WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND cs2.location_id = latest.location_id
+      AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+      AND (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date < latest.d
+      AND abs((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)) <= 7
+    ORDER BY abs((so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date - (latest.d - 28)),
+             (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date DESC,
+             so.accepted_at DESC
+    LIMIT 1
+  ) baseline ON true
+  WHERE latest.rn = 1
 )
 SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),

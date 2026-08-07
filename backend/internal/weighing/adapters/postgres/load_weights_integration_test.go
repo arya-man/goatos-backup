@@ -219,11 +219,11 @@ func TestLoadWeightsStatusMatrixExcludesOnlyCanceledBuckets(t *testing.T) {
 	}
 }
 
-// GAIN GRAIN. The blend must use each shed's LAST TWO weighs and the days between them — the same
-// method the shed chart and the legacy dashboard's adg_goat_last2 use — and must weight by head
-// count. A load whose sheds were weighed only once has a weight but NO gain, and must report nil
-// rather than 0, which would read as "this supplier's kids are flat".
-func TestLoadWeightsGainUsesLastTwoWeighsAndIsNilWithoutASecond(t *testing.T) {
+// GAIN GRAIN. The blend must use each shed's four-week baseline, not the
+// immediately previous row, and must weight by head count. A load whose sheds
+// have no baseline near four weeks before latest has a weight but NO gain, and
+// must report nil rather than 0, which would read as "this supplier's kids are flat".
+func TestLoadWeightsGainUsesFourWeekBaselineAndIsNilWithoutABaseline(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
 	pool := pgtest.StartPostgres(t, ctx)
@@ -248,13 +248,16 @@ func TestLoadWeightsGainUsesLastTwoWeighsAndIsNilWithoutASecond(t *testing.T) {
 		}
 	}
 
-	// Add an EARLIER weigh in its own bucket: 20.0 on 10 Jul -> 22.0 on 20 Jul is
-	// 2.0 kg over 10 days = 200 g/day.
+	// Add an EARLIER weigh in its own bucket: 18.0 on 22 Jun -> 22.0 on 20 Jul is
+	// 4.0 kg over 28 days = 142.9 g/day. The baseline is before the visible
+	// period start, matching a "latest weigh minus four weeks" interpretation.
 	seedLoadBucket(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoPerShed, "per_shed_partition")
-	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 20.0, 40,
-		time.Date(2026, 7, 10, 6, 0, 0, 0, time.UTC))
+	seedLoadLumpWeigh(t, ctx, pool, loadShedScopeTwo, loadCampaignTwo, repoShedProofTwo, 18.0, 40,
+		time.Date(2026, 6, 22, 6, 0, 0, 0, time.UTC))
 
-	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	out, err = repo.GetShedWeights(ctx, repoTenant, []string{repoPark},
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatalf("GetShedWeights after second weigh: %v", err)
 	}
@@ -267,11 +270,11 @@ func TestLoadWeightsGainUsesLastTwoWeighsAndIsNilWithoutASecond(t *testing.T) {
 		if load.GainGPerDay == nil {
 			t.Fatal("two weighs must produce a gain")
 		}
-		if got := fmt.Sprintf("%.1f", *load.GainGPerDay); got != "200.0" {
-			t.Fatalf("gain must be (22.0-20.0)kg over 10 days = 200 g/day, got %s", got)
+		if got := fmt.Sprintf("%.1f", *load.GainGPerDay); got != "142.9" {
+			t.Fatalf("gain must be (22.0-18.0)kg over 28 days = 142.9 g/day, got %s", got)
 		}
-		if load.GainSpanDays != 10 {
-			t.Fatalf("the span must travel with the number: want 10, got %d", load.GainSpanDays)
+		if load.GainSpanDays != 28 {
+			t.Fatalf("the span must travel with the number: want 28, got %d", load.GainSpanDays)
 		}
 	}
 	if !found {
