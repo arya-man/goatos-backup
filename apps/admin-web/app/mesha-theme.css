@@ -2007,3 +2007,18 @@ select:disabled { opacity: .45; }
 .cbm-farm-block { margin-top: 14px; }
 .cbm-farm-name { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 6px; }
 .cbm-cohort-heat .cbm-cell small { display: block; font-size: 9.5px; font-weight: 500; opacity: .8; }
+
+/* Weights page bar lists. Fixed height + internal scroll, so a chart with forty
+   rows takes the same page space as one with four, and half-width cards keep
+   their labels at a readable size instead of scaling down like an SVG would. */
+.wbars{list-style:none;margin:0;padding:0 8px 0 0;display:flex;flex-direction:column;gap:6px;overflow-y:auto}
+.wbars-tall{height:300px}
+.wbars-short{height:150px}
+.wbars::-webkit-scrollbar{width:8px}
+.wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px}
+.wbar .wbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
+.wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden}
+.wbar .wbt i{display:block;height:100%;border-radius:5px;background:var(--brand)}
+.wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:900px){.wbar{grid-template-columns:96px minmax(0,1fr) 62px}}
