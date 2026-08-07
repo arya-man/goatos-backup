@@ -477,3 +477,31 @@ git rev-parse --show-toplevel
 - **Verified read-only against live STG on 2026-08-07**
 - Partitions are NOT separate shed rows and must NOT be restructured into them
 - The old `Mandela 1 - Part N` location rows are INACTIVE aliases only (legacy data shape)
+
+## OL-18 — CommandBoardShedVaccineCell collapses partitions (OPEN, deferred 2026-08-07)
+
+**Status: OPEN. Deferred deliberately, not denied.**
+
+`CommandBoardShedVaccineCell` (the shed × vaccine matrix on the vaccination command
+board) carries `shedId` + `shedName` and NO partition, in both
+`backend/internal/vaccinationexecution/domain/types.go` and the OpenAPI schema. Two
+partitions of one shed therefore collapse into a single cell.
+
+**User-visible consequence:** a cell reading `behind` tells a park head that
+something in `Godel 1` is behind, but not WHICH pen — and the whole point of the
+matrix is to be read while walking into a shed. If Part 1 is clean and Part 3 is
+behind, the cell is red for both.
+
+**Why it is not fixed in the partition branch:** the feature arrived from `main` on
+2026-08-07, after the `response-shed-missing-partition` rule existed. Its Go struct
+has no partition at cell grain, so closing this means changing a feature this branch
+does not own, including the SQL that builds the matrix.
+
+**How it is tracked rather than hidden:** the schema is listed in
+`RESPONSE_PARTITION_EXEMPT` in `tools/agent-hooks/check-operational-location.mjs`
+with this ledger entry named in the comment. Delete the exemption entry when the
+cell grain gains a partition — the guard will then enforce it automatically.
+
+**Do not** close this by adding the fields to OpenAPI alone. That is the
+declared-on-one-side-only defect this branch hit NINE times; the Go struct, the SQL
+that populates it, and a renderer must move together.
