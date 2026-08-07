@@ -683,13 +683,24 @@ func (s *Service) generate(ctx context.Context, req generateRequest) (generateRe
 		return generateResult{}, err
 	}
 
+	// ONE ShedInput per OPERATIONAL LOCATION (shed + partition), not per shed. A planner is chosen
+	// per input, so this is what lets one shed run its authored experiment on some partitions while
+	// the rest stay on the per-head ration grid -- CBE's Godel 2 has eight partitions and only
+	// Parts 3/4/5 are experiments. A shed with no partitions yields exactly one input with an empty
+	// label and behaves exactly as it did before.
+	//
+	// Order is preserved from the shed scope, and every input keeps its ShedID, so paging by shed
+	// still keeps all of a shed's partitions together on one page.
 	sheds := make([]domain.ShedInput, 0, len(scope.Items))
 	for _, shed := range scope.Items {
-		sheds = append(sheds, domain.ShedInput{
-			ShedID:    shed.ShedID,
-			ShedLabel: shed.Label,
-			Grains:    grains[shed.ShedID],
-		})
+		for _, part := range domain.SplitGrainsByPartition(grains[shed.ShedID]) {
+			sheds = append(sheds, domain.ShedInput{
+				ShedID:         shed.ShedID,
+				ShedLabel:      shed.Label,
+				PartitionLabel: part.PartitionLabel,
+				Grains:         part.Grains,
+			})
+		}
 	}
 
 	scopeRows := domain.GenerateDirection(domain.GenerateInput{

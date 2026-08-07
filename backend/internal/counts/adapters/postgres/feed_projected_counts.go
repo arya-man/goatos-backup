@@ -195,6 +195,12 @@ pending_leg AS (
     p.source_park_id AS park_id,
     p.source_shed_id AS shed_id,
     regexp_replace(lower(btrim(COALESCE(p.source_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    -- The RAW label travels alongside the normalized key, exactly as the live side carries
+    -- min(gsp.partition_label). partition_key is a matching key ('whole' is never copy); the raw
+    -- label is what a shed row is allowed to DISPLAY. Without it the combined CTE referenced a
+    -- d.partition_label_raw that this CTE never produced, and the whole query failed with
+    -- "column d.partition_label_raw does not exist".
+    p.source_partition_label  AS partition_label_raw,
     COALESCE(i.stage_tag, '') AS stage_label,
     i.breed_label             AS breed_label,
     COALESCE(i.sex, '')       AS sex_label,
@@ -212,6 +218,7 @@ pending_leg AS (
     p.destination_park_id,
     p.destination_shed_id,
     regexp_replace(lower(btrim(COALESCE(p.destination_partition_label, 'whole'))), '^part[[:space:]]+', '') AS partition_key,
+    p.destination_partition_label,
     -- DESTINATION tag, not the source stage_tag: the animals adopt the destination shed's cohort on
     -- arrival. Falls back to the source tag only when the destination shed is empty/mixed and its
     -- cohort cannot be inferred (bridge limitation until shed_profiles is seeded -- see dest_cohort).
@@ -238,6 +245,12 @@ delta AS (
     ` + fmt.Sprintf(feedGrainNormSQL, "l.stage_label") + ` AS stage_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.breed_label") + ` AS breed_key,
     ` + fmt.Sprintf(feedGrainNormSQL, "l.sex_label") + ` AS sex_key,
+    -- Aggregated the same way as the live side's min(gsp.partition_label): the rows in this group
+    -- all share one partition_key, so min() picks that partition's own raw label rather than
+    -- inventing one. The combined CTE COALESCEs live's label ahead of this, so this only supplies a
+    -- label for a delta-only row -- a destination shed holding none of the grain today, which is
+    -- exactly the row the feed team most needs to see and the one a LEFT JOIN would have dropped.
+    min(l.partition_label_raw) AS partition_label_raw,
     min(l.stage_label) AS stage_label,
     min(l.breed_label) AS breed_label,
     min(l.sex_label)   AS sex_label,
