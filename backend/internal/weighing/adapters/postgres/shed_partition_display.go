@@ -1,9 +1,6 @@
 package postgres
 
 import (
-	"regexp"
-	"strings"
-
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -19,22 +16,15 @@ import (
 // from the same `locations` catalog the vaccination/counts side reads. This parses that suffix
 // back out so weighing can carry parent-shed name + partition label + a normalized operational
 // display without reading a single animal-scoped row.
-var weighingPartitionSuffix = regexp.MustCompile(`(?i)^(.+?)\s*-\s*part\s+(\S+)$|^(.+?)\s+(\d+)$`)
-
-// splitShedPartitionName parses a shed catalog display name into (parent shed base name,
-// partition label). partitionLabel is "" when the name carries no recognizable partition suffix
-// -- ordinary non-partitioned shed names ("Yashoda", "Ho Chi Minh") never match and pass through
-// unchanged.
+// splitShedPartitionName delegates to oploc.SplitShedPartitionName, the single Go home of the
+// catalog naming rule. It was a private regex here until 2026-08-07; the feed seeder needed the
+// same parse, and two copies of this convention is exactly how one caller comes to believe
+// "Godel 1 - Part 3" is shed "Godel" while the other reads shed "Godel 1".
+//
+// Weighing's isolation is untouched: oploc is a platform primitive over NAMES, and this still
+// reads only the already-flattened locations catalog name -- no goats, no goat_shed_partitions.
 func splitShedPartitionName(name string) (parentShedName, partitionLabel string) {
-	trimmed := strings.TrimSpace(name)
-	m := weighingPartitionSuffix.FindStringSubmatch(trimmed)
-	if m == nil {
-		return trimmed, ""
-	}
-	if m[1] != "" {
-		return strings.TrimSpace(m[1]), "Part " + m[2]
-	}
-	return strings.TrimSpace(m[3]), m[4]
+	return oploc.SplitShedPartitionName(name)
 }
 
 // applyShedPartitionDisplay stamps ParentShedName/PartitionLabel/OperationalLocationDisplay on a

@@ -147,7 +147,7 @@ func testSnapshot() domain.ConfigSnapshot {
 				Items: []domain.FeedItem{{Label: "Concentrate", Key: "concentrate"}},
 			},
 		},
-		ExperimentByShedID: map[string][]domain.ExperimentCell{},
+		ExperimentByLocation: map[string][]domain.ExperimentCell{},
 	}
 }
 
