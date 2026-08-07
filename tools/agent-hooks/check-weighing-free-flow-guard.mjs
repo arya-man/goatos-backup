@@ -256,6 +256,19 @@ const WRITE_PATH_ALLOWED_TABLES = new Set([
   "audit_log",
   // Weighing's own idempotency ledger (module-scoped table, not a herd table).
   "weighing_idempotency_records",
+  // Shed -> procurement-load mapping for load-wise growth on the Weights screen
+  // (000123, maintainer decision 2026-08-08). WEIGHING-OWNED, and that is the whole
+  // point of it: the farm's mapping is SHED-level ("Castro 1 + Castro 2 came from
+  // load 131"), so weighing can answer "which supplier's animals grow best" from a
+  // table of its own instead of reading procurement_loads / procurement_load_goats.
+  // Adding a PROCUREMENT table to this set would be the isolation breach; adding
+  // this one is not. It carries a load reference, a supplier name and a shed id --
+  // no animal identity, no clinical state, no other module's rules -- and it is read
+  // ONLY, on a reporting path, by load_weights.go. It is deliberately NOT a foreign
+  // key to procurement_loads, which would reintroduce the dependency by the back
+  // door. Widening this to per-animal load membership means procurement_load_goats
+  // and a recorded maintainer exception, exactly like the goats/goat_identifiers one.
+  "weighing_shed_load_tags",
 ]);
 
 // A CTE may never be NAMED after a banned table. Otherwise it shadows it:
