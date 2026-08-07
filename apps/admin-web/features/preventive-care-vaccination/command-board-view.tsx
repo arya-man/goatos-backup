@@ -9,7 +9,7 @@ import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   commonDriveName,
   driveSelectionValue,
-  executionDriveOptions,
+  executedDriveCampaigns,
   formatDateSpan,
   formatScheduledDriveDates,
   parseDriveSelectionValue,
@@ -457,10 +457,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
-  const activeDriveOptions = useMemo(
-    () => executionDriveOptions(driveOptions),
-    [driveOptions],
-  );
+  const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
 
   const selectDrive = (next: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -499,6 +496,10 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const futureCampaigns = useMemo(
     () => statusVisible("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
+  );
+  const driveCampaigns = useMemo(
+    () => [...executedCampaigns, ...futureCampaigns],
+    [executedCampaigns, futureCampaigns],
   );
 
   const view = useMemo(() => {
@@ -570,26 +571,14 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
-          {activeDriveOptions.length > 0 && (
-            <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
-              {activeDriveOptions.map((drive) => (
-                <option
-                  key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
-                  value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
-                >
-                  {`${commonDriveName(drive.driveName || drive.label, drive.parkName)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {futureCampaigns.map((campaign) => (
+          {driveCampaigns.map((campaign) => (
             <optgroup
               key={campaign.key}
               label={`${campaign.name} · ${formatScheduledDriveDates(campaign.dateKeys)} · ${campaign.targetCount} animals`}
             >
               {campaign.treatments.map((drive, index) => (
                   <option
-                    key={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
+                    key={`${driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}|${drive.dateKeys.join(",")}`}
                     value={driveSelectionValue(drive.batchIds[0] ?? drive.key, drive.parkId)}
                   >
                     {`Operator day ${index + 1} · ${formatScheduledDriveDates(drive.dateKeys)} · ${drive.targetCount} animals`}

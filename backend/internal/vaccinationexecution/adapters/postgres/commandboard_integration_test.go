@@ -989,6 +989,24 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyMultipleDimensionsScopeHier
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000010', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
 		cmdBoardTestTenant, obBatchLate, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+	execProjectionSQL(t, ctx, pool, "drive-option obligation late second day",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000a000013', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, obBatchLate, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET, asOf)
+	for _, completion := range []struct {
+		id           string
+		obligationID string
+		goatID       string
+		at           string
+	}{
+		{"70000000-0000-4000-8000-00000c000010", "70000000-0000-4000-8000-00000a000010", cmdBoardGoat1, "2026-08-10T10:00:00+05:30"},
+		{"70000000-0000-4000-8000-00000c000011", "70000000-0000-4000-8000-00000a000013", cmdBoardGoat2, "2026-08-11T10:00:00+05:30"},
+	} {
+		execProjectionSQL(t, ctx, pool, "drive-option completion "+completion.id,
+			`INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, goat_id, status, administered_at, verified_at)
+			 VALUES ($1, $2, $3, $4, 'recorded', $5::timestamptz, NULL)`,
+			completion.id, cmdBoardTestTenant, completion.obligationID, completion.goatID, completion.at)
+	}
 	execProjectionSQL(t, ctx, pool, "drive-option obligation future",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000012', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
@@ -1071,6 +1089,22 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyMultipleDimensionsScopeHier
 	}
 	if statusByBatch[obBatchLate] != "in_progress" {
 		t.Fatalf("StatusBuckets: late batch status = %q, want in_progress", statusByBatch[obBatchLate])
+	}
+	// OneToMany MultipleDimensions Pagination PageBoundary ParkScope ScopeHierarchy StatusBuckets ExecutionDate:
+	// completed operator-day rows are split by actual administered_at date without multiplying animals.
+	for _, option := range resp.DriveOptions {
+		if option.DriveBatchID != obBatchLate {
+			continue
+		}
+		if len(option.OperatorDays) != 2 {
+			t.Fatalf("ExecutionDate: operatorDays=%+v, want two completion days", option.OperatorDays)
+		}
+		if option.OperatorDays[0].Date != "2026-08-10" || option.OperatorDays[0].TargetCount != 1 {
+			t.Fatalf("ExecutionDate: first operator day=%+v, want 2026-08-10 with one animal", option.OperatorDays[0])
+		}
+		if option.OperatorDays[1].Date != "2026-08-11" || option.OperatorDays[1].TargetCount != 1 {
+			t.Fatalf("ExecutionDate: second operator day=%+v, want 2026-08-11 with one animal", option.OperatorDays[1])
+		}
 	}
 
 	// Park 2 scope sees only its own batch — scope narrows both ways.
