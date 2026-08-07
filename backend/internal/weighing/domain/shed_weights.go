@@ -58,6 +58,24 @@ type ShedWeightsRow struct {
 	// BucketStatus is the weighing_campaign_sheds status of the bucket this row came
 	// from: pending, in_progress, completed or canceled.
 	BucketStatus string `json:"bucket_status"`
+	// ShedAverageGainGPerDay is how fast this shed's AVERAGE weight is moving, for
+	// WHOLE-SHED sheds that were weighed more than once in the window. Nil otherwise.
+	//
+	// IT IS NOT PER-ANIMAL GROWTH, and must never be labelled as such. A shed's
+	// population changes between weighs — Castro 3 went 67 head to 64 — so if the
+	// lightest animals leave, the average rises while no animal gained a gram. It
+	// answers "is this shed getting heavier", which is a real and different question.
+	//
+	// Measured across the FULL span (first weigh to last) rather than between
+	// consecutive weighs. Consecutive pairs are unusably noisy at this grain: the same
+	// shed produced 45 g/day one week and 391 the next, and a two-day gap produced
+	// +1,532 g/day — 1.5 kg per animal per day, which is impossible and is really the
+	// short span amplifying a small change in composition.
+	ShedAverageGainGPerDay *float64 `json:"shed_average_gain_g_per_day,omitempty"`
+	// GainSpanDays is the span that gain was measured over, so a reader can discount a
+	// figure drawn from two days against one drawn from a month. A short span is not
+	// hidden or filtered — it is reported with its span attached.
+	GainSpanDays int `json:"gain_span_days,omitempty"`
 }
 
 // ShedWeightsSummary is the whole-filter rollup behind the KPI cards.

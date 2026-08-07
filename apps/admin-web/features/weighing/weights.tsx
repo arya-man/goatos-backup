@@ -230,15 +230,35 @@ export async function WeighingWeightsPage({
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
-  const gainChartData = (growth.ok ? growth.data.shed_leaderboard : [])
-    .filter((shed) => shed.adg_pair_count > 0)
-    .slice()
-    .sort((a, b) => b.median_adg_g_per_day - a.median_adg_g_per_day)
-    .map((shed) => ({
-      key: shed.location_id,
-      label: shed.display_name,
-      value: Math.round(shed.median_adg_g_per_day),
-    }));
+  // Two different measurements share this chart, and the caption says so. A
+  // per-animal shed reports the median of its kids' own gains. A whole-shed weigh
+  // has no per-animal gain at all, so it reports how fast its AVERAGE is moving —
+  // which population change also moves. Merging them silently would be the defect;
+  // showing only the first would drop every whole-shed shed from a gain view they
+  // now have real history for.
+  const gainChartData = [
+    ...(growth.ok ? growth.data.shed_leaderboard : [])
+      .filter((shed) => shed.adg_pair_count > 0)
+      .map((shed) => ({
+        key: shed.location_id,
+        label: shed.display_name,
+        value: Math.round(shed.median_adg_g_per_day),
+      })),
+    ...visibleRows
+      .filter((row) => row.shed_average_gain_g_per_day != null)
+      .map((row) => ({
+        key: `${row.location_id}-shed`,
+        // Park-qualified, and carrying the span it was measured over. Two parks both
+        // hold a "Castro 2", so an unqualified shed name puts two different sheds on
+        // the chart under one name. The span is on the label because a figure drawn
+        // from two days deserves to be discounted on sight — Channapatna's Castro 2
+        // reads +1,532 g/day over a 2-day gap, which is 1.5 kg per kid per day and
+        // impossible. It is shown rather than filtered: the number is real, its span
+        // is the reason not to trust it.
+        label: `${row.park_name} ${row.shed_display_name} (shed avg, ${row.gain_span_days}d)`,
+        value: Math.round(row.shed_average_gain_g_per_day as number),
+      })),
+  ].sort((a, b) => b.value - a.value);
 
   const hasAnyData = summary.animals_weighed > 0;
 
@@ -367,7 +387,9 @@ export async function WeighingWeightsPage({
             <MetricToggle param="shed_metric" current={shedMetric} params={params} pageContract={pageContract} />
           </h2>
           <p className="muted small">
-            {shedMetric === "adg" ? copy(pageContract, "chart.gain.caption") : copy(pageContract, "chart.average.caption")}
+            {shedMetric === "adg"
+              ? copy(pageContract, "chart.gain.caption_shed")
+              : copy(pageContract, "chart.average.caption")}
           </p>
           <WeightBars
             data={shedMetric === "adg" ? gainChartData : chartData}
