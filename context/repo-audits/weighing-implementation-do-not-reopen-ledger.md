@@ -599,3 +599,27 @@ Also closed here: NO weighing cadence exists. No "weekly"/"monthly"/minimum
 interval between weighs, no "overdue"/"missed weigh"/"expected next weigh". A
 14-day minimum gap for ADG pairs was added and removed the same day; only a
 zero-elapsed pair is excluded, and that is division-by-zero, not policy.
+
+## E-1 — Herd join for breed/sex/stage: REOPENED by maintainer decision 2026-08-07
+
+Bans A-6 / B-4 / C-3 forbade weighing reading `goats` / `goat_identifiers` on any
+path, reads included, after an ADG read model shipped a `LEFT JOIN goat_identifiers`
+on 2026-08-04.
+
+The maintainer reopened this SPECIFICALLY AND NARROWLY on 2026-08-07, for the
+admin-web Weights screen's breed / sex / stage breakdown: "for id's we have details
+right what type they are", and "for lumpsum use what that shed is assigned to".
+
+Scope of the reopening — anything outside this is still banned:
+
+- ONE file: `backend/internal/weighing/adapters/postgres/weight_demographics.go`,
+  allowlisted by name in `HERD_JOIN_EXEMPT_FILES`.
+- TWO tables: `goats`, `goat_identifiers`. Vaccination, clinical, protocol and
+  obligation tables remain banned everywhere.
+- READ-ONLY, reporting only. No capture, submit or close path may resolve a tag.
+- No scan is gated on identity. An unresolved tag is counted and reported, never
+  rejected. Free-flow capture is unchanged.
+
+The exemption is file-scoped rather than added to the global allowlist precisely
+because a global entry would silently unlock the write path — the original defect.
+Widening it is a maintainer decision.

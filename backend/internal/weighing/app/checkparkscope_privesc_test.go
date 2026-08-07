@@ -305,6 +305,10 @@ func (r *parkScopeCheckRepo) GetShedWeights(context.Context, string, []string, t
 	return domain.ShedWeights{}, nil
 }
 
+func (r *parkScopeCheckRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+	return domain.WeightDemographics{}, nil
+}
+
 func (r *parkScopeCheckRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }

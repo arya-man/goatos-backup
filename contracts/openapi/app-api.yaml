@@ -1017,6 +1017,41 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/weight-demographics:
+    get:
+      tags: [Weighing]
+      operationId: adminGetWeighingWeightDemographics
+      summary: Average weight by breed, sex and management stage.
+      description: >
+        Requires WeighingMonitor, park-scoped like the other leadership reads.
+
+
+        This is the ONE weighing read that resolves a scanned tag to its animal
+        (maintainer decision 2026-08-07), because breed, sex and stage exist only on
+        the animal. Read-only, this reporting path only, never a gate on capture: a
+        tag that resolves to nothing is counted in `unresolved_animals`, not rejected.
+
+
+        `by_breed` and `by_sex` cover per-animal weighs only. `by_stage` also covers
+        whole-shed weighs, attributed by the shed's own cohort, which is why its total
+        exceeds the other two -- see `lump_sum_animals`. A shed whose residents do not
+        share one stage is attributed nowhere and appears in
+        `lump_sum_unattributed_animals`.
+      parameters:
+        - {name: park_id, in: query, required: false, schema: {type: string, format: uuid}}
+        - {name: from, in: query, required: false, schema: {type: string, format: date}}
+        - {name: to, in: query, required: false, schema: {type: string, format: date}}
+      responses:
+        "200":
+          description: Weight broken down by breed, sex and stage.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/WeighingWeightDemographicsResponse"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFoundOrNotAllowed"}
+        "500": {$ref: "#/components/responses/ServerError"}
   /app/weighing/leadership/sheds:
     get:
       tags:
@@ -18260,6 +18295,42 @@ components:
         latest_weigh_date:
           type: string
           format: date
+    WeighingWeightDemographicBucket:
+      type: object
+      additionalProperties: false
+      required: [label, animals, average_weight_kg]
+      properties:
+        label: {type: string, description: "Value as stored; clients render it and do not re-map it."}
+        animals: {type: integer, description: "Distinct animals behind the average."}
+        average_weight_kg:
+          type: number
+          format: double
+          description: "Mean of each animal's LATEST weight in the window -- a weighted mean over animals."
+    WeighingWeightDemographicsResponse:
+      type: object
+      additionalProperties: false
+      required: [by_breed, by_sex, by_stage, resolved_animals, unresolved_animals, lump_sum_animals, lump_sum_unattributed_animals]
+      properties:
+        by_breed:
+          type: array
+          description: "Per-animal weighs only; a whole-shed total cannot be split by breed."
+          items: {$ref: "#/components/schemas/WeighingWeightDemographicBucket"}
+        by_sex:
+          type: array
+          description: "Per-animal weighs only."
+          items: {$ref: "#/components/schemas/WeighingWeightDemographicBucket"}
+        by_stage:
+          type: array
+          description: "Per-animal weighs plus whole-shed weighs attributed to their shed's cohort."
+          items: {$ref: "#/components/schemas/WeighingWeightDemographicBucket"}
+        resolved_animals: {type: integer}
+        unresolved_animals:
+          type: integer
+          description: "Scanned tags with no animal in the herd register. Real weighs, reported not dropped."
+        lump_sum_animals: {type: integer}
+        lump_sum_unattributed_animals:
+          type: integer
+          description: "Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them."
     WeighingShedWeightsRow:
       type: object
       additionalProperties: false

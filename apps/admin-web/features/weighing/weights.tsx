@@ -10,6 +10,7 @@ import {
   firstAuthRequiredError,
   getShedWeights,
   getWeighingGrowth,
+  getWeightDemographics,
   type ShedWeightsRow,
 } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
@@ -89,12 +90,13 @@ export async function WeighingWeightsPage({
   const periodDays = one(params, "period") === "84" ? 84 : 28;
   const window = businessDayWindow(periodDays);
 
-  const [weights, growth] = await Promise.all([
+  const [weights, growth, demographics] = await Promise.all([
     getShedWeights({ park_id: parkFilter || undefined, ...window }),
     getWeighingGrowth({ park_id: parkFilter || undefined, ...window }),
+    getWeightDemographics({ park_id: parkFilter || undefined, ...window }),
   ]);
 
-  if (firstAuthRequiredError(weights, growth)) redirect(INTERNAL_LOGIN_PATH);
+  if (firstAuthRequiredError(weights, growth, demographics)) redirect(INTERNAL_LOGIN_PATH);
 
   if (!weights.ok) {
     return (
@@ -178,6 +180,7 @@ export async function WeighingWeightsPage({
       value: Number(row.average_weight_kg.toFixed(1)),
     }));
 
+  const demo = demographics.ok ? demographics.data : null;
   const headlineGain = growth.ok ? growth.data.headline.median_adg_g_per_day : null;
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
@@ -266,6 +269,17 @@ export async function WeighingWeightsPage({
 
       {perParkGain.length > 0 ? (
         <section className="grid g3" aria-label={copy(pageContract, "section.park_gain.aria")}>
+          <div className="kpi">
+            <div className="lab">
+              {copy(pageContract, "kpi.park_gain.all")} {copy(pageContract, "kpi.park_gain.suffix")}
+            </div>
+            <div className="val">
+              {headlineGain == null
+                ? copy(pageContract, "empty.no_data.title")
+                : `${Math.round(headlineGain)} g`}
+            </div>
+            <div className="dl">{copy(pageContract, "kpi.gain.sub")}</div>
+          </div>
           {perParkGain.map((park) => (
             <div className="kpi" key={park.name}>
               <div className="lab">
@@ -320,6 +334,42 @@ export async function WeighingWeightsPage({
           maxBars={12}
         />
       </section>
+
+      {demo ? (
+        <section className="grid g3" aria-label={copy(pageContract, "section.demographics.aria")}>
+          {(
+            [
+              ["chart.breed.title", "chart.breed.aria", demo.by_breed],
+              ["chart.sex.title", "chart.sex.aria", demo.by_sex],
+              ["chart.stage.title", "chart.stage.aria", demo.by_stage],
+            ] as const
+          ).map(([titleKey, ariaKey, buckets]) => (
+            <div className="card" key={titleKey} aria-label={copy(pageContract, ariaKey)}>
+              <h2 className="h">{copy(pageContract, titleKey)}</h2>
+              <SvgBars
+                data={buckets.map((bucket) => ({
+                  key: bucket.label,
+                  label: bucket.label,
+                  value: Number(bucket.average_weight_kg.toFixed(1)),
+                }))}
+                emptyLabel={copy(pageContract, "empty.demographics.body")}
+                valueNoun="kg"
+                chartLabel={copy(pageContract, ariaKey)}
+                maxBars={8}
+              />
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {demo ? (
+        <p className="muted small">
+          {copy(pageContract, "note.demographics.coverage")}
+          {demo.unresolved_animals > 0
+            ? ` ${demo.unresolved_animals} weighed kid(s) are not in the herd register.`
+            : ""}
+        </p>
+      ) : null}
 
       <section className="card" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">

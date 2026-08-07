@@ -780,6 +780,10 @@ func (r *fakeRepo) GetShedWeights(_ context.Context, _ string, _ []string, _, _ 
 	return domain.ShedWeights{}, nil
 }
 
+func (r *fakeRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+	return domain.WeightDemographics{}, nil
+}
+
 type campaignListRepo struct {
 	fakeRepo
 	monitorPage    domain.CampaignPage

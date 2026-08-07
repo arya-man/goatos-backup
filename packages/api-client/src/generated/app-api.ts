@@ -455,6 +455,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/weighing/weight-demographics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Average weight by breed, sex and management stage.
+         * @description Requires WeighingMonitor, park-scoped like the other leadership reads.
+         *
+         *     This is the ONE weighing read that resolves a scanned tag to its animal (maintainer decision 2026-08-07), because breed, sex and stage exist only on the animal. Read-only, this reporting path only, never a gate on capture: a tag that resolves to nothing is counted in `unresolved_animals`, not rejected.
+         *
+         *     `by_breed` and `by_sex` cover per-animal weighs only. `by_stage` also covers whole-shed weighs, attributed by the shed's own cohort, which is why its total exceeds the other two -- see `lump_sum_animals`. A shed whose residents do not share one stage is attributed nowhere and appears in `lump_sum_unattributed_animals`.
+         */
+        get: operations["adminGetWeighingWeightDemographics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/app/weighing/leadership/sheds": {
         parameters: {
             query?: never;
@@ -6990,6 +7014,31 @@ export interface components {
             /** Format: date */
             latest_weigh_date: string;
         };
+        WeighingWeightDemographicBucket: {
+            /** @description Value as stored; clients render it and do not re-map it. */
+            label: string;
+            /** @description Distinct animals behind the average. */
+            animals: number;
+            /**
+             * Format: double
+             * @description Mean of each animal's LATEST weight in the window -- a weighted mean over animals.
+             */
+            average_weight_kg: number;
+        };
+        WeighingWeightDemographicsResponse: {
+            /** @description Per-animal weighs only; a whole-shed total cannot be split by breed. */
+            by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
+            /** @description Per-animal weighs only. */
+            by_sex: components["schemas"]["WeighingWeightDemographicBucket"][];
+            /** @description Per-animal weighs plus whole-shed weighs attributed to their shed's cohort. */
+            by_stage: components["schemas"]["WeighingWeightDemographicBucket"][];
+            resolved_animals: number;
+            /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
+            unresolved_animals: number;
+            lump_sum_animals: number;
+            /** @description Animals in whole-shed weighs whose shed holds more than one stage, so no stage row claims them. */
+            lump_sum_unattributed_animals: number;
+        };
         /** @description ONE shed's most recent weigh. Grain is the physical shed, not the campaign bucket. */
         WeighingShedWeightsRow: {
             /** Format: uuid */
@@ -9459,6 +9508,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WeighingShedWeightsResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFoundOrNotAllowed"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    adminGetWeighingWeightDemographics: {
+        parameters: {
+            query?: {
+                park_id?: string;
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Weight broken down by breed, sex and stage. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeighingWeightDemographicsResponse"];
                 };
             };
             400: components["responses"]["BadRequest"];

@@ -1462,6 +1462,23 @@ func (s *Service) resolveMonitorParkScope(ctx context.Context, actor domain.Acto
 	return parkIDs, nil
 }
 
+// GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
+// screen. Same capability and scope rules as the other leadership reads.
+func (s *Service) GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error) {
+	if !permissions.RolesAuthorize(actor.Roles, []string{permissions.WeighingMonitor}, false) {
+		return domain.WeightDemographics{}, ports.ErrForbidden
+	}
+	periodStart, periodEndExclusive, err := s.resolveWeighingWindow(fromBusinessDate, toBusinessDate)
+	if err != nil {
+		return domain.WeightDemographics{}, err
+	}
+	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, strings.TrimSpace(parkID))
+	if scopeErr != nil {
+		return domain.WeightDemographics{}, scopeErr
+	}
+	return s.repo.GetWeightDemographics(ctx, actor.TenantID, parkIDs, periodStart, periodEndExclusive)
+}
+
 // GetShedWeights serves the admin-web "Kids — Weights" screen: one row per shed
 // with its most recent weigh in the window, plus the whole-filter KPI rollup.
 //
@@ -1484,9 +1501,28 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 		return domain.ShedWeights{}, ports.ErrInvalidArgument
 	}
 
-	// TIME GRAIN IS THE BUSINESS DAY, never an hour offset: a weigh belongs to the
-	// Asia/Kolkata day it happened on, so the window is anchored on business-day
-	// boundaries rather than a now±N clock instant.
+	periodStart, periodEndExclusive, windowErr := s.resolveWeighingWindow(from, to)
+	if windowErr != nil {
+		return domain.ShedWeights{}, windowErr
+	}
+	return s.shedWeightsFor(ctx, actor, parkID, periodStart, periodEndExclusive)
+}
+
+// resolveWeighingWindow turns optional business dates into the half-open
+// [start, end) window every weighing report uses.
+//
+// TIME GRAIN IS THE BUSINESS DAY, never an hour offset: a weigh belongs to the
+// Asia/Kolkata day it happened on, so the window anchors on business-day
+// boundaries rather than a now±N clock instant.
+func (s *Service) resolveWeighingWindow(fromBusinessDate, toBusinessDate string) (time.Time, time.Time, error) {
+	from := strings.TrimSpace(fromBusinessDate)
+	to := strings.TrimSpace(toBusinessDate)
+	if from != "" && !isBusinessDate(from) {
+		return time.Time{}, time.Time{}, ports.ErrInvalidArgument
+	}
+	if to != "" && !isBusinessDate(to) {
+		return time.Time{}, time.Time{}, ports.ErrInvalidArgument
+	}
 	loc := biztime.DefaultLocation()
 	now := time.Now().In(loc)
 	var periodStart, periodEndInclusive time.Time
@@ -1496,7 +1532,7 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	} else {
 		periodEndInclusive, err = time.ParseInLocation("2006-01-02", to, loc)
 		if err != nil {
-			return domain.ShedWeights{}, ports.ErrInvalidArgument
+			return time.Time{}, time.Time{}, ports.ErrInvalidArgument
 		}
 	}
 	if from == "" {
@@ -1504,16 +1540,18 @@ func (s *Service) GetShedWeights(ctx context.Context, actor domain.Actor, parkID
 	} else {
 		periodStart, err = time.ParseInLocation("2006-01-02", from, loc)
 		if err != nil {
-			return domain.ShedWeights{}, ports.ErrInvalidArgument
+			return time.Time{}, time.Time{}, ports.ErrInvalidArgument
 		}
 	}
 	if periodEndInclusive.Before(periodStart) {
-		return domain.ShedWeights{}, ports.ErrInvalidArgument
+		return time.Time{}, time.Time{}, ports.ErrInvalidArgument
 	}
-	// The repository period is half-open [periodStart, periodEnd): the caller's LAST
-	// day is inclusive, so the exclusive boundary is midnight the day AFTER it.
-	periodEndExclusive := periodEndInclusive.AddDate(0, 0, 1)
+	// Half-open: the caller's LAST day is inclusive, so the exclusive boundary is
+	// midnight the day AFTER it.
+	return periodStart, periodEndInclusive.AddDate(0, 0, 1), nil
+}
 
+func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID string, periodStart, periodEndExclusive time.Time) (domain.ShedWeights, error) {
 	parkIDs, scopeErr := s.resolveMonitorParkScope(ctx, actor, parkID)
 	if scopeErr != nil {
 		return domain.ShedWeights{}, scopeErr

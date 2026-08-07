@@ -75,6 +75,25 @@ BANNED on every path: `goats`, `goat_identifiers`, `herd_*`, `vaccination_*`,
 module's rules. Weighing knows a scanned string and a weight. It does not know
 what animal that is and must never ask.
 
+ONE RECORDED EXCEPTION (maintainer decision 2026-08-07). The admin-web Weights
+screen reports average weight by BREED, SEX and MANAGEMENT STAGE. Those three
+facts live only on the animal, so exactly one file may resolve a scanned tag:
+`backend/internal/weighing/adapters/postgres/weight_demographics.go`, allowlisted
+BY NAME in `check-weighing-free-flow-guard.mjs` (`HERD_JOIN_EXEMPT_FILES`) and
+permitted `goats` + `goat_identifiers` only. Everything else stays banned, on
+every path, in every other weighing file — the exemption is file-scoped precisely
+so it cannot leak to the write path, which is the 2026-08-04 defect.
+
+What keeps it safe, and what a future change must preserve: it is READ-ONLY; it
+is a reporting path with no capture, submit or close behaviour; NO scan is gated
+on identity; and a tag that resolves to nothing is COUNTED and reported, never
+rejected — free-flow capture is untouched. A whole-shed weigh has no tags and is
+attributed by the shed's own cohort, contributing to the stage figure but never to
+breed or sex, because splitting one shed average across a mix invents a
+distribution nobody measured. Widening this exemption — another file, another
+table, or any write path — is a MAINTAINER decision, never a developer
+convenience.
+
 ALLOWED besides `weighing_*`: proof / idempotency / audit / outbox plumbing, and
 exactly three ORG tables — `locations`, `workforce_members`, `user_scope_grants`
 (a task belongs to a park and a person). Adding to that list is a MAINTAINER
