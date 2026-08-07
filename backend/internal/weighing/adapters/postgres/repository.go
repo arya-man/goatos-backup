@@ -1318,6 +1318,12 @@ WHERE cs.tenant_id=$1::uuid AND cs.campaign_id=$2::uuid AND cs.campaign_shed_id=
 	result.PeriodLabel = periodLabel(periodStart, periodEnd)
 	result.Individual = []domain.Observation{}
 	result.MaxShedVideos = domain.MaxShedProofArtifacts
+	// operational_location_display is REQUIRED by the OpenAPI schema, so it must be
+	// populated here rather than left to the client. Derived by PARSING the catalog
+	// name -- weighing is isolated and may not join goat_shed_partitions; ShedName
+	// already carries the partition ("Godel 1 - Part 3") because it comes from the
+	// same locations catalog every other module reads.
+	applyLeadershipShedPartitionDisplay(&result)
 
 	if result.WeighingCategory == "per_shed_partition" {
 		var lump domain.Observation

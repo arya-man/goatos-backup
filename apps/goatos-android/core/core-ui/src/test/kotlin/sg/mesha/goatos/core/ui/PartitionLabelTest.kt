@@ -114,8 +114,25 @@ class OperationalLocationLabelTest {
 
     @Test
     fun `whitespace is trimmed`() {
-        assertEquals("Yashoda - 2", operationalLocationLabel("  Yashoda  ", "  2  "))
-        assertEquals("Yashoda - Part 3", operationalLocationLabel("  Yashoda  ", "  Part 3  "))
+        // Uses a genuinely PARTITIONED shed. Yashoda was used here before and that was
+        // misleading: Yashoda is an undivided shed (AGENTS.md Rule 2), so feeding it a
+        // partition asserts a shape the farm does not have. The formatter output was
+        // right either way -- the FIXTURE implied a partitioned Yashoda, which is how a
+        // reader comes to believe `Yashoda - 2` is a real label. It is not; `Yashoda 2`
+        // is simply that shed's whole name.
+        assertEquals("Godel 1 - 2", operationalLocationLabel("  Godel 1  ", "  2  "))
+        assertEquals("Godel 1 - Part 3", operationalLocationLabel("  Godel 1  ", "  Part 3  "))
+    }
+
+    @Test
+    fun `an undivided shed whose name ends in a number renders whole, never split`() {
+        // The three real ones: Yashoda 2, Ho Chi Minh 1. The trailing number is part of
+        // the NAME, not a partition, so nothing may insert a separator into it.
+        assertEquals("Yashoda 2", operationalLocationLabel("Yashoda 2", null))
+        assertEquals("Yashoda 2", operationalLocationLabel("Yashoda 2", ""))
+        assertEquals("Ho Chi Minh 1", operationalLocationLabel("Ho Chi Minh 1", null))
+        // 'whole' is the unpartitioned sentinel and must never reach a screen.
+        assertEquals("Yashoda 2", operationalLocationLabel("Yashoda 2", "whole"))
     }
 
     @Test

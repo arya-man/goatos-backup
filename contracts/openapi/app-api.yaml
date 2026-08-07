@@ -17732,6 +17732,7 @@ components:
         - campaign_shed_id
         - shed_name
         - park_name
+        - operational_location_display
         - weigh_date
         - operator_user_id
         - operator_display_name
@@ -17752,6 +17753,18 @@ components:
         park_name:
           type: string
           description: The park this bucket's task belongs to. Rendered as the screen eyebrow.
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            Partition label for subdivided sheds (e.g., "Part 1", "Part 2"), or null for
+            undivided sheds. Must be displayed alongside shed_name to form operational_location_display.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed display string for the physical location: shed_name alone for
+            undivided sheds, or "shed_name - partition_label" for subdivided ones (e.g., "Castro 1 - Part 1").
+            This is the ONLY display-safe location identifier and must be rendered verbatim.
         weigh_date:
           type: string
           format: date
