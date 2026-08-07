@@ -70,6 +70,7 @@ import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.RefreshOnResume
 import sg.mesha.goatos.core.ui.SyncIconButton
 import sg.mesha.goatos.core.ui.SyncStatusIndicator
+import sg.mesha.goatos.core.ui.operationalLocationLabel
 import sg.mesha.goatos.feature.calendar.R
 
 /**
@@ -622,8 +623,12 @@ private fun EventCard(item: CalendarItem, onClick: () -> Unit, showScheduleConte
                     )
                 }
                 if (showScheduleContext && item.shedLabels.isNotEmpty()) {
+                    val displayLabels = item.shedLabels.mapIndexed { i, label ->
+                        val partitionLabel = if (i < item.shedPartitionLabels.size) item.shedPartitionLabels[i] else null
+                        operationalLocationLabel(label, partitionLabel)
+                    }
                     Text(
-                        text = item.shedLabels.joinToString(" · "),
+                        text = displayLabels.joinToString(" · "),
                         color = MeshaColors.Muted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.W600,

@@ -663,6 +663,7 @@ internal fun CalendarEventDto.toCalendarItem(): CalendarItem {
         targetCount = targetCount,
         vaccineLabels = vaccineLabels.mapNotNull(::humanizeVaccineLabel),
         shedLabels = shedLabels,
+        shedPartitionLabels = shedPartitionLabels,
         dateLabel = localDate?.let {
             "${it.dayOfMonth} ${it.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)} · " +
                 it.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)

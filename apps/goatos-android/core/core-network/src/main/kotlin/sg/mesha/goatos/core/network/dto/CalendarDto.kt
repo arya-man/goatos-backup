@@ -182,6 +182,7 @@ data class CalendarEventDto(
     @SerialName("deferred_count") val deferredCount: Int = 0,
     @SerialName("review_count") val reviewCount: Int = 0,
     @SerialName("shed_labels") val shedLabels: List<String> = emptyList(),
+    @SerialName("shed_partition_labels") val shedPartitionLabels: List<String?> = emptyList(),
     @SerialName("vaccine_labels") val vaccineLabels: List<String> = emptyList(),
     // Park-level drive progress (v4) — see [DriveSummaryDto]. Null until the backend ships it.
     @SerialName("drive_summary") val driveSummary: DriveSummaryDto? = null,
