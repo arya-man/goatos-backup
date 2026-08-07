@@ -330,8 +330,12 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
 			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
-		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
-			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
+		page("verification-review", "/actions", "/actions", "Actions", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
+			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
+			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
+			// which is the config-token-as-UI-copy leak the label rules exist to stop, and it was
+			// redundant besides: action_type already names the same module in human words.
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -986,8 +990,9 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.media.fullscreen_label": "Full screen",
 			// Accept is blocked when the proof media does not resolve, so a verdict can never be
 			// recorded against evidence nobody could watch.
-			"filter.action_type":            "Action type",
-			"filter.all_action_types":       "All action types",
+			// filter.action_type / filter.all_action_types were REMOVED with the action-type
+			// dropdown itself (maintainer decision 2026-08-07): the left nav is the only scope
+			// selector on this screen. Shed remains the one filter.
 			"filter.apply":                  "Apply filters",
 			"filter.clear_all":              "Clear filters",
 			"action.open_details":           "Details",
