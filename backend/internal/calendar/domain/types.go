@@ -161,8 +161,10 @@ type CalendarEvent struct {
 	DeferredCount    int        `json:"deferred_count"`
 	ReviewCount      int        `json:"review_count"`
 	ShedLabels       []string   `json:"shed_labels"`
-	// used to compose the full operational location display (e.g. "Castro - 2") when a
-	// A nil entry means no partition resolved (multi-partition shed, or non-partitioned).
+	// ShedPartitionLabels carries partition labels index-parallel to ShedLabels. A nil/empty entry
+	// means no partition resolved (multi-partition shed, or non-partitioned). NEVER render a partition
+	// label without its corresponding shed label, or pair them incorrectly due to array misalignment.
+	ShedPartitionLabels        []string        `json:"shed_partition_labels,omitempty"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`
