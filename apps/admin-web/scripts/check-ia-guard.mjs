@@ -140,8 +140,18 @@ function navLeavesForGroup(sourceFile, text, groupId) {
   return labels.map((label, i) => ({ label, href: hrefs[i] ?? "" }));
 }
 
+function navItemsFromGoSource(text) {
+  return [...text.matchAll(/navItem\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+    .map((m) => ({ id: m[1], label: m[2], href: m[3] }));
+}
+
+function pageHrefsFromGoSource(text) {
+  return new Set([...text.matchAll(/page\(\s*"[^"]+"\s*,\s*"([^"]+)"/g)].map((m) => m[1]));
+}
+
 const pageFiles = [];
 walk(APP_ROOT, pageFiles, (file) => file.endsWith("page.tsx"));
+const pageRoutes = new Set(pageFiles.map(normalizeRouteFromPage).filter(Boolean));
 
 const findings = [];
 
@@ -160,6 +170,28 @@ const legacyShellFile = "components/mesha-shell.tsx";
 const visibleIaFile = existsSync(backendUiContractFile) ? backendUiContractFile : legacyShellFile;
 if (existsSync(visibleIaFile)) {
   const visibleIaText = stripComments(readFileSync(visibleIaFile, "utf8"));
+  if (visibleIaFile.endsWith(".go")) {
+    const pageHrefs = pageHrefsFromGoSource(visibleIaText);
+    const navItems = [
+      ...navItemsFromGoSource(visibleIaText),
+      ...[...visibleIaText.matchAll(/navLeaf(?:Domain)?\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"/g)]
+        .map((m) => ({ id: m[1], label: m[2], href: m[3] })),
+    ];
+    for (const item of navItems) {
+      if (!pageHrefs.has(item.href)) {
+        findings.push(
+          `${visibleIaFile} publishes nav item ${item.id} (${item.label}) -> ${item.href}, ` +
+            "but no AdminWebPageContract page(...) publishes that href.",
+        );
+      }
+      if (!pageRoutes.has(item.href)) {
+        findings.push(
+          `${visibleIaFile} publishes nav item ${item.id} (${item.label}) -> ${item.href}, ` +
+            `but apps/admin-web has no matching page.tsx route. Current routes: [${[...pageRoutes].sort().join(", ")}].`,
+        );
+      }
+    }
+  }
   const countsLeaves = navLeavesForGroup(visibleIaFile, visibleIaText, "counts");
   if (!countsLeaves) {
     findings.push(

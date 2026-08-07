@@ -709,6 +709,33 @@ func TestBootstrapKeepsModeledNavAndAppliesRBACDisable(t *testing.T) {
 	}
 }
 
+func TestBootstrapNavLeavesOnlyPointAtPublishedAdminWebPages(t *testing.T) {
+	resp := NewService(fakeFamilies{}).Bootstrap(context.Background(), BootstrapInput{
+		TenantID: "00000000-0000-4000-8000-000000000001",
+		ActorID:  "00000000-0000-4000-8000-000000000099",
+		Grants: []permissions.ActiveGrant{
+			{Role: permissions.RoleCEOInternal, ScopeType: "tenant", ScopeID: "00000000-0000-4000-8000-000000000001"},
+		},
+	})
+
+	pageHrefs := map[string]bool{}
+	for _, page := range resp.Pages {
+		pageHrefs[page.Href] = true
+	}
+	for _, item := range resp.Navigation.Primary {
+		if !pageHrefs[item.Href] {
+			t.Fatalf("primary nav item %q points at %q, but no admin-web page contract publishes that href", item.ID, item.Href)
+		}
+	}
+	for _, group := range resp.Navigation.Groups {
+		for _, leaf := range group.Leaves {
+			if !pageHrefs[leaf.Href] {
+				t.Fatalf("nav leaf %s/%s points at %q, but no admin-web page contract publishes that href", group.ID, leaf.ID, leaf.Href)
+			}
+		}
+	}
+}
+
 // Weighing is MOBILE ONLY (maintainer decision 2026-08-03). The admin-web weighing
 // frontend was deleted; the backend admin-web bootstrap contract must never publish a
 // weighing nav leaf, route label, or page contract again. Backend weighing APIs stay --
