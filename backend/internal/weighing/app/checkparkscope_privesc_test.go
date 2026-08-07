@@ -197,6 +197,12 @@ type parkScopeCheckRepo struct {
 	campaignParkID string
 }
 
+// CampaignShedLocation is inert here: this fake exercises park-scope authorization, not
+// the verifier's shed/partition label.
+func (r *parkScopeCheckRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (r *parkScopeCheckRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
 	return r.campaignParkID, nil
 }

@@ -20,6 +20,12 @@ func (r *supersedingRepo) ReopenScope(context.Context, string, string, string, s
 	return r.superseded, nil
 }
 
+// CampaignShedLocation is inert here: this fake exercises park-scope authorization, not
+// the verifier's shed/partition label.
+func (r *supersedingRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (r *supersedingRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
 	return r.parkID, nil
 }
