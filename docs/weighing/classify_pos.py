@@ -76,6 +76,16 @@ def classify(e):
           f'The {e["cur_date"]} reading is the wrong one.',idfmt,pct)
 
     # ---- valid gains ----
+    tag, ptag = (e.get('shed_tag') or '').upper(), (e.get('ptag') or '').upper()
+    if ptag=='ICU' and tag!='ICU' and adg<=HARD:
+        return ('valid','icu_recovery',0.9,
+                f'Came out of ICU into {tag or "the flock"} between these weighings — the shed tag says so. '
+                'This is catch-up growth after recovery, not an error.',idfmt,pct)
+    STAGES=('K1','K2','K3','K4','F1','F2')
+    if ptag in STAGES and tag in STAGES and ptag!=tag and adg<=HARD:
+        return ('valid','stage_move',0.8,
+                f'Moved from {ptag} to {tag} between these weighings — a new stage brings a new ration.',idfmt,pct)
+
     prev = lossreason.get((gid,e['prev_date']))
     if prev and prev[0]=='valid' and prev[1] in ('illness_treatment','illness_shifting','post_kidding','abortion','weaning_stage_change'):
         if adg<=HARD:

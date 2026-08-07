@@ -148,6 +148,7 @@ def build(indir: pathlib.Path) -> dict:
             f_d=a["first_date"], f_w=as_float(a["first_wt"]),
             l_d=a["last_date"], l_w=as_float(a["last_wt"]),
             span=int(a["span_days"]), adg=as_float(a["overall_adg"]),
+            tag=(a.get("shed_tag") or ""),
             drop=0, spike=0, bad=0, valid=0, open=0, copied=0,
         )
 
@@ -169,10 +170,20 @@ def build(indir: pathlib.Path) -> dict:
                 why=e["explanation"], idf=e["id_format"],
                 sh=(e["shift_detail"] or "")[:150], ph=e["phantom"],
                 hn=int(e["health_n"]), kn=int(e["kidding_n"]), pshed=e["pshed"],
+                tag=(e.get("shed_tag") or ""), ptag=(e.get("ptag") or ""),
             ))
             a = animals[e["goat_id"]]
             a["drop" if direction == "drop" else "spike"] += 1
             a[bucket[e["verdict"]]] += 1
+
+    latest: dict[str, tuple[str, str]] = {}
+    for e in events:
+        seen = latest.get(e["gid"])
+        if seen is None or e["cd"] > seen[0]:
+            latest[e["gid"]] = (e["cd"], e["tag"])
+    for gid, a in animals.items():
+        if not a.get("tag"):
+            a["tag"] = latest.get(gid, ("", ""))[1]
 
     shed_rows = []
     for r in shed_level:

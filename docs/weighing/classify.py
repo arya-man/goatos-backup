@@ -60,6 +60,26 @@ def classify(e):
                 f'Weight fell to {cw}kg then rebounded to {nw}kg by {e["next_date"]} — an animal cannot regain that. The {e["cur_date"]} reading is the bad one.',ev,idfmt,pct)
 
     # ---------- VALID reasons ----------
+    tag, ptag = (e.get('shed_tag') or '').upper(), (e.get('ptag') or '').upper()
+    if 'ICU' in (tag, ptag):
+        where = 'went into ICU' if tag=='ICU' else 'was in ICU at the previous weighing'
+        return ('valid','icu_stay',0.9,
+                f'The animal {where} between these two weighings — the shed tag says so. '
+                'An animal under care goes off feed and loses condition; this is the loss you expect.',
+                ev,idfmt,pct)
+    STAGES=('K1','K2','K3','K4','F1','F2')
+    if ptag in STAGES and tag in STAGES and ptag!=tag:
+        return ('valid','stage_move',0.85,
+                f'Moved from {ptag} to {tag} between these weighings. A stage move changes the ration and, '
+                'at weaning, removes milk — a real and temporary check on growth.',ev,idfmt,pct)
+    if ptag in ('PREGNANT','MOTHER') and tag in ('NON-PREGNANT','NON PREGNANT','MILKING','F2'):
+        return ('valid','kidded_by_tag',0.85,
+                f'Tag moved from {ptag} to {tag} — the animal kidded between these weighings. '
+                'Kid, placenta and fluids gone, then lactation drain.',ev,idfmt,pct)
+    if tag=='MILKING' or ptag=='MILKING':
+        return ('valid','lactation',0.8,
+                'Tagged milking across this window — lactation draws condition off the doe.',ev,idfmt,pct)
+
     if i(e['abortion_n'])>0 and abs(pct)<=20:
         return ('valid','abortion',0.9,'Abortion recorded in this window — foetal and fluid loss explains the drop.',ev,idfmt,pct)
     if i(e['kidding_n'])>0:
