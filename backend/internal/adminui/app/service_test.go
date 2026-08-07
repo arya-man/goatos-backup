@@ -173,11 +173,26 @@ func TestActionsPageContractAndNavigation(t *testing.T) {
 		t.Fatalf("Actions breadcrumb must be owned by Approvals, got %q", page.Copy["crumb"])
 	}
 	for _, key := range []string{
-		"filter.action_type", "filter.all_action_types", "state.empty",
+		"state.empty",
 		"drawer.media.title", "drawer.media.open", "action.open_details",
 	} {
 		if page.Copy[key] == "" {
 			t.Fatalf("actions contract missing copy key %q", key)
+		}
+	}
+	// The action-type filter was removed (maintainer decision 2026-08-07): the left nav is the
+	// only scope selector on this screen. Asserted as ABSENT so the control cannot quietly
+	// return through its copy keys.
+	for _, key := range []string{"filter.action_type", "filter.all_action_types"} {
+		if page.Copy[key] != "" {
+			t.Fatalf("actions contract still carries removed action-type filter copy %q = %q", key, page.Copy[key])
+		}
+	}
+	// The raw-token "vertical_module" column was dropped in the same decision: it rendered
+	// "preventive_care / vaccination" verbatim on a verifier-facing screen.
+	for _, column := range page.Tables[0].Columns {
+		if column.Key == "vertical_module" {
+			t.Fatalf("actions table still declares the raw-token vertical_module column: %#v", page.Tables[0].Columns)
 		}
 	}
 	actions := primaryNavByID(t, bootstrap.Navigation.Primary, "verification-actions")

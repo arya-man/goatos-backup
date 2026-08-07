@@ -212,8 +212,19 @@ func (h *Handler) listQueue(
 		if !ok {
 			return
 		}
-		category = "" // Clear single category if multi-category is used
-		categories = authorizedCategories
+		// Clear the single category ONLY when authorization actually replaced it with a
+		// multi-category set. resolveVerifierCategories returns a NIL slice for CEO/CxO to mean
+		// "no AUTHORIZATION narrowing is needed" -- it does not mean "ignore what the caller
+		// asked for". Clearing unconditionally destroyed the caller's own filter in that case, so
+		// leadership opening /actions?category=vaccination_proof from the Vaccination nav leaf got
+		// every module's queue: the sidebar selection silently did nothing and the status pill
+		// counted the whole tenant (52) instead of the module (19). A real verifier was never
+		// affected -- the resolver hands her back []string{category} -- which is why this only
+		// ever reproduced for leadership.
+		if len(authorizedCategories) > 0 {
+			category = ""
+			categories = authorizedCategories
+		}
 	}
 	limit, ok := parsePositiveLimit(q.Get("limit"))
 	if !ok {

@@ -160,3 +160,8 @@ feed-lifecycle-patches/
 fixtures/cpt-shed-partitions/
 # Timestamped seed-correction output only -- the rest of this fixture dir is tracked source.
 fixtures/vaccination-hrms-source-full/seed-stage-correction-*.json
+
+# Go binaries built with `go build ./cmd/...` land in backend/ and must never be committed.
+# A 13MB arm64 binary was committed this way once; it is architecture-locked, useless in CI, and
+# rots silently the moment its source changes.
+/backend/backfill-verification-subject-labels

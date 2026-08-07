@@ -768,7 +768,6 @@ func seedExperiments(
 		category  string
 	}
 	var cells []cell
-	sheds := map[string]bool{}
 	locations := map[string]bool{}
 	for _, row := range experiments {
 		// Same split as the resolver: the authored name is an operational location, the catalog key
@@ -782,10 +781,8 @@ func seedExperiments(
 			// value here is a row written against the nil UUID.
 			return fmt.Errorf("experiment shed %q in farm %s was not resolved", row.Shed, row.Farm)
 		}
-		sheds[shedID] = true
-		// Counted separately from `sheds`: that set is bound as uuid[] below and must hold shed ids
-		// ONLY, while the stat the operator reads is "how many operational locations were seeded"
-		// -- 34 partitions across 8 physical sheds, not 8.
+		// The stat the operator reads is "how many operational locations were seeded" -- 34
+		// partitions across 8 physical sheds, not 8.
 		locations[shedID+"\x1f"+partitionLabel] = true
 
 		headers := make([]string, 0, len(row.Kg))
@@ -883,21 +880,34 @@ WHERE l.tenant_id = $1::uuid AND l.location_id = $2::uuid
 	st.ExperimentRowsUnchanged += len(cells) - inserted - updated
 
 	// Count, do not touch. See the function comment.
-	shedList := make([]string, 0, len(sheds))
-	for shedID := range sheds {
-		shedList = append(shedList, shedID)
+	locationList := make([]string, 0, len(locations))
+	for location := range locations {
+		parts := strings.SplitN(location, "\x1f", 2)
+		partition := ""
+		if len(parts) == 2 {
+			partition = domainPartitionKey(parts[1])
+		}
+		locationList = append(locationList, parts[0]+"\x1f"+partition)
 	}
-	sort.Strings(shedList)
+	sort.Strings(locationList)
 	// scale-guard:ignore: one bounded aggregate over this tenant's hand-authored experiment rows (170 today); runs once per seed, not in a request path.
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid
   AND status = 'active'
-  AND NOT (shed_id = ANY($2::uuid[]))`, tenantID, shedList).Scan(&st.ExperimentRowsOutsideSource); err != nil {
+  AND NOT ((shed_id::text || E'\x1f' || partition_key) = ANY($2::text[]))`, tenantID, locationList).Scan(&st.ExperimentRowsOutsideSource); err != nil {
 		return fmt.Errorf("count experiment rows outside source: %w", err)
 	}
 	return nil
+}
+
+func domainPartitionKey(partitionLabel string) string {
+	normalized := configNormKey(partitionLabel)
+	if normalized == "" {
+		return "whole"
+	}
+	return normalized
 }
 
 // ---- guards ----

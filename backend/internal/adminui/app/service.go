@@ -343,8 +343,12 @@ func pages() []domain.PageContract {
 		page("workflow-record", "/workflows/{row_id}", "/workflows/{row_id}", "Workflow drilldown", "One vaccination workflow chain reaction record.", "record-drilldown", nil),
 		page("approvals", "/approvals", "/approvals", "Approvals", "Pending birth, death, and shifting requests raised from the field. Approve to apply the change, or reject with a reason.", "authority-screen",
 			[]domain.TableContract{table("approval-requests", "Approval requests", "/admin-web/counts/approvals", []string{"request_type", "subject", "raised_at", "status", "action"}, "approval_request_id")}),
-		page("verification-review", "/actions", "/actions", "Actions", "Browse verification actions by action type and status, then open details and proof videos.", "authority-screen",
-			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "vertical_module", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
+		page("verification-review", "/actions", "/actions", "Actions", "Open a video, check it against the facts, and accept or reject it.", "authority-screen",
+			// "vertical_module" was DROPPED (maintainer decision 2026-08-07). It rendered the
+			// item's raw vertical/module tokens verbatim -- "preventive_care / vaccination" --
+			// which is the config-token-as-UI-copy leak the label rules exist to stop, and it was
+			// redundant besides: action_type already names the same module in human words.
+			[]domain.TableContract{tableP("verification-actions", "Actions", "/verification/queue", []string{"action_type", "subject", "captured", "status", "reason"}, "vi_row", []int{20, 50, 100})}),
 		page("vaccination", "/vaccination", "/vaccination", "Vaccination", "Adult vaccination history, future campaigns, and current shed status.", "module-surface",
 			[]domain.TableContract{
 				// Shed-wise summary is the MAIN vaccination table (one row per shed, animal-level Due/Done,
@@ -1011,17 +1015,27 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.media.fullscreen_label": "Full screen",
 			// Accept is blocked when the proof media does not resolve, so a verdict can never be
 			// recorded against evidence nobody could watch.
-			"filter.action_type":            "Action type",
-			"filter.all_action_types":       "All action types",
-			"filter.apply":                  "Apply filters",
-			"filter.clear_all":              "Clear filters",
-			"action.open_details":           "Details",
-			"action.close":                  "Close",
-			"action.open_audit_log":         "Open Audit Log",
-			"pagination.next":               "Next page",
-			"state.queue_unavailable":       "Actions are unavailable",
-			"state.queue_unavailable_body":  "The verification queue could not be loaded from the backend.",
-			"state.empty":                   "No actions match the selected action type, status, park, and date.",
+			// filter.action_type / filter.all_action_types were REMOVED with the action-type
+			// dropdown itself (maintainer decision 2026-08-07): the left nav is the only scope
+			// selector on this screen. Shed remains the one filter.
+			"filter.apply":          "Apply filters",
+			"filter.clear_all":      "Clear filters",
+			"action.open_details":   "Details",
+			"action.close":          "Close",
+			"action.open_audit_log": "Open Audit Log",
+			// Keyset pagination, so there is no page NUMBER the backend can hand out and no
+			// OFFSET to jump with (docs/decisions/scale-anti-patterns.md bans OFFSET here). The
+			// client walks forward on next_cursor and back down a trail of the cursors it has
+			// already used, so "previous" is a real keyset read, not an offset.
+			"pagination.next":              "Next page",
+			"pagination.previous":          "Previous page",
+			"pagination.position":          "Page",
+			"state.queue_unavailable":      "Actions are unavailable",
+			"state.queue_unavailable_body": "The verification queue could not be loaded from the backend.",
+			// Deliberately no longer names an "action type": that filter was removed on
+			// 2026-08-07, so mentioning it sent the verifier hunting for a control that is not on
+			// the screen. The module now comes from the left nav.
+			"state.empty":                   "No actions to review for this module in the selected status, park, and date.",
 			"drawer.eyebrow":                "Action details",
 			"drawer.aria":                   "Action details",
 			"drawer.close_label":            "Close action details",
@@ -1043,25 +1057,23 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.note":                   "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
 			"feedback.done":                 "Done",
 			"feedback.failed":               "Action failed",
-			"rework.title":                  "Rework",
-			"rework.reason_label":           "Rework reason",
-			"rework.reason_placeholder":     "Why is this being sent back for rework?",
-			"rework.submit":                 "Request rework",
-			"rework.disabled_no_task":       "No linked SOP task is available for rework.",
-			"rework.disabled_not_rejected":  "Rework is available only for rejected actions.",
-			"reassign.title":                "Re-assign",
-			"reassign.assignee_label":       "New assignee",
-			"reassign.assignee_placeholder": "Select a staff position…",
-			"reassign.reason_label":         "Re-assign reason",
-			"reassign.reason_placeholder":   "Why is this being re-assigned?",
-			"reassign.submit":               "Re-assign task",
-			"reassign.disabled_no_task":     "No linked SOP task is available for reassignment.",
-			"reassign.disabled_no_roster":   "No staff positions are available in this park scope.",
-			"penalty.title":                 "Penalty note",
-			"penalty.reason_label":          "Penalty / escalation note",
-			"penalty.reason_placeholder":    "Log a penalty or escalation note",
-			"penalty.submit":                "Log penalty note",
-			"penalty.disabled":              "Penalty and escalation logging is not backed by an API yet.",
+			// feedback.<server error code>. The raw code is an internal token and must never be
+			// the sentence a verifier reads -- the screen literally said "Action failed
+			// missing_reason". Unmapped codes render nothing rather than leaking the token.
+			"feedback.missing_reason":    "A rejection needs a reason. Say what the video showed that failed the standard, then press Reject again.",
+			"feedback.permission_denied": "Recording a verdict is limited to the video verification team.",
+			"feedback.conflict":          "Someone else recorded a verdict on this action first. Reload to see it.",
+			// Rework / Re-assign / Penalty copy REMOVED with those panels (maintainer decision
+			// 2026-08-07). mock/verifier-web-mock.SPEC.md section 1: the verifier watches a proof
+			// video and accepts it, or rejects it with a reason -- "that is all. Nothing else
+			// belongs on this screen." Section 3 bans source-task action here by name.
+			//
+			// Penalty note was additionally DEAD: no server action, no route, and its own visible
+			// label said so while leaking an internal word into user-facing copy.
+			//
+			// Rework and Re-assign remain real writes for the authority surface that owns them;
+			// only their placement on the verifier's screen was wrong. Re-add their copy THERE, not
+			// here, or this screen quietly regrows the half it was just cleared of.
 			// Verifier verdict copy. Approve/reject is the verifier's ONLY act: the wording must
 			// not promise that approving closes or completes the underlying work, because it does
 			// not -- an authority closes the submission afterwards.
@@ -1373,6 +1385,26 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.command_board.unavailable":                "Unable to load command board",
 			"command_board.kpi.targets":                        "Animals",
 			"command_board.kpi.targets_dl":                     "Distinct animals in program",
+			"command_board.kpi.missed":                         "Missed",
+			"command_board.kpi.missed_dl":                      "Dose window closed unvaccinated",
+			"command_board.shed_vaccine.title":                 "Shed × Vaccine",
+			"command_board.shed_vaccine.meta":                  "Red = goats not vaccinated yet, past their due date. All doses of that vaccine counted together. Click a red box to see which goats.",
+			"command_board.shed_vaccine.column.shed":           "Shed",
+			"command_board.shed_vaccine.state.behind":          "Goats not done",
+			"command_board.shed_vaccine.cell.behind_unit":      "goats",
+			"command_board.shed_vaccine.state.ok":              "All done",
+			"command_board.shed_vaccine.state.not_planned":     "Not given in this shed",
+			"command_board.shed_vaccine.summary_behind":        "sheds have goats pending",
+			"command_board.shed_vaccine.summary_clean":         "Every shed is up to date on every vaccine",
+			"command_board.shed_vaccine.drawer.behind_of":      "behind, of",
+			"command_board.shed_vaccine.drawer.column.due":     "Was due",
+			"command_board.shed_vaccine.cell.verifying_unit":   "pending",
+			"command_board.shed_vaccine.state.verifying":       "Video check pending",
+			"command_board.shed_vaccine.drawer.verifying_of":   "given and waiting for video check, of",
+			"command_board.shed_vaccine.drawer.no_video":       "No video uploaded",
+			"command_board.shed_vaccine.drawer.shed_videos":    "Shed video",
+			"command_board.shed_vaccine.drawer.clip":           "Clip",
+			"command_board.shed_vaccine.drawer.truncated":      "Showing the longest-waiting animals only — the count above is the full figure.",
 			"command_board.kpi.verified":                       "Verified",
 			"command_board.kpi.verified_dl":                    "Operator done + verifier accepted",
 			"command_board.kpi.awaiting_verification":          "Awaiting Verification",

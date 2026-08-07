@@ -126,3 +126,11 @@ export async function reassignVerificationItemAction(formData: FormData): Promis
   }
   redirect(withFeedback(url, "success", "reassigned"));
 }
+
+// loadReassignPositionsAction was REMOVED with the re-assign picker (maintainer decision
+// 2026-08-07). The verifier's screen carries only her verdict now, so nothing on it reads the
+// staff roster -- which also retires the 500-row SSR fetch this page used to make on every load.
+//
+// reworkVerificationItemAction / reassignVerificationItemAction above are deliberately KEPT: they
+// are real, wired writes (requestSopTaskRework / assignSopTask) belonging to the authority surface
+// that owns source-task action. Only their placement on the verifier's review screen was wrong.
