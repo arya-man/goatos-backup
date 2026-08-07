@@ -51,8 +51,6 @@ import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScopeState
 import sg.mesha.goatos.core.data.weighing.weighingCacheAgeNotice
-import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
-import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingTask
 import sg.mesha.goatos.core.data.weighing.WeighingTaskBucketCache
 import sg.mesha.goatos.core.data.weighing.WeighingTaskListCache
@@ -202,16 +200,6 @@ class WeighingViewModel @Inject constructor(
     private val tasksLoading = MutableStateFlow(false)
     private val tasksAppending = MutableStateFlow(false)
 
-    /**
-     * How many cached tasks the list observes. Grows ONE page at a time on scroll, bounded by the
-     * cache's own ceiling, and drops back to one page on a refresh so the observed window and the
-     * cached rows always agree.
-     */
-    private val taskWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
-
-    /** How many cached buckets the task DETAIL observes, on the same page-at-a-time contract. */
-    private val taskBucketWindow = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
-
     /** How many extra pages a tab switch may pull before the user's own scrolling takes over. */
     private var tabRefillBudget = 0
 
@@ -253,14 +241,17 @@ class WeighingViewModel @Inject constructor(
      * The task list AS ROOM HOLDS IT: a bounded window of cached tasks plus the WHOLE-SCOPE tab
      * tallies and capability flags the backend answered with. The screen renders this, so a failed
      * refresh leaves the cached list up instead of blanking it, and re-entry is instant.
+     *
+     * The observed window is a FIXED page size — it never grows. Scrolling appends the next keyset
+     * page into Room via [WeighingRepository.appendTaskList] instead, so the cache can hold far more
+     * than one page without the observed window (and its `LIMIT`) ever capping what is reachable.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val taskCache: StateFlow<WeighingTaskListCache> =
         if (scopeKey != null) {
             flowOf(WeighingTaskListCache())
         } else {
-            combine(selectedAssignmentParkId, taskWindow) { parkId, window -> parkId to window }
-                .flatMapLatest { (parkId, window) -> repository.observeTaskList(surface, parkId, window) }
+            selectedAssignmentParkId.flatMapLatest { parkId -> repository.observeTaskList(surface, parkId) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskListCache())
 
     private val tasks: StateFlow<List<WeighingTask>> = taskCache
@@ -291,12 +282,12 @@ class WeighingViewModel @Inject constructor(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val taskBucketCache: StateFlow<WeighingTaskBucketCache> =
-        combine(selectedTaskId, taskBucketWindow) { taskId, window -> taskId to window }
-            .flatMapLatest { (taskId, window) ->
+        selectedTaskId
+            .flatMapLatest { taskId ->
                 if (taskId.isNullOrBlank()) {
                     flowOf(WeighingTaskBucketCache())
                 } else {
-                    repository.observeTaskBuckets(taskId, window)
+                    repository.observeTaskBuckets(taskId)
                 }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WeighingTaskBucketCache())
     private val message = MutableStateFlow<String?>(null)
@@ -666,19 +657,24 @@ class WeighingViewModel @Inject constructor(
         deepLinkAttemptedTaskId = null
         deepLinkResolveJob?.cancel()
         selectedTaskId.value = normalized
-        taskBucketWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         refreshTaskBuckets(reset = true)
         resolveDeepLinkedTask()
     }
 
     /**
-     * Fetches ONE page of the selected task's buckets into Room. The cached buckets stay on screen
-     * while it runs and stay on screen if it fails.
+     * Fetches ONE page of the selected task's buckets into Room. [reset] true re-reads page 1 and
+     * drops the task's stale rows; false appends the next keyset page using the stored cursor. The
+     * cached buckets stay on screen while it runs and stay on screen if it fails.
      */
     private fun refreshTaskBuckets(reset: Boolean) {
         val campaignId = selectedTaskId.value?.takeIf { it.isNotBlank() } ?: return
         viewModelScope.launch {
-            when (val loaded = repository.refreshTaskBuckets(campaignId, reset = reset)) {
+            val loaded = if (reset) {
+                repository.refreshTaskBuckets(campaignId, reset = true)
+            } else {
+                repository.appendTaskBuckets(campaignId)
+            }
+            when (loaded) {
                 is AppResult.Ok -> tasksStale.value = ""
                 is AppResult.Err -> tasksStale.value = STALE_NOTICE_PREFIX + loaded.message
             }
@@ -687,15 +683,11 @@ class WeighingViewModel @Inject constructor(
 
     /**
      * Scroll-driven prefetch for the task detail's bucket list: one page per trigger, tail window
-     * only, and it grows the observed Room window with the network page.
+     * only. The observed Room window stays a FIXED page size; only the cursor advances.
      */
     fun onTaskBucketRowVisible(index: Int) {
         val loaded = taskBucketCache.value.items.size
         if (loaded == 0 || index < loaded - LIST_PREFETCH_DISTANCE) return
-        if (taskBucketWindow.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
-            taskBucketWindow.value =
-                (taskBucketWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
-        }
         if (!taskBucketCache.value.canLoadMore) return
         refreshTaskBuckets(reset = false)
     }
@@ -1214,11 +1206,6 @@ class WeighingViewModel @Inject constructor(
         if (tasksLoading.value) return
         refreshParkVocabulary()
         tasksLoading.value = true
-        // Back to ONE page: the refresh re-reads page 1 into Room and drops the filter's stale
-        // deeper pages, so the observed window must come back with it or the list would render a
-        // window larger than the rows behind it. Scrolling re-earns the deeper pages, and the task
-        // DETAIL is protected separately by its own snapshot rather than by keeping pages alive.
-        taskWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         viewModelScope.launch {
             try {
                 when (
@@ -1253,18 +1240,6 @@ class WeighingViewModel @Inject constructor(
         appendTasks()
     }
 
-    /**
-     * Widens the observed Room window by ONE page, up to the cache's ceiling.
-     *
-     * Paging binds BOTH layers: the network page and the window the screen renders from grow
-     * together, so the over-fetch cannot move from the network into the database.
-     */
-    private fun growTaskWindow() {
-        if (taskWindow.value >= WEIGHING_LEADERSHIP_MAX_WINDOW) return
-        taskWindow.value =
-            (taskWindow.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
-    }
-
     fun selectTaskTab(tab: WeighingTasksTab) {
         if (tasksTab.value == tab) return
         tasksTab.value = tab
@@ -1287,7 +1262,6 @@ class WeighingViewModel @Inject constructor(
         selectedAssignmentParkId.value = normalized
         // A different park is a different keyset, and the cache keys on it -- the observed stream
         // re-points at the new filter's own rows rather than merging them behind the old park's.
-        taskWindow.value = WEIGHING_LEADERSHIP_PAGE_SIZE
         refreshTasks()
     }
 
@@ -1296,14 +1270,12 @@ class WeighingViewModel @Inject constructor(
         if (!taskCache.value.canLoadMore) return
         if (tasksLoading.value || tasksAppending.value) return
         tasksAppending.value = true
-        growTaskWindow()
         viewModelScope.launch {
             try {
                 when (
-                    val loaded = repository.refreshTaskList(
+                    val loaded = repository.appendTaskList(
                         scope = surface,
                         parkId = selectedAssignmentParkId.value,
-                        reset = false,
                     )
                 ) {
                     is AppResult.Ok -> tasksStale.value = ""
