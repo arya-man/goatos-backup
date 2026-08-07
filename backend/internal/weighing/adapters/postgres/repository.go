@@ -17,6 +17,7 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -2794,6 +2795,44 @@ WHERE tenant_id=$1::uuid
 		return "", err
 	}
 	return parkID, nil
+}
+
+// CampaignShedLocation reads the shed a campaign-shed bucket stands for: its canonical
+// location_id and the operational display name the VERIFIER should read ("Godel 1 - Part 3").
+//
+// It exists because a weighing verification item used to name no shed at all. The lump-sum label
+// was the hardcoded literal "Whole shed", and the individual label carried only the scanned tag --
+// so a verifier reviewing a queue of clips could not tell which shed, let alone which PARTITION,
+// any of them came from. Both facts are already flattened onto weighing_campaign_sheds at
+// bucket-creation time, so this reads them in one indexed lookup by primary key.
+//
+// Isolation (AGENTS.md "Weighing Is ISOLATED"): this touches ONLY weighing's own bucket table. It
+// does not join goats, goat_identifiers, or goat_shed_partitions to learn the partition -- the
+// partition is parsed back out of the catalog display name by splitShedPartitionName, exactly as
+// applyShedPartitionDisplay already does for the campaign-shed read models.
+//
+// The returned display is composed through oploc.OperationalLocation.Display() so it follows the
+// same rendering rule as every other module and can never surface the "whole" sentinel.
+func (r *Repository) CampaignShedLocation(ctx context.Context, tenantID, campaignShedID string) (locationID, display string, err error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	var displayName string
+	if err := r.pool.QueryRow(ctx, `
+SELECT location_id::text, display_name
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_shed_id=$2::uuid`, tenantID, campaignShedID).Scan(&locationID, &displayName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ports.ErrNotFound
+		}
+		return "", "", err
+	}
+	parent, partition := splitShedPartitionName(displayName)
+	return locationID, oploc.OperationalLocation{
+		ShedID:         locationID,
+		ShedName:       parent,
+		PartitionLabel: partition,
+	}.Display(), nil
 }
 
 // RefreshAvailability and completeResolvedIndividualScopes were DELETED

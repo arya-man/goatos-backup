@@ -43,6 +43,12 @@ func (r *parkMovingRepo) applyPendingMove() {
 	}
 }
 
+// CampaignShedLocation is inert here: this fake exercises park-scope authorization, not
+// the verifier's shed/partition label.
+func (r *parkMovingRepo) CampaignShedLocation(context.Context, string, string) (string, string, error) {
+	return "", "", nil
+}
+
 func (r *parkMovingRepo) CampaignParkID(ctx context.Context, tenantID, campaignID string) (string, error) {
 	parkID, err := r.singleTaskRepo.CampaignParkID(ctx, tenantID, campaignID)
 	if err != nil {
