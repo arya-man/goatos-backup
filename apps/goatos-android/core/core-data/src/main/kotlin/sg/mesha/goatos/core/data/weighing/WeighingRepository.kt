@@ -270,6 +270,10 @@ data class WeighingLeadershipShed(
     val campaignId: String,
     val campaignShedId: String,
     val shedName: String,
+    /** The partition label (e.g., "Part 3"), or empty/null for undivided sheds. */
+    val partitionLabel: String? = null,
+    /** Backend-composed display string (e.g., "Godel 1 - Part 3"). Prefer this over hand-rolling. */
+    val operationalLocationDisplay: String = "",
     /** The park this bucket's task belongs to, as the shed read itself answers it. */
     val parkName: String = "",
     /** The task's Asia/Kolkata business DATE. Never a timestamp. */
@@ -1481,12 +1485,7 @@ class DefaultWeighingRepository(
                 shedKey = shedKey,
                 campaignId = dto.campaignId,
                 campaignShedId = dto.campaignShedId,
-                // Cache the BACKEND-COMPOSED location, not the bare shed name: this column is
-                // display-only (its three consumers are the leadership header, the reopen sheet
-                // and the videos card -- it is never a key, match or filter), so a partitioned
-                // shed showed "Mandela 2" instead of "Mandela 2 - Part 3" on every one of them.
-                // Falls back to the bare name for older responses.
-                shedName = dto.operationalLocationDisplay.ifBlank { dto.shedName },
+                shedName = dto.shedName,
                 parkName = dto.parkName,
                 weighDate = dto.weighDate,
                 operatorUserId = dto.operatorUserId,
@@ -2547,6 +2546,8 @@ private fun WeighingLeadershipShedVideosDto.toLeadershipShed(periodLabel: String
         campaignId = campaignId,
         campaignShedId = campaignShedId,
         shedName = shedName,
+        partitionLabel = partitionLabel,
+        operationalLocationDisplay = operationalLocationDisplay,
         parkName = parkName,
         weighDate = weighDate,
         operatorUserId = operatorUserId,
