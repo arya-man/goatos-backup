@@ -167,6 +167,26 @@ for _ in $(seq 1 60); do
 done
 [ "${code:-}" = "204" ] || die "API did not become ready on :$host_port; see $api_log"
 
+# PROVE the relay actually drains. A silently-stalled relay is the single most misleading
+# failure this stack has: verdicts get written, nothing applies them, and the operator screen
+# keeps showing work as done. That reads as "the accept/reject fix regressed" and has sent people
+# back to re-fix correct code more than once. Fail LOUD here instead.
+relay_backlog() { psql "$DATABASE_URL" -tAc "SELECT count(*) FROM outbox_messages WHERE status='pending';" 2>/dev/null | tr -d ' '; }
+before="$(relay_backlog)"
+if [ -n "${before:-}" ] && [ "${before:-0}" -gt 0 ]; then
+  log "outbox backlog at start: $before pending; waiting for the relay to drain it"
+  for _ in $(seq 1 12); do
+    sleep 5
+    now="$(relay_backlog)"
+    [ "${now:-1}" -lt "${before:-0}" ] && break
+  done
+  now="$(relay_backlog)"
+  if [ "${now:-1}" -ge "${before:-0}" ]; then
+    die "outbox relay is NOT draining ($before -> ${now:-?} pending after 60s). Verifier verdicts will be stored and never applied: a REJECT will leave the operator screen showing the work as done. Check $relay_log and that $relay_label is loaded."
+  fi
+  log "outbox relay draining: $before -> $now pending"
+fi
+
 # Device-side stays 8080 (the APK's baked base URL); host side is the QA port.
 adb reverse tcp:8080 tcp:"$host_port" >/dev/null
 log "API is on :$host_port using ${DATABASE_URL%%\?*}; device localhost:8080 -> laptop:$host_port; installing Android as $user_id"

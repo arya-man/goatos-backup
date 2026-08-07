@@ -18,7 +18,18 @@ var ErrOperatorAssignmentConfigConflict = errors.New("vaccination execution: ope
 // RowVersion never silently clobbers a concurrent admin write. Mirrors ErrOperatorAssignmentConfigConflict.
 var ErrCapacityConfigConflict = errors.New("vaccination execution: capacity config: row version conflict")
 
+// ErrInvalidArgument marks caller-supplied input rejected before the database is
+// touched -- today, a malformed alerts-feed keyset cursor. It must map to 400,
+// never 500: a client sending a corrupt cursor is a bad request, and answering
+// 500 makes a paging bug look like an outage.
+var ErrInvalidArgument = errors.New("vaccination execution: invalid argument")
+
 type Repository interface {
+	// ListAlerts returns one keyset page of the CALLER'S OWN vaccination alerts,
+	// read from the shared notification_requests plumbing and discriminated by
+	// message_key LIKE 'vaccination.%'. The audience filter lives in the query
+	// (member_id equality), so this can never surface another person's alert.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 	ListVaccinationExecution(ctx context.Context, q domain.ExecutionQuery) ([]domain.ExecutionProjection, error)
 	// ListVaccinationExecutionPage returns one stable keyset page of execution projections plus the
 	// pre-cursor window total, so the request path never fetches the whole server-filtered set.
