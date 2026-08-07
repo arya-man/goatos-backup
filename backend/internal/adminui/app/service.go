@@ -383,7 +383,10 @@ func pages() []domain.PageContract {
 		// weighing's tables and reaching into the herd tables for them is prohibited.
 		// The columns below are the complete honest set.
 		page("weighing-weights", "/weighing/weights", "/weighing/weights", "Kids — Weights", "Latest weight per shed across both capture modes, with park and period filters.", "module-surface",
-			[]domain.TableContract{tableP("shed-weights", "Sheds", "/app/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "status"}, "location_id", []int{10, 25, 50})}),
+			[]domain.TableContract{
+				tableP("shed-weights", "Sheds", "/weighing/shed-weights", []string{"park", "shed", "weighing", "animals_weighed", "average_weight", "total_weight", "last_weighed", "status"}, "location_id", []int{10, 25, 50}),
+				tableP("losing-kids", "Kids losing weight", "/weighing/leadership/growth", []string{"tag", "shed", "previous", "latest", "change", "days_apart", "last_weighed"}, "scanned_identifier", []int{10, 25, 50}),
+			}),
 		page("milk-preparation", "/counts/milk-preparation", "/counts/milk-preparation", "Milk Preparation", "Current per-shed milk direction plus park-day step-video verification state for K1, K2, and K3 cohorts.", "module-surface",
 			[]domain.TableContract{tableP("milk-preparation", "Milk preparation worklist", "/counts/milk-preparation", []string{"park", "shed", "cohort", "head_count", "session_1", "session_2", "session_3", "session_4", "daily_total", "status"}, "milk_preparation_row", []int{10, 25, 50})}),
 		// ---------------------------------------------------------------------------
@@ -2052,7 +2055,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"filter.all_option":         "All",
 			"filter.bar_aria":           "Filter sheds",
 			"filter.clear_all":          "Clear filters",
-			"pager.noun":                "sheds",
+			"pager.noun":                "shed",
 			"value.weighing.individual": "Per animal",
 			"value.weighing.lump":       "Whole shed",
 			"value.never_weighed":       "Not weighed yet",
@@ -2062,6 +2065,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"empty.filtered.body":       "No shed matches these filters.",
 			"note.total_weight":         "Total weight covers the kids actually weighed. Weighing is free flow, so it is not the whole shed.",
 			"note.threshold_basis":      "Counted from kids weighed one by one. A shed weighed as one total reports an average, so it cannot say how many of its kids cleared the mark.",
+			"section.losing.title":      "Kids losing weight",
+			"section.losing.aria":       "Kids losing weight",
+			"section.losing.caption":    "Latest weigh lower than the one before it.",
+			"pager.losing_noun":         "kid",
+			"empty.losing.title":        "No data available",
+			"empty.losing.body":         "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
 			"note.no_cadence":           "There is no weighing schedule, so a shed with no recent weigh is not late.",
 			"error.load.title":          "Weights could not be loaded",
 			"error.load.body":           "Try again in a moment.",

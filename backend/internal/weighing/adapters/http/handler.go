@@ -110,6 +110,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
 	// bare path, the phone calls /app.
 	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
+	mux.HandleFunc("GET /weighing/leadership/growth", h.GetLeadershipGrowthADG)
 }
 
 // ListAlerts serves the weighing alerts feed. Title and empty-state copy travel

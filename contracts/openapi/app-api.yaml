@@ -847,6 +847,58 @@ paths:
           $ref: "#/components/responses/NotFoundOrNotAllowed"
         "500":
           $ref: "#/components/responses/ServerError"
+  /weighing/leadership/growth:
+    get:
+      tags:
+        - Weighing
+      operationId: adminGetWeighingLeadershipGrowth
+      summary: Get CEO-tier ADG (Average Daily Gain) / growth aggregate for a park or the herd.
+      description: >
+        Requires WeighingMonitor, park-scoped exactly like weight-history. `park_id` is optional;
+        when omitted, the response aggregates across every park the caller is authorized to
+        monitor (never widened) -- see `park_ids` in the response. `from`/`to` are INCLUSIVE
+        Asia/Kolkata business dates (YYYY-MM-DD) and default to the last 90 days ending today when
+        omitted. Weighing is free-flow: there is no weighing cadence rule, so no field here reports
+        an "overdue" or "missed" weigh.
+      parameters:
+        - name: park_id
+          in: query
+          required: false
+          description: >-
+            The park to report on. When omitted, aggregates across the caller's own
+            authorized-park scope.
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Growth/ADG read model for the requested park or herd-wide scope.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeighingGrowthADGResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFoundOrNotAllowed"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /app/weighing/shed-weights:
     get:
       tags:
