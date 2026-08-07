@@ -2069,11 +2069,24 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.losing.aria":       "Kids losing weight",
 			"section.losing.caption":    "Latest weigh lower than the one before it.",
 			"pager.losing_noun":         "kid",
-			"empty.losing.title":        "No data available",
-			"empty.losing.body":         "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
-			"note.no_cadence":           "There is no weighing schedule, so a shed with no recent weigh is not late.",
-			"error.load.title":          "Weights could not be loaded",
-			"error.load.body":           "Try again in a moment.",
+			"kpi.gain.label":            "Median daily gain",
+			"kpi.gain.sub":              "per kid, between its own weighs",
+			"kpi.gain.none":             "needs a second weigh",
+			"kpi.park_gain.suffix":      "— daily gain",
+			"kpi.park_gain.all":         "All parks",
+			"section.park_gain.aria":    "Daily gain by park",
+			"chart.gain.title":          "Daily gain by shed",
+			"chart.gain.caption":        "Kids weighed one by one. A shed weighed as one total cannot produce a per-kid gain.",
+			"chart.gain.aria":           "Daily gain for each shed",
+			"empty.gain.body":           "A kid has to be weighed twice before a gain can be worked out.",
+			// Distinct from the above: these sheds DO have a second weigh, they are just all
+			// losing. Reusing the "needs a second weigh" line there would be a lie.
+			"empty.gain.all_losing": "Every shed with a second weigh is losing weight, so there is nothing to plot. The kids are listed below.",
+			"empty.losing.title":    "No data available",
+			"empty.losing.body":     "A kid has to be weighed twice before a loss can be seen. Only a handful have a second weigh so far.",
+			"note.no_cadence":       "There is no weighing schedule, so a shed with no recent weigh is not late.",
+			"error.load.title":      "Weights could not be loaded",
+			"error.load.body":       "Try again in a moment.",
 		}
 	case "counts-breakdown":
 		return map[string]string{
