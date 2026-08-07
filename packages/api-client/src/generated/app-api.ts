@@ -7025,6 +7025,16 @@ export interface components {
              */
             average_weight_kg: number;
         };
+        WeighingWeightGainBucket: {
+            label: string;
+            /** @description Animals with a computable gain -- always fewer than the weight bucket's count. */
+            animals: number;
+            /**
+             * Format: double
+             * @description Median across those animals, so one scale misread cannot swing a breed.
+             */
+            median_gain_g_per_day: number;
+        };
         WeighingWeightDemographicsResponse: {
             /** @description Per-animal weighs only; a whole-shed total cannot be split by breed. */
             by_breed: components["schemas"]["WeighingWeightDemographicBucket"][];
@@ -7032,6 +7042,10 @@ export interface components {
             by_sex: components["schemas"]["WeighingWeightDemographicBucket"][];
             /** @description Per-animal weighs plus whole-shed weighs attributed to their shed's cohort. */
             by_stage: components["schemas"]["WeighingWeightDemographicBucket"][];
+            /** @description Same dimension as daily gain. Scanned animals only -- a whole-shed weigh yields no per-animal gain. */
+            gain_by_breed: components["schemas"]["WeighingWeightGainBucket"][];
+            gain_by_sex: components["schemas"]["WeighingWeightGainBucket"][];
+            gain_by_stage: components["schemas"]["WeighingWeightGainBucket"][];
             resolved_animals: number;
             /** @description Scanned tags with no animal in the herd register. Real weighs, reported not dropped. */
             unresolved_animals: number;

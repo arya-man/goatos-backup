@@ -20,6 +20,7 @@ export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdo
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
 export type WeightDemographicsResponse = AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
+export type WeightGainBucket = AppApiComponents["schemas"]["WeighingWeightGainBucket"];
 export type WeightDemographicBucket = AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
 export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
 export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
