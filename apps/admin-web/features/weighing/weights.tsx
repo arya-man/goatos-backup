@@ -164,9 +164,40 @@ export async function WeighingWeightsPage({
       ? await Promise.all(
           parks.map(async (park) => {
             const result = await getWeighingGrowth({ park_id: park.park_id, ...window });
+            // Both ways of weighing count. A park is not "no data" because its kids
+            // were weighed as sheds rather than one by one — the weight moved either
+            // way, and a card that ignores half the estate reports a park with 140
+            // measured animals as unknown.
+            //
+            // Combined as a mean weighted by ANIMALS, so a 73-head shed moving 206
+            // g/day counts for more than one kid moving -60. The two inputs are not
+            // the same measurement: a per-kid figure is that animal growing, while a
+            // shed figure also moves when animals join or leave. The card names both
+            // in its subtitle rather than implying one.
+            const parts: Array<{ value: number; weight: number }> = [];
+            if (result.ok) {
+              for (const shed of result.data.shed_leaderboard) {
+                if (shed.adg_pair_count > 0) {
+                  parts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
+                }
+              }
+            }
+            for (const row of rows) {
+              if (row.park_id === park.park_id && row.shed_average_gain_g_per_day != null) {
+                parts.push({
+                  value: row.shed_average_gain_g_per_day,
+                  weight: Math.max(row.animals_weighed, 1),
+                });
+              }
+            }
+            const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0);
             return {
               name: park.name,
-              median: result.ok ? result.data.headline.median_adg_g_per_day : null,
+              median:
+                totalWeight > 0
+                  ? parts.reduce((sum, part) => sum + part.value * part.weight, 0) / totalWeight
+                  : null,
+              animals: totalWeight,
             };
           }),
         )
@@ -226,7 +257,30 @@ export async function WeighingWeightsPage({
     }));
 
   const demo = demographics.ok ? demographics.data : null;
-  const headlineGain = growth.ok ? growth.data.headline.median_adg_g_per_day : null;
+  // The headline blends the same two inputs the per-park cards do, weighted by
+  // animals. Leaving it on per-animal pairs alone made it contradict its own park
+  // cards on screen — "all parks -60 g" sitting above "CPT 118 g" and "CBE 187 g".
+  const headlineParts: Array<{ value: number; weight: number }> = [];
+  if (growth.ok) {
+    for (const shed of growth.data.shed_leaderboard) {
+      if (shed.adg_pair_count > 0) {
+        headlineParts.push({ value: shed.median_adg_g_per_day, weight: shed.adg_pair_count });
+      }
+    }
+  }
+  for (const row of rows) {
+    if (row.shed_average_gain_g_per_day != null) {
+      headlineParts.push({
+        value: row.shed_average_gain_g_per_day,
+        weight: Math.max(row.animals_weighed, 1),
+      });
+    }
+  }
+  const headlineWeight = headlineParts.reduce((sum, part) => sum + part.weight, 0);
+  const headlineGain =
+    headlineWeight > 0
+      ? headlineParts.reduce((sum, part) => sum + part.value * part.weight, 0) / headlineWeight
+      : null;
 
   // Daily gain per shed comes from the growth read's own shed leaderboard, which is already
   // restricted to per-animal sheds — a whole-shed total can never produce a per-kid gain.
@@ -339,7 +393,7 @@ export async function WeighingWeightsPage({
           <div className="dl">
             {headlineGain == null
               ? copy(pageContract, "kpi.gain.none")
-              : copy(pageContract, "kpi.gain.sub")}
+              : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
           </div>
         </div>
       </section>
@@ -355,7 +409,11 @@ export async function WeighingWeightsPage({
                 ? copy(pageContract, "empty.no_data.title")
                 : `${Math.round(headlineGain)} g`}
             </div>
-            <div className="dl">{copy(pageContract, "kpi.gain.sub")}</div>
+            <div className="dl">
+              {headlineGain == null
+                ? copy(pageContract, "kpi.gain.none")
+                : `${copy(pageContract, "kpi.gain.blended")} · ${headlineWeight.toLocaleString("en-IN")}`}
+            </div>
           </div>
           {perParkGain.map((park) => (
             <div className="kpi" key={park.name}>
@@ -370,7 +428,7 @@ export async function WeighingWeightsPage({
               <div className="dl">
                 {park.median == null
                   ? copy(pageContract, "kpi.gain.none")
-                  : copy(pageContract, "kpi.gain.sub")}
+                  : `${copy(pageContract, "kpi.gain.blended")} · ${park.animals.toLocaleString("en-IN")}`}
               </div>
             </div>
           ))}
