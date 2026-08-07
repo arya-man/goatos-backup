@@ -203,7 +203,13 @@ export async function WeighingWeightsPage({
         pageContract={pageContract}
       />
 
-      <section className="grid g4" aria-label={copy(pageContract, "section.sheds.aria")}>
+      <p className="muted small" style={{ margin: "0 0 -4px" }}>
+        {copy(pageContract, "kpi.sheds.label")}: {summary.sheds_weighed} / {summary.sheds_in_scope}
+        {" · "}
+        {periodStart} – {periodEnd}
+      </p>
+
+      <section className="grid g6" aria-label={copy(pageContract, "section.sheds.aria")}>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.kids.label")}</div>
           <div className="val">{summary.animals_weighed.toLocaleString("en-IN")}</div>
@@ -224,15 +230,6 @@ export async function WeighingWeightsPage({
               : `${kg(summary.average_weight_kg)} kg`}
           </div>
           <div className="dl">{copy(pageContract, "kpi.average.sub")}</div>
-        </div>
-        <div className="kpi">
-          <div className="lab">{copy(pageContract, "kpi.sheds.label")}</div>
-          <div className="val">
-            {summary.sheds_weighed} / {summary.sheds_in_scope}
-          </div>
-          <div className="dl">
-            {periodStart} – {periodEnd}
-          </div>
         </div>
         <div className="kpi">
           <div className="lab">{copy(pageContract, "kpi.over30.label")}</div>
@@ -268,18 +265,7 @@ export async function WeighingWeightsPage({
       </section>
 
       {perParkGain.length > 0 ? (
-        <section className="grid g4" aria-label={copy(pageContract, "section.park_gain.aria")}>
-          <div className="kpi">
-            <div className="lab">
-              {copy(pageContract, "kpi.park_gain.all")} {copy(pageContract, "kpi.park_gain.suffix")}
-            </div>
-            <div className="val">
-              {headlineGain == null
-                ? copy(pageContract, "empty.no_data.title")
-                : `${Math.round(headlineGain)} g`}
-            </div>
-            <div className="dl">{copy(pageContract, "kpi.gain.sub")}</div>
-          </div>
+        <section className="grid g3" aria-label={copy(pageContract, "section.park_gain.aria")}>
           {perParkGain.map((park) => (
             <div className="kpi" key={park.name}>
               <div className="lab">

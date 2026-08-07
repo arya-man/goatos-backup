@@ -541,7 +541,12 @@
      card — past the viewport edge on narrow widths. Only ALLOWS shrinking; items still fill their track. */
   .grid>*{min-width:0}
   .g4{grid-template-columns:repeat(4,1fr)} .g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr)}
-  @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}}
+  /* Six-across KPI row, as the mock lays out a compact metric strip. Steps down rather
+     than reflowing into a ragged row with an empty slot. */
+  .g6{grid-template-columns:repeat(6,minmax(0,1fr))}
+  @media(max-width:1400px){.g6{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:1080px){.g4{grid-template-columns:repeat(2,1fr)}.g3,.g2{grid-template-columns:1fr}.g6{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media(max-width:640px){.g6{grid-template-columns:1fr}}
   /* Sidebar+main two-column layout (e.g. Audit: span-of-control rail + activity trail). Fixed rail on
      desktop, STACKS on narrow so the wide table never gets pushed offscreen (an inline 288px/1fr style
      would override the responsive stack — use this class instead). */
