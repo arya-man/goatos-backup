@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   commonDriveName,
   driveSelectionValue,
-  executionDriveOptions,
+  executedDriveCampaigns,
   formatDateSpan,
   formatScheduledDriveDates,
   parseDriveSelectionValue,
@@ -111,17 +111,38 @@ test("sheep and goat treatments roll up to one common adult annual campaign", ()
 
 test("future drive date labels compress consecutive operator days", () => {
   assert.equal(formatScheduledDriveDates(["2027-01-06", "2027-01-07"]), "6–7 Jan 2027");
+  assert.equal(formatScheduledDriveDates(["2026-07-24", "2026-07-25", "2026-07-26"]), "24–26 Jul 2026");
   assert.equal(formatScheduledDriveDates(["2027-07-26"]), "26 Jul 2027");
 });
 
-test("executed drives sort before future planned selector rows", () => {
-  const rows = executionDriveOptions([
+test("executed drives render as grouped selector campaigns with operator-day completion splits", () => {
+  const campaigns = executedDriveCampaigns([
     option({ driveBatchId: "future", status: "planned", plannedDate: "2027-04-09T00:00:00+05:30" }),
-    option({ driveBatchId: "cpt-324", status: "in_progress", plannedDate: "2026-07-24T00:00:00+05:30", targetCount: 324 }),
-    option({ driveBatchId: "cbe-aug-5", status: "in_progress", plannedDate: "2026-08-05T00:00:00+05:30", targetCount: 137 }),
+    option({
+      driveBatchId: "cpt-324",
+      status: "in_progress",
+      plannedDate: "2026-07-24T00:00:00+05:30",
+      targetCount: 324,
+      operatorDays: [
+        { date: "2026-07-24", targetCount: 114, doseCount: 114 },
+        { date: "2026-07-25", targetCount: 163, doseCount: 163 },
+        { date: "2026-07-26", targetCount: 47, doseCount: 47 },
+      ],
+    }),
+    option({
+      driveBatchId: "cbe-aug-5",
+      parkId: "park-cbe",
+      parkName: "CBE",
+      status: "in_progress",
+      plannedDate: "2026-08-05T00:00:00+05:30",
+      targetCount: 137,
+      operatorDays: [{ date: "2026-08-05", targetCount: 137, doseCount: 137 }],
+    }),
   ]);
 
-  assert.deepEqual(rows.map((row) => row.driveBatchId), ["cbe-aug-5", "cpt-324"]);
+  assert.deepEqual(campaigns.map((campaign) => campaign.name), ["CBE Adult FMD", "CPT Adult FMD"]);
+  assert.deepEqual(campaigns[1].dateKeys, ["2026-07-24", "2026-07-25", "2026-07-26"]);
+  assert.deepEqual(campaigns[1].treatments.map((row) => row.targetCount), [114, 163, 47]);
 });
 
 test("actual vaccination date spans use leadership-readable dates", () => {

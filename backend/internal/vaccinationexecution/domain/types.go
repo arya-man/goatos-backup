@@ -1103,17 +1103,24 @@ type CommandBoardDriveOption struct {
 	// selector entry and their counts read as one drive's. The row grain is therefore
 	// (batch, park), not batch alone -- a batch whose obligations span parks is genuinely
 	// two operator days in two places and must be offered as two choices.
-	ParkID      string     `json:"parkId,omitempty"`
-	ParkName    string     `json:"parkName,omitempty"`
-	DriveName   string     `json:"driveName"`
-	Label       string     `json:"label"`
-	Status      string     `json:"status"`
-	PlannedDate *time.Time `json:"plannedDate,omitempty"`
-	WindowStart *time.Time `json:"windowStart,omitempty"`
-	WindowEnd   *time.Time `json:"windowEnd,omitempty"`
-	TargetCount int        `json:"targetCount"`
-	DoseCount   int        `json:"doseCount"`
-	ShedNames   []string   `json:"shedNames"`
+	ParkID       string                 `json:"parkId,omitempty"`
+	ParkName     string                 `json:"parkName,omitempty"`
+	DriveName    string                 `json:"driveName"`
+	Label        string                 `json:"label"`
+	Status       string                 `json:"status"`
+	PlannedDate  *time.Time             `json:"plannedDate,omitempty"`
+	WindowStart  *time.Time             `json:"windowStart,omitempty"`
+	WindowEnd    *time.Time             `json:"windowEnd,omitempty"`
+	TargetCount  int                    `json:"targetCount"`
+	DoseCount    int                    `json:"doseCount"`
+	OperatorDays []CommandBoardDriveDay `json:"operatorDays,omitempty"`
+	ShedNames    []string               `json:"shedNames"`
+}
+
+type CommandBoardDriveDay struct {
+	Date        string `json:"date"`
+	TargetCount int    `json:"targetCount"`
+	DoseCount   int    `json:"doseCount"`
 }
 
 type CommandBoardResponse struct {

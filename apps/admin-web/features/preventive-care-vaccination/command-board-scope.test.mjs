@@ -53,7 +53,7 @@ test("the drive selector round-trips (batch, park) through the URL", () => {
   // Both the option value and the React key carry the park, so two parks sharing one batch render
   // as two distinct, separately-selectable rows.
   assert.match(commandBoardViewSource, /value=\{driveBatchId \? driveSelectionValue\(driveBatchId, driveParkId\) : ""\}/);
-  assert.match(commandBoardViewSource, /key=\{driveSelectionValue\(drive\.batchIds\[0\] \?\? drive\.key, drive\.parkId\)\}/);
+  assert.match(commandBoardViewSource, /key=\{`\$\{driveSelectionValue\(drive\.batchIds\[0\] \?\? drive\.key, drive\.parkId\)\}\|\$\{drive\.dateKeys\.join\(","\)\}`\}/);
   assert.doesNotMatch(commandBoardViewSource, /key=\{drive\.driveBatchId\} value=\{drive\.driveBatchId\}/);
   // Operator-day option rows come from the already park-specific campaign treatments, not the raw API rows.
   assert.match(commandBoardViewSource, /campaign\.treatments\.map/);

@@ -5454,15 +5454,39 @@ SELECT
   array_agg(DISTINCT pr.dose_code) AS dose_codes,
   COUNT(DISTINCT oi.target_id)::int AS target_count,
   COUNT(DISTINCT oi.obligation_id)::int AS dose_count,
+  COALESCE(operator_days.days, '[]'::jsonb) AS operator_days,
   COALESCE(array_agg(DISTINCT loc.name) FILTER (WHERE loc.name IS NOT NULL), ARRAY[]::text[]) AS shed_names
 FROM obligation_batches b
 JOIN obligation_instances oi ON oi.batch_id = b.batch_id AND oi.tenant_id = b.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.tenant_id = loc.tenant_id
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'date', to_char(day_row.day, 'YYYY-MM-DD'),
+      'targetCount', day_row.target_count,
+      'doseCount', day_row.dose_count
+    )
+    ORDER BY day_row.day
+  ) AS days
+  FROM (
+    SELECT
+      (vc.administered_at AT TIME ZONE 'Asia/Kolkata')::date AS day,
+      COUNT(DISTINCT vc.goat_id)::int AS target_count,
+      COUNT(DISTINCT vc.obligation_id)::int AS dose_count
+    FROM vaccination_completions vc
+    JOIN obligation_instances day_oi ON day_oi.obligation_id = vc.obligation_id AND day_oi.tenant_id = vc.tenant_id
+    LEFT JOIN locations day_loc ON day_oi.scope_id = day_loc.location_id AND day_oi.tenant_id = day_loc.tenant_id
+    WHERE vc.tenant_id = b.tenant_id
+      AND vc.batch_id = b.batch_id
+      AND (park.location_id IS NULL OR day_loc.parent_location_id = park.location_id)
+    GROUP BY 1
+  ) day_row
+) operator_days ON true
 WHERE b.tenant_id = $1::uuid
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
-GROUP BY b.batch_id, park.location_id, park.name, b.status, b.planned_date, b.window_start, b.window_end
+GROUP BY b.batch_id, park.location_id, park.name, b.status, b.planned_date, b.window_start, b.window_end, operator_days.days
 ORDER BY
   CASE b.status
     WHEN 'in_progress' THEN 0
@@ -5494,9 +5518,16 @@ LIMIT $3
 		var windowStart, windowEnd pgtype.Timestamptz
 		var doseCodes []string
 		var targetCount, doseCount int
+		var operatorDaysJSON []byte
 		var shedNames []string
-		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &shedNames); err != nil {
+		if err := driveRows.Scan(&batchID, &parkOptionID, &parkOptionName, &status, &plannedDate, &windowStart, &windowEnd, &doseCodes, &targetCount, &doseCount, &operatorDaysJSON, &shedNames); err != nil {
 			return resp, fmt.Errorf("vaccination command board: drive options scan: %w", err)
+		}
+		var operatorDays []domain.CommandBoardDriveDay
+		if len(operatorDaysJSON) > 0 {
+			if err := json.Unmarshal(operatorDaysJSON, &operatorDays); err != nil {
+				return resp, fmt.Errorf("vaccination command board: drive option operator days: %w", err)
+			}
 		}
 
 		driveName := commandBoardDriveName(doseCodes)
@@ -5509,6 +5540,7 @@ LIMIT $3
 			Label:        commandBoardDriveLabel(driveName, plannedDate, windowStart, status, targetCount),
 			TargetCount:  targetCount,
 			DoseCount:    doseCount,
+			OperatorDays: operatorDays,
 			ShedNames:    shedNames,
 		}
 		if plannedDate.Valid {

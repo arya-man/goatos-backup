@@ -12,6 +12,7 @@ export interface CommandBoardDriveOption {
   windowEnd?: string | null;
   targetCount: number;
   doseCount: number;
+  operatorDays?: Array<{ date: string; targetCount: number; doseCount: number }>;
   // Shed display names. This array contains shed NAMES only, which can be ambiguous when a park has
   // two sheds with the same name or when multiple partitions (Castro 1, Castro 2) share a base name.
   // CONTRACT GAP: The backend API response lacks shed_id and partition_label, so the frontend cannot
@@ -94,8 +95,11 @@ export function formatScheduledDriveDates(keys: string[]): string {
     return { year, month, day };
   }).filter((part) => part.year && part.month && part.day);
   if (parts.length === 0) return "—";
-  if (parts.length === 2 && parts[0].year === parts[1].year && parts[0].month === parts[1].month && parts[1].day === parts[0].day + 1) {
-    return `${parts[0].day}–${parts[1].day} ${MONTH_NAMES[parts[0].month - 1]} ${parts[0].year}`;
+  const sameMonthRun = parts.length > 1
+    && parts.every((part) => part.year === parts[0].year && part.month === parts[0].month)
+    && parts.every((part, index) => index === 0 || part.day === parts[index - 1].day + 1);
+  if (sameMonthRun) {
+    return `${parts[0].day}–${parts[parts.length - 1].day} ${MONTH_NAMES[parts[0].month - 1]} ${parts[0].year}`;
   }
   return parts.map((part) => `${part.day} ${MONTH_NAMES[part.month - 1]} ${part.year}`).join(", ");
 }
@@ -152,16 +156,6 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
     shedIds: row.shedIds.sort(),
     shedNames: row.shedNames.sort(),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
-}
-
-export function executionDriveOptions(options: CommandBoardDriveOption[]): CommandBoardDriveOption[] {
-  return options
-    .filter((drive) => drive.status !== "planned")
-    .sort((a, b) => {
-      const aDate = dateKey(a.plannedDate) || dateKey(a.windowStart);
-      const bDate = dateKey(b.plannedDate) || dateKey(b.windowStart);
-      return bDate.localeCompare(aDate);
-    });
 }
 
 // The park prefix used to be the literal "CPT", which mislabelled every other park's drive. It now
@@ -224,6 +218,50 @@ export function scheduledDriveCampaigns(rows: ScheduledDriveRow[]): ScheduledDri
     shedNames: campaign.shedNames.sort(),
     treatments: campaign.treatments.sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? "")),
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
+}
+
+export function executedDriveCampaigns(options: CommandBoardDriveOption[]): ScheduledDriveCampaign[] {
+  return options
+    .filter((option) => option.status !== "planned")
+    .map((option) => {
+      const name = option.driveName || option.label;
+      const days = (option.operatorDays ?? [])
+        .filter((day) => dateKey(day.date))
+        .map((day) => ({ ...day, date: dateKey(day.date) }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      const dateKeys = days.length > 0
+        ? days.map((day) => day.date)
+        : [dateKey(option.plannedDate) || dateKey(option.windowStart)].filter(Boolean);
+      const treatments: ScheduledDriveRow[] = (days.length > 0 ? days : dateKeys.map((date) => ({
+        date,
+        targetCount: option.targetCount,
+        doseCount: option.doseCount,
+      }))).map((day) => ({
+        key: `${option.driveBatchId}|${option.parkId ?? ""}|${day.date}`,
+        driveName: name,
+        parkId: option.parkId ?? "",
+        parkName: option.parkName ?? "",
+        dateKeys: [day.date],
+        targetCount: day.targetCount,
+        doseCount: day.doseCount,
+        shedNames: [...(option.shedNames ?? [])].sort(),
+        shedIds: [...(option.shedIds ?? [])].sort(),
+        batchIds: [option.driveBatchId],
+      }));
+      return {
+        key: `${option.driveBatchId}|${option.parkId ?? ""}`,
+        name: commonDriveName(name, option.parkName),
+        parkId: option.parkId ?? "",
+        parkName: option.parkName ?? "",
+        dateKeys,
+        targetCount: option.targetCount,
+        doseCount: option.doseCount,
+        shedNames: [...(option.shedNames ?? [])].sort(),
+        batchIds: [option.driveBatchId],
+        treatments,
+      };
+    })
+    .sort((a, b) => (b.dateKeys[0] ?? "").localeCompare(a.dateKeys[0] ?? ""));
 }
 
 // Selector identity for one drive row.
