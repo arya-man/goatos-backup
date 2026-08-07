@@ -195,6 +195,13 @@ object AnalyticsEvents {
     const val WEIGHING_PLAN_SAVE_FAILED = "weighing_plan_save_failed"
 
     /** Leadership opened the weighing alerts history screen. */
+    /** Vaccination's own module-scoped alerts feed (GET /app/vaccination/alerts). Distinct from
+     *  the control-tower gap summary the Alerts tab used to render. */
+    const val VACCINATION_ALERTS_VIEWED = "vaccination_alerts_viewed"
+    const val VACCINATION_ALERTS_REFRESH_ATTEMPTED = "vaccination_alerts_refresh_attempted"
+    const val VACCINATION_ALERTS_REFRESH_SUCCEEDED = "vaccination_alerts_refresh_succeeded"
+    const val VACCINATION_ALERTS_REFRESH_FAILED = "vaccination_alerts_refresh_failed"
+
     const val WEIGHING_ALERTS_VIEWED = "weighing_alerts_viewed"
 
     /** Leadership attempted to refresh the weighing alerts. */

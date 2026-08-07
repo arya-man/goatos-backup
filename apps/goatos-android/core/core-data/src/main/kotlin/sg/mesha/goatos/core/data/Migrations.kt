@@ -939,3 +939,28 @@ val MIGRATION_33_34: Migration = object : Migration(33, 34) {
         )
     }
 }
+
+/**
+ * v34 -> v35: create `vaccination_alerts_cache`, the offline-first store behind the vaccination
+ * module's own alerts feed.
+ *
+ * A new @Entity with NO migration compiles, works on a fresh install, and CRASHES every in-place
+ * upgrade on open ("Migration didn't properly handle ..."), because an upgrade runs only the
+ * registered Migrations and then validates against the @Entity set. That already shipped once
+ * (MOB-007), so the table is created here explicitly.
+ *
+ * The column list, types, nullability and primary key must match what Room generates for
+ * [sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheEntity] exactly, or validation fails on
+ * upgrade even though the table exists.
+ */
+val MIGRATION_34_35: Migration = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `vaccination_alerts_cache` (" +
+                "`cacheKey` TEXT NOT NULL, " +
+                "`dtoJson` TEXT NOT NULL, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`cacheKey`))",
+        )
+    }
+}

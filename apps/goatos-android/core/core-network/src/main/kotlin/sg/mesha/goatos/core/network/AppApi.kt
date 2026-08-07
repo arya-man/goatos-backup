@@ -122,6 +122,9 @@ const val WEIGHING_PAGE_SIZE = 20
  */
 const val WEIGHING_ALERTS_PAGE_SIZE = 20
 
+/** One phone-viewport page of vaccination alerts. Matches the backend's AlertPageSize. */
+const val VACCINATION_ALERTS_PAGE_SIZE = 20
+
 /**
  * The three weighing surfaces. Each is a separate destination with its own authority, so the
  * client names the surface it is rendering instead of the server inferring it from the viewer's
@@ -514,6 +517,19 @@ interface AppApi {
         cursor: String? = null,
         limit: Int = WEIGHING_ALERTS_PAGE_SIZE,
     ): WeighingAlertPageResponseDto
+
+    /**
+     * GET /app/vaccination/alerts — the vaccination module's OWN lifecycle feed: a proof
+     * approved, a proof sent back for rework, a record closed.
+     *
+     * NOT the control-tower gap summary, which is what this tab used to render and is why
+     * lifecycle notifications were invisible on the phone. The backend scopes rows to the caller
+     * and authors every visible string (title/body plus the page title and empty-state sentence).
+     */
+    suspend fun listVaccinationAlerts(
+        cursor: String? = null,
+        limit: Int = VACCINATION_ALERTS_PAGE_SIZE,
+    ): VaccinationAlertPageResponseDto
 
     /** POST /app/tasks/{task_id}/submissions — idempotent SOP task submission. The offline
      *  sync engine's outbox drains this with a stable [idempotencyKey] (same key on every
@@ -1335,6 +1351,11 @@ class FakeAppApi(private val chrome: String = "expanded") : AppApi {
         cursor: String?,
         limit: Int,
     ): WeighingAlertPageResponseDto = WeighingAlertPageResponseDto()
+
+    override suspend fun listVaccinationAlerts(
+        cursor: String?,
+        limit: Int,
+    ): VaccinationAlertPageResponseDto = VaccinationAlertPageResponseDto()
 
     override suspend fun submitAppTask(
         taskId: String,
