@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,3 +102,82 @@ func TestGetPassportEmptyHasNoNextDueAndEmptyArrays(t *testing.T) {
 		t.Fatalf("empty sections must be non-nil arrays for a stable API shape")
 	}
 }
+
+// VALUE-LEVEL TEST: Vaccination Passport rendered location strings (OL-7 audit).
+// This test pins the exact output string for partitioned and unpartitioned sheds
+// across the passport read path, ensuring no silent partition data loss.
+func TestVaccinationPassportPartitionLabelRendersCorrectly(t *testing.T) {
+	tests := []struct {
+		name string
+		loc  oploc.OperationalLocation
+		want string
+		// Invariants that MUST hold (string must not equal, and must not contain):
+		mustNotEqual string
+		mustNotContain string
+	}{
+		{
+			name: "partitioned_numeric_label",
+			loc:  oploc.OperationalLocation{ShedName: "Castro", PartitionLabel: "2"},
+			want: "Castro - 2",
+			mustNotEqual: "Castro 2", // no space
+			mustNotContain: "whole",
+		},
+		{
+			name: "partitioned_prefixed_label",
+			loc:  oploc.OperationalLocation{ShedName: "Godel 1", PartitionLabel: "Part 3"},
+			want: "Godel 1 - Part 3",
+			mustNotEqual: "Godel 1 Part 3", // naive space join
+			mustNotContain: "whole",
+		},
+		{
+			name: "partitioned_large_number",
+			loc:  oploc.OperationalLocation{ShedName: "Gandhi", PartitionLabel: "10"},
+			want: "Gandhi - 10",
+			mustNotEqual: "Gandhi 10", // naive space
+			mustNotContain: "whole",
+		},
+		{
+			name: "non_partitioned_bare_name",
+			loc:  oploc.OperationalLocation{ShedName: "Yashoda", PartitionLabel: ""},
+			want: "Yashoda",
+			mustNotEqual: "Yashoda whole", // bare name never gets 'whole' suffix
+			mustNotContain: "whole",
+		},
+		{
+			name: "non_partitioned_whole_sentinel",
+			loc:  oploc.OperationalLocation{ShedName: "Ho Chi Minh 1", PartitionLabel: "whole"},
+			want: "Ho Chi Minh 1",
+			mustNotEqual: "Ho Chi Minh 1 whole", // sentinel never rendered
+			mustNotContain: "whole",
+		},
+		{
+			name: "partitioned_digit_suffix_shed",
+			loc:  oploc.OperationalLocation{ShedName: "Mandela 2", PartitionLabel: "Part 1"},
+			want: "Mandela 2 - Part 1",
+			mustNotEqual: "Mandela 2 Part 1", // the defect from OL-3: space join is ambiguous
+			mustNotContain: "whole",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewService(fakeVacc{}, fakeObl{}, fakeLoc{found: true, loc: tt.loc})
+			p, err := svc.GetPassport(context.Background(), "tenant", "goat")
+			if err != nil {
+				t.Fatalf("get passport: %v", err)
+			}
+
+			got := p.OperationalLocationDisplay
+			if got != tt.want {
+				t.Errorf("want %q, got %q", tt.want, got)
+			}
+			if got == tt.mustNotEqual {
+				t.Errorf("output must not equal %q (this is a known defect pattern)", tt.mustNotEqual)
+			}
+			if tt.mustNotContain != "" && strings.Contains(got, tt.mustNotContain) {
+				t.Errorf("output must not contain %q, but got %q", tt.mustNotContain, got)
+			}
+		})
+	}
+}
+
