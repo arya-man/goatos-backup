@@ -8710,6 +8710,16 @@ components:
           format: uuid
         shed_label:
           type: string
+        partition_label:
+          type: string
+          description: >-
+            The row's operational partition within the physical shed ("1", "Part 3"), absent for a
+            shed that has none. A feed row's grain is the OPERATIONAL LOCATION, not the shed: one
+            shed can run an authored experiment on some partitions while the rest stay on the
+            per-head ration grid, so Castro 1 and Castro 2 are two rows sharing one shed_id.
+            Clients MUST render shed + partition together ("Castro 1", "Godel 2 - Part 3") and must
+            never display the bare shed name for a partitioned row, or two different pens appear as
+            two identical lines.
         shed_tag:
           type: string
           description: >-
@@ -9058,6 +9068,15 @@ components:
           format: uuid
         shed_label:
           type: string
+        partition_label:
+          type: string
+          description: >-
+            The operational partition this bag is for ("1", "Part 3"), absent for a shed with no
+            partitions. A packing line is grouped at the same operational-location grain as the
+            direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Clients
+            MUST render shed + partition together: two "Castro" lines with no partition leave the
+            packer unable to tell which pen either bag is for, and one shed's partitions can carry
+            very different quantities when some run an authored experiment and the rest the grid.
         session_no:
           type: integer
         session_label:

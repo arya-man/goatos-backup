@@ -422,13 +422,14 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 			l = &line{
 				order: order,
 				row: PackingRow{
-					ParkID:       row.ParkID,
-					ParkLabel:    row.ParkLabel,
-					ShedID:       row.ShedID,
-					ShedLabel:    row.ShedLabel,
-					SessionNo:    row.SessionNo,
-					SessionLabel: row.SessionLabel,
-					Workflow:     row.Workflow,
+					ParkID:         row.ParkID,
+					ParkLabel:      row.ParkLabel,
+					ShedID:         row.ShedID,
+					ShedLabel:      row.ShedLabel,
+					PartitionLabel: row.PartitionLabel,
+					SessionNo:      row.SessionNo,
+					SessionLabel:   row.SessionLabel,
+					Workflow:       row.Workflow,
 					// Safe to take from the first contributing row: the planner is selected per
 					// SHED, so every row of a line shares one workflow and therefore one arm
 					// (empty for normal).

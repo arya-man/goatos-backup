@@ -3371,6 +3371,8 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
+            /** @description The row's operational partition within the physical shed ("1", "Part 3"), absent for a shed that has none. A feed row's grain is the OPERATIONAL LOCATION, not the shed: one shed can run an authored experiment on some partitions while the rest stay on the per-head ration grid, so Castro 1 and Castro 2 are two rows sharing one shed_id. Clients MUST render shed + partition together ("Castro 1", "Godel 2 - Part 3") and must never display the bare shed name for a partitioned row, or two different pens appear as two identical lines. */
+            partition_label?: string;
             /** @description The AUTHORED tag label the live management stage resolved onto -- the canonical spelling, not the raw source text, which carries cosmetic variants. Populated on EVERY workflow from the animals actually in the shed: an experiment row has no ration grain, but its animals still carry a management stage. It never carries the experiment arm, which has its own `experiment_arm` field. A shed holding two stages reports both, joined by ` + `. */
             shed_tag: string;
             /** @description The raw live breed label. Reported alongside `ration_group` because they differ in ways an operator needs to see: Beetal and Sirohi are two breeds sharing one `Beetal/Sirohi` group, and every kid breed collapses to `Kid`. Populated on every workflow from the animals in the shed; a multi-breed shed reports every breed joined by ` + ` (`Beetal + Sojat`) rather than naming one and implying it is the only one. */
@@ -3512,6 +3514,8 @@ export interface components {
             /** Format: uuid */
             shed_id: string;
             shed_label: string;
+            /** @description The operational partition this bag is for ("1", "Part 3"), absent for a shed with no partitions. A packing line is grouped at the same operational-location grain as the direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Clients MUST render shed + partition together: two "Castro" lines with no partition leave the packer unable to tell which pen either bag is for, and one shed's partitions can carry very different quantities when some run an authored experiment and the rest the grid. */
+            partition_label?: string;
             session_no: number;
             session_label: string;
             /** @enum {string} */
