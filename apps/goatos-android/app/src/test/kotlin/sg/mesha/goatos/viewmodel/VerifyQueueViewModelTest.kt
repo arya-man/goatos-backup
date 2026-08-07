@@ -269,8 +269,6 @@ class VerifyQueueViewModelTest {
     }
 }
 
-}
-
 private class FakeVerifySyncRepository : SyncRepository {
     override fun observeStatus() = MutableStateFlow(SyncStatus.empty(online = true))
     override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf()
