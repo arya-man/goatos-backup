@@ -134,13 +134,27 @@ WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
 GROUP BY t.park_id, p.name
 UNION ALL
-SELECT 'shed', t.shed_id::text, s.name
+-- The filter DROPDOWN must name the same place the rows name. A bare s.name hides the
+-- partition, so two pens of one shed read as one option and the operator cannot tell which
+-- they picked. Composed here with the same agree-or-go-bare rule the row reads use.
+SELECT 'shed', t.shed_id::text, s.name || coalesce(' - ' || part.partition_label, '')
 FROM feed_transport_tasks t
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
+-- Partition resolved by a GROUPED JOIN, not a correlated subquery: correlating on t.tenant_id
+-- inside a query that groups by (t.shed_id, s.name) makes tenant_id an ungrouped outer column
+-- and Postgres rejects it (42803). Agree-or-go-bare is kept by HAVING count(*) = 1.
+LEFT JOIN (
+  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
+  FROM shed_partitions sp
+  WHERE sp.status = 'active'
+    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  GROUP BY sp.tenant_id, sp.shed_id
+  HAVING count(*) = 1
+) part ON part.tenant_id = t.tenant_id AND part.shed_id = t.shed_id
 WHERE t.tenant_id=$1::uuid AND t.business_date=$2::date
   AND ($3::text='' OR t.operator_id IS NULL OR t.operator_id=$3::uuid)
   AND ($4::text='' OR t.park_id=$4::uuid)
-GROUP BY t.shed_id, s.name
+GROUP BY t.shed_id, s.name, part.partition_label
 ORDER BY 1, 3, 2`, q.TenantID, q.Day.Format("2006-01-02"), q.ActorID, q.ParkID)
 	if err != nil {
 		return ports.FeedTransportFilterOptions{}, fmt.Errorf("feeddirection: list transport filter options: %w", err)
@@ -225,10 +239,24 @@ func (r *Repository) SubmitTransportAttempt(ctx context.Context, p ports.SubmitT
 	}
 	if !reservation.proceed {
 		var res ports.SubmitTransportResult
-		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text,coalesce(l.name,''),coalesce(l.partition_label,'')
+		// IDEMPOTENT REPLAY. This branch is the one a RETRY takes, so a bug here only appears on
+		// the second submit -- the first succeeds and hides it. It selected l.partition_label
+		// from `locations`, which has no such column; partitions live in shed_partitions. Same
+		// scalar-subquery shape as the first-submit path above, and the same agree-or-go-bare
+		// rule, so a replay returns the identical location the original submit returned.
+		err = tx.QueryRow(ctx, `SELECT a.attempt_id::text,a.status,a.attempt_no,t.park_id::text,t.shed_id::text,
+       coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
+       coalesce((
+         SELECT min(sp.partition_label)
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '')
 FROM feed_transport_attempts a
 JOIN feed_transport_tasks t ON t.tenant_id=a.tenant_id AND t.task_id=a.task_id
-LEFT JOIN locations l ON l.tenant_id=a.tenant_id AND l.location_id=t.shed_id
 WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.resultID).Scan(&res.AttemptID, &res.Status, &res.AttemptNo, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 		if err != nil {
 			return res, err
