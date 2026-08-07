@@ -948,6 +948,21 @@ cohort_page AS (
   GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage
   ORDER BY park.name, shed.name, windowed.stage, windowed.park_uuid, windowed.shed_uuid
   LIMIT $11::int
+),
+schedule_partitions AS (
+  SELECT
+    windowed.shed_uuid,
+    CASE
+      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+      ELSE NULL
+    END AS partition_label
+  FROM windowed
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = $1::uuid
+   AND gsp.goat_id = windowed.animal_id
+   AND gsp.shed_id = windowed.shed_uuid
+  GROUP BY windowed.shed_uuid
 )
 SELECT
   windowed.park_uuid,
@@ -978,7 +993,8 @@ SELECT
   COUNT(*) FILTER (WHERE windowed.eff_status = 'completed' AND windowed.completion_status = 'accepted' AND (windowed.due_in_window OR windowed.accepted_in_window))::bigint AS accepted_count,
   COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'recorded')::bigint AS proof_pending_count,
   COUNT(*) FILTER (WHERE windowed.due_in_window AND windowed.completion_status = 'rejected')::bigint AS rejected_count,
-  COUNT(*)::bigint AS total_count
+  COUNT(*)::bigint AS total_count,
+  sp.partition_label
 FROM windowed
 JOIN cohort_page page
   ON page.park_uuid = windowed.park_uuid
@@ -994,7 +1010,9 @@ JOIN locations park
  AND park.location_id = windowed.park_uuid
  AND park.location_type = 'park'
  AND park.status = 'active'
-GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage, windowed.protocol_id, windowed.protocol_name
+LEFT JOIN schedule_partitions sp
+  ON sp.shed_uuid = windowed.shed_uuid
+GROUP BY windowed.park_uuid, park.name, windowed.shed_uuid, shed.name, windowed.stage, windowed.protocol_id, windowed.protocol_name, sp.partition_label
 ORDER BY
   park.name COLLATE "C" ASC, windowed.park_uuid ASC,
   shed.name COLLATE "C" ASC, windowed.shed_uuid ASC,
@@ -3324,21 +3342,22 @@ drive_ops AS (
   GROUP BY operator_sources.park_id, operator_sources.shed_id, operator_sources.shed_name
 )
 SELECT
-  park_id, park_name, shed_id, shed_name,
-  animals, due_animals, open_cells, sessions, capacity_status, shed_status,
-  last_done, next_due,
+  classified.park_id, classified.park_name, classified.shed_id, classified.shed_name,
+  classified.animals, classified.due_animals, classified.open_cells, classified.sessions, classified.capacity_status, classified.shed_status,
+  classified.last_done, classified.next_due,
   COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count,
   sp.partition_label
 FROM classified
-LEFT JOIN drive_ops USING (park_id, shed_id)
+LEFT JOIN drive_ops
+  ON drive_ops.park_id = classified.park_id AND drive_ops.shed_id = classified.shed_id
 LEFT JOIN shed_partitions sp
-  ON sp.shed_id = classified.shed_uuid
-WHERE ($6::text = '' OR park_id = $6)
-  AND ($7::text = '' OR shed_id = $7)
-  AND ($8::text = '' OR shed_name ILIKE '%' || $8 || '%' OR park_name ILIKE '%' || $8 || '%')
-  AND ($9::text = '' OR shed_status = $9)
-  AND ($10::text = '' OR capacity_status = $10)
+  ON sp.shed_id::text = classified.shed_id
+WHERE ($6::text = '' OR classified.park_id = $6)
+  AND ($7::text = '' OR classified.shed_id = $7)
+  AND ($8::text = '' OR classified.shed_name ILIKE '%' || $8 || '%' OR classified.park_name ILIKE '%' || $8 || '%')
+  AND ($9::text = '' OR classified.shed_status = $9)
+  AND ($10::text = '' OR classified.capacity_status = $10)
 ORDER BY __ORDER_BY__
 LIMIT $11 OFFSET $12;
 `
