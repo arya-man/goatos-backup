@@ -206,7 +206,7 @@ latest_bucket AS (
            period_start_date DESC, created_at DESC, campaign_shed_id DESC
 )
 SELECT b.location_id, b.park_id,
-       COALESCE(pk.name, ''), COALESCE(sh.name, ''),
+       COALESCE(NULLIF(pk.location_code, ''), pk.name, ''), COALESCE(sh.name, ''),
        b.weighing_category, b.bucket_status,
        b.animals, b.avg_kg, b.total_kg, b.last_weighed,
        b.ge_lower, b.ge_upper, b.threshold_basis,
@@ -224,7 +224,7 @@ FROM latest_bucket b
 LEFT JOIN shed_span ss ON ss.location_id = b.location_id
 LEFT JOIN locations sh ON sh.location_id = b.location_id
 LEFT JOIN locations pk ON pk.location_id = b.park_id
-ORDER BY COALESCE(pk.name, ''), COALESCE(sh.name, '')
+ORDER BY COALESCE(NULLIF(pk.location_code, ''), pk.name, ''), COALESCE(sh.name, '')
 LIMIT $7`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, parkIDs,
@@ -283,6 +283,30 @@ LIMIT $7`
 	if err := rows.Err(); err != nil {
 		return domain.ShedWeights{}, err
 	}
+	// Park vocabulary for the filter, labelled the same way the rows are. It is read
+	// here rather than from ListParks because that helper is shared with the mobile
+	// planner and returns the full name; the two would then disagree on screen, with
+	// the dropdown saying "Coimbatore" and every row saying "CBE".
+	parkRows, err := r.pool.Query(ctx, `
+SELECT location_id::text, COALESCE(NULLIF(location_code, ''), name, '')
+FROM locations
+WHERE tenant_id = $1::uuid AND location_id = ANY($2::uuid[])
+ORDER BY display_order, name, location_id`, tenantID, parkIDs)
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+	defer parkRows.Close()
+	for parkRows.Next() {
+		var park domain.GrowthPark
+		if err := parkRows.Scan(&park.ParkID, &park.Name); err != nil {
+			return domain.ShedWeights{}, err
+		}
+		out.Parks = append(out.Parks, park)
+	}
+	if err := parkRows.Err(); err != nil {
+		return domain.ShedWeights{}, err
+	}
+
 	if summary.AnimalsWeighed > 0 {
 		avg := summary.TotalWeightKg / float64(summary.AnimalsWeighed)
 		summary.AverageWeightKg = &avg

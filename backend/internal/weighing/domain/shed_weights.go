@@ -29,7 +29,10 @@ package domain
 type ShedWeightsRow struct {
 	LocationID string `json:"location_id"`
 	ParkID     string `json:"park_id"`
-	ParkName   string `json:"park_name"`
+	// ParkName is the park's SHORT CODE (CBE, CPT) when it has one, falling back to
+	// its full name. The farm calls them CBE and CPT, and the full names cost a
+	// column's width on every row for a word nobody uses.
+	ParkName string `json:"park_name"`
 	// ShedDisplayName is resolved from locations.name, never from the bucket's own
 	// display_name: that column is free text typed at planning time and has held
 	// "M1P5", "C1" and "Mandela 2 Part 6" for sheds whose canonical names are
