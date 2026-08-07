@@ -60,17 +60,28 @@ Also found: the 3 active `Godel 1 - Part N` rows are parented under park
 **Channapatna** — a second, independent corruption (wrong park), folded into
 the same retire action since these rows are being retired regardless.
 
-### Class C — redundant alias-as-shed rows, NEEDS HUMAN DECISION (10 rows)
+### Class C — redundant alias-as-shed rows, DECISION MADE (10 rows, 2026-08-07)
 
-`Mandela 1 - Part 1` .. `Mandela 1 - Part 10` are all active, all hold 0
-goats directly, but **there is no active parent `Mandela 1` row** — unlike
-Godel 1/2 and Mandela 2, there is nothing in `shed_partitions` cataloging
-these pens against a real parent shed. Retiring these 10 rows the same way
-as Class B would delete the **only** surviving record that "Mandela 1" pens
-exist, with no replacement.
+**MAINTAINER DECISION (2026-08-07, Option A — CLOSED):** Create a `Mandela 1` parent shed
+mirroring `Godel 1`/`Godel 2`/`Mandela 2`, register its shed_partitions catalog rows,
+and retire the 10 orphan `Mandela 1 - Part N` alias-as-shed rows.
 
-**This script does not touch these 10 rows.** See "What A Human Must
-Decide" below.
+`Mandela 1 - Part 1` .. `Mandela 1 - Part 10` are all active, all hold 0 goats directly,
+but **there was no active parent `Mandela 1` row** — unlike Godel 1/2 and Mandela 2,
+there was nothing in `shed_partitions` cataloging these pens against a real parent shed.
+
+**New script: `tools/data-repair/stg-mandela1-class-c-repair.sql`** executes the repair:
+1. Derives the park from the REAL `Mandela 2` parent shed (not from the 10 orphan rows,
+   which carry known-wrong park data per the Godel 1 precedent).
+2. Creates the parent shed `Mandela 1` with exact column shape mirrored from `Mandela 2`.
+3. Registers 10 `shed_partitions` rows (`Part 1`..`Part 10`) against the new parent,
+   matching `Mandela 2`'s catalog rows exactly in column shape, `normalized_label`
+   derivation, `source`, and `status`.
+4. Soft-retires the 10 alias rows (status → `inactive`, `retired_at` set).
+5. Verifies 0 goats reference the retired alias rows (re-proves the audit at run time).
+
+**All statements are preceded by verification SELECTs; idempotent on re-run; wrapped in
+BEGIN/ROLLBACK (human changes ROLLBACK to COMMIT after reading output).**
 
 ### Class D — `goat_shed_partitions` rows with no matching catalog entry
 
@@ -159,34 +170,72 @@ GROUP BY shed_id;
 
 Then re-check the operator-facing dropdowns (shifting destination,
 Add-birth) against the code fix — the duplicate/garbled entries sourced from
-Class A/B rows should be gone. Mandela 1's ambiguity persists until the
-Class C human decision is made and executed separately.
+Class A/B rows should be gone.
 
-## What A Human Must Decide
+## Class C Repair: How To Run
 
-**Class C — `Mandela 1 - Part 1..10` (10 rows), before any repair touches them:**
+```bash
+psql "postgres://postgres:goatos@127.0.0.1:5433/goatos?sslmode=disable" \
+  -f tools/data-repair/stg-mandela1-class-c-repair.sql
+```
 
-Real animals are not directly at stake (0 goats reference these rows), but
-the *shed itself* is ambiguous — a decision here shapes where any future
-placement/import lands. Options:
+Run the whole file — since it never auto-commits, this is safe to execute fully;
+read the SELECT output for every STEP (0–6). Confirm:
+- **STEP 0:** Park is resolved to exactly one active park (`park_active_count = 1`),
+  name is `Channapatna` (the real Mandela 2 park).
+- **STEP 1:** Real Mandela 2 parent row structure is shown (template for Mandela 1).
+- **STEP 2:** All 10 Mandela 1 - Part N alias rows show goat-reference counts = 0.
+- **STEP 3:** 1 row will be inserted for new parent Mandela 1.
+- **STEP 4:** 10 shed_partitions rows will be registered (Part 1..10).
+- **STEP 5:** 10 alias-as-shed rows will be soft-retired (status → `inactive`).
+- **STEP 6:** Post-repair verification shows parent exists, 10 catalog rows active,
+  10 aliases inactive, 0 goats touching retired aliases.
 
-1. **Create a `Mandela 1` parent shed** (mirroring `Godel 1`/`Godel 2`/
-   `Mandela 2`), register `shed_partitions` catalog rows for `Part 1..10`
-   against it (`source='manual'` or `'location_alias'` as appropriate), then
-   retire the 10 standalone alias rows the same way Class B was retired.
-   This is the "make Mandela 1 consistent with its siblings" option and
-   matches the AGENTS.md convention (`Godel 1 - Part 3` -> `ONE shed Godel 1
-   with partition Part 3`).
-2. **Leave the 10 rows as standalone active sheds** if there is a real,
-   independently confirmed reason a `Mandela 1` parent should not exist
-   (e.g. the numbering is coincidental and these are genuinely 10 separate
-   physical sheds, like `Yashoda`). Nothing in the data audited here
-   supports this — no goat, catalog, or alias evidence distinguishes
-   `Mandela 1 - Part N` from the Godel/Mandela-2 pattern — but a human with
-   physical-site knowledge should confirm before assuming option 1.
+If any count is unexpected, **stop** — do not commit — treat it as a new finding.
 
-Do not silently pick one; the choice changes which shed a future goat's
-placement is recorded against.
+## Class C Repair: How To Verify After Running (once a human commits)
+
+```sql
+-- Mandela 1 parent shed now exists
+SELECT location_id, name, status FROM locations
+WHERE status = 'active' AND name = 'Mandela 1' AND location_type = 'shed';
+-- EXPECTED: exactly 1 row
+
+-- Mandela 1 partition catalog now has 10 rows
+SELECT COUNT(*) FROM shed_partitions
+WHERE shed_id = (SELECT location_id FROM locations
+                 WHERE status = 'active' AND name = 'Mandela 1' AND location_type = 'shed')
+  AND status = 'active';
+-- EXPECTED: 10
+
+-- Mandela 1 - Part N alias rows are now inactive
+SELECT COUNT(*) FROM locations
+WHERE status = 'inactive' AND location_type = 'shed' AND name LIKE 'Mandela 1 - Part %';
+-- EXPECTED: 10
+
+-- No goats reference the retired Mandela 1 alias rows
+SELECT COUNT(*) FROM goats
+WHERE shed_id IN (SELECT location_id FROM locations
+                  WHERE status = 'inactive' AND location_type = 'shed'
+                    AND name LIKE 'Mandela 1 - Part %')
+   OR current_location_id IN (SELECT location_id FROM locations
+                              WHERE status = 'inactive' AND location_type = 'shed'
+                                AND name LIKE 'Mandela 1 - Part %');
+-- EXPECTED: 0
+
+-- Sanity check: real parent sheds still active and still hold their animals
+SELECT name, status FROM locations WHERE name IN ('Mandela 1', 'Mandela 2')
+  AND location_type = 'shed' AND status = 'active';
+-- EXPECTED: 2 rows (both Mandela 1 and Mandela 2)
+```
+
+## Class C Decision (Closed 2026-08-07)
+
+**MAINTAINER DECISION: Option A — Create `Mandela 1` parent shed consistent with siblings.**
+
+The decision was made on 2026-08-07 to treat `Mandela 1 - Part 1..10` as a
+subdivided shed (like Godel 1/2/Mandela 2) rather than 10 independent sheds.
+The repair script `stg-mandela1-class-c-repair.sql` executes this decision.
 
 ## What CANNOT Be Repaired By Data Alone
 
