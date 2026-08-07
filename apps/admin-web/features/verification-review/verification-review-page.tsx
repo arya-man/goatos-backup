@@ -5,7 +5,7 @@ import { Filter, PlayCircle } from "lucide-react";
 
 import { Tag } from "@/components/ui-primitives";
 import { controlEnabled, copy, table, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import { firstAuthRequiredError, listStaffPositions, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
+import { firstAuthRequiredError, listVerificationQueue, type VerificationItemStatus, type VerificationQueueItem } from "@/lib/api/server";
 import { INTERNAL_LOGIN_PATH } from "@/lib/auth/session-cookie";
 import { fmtDateTime } from "@/lib/format";
 import { one, type RouteSearchParams } from "@/lib/search-params";
@@ -31,18 +31,20 @@ export async function VerificationReviewPage({
   const scope = parseScope(sp);
   const selectedId = one(sp, "vi_row");
 
-  const [queue, positions] = await Promise.all([
-    listVerificationQueue({
-      status,
-      category,
-      businessDate: scope.asOf,
-      parkId: scope.parkId,
-      shedId,
-      limit: 20,
-      cursor: one(sp, "vi_cursor"),
-    }),
-    listStaffPositions({ scope_type: "center", status: "active", limit: 500 }),
-  ]);
+  // ONE read on the critical path. The staff roster the re-assign picker offers used to be fetched
+  // here too -- listStaffPositions with limit 500, awaited alongside the queue on every load -- for
+  // a control that lives inside the drawer, is only reachable after a row is opened, and is only
+  // usable on a rejected item with a linked SOP task. It now loads lazily, per park, when the
+  // drawer opens (loadReassignPositionsAction), so the queue paints without waiting on it.
+  const queue = await listVerificationQueue({
+    status,
+    category,
+    businessDate: scope.asOf,
+    parkId: scope.parkId,
+    shedId,
+    limit: 20,
+    cursor: one(sp, "vi_cursor"),
+  });
   const authError = firstAuthRequiredError(queue);
   if (authError) redirect(INTERNAL_LOGIN_PATH);
 
@@ -235,7 +237,6 @@ export async function VerificationReviewPage({
       <VerificationReviewDrawer
         items={items}
         initialSelectedId={selectedId}
-        positions={positions.ok ? positions.data : null}
         searchParams={sp}
         feedback={feedback}
         pageContract={pageContract}
