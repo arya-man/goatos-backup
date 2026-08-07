@@ -387,10 +387,8 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			// are actually in "Godel 1 - Part 3" -- the assistant is a user-facing surface
 			// and the partition rule applies to it exactly as it does to a screen.
 			scope := row.ParkName
-			if shedLabel := strings.TrimSpace(row.OperationalLocationDisplay); shedLabel != "" {
+			if shedLabel := shedScopeLabel(row.OperationalLocationDisplay, row.ShedName, nil); shedLabel != "" {
 				scope = scope + " / " + shedLabel
-			} else if row.ShedName != "" {
-				scope = scope + " / " + row.ShedName
 			}
 			if metricLabel != "" {
 				facts = append(facts, ceodomain.Fact{
@@ -489,10 +487,8 @@ func buildActionCenterReader(svc actionCenterLister, resolver parkResolver) func
 			}
 			// Same rule: the composed location, so an alert names the partition the work is
 			// actually in rather than the parent shed.
-			if shedLabel := strings.TrimSpace(item.OperationalLocationDisplay); shedLabel != "" {
+			if shedLabel := shedScopeLabel(item.OperationalLocationDisplay, item.ShedName, item.PartitionLabel); shedLabel != "" {
 				scope = scope + " / " + shedLabel
-			} else if item.ShedName != "" {
-				scope = scope + " / " + item.ShedName
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: item.Category,
@@ -534,8 +530,8 @@ func buildOpsKernelHealthReader(svc opsKernelHealthLister) func(ctx context.Cont
 		})
 		for _, alert := range result.Alerts {
 			scope := alert.ParkName
-			if alert.ShedName != "" {
-				scope = scope + " / " + alert.ShedName
+			if shedLabel := shedScopeLabel("", alert.ShedName, alert.PartitionLabel); shedLabel != "" {
+				scope = scope + " / " + shedLabel
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: alert.Title,
@@ -573,4 +569,19 @@ func buildOpsAuditSummaryReader(svc opsAuditSummarizer) func(ctx context.Context
 		}}
 		return facts, nil
 	}
+}
+
+// shedScopeLabel is the ONE place this file turns a shed into assistant-visible text.
+// Prefer the backend-composed display; when a producer has not filled it, compose from the
+// raw partition rather than falling back to a bare shed name -- a fallback that drops the
+// partition is the same defect as never composing at all, it just fails less often.
+func shedScopeLabel(display, shedName string, partitionLabel *string) string {
+	if composed := strings.TrimSpace(display); composed != "" {
+		return composed
+	}
+	label := ""
+	if partitionLabel != nil {
+		label = *partitionLabel
+	}
+	return oploc.OperationalLocation{ShedName: shedName, PartitionLabel: label}.Display()
 }
