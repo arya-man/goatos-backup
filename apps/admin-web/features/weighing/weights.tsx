@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Scale, TrendingDown, TrendingUp, Warehouse } from "lucide-react";
 
-import { SvgBars } from "@/components/svg-bars";
+import { WeightBars } from "./weight-bars";
 import { Tag } from "@/components/ui-primitives";
 import { WorklistFilters, type WorklistFilterField } from "@/components/worklist-filters";
 import { WorklistPager } from "@/components/worklist-pager";
@@ -300,67 +300,70 @@ export async function WeighingWeightsPage({
         </section>
       ) : null}
 
-      <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
-        <h2 className="h">
-          <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.average.title")}
-        </h2>
-        <p className="muted small">{copy(pageContract, "chart.average.caption")}</p>
-        <SvgBars
-          data={chartData}
-          emptyLabel={copy(pageContract, "empty.no_data.body")}
-          valueNoun="kg"
-          chartLabel={copy(pageContract, "chart.average.aria")}
-          maxBars={12}
-        />
-      </section>
-
-      <section className="card" aria-label={copy(pageContract, "chart.gain.aria")}>
-        <h2 className="h">
-          <TrendingUp className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.gain.title")}
-        </h2>
-        <p className="muted small">{copy(pageContract, "chart.gain.caption")}</p>
-        <SvgBars
-          data={gainChartData}
-          emptyLabel={
-            // The bar chart can only draw positive values. Sheds that DO have a second weigh
-            // but are losing would otherwise fall through to "needs a second weigh", which is
-            // simply untrue for them.
-            gainChartData.length > 0 && gainChartData.every((shed) => shed.value <= 0)
-              ? copy(pageContract, "empty.gain.all_losing")
-              : copy(pageContract, "empty.gain.body")
-          }
-          valueNoun="g"
-          chartLabel={copy(pageContract, "chart.gain.aria")}
-          maxBars={12}
-        />
-      </section>
-
-      {demo ? (
-        <section className="grid g3" aria-label={copy(pageContract, "section.demographics.aria")}>
-          {(
-            [
-              ["chart.breed.title", "chart.breed.aria", demo.by_breed],
-              ["chart.sex.title", "chart.sex.aria", demo.by_sex],
-              ["chart.stage.title", "chart.stage.aria", demo.by_stage],
-            ] as const
-          ).map(([titleKey, ariaKey, buckets]) => (
-            <div className="card" key={titleKey} aria-label={copy(pageContract, ariaKey)}>
-              <h2 className="h">{copy(pageContract, titleKey)}</h2>
-              <SvgBars
-                data={buckets.map((bucket) => ({
-                  key: bucket.label,
-                  label: bucket.label,
-                  value: Number(bucket.average_weight_kg.toFixed(1)),
-                }))}
-                emptyLabel={copy(pageContract, "empty.demographics.body")}
-                valueNoun="kg"
-                chartLabel={copy(pageContract, ariaKey)}
-                maxBars={8}
-              />
-            </div>
-          ))}
+      {/* Row 1 — shed and breed side by side, equal width, fixed height with the
+          list scrolling inside so neither card grows with its row count. */}
+      <div className="grid g2">
+        <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
+          <h2 className="h">
+            <Scale className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.average.title")}
+          </h2>
+          <p className="muted small">{copy(pageContract, "chart.average.caption")}</p>
+          <WeightBars
+            data={chartData}
+            emptyLabel={copy(pageContract, "empty.no_data.body")}
+            unit="kg"
+            chartLabel={copy(pageContract, "chart.average.aria")}
+            size="tall"
+          />
         </section>
-      ) : null}
+        <section className="card" aria-label={copy(pageContract, "chart.breed.aria")}>
+          <h2 className="h">{copy(pageContract, "chart.breed.title")}</h2>
+          <p className="muted small">{copy(pageContract, "section.demographics.caption")}</p>
+          <WeightBars
+            data={(demo?.by_breed ?? []).map((bucket) => ({
+              key: bucket.label,
+              label: bucket.label,
+              value: Number(bucket.average_weight_kg.toFixed(1)),
+            }))}
+            emptyLabel={copy(pageContract, "empty.demographics.body")}
+            unit="kg"
+            chartLabel={copy(pageContract, "chart.breed.aria")}
+            size="tall"
+          />
+        </section>
+      </div>
+
+      {/* Row 2 — sex and stage. Few rows each, so a shorter box. */}
+      <div className="grid g2">
+        <section className="card" aria-label={copy(pageContract, "chart.sex.aria")}>
+          <h2 className="h">{copy(pageContract, "chart.sex.title")}</h2>
+          <WeightBars
+            data={(demo?.by_sex ?? []).map((bucket) => ({
+              key: bucket.label,
+              label: bucket.label,
+              value: Number(bucket.average_weight_kg.toFixed(1)),
+            }))}
+            emptyLabel={copy(pageContract, "empty.demographics.body")}
+            unit="kg"
+            chartLabel={copy(pageContract, "chart.sex.aria")}
+            size="short"
+          />
+        </section>
+        <section className="card" aria-label={copy(pageContract, "chart.stage.aria")}>
+          <h2 className="h">{copy(pageContract, "chart.stage.title")}</h2>
+          <WeightBars
+            data={(demo?.by_stage ?? []).map((bucket) => ({
+              key: bucket.label,
+              label: bucket.label,
+              value: Number(bucket.average_weight_kg.toFixed(1)),
+            }))}
+            emptyLabel={copy(pageContract, "empty.demographics.body")}
+            unit="kg"
+            chartLabel={copy(pageContract, "chart.stage.aria")}
+            size="short"
+          />
+        </section>
+      </div>
 
       {demo ? (
         <p className="muted small">
@@ -370,6 +373,24 @@ export async function WeighingWeightsPage({
             : ""}
         </p>
       ) : null}
+
+      <section className="card" aria-label={copy(pageContract, "chart.gain.aria")}>
+        <h2 className="h">
+          <TrendingUp className="ic" size={15} aria-hidden /> {copy(pageContract, "chart.gain.title")}
+        </h2>
+        <p className="muted small">{copy(pageContract, "chart.gain.caption")}</p>
+        <WeightBars
+          data={gainChartData}
+          emptyLabel={
+            gainChartData.length > 0 && gainChartData.every((shed) => shed.value <= 0)
+              ? copy(pageContract, "empty.gain.all_losing")
+              : copy(pageContract, "empty.gain.body")
+          }
+          unit="g"
+          chartLabel={copy(pageContract, "chart.gain.aria")}
+          size="short"
+        />
+      </section>
 
       <section className="card" aria-label={copy(pageContract, "section.sheds.aria")}>
         <h2 className="h">
