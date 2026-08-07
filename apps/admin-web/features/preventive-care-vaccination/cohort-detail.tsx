@@ -88,7 +88,7 @@ export function VaccinationCohortDetail({
                 {paged.items.map((c) => {
                   const href = scopeHref("/vaccination", scope, {}, { cohort_record: cohortRecordId(c) });
                   return (
-                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}`}>
+                    <tr key={`${c.parkId}|${c.shedId}|${c.stage}|${c.partitionLabel ?? ""}`}>
                       <td>
                         <LocalOverlayLink href={href} className="celllink" scroll={false}>
                           <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
@@ -155,5 +155,5 @@ export function VaccinationCohortDetail({
 }
 
 function cohortRecordId(cohort: VaccinationOperationsResponse["cohorts"][number]): string {
-  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}`;
+  return `${cohort.parkId}|${cohort.shedId}|${cohort.stage}|${cohort.partitionLabel ?? ""}`;
 }

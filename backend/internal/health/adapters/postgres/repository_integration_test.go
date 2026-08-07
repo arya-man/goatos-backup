@@ -100,6 +100,69 @@ func TestHealthCourseMedicineAndDeathLifecycle(t *testing.T) {
 	assertHealthCount(t, ctx, pool, "preserved completed medicine", `SELECT count(*) FROM health_medicine_administrations WHERE tenant_id=$1 AND goat_id=$2`, 1, healthTenant, healthGoat)
 }
 
+// TestOpenCaseDoesNotStaplePartitionFromStaleShed is the GOS-PR31-8 regression: OpenCase must
+// only stamp health_cases.partition_label from a goat_shed_partitions row whose shed_id matches
+// the goat's CURRENT g.shed_id. A stale goat_shed_partitions row left over from a shed the goat
+// has since left (a mid-movement inconsistency) must never be joined onto the opened case.
+func TestOpenCaseDoesNotStaplePartitionFromStaleShed(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedHealthScope(t, ctx, pool)
+
+	medicine := "Meloxicam"
+	dose := "1 ml"
+	repo := NewRepository(pool, 10*time.Second)
+	if err := repo.ReplacePublishedProtocols(ctx, healthTenant, healthActor, "health-test", "hash-v-stale-partition", []domain.SourceProtocol{{
+		DiseaseKey: "fever", DisplayName: "Fever", AgeBand: domain.AgeBandAdult,
+		DurationDays: 0,
+		Steps: []domain.ProtocolStep{{
+			DayNo: 1, Session: domain.SessionMorning, Seq: 1,
+			RecordType: "medication", MedicineName: &medicine, DosageText: &dose,
+		}},
+	}}); err != nil {
+		t.Fatalf("publish protocol: %v", err)
+	}
+
+	staleShed := "71000000-0000-4000-8000-000000000099"
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO locations (location_id,tenant_id,location_type,location_code,name,parent_location_id,status)
+VALUES ($3::uuid,$1::uuid,'shed','CPT-H2','Stale Shed',$2::uuid,'active') ON CONFLICT DO NOTHING`,
+		healthTenant, healthPark, staleShed); err != nil {
+		t.Fatalf("seed stale shed: %v", err)
+	}
+	// goat_shed_partitions reports a partition for a shed the goat is NOT currently in
+	// (healthGoat's canonical shed_id is healthShed, seeded by seedHealthScope).
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO goat_shed_partitions (tenant_id,goat_id,shed_id,partition_label,source_shed_name)
+VALUES ($1::uuid,$2::uuid,$3::uuid,'stale-part','Stale Shed Part')`,
+		healthTenant, healthGoat, staleShed); err != nil {
+		t.Fatalf("seed stale goat_shed_partitions row: %v", err)
+	}
+
+	loc, _ := time.LoadLocation("Asia/Kolkata")
+	today := time.Now().In(loc)
+	opened, err := repo.OpenCase(ctx, domain.OpenCaseInput{
+		TenantID: healthTenant, ActorID: healthActor, GoatID: healthGoat,
+		DiseaseKey: "fever", AgeBand: domain.AgeBandAdult, StartDate: today,
+		IdempotencyKey: "health-open-fever-stale-partition", RequestFingerprint: "open-fingerprint-stale",
+	})
+	if err != nil {
+		t.Fatalf("open case: %v", err)
+	}
+
+	var partitionLabel *string
+	if err := pool.QueryRow(ctx,
+		`SELECT partition_label FROM health_cases WHERE health_case_id = $1::uuid`, opened.CaseID,
+	).Scan(&partitionLabel); err != nil {
+		t.Fatalf("read case partition_label: %v", err)
+	}
+	if partitionLabel != nil {
+		t.Fatalf("case partition_label = %q, want NULL (goat_shed_partitions row belongs to a shed the goat is not currently in)", *partitionLabel)
+	}
+}
+
 func TestHealthFilterOptionsIncludeUnusedPublishedProtocol(t *testing.T) {
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
