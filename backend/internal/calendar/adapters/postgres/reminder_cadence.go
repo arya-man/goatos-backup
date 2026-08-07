@@ -14,6 +14,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/calendar/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	vaccinationdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -21,6 +22,22 @@ const (
 	reminderCadenceDefaultLimit = 200
 	reminderCadenceMaxLimit     = 2000
 )
+
+// shedWithPartition carries the shed name and its resolved single-partition label (if all animals in
+// that shed share the same real partition). Used to compose operational-location display strings.
+type shedWithPartition struct {
+	ShedName       string `json:"shed_name"`
+	PartitionLabel string `json:"partition_label"`
+}
+
+// displayLabel composes the user-facing operational location label using the canonical sploc rule.
+func (sp shedWithPartition) displayLabel() string {
+	loc := oploc.OperationalLocation{
+		ShedName:       sp.ShedName,
+		PartitionLabel: sp.PartitionLabel,
+	}
+	return loc.Display()
+}
 
 // reminderCadenceCandidate is one scheduled/open, actionable vaccination obligation/event that MIGHT
 // have a reminder cadence fire due -- read from the canonical source_events reconstruction
@@ -34,13 +51,14 @@ type reminderCadenceCandidate struct {
 	DueAt       time.Time
 	TargetType  string
 	TargetID    string
-	ShedName    string // human shed/partition label (may be empty if shed-scoped obligation has no shed)
+	ShedName    string // human shed name (may be empty if shed-scoped obligation has no shed)
 	VaccineName string // protocol/vaccine name (may be empty)
 	DoseCode    string // dose code, paired with VaccineName for display via vaccination.DoseDisplayLabel
 	// ShedLabels/VaccineLabels are the exact per-source label sets from detail->'summary'. They are
 	// the AUTHORITATIVE enrichment input; ShedName/VaccineName/DoseCode are single-value display
 	// scalars that a multi-shed or multi-vaccine drive deliberately blanks or collapses.
-	ShedLabels    []string
+	// Each ShedLabel is now a composed operational location (shed name + partition when applicable).
+	ShedLabels    []shedWithPartition
 	VaccineLabels []string
 }
 
@@ -311,11 +329,16 @@ func (r *Repository) enrichReminderCadenceFiresWithDetails(candidates []reminder
 		// Sheds: prefer the exact per-source label array. Fall back to the scalar only when the
 		// source carries no array (non-drive obligation rows), never in addition to it.
 		if len(c.ShedLabels) > 0 {
-			for _, label := range c.ShedLabels {
-				addLabel(shedsByGroupKey, gk, label)
+			for _, sp := range c.ShedLabels {
+				addLabel(shedsByGroupKey, gk, sp.displayLabel())
 			}
 		} else {
-			addLabel(shedsByGroupKey, gk, c.ShedName)
+			// Scalar fallback: compose using the canonical operational-location rule
+			loc := oploc.OperationalLocation{
+				ShedName:       c.ShedName,
+				PartitionLabel: "", // scalar fallback has no partition information
+			}
+			addLabel(shedsByGroupKey, gk, loc.Display())
 		}
 
 		// Vaccines: the label array is already display-ready (built from the rule's vaccine name or
@@ -404,8 +427,20 @@ func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenant
 	var out []reminderCadenceCandidate
 	for rows.Next() {
 		var c reminderCadenceCandidate
-		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode, &c.ShedLabels, &c.VaccineLabels); err != nil {
+		var shedLabelsJSON []byte
+		var vaccineLabels []string
+		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode, &shedLabelsJSON, &vaccineLabels); err != nil {
 			return nil, err
+		}
+		c.VaccineLabels = vaccineLabels
+
+		// Parse shed_labels JSON array into shedWithPartition structs
+		if len(shedLabelsJSON) > 0 {
+			var shedLabels []shedWithPartition
+			if err := json.Unmarshal(shedLabelsJSON, &shedLabels); err != nil {
+				return nil, fmt.Errorf("calendar: unmarshal shed_labels JSON: %w", err)
+			}
+			c.ShedLabels = shedLabels
 		}
 		out = append(out, c)
 	}

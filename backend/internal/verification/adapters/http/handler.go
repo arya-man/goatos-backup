@@ -85,22 +85,29 @@ type queueItemResponse struct {
 	// verifier decided. "awaiting_review" | "applying" | "settled" -- see
 	// domain.VerdictState* for why the two are not the same thing. Clients must render
 	// "applying" as work still in flight, NEVER as finished.
-	VerdictState   string             `json:"verdict_state"`
-	VerdictReason  *string            `json:"verdict_reason,omitempty"`
-	OperatorID     *string            `json:"operator_id,omitempty"`
-	OperatorName   *string            `json:"operator_name,omitempty"` // backend-owned display label
-	ShedID         *string            `json:"shed_id,omitempty"`
-	ShedLabel      *string            `json:"shed_label,omitempty"` // backend-owned display label
-	ParkID         *string            `json:"park_id,omitempty"`
-	ParkLabel      *string            `json:"park_label,omitempty"` // backend-owned display label
-	CapturedAt     string             `json:"captured_at"`
-	VerifiedBy     *string            `json:"verified_by,omitempty"`
-	VerifiedByName *string            `json:"verified_by_name,omitempty"` // backend-owned display label
-	VerifiedAt     *string            `json:"verified_at,omitempty"`
-	ClosedBy       *string            `json:"closed_by,omitempty"`
-	ClosedAt       *string            `json:"closed_at,omitempty"`
-	RowVersion     int                `json:"row_version"`
-	Media          []domain.MediaItem `json:"media"`
+	VerdictState  string  `json:"verdict_state"`
+	VerdictReason *string `json:"verdict_reason,omitempty"`
+	OperatorID    *string `json:"operator_id,omitempty"`
+	OperatorName  *string `json:"operator_name,omitempty"` // backend-owned display label
+	ShedID        *string `json:"shed_id,omitempty"`
+	ShedLabel     *string `json:"shed_label,omitempty"` // backend-owned display label
+	// The repository resolves BOTH of these (see scanItem) and an 886-line integration
+	// suite proves it -- but this wire DTO never copied them, so the mobile verifier queue
+	// rendered a bare "Godel 1" for proof from "Godel 1 - Part 3" and could not tell two
+	// partitions of one shed apart. The domain layer being right is not the same as the
+	// payload being right; the HTTP boundary is where this class of defect hides.
+	PartitionLabel             *string            `json:"partition_label,omitempty"`
+	OperationalLocationDisplay *string            `json:"operational_location_display,omitempty"`
+	ParkID                     *string            `json:"park_id,omitempty"`
+	ParkLabel                  *string            `json:"park_label,omitempty"` // backend-owned display label
+	CapturedAt                 string             `json:"captured_at"`
+	VerifiedBy                 *string            `json:"verified_by,omitempty"`
+	VerifiedByName             *string            `json:"verified_by_name,omitempty"` // backend-owned display label
+	VerifiedAt                 *string            `json:"verified_at,omitempty"`
+	ClosedBy                   *string            `json:"closed_by,omitempty"`
+	ClosedAt                   *string            `json:"closed_at,omitempty"`
+	RowVersion                 int                `json:"row_version"`
+	Media                      []domain.MediaItem `json:"media"`
 	// evidence_available means "a signed download link was resolved for every media_ref" — it does
 	// NOT assert the bytes are retrievable (see domain.QueueRow.EvidenceLinkResolved). A link that
 	// later 410s with proof_object_missing is the terminal signal clients must render.
@@ -140,30 +147,32 @@ func toQueueItemResponse(row domain.QueueRow) queueItemResponse {
 		media = []domain.MediaItem{}
 	}
 	return queueItemResponse{
-		ItemID:            row.Item.ItemID,
-		Vertical:          row.Item.Vertical,
-		Module:            row.Item.Module,
-		Category:          row.Item.Category,
-		SubjectLabel:      row.Item.SubjectLabel,
-		SubjectNote:       row.Item.SubjectNote,
-		Status:            row.Item.Status,
-		VerdictState:      row.Item.VerdictState(),
-		VerdictReason:     row.Item.VerdictReason,
-		OperatorID:        row.Item.OperatorID,
-		OperatorName:      row.Item.OperatorName,
-		ShedID:            row.Item.ShedID,
-		ShedLabel:         row.Item.ShedLabel,
-		ParkID:            row.Item.ParkID,
-		ParkLabel:         row.Item.ParkLabel,
-		CapturedAt:        row.Item.CapturedAt.Format(rfc3339Nano),
-		VerifiedBy:        row.Item.VerifiedBy,
-		VerifiedByName:    row.Item.VerifiedByName,
-		VerifiedAt:        verifiedAt,
-		ClosedBy:          row.Item.ClosedBy,
-		ClosedAt:          closedAt,
-		RowVersion:        row.Item.RowVersion,
-		Media:             media,
-		EvidenceAvailable: row.EvidenceLinkResolved,
+		ItemID:                     row.Item.ItemID,
+		Vertical:                   row.Item.Vertical,
+		Module:                     row.Item.Module,
+		Category:                   row.Item.Category,
+		SubjectLabel:               row.Item.SubjectLabel,
+		SubjectNote:                row.Item.SubjectNote,
+		Status:                     row.Item.Status,
+		VerdictState:               row.Item.VerdictState(),
+		VerdictReason:              row.Item.VerdictReason,
+		OperatorID:                 row.Item.OperatorID,
+		OperatorName:               row.Item.OperatorName,
+		ShedID:                     row.Item.ShedID,
+		ShedLabel:                  row.Item.ShedLabel,
+		PartitionLabel:             row.Item.PartitionLabel,
+		OperationalLocationDisplay: row.Item.OperationalLocationDisplay,
+		ParkID:                     row.Item.ParkID,
+		ParkLabel:                  row.Item.ParkLabel,
+		CapturedAt:                 row.Item.CapturedAt.Format(rfc3339Nano),
+		VerifiedBy:                 row.Item.VerifiedBy,
+		VerifiedByName:             row.Item.VerifiedByName,
+		VerifiedAt:                 verifiedAt,
+		ClosedBy:                   row.Item.ClosedBy,
+		ClosedAt:                   closedAt,
+		RowVersion:                 row.Item.RowVersion,
+		Media:                      media,
+		EvidenceAvailable:          row.EvidenceLinkResolved,
 		Source: sourceResponse{
 			Module:       row.Item.Source.Module,
 			TaskID:       row.Item.Source.TaskID,
