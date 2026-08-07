@@ -82,9 +82,34 @@ Two properties of this list that a later change will be tempted to break:
   rehearsal invariant ("Chandrakant is director-only monitoring scope") still
   holds.
 
+- **The `operator` grant is also what puts Herd Operations on their phone.**
+  Extended later the same day: `leadershipModuleKeys`
+  (`backend/internal/workforce/app/bootstrap_copy.go`) offers the `counts`
+  capture module — birth, death, shifting — to a leadership principal who holds
+  `RoleOperator`. That is these two and nobody else. A bare `pc_director` or
+  `growth_director` is offered nothing, so the job still confers no capture.
+
+  Key it on the **grant**, never on the `counts.write` **permission**.
+  `park_head` holds `counts.write` on the role, and `TestCountsModuleRoleMatrix`
+  pins that a park head gets no capture module; a permission-keyed offer compiles,
+  passes its own new test, and silently hands Counts to every park head. That
+  pre-existing test is what caught it during implementation.
+
 The 2026-08-07 decision was taken against the stated alternative of moving counts
 authority onto the `pc_director` role itself. That was declined for the reasons
 in the section above; do not re-propose it as a simplification.
+
+### A director's modules cannot be changed in the database
+
+Worth stating plainly, because it is the first thing anyone tries. For a
+principal holding any role in `leadershipGrantRoles`
+(`ceo_internal`, `pc_director`, `growth_director`, `feed_director`,
+`health_director`, `park_head`), `candidateModuleKeys` returns
+`leadershipModuleKeys(grants)` and **never reads `department_module_grants`** —
+it replaces that set rather than unioning with it. There is no row in Postgres
+that adds a module to a director. Non-leadership staff are the opposite case:
+their modules come from their department's grants, which is how Pramod and
+Kumar Sharath have Herd Operations without any code entry.
 
 ## Dormant Catalog Roles
 
