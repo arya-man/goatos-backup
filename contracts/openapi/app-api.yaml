@@ -12243,6 +12243,7 @@ components:
         - deferred_count
         - review_count
         - shed_labels
+        - shed_partition_labels
         - vaccine_labels
         - protocol_id
         - protocol_version_id
@@ -12384,6 +12385,13 @@ components:
           type: array
           items:
             type: string
+        shed_partition_labels:
+          type: array
+          items:
+            type:
+              - string
+              - "null"
+          description: Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed partition (multi-partition or non-partitioned).
         vaccine_labels:
           type: array
           items:

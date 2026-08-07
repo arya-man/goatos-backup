@@ -4725,6 +4725,8 @@ export interface components {
             deferred_count: number;
             review_count: number;
             shed_labels: string[];
+            /** @description Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed partition (multi-partition or non-partitioned). */
+            shed_partition_labels: (string | null)[];
             vaccine_labels: string[];
             /** Format: uuid */
             protocol_id: string | null;
