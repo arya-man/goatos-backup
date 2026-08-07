@@ -93,6 +93,7 @@ data class VerificationQueueRow(
     // repeat across parks (two Castro, two Gandhi, two Yashoda), so grouping or keying rows by
     // shedLabel text can silently merge two different parks' sheds under one header.
     val shedId: String? = null,
+    val partitionLabel: String? = null,
     val shedLabel: String = "",
     val animalLabel: String = "",
     val weightLabel: String = "",
@@ -385,12 +386,18 @@ fun VerifyQueueScreen(
                     } else {
                         state.rows
                     }
-                    // Group by stable shedId when the row has one -- shedLabel text repeats
-                    // across parks (two Castro, two Gandhi, two Yashoda), so grouping by label
-                    // alone can silently merge two different parks' sheds under one header. Rows
-                    // without a shedId (legacy/non-shed items) fall back to the old label key.
+                    // Group by stable shedId + partitionLabel when both are present -- two
+                    // partitions of the same shed share the same shedId but must render as
+                    // separate groups (e.g. "Godel 1 - Part 1" and "Godel 1 - Part 3" are
+                    // different rows, not merged under one header). Rows without a shedId
+                    // (legacy/non-shed items) fall back to the old label key.
                     val shedGroups = visibleRows.groupBy {
-                        it.shedId ?: it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
+                        if (it.shedId != null) {
+                            val key = it.shedId + (it.partitionLabel?.let { "::$it" } ?: "")
+                            key
+                        } else {
+                            it.shedLabel.ifBlank { it.title.ifBlank { it.categoryLabel } }
+                        }
                     }
                     shedGroups.forEach { (groupKey, rows) ->
                         val shedLabel = rows.first().shedLabel.ifBlank {

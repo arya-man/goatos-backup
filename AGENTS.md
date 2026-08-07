@@ -1303,7 +1303,10 @@ Undivided sheds (numeric-suffix names that are NOT subdivided, like `Ho Chi Minh
 ### Rule 2: Storage vs. Display Are Different (Maintainer 2026-08-05)
 
 Storage normalizes `Castro 1` and `Castro 2` to `Castro + partition 1/2`. Product display ALWAYS shows the partition when one exists:
-- No partition (NULL / '' / 'whole') → `Yashoda`, `Castro 1`, `Ho Chi Minh 1`
+- No partition (NULL / '' / 'whole') → `Yashoda`, `Ho Chi Minh 1` (both undivided
+  sheds per Rule 1 — never `Castro 1`, which Rule 1 defines as shed `Castro` +
+  partition `1` and therefore has a partitioned display, `Castro 1` shown WITH
+  its partition, not an unpartitioned example)
 - Has partition → `Castro 2` (numeric) or `Godel 1 - Part 3` (prefixed)
 
 **NEVER render:**
@@ -1347,10 +1350,11 @@ Any table that records location must include a `partition_label` column (nullabl
 
 | Bug | Code | Impact | Fix |
 |-----|------|--------|-----|
-| **OL-2: Name-Keying Merge** | `groupBy { it.shedName }` collapses two `Castro` sheds across parks | Six `Godel 1` rows became one row in operator picker; selections were ambiguous | Use `groupBy { it.parkId to it.shedId }` |
+| **OL-1: Name-Keying Merge** | `groupBy { it.shedName }` collapses two `Castro` sheds across parks (different `shed_id`, same name) | 324 CPT adults + 89 Mandela adults both landed on one `Castro` selector row; operator selection was ambiguous | Use `groupBy { it.parkId to it.shedId }` |
 | **OL-3: Naive Join Truncates** | `'Godel 1' + ' ' + 'Part 3'` → `'Godel 1 Part 3'` → truncated to `'Godel 1 1'` on screens | Weighing board unreadable; operators cannot identify partition | Use canonical `DisplayName(shed, partition)` |
 | **OL-7: SQL Drift (6 paths)** | Feed query: `'Godel 1-Part 3'` / Dashboard: `'GODEL 1 - PART 3'` / Herd: `'Godel 1 Part 3'` | Same animal rendered differently on each screen; filtering broken | Audit all locations, use materialized `operational_location_display` or canonical helper |
-| **OL-1: No Partition in New Tables** | `verification_items` lacks `partition_label` | Verifier cannot distinguish which `Godel 1` partition a proof is from; metrics aggregated at shed-level only | Add `partition_label` + compose in API responses |
+| **OL-4: No Partition in New Tables** | `verification_items` lacks `partition_label` | Verifier cannot distinguish which `Godel 1` partition a proof is from; metrics aggregated at shed-level only | Add `partition_label` + compose in API responses |
+| **OL-2: Duplicate Partition Rows in UI** | Six partitions of `Godel 1` rendered as six separate `Godel 1` rows in a shed selector instead of one shed with six partitions | Operator picker showed the same shed name six times with no way to tell partitions apart | Group by `shed_id` first, list partitions under it |
 
 **All of these bugs came from hand-rolling composition or grouping by shed name.** The convention makes them impossible.
 
@@ -1388,12 +1392,36 @@ A partition holding ZERO animals still EXISTS (e.g., CBE `Yashoda 5` is real and
 
 ### Machine Enforcement
 
-`make operational-location-guard` (part of `make guardrails` and `make ci-local`) checks:
-1. No `GROUP BY` / `SELECT DISTINCT` on `locations.name` without `shed_id` + park co-grouping
-2. All `operational_location_display` values match canonical `DisplayName()` on known seeds
-3. New location-bearing tables declare `partition_label` column
-4. Response schemas never declare location fields (shed_id, shed_name, partition_label, operational_location_display) without verifying the Go struct and wire emission carry them (OL-10, OL-11)
-5. No bare `jsonb_array_elements(x)::text` on label arrays (must use `jsonb_array_elements_text(x)`) — OL-5
+`make operational-location-guard` (`tools/agent-hooks/check-operational-location.mjs`,
+part of `make guardrails` and `make ci-local`) is a STATIC pattern scan, not a
+runtime/seed-value checker. It checks:
+1. No `GROUP BY` / `SELECT DISTINCT` on `locations.name` without `shed_id` + park co-grouping (`shed-name-keying`)
+2. Hand-rolled display composition instead of the canonical helper — SQL `CASE`
+   statements (`sql-display-drift`), Go string concatenation
+   (`go-display-drift`), TypeScript (`ts-display-drift`), and Kotlin
+   (`kt-display-drift`) must route through `oploc.Display()` /
+   `operational-location.ts` / `PartitionLabel.kt` rather than re-deriving the
+   string. **This checks composition-pattern shape, not runtime seed-value
+   equality** — it does not execute a query or compare against known seed rows,
+   so a hand-written helper that happens to match `DisplayName()` byte-for-byte
+   on today's seeds but drifts on a future one is out of its reach.
+3. New location-bearing tables declare `partition_label` column (`missing-partition-column`)
+4. OpenAPI response schemas that identify a shed declare partition/display
+   context alongside it (not name-only, and one hop into a `$ref`'d shed
+   type) — a static schema-shape check. It does **not** verify that the Go
+   struct or the actual wire emission populates those fields; that is
+   item 4 in the Partition Change Verification Checklist below, done by
+   hand.
+5. `whole-leak`, `alias-locations`, `location-type-as-partition`, `counts-grain`,
+   and `shifting-contract` — see the check list in the guard's own header
+   comment for the full set and each check's rationale.
+
+**Not checked by this guard:** `jsonb_array_elements(x)::text` vs
+`jsonb_array_elements_text(x)` (OL-5, the JSON-quoting/`"null"`-string defect
+class in the partition-catalog session) has no static check in this file today
+— it is caught only by code review and the `Partition Change Verification
+Checklist` below. Do not assume `make operational-location-guard` would catch
+a reintroduction of that defect.
 
 Known blind spots: hardcoded string literals, runtime-composed strings in application code, reflective queries. Code review and the subagent brief catch those cases.
 

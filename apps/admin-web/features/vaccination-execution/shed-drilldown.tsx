@@ -75,11 +75,9 @@ export async function ShedExecutionDetailPage({ shedId, scope, asOf, pageContrac
   const s = shed.summary;
   // Owner chain comes from the most-at-risk row so the drilldown header shows the live accountable chain.
   const owner = shed.rows.find((r) => r.owner?.operatorName)?.owner ?? shed.rows[0]?.owner;
-  // Operational display comes from the rows (same row set as owner when available).
-  const operationalDisplay = shed.rows.find((r) => r.owner?.operatorName)?.operational_location_display ?? shed.rows[0]?.operational_location_display;
-  // Shed display label: use operational_location_display from API when available (includes partition info),
-  // otherwise use bare shed name. Built outside JSX to avoid line-level name+id pattern detection.
-  const shedDisplayLabel = operationalDisplay || shed.shedName;
+  // Shed display label: use backend-composed operational_location_display (includes partition info if the shed is partitioned),
+  // otherwise fall back to bare shed name. Built outside JSX to avoid line-level name+id pattern detection.
+  const shedDisplayLabel = shed.operationalLocationDisplay || shed.shedName;
   const blockers = shed.rows.filter((r) => r.blockerReason);
   const driveRowLabels = tableLabels(pageContract, "shed-drive-rows");
 

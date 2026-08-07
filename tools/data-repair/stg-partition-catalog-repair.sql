@@ -189,4 +189,5 @@ WHERE status = 'active'
 -- or, to back out and change nothing:
 --   ROLLBACK;
 -- ----------------------------------------------------------------------------
--- ROLLBACK;
+-- To apply: change this to COMMIT; after reading the STEP 1/3/5 output.
+ROLLBACK;

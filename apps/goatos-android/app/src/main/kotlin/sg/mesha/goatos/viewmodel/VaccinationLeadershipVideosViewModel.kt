@@ -27,7 +27,6 @@ import sg.mesha.goatos.core.common.Resource
 import sg.mesha.goatos.core.data.VerificationRepository
 import sg.mesha.goatos.core.data.sync.SyncItemStatus
 import sg.mesha.goatos.core.data.sync.SyncRepository
-import sg.mesha.goatos.core.data.vaccination.leadership.VACCINATION_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.vaccination.leadership.VACCINATION_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipDriveClosureUi
 import sg.mesha.goatos.core.data.vaccination.leadership.VaccinationLeadershipItemUi
@@ -109,7 +108,9 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
         if (selectedParkId.value == null) {
             data?.filterOptions?.parks?.firstOrNull()?.id?.let { firstParkId ->
                 selectedParkId.value = firstParkId
-                // The flatMapLatest will trigger a new fetch with the updated parkId
+                // Trigger a scoped refresh immediately so the first loaded data comes from the
+                // selected park, not the unscoped initial fetch
+                refresh()
             }
         }
         _uiState.update { current ->

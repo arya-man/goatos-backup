@@ -280,6 +280,10 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			continue
 		}
 		animalLabel := vaccinationAnimalSubjectLabel(completion, shedLabels)
+		partitionLabel := completion.PartitionLabel
+		if partitionLabel == "" || partitionLabel == "whole" {
+			partitionLabel = "" // never display 'whole' sentinel
+		}
 		if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 			TenantID:     tenantID,
 			Vertical:     "preventive_care",
@@ -293,10 +297,11 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 				RefType:      "vaccination_goat",
 				RefID:        goatID,
 			},
-			MediaRefs:  animalMedia,
-			OperatorID: operatorID,
-			ShedID:     shedID,
-			ParkID:     parkID,
+			MediaRefs:      animalMedia,
+			OperatorID:     operatorID,
+			ShedID:         stringPtr(completion.ShedID), // per-animal shed, not submission-wide
+			PartitionLabel: stringPtr(partitionLabel),
+			ParkID:         parkID,
 			// This animal's own capture time, not the submission-wide earliest: the queue sorts
 			// on it, and a shared timestamp would collapse the ordering of a shed's animals.
 			CapturedAt:     completion.AdministeredAt,
@@ -322,6 +327,34 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			}
 		}
 		if len(groupMedia) > 0 {
+			// Agree-or-go-bare: shed-grain proof is valid only if all animals in the submission
+			// are in the SAME partition. Multiple partitions → ambiguous at shed grain → NULL.
+			partitionLabel := ""
+			if len(byGoat) > 0 {
+				// Get the first completion's partition as a reference
+				firstPartition := ""
+				for _, completion := range byGoat {
+					if completion.PartitionLabel != "" && completion.PartitionLabel != "whole" {
+						firstPartition = completion.PartitionLabel
+					}
+					break
+				}
+				// Verify all completions have the same partition
+				allSame := true
+				for _, completion := range byGoat {
+					currPartition := ""
+					if completion.PartitionLabel != "" && completion.PartitionLabel != "whole" {
+						currPartition = completion.PartitionLabel
+					}
+					if currPartition != firstPartition {
+						allSame = false
+						break
+					}
+				}
+				if allSame && firstPartition != "" {
+					partitionLabel = firstPartition
+				}
+			}
 			subjectLabel := vaccinationSubjectLabel(len(byGoat), shedLabels, vaccinationVaccineSummary(byGoat))
 			if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 				TenantID:     tenantID,
@@ -339,6 +372,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 				MediaRefs:      groupMedia,
 				OperatorID:     operatorID,
 				ShedID:         shedID,
+				PartitionLabel: stringPtr(partitionLabel),
 				ParkID:         parkID,
 				CapturedAt:     earliest,
 				IdempotencyKey: "vaccination:submission:" + submissionID + ":group",

@@ -50,11 +50,14 @@ Session 2026-08-06 audited location naming, storage, and display across the Goat
 
 **Found:** Verification proof assignments lack a partition column  
 **Defect:** `verification_items` records proof videos but does not store `partition_label`. When a verifier reviews a video of animals in `Godel 1 - Part 3`, the record does not say which partition the animals are in.  
-**Status:** PARTIALLY CLOSED
-- SQL layer: ✓ CLOSED — migration 000127_verification_items_partition_label.sql (line 14-15) adds `partition_label text` column; backfill from goat_shed_partitions at line 26-33 for vaccination items  
-- Go struct: ✗ OPEN — `backend/internal/vaccination/adapters/postgres/sqlc/models.go` `VerificationItem` struct carries NO `partition_label` field  
-- Wire/render: ✗ OPEN — no query selects `partition_label` from verification_items; unconfirmed whether API response includes it  
-**Blocker:** The gap is in the struct+wiring layer. SQL is ready; Go codegen and OpenAPI contract must be updated before partition-aware queries can reach the API.  
+**Status:** PARTIALLY CLOSED — re-verified 2026-08-07 against branch `partition-and-leadership-surface-fixes` HEAD `5da8c7df3`, line-by-line, after an adversarial review claimed this was fully closed. It is not; see the corrected breakdown below.
+- SQL layer: ✓ CLOSED — migration `000127_verification_items_partition_label.sql` adds `partition_label text` on `verification_items`; backfill from `goat_shed_partitions` for vaccination items.
+- OpenAPI contract: ✓ CLOSED — `contracts/openapi/app-api.yaml` schema `VerificationQueueItem` (line ~19783) declares `partition_label` and `operational_location_display` (line ~19826-19835). (Note: `VaccinationQueueItem`, a different schema, does NOT carry these fields — do not confuse the two when re-checking this row.)
+- Android DTO: ✓ CLOSED — `apps/goatos-android/core/core-network/.../dto/VerificationDto.kt` `VerificationQueueItem` data class decodes both `partition_label` (`partitionLabel`, ~line 69) and `operational_location_display` (~line 72), with a comment warning against reading `shedLabel` instead.
+- Go domain struct (INPUT side): partial — `backend/internal/verification/domain/types.go` `CreateItem` (the producer-supplied input struct) DOES carry `PartitionLabel *string`.
+- Go domain struct (OUTPUT side): ✗ OPEN — `domain.Item` (the struct every read path — `ListQueue`, `GetItem`, `CloseItem`, `RecordVerdict`, and the HTTP response — serializes from) has **no** `PartitionLabel` or `OperationalLocationDisplay` field at all. There is no field to decode the OpenAPI/Kotlin contract into even if the query below were fixed.
+- Wire/render: ✗ OPEN, confirmed by direct read of `backend/internal/verification/adapters/postgres/repository.go` at this HEAD (no line in the file references `partition_label`, `shed_partitions`, or `oploc` — verified by full-file grep): `CreateItem`'s `INSERT INTO verification_items (...)` column list (~line 93-96) omits `partition_label`, so a producer's `PartitionLabel` input is silently dropped and never written to the row it creates. `ListQueue`'s `itemColumnsWithLabels` (~line 70-76) and its `SELECT` (~line 268) do not select `partition_label` either, so even a row that had one (e.g. seeded directly by the migration backfill) would never be read back.  
+**Blocker:** Both write path (`CreateItem` INSERT) and read path (`ListQueue`/`itemColumnsWithLabels` SELECT) need `partition_label`, plus a new `PartitionLabel`/`OperationalLocationDisplay` field on `domain.Item`, an HTTP handler mapping, and `oploc.DisplayName()` composition, before the ready OpenAPI contract and Android DTO actually receive a value instead of null/absent.
 
 ---
 
