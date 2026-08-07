@@ -19,6 +19,8 @@ import sg.mesha.goatos.core.data.cache.CalendarScheduleRemoteKeyEntity
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheDao
 import sg.mesha.goatos.core.data.cache.ControlTowerCacheEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheDao
+import sg.mesha.goatos.core.data.cache.VaccinationAlertsCacheEntity
 import sg.mesha.goatos.core.data.cache.WeighingAlertsCacheEntity
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemDao
 import sg.mesha.goatos.core.data.cache.CountsApprovalItemEntity
@@ -254,9 +256,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
         WeighingPlannerOperatorRowEntity::class,
         WeighingPlannerRemoteKeyEntity::class,
         WeighingAlertsCacheEntity::class,
+        VaccinationAlertsCacheEntity::class,
         WeighingTransitionEpochEntity::class,
     ],
-    version = 34,
+    version = 35,
     // exportSchema=true writes schemas/<db-fqcn>/<version>.json (see build.gradle.kts
     // room.schemaLocation). The committed schema JSON is the golden schema
     // MigrationTestHelper validates each migration against, and it makes every schema
@@ -319,6 +322,10 @@ import sg.mesha.goatos.core.data.weighing.WeighingShedObservationEntity
     // discriminator folded into the scan-capture idempotency key so a genuinely-new scan after a
     // verifier-rejection reopen is not deduped away as a replay of the prior cycle's already-synced
     // capture.
+    // v35 (see [MIGRATION_34_35]) adds `vaccination_alerts_cache` — the offline-first store for
+    // the vaccination module's own alerts feed. Vaccination never had one: the Alerts tab read the
+    // control-tower gap summary, so lifecycle notifications (proof approved / rework / record
+    // closed) were invisible on the phone.
     exportSchema = true,
 )
 abstract class GoatDatabase : RoomDatabase() {
@@ -332,6 +339,7 @@ abstract class GoatDatabase : RoomDatabase() {
     abstract fun calendarScheduleRemoteKeyDao(): CalendarScheduleRemoteKeyDao
     abstract fun controlTowerCacheDao(): ControlTowerCacheDao
     abstract fun weighingAlertsCacheDao(): WeighingAlertsCacheDao
+    abstract fun vaccinationAlertsCacheDao(): VaccinationAlertsCacheDao
     abstract fun executionRowsCacheDao(): ExecutionRowsCacheDao
     abstract fun executionShedCacheDao(): ExecutionShedCacheDao
     abstract fun scanRosterRowDao(): ScanRosterRowDao

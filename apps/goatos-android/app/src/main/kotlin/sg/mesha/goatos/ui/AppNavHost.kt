@@ -136,6 +136,7 @@ import sg.mesha.goatos.viewmodel.AlertsViewModel
 import sg.mesha.goatos.viewmodel.AddHealthCaseViewModel
 import sg.mesha.goatos.viewmodel.AdultHealthViewModel
 import sg.mesha.goatos.viewmodel.ApprovalViewModel
+import sg.mesha.goatos.viewmodel.VaccinationAlertsViewModel
 import sg.mesha.goatos.viewmodel.WeighingAlertsViewModel
 import sg.mesha.goatos.core.data.WORKFLOW_MODULE_COLOSTRUM
 import sg.mesha.goatos.viewmodel.BirthWorkflowListViewModel
@@ -1874,7 +1875,11 @@ fun AppNavHost(
         }
 
         composable(Routes.VACCINATION_ALERTS) {
-            val vm: AlertsViewModel = hiltViewModel()
+            // Vaccination's OWN module-scoped feed. This used to bind AlertsViewModel, which reads
+            // the control-tower GAP summary and "carries no module dimension at all" -- so every
+            // vaccination lifecycle notification (proof rework/approved, record closed) was
+            // invisible here. Same shape as the weighing Alerts tab.
+            val vm: VaccinationAlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
             AlertsScreen(state = state, onEvent = vm::onEvent)
         }
