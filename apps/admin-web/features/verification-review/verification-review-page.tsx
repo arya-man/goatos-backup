@@ -398,9 +398,19 @@ function hiddenInputs(params: RouteSearchParams, exclude: string[]) {
  */
 const MAX_TRAIL = 40;
 
+/**
+ * The first page is read with NO cursor, so its trail entry is the empty string. That entry cannot
+ * be written to the URL as-is: hrefWith deletes any param whose value is empty, so a one-entry
+ * trail ["\u0022\u0022"] encoded to "" and was dropped -- page two then rendered with no trail, no
+ * Previous link, and no position at all. FIRST_PAGE is the on-the-wire stand-in for that entry.
+ * "-" is safe: cursors are base64url and never equal it.
+ */
+const FIRST_PAGE = "-";
+
 function decodeTrail(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw.split("~").map((entry) => {
+    if (entry === FIRST_PAGE) return "";
     try {
       return decodeURIComponent(entry);
     } catch {
@@ -413,5 +423,5 @@ function decodeTrail(raw: string | undefined): string[] {
 function encodeTrail(trail: string[]): string | null {
   const bounded = trail.slice(-MAX_TRAIL);
   if (!bounded.length) return null;
-  return bounded.map((entry) => encodeURIComponent(entry)).join("~");
+  return bounded.map((entry) => (entry ? encodeURIComponent(entry) : FIRST_PAGE)).join("~");
 }
