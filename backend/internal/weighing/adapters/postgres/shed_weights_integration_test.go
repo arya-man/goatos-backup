@@ -166,6 +166,55 @@ func TestShedWeightsPaginationSummaryMatchesAllReturnedRows(t *testing.T) {
 	}
 }
 
+// PAGE BOUNDARY, REAL LIMIT. The table is capped at MaxShedWeightsRows, but the
+// KPI cards are contractually whole-filter aggregates. More sheds than the row
+// cap must therefore report a larger sheds_in_scope than len(rows); otherwise the
+// screen silently turns a bounded table slice into the business truth.
+func TestShedWeightsSummaryCountsShedsBeyondReturnedRowCap(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+	seedWeighingObservationFixture(t, ctx, pool)
+	repo := NewRepository(pool, 5*time.Second)
+
+	execWeighingTestSQL(t, ctx, pool, `
+WITH extra AS (
+  SELECT gs,
+         format('00000000-0000-4000-8000-%012s', gs::text)::uuid AS location_id,
+         format('00000000-0000-4000-9000-%012s', gs::text)::uuid AS campaign_shed_id
+  FROM generate_series(1, 301) gs
+),
+new_locations AS (
+  INSERT INTO locations (location_id, tenant_id, location_type, name, parent_location_id, status)
+  SELECT location_id, $1::uuid, 'shed', format('Limit Shed %03s', gs), $2::uuid, 'active'
+  FROM extra
+  ON CONFLICT (tenant_id, location_id) DO NOTHING
+  RETURNING location_id
+)
+INSERT INTO weighing_campaign_sheds (
+  campaign_shed_id, campaign_id, tenant_id, location_id, location_type,
+  display_name, weighing_category, operator_user_id, expected_animal_count
+)
+SELECT campaign_shed_id, $3::uuid, $1::uuid, location_id, 'shed',
+       format('Limit Shed %03s', gs), 'individual_animal', $4::uuid, 0
+FROM extra
+ON CONFLICT (tenant_id, campaign_shed_id) DO NOTHING`,
+		repoTenant, repoPark, repoCampaign, repoOperator)
+
+	from, to := shedWeightsWindow()
+	out, err := repo.GetShedWeights(ctx, repoTenant, []string{repoPark}, from, to)
+	if err != nil {
+		t.Fatalf("GetShedWeights: %v", err)
+	}
+	if len(out.Rows) != 300 {
+		t.Fatalf("row list must stay capped at 300, got %d", len(out.Rows))
+	}
+	if out.Summary.ShedsInScope <= len(out.Rows) {
+		t.Fatalf("summary must count sheds beyond the returned row cap: rows=%d summary=%d", len(out.Rows), out.Summary.ShedsInScope)
+	}
+}
+
 // PARK SCOPE. The repository does no authorization of its own -- the service resolves the park
 // list -- so it must honour exactly the parks it is handed. An unrelated park id returns nothing
 // rather than falling back to the tenant's whole estate.
