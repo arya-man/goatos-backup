@@ -462,7 +462,7 @@ export async function VaccinationExecutionBoard({
                     </div>
                     {shedGroup.rows.map((row, idx) => (
                       <ExecutionRow
-                        key={`${row.shedId}-${row.driveId ?? idx}`}
+                        key={`${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? idx}`}
                         row={row}
                         drawerHref={hrefWith({ shed_event: shedEventId(row) })}
                         pageContract={pageContract}
@@ -522,7 +522,7 @@ export async function VaccinationExecutionBoard({
 }
 
 function shedEventId(row: VaccinationExecutionRow): string {
-  return `${row.shedId}|${row.driveId ?? "drive"}|${row.animalStage}`;
+  return `${row.shedId}|${row.partition_label ?? ""}|${row.driveId ?? "drive"}|${row.animalStage}`;
 }
 
 function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typeof parseScope>, pageContract: AdminUiPageContract): LocalOverlayDrawerItem {
@@ -561,7 +561,7 @@ function shedEventDrawerItem(row: VaccinationExecutionRow, scope: ReturnType<typ
               </div>
             </div>
           </div>
-          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${row.shedName}`} vaccineName={driveLabel} pageContract={pageContract} />
+          <VaccinationRecordFormFields cohortShed={`${row.animalStage} · ${partitionLabel(row)}`} vaccineName={driveLabel} pageContract={pageContract} />
           <div style={{ marginTop: 16 }}>
             <ShedEventActions pageContract={pageContract} />
           </div>

@@ -114,7 +114,7 @@ class OperationalLocationLabelTest {
 
     @Test
     fun `whitespace is trimmed`() {
-        assertEquals("Yashoda 2", operationalLocationLabel("  Yashoda  ", "  2  "))
+        assertEquals("Yashoda - 2", operationalLocationLabel("  Yashoda  ", "  2  "))
         assertEquals("Yashoda - Part 3", operationalLocationLabel("  Yashoda  ", "  Part 3  "))
     }
 
@@ -162,7 +162,7 @@ private val goldenFixture = listOf(
         shedId = "shed-castro-cbe",
         shedName = "Castro",
         partitionLabel = "2",
-        want = "Castro 2",
+        want = "Castro - 2",
     ),
     GoldenFixtureRow(
         name = "undivided shed, no partition",
@@ -197,14 +197,14 @@ private val goldenFixture = listOf(
         shedId = "shed-castro-cbe",
         shedName = "Castro",
         partitionLabel = "1",
-        want = "Castro 1",
+        want = "Castro - 1",
     ),
     GoldenFixtureRow(
         name = "two same-named sheds, different parks -- CPT",
         shedId = "shed-castro-cpt",
         shedName = "Castro",
         partitionLabel = "1",
-        want = "Castro 1",
+        want = "Castro - 1",
     ),
 )
 
