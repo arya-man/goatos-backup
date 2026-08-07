@@ -579,16 +579,16 @@ effective_assignments AS (
   SELECT
     effective_planned_date AS planned_date,
     MIN(original_planned_date) AS original_planned_date,
-    assignment_id,
-    batch_id,
-    operator_id,
-    park_id,
-    shed_id,
-    physical_shed,
+    assignment_vaccines.assignment_id,
+    assignment_vaccines.batch_id,
+    assignment_vaccines.operator_id,
+    assignment_vaccines.park_id,
+    assignment_vaccines.shed_id,
+    assignment_vaccines.physical_shed,
     COALESCE(assignment_partitions.partition_label, 'whole') AS partition_label,
-    animal_count,
-    capacity_status,
-    batch_status,
+    assignment_vaccines.animal_count,
+    assignment_vaccines.capacity_status,
+    assignment_vaccines.batch_status,
     ARRAY_AGG(DISTINCT vaccine_key ORDER BY vaccine_key) FILTER (WHERE vaccine_key IS NOT NULL) AS vaccine_keys,
     ARRAY_AGG(DISTINCT vaccine_code ORDER BY vaccine_code) FILTER (WHERE vaccine_code IS NOT NULL) AS vaccine_codes,
     COALESCE(jsonb_object_agg(vaccine_code, original_planned_date::text) FILTER (WHERE vaccine_code IS NOT NULL), '{}'::jsonb) AS vaccine_original_dates,
@@ -601,7 +601,7 @@ effective_assignments AS (
   LEFT JOIN assignment_partitions
     ON assignment_partitions.batch_id = assignment_vaccines.batch_id
    AND assignment_partitions.shed_id = assignment_vaccines.shed_id
-  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, COALESCE(assignment_partitions.partition_label, 'whole'), animal_count, capacity_status, batch_status
+  GROUP BY effective_planned_date, assignment_vaccines.assignment_id, assignment_vaccines.batch_id, assignment_vaccines.operator_id, assignment_vaccines.park_id, assignment_vaccines.shed_id, assignment_vaccines.physical_shed, COALESCE(assignment_partitions.partition_label, 'whole'), assignment_vaccines.animal_count, assignment_vaccines.capacity_status, assignment_vaccines.batch_status
 )
 SELECT
   effective.planned_date,
