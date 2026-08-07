@@ -533,6 +533,23 @@ const CHECKS = [
       if (!/\+\s*["']|fmt\.Sprintf/.test(line)) return false;
       // OK if it's calling the approved Display method or using oploc package
       if (/\.Display\(\)|oploc\.OperationalLocation/.test(line)) return false;
+      // OK if the composition is DELEGATED to a wrapper that itself calls oploc.
+      // Without this the rule fires on correct code: a line that appends an
+      // already-composed location to a subject label ("Death evidence · " + date,
+      // shedName, partitionLabel) mentions both variable names and a "+", but does
+      // no composing of its own. Two such false positives were live when this was
+      // added, and a guard that flags correct code is a guard someone turns off.
+      // Named wrappers only -- an arbitrary helper still trips the rule.
+      if (/\b(?:appendLocation|composeOperationalLocation|operationalLocationLabel)\s*\(/.test(line)) return false;
+      // OK if shed/partition appear only as STRUCT FIELD assignments (`ShedName: x,`
+      // `PartitionLabel: y,`) -- that is passing the parts along, not composing them.
+      // The "+" that triggered the concatenation test on such lines belongs to an
+      // unrelated expression sharing the line (an idempotency key, a log message).
+      // This was a live false positive on a one-line struct literal.
+      const shedIsField = /\b(?:ShedName|ShedLabel)\s*:/.test(line);
+      const partIsField = /\b(?:PartitionLabel|Partition)\s*:/.test(line);
+      const shedInExpr = /\b(?:shedName|shedLabel)\b/.test(line);
+      if (shedIsField && partIsField && !shedInExpr) return false;
       return true;
     },
     msg: "Go string concatenation of shed name with partition label; use oploc.OperationalLocation{}.Display() instead to prevent drift from the shared primitive",
