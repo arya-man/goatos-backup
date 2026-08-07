@@ -2107,7 +2107,7 @@ canonical_selected AS (
          COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
          COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
-         ARRAY(SELECT (jsonb_array_elements(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END))::text) AS shed_partition_labels,
+         ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END)) AS shed_partition_labels,
          ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
          CASE WHEN current_setting('goatos.include_drive_summary', true) = 'true' AND jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary
   FROM source_events
@@ -2184,7 +2184,7 @@ SELECT event_id, event_type, owner_key, title, subtitle, status, severity, due_a
        COALESCE((detail->'summary'->>'deferred_count')::int, 0) AS deferred_count,
        COALESCE((detail->'summary'->>'review_count')::int, 0) AS review_count,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
-       ARRAY(SELECT (jsonb_array_elements(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END))::text) AS shed_partition_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END)) AS shed_partition_labels,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels,
        CASE WHEN jsonb_typeof(detail->'drive_summary') = 'object' THEN detail->'drive_summary' ELSE NULL END AS drive_summary,
        detail
