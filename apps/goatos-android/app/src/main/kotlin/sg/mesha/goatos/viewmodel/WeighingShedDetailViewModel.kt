@@ -291,7 +291,7 @@ class WeighingShedDetailViewModel @Inject constructor(
             }
         }
         return WeighingShedDetailUiState(
-            shedName = cachedShed.shedName,
+            shedName = cachedShed.operationalLocationDisplay.ifBlank { cachedShed.shedName },
             contextLabel = cachedShed.contextLabel(),
             found = true,
             isLumpSum = lumpSum,
