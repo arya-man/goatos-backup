@@ -216,7 +216,7 @@ func (r *Repository) LoadConfigSnapshot(ctx context.Context, tenantID, parkID st
 		RatesByKey:            map[string]domain.RationRate{},
 		ShedFactorsByKey:      map[string]string{},
 		Sessions:              []domain.SessionTemplate{},
-		ExperimentByShedID:    map[string][]domain.ExperimentCell{},
+		ExperimentByLocation:  map[string][]domain.ExperimentCell{},
 	}
 
 	// The business date is formatted in Go from an already-normalized Asia/Kolkata business-day
@@ -534,21 +534,24 @@ LIMIT $4`, tenantID, parkID, asOfDate, MaxSessionItemRows+1)
 func (r *Repository) loadExperiments(ctx context.Context, snapshot *domain.ConfigSnapshot, tenantID, parkID string) error {
 	// scale-guard:ignore: bounded set-based read of ONE park's hand-authored experiment sheds (an operator-entered list, tens of rows). Covered by feed_experiment_config_shed_lookup_idx (tenant_id, park_id, shed_id) WHERE status = 'active'.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, feed_item_key, feed_item_label, absolute_kg::text, experiment_category
+SELECT shed_id::text, COALESCE(partition_label, ''), feed_item_key, feed_item_label, absolute_kg::text, experiment_category
 FROM feed_experiment_config
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND status = 'active'
-ORDER BY shed_id, feed_item_key`, tenantID, parkID)
+ORDER BY shed_id, partition_key, feed_item_key`, tenantID, parkID)
 	if err != nil {
 		return fmt.Errorf("feeddirection: load experiment config: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var shedID string
+		var shedID, partitionLabel string
 		var cell domain.ExperimentCell
-		if err := rows.Scan(&shedID, &cell.FeedItemKey, &cell.FeedItemLabel, &cell.AbsoluteKg, &cell.Category); err != nil {
+		if err := rows.Scan(&shedID, &partitionLabel, &cell.FeedItemKey, &cell.FeedItemLabel, &cell.AbsoluteKg, &cell.Category); err != nil {
 			return fmt.Errorf("feeddirection: scan experiment config: %w", err)
 		}
-		snapshot.ExperimentByShedID[shedID] = append(snapshot.ExperimentByShedID[shedID], cell)
+		// Keyed by operational location. A row authored with no partition keys on 'whole' and keeps
+		// the pre-2026-08-07 whole-shed behaviour exactly.
+		key := domain.ExperimentLocationKey(shedID, partitionLabel)
+		snapshot.ExperimentByLocation[key] = append(snapshot.ExperimentByLocation[key], cell)
 	}
 	return rows.Err()
 }

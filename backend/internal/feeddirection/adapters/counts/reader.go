@@ -107,6 +107,9 @@ func (r *Reader) ProjectedGrainsForSheds(ctx context.Context, req ports.Projecte
 			out[shedID] = append(out[shedID], domain.ShedGrain{
 				ManagementStage: row.ManagementStage,
 				Breed:           row.Breed,
+				// The projection has always carried this; Feed dropped it here until 2026-08-07,
+				// which is why a partly-experimental shed had no representable answer.
+				PartitionLabel: row.PartitionLabel,
 				// PROJECTED, not current: the feed plan must cover the animals that will be standing
 				// in the shed on the target date, including the ones an approved-but-unexecuted
 				// movement is bringing in.
