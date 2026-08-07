@@ -9,6 +9,7 @@ import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   commonDriveName,
   driveSelectionValue,
+  executionDriveOptions,
   formatDateSpan,
   formatScheduledDriveDates,
   parseDriveSelectionValue,
@@ -456,8 +457,8 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
-  const completedDriveOptions = useMemo(
-    () => driveOptions.filter((drive) => drive.status !== "planned"),
+  const activeDriveOptions = useMemo(
+    () => executionDriveOptions(driveOptions),
     [driveOptions],
   );
 
@@ -569,6 +570,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
+          {activeDriveOptions.length > 0 && (
+            <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
+              {activeDriveOptions.map((drive) => (
+                <option
+                  key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                  value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
+                >
+                  {`${commonDriveName(drive.driveName || drive.label, drive.parkName)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
+                </option>
+              ))}
+            </optgroup>
+          )}
           {futureCampaigns.map((campaign) => (
             <optgroup
               key={campaign.key}
@@ -584,18 +597,6 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                 ))}
             </optgroup>
           ))}
-          {completedDriveOptions.length > 0 && (
-            <optgroup label={copy(pageContract, "command_board.filter.completed_history")}>
-              {completedDriveOptions.map((drive) => (
-                <option
-                  key={driveSelectionValue(drive.driveBatchId, drive.parkId)}
-                  value={driveSelectionValue(drive.driveBatchId, drive.parkId)}
-                >
-                  {`${commonDriveName(drive.driveName || drive.label, drive.parkName)} · ${formatDateSpan(drive.plannedDate, drive.plannedDate)} · ${drive.targetCount} animals`}
-                </option>
-              ))}
-            </optgroup>
-          )}
         </select>
         {/* The catalogue is bounded, so a drive past the bound is otherwise indistinguishable from a
             drive that was never planned. Say the picker is partial rather than let it read as the

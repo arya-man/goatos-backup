@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   commonDriveName,
   driveSelectionValue,
+  executionDriveOptions,
   formatDateSpan,
   formatScheduledDriveDates,
   parseDriveSelectionValue,
@@ -111,6 +112,16 @@ test("sheep and goat treatments roll up to one common adult annual campaign", ()
 test("future drive date labels compress consecutive operator days", () => {
   assert.equal(formatScheduledDriveDates(["2027-01-06", "2027-01-07"]), "6–7 Jan 2027");
   assert.equal(formatScheduledDriveDates(["2027-07-26"]), "26 Jul 2027");
+});
+
+test("executed drives sort before future planned selector rows", () => {
+  const rows = executionDriveOptions([
+    option({ driveBatchId: "future", status: "planned", plannedDate: "2027-04-09T00:00:00+05:30" }),
+    option({ driveBatchId: "cpt-324", status: "in_progress", plannedDate: "2026-07-24T00:00:00+05:30", targetCount: 324 }),
+    option({ driveBatchId: "cbe-aug-5", status: "in_progress", plannedDate: "2026-08-05T00:00:00+05:30", targetCount: 137 }),
+  ]);
+
+  assert.deepEqual(rows.map((row) => row.driveBatchId), ["cbe-aug-5", "cpt-324"]);
 });
 
 test("actual vaccination date spans use leadership-readable dates", () => {

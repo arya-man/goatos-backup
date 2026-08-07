@@ -5436,7 +5436,7 @@ ORDER BY shed_name, pr.dose_code
 	// query, no OFFSET scan). The caller gets DriveOptionsTruncated so the UI can say "more
 	// drives exist, narrow by park" instead of lying by omission.
 	//
-	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, park_id, status, planned_date, window_start, window_end) -- park is part of the grain because an all-parks board must be able to tell two same-vaccine, same-window drives apart, and their counts must not be summed into one row; join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by COUNT(DISTINCT target_id), COUNT(DISTINCT obligation_id), array_agg(DISTINCT dose_code), and array_agg(DISTINCT shed name), while protocol_rules and locations are each 1:1 per obligation; pagination=bounded to one row per (batch, park) ordered newest executable day first with a hard LIMIT of driveOptionsLimit fetched as limit+1, the surplus row discarded and reported as DriveOptionsTruncated so the bound can never drop a drive silently; scope=tenant plus optional park resolved from canonical locations.parent_location_id
+	// projection-review: membership=obligation_batches rows for one tenant, park-scoped through the shed's parent location and restricted to batches carrying obligations; group_key=(batch_id, park_id, status, planned_date, window_start, window_end) -- park is part of the grain because an all-parks board must be able to tell two same-vaccine, same-window drives apart, and their counts must not be summed into one row; join_cardinality=batch_id is the obligation_batches primary key so the grouped set is exactly one row per batch with the other grouped columns functionally dependent on it, obligation_instances is the many side and is collapsed by COUNT(DISTINCT target_id), COUNT(DISTINCT obligation_id), array_agg(DISTINCT dose_code), and array_agg(DISTINCT shed name), while protocol_rules and locations are each 1:1 per obligation; pagination=bounded to one row per (batch, park) ordered by actionable execution status first and then newest executable day with a hard LIMIT of driveOptionsLimit fetched as limit+1, the surplus row discarded and reported as DriveOptionsTruncated so the bound can never drop a drive silently; scope=tenant plus optional park resolved from canonical locations.parent_location_id
 	//
 	// Producer unique columns: obligation_batches(batch_id). Consumer match/group columns:
 	// (batch_id, park_id, status, planned_date, window_start, window_end). Row multiplicity: obligation_instances N:1 to
@@ -5463,7 +5463,16 @@ LEFT JOIN locations park ON park.location_id = loc.parent_location_id AND park.t
 WHERE b.tenant_id = $1::uuid
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $2::uuid)
 GROUP BY b.batch_id, park.location_id, park.name, b.status, b.planned_date, b.window_start, b.window_end
-ORDER BY b.planned_date DESC NULLS LAST, b.window_start DESC NULLS LAST, b.batch_id, park.name NULLS LAST
+ORDER BY
+  CASE b.status
+    WHEN 'in_progress' THEN 0
+    WHEN 'completed' THEN 1
+    ELSE 2
+  END,
+  b.planned_date DESC NULLS LAST,
+  b.window_start DESC NULLS LAST,
+  b.batch_id,
+  park.name NULLS LAST
 LIMIT $3
 `
 	driveOptionsLimit := r.driveOptionsLimit
