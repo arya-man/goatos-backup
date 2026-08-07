@@ -23,7 +23,6 @@ import sg.mesha.goatos.core.analytics.AnalyticsFunnels
 import sg.mesha.goatos.core.analytics.AnalyticsPort
 import sg.mesha.goatos.core.analytics.CrashReporter
 import sg.mesha.goatos.core.common.AppResult
-import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingLeadershipShed
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
@@ -47,18 +46,18 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
 ) : ViewModel() {
-    /**
-     * How many cached buckets the gallery observes. Grows ONE page at a time on scroll and is held
-     * to the cache's ceiling, so the observed Room read stays a bounded window.
-     */
-    private val window = MutableStateFlow(WEIGHING_LEADERSHIP_PAGE_SIZE)
     private val loading = MutableStateFlow(false)
     private val loadingMore = MutableStateFlow(false)
     private val failure = MutableStateFlow<String?>(null)
 
     @OptIn(ExperimentalCoroutinesApi::class)
+    // Fixed-size keyset window over Room. The window does NOT grow: scrolling appends the next
+    // page by CURSOR (see onShedVisible), matching VerifyQueueViewModel and the three sibling
+    // weighing screens. The old growing window was clamped at WEIGHING_LEADERSHIP_MAX_WINDOW
+    // (PAGE_SIZE * 5 = 100), so a park with more than 100 buckets had rows sitting in Room that
+    // the gallery could never scroll to.
     private val cached: StateFlow<List<WeighingLeadershipShed>> =
-        window.flatMapLatest { size -> repository.observeLeadershipVideos(size) }
+        repository.observeLeadershipVideos(WEIGHING_LEADERSHIP_PAGE_SIZE)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<WeighingLeadershipVideosUiState> =
@@ -89,7 +88,8 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     fun refresh() {
         if (loading.value) return
         loading.value = true
-        window.value = WEIGHING_LEADERSHIP_PAGE_SIZE
+        // No window to reset: the observed Room read is a fixed keyset page, and reset = true
+        // clears the cursor so appends restart from the first page.
         viewModelScope.launch {
             try {
                 when (val result = repository.refreshLeadershipVideos(reset = true)) {
@@ -116,14 +116,11 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     fun onShedVisible(index: Int) {
         val loaded = cached.value.size
         if (loaded == 0 || index < loaded - LIST_PREFETCH_DISTANCE) return
-        if (window.value < WEIGHING_LEADERSHIP_MAX_WINDOW) {
-            window.value = (window.value + WEIGHING_LEADERSHIP_PAGE_SIZE).coerceAtMost(WEIGHING_LEADERSHIP_MAX_WINDOW)
-        }
         if (loading.value || loadingMore.value) return
         loadingMore.value = true
         viewModelScope.launch {
             try {
-                when (val result = repository.refreshLeadershipVideos(reset = false)) {
+                when (val result = repository.appendLeadershipVideos()) {
                     is AppResult.Ok -> failure.value = null
                     is AppResult.Err -> failure.value = result.message
                 }
