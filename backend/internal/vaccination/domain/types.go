@@ -114,6 +114,12 @@ type SubmissionCompletion struct {
 	ParkID         string
 	ProofRefIDs    []string
 	AdministeredAt time.Time
+	// VaccineLabel is the HUMAN dose label for this completion ("ET+TT", "PPR · Booster"),
+	// already run through DoseDisplayLabel by the adapter. It is what the verifier is shown, so
+	// it must never be the raw dose_code ("et_tt_adult_w2") -- that is a config token and is
+	// banned from user-facing copy (AGENTS.md, make ui-vaccine-labels-guard). Empty only when the
+	// completion's obligation/rule/protocol chain does not resolve.
+	VaccineLabel string
 }
 
 type RecordedCompletionCursor struct {

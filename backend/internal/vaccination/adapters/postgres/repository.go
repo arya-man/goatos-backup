@@ -2347,7 +2347,12 @@ SELECT vc.completion_id::text,
        END::text AS shed_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
-       vc.administered_at
+       vc.administered_at,
+       -- Protocol name + dose code feed domain.DoseDisplayLabel below. They are the ONLY inputs
+       -- that formatter needs, and both are bounded single-row lookups off the completion's own
+       -- obligation, so this stays one statement rather than a per-row label resolve.
+       COALESCE(pd.name, ''),
+       COALESCE(pr.dose_code, '')
 FROM vaccination_completions vc
 JOIN sop_submission_items si
   ON si.tenant_id = vc.tenant_id
@@ -2366,6 +2371,19 @@ LEFT JOIN goat_shed_partitions gsp
   ON gsp.tenant_id = g.tenant_id
  AND gsp.goat_id = g.goat_id
  AND gsp.shed_id = g.shed_id
+-- The verifier must be told WHICH vaccine the clip is evidence for. All four joins are LEFT so a
+-- completion whose protocol chain does not resolve still yields its row (the label degrades to
+-- empty and the subject simply omits the vaccine) rather than vanishing from the submission.
+LEFT JOIN obligation_instances oi
+  ON oi.tenant_id = vc.tenant_id
+ AND oi.obligation_id = vc.obligation_id
+LEFT JOIN protocol_rules pr
+  ON pr.tenant_id = oi.tenant_id
+ AND pr.rule_id = oi.rule_id
+LEFT JOIN protocol_versions pv
+  ON pv.protocol_version_id = pr.protocol_version_id
+LEFT JOIN protocol_definitions pd
+  ON pd.protocol_id = pv.protocol_id
 LEFT JOIN LATERAL (
   SELECT array_agg(ref.value ->> 'proof_id' ORDER BY ref.ordinality) AS proof_ids
   FROM jsonb_array_elements(COALESCE(ss.proof_refs, '[]'::jsonb)) WITH ORDINALITY AS ref(value, ordinality)
@@ -2385,6 +2403,7 @@ LIMIT 5000`, tenant, submission)
 	out := make([]domain.SubmissionCompletion, 0)
 	for rows.Next() {
 		var item domain.SubmissionCompletion
+		var protocolName, doseCode string
 		if err := rows.Scan(
 			&item.CompletionID,
 			&item.SubmissionID,
@@ -2396,10 +2415,16 @@ LIMIT 5000`, tenant, submission)
 			&item.ParkID,
 			&item.ProofRefIDs,
 			&item.AdministeredAt,
+			&protocolName,
+			&doseCode,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan submission completion: %w", err)
 		}
 		item.AdministeredAt = item.AdministeredAt.UTC()
+		// Derived through the ONE canonical formatter every module shares, so the verifier's
+		// queue, the calendar, execution, and push copy can never name the same dose three
+		// different ways -- and so a raw dose_code can never reach a screen.
+		item.VaccineLabel = domain.DoseDisplayLabel(protocolName, doseCode)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
