@@ -159,11 +159,14 @@ class RecordViewModel @Inject constructor(
         val allRowsLackTaskId = rows.isNotEmpty() && rows.all { it.sopTaskId.isNullOrBlank() }
         val hasNoScannableTask = hasWorkDue && allRowsLackTaskId
 
-        // Operational location: the drilldown-level shedName has no partition of its own, but
-        // every row shares the shed's partition (VaccinationExecutionRowDto.partition), so the
-        // first row is enough to render "Castro 2" / "Godel 1 - Part 3" instead of a bare shed
-        // name when this shed has partitions. See PartitionLabel.kt for the display rules.
-        val locationLabel = operationalLocationLabel(shedName, rows.firstOrNull()?.partition)
+        // Operational location. Prefer the BACKEND-COMPOSED display so this screen cannot drift
+        // from every other surface. The legacy `partition` field is deliberately NOT read: it
+        // carries the 'whole' sentinel, which is a matching key and never user copy (its own DTO
+        // comment says so). `partitionLabel` is the sanctioned raw field and is only used as a
+        // fallback for older API responses that predate the composed value.
+        val firstRow = rows.firstOrNull()
+        val locationLabel = (firstRow?.operationalLocationDisplay.orEmpty())
+            .ifBlank { operationalLocationLabel(shedName, firstRow?.partitionLabel) }
             .ifBlank { shedName }
         return base.copy(
             title = "$locationLabel · record",

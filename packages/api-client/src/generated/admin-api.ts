@@ -1920,6 +1920,10 @@ export interface components {
             park_id?: string | null;
             /** Format: uuid */
             shed_id?: string | null;
+            /** @description Raw stored partition label ('1', 'Part 3'). Null when the shed is not partitioned. Never the literal 'whole' -- that is a matching key. */
+            partition_label?: string | null;
+            /** @description Backend-composed location label. Clients render it verbatim. */
+            operational_location_display?: string;
             /** Format: uuid */
             cohort_id?: string | null;
         };

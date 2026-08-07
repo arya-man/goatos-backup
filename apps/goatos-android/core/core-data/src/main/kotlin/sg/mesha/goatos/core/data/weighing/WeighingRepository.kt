@@ -1481,7 +1481,12 @@ class DefaultWeighingRepository(
                 shedKey = shedKey,
                 campaignId = dto.campaignId,
                 campaignShedId = dto.campaignShedId,
-                shedName = dto.shedName,
+                // Cache the BACKEND-COMPOSED location, not the bare shed name: this column is
+                // display-only (its three consumers are the leadership header, the reopen sheet
+                // and the videos card -- it is never a key, match or filter), so a partitioned
+                // shed showed "Mandela 2" instead of "Mandela 2 - Part 3" on every one of them.
+                // Falls back to the bare name for older responses.
+                shedName = dto.operationalLocationDisplay.ifBlank { dto.shedName },
                 parkName = dto.parkName,
                 weighDate = dto.weighDate,
                 operatorUserId = dto.operatorUserId,
