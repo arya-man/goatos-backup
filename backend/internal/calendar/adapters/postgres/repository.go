@@ -18,6 +18,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/permissions"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 const defaultQueryTimeout = 3 * time.Second
@@ -2360,6 +2361,24 @@ func scanCalendarEvent(rows eventScanner) (domain.CalendarEvent, error) {
 	return scanCalendarEventWithDetail(rows, nil, nil)
 }
 
+// composeDriveShedDisplay closes DEFECT 1 (calendar drive-shed rows carried no partition): it is
+// the single place that turns a shed name plus an optional resolved partition label into the
+// operator-facing location string, via the shared oploc.Display() rule -- never hand-rolled with
+// '+'/fmt.Sprintf. partitionLabel is nil whenever the SQL layer could not resolve a single real
+// partition shared by every animal counted in this shed (multi-partition shed, or no partitioned
+// animals at all), in which case the bare shed name is returned, exactly as the DEFECT 1
+// judgement rule requires.
+func composeDriveShedDisplay(shedName string, partitionLabel *string) string {
+	label := ""
+	if partitionLabel != nil {
+		label = *partitionLabel
+	}
+	return oploc.OperationalLocation{
+		ShedName:       shedName,
+		PartitionLabel: label,
+	}.Display()
+}
+
 func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]byte) (domain.CalendarEvent, error) {
 	var event domain.CalendarEvent
 	var windowStart, windowEnd pgtype.Timestamptz
@@ -2394,6 +2413,14 @@ func scanCalendarEventWithDetail(rows eventScanner, detail *[]byte, linksOut *[]
 		var ds domain.DriveSummary
 		if err := json.Unmarshal(driveSummaryRaw, &ds); err != nil {
 			return domain.CalendarEvent{}, fmt.Errorf("calendar: decode drive_summary: %w", err)
+		}
+		// DEFECT 1 fix: compose the display label ONCE here, in Go, via the shared oploc helper --
+		// never hand-rolled with '+'/fmt.Sprintf (see docs/decisions/operational-location-convention.md).
+		// The SQL layer (obligation_drive_shed_animals CTE) only resolves whether the shed's animals
+		// share a single real partition; a nil PartitionLabel renders the bare shed name, matching
+		// the DEFECT 1 rule that a multi-partition shed must never have one invented for it.
+		for i := range ds.Sheds {
+			ds.Sheds[i].OperationalLocationDisplay = composeDriveShedDisplay(ds.Sheds[i].ShedName, ds.Sheds[i].PartitionLabel)
 		}
 		event.DriveSummary = &ds
 	}

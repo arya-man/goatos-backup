@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
 import type { AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { copy, optionGroup } from "@/lib/admin-ui-contract";
+import { operationalLocationLabel } from "@/lib/operational-location";
 import {
   commonDriveName,
   driveSelectionValue,
@@ -29,6 +30,9 @@ interface GridCell {
 
 interface ShedGridRow {
   shedName: string;
+  shedId: string;
+  partitionLabel: string | null;
+  operational_location_display: string | null;
   cells: Record<string, GridCell>;
 }
 
@@ -261,7 +265,10 @@ function buildCohortPivot(
 
 function buildShedGrid(
   matrix: Array<{
+    shedId: string;
     shedName: string;
+    partition_label?: string | null;
+    operational_location_display?: string | null;
     doseRule: string;
     state: string;
     animalCount: number;
@@ -275,14 +282,24 @@ function buildShedGrid(
   byShed: ShedGridRow[];
 } {
   const doseSet = new Set<string>();
+  // BUG FIX: Key by shedId + partition_label (using shedId|partition_label format) instead of shedName.
+  // Two same-named sheds in different parks and two partitions of the same shed must remain as separate rows
+  // with separate animal counts. Keying by shedName alone caused them to merge, silently summing counts.
   const shedMap = new Map<string, ShedGridRow>();
 
   matrix.forEach((cell) => {
     doseSet.add(cell.doseRule);
-    if (!shedMap.has(cell.shedName)) {
-      shedMap.set(cell.shedName, { shedName: cell.shedName, cells: {} });
+    const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+    if (!shedMap.has(shedKey)) {
+      shedMap.set(shedKey, {
+        shedName: cell.shedName,
+        shedId: cell.shedId,
+        partitionLabel: cell.partition_label ?? null,
+        operational_location_display: cell.operational_location_display ?? null,
+        cells: {},
+      });
     }
-    shedMap.get(cell.shedName)!.cells[cell.doseRule] = {
+    shedMap.get(shedKey)!.cells[cell.doseRule] = {
       doseRule: cell.doseRule,
       state: cell.state,
       animalCount: cell.animalCount,
@@ -826,7 +843,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           const queueAgeDays = new Map<string, number>();
           (view.verificationQueue ?? []).forEach((q) => {
             if (q.daysInQueue !== undefined && q.daysInQueue !== null) {
-              queueAgeDays.set(`${q.shedName}|${q.doseRule}`, q.daysInQueue);
+              // Key by shedId + partition to match the grid's row keys.
+              const shedKey = `${q.shedId}|${q.partition_label ?? ""}`;
+              queueAgeDays.set(`${shedKey}|${q.doseRule}`, q.daysInQueue);
             }
           });
           return (
@@ -846,41 +865,49 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                     </tr>
                   </thead>
                   <tbody>
-                    {grid.byShed.map((row) => (
-                      <tr key={row.shedName}>
-                        <th className="cbm-rowh">{row.shedName}</th>
-                        {grid.byDose.map((dose) => {
-                          const cell = row.cells[dose];
-                          if (!cell) {
-                            return <td key={dose} className="cbm-cell cbm-na">—</td>;
-                          }
-                          // Completed cells show the operator's actual administration date. Verification
-                          // can happen days later and must never replace the medical date. Scheduled and
-                          // overdue cells continue to show their rule-derived due date.
-                          const dateStr = cell.state === "verified" || cell.state === "awaiting"
-                            ? formatDateSpan(cell.minAdministeredDate, cell.maxAdministeredDate)
-                            : formatDateSpan(cell.minDueDate, cell.maxDueDate);
-                          // An awaiting cell also carries how long it has been sitting with the
-                          // verifier — the one fact the removed queue table added.
-                          const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${row.shedName}|${dose}`) : undefined;
-                          return (
-                            <td
-                              key={dose}
-                              className={`cbm-cell cbm-${cell.state}`}
-                              title={`${row.shedName} · ${cell.animalCount} animals${
-                                waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
-                              }`}
-                            >
+                    {grid.byShed.map((row) => {
+                      // Use shedId + partition for unique keying; render via operational_location_display or helper.
+                      const shedKey = `${row.shedId}|${row.partitionLabel ?? ""}`;
+                      const shedLabel = row.operational_location_display || operationalLocationLabel({
+                        shedName: row.shedName,
+                        partitionLabel: row.partitionLabel,
+                      });
+                      return (
+                        <tr key={shedKey}>
+                          <th className="cbm-rowh">{shedLabel}</th>
+                          {grid.byDose.map((dose) => {
+                            const cell = row.cells[dose];
+                            if (!cell) {
+                              return <td key={dose} className="cbm-cell cbm-na">—</td>;
+                            }
+                            // Completed cells show the operator's actual administration date. Verification
+                            // can happen days later and must never replace the medical date. Scheduled and
+                            // overdue cells continue to show their rule-derived due date.
+                            const dateStr = cell.state === "verified" || cell.state === "awaiting"
+                              ? formatDateSpan(cell.minAdministeredDate, cell.maxAdministeredDate)
+                              : formatDateSpan(cell.minDueDate, cell.maxDueDate);
+                            // An awaiting cell also carries how long it has been sitting with the
+                            // verifier — the one fact the removed queue table added.
+                            const waiting = cell.state === "awaiting" ? queueAgeDays.get(`${shedKey}|${dose}`) : undefined;
+                            return (
+                              <td
+                                key={dose}
+                                className={`cbm-cell cbm-${cell.state}`}
+                                title={`${shedLabel} · ${cell.animalCount} animals${
+                                  waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""
+                                }`}
+                              >
                               {cell.animalCount}
                               <small>
                                 {dateStr}
                                 {waiting !== undefined ? ` · ${waiting}${copy(pageContract, "command_board.shed_matrix.waiting_suffix")}` : ""}
                               </small>
                             </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

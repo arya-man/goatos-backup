@@ -111,6 +111,19 @@ type DriveShedSummary struct {
 	ShedID       string `json:"shed_id"`
 	ShedName     string `json:"shed_name"`
 	TotalAnimals int    `json:"total_animals"`
+	// PartitionLabel/OperationalLocationDisplay close DEFECT 1 (calendar had zero partition
+	// awareness): a drive-shed row used to carry only the bare physical shed name, so an
+	// operator viewing a drive scoped to one partition of a subdivided shed ("Mandela 2 - Part 3")
+	// saw only "Mandela 2" and could not tell which partition the drive covered.
+	//
+	// PartitionLabel is set by the backend (canonical_read.go obligation_drive_shed_animals CTE)
+	// ONLY when every animal counted in this shed's TotalAnimals resolves to the SAME real
+	// partition; it is nil when the shed's animals span more than one partition (a shed-wide
+	// drive has no single partition to show -- that is correct, never a bug) or when none of
+	// them are partitioned. OperationalLocationDisplay is composed ONCE in Go via
+	// oploc.OperationalLocation.Display(), never hand-built with string concatenation.
+	PartitionLabel             *string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string  `json:"operational_location_display"`
 }
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
