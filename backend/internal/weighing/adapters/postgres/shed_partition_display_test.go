@@ -21,9 +21,9 @@ func TestSplitShedPartitionNameBothConventions(t *testing.T) {
 		{"Ho Chi Minh", "Ho Chi Minh", ""},
 	}
 	for _, c := range cases {
-		parent, partition := splitShedPartitionName(c.name)
+		parent, partition := SplitShedPartitionName(c.name)
 		if parent != c.wantParent || partition != c.wantPartition {
-			t.Errorf("splitShedPartitionName(%q) = (%q, %q), want (%q, %q)",
+			t.Errorf("SplitShedPartitionName(%q) = (%q, %q), want (%q, %q)",
 				c.name, parent, partition, c.wantParent, c.wantPartition)
 		}
 	}

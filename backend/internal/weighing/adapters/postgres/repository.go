@@ -17,7 +17,6 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 	"github.com/vgoats/goatos/backend/internal/weighing/ports"
 )
@@ -2827,12 +2826,16 @@ WHERE tenant_id=$1::uuid
 		}
 		return "", "", err
 	}
-	parent, partition := splitShedPartitionName(displayName)
-	return locationID, oploc.OperationalLocation{
-		ShedID:         locationID,
-		ShedName:       parent,
-		PartitionLabel: partition,
-	}.Display(), nil
+	// display_name is used VERBATIM. It is the operational shed name already flattened onto the
+	// bucket from the `locations` catalog ("Godel 1 - Part 3", "Castro 2"), which is what the
+	// operator picked and what every other module names the same place.
+	//
+	// Deliberately NOT re-split through SplitShedPartitionName + oploc.Display here. That pass is
+	// right for weighing's own campaign-shed read models, but it rewrites "Castro 2" into
+	// "Castro - 2" -- and on the verifier's Actions queue a weighing row sits directly beside a
+	// vaccination row, which renders the same physical place as "Castro 2" (shed name plus the
+	// locations partition column). Splitting here would put two spellings of one shed in one list.
+	return locationID, strings.TrimSpace(displayName), nil
 }
 
 // RefreshAvailability and completeResolvedIndividualScopes were DELETED
