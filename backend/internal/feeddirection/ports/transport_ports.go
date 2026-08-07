@@ -16,6 +16,7 @@ var (
 type FeedTransportTask struct {
 	TaskID, ParkID, ParkLabel, ShedID, ShedLabel, BusinessDate, Status string
 	OperatorID, CurrentAttemptID, ReworkReason                         string
+	PartitionLabel, OperationalLocationDisplay                         string
 	ScheduledAt                                                        time.Time
 }
 

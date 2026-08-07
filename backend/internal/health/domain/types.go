@@ -77,6 +77,8 @@ type WorkItem struct {
 	ParkLabel       string    `json:"park_label"`
 	ShedID          *string   `json:"shed_id"`
 	ShedLabel       string    `json:"shed_label"`
+	PartitionLabel  string    `json:"partition_label"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
 	StepCount       int       `json:"step_count"`
 	MedicationCount int       `json:"medication_count"`
 	HasCriticalStep bool      `json:"has_critical_step"`

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -28,6 +29,12 @@ func (f fakeObl) ListOpenByGoat(context.Context, string, string, int32) ([]obldo
 	return f.open, nil
 }
 
+type fakeLocResolver struct{}
+
+func (f fakeLocResolver) ResolveShedLocation(context.Context, string, string) (oploc.OperationalLocation, error) {
+	return oploc.OperationalLocation{}, nil
+}
+
 func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
@@ -45,6 +52,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 			{ObligationID: "o1", RuleID: "r1", ScopeType: "shed", ScopeID: "shed1", BatchID: "b1", DueAt: t0, ClinicalDueAt: t0, ScheduledFor: &t1, Status: "due", Sequence: 1, DoseCode: "et_tt_adult_w1", VaccineLabel: "ET+TT"}, // earliest → next due
 			{ObligationID: "o2", DueAt: t1, Status: "scheduled", Sequence: 2},
 		}},
+		fakeLocResolver{},
 	)
 
 	p, err := svc.GetPassport(ctx, "tenant", "goat")
@@ -75,7 +83,7 @@ func TestGetPassportComposesAndPicksNextDue(t *testing.T) {
 }
 
 func TestGetPassportEmptyHasNoNextDueAndEmptyArrays(t *testing.T) {
-	svc := NewService(fakeVacc{found: false}, fakeObl{})
+	svc := NewService(fakeVacc{found: false}, fakeObl{}, fakeLocResolver{})
 	p, err := svc.GetPassport(context.Background(), "tenant", "goat")
 	if err != nil {
 		t.Fatalf("get passport: %v", err)
