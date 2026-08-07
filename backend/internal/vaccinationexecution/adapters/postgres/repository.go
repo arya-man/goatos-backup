@@ -549,6 +549,32 @@ WITH assignment_vaccines AS (
   WHERE vda.tenant_id = $1::uuid
     AND ($4::text = '' OR vda.park_id::text = $4)
 ),
+assignment_partitions AS (
+  -- OL-13: Resolve current partition labels from the catalog, using the agree-or-go-bare rule.
+  -- For each (batch_id, shed_id) pair, find the current partition of all animals in that batch/shed.
+  -- Emit a partition ONLY when every relevant animal has the SAME real (non-'whole') partition;
+  -- otherwise NULL (bare shed name).
+  SELECT DISTINCT
+    oi.batch_id,
+    g.shed_id,
+    CASE
+      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+      ELSE NULL
+    END AS partition_label
+  FROM obligation_instances oi
+  LEFT JOIN goats g
+    ON g.tenant_id = oi.tenant_id
+   AND g.goat_id = oi.target_id
+   AND g.merged_into_goat_id IS NULL
+   AND oi.target_type = 'goat'
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
+   AND gsp.shed_id = g.shed_id
+  WHERE oi.tenant_id = $1::uuid
+  GROUP BY oi.batch_id, g.shed_id
+),
 effective_assignments AS (
   SELECT
     effective_planned_date AS planned_date,
@@ -559,7 +585,7 @@ effective_assignments AS (
     park_id,
     shed_id,
     physical_shed,
-    partition_label,
+    COALESCE(assignment_partitions.partition_label, 'whole') AS partition_label,
     animal_count,
     capacity_status,
     batch_status,
@@ -572,7 +598,10 @@ effective_assignments AS (
       ELSE MAX(total_doses)
     END::int AS total_doses
   FROM assignment_vaccines
-  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, partition_label, animal_count, capacity_status, batch_status
+  LEFT JOIN assignment_partitions
+    ON assignment_partitions.batch_id = assignment_vaccines.batch_id
+   AND assignment_partitions.shed_id = assignment_vaccines.shed_id
+  GROUP BY effective_planned_date, assignment_id, batch_id, operator_id, park_id, shed_id, physical_shed, COALESCE(assignment_partitions.partition_label, 'whole'), animal_count, capacity_status, batch_status
 )
 SELECT
   effective.planned_date,
@@ -1499,6 +1528,27 @@ animal_rollup AS (
     )
   GROUP BY located.park_uuid, located.shed_uuid, located.batch_id, located.animal_id
 ),
+resolved_partitions AS (
+  -- OL-13: Resolve current partition labels from the catalog, using the agree-or-go-bare rule:
+  -- emit a partition ONLY when every relevant animal resolves to the SAME real (non-'whole') partition;
+  -- otherwise NULL (bare shed name). This prevents stale partition_label snapshots from
+  -- vaccination_drive_assignments from being displayed after a shed is re-partitioned.
+  SELECT DISTINCT ON (located.park_uuid, located.shed_uuid)
+    located.park_uuid,
+    located.shed_uuid,
+    CASE
+      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+      ELSE NULL
+    END AS partition_label
+  FROM located
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = $1::uuid
+   AND gsp.goat_id = located.animal_id
+   AND gsp.shed_id = located.shed_uuid
+  WHERE located.animal_id IS NOT NULL
+  GROUP BY located.park_uuid, located.shed_uuid
+),
 animal_counts AS (
   SELECT
     animal_rollup.park_uuid,
@@ -1587,8 +1637,8 @@ grouped AS (
       MAX(shed.name)
     ) AS physical_shed,
     COALESCE(
-      (ARRAY_AGG(located.partition_label ORDER BY located.execution_due_at DESC NULLS LAST, located.partition_label ASC NULLS LAST)
-        FILTER (WHERE NULLIF(located.partition_label, '') IS NOT NULL))[1],
+      (ARRAY_AGG(resolved_partition.partition_label ORDER BY located.execution_due_at DESC NULLS LAST)
+        FILTER (WHERE NULLIF(resolved_partition.partition_label, '') IS NOT NULL))[1],
       'whole'
     ) AS partition_label,
     -- This value is rendered directly on mobile shed cards. Prefer the governed
@@ -1611,6 +1661,9 @@ grouped AS (
     (ARRAY_AGG(located.sop_task_row_version ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.sop_task_id DESC NULLS LAST) FILTER (WHERE located.sop_task_id IS NOT NULL))[1] AS sop_task_row_version,
     (ARRAY_AGG(located.completion_id ORDER BY located.execution_due_at DESC NULLS LAST, located.due_at DESC NULLS LAST, located.completion_id DESC NULLS LAST))[1]::text AS completion_id
   FROM located
+  LEFT JOIN resolved_partitions resolved_partition
+    ON resolved_partition.park_uuid = located.park_uuid
+   AND resolved_partition.shed_uuid = located.shed_uuid
   JOIN locations shed
     ON shed.tenant_id = $1::uuid
    AND shed.location_id = located.shed_uuid
