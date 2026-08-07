@@ -1,7 +1,12 @@
 import type { BreakdownFilterOption } from "./counts-breakdown-filters";
-import { hasOperationalPartition, operationalLocationLabel } // Relative, not the "@/lib" alias: this module is imported directly by
-// counts-breakdown-sheds.test.mjs under `node --test`, which does not resolve the
-// tsconfig path alias, so the alias made the whole test file fail to load.
+import { hasOperationalPartition, operationalLocationLabel } // Relative WITH an explicit .ts extension, not the "@/lib" alias. This module is imported
+// directly by counts-breakdown-sheds.test.mjs under `node --test`, which resolves neither
+// the tsconfig path alias nor an extensionless relative path -- so before
+// allowImportingTsExtensions was enabled in tsconfig.json there was NO import form that
+// satisfied both the typechecker and the test runner, and this file hand-rolled its own
+// shed+partition composition instead. That copy reproduced the "Godel 1 1" defect the
+// shared helper exists to prevent. Do not "tidy" this back to the alias without checking
+// the test still loads.
 from "../../lib/operational-location.ts";
 
 /**
