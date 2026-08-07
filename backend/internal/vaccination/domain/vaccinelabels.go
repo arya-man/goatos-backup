@@ -113,3 +113,15 @@ func DoseQualifiedDisplayLabel(protocolName, doseCode string) string {
 	}
 	return base
 }
+
+// VaccineAntigenLabel is the human label for a protocol vaccine CODE ("ET_TT" -> "ET+TT"), with no
+// dose qualifier.
+//
+// Exported so read models that group by vaccine rather than by dose can send labels instead of
+// codes. The alternative -- letting a client map codes to labels -- puts a second, drifting copy of
+// this table in the frontend and trips the admin-UI contract guard, which requires visible copy to
+// originate on the server. An unknown code returns "" so callers can decide between showing the raw
+// code and hiding the column, rather than rendering a guess.
+func VaccineAntigenLabel(code string) string {
+	return vaccinationAntigenLabel(code)
+}
