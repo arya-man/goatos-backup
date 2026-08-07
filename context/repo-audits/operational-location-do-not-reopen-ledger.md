@@ -296,3 +296,23 @@ module that does not use the generated model. Check the path the code ACTUALLY t
 before recording a closure status — the four-layer check below means the layers as
 they exist for THAT module.
 
+
+### OL-16 — a wire DTO ships the raw partition with NO composed display (2026-08-07)
+
+`GET /vaccination/drive-assignments` serves `DriveAssignmentRow`
+(`backend/internal/vaccinationexecution/domain/types.go`), which carries
+`physicalShed` and `partitionLabel` but NOT `operational_location_display`.
+
+**Why this is the defect and not a nicety:** handing a client the two raw parts and
+no composed string is an INVITATION to hand-roll `shed + " " + partition`. That is
+literally how OL-3 ("Godel 1 1") happened. The convention's rule is that the backend
+owns the composed label precisely so no client has to decide the separator.
+
+**Rule:** if a wire DTO carries `partition_label`, it MUST also carry
+`operational_location_display`, composed via `oploc.Display()`. Raw parts may
+accompany it for callers that need them; they may never be the only thing offered.
+
+Found by the four-layer struct sweep, which checks (a) SQL selects it, (b) scan
+parity, (c) field assigned, (d) wire carries it AND a client renders it. Layers
+(a)-(c) were all green here; only (d) was wrong -- the exact shape that makes this
+class survive review.
