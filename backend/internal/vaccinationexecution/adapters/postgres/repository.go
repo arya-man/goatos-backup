@@ -24,6 +24,39 @@ import (
 	"github.com/vgoats/goatos/backend/internal/vaccinationexecution/ports"
 )
 
+// OL-13: resolvePartitionLabelForDisplay resolves the current catalog partition for a shed,
+// using the agree-or-go-bare rule from weighing: compose a label ONLY when every relevant
+// animal resolves to the SAME real (non-'whole') partition; otherwise bare shed name.
+// This prevents stale partition_label snapshots from vaccination_drive_assignments from
+// being shown after a shed is re-partitioned.
+// shedID is the parent physical shed UUID; animals scanned must all have the same partition
+// to produce a result; empty string means the shed has no partition (or ambiguous partitions).
+func resolvePartitionLabelForDisplay(ctx context.Context, tx pgx.Tx, tenantID, shedID string, animalIDs []string) (string, error) {
+	if len(animalIDs) == 0 || shedID == "" {
+		return "", nil
+	}
+	var label pgtype.Text
+	// agree-or-go-bare: if all animals agree on the same partition, render it; otherwise bare.
+	err := tx.QueryRow(ctx, `
+		SELECT CASE
+			WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+				THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+			ELSE NULL
+		END
+		FROM goat_shed_partitions gsp
+		WHERE gsp.tenant_id = $1::uuid
+			AND gsp.shed_id = $2::uuid
+			AND gsp.goat_id = ANY($3::uuid[])
+	`, tenantID, shedID, animalIDs).Scan(&label)
+	if err != nil {
+		return "", err
+	}
+	if !label.Valid {
+		return "", nil
+	}
+	return label.String, nil
+}
+
 // authorizedParkFilter returns the park ids a park-scoped actor may read, or nil when the
 // caller is tenant-wide with vaccination authority (no restriction). Derived from the
 // request-context grants so read queries enforce park scope in-query (defence in depth)
@@ -1232,6 +1265,10 @@ raw AS (
     COALESCE(vda_member.operator_id, vda_guess.operator_id) AS conducted_by,
     COALESCE(vda_member.assignment_planned_at, vda_guess.assignment_planned_at) AS assignment_planned_at,
     COALESCE(vda_member.physical_shed, vda_guess.physical_shed) AS physical_shed,
+    -- OL-13: partition_label is a SNAPSHOT from drive assignment creation and never updates when sheds are re-partitioned.
+    -- Display surfaces read this, so it must be resolved from the CATALOG (shed_partitions) at query time.
+    -- Historical/audit use (e.g., the assignment's own idempotency grain) would keep the snapshot.
+    -- For now, keep the snapshot column for backward compat; resolve in Go post-query.
     COALESCE(vda_member.partition_label, vda_guess.partition_label) AS partition_label,
     st.state AS task_state,
     st.task_id AS sop_task_id,
@@ -1301,6 +1338,9 @@ raw AS (
         ELSE NULL
       END
    AND (
+        -- OL-13 HISTORICAL: partition_label here is MATCHING LOGIC only (comparing assignment snapshot to current animal partition).
+        -- The assignment was created with this partition; we match by comparing it to the animal's current partition.
+        -- This is NOT a display value, so trusting the snapshot is correct for the JOIN condition.
         assignment.partition_label = 'whole'
         OR regexp_replace(lower(btrim(assignment.partition_label)), '^part[[:space:]]+', '')
          = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
@@ -1328,6 +1368,9 @@ raw AS (
             ELSE NULL
           END
       AND (
+            -- OL-13 HISTORICAL: partition_label match here is for FALLBACK assignment discovery.
+            -- When no explicit membership row exists, find the assignment by matching the snapshot partition
+            -- against the animal's current partition. This is correct for the fallback matching logic.
             vda_guess.partition_label = 'whole'
             OR regexp_replace(lower(btrim(vda_guess.partition_label)), '^part[[:space:]]+', '')
              = regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
