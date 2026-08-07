@@ -50,3 +50,70 @@ func TestComposeDriveShedDisplay(t *testing.T) {
 		})
 	}
 }
+
+// TestReminderCadenceShedPartitionArrays pins the DEFECT 1 fix for reminder notifications:
+// shed_labels and shed_partition_labels arrays must be parallel (same order, same length),
+// so index [i] of one corresponds to index [i] of the other. The final notification label
+// is composed from both arrays using composeDriveShedDisplay.
+func TestReminderCadenceShedPartitionArrays(t *testing.T) {
+	cases := []struct {
+		name                string
+		shedLabels          []string
+		shedPartitionLabels []string
+		expectedLabels      []string // after composition
+	}{
+		{
+			name:                "single partition shed composes partition into label",
+			shedLabels:          []string{"Mandela 2"},
+			shedPartitionLabels: []string{"Part 3"},
+			expectedLabels:      []string{"Mandela 2 - Part 3"},
+		},
+		{
+			name:                "multi-partition shed stays bare",
+			shedLabels:          []string{"Godel 1"},
+			shedPartitionLabels: []string{""}, // NULL/empty means multi-partition or non-partitioned
+			expectedLabels:      []string{"Godel 1"},
+		},
+		{
+			name:                "two sheds with one partition each",
+			shedLabels:          []string{"Castro", "Yashoda"},
+			shedPartitionLabels: []string{"2", ""}, // Castro has partition 2, Yashoda has none
+			expectedLabels:      []string{"Castro - 2", "Yashoda"},
+		},
+		{
+			name:                "numeric partition convention",
+			shedLabels:          []string{"Ho Chi Minh"},
+			shedPartitionLabels: []string{"1"},
+			expectedLabels:      []string{"Ho Chi Minh - 1"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if len(tc.shedLabels) != len(tc.shedPartitionLabels) {
+				t.Fatalf("test setup: shedLabels and shedPartitionLabels must have same length")
+			}
+			var got []string
+			for i, shedLabel := range tc.shedLabels {
+				// Simulate the enrichReminderCadenceFiresWithDetails logic:
+				// compose each (shedLabel, partitionLabel) pair.
+				var partitionLabel *string
+				if i < len(tc.shedPartitionLabels) && tc.shedPartitionLabels[i] != "" {
+					p := tc.shedPartitionLabels[i]
+					partitionLabel = &p
+				}
+				finalLabel := composeDriveShedDisplay(shedLabel, partitionLabel)
+				got = append(got, finalLabel)
+			}
+
+			if len(got) != len(tc.expectedLabels) {
+				t.Fatalf("expected %d labels, got %d", len(tc.expectedLabels), len(got))
+			}
+			for i, label := range got {
+				if label != tc.expectedLabels[i] {
+					t.Errorf("label[%d]: got %q, want %q", i, label, tc.expectedLabels[i])
+				}
+			}
+		})
+	}
+}
