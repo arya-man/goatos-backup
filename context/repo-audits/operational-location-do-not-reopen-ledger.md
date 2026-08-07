@@ -353,3 +353,127 @@ hypothesis was based on a mistaken reading of the data model.
 
 **Do Not Re-open:** This is not a "fixed but deferred" item. The alleged defect never
 existed. Running the repair scripts would corrupt the correct data.
+
+---
+
+## Five Rules From Session 2026-08-07 (Encoding Production Defects)
+
+### RULE-1: An Undivided Shed Whose Name Ends in a Number Is Never Split
+
+**Defect:** A test fixture fed `operationalLocationLabel("Yashoda", "2")` and its expectation was "corrected" to `Yashoda - 2`. The formatter was right for those inputs; the FIXTURE was wrong, and it taught every reader that `Yashoda - 2` is a real label.
+
+**Statement:** `Yashoda 2` is a SHED NAME, whole. It renders `Yashoda 2`, never `Yashoda - 2`. Same for `Ho Chi Minh 1`. The trailing number is part of the name, not a partition. Contrast with a genuinely partitioned shed: `Mandela 1` + `Part 2` renders `Mandela 1 - Part 2`.
+
+**Verification:** Grep for every shed name in `backend/migrations/postgres/` backfill scripts and seed code. Match against the master registry (`wiki/Sheds DB.xlsx`). Names with trailing numbers must be checked: if they appear in `goat_shed_partitions` or `shed_partitions` with a partition suffix (e.g., `Yashoda` + partition `2`), they ARE split; if they appear ONLY in `locations` with NULL partition, they are NOT split.
+
+**Guard Proof:**
+```bash
+# Check seed code for undivided shed names
+grep -n "Yashoda\|Ho Chi Minh" backend/cmd/seed-*/main.go
+# Expected: only whole sheds, no partition assignments
+```
+
+---
+
+### RULE-2: A Required Contract Field Must Be Populated on Every Construction Path, in the Same Change
+
+**Defect:** `operational_location_display` was marked required on `WeighingShedVideos` in OpenAPI while the serving struct had neither field nor composition logic. Clients faithfully rendered null/absent. This happened EIGHT times on this branch.
+
+**Statement:** The checklist is SQL column → scan destination → Go struct field → populated at every construction site → wire DTO → OpenAPI → generated client → a renderer that actually reads it. A gap at ANY hop renders bare location end to end.
+
+**Verification:** For every location-bearing response field added:
+1. Grep the SQL schema for the column
+2. Grep the repository's SELECT clauses for the column in the same query  
+3. Grep the Go struct for the corresponding field
+4. Grep the adapter/builder for an assignment to that field
+5. Grep OpenAPI for the declared response field
+6. Run client generation and confirm the generated client includes the field
+
+If ANY step is missing, the field is a contract lie.
+
+**Guard Proof:**
+```bash
+# Verify every handoff from SQL to OpenAPI
+grep -n "partition_label\|operational_location_display" backend/internal/*/adapters/postgres/repository.go
+grep -n "partition_label\|operational_location_display" backend/internal/*/domain/types.go
+grep -n "PartitionLabel\|OperationalLocationDisplay" contracts/openapi/app-api.yaml
+# All three must have matching fields
+```
+
+---
+
+### RULE-3: Scaffolded Is Not Wired
+
+**Defect:** A partition feature added SQL migration (000125), domain field (`PartitionLabel`), decoder helper (`parsePartitionLabel`), OpenAPI schema (`PartitionLabel`), and client DTOs — yet the serving handler never called the decoder, never populated the field, and real API responses carried null/missing partition. Field-presence tests and pure-formatter unit tests both passed while real output was wrong.
+
+**Statement:** A feature is not done until a test asserts the OUTPUT STRING on a real round trip. Field-presence tests and pure-formatter unit tests are insufficient proof.
+
+**Verification:** Write a round-trip test:
+1. Insert a test shed with partition into the test DB (e.g., `Godel 1 - Part 3`)
+2. Call the API/screen that READS that shed
+3. Assert the RETURNED STRING exactly matches the database round-trip (e.g., `operational_location_display = 'Godel 1 - Part 3'`)
+
+**Guard Proof:**
+```bash
+# Verify the handler calls the decoder/resolver
+grep -A 20 "func.*weighing.*List" backend/internal/weighing/adapters/postgres/repository.go | grep -i partition
+# Expected: a call to oploc.ResolveShed or direct SelectPartition in the query
+```
+
+---
+
+### RULE-4: Verify Data Against the Live Database Before Writing a Repair
+
+**Defect:** ~500 lines of guarded repair SQL, a runbook and a decision process were written against a mistaken reading of STG inferred from code and a stale audit. A single read-only check showed every repair class returns ZERO rows.
+
+**Statement:** Query the live database FIRST; a repair script written from inferred shape is a destructive operation aimed at a problem that may not exist.
+
+**Verification:** Before writing ANY repair:
+1. Run a read-only verification query against STG via the runbook (`docs/runbooks/google-cloud-environments.md`)
+2. Confirm the defect class exists and quantify affected rows
+3. Verify the repair will not delete correct data (dry-run with `RETURNING` to see target rows)
+4. Only after proof of existence, write the repair
+
+**Guard Proof:**
+```bash
+# Example: count orphan partition-catalog rows BEFORE repair authoring
+SELECT COUNT(*) FROM shed_partitions sp
+WHERE NOT EXISTS (
+  SELECT 1 FROM locations l
+  WHERE l.tenant_id = sp.tenant_id
+  AND l.shed_id = sp.shed_id
+);
+# MUST return > 0 before any repair is written; this query returned 0 on 2026-08-07
+```
+
+---
+
+### RULE-5: Confirm the Repo Path Before Editing
+
+**Defect:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `/Users/ravi/mesha/goatos/docs/decisions/operational-location-convention.md` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/operational-location-convention.md`. Work was unusable and had to be discarded.
+
+**Statement:** This workspace has multiple checkouts. An agent who does not confirm its tree will edit the wrong one. "File not found" means check the tree before concluding the code is missing.
+
+**Verification:** For delegated work:
+1. State the absolute repo path in the brief  
+2. Confirm with `git rev-parse --show-toplevel` before the first edit
+3. Expected: `/Users/ravi/mesha/goatos-land` for this repo
+
+**Guard Proof:**
+```bash
+# Every agent must log its repo root at session start
+git rev-parse --show-toplevel
+# Expected output: /Users/ravi/mesha/goatos-land
+```
+
+---
+
+## Settled Model for Partition Documentation
+
+**State this plainly wherever partitions are described**, because it was misread twice today:
+
+- A shed is `Mandela 1` (physical building name)
+- Its pens are partitions `Part 1`, `Part 2`, etc., stored as `partition_label` under that shed
+- **Verified read-only against live STG on 2026-08-07**
+- Partitions are NOT separate shed rows and must NOT be restructured into them
+- The old `Mandela 1 - Part N` location rows are INACTIVE aliases only (legacy data shape)
