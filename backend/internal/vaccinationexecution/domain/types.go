@@ -823,6 +823,11 @@ type ShedDetailResponse struct {
 	Status          ShedStatus       `json:"status"`
 	PlannedSessions []PlannedSession `json:"plannedSessions"`
 	Vaccines        []ShedVaccineRow `json:"vaccines"`
+	// The shed-detail HEADER. Without these it rendered a bare "Mandela 2" while the rows
+	// beneath it already carried the composed location (same class as the verifier queue and
+	// the submit header: the wire type dropped what the layer below had resolved).
+	PartitionLabel             *string `json:"partitionLabel"`
+	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 // ShedAnimalQuery is the keyset-paginated per-shed animal list query (separate endpoint so the large

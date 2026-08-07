@@ -984,22 +984,26 @@ func (s *Service) ShedDetail(ctx context.Context, shedID string, q domain.Operat
 	if err != nil {
 		return domain.ShedDetailResponse{}, false, err
 	}
+	// Agree-or-go-bare, same rule as the rest of this module.
+	shedDetailPartition, shedDetailDisplay := operationalLocationFor(p.ParkID, p.ParkName, p.ShedID, p.ShedName, p.PartitionLabel)
 	return domain.ShedDetailResponse{
-		Source:          domain.SourceAPI,
-		ParkID:          p.ParkID,
-		ParkName:        p.ParkName,
-		ShedID:          p.ShedID,
-		ShedName:        p.ShedName,
-		Animals:         p.Animals,
-		Due:             p.DueAnimals,
-		Done:            p.Animals - p.DueAnimals,
-		Sessions:        p.Sessions,
-		Manager:         manager,
-		Backup:          backup,
-		Capacity:        p.Capacity,
-		Status:          p.Status,
-		PlannedSessions: planned,
-		Vaccines:        aggregateShedVaccines(ops),
+		Source:                     domain.SourceAPI,
+		ParkID:                     p.ParkID,
+		ParkName:                   p.ParkName,
+		ShedID:                     p.ShedID,
+		ShedName:                   p.ShedName,
+		PartitionLabel:             shedDetailPartition,
+		OperationalLocationDisplay: shedDetailDisplay,
+		Animals:                    p.Animals,
+		Due:                        p.DueAnimals,
+		Done:                       p.Animals - p.DueAnimals,
+		Sessions:                   p.Sessions,
+		Manager:                    manager,
+		Backup:                     backup,
+		Capacity:                   p.Capacity,
+		Status:                     p.Status,
+		PlannedSessions:            planned,
+		Vaccines:                   aggregateShedVaccines(ops),
 	}, true, nil
 }
 
