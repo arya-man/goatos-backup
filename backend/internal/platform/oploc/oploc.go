@@ -143,7 +143,25 @@ func (l OperationalLocation) Key() string {
 // Order matters. The prefixed alternative is tried FIRST so "Godel 1 - Part 3" resolves to shed
 // "Godel 1" + partition "Part 3", not shed "Godel" + partition "1" -- a shed name may itself end in
 // a number, and a name carries at most one partition.
-var shedPartitionSuffix = regexp.MustCompile(`(?i)^(.+?)\s*-\s*part\s+(\S+)$|^(.+?)\s+(\d+)$`)
+// ONLY the explicit worded convention is parseable from a NAME. The numeric convention is NOT.
+//
+// "Castro 2" (partition 2 of Castro) and "Mandela 1" (an ordinary shed whose NAME ends in 1) are
+// indistinguishable as strings -- nothing in the text says which is which. The old pattern had a
+// second alternative, `^(.+?)\s+(\d+)$`, that treated ANY trailing number as a partition, so it
+// renamed every numbered shed on the farm:
+//
+//	"Yashoda 2"     -> "Yashoda - 2"
+//	"Mandela 1"     -> "Mandela - 1"
+//	"Godel 1"       -> "Godel - 1"
+//	"Ho Chi Minh 1" -> "Ho Chi Minh - 1"
+//
+// Mandela 1 and Godel 1 are real, undivided sheds. A name-based guess cannot be made safe here;
+// only the shed_partitions CATALOG knows which partitions exist, which is why callers that need
+// the numeric convention resolve it from the catalog (see resolve.go / ShedScopedLocationSQL)
+// rather than from the name.
+//
+// Pinned by numeric_name_check_test.go. Do not add the numeric alternative back.
+var shedPartitionSuffix = regexp.MustCompile(`(?i)^(.+?)\s*-\s*part\s+(\S+)$`)
 
 // SplitShedPartitionName parses a shed catalog display name into its physical shed name and
 // partition label, returning an empty label when the name carries no partition.
