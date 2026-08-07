@@ -167,17 +167,38 @@ func (s *Service) ShedDrilldown(ctx context.Context, q domain.ExecutionQuery) (d
 		stages = append(stages, stage)
 	}
 	sort.Strings(stages)
-	// Compose the shed header's operational location from the first row's partition
-	// (all rows for the same ShedID must have the same resolved partition).
+	// The header obeys the SAME agree-or-go-bare rule the rest of this module applies:
+	// compose a partition ONLY when every row here resolves to the same real one. Taking
+	// rows[0] verbatim was wrong -- GetShedDrilldown filters by shed_id ONLY, and a real
+	// shed genuinely spans several partitions (migration 000112 records Yashoda with
+	// partitions 1,2,3,4,6,7,8,9,10), so the header would have shown whichever partition
+	// happened to sort first as if it were the whole shed's location. Spanning several
+	// means the shed itself is the honest answer.
+	headerPartition := ""
+	for i, r := range rows {
+		label := ""
+		if r.PartitionLabel != nil {
+			label = strings.TrimSpace(*r.PartitionLabel)
+		}
+		if !oploc.IsPartitioned(label) {
+			headerPartition = ""
+			break
+		}
+		if i == 0 {
+			headerPartition = label
+			continue
+		}
+		if !oploc.SamePartition(headerPartition, label) {
+			headerPartition = ""
+			break
+		}
+	}
 	headerLoc := oploc.OperationalLocation{
 		ParkID:         head.ParkID,
 		ParkName:       head.ParkName,
 		ShedID:         head.ShedID,
 		ShedName:       head.ShedName,
-		PartitionLabel: "",
-	}
-	if head.PartitionLabel != nil {
-		headerLoc.PartitionLabel = *head.PartitionLabel
+		PartitionLabel: headerPartition,
 	}
 	return domain.ShedDrilldown{
 		ParkID:                     head.ParkID,

@@ -154,12 +154,12 @@ export function VaccinationStatusMatrix({
                       <td>
                         {cohortHref ? (
                           <LocalOverlayLink href={cohortHref} className="celllink" scroll={false} title={copy(pageContract, "section.status_matrix.row_hint")}>
-                            <b>{`${c.stage} · ${c.shedName}`}</b>
+                            <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                             <div className="muted small">{c.parkName}</div>
                           </LocalOverlayLink>
                         ) : (
                           <>
-                            <b>{`${c.stage} · ${c.shedName}`}</b>
+                            <b>{`${c.stage} · ${c.operationalLocationDisplay || c.shedName}`}</b>
                             <div className="muted small">{c.parkName}</div>
                           </>
                         )}
