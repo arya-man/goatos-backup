@@ -2018,8 +2018,13 @@ select:disabled { opacity: .45; }
 .wbars::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 .wbar{display:grid;grid-template-columns:132px minmax(0,1fr) 68px;align-items:center;gap:10px;font-size:12.5px}
 .wbar .wbl{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);font-weight:600}
-.wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden}
+.wbar .wbt{background:var(--panel-2);border-radius:5px;height:18px;overflow:hidden;position:relative}
 .wbar .wbt i{display:block;height:100%;border-radius:5px;background:var(--brand)}
+/* A loss is red and sits left of the zero rule, so it reads as going backwards
+   rather than as a short green bar. */
+.wbar .wbt i.neg{background:var(--danger)}
+.wbar .wbzero{position:absolute;top:0;bottom:0;width:1px;background:var(--muted);opacity:.65}
+.wbar .wbv.neg{color:var(--danger)}
 .wbar .wbv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 @media(max-width:900px){.wbar{grid-template-columns:96px minmax(0,1fr) 62px}}
 

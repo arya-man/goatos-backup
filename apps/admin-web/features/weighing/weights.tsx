@@ -395,9 +395,7 @@ export async function WeighingWeightsPage({
             data={shedMetric === "adg" ? gainChartData : chartData}
             emptyLabel={
               shedMetric === "adg"
-                ? gainChartData.length > 0 && gainChartData.every((s2) => s2.value <= 0)
-                  ? copy(pageContract, "empty.gain.all_losing")
-                  : copy(pageContract, "empty.metric.no_gain")
+                ? copy(pageContract, "empty.metric.no_gain")
                 : copy(pageContract, "empty.no_data.body")
             }
             unit={shedMetric === "adg" ? "g" : "kg"}
