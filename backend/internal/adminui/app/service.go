@@ -2419,6 +2419,11 @@ func pageSpecificCopy(id string) map[string]string {
 			"error.disease_exists":            "A disease with that name already exists.",
 			"error.not_a_draft":               "Only a draft can be published or discarded.",
 			"error.protocol_in_use":           "This protocol is being used by an open case.",
+			// Says what happened and what to do. It must NOT claim the list "has been refreshed":
+			// the dead version is still in the URL, so the notice returns on every reload until the
+			// author leaves it. Telling them it self-healed when it has not is worse than silence.
+			"error.stale_version": "That version is no longer there \u2014 it was published or discarded. Everything below is up to date.",
+			"action.back_to_list": "Back to the list",
 		}
 	case "feed-config":
 		return map[string]string{
