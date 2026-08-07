@@ -52,10 +52,26 @@ export type HealthConfigActionResult = {
   messageKey: string;
   /** Backend-authored error detail (already backend-owned text), shown verbatim when present. */
   detail?: string;
+  /**
+   * The backend error code, so the caller can react to a SPECIFIC failure rather than just showing
+   * text. `not_found` is the one that matters: it means the version this screen is showing was
+   * deleted or published by someone else, and the right response is to resync the page, not to
+   * strand the author on a section for a row that is gone.
+   */
+  code?: string;
   /** Per-field errors from the backend's validation pass, in its order. */
   fieldErrors?: HealthConfigFieldError[];
   /** The write outcome (created | saved | unchanged | published | discarded) on success. */
   outcome?: string;
+  /**
+   * The version this write left in place, for the caller to navigate to.
+   *
+   * It is RETURNED rather than redirected to from inside the action. A server action invoked from
+   * an event handler inside startTransition swallows `redirect()`: NEXT_REDIRECT is thrown into the
+   * awaiting async callback and never reaches React, so the draft opened and the browser stayed
+   * put -- which is exactly the "Edit does nothing" bug. The client navigates instead.
+   */
+  versionId?: string;
 };
 
 const HEALTH_CONFIG_PATH = "/health/config";
@@ -73,6 +89,8 @@ function failureKeyFor(code: string | undefined): string {
       return "error.protocol_in_use";
     case "invalid_protocol":
       return "error.validation_title";
+    case "not_found":
+      return "error.stale_version";
     default:
       return "action.error_backend";
   }
@@ -139,6 +157,7 @@ export async function createDisease(formData: FormData): Promise<HealthConfigAct
     return {
       ok: false,
       messageKey: failureKeyFor(result.error.code),
+      code: result.error.code,
       detail: result.error.message,
       fieldErrors: fieldErrorsFrom(result.error),
     };
@@ -147,7 +166,13 @@ export async function createDisease(formData: FormData): Promise<HealthConfigAct
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }
 
-/** Opens (or returns) the draft for one protocol, then re-renders the page with it selected. */
+/**
+ * Opens (or returns) the draft for one protocol and RETURNS its id so the caller can select it.
+ *
+ * Selecting it is not a nicety. The editor renders from the `hc_version` search param, so a draft
+ * that never reaches the URL is invisible: opening one and merely revalidating left the author on
+ * the catalog with a "Draft open" chip and no editor, and "Edit" appeared to do nothing.
+ */
 export async function openDraft(formData: FormData): Promise<HealthConfigActionResult> {
   const diseaseKey = readString(formData, "disease_key");
   const ageBand = readString(formData, "age_band");
@@ -159,12 +184,17 @@ export async function openDraft(formData: FormData): Promise<HealthConfigActionR
     return {
       ok: false,
       messageKey: failureKeyFor(result.error.code),
+      code: result.error.code,
       detail: result.error.message,
       fieldErrors: fieldErrorsFrom(result.error),
     };
   }
   revalidatePath(HEALTH_CONFIG_PATH);
-  return { ok: true, messageKey: "action.success_message" };
+  return {
+    ok: true,
+    messageKey: "action.success_message",
+    versionId: result.data.protocol_version_id,
+  };
 }
 
 /**
@@ -209,6 +239,7 @@ export async function saveDraft(formData: FormData): Promise<HealthConfigActionR
     return {
       ok: false,
       messageKey: failureKeyFor(result.error.code),
+      code: result.error.code,
       detail: result.error.message,
       fieldErrors: fieldErrorsFrom(result.error),
     };
@@ -225,6 +256,7 @@ export async function publishDraft(formData: FormData): Promise<HealthConfigActi
     return {
       ok: false,
       messageKey: failureKeyFor(result.error.code),
+      code: result.error.code,
       detail: result.error.message,
       fieldErrors: fieldErrorsFrom(result.error),
     };
@@ -233,6 +265,11 @@ export async function publishDraft(formData: FormData): Promise<HealthConfigActi
   return { ok: true, messageKey: "action.success_message", outcome: result.data.outcome };
 }
 
+/**
+ * Discards the draft. The caller DESELECTS it afterwards: the row is deleted, so leaving
+ * `hc_version` pointing at it would leave the author staring at a section for a version that no
+ * longer exists.
+ */
 export async function discardDraft(formData: FormData): Promise<HealthConfigActionResult> {
   const versionId = readString(formData, "protocol_version_id");
   const idempotencyKey = readString(formData, "idempotency_key");
@@ -241,6 +278,7 @@ export async function discardDraft(formData: FormData): Promise<HealthConfigActi
     return {
       ok: false,
       messageKey: failureKeyFor(result.error.code),
+      code: result.error.code,
       detail: result.error.message,
       fieldErrors: fieldErrorsFrom(result.error),
     };

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
-import { copy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, tableLabels, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { controlEnabled, control } from "@/lib/admin-ui-contract";
 import {
   firstAuthRequiredError,
@@ -121,6 +121,14 @@ export async function HealthConfigPage({
   const catalog = catalogResult.ok ? catalogResult.data : null;
   const detail: HealthConfigProtocolDetail | null =
     detailResult && detailResult.ok ? detailResult.data : null;
+  // A selected version that no longer resolves. This is a REAL state, not an edge case: the author
+  // discards a draft, or a second tab publishes it, and this tab is left holding a ?hc_version=
+  // that points at nothing. The server owns the recovery so it works on a cold load of that URL
+  // too -- the dead section is simply not rendered, and the notice below says why. Any OTHER
+  // failure (a 500, the backend down) still surfaces as an error band rather than being read as
+  // "this version is gone".
+  const selectedVersionIsGone =
+    Boolean(selectedVersionId) && detailResult !== null && !detailResult.ok && detailResult.error.kind === "not_found";
 
   const mayWrite = controlEnabled(pageContract, "add_disease", true);
   const writeDisabledReason = control(pageContract, "add_disease").disabled_reason || "";
@@ -178,6 +186,24 @@ export async function HealthConfigPage({
       </div>
 
       <SectionError result={catalogResult} pageContract={pageContract} />
+
+      {selectedVersionIsGone ? (
+        <div className="alert" style={{ marginBottom: 16 }}>
+          <AlertTriangle className="ic" aria-hidden="true" />
+          {/* Same reason as FieldErrors: a notice about a failure must not be able to fail. */}
+          <div>
+            {optionalCopy(pageContract, "error.stale_version") ??
+              copy(pageContract, "action.error_backend")}{" "}
+            {/* The dead ?hc_version= is still in the URL, so this notice comes back on every
+                reload until the author leaves it. A plain link out is the honest fix: a server
+                component cannot rewrite the address bar, and the client-side navigation attempts
+                that would were silently swallowed by the router. */}
+            <a href={PAGE_PATH} style={{ textDecoration: "underline", whiteSpace: "nowrap" }}>
+              {optionalCopy(pageContract, "action.back_to_list") ?? copy(pageContract, "action.back")}
+            </a>
+          </div>
+        </div>
+      ) : null}
 
       {/* ------------------------------------------------------------------ the protocol catalog */}
       <section className="card" style={{ marginBottom: 16 }}>
@@ -252,6 +278,8 @@ export async function HealthConfigPage({
                         action={openDraft}
                         fields={{ disease_key: row.disease_key, age_band: row.age_band }}
                         labelKey="action.edit_protocol"
+                        navigateOnSuccess="selected-version"
+                        basePath={PAGE_PATH}
                         enabled={mayWrite}
                         disabledReason={writeDisabledReason}
                       />
@@ -341,6 +369,8 @@ export async function HealthConfigPage({
                     fields={{ protocol_version_id: detail.protocol_version_id }}
                     labelKey="action.discard_draft"
                     confirmKey="section.history.note"
+                    navigateOnSuccess="base"
+                    basePath={PAGE_PATH}
                     enabled={mayWrite}
                     disabledReason={writeDisabledReason}
                   />

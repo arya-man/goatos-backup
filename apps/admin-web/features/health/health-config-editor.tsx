@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 
-import { copy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
+import { copy, optionalCopy, optionGroup, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import type { HealthConfigProtocolDetail, HealthConfigStep } from "@/lib/api/server";
 import type { HealthConfigActionResult } from "./health-config-actions";
 import { afterSubmit, CLOSED_STATE, openIntent, type AuthoringIdempotencyState } from "@/lib/authoring-idempotency";
@@ -134,10 +135,17 @@ function FieldErrors({
   const scoped = (result.fieldErrors ?? []).filter(
     (fieldError) => !prefix || fieldError.field.startsWith(prefix),
   );
+  // `optionalCopy`, never `copy`, for the message: `copy()` THROWS on a key the contract does not
+  // carry, and this component only renders when something already went wrong. A backend that
+  // returns a code this build has no copy key for would then crash the whole screen with a runtime
+  // error INSTEAD OF showing the failure -- turning a recoverable error into a white page. The
+  // error renderer must be the one thing that cannot itself fail.
+  const headline =
+    optionalCopy(pageContract, result.messageKey) ?? copy(pageContract, "action.error_backend");
   return (
     <div className="alert" style={{ marginTop: 10 }}>
       <div>
-        <b>{copy(pageContract, result.messageKey)}</b>
+        <b>{headline}</b>
         {result.detail ? <div className="small muted">{result.detail}</div> : null}
         {scoped.length > 0 ? (
           <ul className="small" style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.6 }}>
@@ -243,6 +251,8 @@ export function ProtocolActionButton({
   disabledReason,
   primary,
   confirmKey,
+  navigateOnSuccess,
+  basePath,
 }: {
   pageContract: AdminUiPageContract;
   action: SubmitAction;
@@ -253,7 +263,23 @@ export function ProtocolActionButton({
   primary?: boolean;
   /** When set, the button asks once before running. Used for publish and discard. */
   confirmKey?: string;
+  /**
+   * Where to go after a successful write. A serializable ENUM, not a callback: this component is
+   * rendered from a Server Component, and React refuses to pass a function across that boundary.
+   *
+   *   "selected-version" -- select the version the write returned (Edit -> show the draft)
+   *   "base"             -- deselect (Discard -> the version no longer exists)
+   *
+   * The navigation lives here rather than as a `redirect()` inside the server action, and that is
+   * load-bearing: a server action invoked from an event handler inside startTransition swallows
+   * NEXT_REDIRECT, so the action succeeded and the browser never moved. That was the "Edit opens a
+   * draft but nothing appears" bug.
+   */
+  navigateOnSuccess?: "selected-version" | "base";
+  /** The page path both navigation targets are built from. */
+  basePath?: string;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<HealthConfigActionResult | null>(null);
   const [armed, setArmed] = useState(false);
@@ -268,6 +294,26 @@ export function ProtocolActionButton({
           const outcome = await action(formData);
           setResult(outcome);
           setArmed(false);
+          if (outcome.ok && navigateOnSuccess && basePath) {
+            if (navigateOnSuccess === "base") {
+              router.push(basePath);
+            } else if (outcome.versionId) {
+              router.push(`${basePath}?hc_version=${encodeURIComponent(outcome.versionId)}`);
+            }
+          }
+          // The version this screen is showing is GONE -- someone else published or discarded it,
+          // or it was removed out from under this tab. Refresh so the server re-renders: the page
+          // itself handles a missing version (see health-config.tsx) by dropping the dead section
+          // and showing a plain notice above the catalog.
+          //
+          // A refresh, NOT a router.replace(basePath). Replacing to the same route is a soft
+          // navigation that Next resolves without clearing the query string, so the stale
+          // ?hc_version= survived and a reload resurrected the error. Letting the server own the
+          // missing-version case means it also renders correctly on a cold load of that URL,
+          // which no amount of client navigation can achieve.
+          if (!outcome.ok && outcome.code === "not_found") {
+            router.refresh();
+          }
         });
       }}
       style={{ display: "inline-flex", flexDirection: "column", gap: 6 }}
@@ -406,144 +452,157 @@ export function DraftEditor({
         </p>
       </div>
 
-      <div className="bd" style={{ padding: 0, overflowX: "auto" }}>
-        <table className="feed-table" aria-label={copy(pageContract, "section.steps.aria")}>
-          <thead>
-            <tr>
-              <th>{copy(pageContract, "label.day_no")}</th>
-              <th>{copy(pageContract, "label.session")}</th>
-              <th>{copy(pageContract, "label.record_type")}</th>
-              <th>{copy(pageContract, "label.medicine_name")}</th>
-              <th>{copy(pageContract, "label.dosage_text")}</th>
-              <th>{copy(pageContract, "label.dosage_denominator")}</th>
-              <th>{copy(pageContract, "label.medicine_route")}</th>
-              <th>{copy(pageContract, "label.instruction")}</th>
-              <th>{copy(pageContract, "label.critical_action_type")}</th>
-              <th aria-label={copy(pageContract, "action.remove_step")} />
-            </tr>
-          </thead>
-          <tbody>
-            {steps.length === 0 ? (
-              <tr>
-                <td colSpan={10}>
-                  <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
-                    {copy(pageContract, "empty.steps")}
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              steps.map((step) => {
-                const isMedicine = step.record_type === "medication";
-                const isCritical = step.record_type === "critical_action";
-                return (
-                  <tr key={step.key}>
-                    <td>
+      {/* ONE READABLE BLOCK PER STEP, not a 10-column table.
+          A treatment step has fields that only apply to its own kind: a medicine step has a
+          dosage and a route and no instruction, an action has an instruction and none of the
+          rest. Laying all ten columns side by side made every row mostly empty cells and pushed
+          the instruction — the longest and most important field on an action step — off the
+          right edge behind a horizontal scrollbar. Here each step shows only its own fields,
+          the instruction gets full width, and nothing scrolls sideways. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {steps.length === 0 ? (
+          <div className="muted small" style={{ padding: "18px 4px", textAlign: "center" }}>
+            {copy(pageContract, "empty.steps")}
+          </div>
+        ) : (
+          steps.map((step, index) => {
+            const isMedicine = step.record_type === "medication";
+            const isCritical = step.record_type === "critical_action";
+            return (
+              <div
+                key={step.key}
+                style={{
+                  border: "1px solid var(--line)",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 10,
+                }}
+              >
+                {/* WHEN: day, session and kind — the three things that place a step in the course. */}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                  <span className="tag t-mut" style={{ alignSelf: "center" }}>
+                    {index + 1}
+                  </span>
+                  <label className="fld" style={{ width: 84 }}>
+                    <span>{copy(pageContract, "label.day_no")}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={step.day_no}
+                      onChange={(event) => updateStep(step.key, { day_no: event.target.value })}
+                    />
+                  </label>
+                  <label className="fld" style={{ minWidth: 150 }}>
+                    <span>{copy(pageContract, "label.session")}</span>
+                    <select
+                      value={step.session}
+                      onChange={(event) => updateStep(step.key, { session: event.target.value })}
+                    >
+                      <OptionList options={sessions} />
+                    </select>
+                  </label>
+                  <label className="fld" style={{ minWidth: 170 }}>
+                    <span>{copy(pageContract, "label.record_type")}</span>
+                    <select
+                      value={step.record_type}
+                      onChange={(event) => {
+                        const recordType = event.target.value;
+                        // Clearing the fields that do not belong to the new kind is not a
+                        // convenience: the database CHECK constraints reject a medicine step
+                        // carrying a handoff type, and a critical step carrying a medicine.
+                        updateStep(step.key, {
+                          record_type: recordType,
+                          ...(recordType === "medication"
+                            ? { critical_action_type: "" }
+                            : { medicine_name: "", dosage_text: "", dosage_denominator: "", medicine_route: "" }),
+                          ...(recordType === "critical_action" ? {} : { critical_action_type: "" }),
+                        });
+                      }}
+                    >
+                      <OptionList options={recordTypes} />
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style={{ marginLeft: "auto" }}
+                    title={copy(pageContract, "action.remove_step")}
+                    onClick={() => setSteps((prev) => prev.filter((row) => row.key !== step.key))}
+                  >
+                    <Trash2 className="ic" aria-hidden="true" />
+                    {copy(pageContract, "action.remove_step")}
+                  </button>
+                </div>
+
+                {/* WHAT: only the fields this kind of step actually carries. */}
+                {isMedicine ? (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <label className="fld" style={{ flex: "1 1 260px", minWidth: 200 }}>
+                      <span>{copy(pageContract, "label.medicine_name")}</span>
                       <input
                         type="text"
-                        inputMode="numeric"
-                        style={{ width: 56 }}
-                        value={step.day_no}
-                        onChange={(event) => updateStep(step.key, { day_no: event.target.value })}
-                      />
-                    </td>
-                    <td>
-                      <select
-                        value={step.session}
-                        onChange={(event) => updateStep(step.key, { session: event.target.value })}
-                      >
-                        <OptionList options={sessions} />
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        value={step.record_type}
-                        onChange={(event) => {
-                          const recordType = event.target.value;
-                          // Clearing the fields that do not belong to the new type is not a
-                          // convenience: the database CHECK constraints reject a medicine step
-                          // carrying a handoff type, and a critical step carrying a medicine.
-                          updateStep(step.key, {
-                            record_type: recordType,
-                            ...(recordType === "medication"
-                              ? { critical_action_type: "" }
-                              : { medicine_name: "", dosage_text: "", dosage_denominator: "", medicine_route: "" }),
-                            ...(recordType === "critical_action" ? {} : { critical_action_type: "" }),
-                          });
-                        }}
-                      >
-                        <OptionList options={recordTypes} />
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        type="text"
-                        disabled={!isMedicine}
                         value={step.medicine_name}
                         onChange={(event) => updateStep(step.key, { medicine_name: event.target.value })}
                       />
-                    </td>
-                    <td>
+                    </label>
+                    <label className="fld" style={{ width: 110 }}>
+                      <span>{copy(pageContract, "label.dosage_text")}</span>
                       <input
                         type="text"
-                        style={{ width: 84 }}
-                        disabled={!isMedicine}
+                        inputMode="decimal"
                         value={step.dosage_text}
                         onChange={(event) => updateStep(step.key, { dosage_text: event.target.value })}
                       />
-                    </td>
-                    <td>
+                    </label>
+                    <label className="fld" style={{ width: 130 }}>
+                      <span>{copy(pageContract, "label.dosage_denominator")}</span>
                       <select
-                        disabled={!isMedicine}
                         title={copy(pageContract, "note.dosage_unit")}
                         value={step.dosage_denominator}
                         onChange={(event) => updateStep(step.key, { dosage_denominator: event.target.value })}
                       >
                         <OptionList options={denominators} includeBlank />
                       </select>
-                    </td>
-                    <td>
+                    </label>
+                    <label className="fld" style={{ width: 170 }}>
+                      <span>{copy(pageContract, "label.medicine_route")}</span>
                       <select
-                        disabled={!isMedicine}
                         value={step.medicine_route}
                         onChange={(event) => updateStep(step.key, { medicine_route: event.target.value })}
                       >
                         <OptionList options={routes} includeBlank />
                       </select>
-                    </td>
-                    <td>
+                    </label>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    <label className="fld" style={{ flex: "1 1 100%" }}>
+                      <span>{copy(pageContract, "label.instruction")}</span>
                       <textarea
                         rows={2}
-                        style={{ minWidth: 220 }}
-                        disabled={isMedicine}
                         value={step.instruction}
                         onChange={(event) => updateStep(step.key, { instruction: event.target.value })}
                       />
-                    </td>
-                    <td>
-                      <select
-                        disabled={!isCritical}
-                        value={step.critical_action_type}
-                        onChange={(event) => updateStep(step.key, { critical_action_type: event.target.value })}
-                      >
-                        <OptionList options={criticalTypes} includeBlank />
-                      </select>
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn sm"
-                        title={copy(pageContract, "action.remove_step")}
-                        onClick={() => setSteps((prev) => prev.filter((row) => row.key !== step.key))}
-                      >
-                        <Trash2 className="ic" aria-hidden="true" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                    </label>
+                    {isCritical ? (
+                      <label className="fld" style={{ minWidth: 260 }}>
+                        <span>{copy(pageContract, "label.critical_action_type")}</span>
+                        <select
+                          value={step.critical_action_type}
+                          onChange={(event) => updateStep(step.key, { critical_action_type: event.target.value })}
+                        >
+                          <OptionList options={criticalTypes} includeBlank />
+                        </select>
+                      </label>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
