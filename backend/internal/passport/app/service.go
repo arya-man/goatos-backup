@@ -11,6 +11,7 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -25,15 +26,21 @@ type ObligationReader interface {
 	ListOpenByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]obldomain.OpenObligation, error)
 }
 
+// LocationResolver resolves a shed to its operational location (name + partition).
+type LocationResolver interface {
+	ResolveShedLocation(ctx context.Context, tenantID, shedID string) (oploc.OperationalLocation, error)
+}
+
 // Service builds a goat passport from the vaccination + obligation reads.
 type Service struct {
 	vacc VaccinationReader
 	obl  ObligationReader
+	locResolver LocationResolver
 }
 
-// NewService wires the readers.
-func NewService(vacc VaccinationReader, obl ObligationReader) *Service {
-	return &Service{vacc: vacc, obl: obl}
+// NewService wires the readers and location resolver.
+func NewService(vacc VaccinationReader, obl ObligationReader, locResolver LocationResolver) *Service {
+	return &Service{vacc: vacc, obl: obl, locResolver: locResolver}
 }
 
 // DueItem is one open obligation in the passport (API DTO).
@@ -51,6 +58,10 @@ type DueItem struct {
 	DoseCode          string     `json:"dose_code"`
 	VaccineLabel      string     `json:"vaccine_label"`
 	DisplayLabel      string     `json:"display_label"`
+	ShedID            string     `json:"shed_id,omitempty"`
+	ShedName          string     `json:"shed_name,omitempty"`
+	PartitionLabel    string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
 }
 
 // HistoryItem is one administered/verified dose in the passport (API DTO).
@@ -67,6 +78,10 @@ type HistoryItem struct {
 	DisplayLabel    string     `json:"display_label"`
 	AdverseReaction bool       `json:"adverse_reaction"`
 	WithdrawalUntil *time.Time `json:"withdrawal_until,omitempty"`
+	ShedID          string     `json:"shed_id,omitempty"`
+	ShedName        string     `json:"shed_name,omitempty"`
+	PartitionLabel  string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
 }
 
 // LastDose is a goat's most recent accepted administration (API DTO).
@@ -108,8 +123,10 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 		OpenObligations:    make([]DueItem, 0, len(open)),
 		VaccinationHistory: make([]HistoryItem, 0, len(history)),
 	}
+	// Cache location resolutions to avoid duplicate queries for the same shed
+	locCache := make(map[string]oploc.OperationalLocation)
 	for _, o := range open {
-		p.OpenObligations = append(p.OpenObligations, DueItem{
+		due := DueItem{
 			ObligationID:      o.ObligationID,
 			ProtocolVersionID: o.ProtocolVersionID,
 			RuleID:            o.RuleID,
@@ -123,7 +140,29 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 			DoseCode:          o.DoseCode,
 			VaccineLabel:      o.VaccineLabel,
 			DisplayLabel:      vaccineDisplayLabel(o.VaccineLabel, o.DoseCode, o.Sequence),
-		})
+		}
+		// Populate location if obligation is shed-scoped
+		if o.ScopeType == "shed" && o.ScopeID != "" {
+			due.ShedID = o.ScopeID
+			// Check cache first
+			loc, cached := locCache[o.ScopeID]
+			if !cached {
+				// Resolve and cache (cache prevents duplicate queries for same shed)
+				// scale-guard:ignore: cached resolution + passportLimit=200 bounded + low-volume read-only aggregator
+				resolved, err := s.locResolver.ResolveShedLocation(ctx, tenantID, o.ScopeID)
+				if err == nil {
+					loc = resolved
+					locCache[o.ScopeID] = loc
+				} else {
+					// On error, leave location fields empty; degradation is acceptable
+					loc = oploc.OperationalLocation{}
+				}
+			}
+			due.ShedName = loc.ShedName
+			due.PartitionLabel = loc.PartitionLabel
+			due.OperationalLocationDisplay = loc.Display()
+		}
+		p.OpenObligations = append(p.OpenObligations, due)
 	}
 	if len(p.OpenObligations) > 0 {
 		next := p.OpenObligations[0] // earliest due first
