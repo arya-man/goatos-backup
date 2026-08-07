@@ -3714,6 +3714,11 @@ func (r *Repository) UpsertOperatorAssignmentConfig(ctx context.Context, tenantI
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
+	// Ensure SelectedOperatorIDs is never nil (it must be a non-nil slice for the database)
+	if cfg.SelectedOperatorIDs == nil {
+		cfg.SelectedOperatorIDs = []string{}
+	}
+
 	// Begin transaction for atomic config write + outbox enqueue
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
