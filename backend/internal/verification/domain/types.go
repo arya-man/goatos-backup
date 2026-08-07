@@ -111,7 +111,13 @@ type Item struct {
 	ShedID         *string
 	ShedLabel      *string // backend-owned display label for ShedID
 	PartitionLabel *string // raw partition label ('1', 'Part 3'); NULL for non-partitioned sheds
-	OperationalLocationDisplay *string // backend-owned composed location display ("Castro 2", "Godel 1 - Part 3")
+	// NOTE: there is deliberately NO OperationalLocationDisplay field here. The composed
+	// display is built at the WIRE boundary (adapters/http/handler.go) from ShedLabel +
+	// PartitionLabel via oploc.Display(), so there is one composition site rather than a
+	// domain field that every future construction path must remember to populate. A field
+	// declared here and left nil reads to the next author as already wired -- that exact
+	// shape (scaffolded, never populated) is why this module carried a partition column,
+	// a decoder, an OpenAPI field and two client DTOs while the repository touched none of it.
 	ParkID         *string
 	ParkLabel      *string // backend-owned display label for ParkID
 	CapturedAt     time.Time
