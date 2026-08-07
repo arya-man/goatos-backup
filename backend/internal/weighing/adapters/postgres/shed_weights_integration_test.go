@@ -187,9 +187,11 @@ func TestShedWeightsSummaryCountsShedsBeyondReturnedRowCap(t *testing.T) {
 
 	execWeighingTestSQL(t, ctx, pool, `
 WITH extra AS (
+  -- lpad, not format('%012s', ...): Postgres pads %s to width with SPACES, so the node segment
+  -- came out as '           1' and the ::uuid cast raised 22P02 before any row was inserted.
   SELECT gs,
-         format('00000000-0000-4000-8000-%012s', gs::text)::uuid AS location_id,
-         format('00000000-0000-4000-9000-%012s', gs::text)::uuid AS campaign_shed_id
+         ('00000000-0000-4000-8000-' || lpad(gs::text, 12, '0'))::uuid AS location_id,
+         ('00000000-0000-4000-9000-' || lpad(gs::text, 12, '0'))::uuid AS campaign_shed_id
   FROM generate_series(1, 301) gs
 ),
 new_locations AS (
@@ -206,7 +208,10 @@ INSERT INTO weighing_campaign_sheds (
 SELECT campaign_shed_id, $3::uuid, $1::uuid, location_id, 'shed',
        format('Limit Shed %03s', gs), 'individual_animal', $4::uuid, 0
 FROM extra
-ON CONFLICT (tenant_id, campaign_shed_id) DO NOTHING`,
+-- weighing_campaign_sheds is unique on campaign_shed_id ALONE (its primary key); there is no
+-- (tenant_id, campaign_shed_id) constraint for ON CONFLICT to infer, so naming the pair made this
+-- fixture raise 42P10 and the test could never reach its assertion.
+ON CONFLICT (campaign_shed_id) DO NOTHING`,
 		repoTenant, repoPark, repoCampaign, repoOperator)
 
 	from, to := shedWeightsWindow()
