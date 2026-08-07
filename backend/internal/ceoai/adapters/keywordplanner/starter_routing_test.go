@@ -12,6 +12,7 @@ func TestStarterQuestionsRouteToAnswerableTools(t *testing.T) {
 		tool  string
 		route domain.Route
 	}{
+		"How many animals missed vaccination across all parks?": {"vaccination_overdue", domain.RouteCube},
 		"How many active goats and sheep do we have?":           {"active_animals", domain.RouteCube},
 		"What vaccinations are overdue by shed?":                {"vaccination_overdue", domain.RouteCube},
 		"How many vaccinations are due today?":                  {"vaccination_due", domain.RouteCube},

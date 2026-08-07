@@ -16,6 +16,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	ceodomain "github.com/vgoats/goatos/backend/internal/ceoai/domain"
@@ -139,7 +140,9 @@ func (r *locationsParkResolver) ResolveParkID(ctx context.Context, tenantID, par
 func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 	return func(ctx context.Context, tenantID string, params map[string]any) ([]ceodomain.Fact, error) {
 		q := countsdomain.CountsBreakdownQuery{TenantID: tenantID, Limit: 10}
-		if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
+		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
+			q.ParkID = &parkID
+		} else if parkLabel, ok := params["park_label"].(string); ok && parkLabel != "" {
 			parkID, found, err := resolver.ResolveParkID(ctx, tenantID, parkLabel)
 			if err != nil {
 				return nil, err
@@ -147,6 +150,9 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			if !found {
 				return nil, fmt.Errorf("park_label %q could not be resolved", parkLabel)
 			}
+			q.ParkID = &parkID
+		}
+		if parkID, ok := params["park_id"].(string); ok && parkID != "" {
 			q.ParkID = &parkID
 		}
 		if shedID, ok := params["shed_id"].(string); ok && shedID != "" {
@@ -174,6 +180,12 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 			Label: "Active animals",
 			Value: fmt.Sprintf("%d", result.TotalCount),
 		}}
+		if wantsSpeciesSplit(params) {
+			goats, sheep := speciesCountsFromBreeds(result.Charts.Breed)
+			facts = append(facts, ceodomain.Fact{Label: "Goats", Value: fmt.Sprintf("%d", goats)})
+			facts = append(facts, ceodomain.Fact{Label: "Sheep", Value: fmt.Sprintf("%d", sheep)})
+			return facts, nil
+		}
 		if result.TotalKids > 0 || result.TotalAdults > 0 {
 			facts = append(facts, ceodomain.Fact{
 				Label: "Age bands",
@@ -197,6 +209,27 @@ func buildCountsReader(svc countsBreakdownLister, resolver parkResolver) func(ct
 		}
 		return facts, nil
 	}
+}
+
+func wantsSpeciesSplit(params map[string]any) bool {
+	if groupBy, ok := params["group_by"].(string); ok && groupBy == "species" {
+		return true
+	}
+	if dims, ok := params["dimensions"].(string); ok && dims == "species" {
+		return true
+	}
+	return false
+}
+
+func speciesCountsFromBreeds(points []countsdomain.CountsBreakdownSeriesPoint) (goats int64, sheep int64) {
+	for _, point := range points {
+		if strings.Contains(strings.ToLower(point.Label), "sheep") {
+			sheep += point.Count
+		} else {
+			goats += point.Count
+		}
+	}
+	return goats, sheep
 }
 
 // buildProcurementReader maps ONLY "status" -- the sole advertised param
@@ -342,6 +375,8 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 		}
 		facts := make([]ceodomain.Fact, 0, len(result.Rows)+1)
 		totalAnimals, totalDue, totalDone, totalSessions := 0, 0, 0, 0
+		metricLabel := vaccinationMetricLabel(params)
+		aggregateTotal := stringParam(params, "aggregate_total") == "true"
 		for _, row := range result.Rows {
 			totalAnimals += row.Animals
 			totalDue += row.Due
@@ -350,6 +385,14 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			scope := row.ParkName
 			if row.ShedName != "" {
 				scope = scope + " / " + row.ShedName
+			}
+			if metricLabel != "" {
+				facts = append(facts, ceodomain.Fact{
+					Label: metricLabel,
+					Value: fmt.Sprintf("%d", row.Due),
+					Scope: scope,
+				})
+				continue
 			}
 			facts = append(facts, ceodomain.Fact{
 				Label: "Vaccination shed",
@@ -363,8 +406,43 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			Value: fmt.Sprintf("Sheds: %d, Animals: %d, Due: %d, Done: %d, Sessions: %d",
 				len(result.Rows), totalAnimals, totalDue, totalDone, totalSessions),
 		}}, facts...)
+		if metricLabel != "" && aggregateTotal {
+			return []ceodomain.Fact{{
+				Label: metricLabel,
+				Value: fmt.Sprintf("%d", totalDue),
+				Scope: "all parks",
+			}}, nil
+		}
 		return facts, nil
 	}
+}
+
+func vaccinationMetricLabel(params map[string]any) string {
+	switch stringParam(params, "vaccination_intent") {
+	case "missed":
+		return "Vaccinations missed"
+	case "overdue":
+		return "Vaccinations overdue"
+	}
+	tool, _ := params["_fallback_from_tool"].(string)
+	switch tool {
+	case "vaccination_overdue":
+		return "Vaccinations overdue"
+	case "vaccination_due", "vaccination_due_today":
+		return "Vaccinations due"
+	case "vaccination_compliance":
+		return "Vaccination completion"
+	default:
+		return ""
+	}
+}
+
+func stringParam(params map[string]any, key string) string {
+	if params == nil {
+		return ""
+	}
+	v, _ := params[key].(string)
+	return v
 }
 
 // buildActionCenterReader maps work_state, park_label (resolved to ParkID via

@@ -60,6 +60,7 @@ func (a Actor) leadership() bool { return a.Role == permissions.RoleCEOInternal 
 // defaultStarters are backend-owned starter questions truthful to the governed
 // Cube metrics + read tools the assistant currently routes to.
 var defaultStarters = []string{
+	"How many animals missed vaccination across all parks?",
 	"How many active goats and sheep do we have?",
 	"What vaccinations are overdue by shed?",
 	"How many vaccinations are due today?",

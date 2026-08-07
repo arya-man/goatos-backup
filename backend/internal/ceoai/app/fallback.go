@@ -87,7 +87,13 @@ func (fa fallbackAlias) toolFor(route domain.Route) string {
 // keywordplanner catalog_consistency_test enforce that this map covers every
 // unwired RouteAPI planner target.
 var fallbackAliases = map[string]fallbackAlias{
+	"active_animals":                 {cube: "active_animals", api: "counts_breakdown", toolbox: "mesha_count_by_scope"},
+	"total_animals":                  {cube: "total_animals", api: "counts_breakdown", toolbox: "mesha_count_by_scope"},
 	"counts_breakdown":               {cube: "active_animals", api: "counts_breakdown", toolbox: "mesha_count_by_scope"},
+	"vaccination_due":                {cube: "vaccination_due", api: "vaccination_shed_summary", toolbox: "mesha_vaccination_due_summary"},
+	"vaccination_due_today":          {cube: "vaccination_due_today", api: "vaccination_shed_summary", toolbox: "mesha_vaccination_due_summary"},
+	"vaccination_overdue":            {cube: "vaccination_overdue", api: "vaccination_shed_summary", toolbox: "mesha_vaccination_due_summary"},
+	"vaccination_compliance":         {cube: "vaccination_compliance", api: "vaccination_shed_summary", toolbox: "mesha_vaccination_due_summary"},
 	"feed_direction_today":           {api: "feed_direction_today", toolbox: "mesha_feed_direction_summary"},
 	"procurement_source_entry_loads": {api: "procurement_source_entry_loads", toolbox: "mesha_procurement_summary"},
 	"admin_roster_coverage":          {api: "admin_roster_coverage", toolbox: "mesha_workforce_coverage"},
@@ -151,7 +157,7 @@ func (a *Assistant) retryFailedResults(ctx context.Context, actor domain.Actor, 
 				IntentClass: subs[i].IntentClass,
 				Route:       route,
 				ToolName:    toolName,
-				Params:      subs[i].Params,
+				Params:      fallbackParams(subs[i].Params, results[i].ToolName),
 			}
 			res, err := a.registry.Execute(ctx, actor, retrySub)
 			if err != nil || res.Err != nil || len(res.Facts) == 0 {
@@ -170,4 +176,15 @@ func (a *Assistant) retryFailedResults(ctx context.Context, actor domain.Actor, 
 		}
 	}
 	return changed
+}
+
+func fallbackParams(params map[string]any, failedTool string) map[string]any {
+	next := make(map[string]any, len(params)+1)
+	for k, v := range params {
+		next[k] = v
+	}
+	if failedTool != "" {
+		next["_fallback_from_tool"] = failedTool
+	}
+	return next
 }
