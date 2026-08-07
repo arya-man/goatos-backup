@@ -936,7 +936,7 @@ func TestVaccinationCommandBoardDueTodayDateShiftNotOverdue(t *testing.T) {
 // many side, so a batch holding several obligations across several vaccines and several sheds must
 // still yield exactly ONE option. It also pins park scope, bounded output, the status passthrough,
 // and newest-window-first ordering.
-func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBucketsScheduledDateAndDisplayMetadata(t *testing.T) {
+func TestVaccinationCommandBoardDriveOptionsOneToManyMultipleDimensionsScopeHierarchyParkScopePaginationPageBoundaryMultiPageStatusMatrixEveryStatusStatusBucketsScheduledDateAndDisplayMetadata(t *testing.T) {
 	t.Log("OneToMany ParkScope Pagination StatusBuckets ScheduledDate: N obligations across vaccines and sheds collapse to one drive option; park scope narrows; output bounded; status carried; newest window first")
 	pgtest.SkipIfNoDocker(t)
 	ctx := context.Background()
@@ -947,9 +947,10 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 	asOf := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
 
 	const (
-		obBatchEarly = "70000000-0000-4000-8000-000009000001"
-		obBatchLate  = "70000000-0000-4000-8000-000009000002"
-		obBatchPark2 = "70000000-0000-4000-8000-000009000003"
+		obBatchEarly  = "70000000-0000-4000-8000-000009000001"
+		obBatchLate   = "70000000-0000-4000-8000-000009000002"
+		obBatchPark2  = "70000000-0000-4000-8000-000009000003"
+		obBatchFuture = "70000000-0000-4000-8000-000009000004"
 	)
 
 	// Two park-1 batches with distinct windows, plus one park-2 batch that park scope must exclude.
@@ -963,6 +964,7 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		{obBatchEarly, cmdBoardShed1, "planned", "2026-07-20", "2026-07-27"},
 		{obBatchLate, cmdBoardShed1, "in_progress", "2026-08-10", "2026-08-17"},
 		{obBatchPark2, cmdBoardShed2, "planned", "2026-07-22", "2026-07-29"},
+		{obBatchFuture, cmdBoardShed1, "planned", "2026-09-01", "2026-09-02"},
 	} {
 		execProjectionSQL(t, ctx, pool, "obligation batch "+b.id,
 			`INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, planned_date, window_start, window_end)
@@ -987,6 +989,10 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000010', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
 		cmdBoardTestTenant, obBatchLate, cmdBoardGoat1, cmdBoardShed1, cmdBoardRuleET, asOf)
+	execProjectionSQL(t, ctx, pool, "drive-option obligation future",
+		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
+		 VALUES ('70000000-0000-4000-8000-00000a000012', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
+		cmdBoardTestTenant, obBatchFuture, cmdBoardGoat2, cmdBoardShed1, cmdBoardRuleET, asOf)
 	execProjectionSQL(t, ctx, pool, "drive-option obligation park2",
 		`INSERT INTO obligation_instances (obligation_id, tenant_id, batch_id, target_id, scope_type, scope_id, rule_id, status, due_at)
 		 VALUES ('70000000-0000-4000-8000-00000a000011', $1, $2, $3, 'shed', $4, $5, 'scheduled', $6::timestamptz)`,
@@ -1034,8 +1040,9 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		t.Fatalf("Pagination: drive options length = %d, want <= 50", len(resp.DriveOptions))
 	}
 
-	// ScheduledDate: newest window first, so the August batch precedes the July one.
-	firstIdx, lateIdx := -1, -1
+	// ScheduledDate: actionable execution drives first, then newest planned window. A newer
+	// future planned drive must not bury a real in-progress drive below the visible picker.
+	firstIdx, lateIdx, futureIdx := -1, -1, -1
 	for i, option := range resp.DriveOptions {
 		if option.DriveBatchID == obBatchEarly {
 			firstIdx = i
@@ -1043,9 +1050,15 @@ func TestVaccinationCommandBoardDriveOptionsOneToManyParkScopePaginationStatusBu
 		if option.DriveBatchID == obBatchLate {
 			lateIdx = i
 		}
+		if option.DriveBatchID == obBatchFuture {
+			futureIdx = i
+		}
 	}
 	if lateIdx == -1 || firstIdx == -1 || lateIdx > firstIdx {
-		t.Fatalf("ScheduledDate: newest window must sort first, got late=%d early=%d", lateIdx, firstIdx)
+		t.Fatalf("ScheduledDate: in-progress newer window must sort before older planned drive, got late=%d early=%d", lateIdx, firstIdx)
+	}
+	if futureIdx == -1 || futureIdx < lateIdx {
+		t.Fatalf("ScheduledDate: future planned drive must not bury in-progress drive, got future=%d late=%d", futureIdx, lateIdx)
 	}
 
 	// StatusBuckets: each option's own status is carried through, not flattened to one value.

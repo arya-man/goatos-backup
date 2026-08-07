@@ -69,7 +69,7 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "command_board.filter.drive": "Drive",
     "command_board.filter.operator_day": "Operator day (optional)",
     "command_board.filter.all_common_drives": "All common drives",
-    "command_board.filter.completed_history": "Completed history",
+    "command_board.filter.completed_history": "Active / history",
     "command_board.filter.no_drives": "No drives planned in this park scope yet",
     "command_board.future_drives.title": "Future vaccination drives",
     "command_board.future_drives.count_suffix": "campaigns",

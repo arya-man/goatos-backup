@@ -154,6 +154,16 @@ export function scheduledDriveRows(options: CommandBoardDriveOption[]): Schedule
   })).sort((a, b) => (a.dateKeys[0] ?? "").localeCompare(b.dateKeys[0] ?? ""));
 }
 
+export function executionDriveOptions(options: CommandBoardDriveOption[]): CommandBoardDriveOption[] {
+  return options
+    .filter((drive) => drive.status !== "planned")
+    .sort((a, b) => {
+      const aDate = dateKey(a.plannedDate) || dateKey(a.windowStart);
+      const bDate = dateKey(b.plannedDate) || dateKey(b.windowStart);
+      return bDate.localeCompare(aDate);
+    });
+}
+
 // The park prefix used to be the literal "CPT", which mislabelled every other park's drive. It now
 // comes from the drive row, and is simply omitted while the API does not supply it -- no park name
 // is better than the wrong one.
