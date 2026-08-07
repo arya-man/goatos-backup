@@ -200,20 +200,27 @@ fun VaccinationLeadershipVideosScreen(
                 }
 
                 else -> {
+                    // The close-drive card is PINNED above the scrolling gallery, not a row inside
+                    // it. As a LazyColumn item it scrolled away with the videos, so a director who
+                    // had scrolled down to review the evidence -- exactly what he is on this screen
+                    // to do -- could no longer see the action that evidence unlocks, and had to
+                    // scroll back up to find it. A drive-level action does not belong in the
+                    // per-animal list.
+                    state.driveClosures.forEach { closure ->
+                        LeadershipDriveCloseCard(
+                            closure = closure,
+                            isClosing = state.closingBatchId == closure.batchId,
+                            errorMessage = state.closeErrorMessage.takeIf { state.closeErrorBatchId == closure.batchId },
+                            onClose = { onEvent(VaccinationLeadershipVideoEvent.CloseDrive(closure.batchId)) },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         state = lazyListState,
                         contentPadding = PaddingValues(12.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(state.driveClosures, key = { "drive-${it.batchId}" }) { closure ->
-                            LeadershipDriveCloseCard(
-                                closure = closure,
-                                isClosing = state.closingBatchId == closure.batchId,
-                                errorMessage = state.closeErrorMessage.takeIf { state.closeErrorBatchId == closure.batchId },
-                                onClose = { onEvent(VaccinationLeadershipVideoEvent.CloseDrive(closure.batchId)) },
-                            )
-                        }
                         itemsIndexed(items = state.items, key = { _, item -> item.id }) { _, item ->
                             VaccinationLeadershipVideoItemCard(
                                 item = item,
@@ -405,9 +412,10 @@ private fun LeadershipDriveCloseCard(
     isClosing: Boolean,
     errorMessage: String?,
     onClose: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(MeshaColors.OkX)
