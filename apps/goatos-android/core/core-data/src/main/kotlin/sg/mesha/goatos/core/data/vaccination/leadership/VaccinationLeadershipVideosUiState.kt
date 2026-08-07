@@ -29,6 +29,11 @@ data class VaccinationLeadershipItemUi(
     val shedLabel: String = "",
     val parkLabel: String = "",
     val operatorLabel: String = "",
+    // The verifier's OWN words for why this proof was sent back. Leadership could see THAT a video
+    // was rejected but never WHY, so a director had to go ask the verifier -- the reason was
+    // captured on verification_items.verdict_reason all along and simply dropped at this mapping.
+    // Backend-authored: render verbatim, never re-word it.
+    val verdictReason: String? = null,
     val media: List<VaccinationLeadershipMediaUi> = emptyList(),
 )
 

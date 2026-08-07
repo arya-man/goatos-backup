@@ -528,6 +528,17 @@ fun VaccinationLeadershipVideoItemCard(
             }
             LeadershipStatusPill(tone = item.statusTone, label = item.statusLabel)
         }
+        // WHY it was sent back, in the verifier's own words. Leadership previously saw only THAT a
+        // proof was rejected, so a director had to go and ask. Backend-authored copy, rendered
+        // verbatim.
+        item.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
+            Text(
+                text = "Sent back: $reason",
+                color = MeshaColors.Danger,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+        }
         Text(
             text = "Vaccination proof",
             color = MeshaColors.Faint,
@@ -585,6 +596,14 @@ private fun VaccinationLeadershipProofDetailScreen(
                 )
             }
             LeadershipStatusPill(tone = item.statusTone, label = item.statusLabel)
+        }
+        item.verdictReason?.takeIf { it.isNotBlank() }?.let { reason ->
+            Text(
+                text = "Sent back: $reason",
+                color = MeshaColors.Danger,
+                style = MeshaType.cardSubtitle,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
