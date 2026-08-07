@@ -11,9 +11,11 @@
 -- or strip the transaction from this ALTER + backfill, losing their atomicity.
 --
 -- This migration itself now runs NO TRANSACTION (autocommit) so the backfill below can use
--- real keyset batching with a COMMIT after every batch instead of one unbounded UPDATE. Each
--- individual statement (the ALTER and each backfill batch) is still wrapped in its own short
--- lock/statement timeout, so no single statement can hold a broad lock or exceed 30s.
+-- real keyset batching with a COMMIT after every batch instead of one unbounded UPDATE.
+-- The ALTER is wrapped in a short lock/statement timeout; the DO block below disables
+-- statement_timeout because it is ONE top-level statement that internally loops and commits
+-- (inner COMMITs do not reset outer statement_timeout, so a per-batch COMMIT safety mechanism
+-- requires the outer statement timeout to be absent).
 SET lock_timeout = '2s';
 SET statement_timeout = '30s';
 
@@ -23,7 +25,8 @@ ALTER TABLE public.verification_items
 -- Backfill partition_label for vaccination items from goat_shed_partitions.
 -- KEYSET BATCHING: processes verification_items in stable item_id order, BATCH_SIZE rows at a
 -- time, COMMITting after each batch so no single transaction holds locks across the whole
--- (potentially production-sized) verifier queue or risks hitting statement_timeout mid-run.
+-- (potentially production-sized) verifier queue. The DO block is one top-level statement,
+-- so statement_timeout must be cleared here; inner COMMITs do not reset outer timeout.
 -- LIMITATION: Uses CURRENT partition from goat_shed_partitions, not historical.
 -- This is acceptable because verification items are created on the current snapshot date;
 -- backfill replicates that same source.
@@ -38,6 +41,7 @@ ALTER TABLE public.verification_items
 -- For non-vaccination producers (weighing, feeddirection, death):
 -- Backfill is deferred. Those items will display NULL partition_label (parent shed only)
 -- until those producers are updated to supply partition_label at creation time.
+SET statement_timeout = '0';  -- clear for batching loop; per-batch COMMIT provides lock safety
 DO $$
 DECLARE
     batch_size CONSTANT integer := 500;
