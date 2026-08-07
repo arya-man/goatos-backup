@@ -46,39 +46,39 @@ Session 2026-08-06 audited location naming, storage, and display across the Goat
 
 ---
 
-### OL-4: Missing `partition_label` Column on `verification_items` (FOUND, UNEXAMINED)
+### OL-4: Missing `partition_label` Column on `verification_items` (PARTIALLY CLOSED)
 
 **Found:** Verification proof assignments lack a partition column  
-**Defect:** `verification_items` records proof videos but does not store `partition_label`. When a verifier reviews a video of animals in `Godel 1 - Part 3`, the record does not say which partition the animals are in, making it impossible to:
-  - Filter proofs by partition in verifier queue
-  - Correlate proof videos to the specific partition-scoped work request
-  - Report proof review metrics per partition
-**Impact:** Verifier cannot distinguish which `Godel 1` partition a proof applies to; metrics and filtering are aggregated at shed-only granularity  
-**Fix:** Add `partition_label` (nullable) column + compose `operational_location_display` in API responses  
-**Status:** NOT FIXED — blocker for location-aware verification  
+**Defect:** `verification_items` records proof videos but does not store `partition_label`. When a verifier reviews a video of animals in `Godel 1 - Part 3`, the record does not say which partition the animals are in.  
+**Status:** PARTIALLY CLOSED
+- SQL layer: ✓ CLOSED — migration 000127_verification_items_partition_label.sql (line 14-15) adds `partition_label text` column; backfill from goat_shed_partitions at line 26-33 for vaccination items  
+- Go struct: ✗ OPEN — `backend/internal/vaccination/adapters/postgres/sqlc/models.go` `VerificationItem` struct carries NO `partition_label` field  
+- Wire/render: ✗ OPEN — no query selects `partition_label` from verification_items; unconfirmed whether API response includes it  
+**Blocker:** The gap is in the struct+wiring layer. SQL is ready; Go codegen and OpenAPI contract must be updated before partition-aware queries can reach the API.  
 
 ---
 
-### OL-5: Missing `partition_label` Column on `weighing_campaign_sheds` (FOUND, UNEXAMINED)
+### OL-5: Missing `partition_label` Column on `weighing_campaign_sheds` (PARTIALLY CLOSED)
 
 **Found:** Weighing task assignments lack a partition column  
-**Defect:** `weighing_campaign_sheds` assigns weighing work to sheds but does not store `partition_label`. Weighing tasks are always assigned to a physical location (partition if subdivided, shed name if not), and the table must record both.  
-**Impact:** Weighing tasks assigned to `Godel 1` do not specify which partition(s) the operator should weigh; the operator must infer from context or ask  
-**Fix:** Add `partition_label` (nullable) column + update the task-creation API and UI to capture and store it  
-**Status:** NOT FIXED — blocker for partition-aware weighing assignment  
+**Defect:** `weighing_campaign_sheds` assigns weighing work to sheds but does not store `partition_label`.  
+**Status:** PARTIALLY CLOSED
+- SQL layer: ✓ CLOSED — migration 000122_weighing_campaign_sheds_partition_label.sql (line 21) adds `partition_label text`; backfill via two paths: (1) catalog-first from shed_partitions (line 26-31), (2) fallback name-parsing for legacy/unresolved rows (line 44-73); verification query (line 75-122)  
+- Go struct: ✗ OPEN — `backend/internal/obligation/adapters/postgres/sqlc/models.go` `WeighingCampaignShed` struct carries NO `partition_label` field  
+- Wire/render: ✗ OPEN — unconfirmed whether queries select and return `partition_label` in API responses  
+**Blocker:** SQL is ready and backfilled; Go struct and API contract must be updated.  
 
 ---
 
-### OL-6: Missing `partition_label` Column on `health_cases` (FOUND, UNEXAMINED)
+### OL-6: Missing `partition_label` Column on `health_cases` (PARTIALLY CLOSED)
 
 **Found:** Clinical incidents lack a partition column  
-**Defect:** `health_cases` records clinical incidents (quarantine, disease, observation) for animals but does not store the animal's `partition_label` at the time of the incident. This breaks the ability to:
-  - Audit clinical history by partition (e.g., "was there a disease cluster in `Godel 1 - Part 4` in July?")
-  - Correlate clinical incidents across animals in the same partition
-  - Report clinical metrics per partition/shed  
-**Impact:** Clinical analysis is shed-level only; partition-scoped epidemiology is impossible  
-**Fix:** Add `partition_label` (nullable) column to `health_cases`; ensure clinical captures carry partition context  
-**Status:** NOT FIXED — blocker for partition-aware health reporting  
+**Defect:** `health_cases` records clinical incidents but does not store the animal's `partition_label` at diagnosis time.  
+**Status:** PARTIALLY CLOSED
+- SQL layer: ✓ CLOSED — migration 000123_health_cases_partition_label.sql (line 26-27) adds `partition_label text`; backfill from goat_shed_partitions (line 29-40) matching on current goat shed only (safeguard against cross-shed animal moves)  
+- Go struct: ✗ OPEN — `backend/internal/obligation/adapters/postgres/sqlc/models.go` `HealthCase` struct carries NO `partition_label` field  
+- Wire/render: ✗ OPEN — unconfirmed whether queries select and return `partition_label` in API responses  
+**Blocker:** SQL is ready; Go struct and API contract must be updated.  
 
 ---
 
@@ -203,12 +203,14 @@ drive list while the DB held `Part 3` correctly in two places.
 **Impact:** A brand-new location response field could omit the partition, pass the guard (because it mentioned no partition at all to check), and ship.  
 **Rule:** For a MANDATORY field, the check must be `location_bearing_response => partition_field_present`, not `partition_present => field_correct`. Structural absence requires structural enforcement.
 
-### OL-13 — three partition sources, and the screen read the stale one
+### OL-13 — three partition sources, and the screen read the stale one (PARTIALLY CLOSED)
 
 **Found:** Operator drive list showed bare shed when database had correct partition  
-**Defect:** `shed_partitions` (catalog of partitions that EXIST) and `goat_shed_partitions` (per-goat placement) were both correct in the database. The drive list read `vaccination_drive_assignments.partition_label`, a SNAPSHOT COLUMN that nothing re-derives after a shed is re-partitioned. Weighing had already solved this (`weighing/adapters/postgres/shed_partition_resolve.go` resolves from the catalog at read time); vaccination trusted the stored column.  
-**Impact:** Operator drive list was stale if a shed's partitions changed since the drive was created; no partition showed even though the animals' current location had one.  
-**Rule:** Never trust a snapshot column for DISPLAY. Resolve from the catalog (`locations`, `shed_partitions`) at read time, or reconcile the snapshot column when the catalog changes.
+**Defect:** `shed_partitions` (catalog) and `goat_shed_partitions` (per-goat placement) are correct; but the drive list reads `vaccination_drive_assignments.partition_label`, a SNAPSHOT COLUMN that is never re-derived after a shed's partitions change. Weighing solved this; vaccination has not.  
+**Status:** PARTIALLY CLOSED
+- Weighing: ✓ CLOSED — `backend/internal/weighing/adapters/postgres/shed_partition_resolve.go` resolves partition labels from the shed_partitions catalog at READ TIME (line 27-76), never trusting a snapshot column  
+- Vaccination: ✗ OPEN — `backend/internal/vaccinationexecution/adapters/postgres/repository.go` reads stale `vaccination_drive_assignments.partition_label` at lines 483, 529, 553, 1235, 1314. Multiple read paths use this snapshot; no read-time catalog resolution in place. Comparison at lines 1304-1306 shows awareness of goat_shed_partitions vs assignment.partition_label discrepancy, but the stale assignment snapshot is still displayed.  
+**Rule:** Never trust a snapshot column for DISPLAY. Resolve from the catalog (`shed_partitions`) at read time, like weighing does.
 
 ### OL-14 — no seed writes the `shed_partitions` catalog
 
@@ -242,3 +244,55 @@ This ledger documents defects that were surfaced but not all fixed in 2026-08-06
 - Maintainer approval of the new rule
 
 Until then, the convention stands, the guard is mandatory, and the brief includes the rule.
+
+---
+
+## Ledger Verification Checklist
+
+**How to verify this ledger is still accurate (and catch new "declared but never wired" defects):**
+
+The four-layer check, applied to every closed, partial, and open entry:
+
+1. **SQL layer** — does the migration exist and add the column?
+   - Check: `backend/migrations/postgres/*.sql` for `ADD COLUMN partition_label`
+   - Verify: backfill query (if any) matches the business rule (catalog-first, name-fallback, or direct snapshot)
+   - Evidence file:line
+
+2. **Struct/Go layer** — does the domain struct declare the field?
+   - Check: `backend/internal/*/adapters/postgres/sqlc/models.go` struct definition
+   - Verify: field name, type, nullability match the SQL column
+   - Evidence file:line
+
+3. **Scan/query layer** — does a SQL query SELECT the column and populate the struct?
+   - Check: `backend/internal/*/adapters/postgres/sqlc/query.sql` or inline queries
+   - Verify: SELECT clause includes the column; struct field is assigned from the scan
+   - Evidence file:line (query name or SQL line range)
+
+4. **Wire/render layer** — does the response DTO include the field, and does a client render it?
+   - Check: OpenAPI schema in `contracts/openapi/app-api.yaml` (response schema)
+   - Check: admin-web / mobile generated client code
+   - Verify: field is present in OpenAPI response, generated clients include it
+   - Evidence file:line (schema name, generated field)
+
+**A migration existing proves nothing on its own** — OL-4/5/6 had SQL done but struct+wiring incomplete, appearing "fixed" until layer 2 was checked. Every partial entry above failed at layer 2 or 3. **Always verify all four layers before marking CLOSED.**
+
+**Stale snapshot columns signal layer-3 defect** — OL-13 reads a snapshot at layer 3 that was never refreshed when the catalog changed. The fix is to read the catalog at layer 3 (like weighing does), not to maintain the snapshot.
+
+### Correction, 2026-08-07 — OL-4/5/6 struct layer
+
+An automated pass marked OL-4/5/6 "struct layer MISSING" because the generated
+`sqlc/models.go` for those tables does not carry `partition_label`. That conclusion
+was WRONG and is recorded here so it is not repeated: verification, weighing and
+health all read these tables through HAND-WRITTEN SQL in their own
+`adapters/postgres/repository.go`, not through sqlc models. Verified in the tree:
+
+- `backend/internal/verification/adapters/postgres/repository.go` — 13 references to
+  `partition_label` in SQL, 6 to `PartitionLabel` in scan/assign.
+- `backend/internal/weighing/adapters/postgres/repository.go` — 4 `PartitionLabel`.
+- `backend/internal/health/adapters/postgres/repository.go` — 4 `PartitionLabel`.
+
+The lesson generalises: "the generated model lacks the field" proves nothing about a
+module that does not use the generated model. Check the path the code ACTUALLY takes
+before recording a closure status — the four-layer check below means the layers as
+they exist for THAT module.
+
