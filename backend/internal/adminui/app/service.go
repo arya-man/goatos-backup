@@ -1032,31 +1032,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.note":                   "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
 			"feedback.done":                 "Done",
 			"feedback.failed":               "Action failed",
-			"rework.title":                  "Rework",
-			"rework.reason_label":           "Rework reason",
-			"rework.reason_placeholder":     "Why is this being sent back for rework?",
-			"rework.submit":                 "Request rework",
-			"rework.disabled_no_task":       "No linked SOP task is available for rework.",
-			"rework.disabled_not_rejected":  "Rework is available only for rejected actions.",
-			"reassign.title":                "Re-assign",
-			"reassign.assignee_label":       "New assignee",
-			"reassign.assignee_placeholder": "Select a staff position…",
-			"reassign.reason_label":         "Re-assign reason",
-			"reassign.reason_placeholder":   "Why is this being re-assigned?",
-			"reassign.submit":               "Re-assign task",
-			"reassign.disabled_no_task":     "No linked SOP task is available for reassignment.",
-			"reassign.disabled_no_roster":   "No staff positions are available in this park scope.",
-			// The roster loads when the row opens, so "still loading" and "the lookup failed" are
-			// distinct from "this park genuinely has nobody". All three used to render as
-			// disabled_no_roster, which made a busy control look broken and an outage look like
-			// configuration.
-			"reassign.loading_roster":     "Loading staff positions…",
-			"reassign.roster_unavailable": "Staff positions could not be loaded. Reload to try again.",
-			"penalty.title":               "Penalty note",
-			"penalty.reason_label":        "Penalty / escalation note",
-			"penalty.reason_placeholder":  "Log a penalty or escalation note",
-			"penalty.submit":              "Log penalty note",
-			"penalty.disabled":            "Penalty and escalation logging is not backed by an API yet.",
+			// Rework / Re-assign / Penalty copy REMOVED with those panels (maintainer decision
+			// 2026-08-07). mock/verifier-web-mock.SPEC.md section 1: the verifier watches a proof
+			// video and accepts it, or rejects it with a reason -- "that is all. Nothing else
+			// belongs on this screen." Section 3 bans source-task action here by name.
+			//
+			// Penalty note was additionally DEAD: no server action, no route, and its own visible
+			// label said so while leaking an internal word into user-facing copy.
+			//
+			// Rework and Re-assign remain real writes for the authority surface that owns them;
+			// only their placement on the verifier's screen was wrong. Re-add their copy THERE, not
+			// here, or this screen quietly regrows the half it was just cleared of.
 			// Verifier verdict copy. Approve/reject is the verifier's ONLY act: the wording must
 			// not promise that approving closes or completes the underlying work, because it does
 			// not -- an authority closes the submission afterwards.
