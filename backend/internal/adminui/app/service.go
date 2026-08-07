@@ -2126,7 +2126,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"chart.stage.title":            "Average weight by stage",
 			"chart.stage.aria":             "Average weight for each management stage",
 			"empty.demographics.body":      "No weighed kid could be matched to the herd register in this period.",
-			"note.demographics.coverage":   "Breed and sex cover kids weighed one by one. Stage also includes whole-shed weighs, counted against the stage that shed holds.",
+			"note.demographics.coverage":   "Covers kids weighed one by one plus whole-shed weighs, counted against the breed, sex and stage that shed holds. A shed holding a mix is counted against none of them.",
 			"metric.weight":                "Weight",
 			"metric.gain":                  "Daily gain",
 			"empty.metric.no_gain":         "No daily gain here yet — a kid has to be weighed twice before a gain exists.",
