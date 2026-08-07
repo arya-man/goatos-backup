@@ -524,6 +524,7 @@ func normalizeVaccinationIntent(questionText string, subs []domain.SubQuestion) 
 	wantsOverdue := wantsMissed || strings.Contains(low, "overdue") || strings.Contains(low, "behind") || strings.Contains(low, "late")
 	wantsGraph := plotRequested(questionText) || strings.Contains(low, "by shed") || strings.Contains(low, "per shed")
 	wantsHowMany := strings.Contains(low, "how many") || strings.Contains(low, "count")
+	wantsAllParks := asksAllParks(questionText)
 	for i := range subs {
 		if subs[i].ToolName != "vaccination_shed_summary" && subs[i].ToolName != "vaccination_due" &&
 			subs[i].ToolName != "vaccination_due_today" && subs[i].ToolName != "vaccination_overdue" {
@@ -531,6 +532,12 @@ func normalizeVaccinationIntent(questionText string, subs []domain.SubQuestion) 
 		}
 		if subs[i].Params == nil {
 			subs[i].Params = map[string]any{}
+		}
+		if wantsAllParks {
+			delete(subs[i].Params, "park_id")
+			delete(subs[i].Params, "shed_id")
+			delete(subs[i].Params, "park_label")
+			delete(subs[i].Params, "shed_label")
 		}
 		if wantsMissed {
 			subs[i].Params["vaccination_intent"] = "missed"
@@ -545,6 +552,16 @@ func normalizeVaccinationIntent(questionText string, subs []domain.SubQuestion) 
 			subs[i].Params["aggregate_total"] = "true"
 		}
 	}
+}
+
+func asksAllParks(questionText string) bool {
+	low := strings.ToLower(questionText)
+	for _, kw := range []string{"all parks", "across all parks", "company-wide", "company wide", "overall", "whole company", "tenant-wide", "tenant wide"} {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *Assistant) strictRecompose(results []domain.ToolResult) string {

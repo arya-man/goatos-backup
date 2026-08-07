@@ -181,8 +181,13 @@ function newId(): string {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random()}`;
 }
 
-function currentPageScope(): { park_id?: string; shed_id?: string } | undefined {
+function asksAllParks(question: string): boolean {
+  return /\b(all parks|across all parks|company(?:-wide)?|overall|whole company|tenant-wide)\b/i.test(question);
+}
+
+function currentPageScope(question: string): { park_id?: string; shed_id?: string } | undefined {
   if (typeof window === "undefined") return undefined;
+  if (asksAllParks(question)) return undefined;
   const params = new URLSearchParams(window.location.search);
   const park = params.get("park") ?? undefined;
   const shed = params.get("shed") ?? undefined;
@@ -278,7 +283,7 @@ export function CeoAiPanel({ copy }: { copy: AssistantCopy }): ReactElement | nu
 
       try {
         const final = await readCeoAiStream(
-          { question, conversationId, pageScope: currentPageScope(), signal: controller.signal },
+          { question, conversationId, pageScope: currentPageScope(question), signal: controller.signal },
           {
             onToken: (text) =>
               setMessages((prev) =>
