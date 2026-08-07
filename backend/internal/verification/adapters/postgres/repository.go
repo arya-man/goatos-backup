@@ -1771,10 +1771,14 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 		// "subject + body" concatenation always took the empty branch. The field exists on the row
 		// (verification_items.subject_label, populated by RecordVerdict's own scanItemRow read
 		// immediately above) -- it just was not being put on the wire.
-		"subject_label": derefStr(item.SubjectLabel),
-		"operator_id":   derefStr(item.OperatorID),
-		"shed_id":       derefStr(item.ShedID),
-		"park_id":       derefStr(item.ParkID),
+		"subject_label":    derefStr(item.SubjectLabel),
+		"operator_id":      derefStr(item.OperatorID),
+		"shed_id":          derefStr(item.ShedID),
+		"park_id":          derefStr(item.ParkID),
+		// GAP 2: partition_label enables backend-composed location in verification approval copy.
+		// Without it, notification reads "Weighing proof for Godel 1 (CBE)" instead of
+		// "Weighing proof for Godel 1 - Part 3 (CBE)" when the shed is partitioned.
+		"partition_label": derefStr(item.PartitionLabel),
 		"source": map[string]any{
 			"module":        item.Source.Module,
 			"task_id":       derefStr(item.Source.TaskID),

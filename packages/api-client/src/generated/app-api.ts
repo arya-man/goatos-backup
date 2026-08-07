@@ -5545,8 +5545,8 @@ export interface components {
             tag1?: string;
             /** @description Second physical tag (animal_identifier_2) when the animal carries two. */
             tag2?: string;
-            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. */
-            locationDisplay: string;
+            /** @description Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal standing in a partition, and never the "whole" matching sentinel. Backend-composed via oploc.Display(); clients render verbatim. */
+            operational_location_display: string;
             parkName: string;
             /** @description Physical shed name. Not a ground location on its own when a partition exists. */
             shedName: string;

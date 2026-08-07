@@ -207,6 +207,12 @@ type ShedDrilldown struct {
 	Drives       []DriveSummary       `json:"drives"`
 	Rows         []ExecutionRow       `json:"rows"`
 	Summary      ShedDrilldownSummary `json:"summary"`
+	// PartitionLabel is the raw stored label ('1', 'Part 3'), or nil for a
+	// non-partitioned shed. Rendered in the header via OperationalLocationDisplay.
+	PartitionLabel *string `json:"partitionLabel,omitempty"`
+	// OperationalLocationDisplay is the backend-composed location (e.g. "Castro - 2"),
+	// never hand-rolled on the client, so admin-web and mobile stay in sync.
+	OperationalLocationDisplay string `json:"operationalLocationDisplay"`
 }
 
 type ExecutionQuery struct {
@@ -319,6 +325,10 @@ type OperationsRow struct {
 	RejectedCount     int
 	TotalCount        int
 	Freshness         *ProjectionFreshness
+	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
+	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
+	// rendering a bare shed name when a partition exists.
+	PartitionLabel string
 }
 
 type OperationsQuery struct {
@@ -534,6 +544,10 @@ type GapProjectionRow struct {
 	ShedID            *string
 	ShedName          *string
 	ReasonCode        GapReasonCode
+	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
+	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
+	// rendering a bare shed name when a partition exists.
+	PartitionLabel *string
 }
 
 type GapRow struct {
@@ -750,6 +764,10 @@ type ShedSummaryProjection struct {
 	NextDue            *time.Time
 	TotalCount         int // window COUNT(*) OVER() of the filtered set, for PageInfo.Total
 	Freshness          *ProjectionFreshness
+	// PartitionLabel is the raw stored label ('1', 'Part 3'), or empty for a
+	// non-partitioned shed. Resolved from goat_shed_partitions per scoped goat to avoid
+	// rendering a bare shed name when a partition exists.
+	PartitionLabel string
 }
 
 // ---- Shed detail read model (per-vaccine breakdown + keyset-paginated animal list) ----
@@ -982,7 +1000,11 @@ type CommandBoardClosedWithoutDoseAnimal struct {
 	Tag1 string `json:"tag1,omitempty"`
 	Tag2 string `json:"tag2,omitempty"`
 	// LocationDisplay is the farm-readable operational location, partition included.
-	LocationDisplay string `json:"locationDisplay"`
+	// Wire name is operational_location_display -- the ONE canonical name for this concept
+	// across Go, OpenAPI, admin-web and Android (see the guard's oploc-display-wire-name
+	// rule). Shipping it as a bare `locationDisplay` split the contract and is exactly the
+	// silent-drift shape this branch exists to remove (2026-08-07).
+	LocationDisplay string `json:"operational_location_display"`
 	ParkName        string `json:"parkName"`
 	ShedName        string `json:"shedName"`
 	PartitionLabel  string `json:"partitionLabel,omitempty"`

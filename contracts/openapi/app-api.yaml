@@ -14703,7 +14703,7 @@ components:
       required:
         - goatId
         - displayId
-        - locationDisplay
+        - operational_location_display
         - parkName
         - shedName
         - reason
@@ -14722,12 +14722,13 @@ components:
         tag2:
           type: string
           description: Second physical tag (animal_identifier_2) when the animal carries two.
-        locationDisplay:
+        operational_location_display:
           type: string
           description: >-
             Farm-readable OPERATIONAL location — park, physical shed, and partition when the shed
             has one ("Castro 2", "Godel 1 - Part 3"). Never the bare parent shed name for an animal
-            standing in a partition, and never the "whole" matching sentinel.
+            standing in a partition, and never the "whole" matching sentinel. Backend-composed via
+            oploc.Display(); clients render verbatim.
         parkName:
           type: string
         shedName:
