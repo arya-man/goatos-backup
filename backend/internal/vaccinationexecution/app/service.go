@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"sort"
 	"strings"
 	"time"
@@ -397,18 +398,42 @@ func rowFromProjection(p domain.ExecutionProjection, q domain.ExecutionQuery) do
 	if partition == "" {
 		partition = "whole"
 	}
+	// The operational-location contract: a screen renders ONLY the composed display, so
+	// a partitioned shed reads "Mandela 2 - Part 3" and never a bare "Mandela 2". The raw
+	// `partition` above still carries the 'whole' sentinel, which is a matching key and
+	// must not reach a screen -- oploc drops it. Composing here (not on the client) keeps
+	// Go, admin-web and Android from drifting apart; see docs/decisions/operational-location-convention.md.
+	loc := oploc.OperationalLocation{
+		ParkID:         p.ParkID,
+		ParkName:       p.ParkName,
+		ShedID:         p.ShedID,
+		ShedName:       physicalShed,
+		PartitionLabel: partition,
+	}
+	var partitionLabel *string
+	if oploc.IsPartitioned(partition) {
+		label := strings.TrimSpace(partition)
+		partitionLabel = &label
+	}
+	var sourceShedName *string
+	if raw := strings.TrimSpace(p.ShedName); raw != "" && raw != physicalShed {
+		sourceShedName = &raw
+	}
 	return domain.ExecutionRow{
-		ParkID:        p.ParkID,
-		ParkName:      p.ParkName,
-		ShedID:        p.ShedID,
-		ShedName:      p.ShedName,
-		PhysicalShed:  physicalShed,
-		Partition:     partition,
-		AnimalStage:   p.AnimalStage,
-		TargetCount:   targetCount,
-		OpenCount:     openCount,
-		DoneCount:     doneCount,
-		AcceptedCount: p.CompletionAccepted,
+		ParkID:                     p.ParkID,
+		ParkName:                   p.ParkName,
+		ShedID:                     p.ShedID,
+		ShedName:                   p.ShedName,
+		PhysicalShed:               physicalShed,
+		Partition:                  partition,
+		PartitionLabel:             partitionLabel,
+		SourceShedName:             sourceShedName,
+		OperationalLocationDisplay: loc.Display(),
+		AnimalStage:                p.AnimalStage,
+		TargetCount:                targetCount,
+		OpenCount:                  openCount,
+		DoneCount:                  doneCount,
+		AcceptedCount:              p.CompletionAccepted,
 		// ReviewCount = items AWAITING A VERDICT (completion recorded, not yet accepted or
 		// rejected) -- must match the verifier's own /verification/queue, which only ever
 		// surfaces pending items. A rejected completion is a resolved verdict, not open review
