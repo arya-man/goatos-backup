@@ -21,3 +21,10 @@ test("Google redirect callback validates CSRF and stores only a short-lived cred
   assert.match(routeSource, /httpOnly:\s*true/);
   assert.match(routeSource, /maxAge:\s*0/);
 });
+
+test("Google redirect callback returns to the public dashboard origin behind Cloud Run", () => {
+  assert.match(routeSource, /publicRequestOrigin\(request\)/);
+  assert.match(routeSource, /GOATOS_CANONICAL_DASHBOARD_HOST/);
+  assert.match(routeSource, /x-forwarded-host/);
+  assert.doesNotMatch(routeSource, /new URL\(LOGIN_PATH,\s*request\.url\)/);
+});
