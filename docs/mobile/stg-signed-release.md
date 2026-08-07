@@ -11,10 +11,11 @@ Do not commit keystores or passwords to Git. The staging upload key is scoped
 to the `stg` product flavor only; a future prod build must use separate prod
 signing secrets and the prod package.
 
-## Secret source of truth
+## Signing secret source of truth
 
-The staging upload key is stored in Google Secret Manager under project
-`goatos-stg`.
+The Android staging upload key is stored in Google Secret Manager under project
+`goatos-stg`. These secrets are required for `assembleStgRelease`; they do not
+authenticate the Firebase App Distribution upload.
 
 ```text
 Secret: android-stg-upload-keystore-jks
@@ -27,6 +28,31 @@ Only release builders should have Secret Manager access.
 
 Grant access through IAM on the secrets or an approved release-builder Google
 group. Do not send the `.jks` or passwords through chat, tickets, or email.
+
+## Firebase upload auth source of truth
+
+`appDistributionUploadStgRelease` also needs Firebase App Distribution auth.
+Release builders must use exactly one of:
+
+```text
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/goatos-stg Firebase App Distribution service-account JSON
+FIREBASE_TOKEN=<token minted by firebase login:ci>
+firebase login as an authorized release builder
+```
+
+Current Secret Manager state:
+
+```text
+Exists: android-stg-upload-* signing secrets
+Exists: goatos-stg-firebase-web-config
+Missing: Firebase App Distribution service-account JSON secret
+```
+
+Before using the service-account JSON path, create a Secret Manager entry for
+that JSON and document its exact secret name in this runbook. Restore the JSON
+to a gitignored local path and export `GOOGLE_APPLICATION_CREDENTIALS` before
+running the Gradle upload task. Do not commit the JSON or paste it into chat,
+tickets, or email.
 
 ## Restore local signing files
 
@@ -61,6 +87,18 @@ export GOATOS_ANDROID_STG_KEY_PASSWORD="$(
 )"
 ```
 
+If using the service-account JSON path for Firebase upload auth, first create
+and document the Secret Manager entry, then restore it like this:
+
+```bash
+gcloud secrets versions access latest \
+  --project goatos-stg \
+  --secret <firebase-app-distribution-service-account-json-secret-name> \
+  --out-file .local/android-signing/firebase-app-distribution-sa.json
+
+export GOOGLE_APPLICATION_CREDENTIALS="$PWD/.local/android-signing/firebase-app-distribution-sa.json"
+```
+
 Expected upload key fingerprints:
 
 ```text
@@ -83,6 +121,13 @@ redirect stdout with `>` for the keystore.
 
 Before every release, bump `versionCode` and `versionName` in
 `apps/goatos-android/app/build.gradle.kts`.
+
+Before running the upload, restore both:
+
+```text
+1. Android signing inputs: GOATOS_ANDROID_STG_*
+2. Firebase upload auth: GOOGLE_APPLICATION_CREDENTIALS, FIREBASE_TOKEN, or firebase login
+```
 
 Firebase App Distribution uploads for Android STG must go through the Gradle
 upload task below. Do not manually distribute an APK through the Firebase
