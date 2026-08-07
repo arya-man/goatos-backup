@@ -40,8 +40,9 @@ type reminderCadenceCandidate struct {
 	// ShedLabels/VaccineLabels are the exact per-source label sets from detail->'summary'. They are
 	// the AUTHORITATIVE enrichment input; ShedName/VaccineName/DoseCode are single-value display
 	// scalars that a multi-shed or multi-vaccine drive deliberately blanks or collapses.
-	ShedLabels    []string
-	VaccineLabels []string
+	ShedLabels          []string
+	ShedPartitionLabels []string
+	VaccineLabels       []string
 }
 
 // SweepReminderCadence implements ports.Repository.SweepReminderCadence. It is the legacy 2-value
@@ -264,6 +265,7 @@ const calendarReminderCadenceCandidatesSQL = "WITH " + calendarCanonicalEventsCT
 SELECT event_id, park_id::text, due_at, source_target_type, COALESCE(source_target_id::text, ''),
        COALESCE(shed_name, ''), COALESCE(vaccine_name, ''), COALESCE(dose_code, ''),
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_labels') = 'array' THEN detail->'summary'->'shed_labels' ELSE '[]'::jsonb END)) AS shed_labels,
+       ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'shed_partition_labels') = 'array' THEN detail->'summary'->'shed_partition_labels' ELSE '[]'::jsonb END)) AS shed_partition_labels,
        ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(detail->'summary'->'vaccine_labels') = 'array' THEN detail->'summary'->'vaccine_labels' ELSE '[]'::jsonb END)) AS vaccine_labels
 FROM source_events
 WHERE system = false
@@ -310,9 +312,21 @@ func (r *Repository) enrichReminderCadenceFiresWithDetails(candidates []reminder
 
 		// Sheds: prefer the exact per-source label array. Fall back to the scalar only when the
 		// source carries no array (non-drive obligation rows), never in addition to it.
+		// When both arrays exist, compose each pair (shedName[i], partition[i]) into the final
+		// display label using composeDriveShedDisplay(), with defensive index-parity checking.
 		if len(c.ShedLabels) > 0 {
-			for _, label := range c.ShedLabels {
-				addLabel(shedsByGroupKey, gk, label)
+			for i, shedLabel := range c.ShedLabels {
+				// Defensive: guard against index mismatch. If partitions array is shorter,
+				// fall back to bare shed name for this index.
+				var partitionLabel *string
+				if i < len(c.ShedPartitionLabels) && c.ShedPartitionLabels[i] != "" {
+					p := c.ShedPartitionLabels[i]
+					partitionLabel = &p
+				}
+				// Use composeDriveShedDisplay() to render the final label following the
+				// operational-location convention (shed + partition with " - " separator).
+				finalLabel := composeDriveShedDisplay(shedLabel, partitionLabel)
+				addLabel(shedsByGroupKey, gk, finalLabel)
 			}
 		} else {
 			addLabel(shedsByGroupKey, gk, c.ShedName)
@@ -404,7 +418,7 @@ func (r *Repository) selectReminderCadenceCandidates(ctx context.Context, tenant
 	var out []reminderCadenceCandidate
 	for rows.Next() {
 		var c reminderCadenceCandidate
-		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode, &c.ShedLabels, &c.VaccineLabels); err != nil {
+		if err := rows.Scan(&c.EventID, &c.ParkID, &c.DueAt, &c.TargetType, &c.TargetID, &c.ShedName, &c.VaccineName, &c.DoseCode, &c.ShedLabels, &c.ShedPartitionLabels, &c.VaccineLabels); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
