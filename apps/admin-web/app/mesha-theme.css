@@ -1856,6 +1856,7 @@ button.scrim{
 }
 button.scrim.on{display:block;opacity:1;pointer-events:auto}
 aside.drawer{z-index:220;width:498px;max-width:94vw;background:var(--bg);box-shadow:-12px 0 40px rgba(0,0,0,.4)}
+aside.drawer.on{transform:none}
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); width: min(440px, 92vw); overflow: hidden; }
 .modal .mh { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
 .modal .mh .av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px solid var(--brand); font-size: 12px; }
