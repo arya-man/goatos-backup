@@ -722,9 +722,11 @@ const RESPONSE_PARTITION_EXEMPT = new Set([
   "FeedDirectionGenerationPreviewRow",
   "FeedDirectionGenerationPreviewTotal",
   "FeedDirectionCountsProjectionException",
-  // Weighing operates at shed grain only; no per-partition concept. Free-flow means the system
-  // cannot know what animals are in a shed (confirmed in AGENTS.md weighing isolation rule, 2026-08-07).
-  "WeighingShedVideos",
+  // Weighing derives partition from locations catalog via name-parsing (oploc.SplitShedPartitionName),
+  // not from goat_shed_partitions (which it must never read, per isolation rule). This allows weighing
+  // to label videos with their physical partition without reading per-goat animal data (maintainer
+  // decision 2026-08-07: weighing isolation + partition awareness are compatible). Removed exemption.
+  // "WeighingShedVideos",
   // Telemetry/event payloads are not rendered as a location label.
   "VerificationReviewEventPayload",
 ]);
