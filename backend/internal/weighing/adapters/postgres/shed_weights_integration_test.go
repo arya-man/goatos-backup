@@ -20,11 +20,18 @@ func shedWeightsWindow() (time.Time, time.Time) {
 	return time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 }
 
+// submitted_at IS STAMPED, and that is what makes a repeat scan of the same tag legal.
+// weighing_observations_one_open_tag_uidx is UNIQUE on
+// (tenant_id, campaign_shed_id, lower(btrim(scanned_identifier))) WHERE submitted_at IS NULL, so a
+// bucket may hold exactly one OPEN row per tag. Superseded captures are the ones 000061 stamped on
+// completion — a finished bucket whose tag was re-scanned after a reopen — which is precisely the
+// history the dedup in `ind` exists to collapse, and the terminal state of essentially all real
+// weighing work. Seeding rows with a NULL submitted_at modelled a state the database forbids.
 func seedShedWeightScan(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tag string, weightKg float64, at time.Time) {
 	t.Helper()
 	execWeighingTestSQL(t, ctx, pool, `
-INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz)`,
+INSERT INTO weighing_observations (tenant_id, campaign_id, campaign_shed_id, scanned_identifier, weight_kg, proof_artifact_id, recorded_by, idempotency_key, accepted_at, submitted_at)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::uuid, $7::uuid, $8, $9::timestamptz, $9::timestamptz)`,
 		repoTenant, repoCampaign, repoAnimalScope, tag, weightKg, repoAnimalProof, repoOperator,
 		fmt.Sprintf("shedweights:%s:%d", tag, at.UnixNano()), at)
 }
