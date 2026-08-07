@@ -514,13 +514,20 @@ type FeedItemTotal struct {
 
 // PackingRow is one shed/session line of the packing worklist.
 type PackingRow struct {
-	ParkID       string `json:"park_id"`
-	ParkLabel    string `json:"park_label"`
-	ShedID       string `json:"shed_id"`
-	ShedLabel    string `json:"shed_label"`
-	SessionNo    int32  `json:"session_no"`
-	SessionLabel string `json:"session_label"`
-	Workflow     string `json:"workflow"`
+	ParkID    string `json:"park_id"`
+	ParkLabel string `json:"park_label"`
+	ShedID    string `json:"shed_id"`
+	ShedLabel string `json:"shed_label"`
+	// PartitionLabel is the operational partition this bag is for ("1", "Part 3"), empty for a shed
+	// with no partitions. A packing line is grouped at the same OPERATIONAL LOCATION grain as the
+	// direction row it is built from, so Castro 1 and Castro 2 are two separate bags. Without it a
+	// packer sees two identical "Castro" lines and cannot tell which pen either bag belongs to --
+	// and one shed's partitions can carry very different quantities when some are on an authored
+	// experiment and the rest on the per-head grid.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	SessionNo      int32  `json:"session_no"`
+	SessionLabel   string `json:"session_label"`
+	Workflow       string `json:"workflow"`
 	// ExperimentArm is the trial group of a hand-authored experiment shed, empty on normal lines.
 	// Carried here as well as on DirectionRow so the packer knows which trial a bag belongs to
 	// without cross-referencing the direction sheet -- the same authored value, never a shed tag.
