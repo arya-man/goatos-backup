@@ -2,6 +2,12 @@
 -- weighing_campaign_sheds.partition_label: snapshot the partition label when the planner
 -- assigns a shed to a campaign.
 --
+-- CURRENTLY UNREAD: This column is not yet read by any production code path. Weighing derives
+-- display by parsing the location name (oploc.SplitShedPartitionName), not this column.
+-- The column exists to enable future weighing UI features that need the resolved partition.
+-- DO NOT wire this column into weighing display without review: if a future reader assumes
+-- it is accurate, they inherit any fabricated values from this backfill.
+--
 -- WEIGHING ISOLATION: This column is populated from the authoritative shed_partitions catalog
 -- (migration 000112), an ORG-scoped table like locations/workforce_members/user_scope_grants.
 -- Never joined to goat_shed_partitions (which is per-goat and would reveal animal location),
@@ -22,13 +28,26 @@ ALTER TABLE weighing_campaign_sheds ADD COLUMN IF NOT EXISTS partition_label tex
 
 -- Backfill: PRIMARY PATH uses the shed_partitions catalog (migration 000112).
 -- For each campaign shed, look up the location_id in shed_partitions and take partition_label
--- directly. This gives exact resolution and includes empty partitions.
+-- directly ONLY WHEN the shed has exactly ONE active real partition (agree-or-go-bare).
+-- A shed with multiple partitions is ambiguous at shed grain, so it receives NULL.
+-- This gives exact resolution and includes empty partitions.
 UPDATE weighing_campaign_sheds wcs
 SET partition_label = sp.partition_label
 FROM shed_partitions sp
-WHERE wcs.location_id = sp.shed_id
-  AND wcs.tenant_id = sp.tenant_id
-  AND wcs.partition_label IS NULL;  -- only backfill empty rows
+WHERE wcs.tenant_id = sp.tenant_id
+  AND wcs.location_id = sp.shed_id
+  AND sp.status = 'active'
+  AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  AND wcs.partition_label IS NULL  -- only backfill empty rows
+  -- Agree-or-go-bare: only assign if this shed has exactly ONE active real partition
+  AND (
+    SELECT count(*)
+    FROM shed_partitions sp2
+    WHERE sp2.tenant_id = sp.tenant_id
+      AND sp2.shed_id = sp.shed_id
+      AND sp2.status = 'active'
+      AND COALESCE(NULLIF(sp2.partition_label, ''), 'whole') <> 'whole'
+  ) = 1;
 
 -- Backfill: FALLBACK PATH for rows not found in the shed_partitions catalog.
 -- This handles legacy data or bulk-created sheds where the catalog entry may not exist yet.

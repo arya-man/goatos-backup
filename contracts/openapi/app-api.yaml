@@ -12467,7 +12467,6 @@ components:
         - deferred_count
         - review_count
         - shed_labels
-        - shed_partition_labels
         - vaccine_labels
         - protocol_id
         - protocol_version_id
@@ -12615,7 +12614,14 @@ components:
             type:
               - string
               - "null"
-          description: Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed partition (multi-partition or non-partitioned).
+          description: >-
+            Index-parallel to shed_labels; null/empty string at an index means that shed has no agreed
+            partition (multi-partition or non-partitioned). NOT YET EMITTED: no backend query populates
+            this field today (backend/internal/calendar/domain.CalendarEvent has no ShedPartitionLabels
+            field, and no SQL in backend/internal/calendar/adapters/postgres builds a
+            shed_partition_labels key), so this property is deliberately optional rather than required
+            until that wiring lands. Do not mark it required again without also adding the Go field and
+            the SQL projection in the same change (see P2-13 in the partition-catalog session review).
         vaccine_labels:
           type: array
           items:
