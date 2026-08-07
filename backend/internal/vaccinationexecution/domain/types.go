@@ -279,6 +279,11 @@ type OperationsCohort struct {
 	WorkState WorkState        `json:"workState"`
 	Counts    OperationsCounts `json:"counts"`
 	Cells     []OperationsCell `json:"cells"`
+	// Operational location contract. The OpenAPI schema declares both; a struct that
+	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
+	// shed render bare on the operator's phone (2026-08-07).
+	PartitionLabel             *string `json:"partitionLabel"`
+	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 type OperationsResponse struct {
@@ -546,6 +551,11 @@ type GapRow struct {
 	ShedName          *string       `json:"shedName,omitempty"`
 	ReasonCode        GapReasonCode `json:"reasonCode"`
 	ReasonLabel       string        `json:"reasonLabel"`
+	// Operational location contract. The OpenAPI schema declares both; a struct that
+	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
+	// shed render bare on the operator's phone (2026-08-07).
+	PartitionLabel             *string `json:"partitionLabel"`
+	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 type GapsQuery struct {
@@ -655,6 +665,11 @@ type ShedSummaryRow struct {
 	DriveOperatorNames []string       `json:"driveOperatorNames,omitempty"`
 	Capacity           CapacityStatus `json:"capacity"`
 	Status             ShedStatus     `json:"status"`
+	// Operational location contract. The OpenAPI schema declares both; a struct that
+	// omits them re-creates the exact contract-vs-struct drift that made a partitioned
+	// shed render bare on the operator's phone (2026-08-07).
+	PartitionLabel             *string `json:"partitionLabel"`
+	OperationalLocationDisplay string  `json:"operationalLocationDisplay"`
 }
 
 // ShedOwnershipScope is one shed row whose owner cells need enrichment. ParkID is the center/park scope
