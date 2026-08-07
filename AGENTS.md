@@ -1354,6 +1354,30 @@ Any table that records location must include a `partition_label` column (nullabl
 
 **All of these bugs came from hand-rolling composition or grouping by shed name.** The convention makes them impossible.
 
+### Ten Defect Classes From Session 2026-08-07 (MUST-ENCODE)
+
+Session 2026-08-07 found ~15 live defects, ALL from ONE class: partition/location handling failures across the ~5-handoff chain (SQL → Go → wire DTO → OpenAPI → client render). These ten rules encode the failures so the chain cannot break silently again:
+
+1. **`normalized_label` is a MATCHING KEY, never display.** `partition_label` = `Part 3` (human), `normalized_label` = `3` (scrubbed, for joins). Six review rounds passed rendering `Mandela 2 - 3` (shed + key instead of shed + label) because reviewers checked field-carrying, never field-VALUE correctness.
+
+2. **Location crosses ~5 handoffs; dropping it at ANY ONE shows bare shed name.** Real instances: domain correct + wire DTO dropped (verifier queue, submit header), wire correct + renderer ignored (Android verify, 18 admin-web sites), SQL correct + Go struct never declared (calendar chips). A gap anywhere in the chain renders the partition missing end-to-end.
+
+3. **Never add a struct field without wiring it end-to-end.** FOUR instances: field DECLARED never populated (twice), schema declared what Go never emitted (twice), wire name renamed on one side only. A field nothing fills reads as done — worse than omitting it.
+
+4. **Scan-count discipline:** adding a struct field without adding the SQL column is a RUNTIME failure (`number of field descriptions must equal number of destinations`). Adding a partition column and renaming a CTE column broke a query so badly it could not even EXPLAIN.
+
+5. **`jsonb_array_elements(x)::text` is NOT `jsonb_array_elements_text(x)`.** The first leaves JSON quoting and turns JSON null into the 4-character string `"null"` (non-empty, passes all "has partition?" checks) — fabricating a partition on a shed with none.
+
+6. **Agree-or-go-bare:** compose a partition ONLY when every animal in scope resolves to the SAME real (non-'whole') partition; spanning several or none renders bare shed name. Never invent, never take `rows[0]`.
+
+7. **Never key or group by shed NAME.** Names repeat across parks (Castro, Gandhi, Yashoda appear twice each). Name-keying merges COUNTS, not just labels.
+
+8. **Parallel arrays must be built from the same grain.** One array `DISTINCT`, its partner not, silently shifts every index and pairs the wrong partition with the wrong shed.
+
+9. **Tests must assert OUTPUT STRING against DB round-trip,** not field presence and not pure-Go formatter unit tests. Both weaker forms passed while real output was wrong.
+
+10. **Fixes that regress the suite get REVERTED, not patched under pressure.** Two fixes this session regressed cross-surface parity tests and were reverted; record that as the expected response — never hold a breaking "fix" waiting for a second pass.
+
 ### "Active Shed" Means Active Location
 
 The product concept **"active shed"** means **active operational location** (partition if subdivided, shed if not), not "physical building holding ≥1 live animal after collapsing partitions". Using the old definition produced parent-only dropdowns that forced operators to guess.
@@ -1368,8 +1392,42 @@ A partition holding ZERO animals still EXISTS (e.g., CBE `Yashoda 5` is real and
 1. No `GROUP BY` / `SELECT DISTINCT` on `locations.name` without `shed_id` + park co-grouping
 2. All `operational_location_display` values match canonical `DisplayName()` on known seeds
 3. New location-bearing tables declare `partition_label` column
+4. Response schemas never declare location fields (shed_id, shed_name, partition_label, operational_location_display) without verifying the Go struct and wire emission carry them (OL-10, OL-11)
+5. No bare `jsonb_array_elements(x)::text` on label arrays (must use `jsonb_array_elements_text(x)`) — OL-5
 
 Known blind spots: hardcoded string literals, runtime-composed strings in application code, reflective queries. Code review and the subagent brief catch those cases.
+
+### Partition Change Verification Checklist
+
+Before committing a change that adds, modifies, or displays a partition:
+
+1. **SQL layer (backend/migrations/postgres):** 
+   - [ ] New location-bearing table includes `partition_label` column (nullable for undivided sheds)
+   - [ ] If populating from existing data, verify both the source query and the target column read the same grain (test on real seed data)
+   - [ ] EXPLAIN on the updated query with ~500k row bounds shows no Seq Scan on large tables
+   - [ ] If using `jsonb_array_elements` on label arrays, use `jsonb_array_elements_text(x)` (never the `::text` cast)
+
+2. **Go domain/wire layer (backend/internal):**
+   - [ ] Struct in `internal/**` domain declares `partition_label` (text pointer or string) + `operational_location_display` (string)
+   - [ ] All writers populate both fields (scan each constructor/builder/adapter)
+   - [ ] Use only `platform/oploc.DisplayName()` to compose the display string; never hand-roll
+
+3. **OpenAPI contract (contracts/openapi/app-api.yaml):**
+   - [ ] Response schema declares `shed_name`, `partition_label`, `operational_location_display` (mandatory for location-bearing rows)
+   - [ ] Request schema (if location is input) declares the expected input shape (e.g., `shed_id` alone or `shed_id + partition_label`)
+   - [ ] Compare schema and Go struct field-by-field; they must match exactly
+
+4. **Client render (admin-web / Android):**
+   - [ ] Generated TypeScript/Kotlin client receives the backend-composed `operational_location_display`
+   - [ ] Renderer uses that string, never hand-rolls location composition
+   - [ ] For partition pickers: group by `shed_id` + `park`, never by `shed_name`
+   - [ ] Visual proof: screenshot showing correct `Godel 1 - Part 3` format (dashed, both halves), not `Godel 1 1` (truncated) or bare `Godel 1` (missing partition)
+
+5. **Test closure (must run before push):**
+   - [ ] Unit test on the Go `DisplayName()` helper or formatter covers all known locations (subdivided + undivided)
+   - [ ] Integration/E2E test asserts the OUTPUT STRING on a DB round-trip (not field presence alone)
+   - [ ] If a partition picker or grouping changed, confirm cross-surface agreement on counts/labels (Calendar vs. Vaccination Board vs. Herd Register)
+   - [ ] Run `make operational-location-guard` — must pass
 
 ### Subagent Brief Rule
 
