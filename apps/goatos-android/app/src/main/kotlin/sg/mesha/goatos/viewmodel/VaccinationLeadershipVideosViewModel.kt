@@ -69,7 +69,6 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
     private val crashReporter: CrashReporter,
     private val syncRepo: SyncRepository,
 ) : ViewModel() {
-    private val window = MutableStateFlow(VACCINATION_LEADERSHIP_PAGE_SIZE)
     private val selectedParkId = MutableStateFlow<String?>(null)
     private val selectedShedId = MutableStateFlow<String?>(null)
 
@@ -83,14 +82,14 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val queueResource: StateFlow<Resource<VerificationQueueResponseDto>> =
-        combine(window, selectedParkId, selectedShedId) { w, park, shed -> Triple(w, park, shed) }
-            .flatMapLatest { (w, park, shed) ->
+        combine(selectedParkId, selectedShedId) { park, shed -> Pair(park, shed) }
+            .flatMapLatest { (park, shed) ->
                 repository.observeQueue(
                     category = VACCINATION_PROOF_CATEGORY,
                     status = "all", // Full trail -- see class doc. Never narrowed to open/pending.
                     parkId = park,
                     shedId = shed,
-                    limit = w,
+                    limit = VACCINATION_LEADERSHIP_PAGE_SIZE,
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Resource(data = null, lastSyncedAt = null))
@@ -105,8 +104,13 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
         val data = resource.data
         // Keep the query-driving flow in step with the defaulted selection, otherwise the fetch
         // stays park-unscoped while the UI shows a park as chosen.
+        // Choose the default park and trigger a SCOPED refresh immediately, ensuring the first
+        // loaded data is actually from the selected park, not an unscoped fetch.
         if (selectedParkId.value == null) {
-            data?.filterOptions?.parks?.firstOrNull()?.id?.let { selectedParkId.value = it }
+            data?.filterOptions?.parks?.firstOrNull()?.id?.let { firstParkId ->
+                selectedParkId.value = firstParkId
+                // The flatMapLatest will trigger a new fetch with the updated parkId
+            }
         }
         _uiState.update { current ->
             if (data == null) {
@@ -141,13 +145,11 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
             is VaccinationLeadershipVideoEvent.SelectPark -> {
                 selectedParkId.value = event.parkId
                 selectedShedId.value = null
-                window.value = VACCINATION_LEADERSHIP_PAGE_SIZE
                 _uiState.update { it.copy(selectedParkId = event.parkId, selectedShedId = null) }
                 refresh()
             }
             is VaccinationLeadershipVideoEvent.SelectShed -> {
                 selectedShedId.value = event.shedId
-                window.value = VACCINATION_LEADERSHIP_PAGE_SIZE
                 _uiState.update { it.copy(selectedShedId = event.shedId) }
                 refresh()
             }
@@ -162,14 +164,13 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
         if (refreshInFlight) return
         refreshInFlight = true
         _uiState.update { it.copy(loading = true) }
-        window.value = VACCINATION_LEADERSHIP_PAGE_SIZE
         viewModelScope.launch {
             val outcome = repository.refreshQueue(
                 category = VACCINATION_PROOF_CATEGORY,
                 status = "all",
                 parkId = selectedParkId.value,
                 shedId = selectedShedId.value,
-                limit = window.value,
+                limit = VACCINATION_LEADERSHIP_PAGE_SIZE,
             )
             outcome.fold(
                 onSuccess = { _uiState.update { it.copy(error = null, staleNotice = "") } },
@@ -191,24 +192,25 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
 
     /**
      * Scroll-driven prefetch: the gallery reports the item it just composed, and only an item
-     * inside the tail window asks for the next page — of the network read and of the observed Room
-     * window together. One page per trigger, never a tappable "Load more".
+     * inside the tail window asks for the next page via cursor-based pagination. Page size stays
+     * fixed at ~20 items; do not increase the limit window. One page per trigger, never a tappable "Load more".
      */
     private fun onItemVisible(index: Int) {
         val loaded = _uiState.value.items.size
         if (loaded == 0 || index < loaded - LIST_PREFETCH_DISTANCE) return
-        if (window.value < VACCINATION_LEADERSHIP_MAX_WINDOW) {
-            window.value = (window.value + VACCINATION_LEADERSHIP_PAGE_SIZE).coerceAtMost(VACCINATION_LEADERSHIP_MAX_WINDOW)
-        }
         if (_uiState.value.loading || _uiState.value.loadingMore) return
+        // GOS-PR31-5: use nextCursor from the current resource, not increasing limit
+        val nextCursor = queueResource.value.data?.nextCursor
+        if (nextCursor.isNullOrBlank()) return // No more pages
         _uiState.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            val outcome = repository.refreshQueue(
+            val outcome = repository.appendQueue(
+                cursor = nextCursor,
                 category = VACCINATION_PROOF_CATEGORY,
                 status = "all",
                 parkId = selectedParkId.value,
                 shedId = selectedShedId.value,
-                limit = window.value,
+                limit = VACCINATION_LEADERSHIP_PAGE_SIZE, // Fixed page size, never growing
             )
             outcome.onFailure { crashReporter.recordException(it, "vaccination leadership videos page load failed") }
             _uiState.update { it.copy(loadingMore = false) }
