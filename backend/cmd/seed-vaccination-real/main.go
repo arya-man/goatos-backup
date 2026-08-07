@@ -758,12 +758,27 @@ func upsertSeedGoats(ctx context.Context, tx pgx.Tx, tenantID string, rows []see
 func upsertShedPartitionsCatalog(ctx context.Context, tx pgx.Tx, tenantID string, rows []seedGoatUpsertRow) error {
 	// Collect unique (shed_id, partition_label) pairs from the rows.
 	// Skip rows with empty partition_label (non-partitioned sheds).
-	partitions := make(map[string]string) // key: shed_id, value: partition_label (only non-empty ones)
+	// Key on (shed_id, label), NOT shed_id alone. Keying by shed collapsed every partition of a
+	// shed onto whichever row happened to be written last, so a shed holding animals in Part 1
+	// AND Part 3 catalogued exactly ONE of them -- and the catalog is what every picker reads,
+	// so the other pen became unreachable as a destination. Found by a schema audit, 2026-08-07.
+	type shedPartition struct{ shedID, label string }
+	partitionSet := make(map[shedPartition]struct{})
 	for _, row := range rows {
 		if row.partitionLabel != "" && row.shedID != "" {
-			partitions[row.shedID] = row.partitionLabel
+			partitionSet[shedPartition{shedID: row.shedID, label: row.partitionLabel}] = struct{}{}
 		}
 	}
+	partitions := make([]shedPartition, 0, len(partitionSet))
+	for sp := range partitionSet {
+		partitions = append(partitions, sp)
+	}
+	sort.Slice(partitions, func(i, j int) bool {
+		if partitions[i].shedID != partitions[j].shedID {
+			return partitions[i].shedID < partitions[j].shedID
+		}
+		return partitions[i].label < partitions[j].label
+	})
 
 	if len(partitions) == 0 {
 		return nil // No partitions to add
@@ -778,7 +793,8 @@ func upsertShedPartitionsCatalog(ctx context.Context, tx pgx.Tx, tenantID string
 	}
 
 	// Insert each partition into shed_partitions
-	for shedID, partitionLabel := range partitions {
+	for _, sp := range partitions {
+		shedID, partitionLabel := sp.shedID, sp.label
 		normalizedLabel := normalizePartition(partitionLabel)
 		if normalizedLabel == "whole" {
 			continue // Never catalog the sentinel
