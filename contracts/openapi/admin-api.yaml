@@ -4774,6 +4774,16 @@ components:
             - string
             - "null"
           format: uuid
+        partition_label:
+          type: string
+          nullable: true
+          description: >-
+            Raw stored partition label ('1', 'Part 3'). Null when the shed is not
+            partitioned. Never the literal 'whole' -- that is a matching key.
+        operational_location_display:
+          type: string
+          description: >-
+            Backend-composed location label. Clients render it verbatim.
         cohort_id:
           type:
             - string

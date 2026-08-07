@@ -198,6 +198,19 @@ const CHECKS = [
       if (!/FROM\s+goat_shed_partitions|JOIN\s+goat_shed_partitions/i.test(window)) return false;
       // ...and be ENUMERATING distinct partition labels (a catalog), not resolving one goat's.
       if (!/DISTINCT[^;]{0,120}partition_label|DISTINCT\s+partition\b/i.test(window)) return false;
+      // A DISTINCT inside an AGGREGATE is an AGREEMENT check over the goats already in
+      // scope ("do all scoped animals sit in the same partition?"), not an enumeration of
+      // the partitions a shed HAS. The per-goat table is the correct source for that
+      // question and the catalog is irrelevant to it, so this is not the defect.
+      // Enumeration looks like `SELECT DISTINCT partition_label` or
+      // `array_agg(DISTINCT partition_label)`; agreement looks like
+      // `count(DISTINCT partition_label) ... = 1`. Added after the shed-completion and
+      // calendar drive-shed summaries tripped this rule for asking the agreement question
+      // (2026-08-07).
+      const aggregateAgreement =
+        /\bcount\s*\(\s*DISTINCT[^)]{0,120}partition_label/i.test(window) &&
+        !/SELECT\s+DISTINCT[^;]{0,120}partition_label|array_agg\s*\(\s*DISTINCT[^)]{0,120}partition_label/i.test(window);
+      if (aggregateAgreement) return false;
       // Already sourcing the authoritative catalog -> fine.
       if (/FROM\s+shed_partitions|JOIN\s+shed_partitions/i.test(window)) return false;
       return true;
@@ -355,6 +368,41 @@ const CHECKS = [
       return !/partition/i.test(block);
     },
     msg: "a *Request schema targets shed_id but declares no partition; with additionalProperties:false a move/create into Castro 2 is unexpressible (RecordShiftingEventRequest is the correct template)",
+  },
+  {
+    id: "response-shed-missing-partition",
+    // THE ABSENCE CHECK. Every other rule in this file keys on partition being
+    // MENTIONED somewhere -- a bad separator, a 'whole' leak, a name-keyed GROUP BY.
+    // A surface that forgot partitions ENTIRELY names them nowhere, so no other rule
+    // can fire on it. That is exactly how /app/vaccination/execution shipped: the
+    // OpenAPI schema declared partition_label + operational_location_display, the Go
+    // struct carried neither, and a partitioned shed rendered as a bare "Mandela 2"
+    // on the operator's phone (2026-08-07).
+    //
+    // The sibling rule `location-write-without-partition` gates on /Request$/, so it
+    // only ever guarded WRITE paths. Reads -- where the display actually happens --
+    // were unguarded. This rule is that missing half: a RESPONSE schema declaring a
+    // shed identity MUST declare both contract fields, or be allowlisted with a WHY.
+    test: (line, file, lines, i) => {
+      if (!/contracts\/openapi\/.*\.yaml$/.test(file)) return false;
+      if (!/^\s{4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(line)) return false;
+      const name = line.trim().replace(/:$/, "");
+      if (/Request$/.test(name)) return false; // write paths: sibling rule owns them
+      if (RESPONSE_PARTITION_EXEMPT.has(name)) return false;
+      // Read the schema block: up to the next sibling schema at the same indent.
+      const block = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^\s{4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(lines[j])) break;
+        block.push(lines[j]);
+      }
+      const body = block.join("\n");
+      const bearsShed = /^\s+(shed_id|shedId):/m.test(body);
+      if (!bearsShed) return false;
+      const hasPartition = /^\s+(partition_label|partitionLabel):/m.test(body);
+      const hasDisplay = /^\s+(operational_location_display|operationalLocationDisplay):/m.test(body);
+      return !(hasPartition && hasDisplay);
+    },
+    msg: "response schema declares a shed identity but not partition_label + operational_location_display; a partitioned shed will render bare (add both, or add the schema to RESPONSE_PARTITION_EXEMPT with a stated WHY)",
   },
   {
     id: "shed-name-keying",
@@ -527,6 +575,24 @@ const CHECKS = [
 
 // Tables that legitimately read/group by shed_id alone (no partition_label required).
 // Each entry must include an explicit WHY, not a dumping ground.
+// Response schemas that legitimately carry a shed WITHOUT a partition. Each entry
+// states WHY, because "it was failing" is not a reason.
+const RESPONSE_PARTITION_EXEMPT = new Set([
+  // Feed targets the whole shed -- there is no per-pen feeding concept, so a partition
+  // on these rows would be a fiction (confirmed against the feed contract, 2026-08-07).
+  "FeedDirectionRow",
+  "FeedDirectionFilterShed",
+  "FeedPackingRow",
+  "FeedTransportTask",
+  "FeedConfigShedFactor",
+  "FeedConfigExperiment",
+  "FeedDirectionGenerationPreviewRow",
+  "FeedDirectionGenerationPreviewTotal",
+  "FeedDirectionCountsProjectionException",
+  // Telemetry/event payloads are not rendered as a location label.
+  "VerificationReviewEventPayload",
+]);
+
 const SHED_GRAIN_ONLY_TABLES = [
   // Structural / configuration tables; never surface to users as location.
   "locations", // shed directory; has location_type ENUM, not partition granularity
@@ -734,11 +800,14 @@ function selfTest() {
       `    RecordShiftingEventRequest:\n      properties:\n        shed_id:\n          type: string\n        destination_partition_label:\n          type: string\n    NextSchema:\n      type: object`,
       null,
     ],
-    // ADVERSARIAL: a READ schema (not *Request) with shed_id is not a write path.
+    // A READ schema with shed_id is not a WRITE path, so location-write-without-partition
+    // must not fire on it -- but response-shed-missing-partition MUST. This fixture used to
+    // assert "clean"; that premise died with the read-side blind spot it documented
+    // (2026-08-07). Reads are where the display happens, so they are now guarded too.
     [
       "contracts/openapi/app-api.yaml",
       `    ShedSummary:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object`,
-      null,
+      "response-shed-missing-partition",
     ],
     // ADVERSARIAL (the vacuous-pass case): a sibling schema mentioning partition
     // must NOT excuse the write schema that lacks one.
@@ -827,6 +896,25 @@ function selfTest() {
     [
       "a/partition_catalog_ok.go",
       `const catalogSQL = "SELECT DISTINCT partition FROM shed_partitions"`,
+      null,
+    ],
+    // NEW CHECK FIXTURES: response-shed-missing-partition (the ABSENCE check, 2026-08-07).
+    // A response schema carrying a shed identity MUST declare both contract fields.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    DriveShedRow:\n      properties:\n        shed_id:\n          type: string\n        shed_name:\n          type: string\n    NextSchema:\n      type: object`,
+      "response-shed-missing-partition",
+    ],
+    // Correct form: both fields present -> clean.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    DriveShedRow:\n      properties:\n        shed_id:\n          type: string\n        partition_label:\n          type: string\n        operational_location_display:\n          type: string\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // Allowlisted whole-shed schema -> clean even without the fields.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    FeedPackingRow:\n      properties:\n        shed_id:\n          type: string\n        shed_name:\n          type: string\n    NextSchema:\n      type: object`,
       null,
     ],
     // NEW CHECK FIXTURES: shed-name-keying (Defect #3 from 2026-08-06 partition sweep)

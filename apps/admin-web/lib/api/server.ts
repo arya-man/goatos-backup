@@ -23,7 +23,12 @@ export type MilkPreparationPage = AppApiComponents["schemas"]["MilkPreparationPa
 export type MilkPreparationRow = AppApiComponents["schemas"]["MilkPreparationRow"];
 export type GoatTimelineResponse = AppApiComponents["schemas"]["GoatTimelineResponse"];
 export type IdentifierType = AppApiComponents["schemas"]["IdentifierType"];
-export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"];
+export type ActionCenterObligation = AppApiComponents["schemas"]["ActionCenterObligation"] & {
+  // Backend emits these fields (2026-08 contract update); generated type is not yet current.
+  // Extend the ActionCenterObligation type so references already light up when contract lands.
+  partition_label?: string | null;
+  operational_location_display?: string | null;
+};
 export type ActionCenterResponse = AppApiComponents["schemas"]["ActionCenterResponse"];
 export type VaccinationQueueItem = AppApiComponents["schemas"]["VaccinationQueueItem"];
 export type VaccinationQueueResponse = AppApiComponents["schemas"]["VaccinationQueueResponse"];
