@@ -382,8 +382,14 @@ func buildVaccinationReader(svc vaccinationShedSummaryLister) func(ctx context.C
 			totalDue += row.Due
 			totalDone += row.Done
 			totalSessions += row.Sessions
+			// Use the BACKEND-COMPOSED operational location, not the bare shed name. A
+			// partitioned shed answered "CBE / Godel 1" to a CEO question when the animals
+			// are actually in "Godel 1 - Part 3" -- the assistant is a user-facing surface
+			// and the partition rule applies to it exactly as it does to a screen.
 			scope := row.ParkName
-			if row.ShedName != "" {
+			if shedLabel := strings.TrimSpace(row.OperationalLocationDisplay); shedLabel != "" {
+				scope = scope + " / " + shedLabel
+			} else if row.ShedName != "" {
 				scope = scope + " / " + row.ShedName
 			}
 			if metricLabel != "" {
@@ -481,7 +487,11 @@ func buildActionCenterReader(svc actionCenterLister, resolver parkResolver) func
 			if item.ParkName != "" {
 				scope = item.ParkName + " / " + scope
 			}
-			if item.ShedName != "" {
+			// Same rule: the composed location, so an alert names the partition the work is
+			// actually in rather than the parent shed.
+			if shedLabel := strings.TrimSpace(item.OperationalLocationDisplay); shedLabel != "" {
+				scope = scope + " / " + shedLabel
+			} else if item.ShedName != "" {
 				scope = scope + " / " + item.ShedName
 			}
 			facts = append(facts, ceodomain.Fact{
