@@ -173,7 +173,7 @@ class WeighingLeadershipVideosViewModel @Inject constructor(
     private fun toUi(shed: WeighingLeadershipShed): WeighingLeadershipShedUi =
         WeighingLeadershipShedUi(
             id = shed.campaignShedId,
-            name = shed.shedName,
+            name = shed.operationalLocationDisplay.ifBlank { shed.shedName },
             status = shed.status,
             periodLabel = formatPeriodLabel(shed.periodLabel),
             category = shed.category,
