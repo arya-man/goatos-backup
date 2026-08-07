@@ -53,7 +53,11 @@ SELECT
     park.name,
     shed.location_id::text,
     shed.name,
-    partitions.normalized_label,
+    -- RAW label, not normalized_label. normalized_label ('3') is the MATCHING KEY used by the
+    -- join predicates below; the human label is 'Part 3'. Selecting the key made the picker read
+    -- "Godel 1 - 3", where nobody can tell whether the digits belong to the shed name or the
+    -- partition -- the exact ambiguity the worded form exists to remove (maintainer, 2026-08-07).
+    COALESCE(partitions.partition_label, partitions.normalized_label),
     COALESCE(animal_count.count, 0),
     COALESCE(stage_agg.stages, ARRAY[]::text[])
 FROM locations park
