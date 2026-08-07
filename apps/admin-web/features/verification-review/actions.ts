@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { assignSopTask, getSopTask, listStaffPositions, recordVerificationVerdict, requestSopTaskRework, type PositionListResponse, type VerificationDecision } from "@/lib/api/server";
+import { assignSopTask, getSopTask, recordVerificationVerdict, requestSopTaskRework, type VerificationDecision } from "@/lib/api/server";
 
 const PATHNAME = "/actions";
 
@@ -127,22 +127,10 @@ export async function reassignVerificationItemAction(formData: FormData): Promis
   redirect(withFeedback(url, "success", "reassigned"));
 }
 
-// loadReassignPositionsAction fetches the staff roster the re-assign picker offers, for ONE park.
+// loadReassignPositionsAction was REMOVED with the re-assign picker (maintainer decision
+// 2026-08-07). The verifier's screen carries only her verdict now, so nothing on it reads the
+// staff roster -- which also retires the 500-row SSR fetch this page used to make on every load.
 //
-// This used to be an unconditional SSR fetch on the Actions page itself -- listStaffPositions with
-// limit 500, awaited in parallel with the queue read on EVERY page load, for a control that lives
-// inside the drawer and is only reachable after the verifier opens a row and only usable on a
-// rejected item with a linked SOP task. The page carries a sub-500ms budget; it was paying for a
-// 500-row roster before it could paint a single video row, and then throwing almost all of it away
-// (the drawer filtered the list down to the one park the item belongs to).
-//
-// Now it is called from the drawer when a row opens, scoped to that item's park, so the queue
-// paints without waiting on it. Returns null on failure: the picker then renders its existing
-// "no staff positions available" disabled state rather than breaking the review flow -- a verifier
-// must still be able to accept or reject the video when the roster is unavailable.
-export async function loadReassignPositionsAction(parkID: string): Promise<PositionListResponse | null> {
-  const park = String(parkID ?? "").trim();
-  if (!park) return null;
-  const result = await listStaffPositions({ scope_type: "center", scope_id: park, status: "active", limit: 200 });
-  return result.ok ? result.data : null;
-}
+// reworkVerificationItemAction / reassignVerificationItemAction above are deliberately KEPT: they
+// are real, wired writes (requestSopTaskRework / assignSopTask) belonging to the authority surface
+// that owns source-task action. Only their placement on the verifier's review screen was wrong.

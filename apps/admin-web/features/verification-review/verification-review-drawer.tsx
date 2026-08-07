@@ -9,23 +9,19 @@ import { Maximize, Minimize, PlayCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 
 import { controlEnabled, copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
-import type { PositionListResponse, VerificationQueueItem } from "@/lib/api/server";
+import type { VerificationQueueItem } from "@/lib/api/server";
 import { fmtDateTime, shortId } from "@/lib/format";
 import type { RouteSearchParams } from "@/lib/search-params";
-import { loadReassignPositionsAction, reassignVerificationItemAction, recordVerificationVerdictAction, reworkVerificationItemAction } from "./actions";
+import { recordVerificationVerdictAction } from "./actions";
 import { VerificationReviewActionTelemetry } from "./verification-review-telemetry";
 import { ReviewVideoPlayer } from "./review-video-player";
 import { ReviewEventBuffer } from "./review-events";
 import { submitVerificationReviewEvents } from "./review-events-server";
 
-/**
- * Loading, failed, and genuinely-empty are THREE different things to a verifier.
- *
- * They were all collapsed into `null`, so a slow network, a backend outage, and a park that really
- * has no active staff positions all rendered the same disabled picker reading "no staff positions
- * available" -- a busy control that looks broken, and an outage that looks like configuration.
- */
-type RosterLoad = { state: "loading" | "loaded" | "failed"; data: PositionListResponse | null };
+/* The re-assign roster machinery that used to live here is GONE with the authority panels it fed.
+   It was originally an unconditional SSR fetch of 500 staff positions on every Actions page load,
+   then a lazy per-park load; now that the picker is not on this screen, the verifier's queue does
+   not read the roster at all. One less read on a screen with a sub-500ms budget. */
 
 const PATHNAME = "/actions";
 
@@ -146,52 +142,10 @@ export function VerificationReviewDrawer({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeDrawer, drawerOpen]);
 
-  // The re-assign roster loads WHEN A ROW OPENS, not on page load. It used to be an unconditional
-  // SSR fetch of 500 staff positions on the Actions page, awaited before the queue could paint,
-  // for a control only reachable from inside this drawer -- and then filtered down to the one park
-  // the item belongs to anyway. Now it is fetched per park, on demand, and cached per park for the
-  // life of the page so re-opening rows in the same park costs nothing.
-  //
-  // `requestedParks` is a REF, not state, and the effect depends on openParkID ALONE. An earlier
-  // version tracked in-flight parks in `positionsByPark` state and listed it as a dependency: the
-  // effect's own first action was a setState, which produced a new object identity, re-ran the
-  // effect, and React ran the PREVIOUS effect's cleanup -- flipping `cancelled` to true on the
-  // closure owning the still-pending request. The response was then always discarded, and the
-  // `already requested` guard stopped it ever retrying. The picker sat permanently on its
-  // "no staff positions" state for every park. A ref does not participate in rendering, so
-  // marking a park in flight cannot re-trigger the effect that is fetching it.
-  const openParkID = drawerOpen ? (item?.park_id ?? "") : "";
-  const requestedParks = useRef<Set<string>>(new Set());
-  const [positionsByPark, setPositionsByPark] = useState<Record<string, RosterLoad>>({});
-  useEffect(() => {
-    if (!openParkID || requestedParks.current.has(openParkID)) return;
-    requestedParks.current.add(openParkID);
-    let cancelled = false;
-    setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: "loading", data: null } }));
-    loadReassignPositionsAction(openParkID)
-      .then((loaded) => {
-        if (cancelled) return;
-        setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: loaded ? "loaded" : "failed", data: loaded } }));
-      })
-      .catch(() => {
-        // A rejected server action must not leave the picker claiming the roster is empty, and
-        // must never surface as an unhandled rejection.
-        if (cancelled) return;
-        requestedParks.current.delete(openParkID);
-        setPositionsByPark((prev) => ({ ...prev, [openParkID]: { state: "failed", data: null } }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [openParkID]);
+
 
   if (!item) return null;
-  // Still narrowed here: the endpoint is asked for this park, and this re-asserts it so a widened
-  // backend response can never offer the verifier a position from another park.
-  const rosterLoad: RosterLoad = positionsByPark[item.park_id ?? ""] ?? { state: "loading", data: null };
-  const scopedPositions: PositionListResponse | null = rosterLoad.data
-    ? { ...rosterLoad.data, items: rosterLoad.data.items.filter((position) => position.scope_type === "center" && position.scope_id === item.park_id) }
-    : null;
+
   const returnTo = hrefWithRow(searchParams, item.item_id);
 
   return (
@@ -205,8 +159,6 @@ export function VerificationReviewDrawer({
       />
       <VerificationReviewDrawerPanel
         item={item}
-        positions={scopedPositions}
-        rosterState={rosterLoad.state}
         actionTypeLabel={actionTypeLabels[item.category] ?? item.category}
         returnTo={returnTo}
         feedback={feedback}
@@ -227,8 +179,6 @@ export function VerificationReviewDrawer({
 
 function VerificationReviewDrawerPanel({
   item,
-  positions,
-  rosterState,
   actionTypeLabel,
   returnTo,
   feedback,
@@ -245,8 +195,6 @@ function VerificationReviewDrawerPanel({
   onStepItem,
 }: {
   item: VerificationQueueItem;
-  positions: PositionListResponse | null;
-  rosterState: RosterLoad["state"];
   actionTypeLabel: string;
   returnTo: string;
   feedback: { status?: string; code?: string };
@@ -393,22 +341,9 @@ function VerificationReviewDrawerPanel({
   }, [item.item_id, eventBuffer]);
 
   const activeMedia = item.media[Math.min(mediaIndex, Math.max(item.media.length - 1, 0))];
-  const hasTask = Boolean(item.source.task_id);
-  const isFlagged = item.status === "rejected";
-  const reworkDisabled = !hasTask || !isFlagged;
-  const hasEvidence = item.media.length > 0;
   const text = (key: string) => copy(pageContract, key);
-  // Loading / failed / genuinely-empty are three different messages. Collapsing them made a busy
-  // control look broken and an outage look like configuration.
-  const rosterUnavailable = rosterState !== "loaded" || !positions || positions.items.length === 0;
-  const reassignDisabled = !hasTask || rosterUnavailable;
-  const reassignDisabledReason = !hasTask
-    ? text("reassign.disabled_no_task")
-    : rosterState === "loading"
-      ? text("reassign.loading_roster")
-      : rosterState === "failed"
-        ? text("reassign.roster_unavailable")
-        : text("reassign.disabled_no_roster");
+  const hasEvidence = item.media.length > 0;
+
   // The heading is the same sentence the verifier clicked in the queue -- shed, animal/tag,
   // vaccine, weight -- falling back to operator/shed only when the backend sent no subject. It is
   // never the item id: an id tells her nothing about the video she is about to judge.
@@ -417,11 +352,11 @@ function VerificationReviewDrawerPanel({
     : [item.operator_name, item.shed_label].filter(Boolean).join(" · ") || text("drawer.eyebrow");
 
   // Duty split (verifier-app-and-flow.md §Roles): the verifier records the verdict, the authority
-  // acts on the source task. A principal sees only the half they hold — showing the other half
-  // disabled would advertise an authority they do not have and, for the verifier-only workspace,
-  // would put the authority's own actions in front of the person the separation exists to isolate.
+  // acts on the source task. This screen now carries ONLY the verifier's half -- the authority
+  // panels were removed on 2026-08-07 because they are not hers (SPEC section 1/3). mayAct is gone
+  // with them; keeping a permission flag for controls that no longer exist is how a screen quietly
+  // regrows them.
   const mayReview = controlEnabled(pageContract, "record_verdict", false);
-  const mayAct = controlEnabled(pageContract, "request_rework", true);
   // A verdict is terminal: approved/rejected items stay open for viewing but cannot be re-decided.
   const verdictSettled = item.status !== "pending";
 
@@ -572,89 +507,23 @@ function VerificationReviewDrawerPanel({
             </form>
           ) : null}
 
-          {mayAct ? (
-          <>
-          <section className="card" style={{ marginTop: 14 }}>
-            <div className="hd">
-              <h3>{text("rework.title")}</h3>
-            </div>
-            <div className="bd">
-              <form action={reworkVerificationItemAction} style={{ display: "grid", gap: 8 }}>
-                <input type="hidden" name="task_id" value={item.source.task_id ?? ""} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{text("rework.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={text("rework.reason_placeholder")} disabled={reworkDisabled} required />
-                </label>
-                {!isFlagged ? <div className="note">{text("rework.disabled_not_rejected")}</div> : null}
-                {!hasTask ? <div className="note">{text("rework.disabled_no_task")}</div> : null}
-                <button type="submit" className="btn p" disabled={reworkDisabled} aria-disabled={reworkDisabled} title={reworkDisabled ? (!hasTask ? text("rework.disabled_no_task") : text("rework.disabled_not_rejected")) : undefined}>
-                  {text("rework.submit")}
-                </button>
-              </form>
-            </div>
-          </section>
+          {/* The authority half -- Rework, Re-assign, Penalty note -- was REMOVED from this screen
+              (maintainer decision 2026-08-07). mock/verifier-web-mock.SPEC.md section 1 is explicit
+              about what this surface is: "She watches a proof video and accepts it, or rejects it
+              with a reason. That is all. Nothing else belongs on this screen." Section 3 bans
+              source-task action here by name, because it is verification.act and not the verifier's.
 
-          <section className="card" style={{ marginTop: 14 }}>
-            <div className="hd">
-              <h3>{text("reassign.title")}</h3>
-            </div>
-            <div className="bd">
-              <form action={reassignVerificationItemAction} style={{ display: "grid", gap: 8 }}>
-                <input type="hidden" name="task_id" value={item.source.task_id ?? ""} />
-                <input type="hidden" name="return_to" value={returnTo} />
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{text("reassign.assignee_label")}</span>
-                  <select name="assigned_to" disabled={reassignDisabled} required defaultValue="">
-                    <option value="" disabled>
-                      {text("reassign.assignee_placeholder")}
-                    </option>
-                    {(positions?.items ?? []).map((position) => (
-                      <option key={position.position_id} value={position.workforce_member_id}>
-                        {position.position_code} · {position.position_tier} · {shortId(position.workforce_member_id)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{text("reassign.reason_label")}</span>
-                  <textarea name="reason" rows={2} placeholder={text("reassign.reason_placeholder")} disabled={reassignDisabled} required />
-                </label>
-                {reassignDisabled ? (
-                  <div className="note">{reassignDisabledReason}</div>
-                ) : null}
-                <button
-                  type="submit"
-                  className="btn"
-                  disabled={reassignDisabled}
-                  aria-disabled={reassignDisabled}
-                  title={reassignDisabled ? reassignDisabledReason : undefined}
-                >
-                  {text("reassign.submit")}
-                </button>
-              </form>
-            </div>
-          </section>
+              These panels were gated on request_rework, which a CEO holds and a verifier does not,
+              so the two roles saw disjoint screens: leadership got three task-management forms and
+              never the verdict controls, the verifier got the verdict and never these. That is not
+              a permission subtlety a reviewer can see -- it reads as "the accept button is missing".
 
-          <section className="card" style={{ marginTop: 14 }}>
-            <div className="hd">
-              <h3>{text("penalty.title")}</h3>
-            </div>
-            <div className="bd">
-              <div style={{ display: "grid", gap: 8 }}>
-                <label className="fld" style={{ marginBottom: 0 }}>
-                  <span>{text("penalty.reason_label")}</span>
-                  <textarea name="penalty_note" rows={2} placeholder={text("penalty.reason_placeholder")} disabled />
-                </label>
-                <div className="note">{text("penalty.disabled")}</div>
-                <button type="button" className="btn" disabled aria-disabled title={text("penalty.disabled")}>
-                  {text("penalty.submit")}
-                </button>
-              </div>
-            </div>
-          </section>
-          </>
-          ) : null}
+              Penalty note was additionally DEAD: no server action, no route, and its own visible
+              label admitted it was unbacked while leaking an internal word into user-facing copy.
+
+              Rework and Re-assign remain real and wired (requestSopTaskRework / assignSopTask in
+              ./actions.ts, kept for the authority surface that owns them). Only their placement on
+              the verifier's review screen is removed. */}
         </div>
 
         <div className="vr-modal-ft">
