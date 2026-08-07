@@ -23,7 +23,6 @@ import sg.mesha.goatos.core.data.weighing.WeighingPlannerCatalog
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
-import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_MAX_WINDOW
 import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.network.WEIGHING_PAGE_SIZE

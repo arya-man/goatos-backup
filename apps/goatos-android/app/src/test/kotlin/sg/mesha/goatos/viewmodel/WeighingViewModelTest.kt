@@ -56,6 +56,7 @@ import sg.mesha.goatos.core.data.weighing.WeighingPlannerParkBucketsCache
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerOperator
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerPark
 import sg.mesha.goatos.core.data.weighing.WeighingPlannerShed
+import sg.mesha.goatos.core.data.weighing.WEIGHING_LEADERSHIP_PAGE_SIZE
 import sg.mesha.goatos.core.data.weighing.WeighingRepository
 import sg.mesha.goatos.core.data.weighing.WeighingRosterRowEntity
 import sg.mesha.goatos.core.data.weighing.WeighingScanMatch
@@ -1009,6 +1010,63 @@ class WeighingViewModelTest {
     }
 
     @Test
+    fun `scrolling the task list appends pages at a constant window size with no task skipped or repeated at the page boundary`() =
+        runTest(dispatcher) {
+            // Six pages -- one more than WEIGHING_LEADERSHIP_MAX_WINDOW's five -- proves the fix
+            // holds past the old hard ceiling where the observed window used to stop growing and
+            // scrolling stopped loading further rows.
+            val allTasks = (1..(WEIGHING_LEADERSHIP_PAGE_SIZE * 6)).map { n ->
+                WeighingTask(
+                    campaignId = "campaign-%03d".format(n),
+                    tenantId = "tenant",
+                    parkId = "park-cpt",
+                    parkName = "CPT - Channapatna",
+                    weighDate = "2026-08-03",
+                    status = "in_progress",
+                    sheds = emptyList(),
+                )
+            }
+            val repository = FakeWeighingRepository(pagedTasks = allTasks)
+            val vm = weighingViewModel(repository, surface = "all")
+            backgroundScope.launch(dispatcher) { vm.tasksState.collect {} }
+            advanceUntilIdle()
+
+            // Scroll to the tail repeatedly. Each trigger should append exactly one more page.
+            repeat(5) {
+                val visible = vm.tasksState.value.tasks.size
+                vm.onTaskRowVisible(visible - 1)
+                advanceUntilIdle()
+            }
+
+            // The window bounding observeTaskList's read is CONSTANT: it never grows, no matter how
+            // many pages have been appended. The old defect grew this value every scroll and hard
+            // capped it at WEIGHING_LEADERSHIP_MAX_WINDOW, after which further pages landed in Room
+            // but never reached the observed window.
+            assertEquals(
+                "the observed window must stay a single fixed page size, never grow",
+                setOf(WEIGHING_LEADERSHIP_PAGE_SIZE),
+                repository.observedTaskListWindowSizes.toSet(),
+            )
+
+            // Five appended pages, each exactly one page size, that concatenate with the first page
+            // into the FULL ordered keyset -- no task skipped, none repeated at a page boundary.
+            assertEquals(5, repository.appendedTaskListPages.size)
+            repository.appendedTaskListPages.forEach { page ->
+                assertEquals(WEIGHING_LEADERSHIP_PAGE_SIZE, page.size)
+            }
+            val allIds = allTasks.map { it.campaignId }
+            assertEquals(
+                "no task may be skipped or repeated across the page boundary",
+                allIds.drop(WEIGHING_LEADERSHIP_PAGE_SIZE),
+                repository.appendedTaskListPages.flatten(),
+            )
+
+            // Every row is now visible in the rendered task list -- the old MAX_WINDOW ceiling that
+            // made cached-but-unreachable rows is gone.
+            assertEquals(allTasks.size, vm.tasksState.value.tasks.size)
+        }
+
+    @Test
     fun `each shed bucket on a task detail names the operator it is assigned to`() = runTest(dispatcher) {
         val repository = FakeWeighingRepository(taskListCache = splitTaskCache())
         val vm = weighingViewModel(repository)
@@ -1677,11 +1735,50 @@ class WeighingViewModelTest {
         // every (park, date) with the SAME fixed page, which is enough for a test that only cares
         // about one park on one date.
         private val plannerParkBuckets: WeighingPlannerParkBucketsCache = WeighingPlannerParkBucketsCache(),
+        // The FULL server-side keyset for a paginated task list, used only by the append-cursor
+        // regression test below. Every OTHER test leaves this null and gets the fixed single-page
+        // [taskListCache] behavior unchanged. When set, [observeTaskList] mirrors Room's own bounded
+        // window (`LIMIT :windowSize` over whatever the cursor has appended so far) so a test can
+        // prove the observed window and the appended cursor pages stay in lockstep.
+        private val pagedTasks: List<WeighingTask>? = null,
+        private val pagedTasksPageSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE,
     ) : WeighingRepository {
+
+        /** How many of [pagedTasks] the cursor has appended into the fake's "Room" so far. */
+        private var pagedTasksLoaded = pagedTasks?.let { minOf(it.size, pagedTasksPageSize) } ?: 0
+
+        /** Every distinct windowSize [observeTaskList] was asked to bound its read to, in order. */
+        val observedTaskListWindowSizes = mutableListOf<Int>()
+
+        /** Every page [appendTaskList] fetched, as the campaign ids it returned, in call order. */
+        val appendedTaskListPages = mutableListOf<List<String>>()
+
+        private val pagedTaskListState: MutableStateFlow<WeighingTaskListCache>? = pagedTasks?.let { all ->
+            MutableStateFlow(
+                WeighingTaskListCache(
+                    items = all.take(pagedTasksLoaded),
+                    activeCount = all.size,
+                    completedCount = 0,
+                    canLoadMore = pagedTasksLoaded < all.size,
+                ),
+            )
+        }
 
         // Cursor-append stubs. These fakes exercise the READ path; Ok(0) means "no further
         // page", which leaves every existing assertion about page CONTENTS unchanged.
-        override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> = AppResult.Ok(0)
+        override suspend fun appendTaskList(scope: String, parkId: String?): AppResult<Int> {
+            val all = pagedTasks ?: return AppResult.Ok(0)
+            val state = pagedTaskListState ?: return AppResult.Ok(0)
+            if (pagedTasksLoaded >= all.size) return AppResult.Ok(0)
+            val page = all.drop(pagedTasksLoaded).take(pagedTasksPageSize)
+            pagedTasksLoaded += page.size
+            appendedTaskListPages += page.map { it.campaignId }
+            state.value = state.value.copy(
+                items = all.take(pagedTasksLoaded),
+                canLoadMore = pagedTasksLoaded < all.size,
+            )
+            return AppResult.Ok(page.size)
+        }
 
         override suspend fun appendTaskBuckets(campaignId: String): AppResult<Int> = AppResult.Ok(0)
 
@@ -1746,7 +1843,10 @@ class WeighingViewModelTest {
             scope: String,
             parkId: String?,
             windowSize: Int,
-        ): Flow<WeighingTaskListCache> = MutableStateFlow(taskListCache)
+        ): Flow<WeighingTaskListCache> {
+            observedTaskListWindowSizes += windowSize
+            return pagedTaskListState ?: MutableStateFlow(taskListCache)
+        }
 
         override suspend fun refreshTaskList(scope: String, parkId: String?, reset: Boolean): AppResult<Int> =
             AppResult.Ok(0)
