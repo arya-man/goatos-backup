@@ -3329,6 +3329,7 @@ CREATE TABLE public.verification_items (
     applied_at timestamp with time zone,
     applied_by_module text,
     subject_note text,
+    partition_label text,
     CONSTRAINT verification_items_applied_ack_complete_chk CHECK (((applied_at IS NULL) = (applied_by_module IS NULL))),
     CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
     CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
@@ -4373,6 +4374,222 @@ CREATE VIEW ceo_ai.verification_queue_status AS
 
 
 --
+-- Name: verification_review_events; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verification_review_events (
+    event_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    item_id uuid,
+    proof_id uuid,
+    actor_id uuid NOT NULL,
+    session_id text NOT NULL,
+    event_type text NOT NULL,
+    occurred_at timestamp with time zone NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    client_event_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT verification_review_events_item_id_scope_check CHECK ((((event_type = 'queue_opened'::text) AND (item_id IS NULL)) OR ((event_type <> 'queue_opened'::text) AND (item_id IS NOT NULL)))),
+    CONSTRAINT verification_review_events_payload_object_check CHECK ((jsonb_typeof(payload) = 'object'::text)),
+    CONSTRAINT verification_review_events_session_check CHECK ((btrim(session_id) <> ''::text)),
+    CONSTRAINT verification_review_events_type_check CHECK ((event_type = ANY (ARRAY['queue_opened'::text, 'item_opened'::text, 'video_play'::text, 'video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text, 'proof_switched'::text, 'fullscreen_toggled'::text, 'verdict_recorded'::text])))
+);
+
+
+--
+-- Name: verifier_review_integrity; Type: VIEW; Schema: ceo_ai; Owner: -
+--
+
+CREATE VIEW ceo_ai.verifier_review_integrity AS
+ WITH ordered_video_events AS (
+         SELECT verification_review_events.tenant_id,
+            verification_review_events.item_id,
+            verification_review_events.actor_id,
+            COALESCE((verification_review_events.proof_id)::text, ''::text) AS proof_key,
+            verification_review_events.event_type,
+            verification_review_events.occurred_at,
+            ((verification_review_events.payload ->> 'video_position_ms'::text))::bigint AS position_ms,
+            ((verification_review_events.payload ->> 'video_duration_ms'::text))::bigint AS duration_ms
+           FROM public.verification_review_events
+          WHERE (verification_review_events.event_type = ANY (ARRAY['video_play'::text, 'video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text]))
+        ), next_event AS (
+         SELECT ordered_video_events.tenant_id,
+            ordered_video_events.item_id,
+            ordered_video_events.actor_id,
+            ordered_video_events.proof_key,
+            ordered_video_events.event_type,
+            ordered_video_events.occurred_at,
+            ordered_video_events.position_ms,
+            ordered_video_events.duration_ms,
+            lead(ordered_video_events.event_type) OVER w AS next_type,
+            lead(ordered_video_events.occurred_at) OVER w AS next_at,
+            lead(ordered_video_events.position_ms) OVER w AS next_position_ms
+           FROM ordered_video_events
+          WINDOW w AS (PARTITION BY ordered_video_events.tenant_id, ordered_video_events.item_id, ordered_video_events.actor_id, ordered_video_events.proof_key ORDER BY ordered_video_events.occurred_at)
+        ), play_spans AS (
+         SELECT next_event.tenant_id,
+            next_event.item_id,
+            next_event.actor_id,
+            next_event.proof_key,
+            COALESCE(next_event.position_ms, (0)::bigint) AS start_ms,
+            (LEAST(COALESCE((next_event.next_position_ms)::numeric, ((COALESCE(next_event.position_ms, (0)::bigint))::numeric + GREATEST((EXTRACT(epoch FROM (next_event.next_at - next_event.occurred_at)) * (1000)::numeric), (0)::numeric))), (((COALESCE(next_event.position_ms, (0)::bigint))::numeric + (GREATEST((EXTRACT(epoch FROM (next_event.next_at - next_event.occurred_at)) * (1000)::numeric), (0)::numeric) * 2.0)) + (500)::numeric)))::bigint AS end_ms
+           FROM next_event
+          WHERE ((next_event.event_type = 'video_play'::text) AND (next_event.next_type = ANY (ARRAY['video_pause'::text, 'video_seek_attempt'::text, 'video_ended'::text])))
+        ), valid_spans AS (
+         SELECT play_spans.tenant_id,
+            play_spans.item_id,
+            play_spans.actor_id,
+            play_spans.proof_key,
+            play_spans.start_ms,
+            play_spans.end_ms
+           FROM play_spans
+          WHERE (play_spans.end_ms > play_spans.start_ms)
+        ), spans_with_prev_end AS (
+         SELECT valid_spans.tenant_id,
+            valid_spans.item_id,
+            valid_spans.actor_id,
+            valid_spans.proof_key,
+            valid_spans.start_ms,
+            valid_spans.end_ms,
+            max(valid_spans.end_ms) OVER (PARTITION BY valid_spans.tenant_id, valid_spans.item_id, valid_spans.actor_id, valid_spans.proof_key ORDER BY valid_spans.start_ms ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS prev_max_end
+           FROM valid_spans
+        ), spans_grouped AS (
+         SELECT spans_with_prev_end.tenant_id,
+            spans_with_prev_end.item_id,
+            spans_with_prev_end.actor_id,
+            spans_with_prev_end.proof_key,
+            spans_with_prev_end.start_ms,
+            spans_with_prev_end.end_ms,
+            spans_with_prev_end.prev_max_end,
+            sum(
+                CASE
+                    WHEN ((spans_with_prev_end.prev_max_end IS NULL) OR (spans_with_prev_end.start_ms > spans_with_prev_end.prev_max_end)) THEN 1
+                    ELSE 0
+                END) OVER (PARTITION BY spans_with_prev_end.tenant_id, spans_with_prev_end.item_id, spans_with_prev_end.actor_id, spans_with_prev_end.proof_key ORDER BY spans_with_prev_end.start_ms) AS island
+           FROM spans_with_prev_end
+        ), merged_spans AS (
+         SELECT spans_grouped.tenant_id,
+            spans_grouped.item_id,
+            spans_grouped.actor_id,
+            spans_grouped.proof_key,
+            spans_grouped.island,
+            min(spans_grouped.start_ms) AS island_start,
+            max(spans_grouped.end_ms) AS island_end
+           FROM spans_grouped
+          GROUP BY spans_grouped.tenant_id, spans_grouped.item_id, spans_grouped.actor_id, spans_grouped.proof_key, spans_grouped.island
+        ), watch_distinct AS (
+         SELECT merged_spans.tenant_id,
+            merged_spans.item_id,
+            merged_spans.actor_id,
+            (sum((merged_spans.island_end - merged_spans.island_start)))::bigint AS watched_distinct_ms
+           FROM merged_spans
+          GROUP BY merged_spans.tenant_id, merged_spans.item_id, merged_spans.actor_id
+        ), proof_durations AS (
+         SELECT per_proof.tenant_id,
+            per_proof.item_id,
+            per_proof.actor_id,
+            (sum(per_proof.proof_duration_ms))::bigint AS proof_duration_ms
+           FROM ( SELECT verification_review_events.tenant_id,
+                    verification_review_events.item_id,
+                    verification_review_events.actor_id,
+                    COALESCE((verification_review_events.proof_id)::text, ''::text) AS proof_key,
+                    max(((verification_review_events.payload ->> 'video_duration_ms'::text))::bigint) AS proof_duration_ms
+                   FROM public.verification_review_events
+                  GROUP BY verification_review_events.tenant_id, verification_review_events.item_id, verification_review_events.actor_id, COALESCE((verification_review_events.proof_id)::text, ''::text)) per_proof
+          GROUP BY per_proof.tenant_id, per_proof.item_id, per_proof.actor_id
+        ), event_stats AS (
+         SELECT verification_review_events.tenant_id,
+            verification_review_events.item_id,
+            verification_review_events.actor_id,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_play'::text)) AS play_count,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_pause'::text)) AS pause_count,
+            count(*) FILTER (WHERE (verification_review_events.event_type = 'video_seek_attempt'::text)) AS seek_attempt_count,
+            min(verification_review_events.occurred_at) FILTER (WHERE (verification_review_events.event_type = 'item_opened'::text)) AS item_opened_at
+           FROM public.verification_review_events
+          GROUP BY verification_review_events.tenant_id, verification_review_events.item_id, verification_review_events.actor_id
+        ), item_facts AS (
+         SELECT es.tenant_id,
+            es.item_id,
+            es.actor_id,
+            pd.proof_duration_ms,
+            es.play_count,
+            es.pause_count,
+            es.seek_attempt_count,
+            es.item_opened_at,
+            COALESCE(wd.watched_distinct_ms, (0)::bigint) AS watched_distinct_ms,
+                CASE
+                    WHEN (pd.proof_duration_ms > 0) THEN LEAST(((COALESCE(wd.watched_distinct_ms, (0)::bigint))::numeric / (pd.proof_duration_ms)::numeric), (1)::numeric)
+                    ELSE NULL::numeric
+                END AS watch_fraction
+           FROM ((event_stats es
+             LEFT JOIN watch_distinct wd ON (((wd.tenant_id = es.tenant_id) AND (wd.item_id = es.item_id) AND (wd.actor_id = es.actor_id))))
+             LEFT JOIN proof_durations pd ON (((pd.tenant_id = es.tenant_id) AND (pd.item_id = es.item_id) AND (pd.actor_id = es.actor_id))))
+        ), reviewed_items AS (
+         SELECT vi.tenant_id,
+            vi.item_id,
+            vi.verified_by AS actor_id,
+            vi.status,
+            vi.verdict_reason,
+            vi.category,
+            vi.park_id,
+            pk.name AS park_label,
+            ((vi.verified_at AT TIME ZONE 'Asia/Kolkata'::text))::date AS business_day,
+            jf.watch_fraction,
+            jf.proof_duration_ms,
+            jf.watched_distinct_ms,
+            jf.play_count,
+            jf.pause_count,
+            jf.seek_attempt_count,
+                CASE
+                    WHEN ((jf.item_opened_at IS NOT NULL) AND (vi.verified_at IS NOT NULL)) THEN EXTRACT(epoch FROM (vi.verified_at - jf.item_opened_at))
+                    ELSE NULL::numeric
+                END AS time_to_verdict_seconds
+           FROM ((public.verification_items vi
+             LEFT JOIN item_facts jf ON (((jf.tenant_id = vi.tenant_id) AND (jf.item_id = vi.item_id) AND (jf.actor_id = vi.verified_by))))
+             LEFT JOIN public.locations pk ON ((pk.location_id = vi.park_id)))
+          WHERE ((vi.verified_by IS NOT NULL) AND (vi.status = ANY (ARRAY['approved'::text, 'rejected'::text])))
+        ), reject_reason_grain AS (
+         SELECT reviewed_items.tenant_id,
+            reviewed_items.actor_id,
+            reviewed_items.park_id,
+            reviewed_items.category,
+            reviewed_items.business_day,
+            COALESCE(reviewed_items.verdict_reason, 'unspecified'::text) AS reason,
+            count(*) AS reason_count
+           FROM reviewed_items
+          WHERE (reviewed_items.status = 'rejected'::text)
+          GROUP BY reviewed_items.tenant_id, reviewed_items.actor_id, reviewed_items.park_id, reviewed_items.category, reviewed_items.business_day, COALESCE(reviewed_items.verdict_reason, 'unspecified'::text)
+        ), reject_reason_rollup AS (
+         SELECT reject_reason_grain.tenant_id,
+            reject_reason_grain.actor_id,
+            reject_reason_grain.park_id,
+            reject_reason_grain.category,
+            reject_reason_grain.business_day,
+            jsonb_object_agg(reject_reason_grain.reason, reject_reason_grain.reason_count) AS reject_reason_breakdown
+           FROM reject_reason_grain
+          GROUP BY reject_reason_grain.tenant_id, reject_reason_grain.actor_id, reject_reason_grain.park_id, reject_reason_grain.category, reject_reason_grain.business_day
+        )
+ SELECT ri.tenant_id,
+    ri.actor_id AS verifier_id,
+    ri.park_id,
+    ri.park_label,
+    ri.category,
+    ri.business_day,
+    count(*) AS videos_reviewed,
+    percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((ri.time_to_verdict_seconds)::double precision)) FILTER (WHERE (ri.time_to_verdict_seconds IS NOT NULL)) AS median_time_to_verdict_seconds,
+    percentile_cont((0.9)::double precision) WITHIN GROUP (ORDER BY ((ri.time_to_verdict_seconds)::double precision)) FILTER (WHERE (ri.time_to_verdict_seconds IS NOT NULL)) AS p90_time_to_verdict_seconds,
+    percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((ri.watch_fraction)::double precision)) FILTER (WHERE (ri.watch_fraction IS NOT NULL)) AS median_watch_fraction,
+    count(*) FILTER (WHERE ((ri.watch_fraction IS NOT NULL) AND (ri.watch_fraction < 0.9))) AS below_watch_threshold_count,
+    count(*) FILTER (WHERE (ri.watch_fraction IS NULL)) AS missing_review_telemetry_count,
+    count(*) FILTER (WHERE (ri.status = 'rejected'::text)) AS rejected_count,
+    ((count(*) FILTER (WHERE (ri.status = 'rejected'::text)))::numeric / (NULLIF(count(*), 0))::numeric) AS reject_rate,
+    COALESCE((array_agg(rr.reject_reason_breakdown) FILTER (WHERE (rr.reject_reason_breakdown IS NOT NULL)))[1], '{}'::jsonb) AS reject_reason_breakdown
+   FROM (reviewed_items ri
+     LEFT JOIN reject_reason_rollup rr ON (((rr.tenant_id = ri.tenant_id) AND (rr.actor_id = ri.actor_id) AND (NOT (rr.park_id IS DISTINCT FROM ri.park_id)) AND (rr.category = ri.category) AND (NOT (rr.business_day IS DISTINCT FROM ri.business_day)))))
+  GROUP BY ri.tenant_id, ri.actor_id, ri.park_id, ri.park_label, ri.category, ri.business_day;
+
+
+--
 -- Name: weighing_campaign_sheds; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4397,6 +4614,7 @@ CREATE TABLE public.weighing_campaign_sheds (
     park_id uuid,
     start_business_date date,
     closure_kind text,
+    partition_label text,
     CONSTRAINT weighing_campaign_sheds_category_check CHECK ((weighing_category = ANY (ARRAY['individual_animal'::text, 'per_shed_partition'::text]))),
     CONSTRAINT weighing_campaign_sheds_closure_kind_check CHECK (((closure_kind IS NULL) OR (closure_kind = ANY (ARRAY['verified'::text, 'early'::text])))),
     CONSTRAINT weighing_campaign_sheds_expected_animal_count_check CHECK ((expected_animal_count >= 0)),
@@ -5548,6 +5766,12 @@ CREATE TABLE public.feed_experiment_config (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
+    partition_key text GENERATED ALWAYS AS (
+CASE
+    WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
+    ELSE public.feed_config_norm(partition_label)
+END) STORED,
     CONSTRAINT feed_experiment_config_absolute_kg_check CHECK ((absolute_kg >= (0)::numeric)),
     CONSTRAINT feed_experiment_config_category_not_blank CHECK ((btrim(experiment_category) <> ''::text)),
     CONSTRAINT feed_experiment_config_head_count_check CHECK (((head_count IS NULL) OR (head_count >= 0))),
@@ -6008,10 +6232,40 @@ CREATE TABLE public.health_cases (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    partition_label text,
     CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
     CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
     CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
     CONSTRAINT health_cases_status_check CHECK ((status = ANY (ARRAY['active'::text, 'recovered'::text, 'continued'::text, 'referred'::text, 'held_death_review'::text, 'closed_dead'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: health_config_write_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.health_config_write_log (
+    health_config_write_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    tenant_id uuid NOT NULL,
+    write_kind text NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    outcome text NOT NULL,
+    disease_key text NOT NULL,
+    age_band text,
+    result_version_id uuid,
+    retired_version_id uuid,
+    actor_ref text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT health_config_write_log_actor_check CHECK ((btrim(actor_ref) <> ''::text)),
+    CONSTRAINT health_config_write_log_age_band_check CHECK (((age_band IS NULL) OR (age_band = ANY (ARRAY['adult'::text, 'kid'::text])))),
+    CONSTRAINT health_config_write_log_disease_check CHECK ((btrim(disease_key) <> ''::text)),
+    CONSTRAINT health_config_write_log_idem_check CHECK (((btrim(idempotency_key) <> ''::text) AND (btrim(request_fingerprint) <> ''::text))),
+    CONSTRAINT health_config_write_log_kind_check CHECK ((write_kind = ANY (ARRAY['disease_create'::text, 'draft_save'::text, 'draft_publish'::text, 'draft_discard'::text]))),
+    CONSTRAINT health_config_write_log_outcome_check CHECK ((outcome = ANY (ARRAY['created'::text, 'saved'::text, 'unchanged'::text, 'published'::text, 'discarded'::text]))),
+    CONSTRAINT health_config_write_log_publish_shape_check CHECK (((outcome <> 'published'::text) OR (result_version_id IS NOT NULL))),
+    CONSTRAINT health_config_write_log_retire_shape_check CHECK (((retired_version_id IS NULL) OR (outcome = 'published'::text))),
+    CONSTRAINT health_config_write_log_saved_shape_check CHECK (((outcome <> ALL (ARRAY['saved'::text, 'unchanged'::text])) OR (result_version_id IS NOT NULL)))
 );
 
 
@@ -6086,6 +6340,8 @@ CREATE TABLE public.health_protocol_versions (
     published_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    updated_by uuid,
     CONSTRAINT health_protocol_versions_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
     CONSTRAINT health_protocol_versions_disease_key_check CHECK ((disease_key ~ '^[a-z][a-z0-9_]*$'::text)),
     CONSTRAINT health_protocol_versions_display_name_check CHECK ((length(btrim(display_name)) > 0)),
@@ -8851,6 +9107,14 @@ ALTER TABLE ONLY public.health_cases
 
 
 --
+-- Name: health_config_write_log health_config_write_log_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_config_write_log
+    ADD CONSTRAINT health_config_write_log_pkey PRIMARY KEY (health_config_write_id);
+
+
+--
 -- Name: health_medicine_administrations health_medicine_administratio_health_session_id_health_sess_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10219,6 +10483,22 @@ ALTER TABLE ONLY public.verification_items
 
 
 --
+-- Name: verification_items verification_items_tenant_item_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_items
+    ADD CONSTRAINT verification_items_tenant_item_unique UNIQUE (tenant_id, item_id);
+
+
+--
+-- Name: verification_review_events verification_review_events_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_pkey PRIMARY KEY (event_id);
+
+
+--
 -- Name: weighing_campaign_sheds weighing_campaign_sheds_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11104,14 +11384,14 @@ CREATE INDEX feed_distribution_completions_serving_idx ON public.feed_distributi
 -- Name: feed_experiment_config_natural_key_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id, feed_item_key);
+CREATE UNIQUE INDEX feed_experiment_config_natural_key_uidx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id, partition_key, feed_item_key);
 
 
 --
 -- Name: feed_experiment_config_shed_lookup_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id) INCLUDE (feed_item_key, absolute_kg) WHERE (status = 'active'::text);
+CREATE INDEX feed_experiment_config_shed_lookup_idx ON public.feed_experiment_config USING btree (tenant_id, park_id, shed_id) INCLUDE (partition_key, feed_item_key, absolute_kg) WHERE (status = 'active'::text);
 
 
 --
@@ -11668,6 +11948,27 @@ CREATE INDEX health_cases_goat_open_idx ON public.health_cases USING btree (tena
 
 
 --
+-- Name: health_cases_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_cases_shed_partition_idx ON public.health_cases USING btree (tenant_id, shed_id, partition_label) WHERE (shed_id IS NOT NULL);
+
+
+--
+-- Name: health_config_write_log_disease_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_config_write_log_disease_idx ON public.health_config_write_log USING btree (tenant_id, disease_key, created_at DESC);
+
+
+--
+-- Name: health_config_write_log_idempotency_uidx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_config_write_log_idempotency_uidx ON public.health_config_write_log USING btree (tenant_id, idempotency_key);
+
+
+--
 -- Name: health_protocol_steps_order_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11679,6 +11980,27 @@ CREATE INDEX health_protocol_steps_order_idx ON public.health_protocol_steps USI
 --
 
 CREATE INDEX health_protocol_versions_catalog_idx ON public.health_protocol_versions USING btree (tenant_id, age_band, display_name, health_protocol_version_id) WHERE (status = 'published'::text);
+
+
+--
+-- Name: health_protocol_versions_draft_catalog_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_versions_draft_catalog_idx ON public.health_protocol_versions USING btree (tenant_id, age_band, display_name, health_protocol_version_id) WHERE (status = 'draft'::text);
+
+
+--
+-- Name: health_protocol_versions_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX health_protocol_versions_history_idx ON public.health_protocol_versions USING btree (tenant_id, disease_key, age_band, version DESC);
+
+
+--
+-- Name: health_protocol_versions_one_draft_uq; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX health_protocol_versions_one_draft_uq ON public.health_protocol_versions USING btree (tenant_id, disease_key, age_band) WHERE (status = 'draft'::text);
 
 
 --
@@ -13313,6 +13635,13 @@ CREATE INDEX verification_items_queue_idx ON public.verification_items USING btr
 
 
 --
+-- Name: verification_items_shed_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_shed_partition_idx ON public.verification_items USING btree (tenant_id, shed_id, partition_label) WHERE (shed_id IS NOT NULL);
+
+
+--
 -- Name: verification_items_source_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -13327,10 +13656,45 @@ CREATE INDEX verification_items_source_submission_idx ON public.verification_ite
 
 
 --
+-- Name: verification_items_verified_by_review_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_items_verified_by_review_idx ON public.verification_items USING btree (tenant_id, verified_by, park_id, category, verified_at) WHERE (verified_by IS NOT NULL);
+
+
+--
+-- Name: verification_review_events_actor_time_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_review_events_actor_time_idx ON public.verification_review_events USING btree (tenant_id, actor_id, occurred_at);
+
+
+--
+-- Name: verification_review_events_item_actor_time_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX verification_review_events_item_actor_time_idx ON public.verification_review_events USING btree (tenant_id, item_id, actor_id, occurred_at);
+
+
+--
+-- Name: verification_review_events_tenant_client_event_unique_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX verification_review_events_tenant_client_event_unique_idx ON public.verification_review_events USING btree (tenant_id, client_event_id);
+
+
+--
 -- Name: weighing_campaign_sheds_campaign_location_uidx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX weighing_campaign_sheds_campaign_location_uidx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id);
+
+
+--
+-- Name: weighing_campaign_sheds_campaign_partition_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX weighing_campaign_sheds_campaign_partition_idx ON public.weighing_campaign_sheds USING btree (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''::text));
 
 
 --
@@ -13499,6 +13863,13 @@ CREATE INDEX weighing_work_items_sweep_due_idx ON public.weighing_work_items USI
 --
 
 CREATE INDEX weighing_work_items_sweep_planned_idx ON public.weighing_work_items USING btree (tenant_id, work_state, planned_business_date, work_item_id);
+
+
+--
+-- Name: workflow_actions_colostrum_day_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX workflow_actions_colostrum_day_idx ON public.workflow_actions USING btree (tenant_id, due_at, workflow_id) WHERE ((section = 'colostrum_session'::text) OR (action_key = 'first_colostrum'::text));
 
 
 --
@@ -15563,6 +15934,14 @@ ALTER TABLE ONLY public.health_cases
 
 
 --
+-- Name: health_config_write_log health_config_write_log_tenant_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.health_config_write_log
+    ADD CONSTRAINT health_config_write_log_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
 -- Name: health_protocol_steps health_protocol_steps_protocol_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -17512,6 +17891,22 @@ ALTER TABLE ONLY public.vaccines
 
 ALTER TABLE ONLY public.verification_items
     ADD CONSTRAINT verification_items_tenant_id_fkey FOREIGN KEY (tenant_id) REFERENCES public.tenants(tenant_id);
+
+
+--
+-- Name: verification_review_events verification_review_events_item_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_item_fkey FOREIGN KEY (tenant_id, item_id) REFERENCES public.verification_items(tenant_id, item_id) DEFERRABLE;
+
+
+--
+-- Name: verification_review_events verification_review_events_proof_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verification_review_events
+    ADD CONSTRAINT verification_review_events_proof_fkey FOREIGN KEY (proof_id) REFERENCES public.proof_artifacts(proof_id) DEFERRABLE;
 
 
 --
