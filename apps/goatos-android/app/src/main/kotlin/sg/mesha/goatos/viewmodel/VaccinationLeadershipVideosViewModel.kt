@@ -330,6 +330,7 @@ private fun VerificationQueueItem.toUi(index: Int): VaccinationLeadershipItemUi 
         shedLabel = shedLabel.orEmpty(),
         parkLabel = parkLabel.orEmpty(),
         operatorLabel = operatorName.orEmpty(),
+        verdictReason = verdictReason?.takeIf { it.isNotBlank() },
         media = media.map {
             VaccinationLeadershipMediaUi(proofId = it.proofId, url = absoluteProofUrl(it.downloadUrl), mimeType = it.mimeType.orEmpty())
         },

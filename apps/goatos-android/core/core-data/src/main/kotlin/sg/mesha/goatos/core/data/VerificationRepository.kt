@@ -340,6 +340,9 @@ class DefaultVerificationRepository(
                     proofCount = (item.media.size).coerceAtLeast(1),
                     videoUrls = item.media.map { it.downloadUrl },
                     summary = item.subjectLabel.orEmpty(), // Use backend copy, no composition
+                    // The verifier's reason for sending it back. Backend-authored, rendered
+                    // verbatim -- leadership saw "rework" with no explanation without it.
+                    verdictReason = item.verdictReason?.takeIf { it.isNotBlank() },
                 )
             }.orEmpty()
         }
