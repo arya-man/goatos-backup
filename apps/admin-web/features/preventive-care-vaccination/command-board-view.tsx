@@ -374,13 +374,24 @@ function enrichDriveOptions(
       if (option.status !== "planned") return true;
       return (!start || date >= start) && (!end || date <= end);
     });
-    const shedNames = Array.from(new Set(cells.map((cell) => cell.shedName).filter(Boolean))).sort();
+    // BUG FIX (2026-08-07): OL-2 partition collapse. Key by shedId + partition_label instead of shedName.
+    // Two same-named sheds across parks and two partitions of one shed must contribute separate counts.
+    // Keying by shedName alone merged them, silently summing counts from disjoint physical locations.
+    const byShedKey = new Map<string, { shedName: string; animalCount: number }>();
+    cells.forEach((cell) => {
+      const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
+      const existing = byShedKey.get(shedKey);
+      if (!existing || cell.animalCount > existing.animalCount) {
+        byShedKey.set(shedKey, { shedName: cell.shedName, animalCount: cell.animalCount });
+      }
+    });
+    const shedNames = Array.from(byShedKey.values())
+      .map((entry) => entry.shedName)
+      .sort();
     const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
     let targetCount = 0;
     if ((option.driveName || option.label).includes(" + ")) {
-      const byShed = new Map<string, number>();
-      cells.forEach((cell) => byShed.set(cell.shedName, Math.max(byShed.get(cell.shedName) ?? 0, cell.animalCount ?? 0)));
-      targetCount = Array.from(byShed.values()).reduce((sum, count) => sum + count, 0);
+      targetCount = Array.from(byShedKey.values()).reduce((sum, entry) => sum + entry.animalCount, 0);
     } else {
       targetCount = doseCount;
     }
