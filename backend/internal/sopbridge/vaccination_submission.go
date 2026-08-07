@@ -169,11 +169,17 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			shedID = stringPtr(completion.ShedID)
 		}
 		if completion.ShedID != "" {
+			// An unresolvable shed is OMITTED, never substituted with its id. This used to fall
+			// back to `label = completion.ShedID`, which put a raw UUID straight into the
+			// verifier's subject line the moment a shed name failed to resolve -- exactly what
+			// the locked spec forbids ("Never render a UUID as a label"), and doubly so now that
+			// the label LEADS with the shed. A leading "-" means only the partition suffix
+			// survived (" - Part 3"), which is an id-shaped fragment for the same reason.
+			// Callers treat a missing entry as "no shed to show" and drop the segment.
 			label := strings.TrimSpace(completion.ShedLabel)
-			if label == "" || strings.HasPrefix(label, "-") {
-				label = completion.ShedID
+			if label != "" && !strings.HasPrefix(label, "-") {
+				shedLabels[completion.ShedID] = label
 			}
-			shedLabels[completion.ShedID] = label
 		}
 		if parkID == nil && completion.ParkID != "" {
 			parkID = stringPtr(completion.ParkID)

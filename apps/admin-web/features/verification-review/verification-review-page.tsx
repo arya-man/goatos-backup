@@ -282,6 +282,7 @@ export async function VerificationReviewPage({
       <VerificationReviewDrawer
         items={items}
         initialSelectedId={selectedId}
+        actionTypeLabels={Object.fromEntries(typeLabels)}
         searchParams={sp}
         feedback={feedback}
         pageContract={pageContract}

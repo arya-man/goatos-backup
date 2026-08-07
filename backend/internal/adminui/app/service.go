@@ -1002,12 +1002,15 @@ func pageSpecificCopy(id string) map[string]string {
 			// OFFSET to jump with (docs/decisions/scale-anti-patterns.md bans OFFSET here). The
 			// client walks forward on next_cursor and back down a trail of the cursors it has
 			// already used, so "previous" is a real keyset read, not an offset.
-			"pagination.next":               "Next page",
-			"pagination.previous":           "Previous page",
-			"pagination.position":           "Page",
-			"state.queue_unavailable":       "Actions are unavailable",
-			"state.queue_unavailable_body":  "The verification queue could not be loaded from the backend.",
-			"state.empty":                   "No actions match the selected action type, status, park, and date.",
+			"pagination.next":              "Next page",
+			"pagination.previous":          "Previous page",
+			"pagination.position":          "Page",
+			"state.queue_unavailable":      "Actions are unavailable",
+			"state.queue_unavailable_body": "The verification queue could not be loaded from the backend.",
+			// Deliberately no longer names an "action type": that filter was removed on
+			// 2026-08-07, so mentioning it sent the verifier hunting for a control that is not on
+			// the screen. The module now comes from the left nav.
+			"state.empty":                   "No actions to review for this module in the selected status, park, and date.",
 			"drawer.eyebrow":                "Action details",
 			"drawer.aria":                   "Action details",
 			"drawer.close_label":            "Close action details",
@@ -1043,11 +1046,17 @@ func pageSpecificCopy(id string) map[string]string {
 			"reassign.submit":               "Re-assign task",
 			"reassign.disabled_no_task":     "No linked SOP task is available for reassignment.",
 			"reassign.disabled_no_roster":   "No staff positions are available in this park scope.",
-			"penalty.title":                 "Penalty note",
-			"penalty.reason_label":          "Penalty / escalation note",
-			"penalty.reason_placeholder":    "Log a penalty or escalation note",
-			"penalty.submit":                "Log penalty note",
-			"penalty.disabled":              "Penalty and escalation logging is not backed by an API yet.",
+			// The roster loads when the row opens, so "still loading" and "the lookup failed" are
+			// distinct from "this park genuinely has nobody". All three used to render as
+			// disabled_no_roster, which made a busy control look broken and an outage look like
+			// configuration.
+			"reassign.loading_roster":     "Loading staff positions…",
+			"reassign.roster_unavailable": "Staff positions could not be loaded. Reload to try again.",
+			"penalty.title":               "Penalty note",
+			"penalty.reason_label":        "Penalty / escalation note",
+			"penalty.reason_placeholder":  "Log a penalty or escalation note",
+			"penalty.submit":              "Log penalty note",
+			"penalty.disabled":            "Penalty and escalation logging is not backed by an API yet.",
 			// Verifier verdict copy. Approve/reject is the verifier's ONLY act: the wording must
 			// not promise that approving closes or completes the underlying work, because it does
 			// not -- an authority closes the submission afterwards.
