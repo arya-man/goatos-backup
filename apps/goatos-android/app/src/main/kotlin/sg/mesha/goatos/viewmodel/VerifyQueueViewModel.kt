@@ -657,9 +657,13 @@ class VerifyQueueViewModel @Inject constructor(
         // mislabels as "Vaccination proof".
         // Deduplicate shed name if shedLabel is already part of subjectLabel (e.g., "Godel 1 · 5 goats" + "Godel 1"
         // would render as "Godel 1 · 5 goats · Godel 1"; only use subjectLabel if shedLabel is already its prefix).
+        // Prefer the backend-COMPOSED location. operationalLocationDisplay carries partition labels
+        // so a verifier can tell "Godel 1 - Part 3" from "Godel 1 - Part 1".
+        val displayShedLabel = (operationalLocationDisplay?.takeIf { it.isNotBlank() }
+            ?: shedLabel)?.takeIf { it.isNotBlank() }
         val title = listOfNotNull(
             subjectLabel,
-            shedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
+            displayShedLabel?.takeUnless { shed -> subjectLabel?.startsWith(shed) == true }
         ).joinToString(" · ").ifBlank { humanizeCategory(category) }
         val subtitle = listOfNotNull(parkLabel, operatorName, capturedAt.takeIf { it.isNotBlank() }?.let { formatCapturedAtIST(it) })
             .joinToString(" · ")
@@ -674,7 +678,7 @@ class VerifyQueueViewModel @Inject constructor(
             subtitle = subtitle,
             scopeType = scopeType,
             shedId = shedId,
-            shedLabel = shedLabel ?: subjectLabel.orEmpty(),
+            shedLabel = displayShedLabel ?: subjectLabel.orEmpty(),
             animalLabel = when (scopeType) {
                 VerifyScopeType.INDIVIDUAL -> firstMedia?.label?.takeIf { it.isNotBlank() } ?: subjectLabel.orEmpty()
                 VerifyScopeType.LUMP_SUM -> ""
