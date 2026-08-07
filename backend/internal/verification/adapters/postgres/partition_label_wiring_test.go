@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestPartitionLabelWiringEndToEnd(t *testing.T) {
 		},
 		MediaRefs:      []string{},
 		PartitionLabel: &partitionLabel,
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: idempotencyKeyA,
 	})
 	if err != nil {
@@ -71,7 +72,7 @@ func TestPartitionLabelWiringEndToEnd(t *testing.T) {
 			RefID:   tenantID,
 		},
 		MediaRefs:      []string{},
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     time.Now().In(biztime.DefaultLocation()),
 		IdempotencyKey: idempotencyKeyB,
 	})
 	if err != nil {

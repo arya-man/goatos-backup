@@ -1577,16 +1577,16 @@ WHERE NOT EXISTS (
 
 #### Rule 5: Confirm the Repo Path Before Editing
 
-This workspace has multiple checkouts (`/Users/ravi/mesha/goatos`, `/Users/ravi/mesha/goatos-land`, review worktrees). An agent did a full task in the wrong one and the work was unusable; it also reported that files "don't exist" when it was simply in the wrong tree.
+This workspace has multiple checkouts (`<another checkout>`, `<this repo>`, review worktrees). An agent did a full task in the wrong one and the work was unusable; it also reported that files "don't exist" when it was simply in the wrong tree.
 
-**Defect discovered:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `/Users/ravi/mesha/goatos/docs/decisions/operational-location-convention.md` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/operational-location-convention.md`.
+**Defect discovered:** Subagent reported `docs/decisions/operational-location-convention.md` missing after editing `<another checkout>/docs/decisions/operational-location-convention.md` instead of `<this repo>/docs/decisions/operational-location-convention.md`.
 
 **Rule for delegated work:** state the absolute repo path in the brief and confirm with `git rev-parse --show-toplevel` before the first edit. "File not found" means check the tree before concluding the code is missing.
 
 ```bash
 # Grep evidence: verify every agent logs its repo root
 # Expected in every agent session start:
-git rev-parse --show-toplevel  # Must print /Users/ravi/mesha/goatos-land
+git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
 ```
 
 ### Settled Model for Partition Documentation
