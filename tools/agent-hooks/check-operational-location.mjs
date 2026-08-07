@@ -73,6 +73,24 @@
 // See docs/decisions/operational-location-display-composition.md (ADR)
 // for the canonical rule — all composition must use the shared primitives.
 //
+// BLIND SPOTS CLOSED (2026-08-07):
+// 1. shed_name/shedName-only identification: schemas that identify a shed ONLY
+//    by name (no shed_id/shedId) are now flagged. A name alone is not sufficient
+//    when partitions exist; partition context is still required.
+// 2. $ref to shed types: schemas that embed shed context via $ref
+//    (e.g., shed: { $ref: '#/components/schemas/ShedRef' }) are now checked.
+//    Partition/display fields are resolved one level into the referenced schema.
+//
+// RESIDUAL BLIND SPOTS (cannot be caught by static scan):
+// - Transitive $ref chains (shed -> ShedRef -> ShedCore): recursive resolution is not
+//   practical with a regex scan; a static check resolves only one hop. If a shed property
+//   $refs a type that itself $refs another shed type, the transitive partition check
+//   is skipped. Mitigated by: canonical schemas inline their complete property set at
+//   the point of use (preferred) or keep $ref one level only (acceptable).
+// - Composition in Go/TypeScript outside the shared helper: a hand-built concat is
+//   caught by go-display-drift / ts-display-drift / kt-display-drift only if those
+//   checks execute; the OpenAPI schema is mute.
+//
 // Modes:
 //   (default)     scan the tree, fail on any violation.
 //   --self-test   run the built-in adversarial fixtures.
@@ -383,6 +401,16 @@ const CHECKS = [
     // only ever guarded WRITE paths. Reads -- where the display actually happens --
     // were unguarded. This rule is that missing half: a RESPONSE schema declaring a
     // shed identity MUST declare both contract fields, or be allowlisted with a WHY.
+    //
+    // CLOSURE 2026-08-07 (blind spot 1): treat shed_name/shedName as a shed identity indicator,
+    // not just shed_id/shedId. A schema that identifies a shed ONLY by name (e.g., display rows
+    // from legacy queries) still needs partition context.
+    //
+    // CLOSURE 2026-08-07 (blind spot 2): resolve $ref to shed-related schemas (e.g., shed: { $ref: '#/components/schemas/ShedRef' })
+    // If a schema property $refs to a type whose name suggests shed/location identity, resolve
+    // that referenced schema and check if IT declares partition/display. This catches schemas
+    // that embed shed context indirectly. Residual gap: full transitive $ref chains (shed -> ShedRef -> ShedCore)
+    // require recursive resolution; a static scan resolves one hop. Documented below.
     test: (line, file, lines, i) => {
       if (!/contracts\/openapi\/.*\.yaml$/.test(file)) return false;
       if (!/^\s{4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(line)) return false;
@@ -396,13 +424,42 @@ const CHECKS = [
         block.push(lines[j]);
       }
       const body = block.join("\n");
-      const bearsShed = /^\s+(shed_id|shedId):/m.test(body);
+
+      // BLIND SPOT 1: Check for shed identity via shed_id, shedId, shed_name, or shedName
+      const bearsShed = /^\s+(shed_id|shedId|shed_name|shedName):/m.test(body);
       if (!bearsShed) return false;
-      const hasPartition = /^\s+(partition_label|partitionLabel):/m.test(body);
-      const hasDisplay = /^\s+(operational_location_display|operationalLocationDisplay):/m.test(body);
+
+      let hasPartition = /^\s+(partition_label|partitionLabel):/m.test(body);
+      let hasDisplay = /^\s+(operational_location_display|operationalLocationDisplay):/m.test(body);
+
+      // BLIND SPOT 2: Check for $ref to shed-related types and resolve one level
+      if (!hasPartition || !hasDisplay) {
+        // Look for shed/location $refs (one hop only; full transitive chains not resolved)
+        const refMatches = body.match(/^\s+(shed|location|shedRef|locationRef):\s*\n\s+\$ref:\s*["']#\/components\/schemas\/([A-Za-z][A-Za-z0-9]*)["']/m);
+        if (refMatches) {
+          const refSchemaName = refMatches[2];
+          // Only follow refs to shed/location-like schema names (heuristic gate)
+          if (/shed|location|ref/i.test(refSchemaName)) {
+            // Find the referenced schema and check if it carries partition/display
+            const refSchemaPattern = new RegExp(`^    ${refSchemaName}:\\s*$`, 'm');
+            const refSchemaIdx = lines.findIndex((l, idx) => idx > i && refSchemaPattern.test(l));
+            if (refSchemaIdx >= 0) {
+              const refBlock = [];
+              for (let j = refSchemaIdx + 1; j < lines.length; j++) {
+                if (/^\s{4}[A-Za-z][A-Za-z0-9]*:\s*$/.test(lines[j])) break;
+                refBlock.push(lines[j]);
+              }
+              const refBody = refBlock.join("\n");
+              hasPartition = hasPartition || /^\s+(partition_label|partitionLabel):/m.test(refBody);
+              hasDisplay = hasDisplay || /^\s+(operational_location_display|operationalLocationDisplay):/m.test(refBody);
+            }
+          }
+        }
+      }
+
       return !(hasPartition && hasDisplay);
     },
-    msg: "response schema declares a shed identity but not partition_label + operational_location_display; a partitioned shed will render bare (add both, or add the schema to RESPONSE_PARTITION_EXEMPT with a stated WHY)",
+    msg: "response schema declares a shed identity (shed_id, shedId, shed_name, shedName, or $ref to shed type) but not partition_label + operational_location_display; a partitioned shed will render bare (add both, or add the schema to RESPONSE_PARTITION_EXEMPT with a stated WHY)",
   },
   {
     id: "shed-name-keying",
@@ -589,6 +646,9 @@ const RESPONSE_PARTITION_EXEMPT = new Set([
   "FeedDirectionGenerationPreviewRow",
   "FeedDirectionGenerationPreviewTotal",
   "FeedDirectionCountsProjectionException",
+  // Weighing operates at shed grain only; no per-partition concept. Free-flow means the system
+  // cannot know what animals are in a shed (confirmed in AGENTS.md weighing isolation rule, 2026-08-07).
+  "WeighingShedVideos",
   // Telemetry/event payloads are not rendered as a location label.
   "VerificationReviewEventPayload",
 ]);
@@ -915,6 +975,32 @@ function selfTest() {
     [
       "contracts/openapi/app-api.yaml",
       `    FeedPackingRow:\n      properties:\n        shed_id:\n          type: string\n        shed_name:\n          type: string\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // BLIND SPOT 1 CLOSURE: shed_name-only identification (no shed_id) must still flag missing partition.
+    // Real case: several legacy read models identified sheds by name, not by id.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    LegacyShedReport:\n      properties:\n        shed_name:\n          type: string\n        total_count:\n          type: integer\n    NextSchema:\n      type: object`,
+      "response-shed-missing-partition",
+    ],
+    // BLIND SPOT 1 FIX: shed_name-only schema with partition fields -> clean.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    LegacyShedReport:\n      properties:\n        shed_name:\n          type: string\n        partition_label:\n          type: string\n        operational_location_display:\n          type: string\n    NextSchema:\n      type: object`,
+      null,
+    ],
+    // BLIND SPOT 2 CLOSURE: $ref to shed-related type without partition in the parent.
+    // The parent schema doesn't directly declare shed identity, but the $ref'd type does (e.g., shed: { $ref: '#/components/schemas/ShedRef' }).
+    [
+      "contracts/openapi/app-api.yaml",
+      `    ShedRef:\n      properties:\n        shed_id:\n          type: string\n    NextSchema:\n      type: object\n    OperationRow:\n      properties:\n        shed:\n          $ref: '#/components/schemas/ShedRef'\n        operation_id:\n          type: string\n    FinalSchema:\n      type: object`,
+      "response-shed-missing-partition",
+    ],
+    // BLIND SPOT 2 FIX: $ref'd schema with partition fields in the referenced type -> clean.
+    [
+      "contracts/openapi/app-api.yaml",
+      `    ShedRef:\n      properties:\n        shed_id:\n          type: string\n        partition_label:\n          type: string\n        operational_location_display:\n          type: string\n    NextSchema:\n      type: object\n    OperationRow:\n      properties:\n        shed:\n          $ref: '#/components/schemas/ShedRef'\n        operation_id:\n          type: string\n    FinalSchema:\n      type: object`,
       null,
     ],
     // NEW CHECK FIXTURES: shed-name-keying (Defect #3 from 2026-08-06 partition sweep)

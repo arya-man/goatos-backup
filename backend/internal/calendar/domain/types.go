@@ -161,6 +161,11 @@ type CalendarEvent struct {
 	DeferredCount              int             `json:"deferred_count"`
 	ReviewCount                int             `json:"review_count"`
 	ShedLabels                 []string        `json:"shed_labels"`
+	// ShedPartitions carries the partition label for each corresponding ShedLabels entry,
+	// used to compose the full operational location display (e.g. "Castro - 2") when a
+	// partition exists. Parallel to ShedLabels: len(ShedPartitions) = len(ShedLabels).
+	// A nil entry means no partition resolved (multi-partition shed, or non-partitioned).
+	ShedPartitions             []*string       `json:"shed_partitions,omitempty"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`
@@ -381,13 +386,19 @@ type CalendarDriveTarget struct {
 	AnimalIdentifier1 *string   `json:"animal_identifier_1"`
 	AnimalIdentifier2 *string   `json:"animal_identifier_2"`
 	ShedName          *string   `json:"shed_name,omitempty"`
-	Stage             *string   `json:"stage"`
-	LifecycleStatus   *string   `json:"lifecycle_status,omitempty"`
-	HealthStatus      *string   `json:"health_status,omitempty"`
-	ExitReason        *string   `json:"exit_reason,omitempty"`
-	DeferReason       *string   `json:"defer_reason,omitempty"`
-	Status            string    `json:"status"`
-	ScheduledAt       time.Time `json:"scheduled_at"`
+	// PartitionLabel is the raw stored label ('1', 'Part 3') or nil for a non-partitioned shed.
+	// Composed with ShedName via oploc.Display() to render the full operational location.
+	PartitionLabel *string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is the backend-composed location (e.g. "Castro - 2"),
+	// never hand-rolled on the client, so admin-web and mobile stay in sync.
+	OperationalLocationDisplay *string `json:"operational_location_display,omitempty"`
+	Stage                      *string `json:"stage"`
+	LifecycleStatus            *string `json:"lifecycle_status,omitempty"`
+	HealthStatus               *string `json:"health_status,omitempty"`
+	ExitReason                 *string `json:"exit_reason,omitempty"`
+	DeferReason                *string `json:"defer_reason,omitempty"`
+	Status                     string  `json:"status"`
+	ScheduledAt                time.Time `json:"scheduled_at"`
 }
 
 type CalendarDriveTargetListResponse struct {
