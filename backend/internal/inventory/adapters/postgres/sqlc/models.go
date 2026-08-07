@@ -654,6 +654,24 @@ type CeoAiVerificationQueueStatus struct {
 	TotalIncludingWithdrawn int64
 }
 
+type CeoAiVerifierReviewIntegrity struct {
+	TenantID                    pgtype.UUID
+	VerifierID                  pgtype.UUID
+	ParkID                      pgtype.UUID
+	ParkLabel                   pgtype.Text
+	Category                    string
+	BusinessDay                 pgtype.Date
+	VideosReviewed              int64
+	MedianTimeToVerdictSeconds  float64
+	P90TimeToVerdictSeconds     float64
+	MedianWatchFraction         float64
+	BelowWatchThresholdCount    int64
+	MissingReviewTelemetryCount int64
+	RejectedCount               int64
+	RejectRate                  int32
+	RejectReasonBreakdown       interface{}
+}
+
 type CeoAiWeighingCaptureActivity struct {
 	TenantID                 pgtype.UUID
 	ParkLabel                pgtype.Text
@@ -1173,6 +1191,8 @@ type FeedExperimentConfig struct {
 	CreatedBy          pgtype.UUID
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	PartitionLabel     pgtype.Text
+	PartitionKey       pgtype.Text
 }
 
 type FeedItemCatalog struct {
@@ -1512,6 +1532,22 @@ type HealthCase struct {
 	RowVersion              int32
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
+	PartitionLabel          pgtype.Text
+}
+
+type HealthConfigWriteLog struct {
+	HealthConfigWriteID pgtype.UUID
+	TenantID            pgtype.UUID
+	WriteKind           string
+	IdempotencyKey      string
+	RequestFingerprint  string
+	Outcome             string
+	DiseaseKey          string
+	AgeBand             pgtype.Text
+	ResultVersionID     pgtype.UUID
+	RetiredVersionID    pgtype.UUID
+	ActorRef            string
+	CreatedAt           pgtype.Timestamptz
 }
 
 type HealthMedicineAdministration struct {
@@ -1564,6 +1600,8 @@ type HealthProtocolVersion struct {
 	PublishedBy             pgtype.UUID
 	CreatedAt               pgtype.Timestamptz
 	UpdatedAt               pgtype.Timestamptz
+	CreatedBy               pgtype.UUID
+	UpdatedBy               pgtype.UUID
 }
 
 type HealthSessionStep struct {
@@ -3193,6 +3231,21 @@ type VerificationItem struct {
 	AppliedAt          pgtype.Timestamptz
 	AppliedByModule    pgtype.Text
 	SubjectNote        pgtype.Text
+	PartitionLabel     pgtype.Text
+}
+
+type VerificationReviewEvent struct {
+	EventID       pgtype.UUID
+	TenantID      pgtype.UUID
+	ItemID        pgtype.UUID
+	ProofID       pgtype.UUID
+	ActorID       pgtype.UUID
+	SessionID     string
+	EventType     string
+	OccurredAt    pgtype.Timestamptz
+	Payload       []byte
+	ClientEventID pgtype.UUID
+	CreatedAt     pgtype.Timestamptz
 }
 
 type VwGoatTagging struct {
@@ -3261,6 +3314,7 @@ type WeighingCampaignShed struct {
 	ParkID                 pgtype.UUID
 	StartBusinessDate      pgtype.Date
 	ClosureKind            pgtype.Text
+	PartitionLabel         pgtype.Text
 }
 
 type WeighingIdempotencyRecord struct {
