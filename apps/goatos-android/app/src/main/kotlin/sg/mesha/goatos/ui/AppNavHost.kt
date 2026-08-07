@@ -2596,26 +2596,22 @@ fun AppNavHost(
                 navArgument(Routes.VERIFY_CATEGORY_ARG) { type = NavType.StringType; nullable = true; defaultValue = null },
             ),
         ) {
-            val vm: VerifyQueueViewModel = hiltViewModel()
+            // An ALERTS tab must render an ALERTS screen -- the bell, and either real alerts or
+            // "No alerts yet". It must NEVER render the verification QUEUE.
+            //
+            // This route used to host VerifyQueueScreen because /verify/alerts served the same
+            // pending rows with status forced to pending. The result on a verifier's phone was two
+            // tabs, Verify and Alerts, showing the identical "Queue clear -- No videos in this
+            // page, status, and date" empty state, so the Alerts tab looked broken and told the
+            // verifier nothing (reported repeatedly from the device, 2026-08-08).
+            //
+            // Modules that HAVE their own lifecycle feed (vaccination, weighing) are pointed
+            // straight at it by the backend nav and never reach this route. This is the fallback
+            // for the rest, and it now at least renders the right SURFACE with an honest empty
+            // state instead of impersonating the queue.
+            val vm: AlertsViewModel = hiltViewModel()
             val state by vm.state.collectAsStateWithLifecycle()
-            VerifyQueueScreen(
-                state = state,
-                onEvent = { event ->
-                    when (event) {
-                        is VerifyQueueEvent.OpenItem ->
-                            navController.navigate(
-                                Routes.verifyDetailRoute(
-                                    itemId = event.itemId,
-                                    category = event.category,
-                                    actionMode = false,
-                                    parkId = state.selectedParkId,
-                                    shedId = state.selectedShedId,
-                                ),
-                            ) { launchSingleTop = true }
-                        else -> vm.onEvent(event)
-                    }
-                },
-            )
+            AlertsScreen(state = state, onEvent = vm::onEvent)
         }
 
         composable(

@@ -51,7 +51,17 @@ android_api_label="sg.mesha.goatos.android-dev-api"
 android_api_plist="$HOME/Library/LaunchAgents/$android_api_label.plist"
 launch_domain="gui/$(id -u)"
 
-serial=""; do_clear=1; token_only=0
+# ANDROID_SERIAL is the STANDARD adb device selector, and every other adb call in a multi-device
+# session honours it. This script did not: `serial` came only from -s/--serial, so pick_device()
+# fell through to "first physical device in `adb devices`" and installed there no matter which
+# device the caller targeted.
+#
+# With four devices attached that silently sent EVERY install to the same phone: operator, then
+# verifier, then director, then CEO all landed on one handset (last write wins), the other three
+# were never touched, and each phone showed whichever identity happened to be installed last.
+# That looked like a token-seeding bug and was actually a device-selection bug (2026-08-08).
+# -s/--serial still wins over the env var.
+serial="${ANDROID_SERIAL:-}"; do_clear=1; token_only=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -s|--serial) serial="$2"; shift 2 ;;
@@ -260,7 +270,21 @@ log "device: $dev"
 log "JAVA_HOME=$JAVA_HOME"
 
 log "building :app:assembleDevDebug ..."
-( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q )
+# Pass the identity EXPLICITLY as a project property, do not rely on the value this script just
+# wrote into ~/.gradle/gradle.properties.
+#
+# That file is not tracked as a task input, so Gradle considered :app:assembleDevDebug UP-TO-DATE
+# after the token changed and re-installed the PREVIOUS APK -- carrying the PREVIOUS person's
+# baked token. Installing operator, then verifier, then director in sequence therefore put ONE
+# identity (whoever ran first) on every device, and each phone opened on that person's screens.
+# Seen twice: 2026-08-07 with two phones, and again 2026-08-08 with three phones plus the
+# emulator, where the verifier's phone rendered the operator's shed list.
+#
+# A command-line -P IS an input to buildConfigField, so changing it re-runs the task and the APK
+# actually carries the identity this run minted. Cheaper and more precise than --rerun-tasks,
+# which would force a full rebuild for every device.
+( cd "$android_dir" && ./gradlew :app:assembleDevDebug --console=plain -q \
+    -PgoatosDevBearerToken="$token" -PgoatosDevApiBaseUrl="http://localhost:8080/" )
 apk="$android_dir/app/build/outputs/apk/dev/debug/app-dev-debug.apk"
 [ -f "$apk" ] || die "APK not found at $apk"
 
@@ -272,7 +296,14 @@ device_user="$(adb -s "$dev" shell am get-current-user 2>/dev/null | tr -d '\r' 
   adb -s "$dev" shell pm clear --user "$device_user" sg.mesha.goatos.dev >/dev/null 2>&1 || true
   log "cleared app data for foreground Android user $device_user (fresh token will be used)"
 }
-adb -s "$dev" reverse tcp:8080 tcp:8080 >/dev/null
-log "adb reverse tcp:8080 -> laptop:8080 (device localhost now reaches the laptop backend)"
+# The DEVICE side is always 8080 (that is the APK's baked base URL), but the HOST side is not.
+# Phone QA runs its API on a NON-DEFAULT port because 8080 carries the maintainer's stg replica,
+# and phone-qa-throwaway-run.sh remaps the tunnel accordingly before calling this script.
+# Hardcoding tcp:8080 tcp:8080 here CLOBBERED that remap on every install, pointing all four
+# devices at a port with nothing on it -- which is exactly the "Couldn't reach the server" screen
+# that read as an app bug for a whole QA session (2026-08-08).
+host_api_port="${GOATOS_PHONE_QA_PORT:-8080}"
+adb -s "$dev" reverse tcp:8080 tcp:"$host_api_port" >/dev/null
+log "adb reverse tcp:8080 -> laptop:$host_api_port (device localhost now reaches the laptop backend)"
 adb -s "$dev" shell am start --user "$device_user" -n sg.mesha.goatos.dev/sg.mesha.goatos.MainActivity >/dev/null 2>&1 || true
 log "launched. If it shows 'Couldn't load your workspace', the backend isn't reachable — re-run this script (it re-mints + re-tunnels)."

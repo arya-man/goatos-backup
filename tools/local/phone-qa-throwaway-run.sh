@@ -36,9 +36,30 @@ log "building backend API"
 # 2026-08-08 and read as "the accept/reject fix regressed" when the code was fine.
 (cd "$backend_dir" && go build -buildvcs=false -o "$relay_bin" ./cmd/outbox-relay)
 
-log "stopping existing local phone/api launch agents"
-launchctl bootout "$launch_domain/sg.mesha.goatos.android-dev-api" >/dev/null 2>&1 || true
-launchctl bootout "$launch_domain/$label" >/dev/null 2>&1 || true
+# Is a HEALTHY phone-QA API already serving the throwaway DB on our port? Then LEAVE IT ALONE.
+#
+# This script used to bootout + kickstart the API on every run. Installing a second device
+# therefore killed the API under the FIRST device, a third killed it under both, and so on --
+# so with four devices the person holding phone one watched it fail three times and saw
+# "Couldn't reach the server", which reads as an app bug and is not one. The app had cached a
+# real connection refusal that this script caused (2026-08-08, four devices).
+#
+# Restart ONLY when the API is absent, unhealthy, or pointed at a different database.
+api_healthy=0
+if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${GOATOS_PHONE_QA_PORT:-8081}/readyz" 2>/dev/null)" = "204" ]; then
+  running_db="$(ps -eo command= 2>/dev/null | grep -m1 'goatos-api-phone-qa' >/dev/null && launchctl print "gui/$(id -u)/sg.mesha.goatos.phone-qa-api" 2>/dev/null | grep -o 'DATABASE_URL => [^ ]*' | cut -d' ' -f3 || true)"
+  case "$running_db" in
+    ""|*15544*) api_healthy=1 ;;
+  esac
+fi
+
+if [ "$api_healthy" = "1" ]; then
+  log "phone-QA API already healthy on :${GOATOS_PHONE_QA_PORT:-8081}; leaving it running (restarting it would break every device already installed)"
+else
+  log "stopping existing local phone/api launch agents"
+  launchctl bootout "$launch_domain/sg.mesha.goatos.android-dev-api" >/dev/null 2>&1 || true
+  launchctl bootout "$launch_domain/$label" >/dev/null 2>&1 || true
+fi
 
 # Phone QA must NEVER take a default port. 3300 (admin-web), 8080 (API) and 5433
 # (database) carry the maintainer's LOCAL REPLICA OF STG DATA, and parallel agent
@@ -156,9 +177,11 @@ EOF
 launchctl bootstrap "$launch_domain" "$relay_plist" >/dev/null 2>&1 || true
 launchctl enable "$launch_domain/$relay_label" >/dev/null 2>&1 || true
 
-launchctl bootstrap "$launch_domain" "$plist" >/dev/null
-launchctl enable "$launch_domain/$label" >/dev/null 2>&1 || true
-launchctl kickstart -k "$launch_domain/$label" >/dev/null 2>&1 || true
+if [ "$api_healthy" != "1" ]; then
+  launchctl bootstrap "$launch_domain" "$plist" >/dev/null
+  launchctl enable "$launch_domain/$label" >/dev/null 2>&1 || true
+  launchctl kickstart -k "$launch_domain/$label" >/dev/null 2>&1 || true
+fi
 
 for _ in $(seq 1 60); do
   code="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$host_port/readyz" || true)"

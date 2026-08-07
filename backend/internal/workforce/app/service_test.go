@@ -327,7 +327,7 @@ func TestBootstrapVerifierGetsStandaloneVerificationNav(t *testing.T) {
 	// The alerts tab label never names the feature; the href's category still scopes it.
 	want := []domain.BootstrapNavigationItem{
 		{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-		{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+		{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 	}
 	if len(got.VisibleNavigation) != len(want) {
 		t.Fatalf("VisibleNavigation=%#v want %#v", got.VisibleNavigation, want)
@@ -397,7 +397,7 @@ func TestBootstrapSingleFeatureVerifierGetsFeatureScopedAlerts(t *testing.T) {
 			}
 			want := []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=" + tc.feature + "&category=" + tc.wantCategory},
-				{Key: "alerts", Label: wantAlertsLabel, Href: "/verify/alerts?category=" + tc.wantCategory},
+				{Key: "alerts", Label: wantAlertsLabel, Href: wantVerifierAlertsHref(tc.feature, tc.wantCategory)},
 				{Key: "you", Label: "You", Href: "/you"},
 			}
 			if len(got.VisibleNavigation) != len(want) {
@@ -559,7 +559,7 @@ func TestVisibleNavigationFor(t *testing.T) {
 			modules: nil,
 			want: []domain.BootstrapNavigationItem{
 				{Key: "verify", Label: "Verify", Href: "/verify?module=vaccination&category=vaccination_proof"},
-				{Key: "alerts", Label: "Alerts", Href: "/verify/alerts?category=vaccination_proof"},
+				{Key: "alerts", Label: "Alerts", Href: "/vaccination/alerts"},
 				{Key: "you", Label: "You", Href: "/you"},
 			},
 		},
