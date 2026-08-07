@@ -14,6 +14,7 @@ import { Tag, type Tone } from "@/components/ui-primitives";
 import { fmtDate } from "@/lib/format";
 import { copy, optionGroup, optionLabel, optionTone, tableLabels, type AdminUiOption, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 import { scopeHref, type Scope } from "@/lib/scope";
+import { operationalLocationLabel } from "@/lib/operational-location.ts";
 import { vaccinationProtocolDisplayName } from "./vaccine-display";
 
 // Shared vaccination work-context drawer. Cohort/protocol rows are rollups:
@@ -166,7 +167,8 @@ function VaccinationRecordVerifyDrawer({
             <div>
               <div className="k">{copy(pageContract, "drawer.record_verify.form.shed_name")}</div>
               <div className="v">
-                {cohort.stage} · {cohort.shedName}
+                {/* Render the backend-composed operational location: "Godel 1 - Part 3", not bare "Godel 1" when partitioned */}
+                {cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })}
               </div>
             </div>
             <div>
@@ -217,7 +219,7 @@ function VaccinationRecordVerifyDrawer({
             ) : null}
           </div>
 
-          <VaccinationRecordFormFields cohortShed={`${cohort.stage} · ${cohort.shedName}`} vaccineName={vaccineName} pageContract={pageContract} />
+          <VaccinationRecordFormFields cohortShed={cohort.operationalLocationDisplay || operationalLocationLabel({ shedName: cohort.shedName, partitionLabel: cohort.partitionLabel })} vaccineName={vaccineName} pageContract={pageContract} />
         </div>
 
         <div className="df">
