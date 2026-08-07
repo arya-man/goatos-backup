@@ -18,6 +18,7 @@ import { type Tone } from "./process-integrity";
 import { SopChecklist } from "./sop-checklist";
 import { actionWorkTitle } from "./action-center-presenters";
 import { EvidenceMedia } from "./evidence-media";
+import { operationalLocationLabel } from "@/lib/operational-location";
 
 const PRIORITY_BY_SEVERITY: Record<ProcessIntegritySeverity, "high" | "med" | "low"> = {
   broken: "high",
@@ -289,7 +290,7 @@ function ActionCenterRowDrawer({
         <div className="metagrid">
           <div><div className="k">{copy(pageContract, "drawer.protocol_label")}</div><div className="v">{row.protocol_name}</div></div>
           <div><div className="k">{copy(pageContract, "drawer.dose_label")}</div><div className="v">{row.dose_code}</div></div>
-          <div><div className="k">{copy(pageContract, "drawer.park_shed_label")}</div><div className="v">{row.park_name} · {row.shed_name}</div></div>
+          <div><div className="k">{copy(pageContract, "drawer.park_shed_label")}</div><div className="v">{row.park_name} · {row.operational_location_display || operationalLocationLabel({ shedName: row.shed_name, partitionLabel: row.partition_label })}</div></div>
           <div><div className="k">{copy(pageContract, "drawer.cohort_progress_label")}</div><div className="v">{row.animal_stage} · {row.completed_count}/{row.expected_count} {copy(pageContract, "label.done_suffix")}</div></div>
           <div><div className="k">{copy(pageContract, "label.evidence")}</div><div className="v"><EvidenceMedia evidence={row.evidence} pageContract={pageContract} /></div></div>
         </div>

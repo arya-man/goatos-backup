@@ -2336,11 +2336,8 @@ SELECT vc.completion_id::text,
        vc.goat_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
-       CASE
-         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole'
-           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')
-         ELSE COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || gsp.partition_label
-       END::text AS shed_label,
+       COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
+       COALESCE(NULLIF(gsp.partition_label, ''), 'whole')::text,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at,
@@ -2400,6 +2397,7 @@ LIMIT 5000`, tenant, submission)
 	for rows.Next() {
 		var item domain.SubmissionCompletion
 		var protocolName, doseCode string
+		var partitionLabelRaw string
 		if err := rows.Scan(
 			&item.CompletionID,
 			&item.SubmissionID,
@@ -2408,6 +2406,7 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatLabel,
 			&item.ShedID,
 			&item.ShedLabel,
+			&partitionLabelRaw,
 			&item.ParkID,
 			&item.ProofRefIDs,
 			&item.AdministeredAt,
@@ -2415,6 +2414,10 @@ LIMIT 5000`, tenant, submission)
 			&doseCode,
 		); err != nil {
 			return nil, fmt.Errorf("vaccination: scan submission completion: %w", err)
+		}
+		// Convert 'whole' sentinel to empty string for display (never show 'whole' to operators)
+		if partitionLabelRaw != "" && partitionLabelRaw != "whole" {
+			item.PartitionLabel = partitionLabelRaw
 		}
 		item.AdministeredAt = item.AdministeredAt.UTC()
 		// Derived through the ONE canonical formatter every module shares, so the verifier's

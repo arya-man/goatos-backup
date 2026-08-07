@@ -377,16 +377,16 @@ function enrichDriveOptions(
     // BUG FIX (2026-08-07): OL-2 partition collapse. Key by shedId + partition_label instead of shedName.
     // Two same-named sheds across parks and two partitions of one shed must contribute separate counts.
     // Keying by shedName alone merged them, silently summing counts from disjoint physical locations.
-    const byShedKey = new Map<string, { shedName: string; animalCount: number }>();
+    const byShedKey = new Map<string, { shedName: string; operationalLocationDisplay: string | null; animalCount: number }>();
     cells.forEach((cell) => {
       const shedKey = `${cell.shedId}|${cell.partition_label ?? ""}`;
       const existing = byShedKey.get(shedKey);
       if (!existing || cell.animalCount > existing.animalCount) {
-        byShedKey.set(shedKey, { shedName: cell.shedName, animalCount: cell.animalCount });
+        byShedKey.set(shedKey, { shedName: cell.shedName, operationalLocationDisplay: cell.operational_location_display ?? null, animalCount: cell.animalCount });
       }
     });
     const shedNames = Array.from(byShedKey.values())
-      .map((entry) => entry.shedName)
+      .map((entry) => entry.operationalLocationDisplay || entry.shedName)
       .sort();
     const doseCount = cells.reduce((sum, cell) => sum + (cell.animalCount ?? 0), 0);
     let targetCount = 0;
@@ -1167,7 +1167,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
                       )}
                       <td><strong>{drive.driveName}</strong></td>
                       <td>{formatScheduledDriveDates(drive.dateKeys)}</td>
-                      <td>{drive.shedNames.join(", ") || "—"}</td>
+                      <td>{drive.shedIds && drive.shedIds.length > 0 ? `${drive.shedIds.length} sheds` : (drive.shedNames.join(", ") || "—")}</td>
                       <td><strong>{drive.targetCount}</strong></td>
                       <td><strong>{drive.doseCount}</strong></td>
                     </tr>
