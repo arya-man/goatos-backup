@@ -12,6 +12,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/feeddirection/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 const feedTransportIdemScope = "feed.transport.submit"
@@ -58,7 +59,7 @@ SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
        t.business_date::text, t.status, coalesce(t.operator_id::text,''),
        coalesce(t.current_attempt_id::text,''), coalesce(a.rejection_reason,''), t.scheduled_at,
        COALESCE((
-         SELECT sp.partition_label
+         SELECT min(sp.partition_label)
          FROM shed_partitions sp
          WHERE sp.tenant_id = t.tenant_id
            AND sp.shed_id = t.shed_id
@@ -67,7 +68,7 @@ SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
          HAVING count(*) = 1
        ), ''),
        CASE WHEN COALESCE((
-         SELECT sp.partition_label
+         SELECT min(sp.partition_label)
          FROM shed_partitions sp
          WHERE sp.tenant_id = t.tenant_id
            AND sp.shed_id = t.shed_id
@@ -76,7 +77,7 @@ SELECT t.task_id::text, t.park_id::text, p.name, t.shed_id::text, s.name,
          HAVING count(*) = 1
        ), '') = '' THEN s.name
        ELSE s.name || ' - ' || COALESCE((
-         SELECT sp.partition_label
+         SELECT min(sp.partition_label)
          FROM shed_partitions sp
          WHERE sp.tenant_id = t.tenant_id
            AND sp.shed_id = t.shed_id
@@ -171,7 +172,21 @@ func (r *Repository) GetTransportTask(ctx context.Context, tenantID, taskID stri
 	err := r.pool.QueryRow(ctx, `
 SELECT t.task_id::text,t.park_id::text,p.name,t.shed_id::text,s.name,t.business_date::text,
        t.status,coalesce(t.operator_id::text,''),coalesce(t.current_attempt_id::text,''),
-       coalesce(a.rejection_reason,''),t.scheduled_at
+       coalesce(a.rejection_reason,''),t.scheduled_at,
+       -- The DETAIL read must carry the same location the LIST read carries. It did not, so a
+       -- partitioned shed showed "Godel 1 - Part 3" in the list and bare "Godel 1" on the task
+       -- itself. AGREE-OR-GO-BARE: exactly one active real partition resolves, several or none
+       -- go bare. min() is required -- a bare HAVING over a non-aggregated column is rejected
+       -- by Postgres (42803).
+       coalesce((
+         SELECT min(sp.partition_label)
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '')
 FROM feed_transport_tasks t
 JOIN locations p ON p.tenant_id=t.tenant_id AND p.location_id=t.park_id
 JOIN locations s ON s.tenant_id=t.tenant_id AND s.location_id=t.shed_id
@@ -179,6 +194,7 @@ LEFT JOIN feed_transport_attempts a ON a.tenant_id=t.tenant_id AND a.attempt_id=
 WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid`, tenantID, taskID).Scan(
 		&x.TaskID, &x.ParkID, &x.ParkLabel, &x.ShedID, &x.ShedLabel, &x.BusinessDate,
 		&x.Status, &x.OperatorID, &x.CurrentAttemptID, &x.ReworkReason, &x.ScheduledAt,
+		&x.PartitionLabel,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.FeedTransportTask{}, ports.ErrTransportTaskNotActionable
@@ -186,6 +202,7 @@ WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid`, tenantID, taskID).Scan(
 	if err != nil {
 		return ports.FeedTransportTask{}, fmt.Errorf("feeddirection: get transport task: %w", err)
 	}
+	x.OperationalLocationDisplay = oploc.OperationalLocation{ShedName: x.ShedLabel, PartitionLabel: x.PartitionLabel}.Display()
 	return x, nil
 }
 
@@ -224,9 +241,24 @@ WHERE a.tenant_id=$1::uuid AND a.attempt_id=$2::uuid`, p.TenantID, reservation.r
 	}
 	var status, assigned string
 	var res ports.SubmitTransportResult
-	err = tx.QueryRow(ctx, `SELECT status,coalesce(operator_id::text,''),park_id::text,shed_id::text,coalesce(l.name,''),coalesce(l.partition_label,'')
+	// Row lock on feed_transport_tasks ONLY. The shed name and partition come from SCALAR
+	// SUBQUERIES rather than joins: FOR UPDATE cannot be applied to the nullable side of an
+	// outer join (0A000), and a plain join also made a bare `status` ambiguous (42702).
+	// locations has no partition_label column -- partitions live in shed_partitions.
+	// AGREE-OR-GO-BARE via min() + HAVING; a bare HAVING over a non-aggregated column is
+	// rejected by Postgres (42803).
+	err = tx.QueryRow(ctx, `SELECT t.status,coalesce(t.operator_id::text,''),t.park_id::text,t.shed_id::text,
+       coalesce((SELECT l.name FROM locations l WHERE l.tenant_id=t.tenant_id AND l.location_id=t.shed_id), ''),
+       coalesce((
+         SELECT min(sp.partition_label)
+         FROM shed_partitions sp
+         WHERE sp.tenant_id = t.tenant_id
+           AND sp.shed_id = t.shed_id
+           AND sp.status = 'active'
+           AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+         HAVING count(*) = 1
+       ), '')
 FROM feed_transport_tasks t
-LEFT JOIN locations l ON l.tenant_id=t.tenant_id AND l.location_id=t.shed_id
 WHERE t.tenant_id=$1::uuid AND t.task_id=$2::uuid FOR UPDATE`, p.TenantID, p.TaskID).Scan(&status, &assigned, &res.ParkID, &res.ShedID, &res.ShedName, &res.PartitionLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ports.SubmitTransportResult{}, ports.ErrTransportTaskNotActionable

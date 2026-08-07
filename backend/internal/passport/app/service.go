@@ -33,8 +33,8 @@ type LocationResolver interface {
 
 // Service builds a goat passport from the vaccination + obligation reads.
 type Service struct {
-	vacc VaccinationReader
-	obl  ObligationReader
+	vacc        VaccinationReader
+	obl         ObligationReader
 	locResolver LocationResolver
 }
 
@@ -45,43 +45,43 @@ func NewService(vacc VaccinationReader, obl ObligationReader, locResolver Locati
 
 // DueItem is one open obligation in the passport (API DTO).
 type DueItem struct {
-	ObligationID      string     `json:"obligation_id"`
-	ProtocolVersionID string     `json:"protocol_version_id"`
-	RuleID            string     `json:"rule_id"`
-	BatchID           string     `json:"batch_id,omitempty"`
-	WorkflowRowID     string     `json:"workflow_row_id"`
-	Status            string     `json:"status"`
-	DueAt             time.Time  `json:"due_at"`
-	ClinicalDueAt     time.Time  `json:"clinical_due_at"`
-	ScheduledFor      *time.Time `json:"scheduled_for,omitempty"`
-	Sequence          int32      `json:"sequence"`
-	DoseCode          string     `json:"dose_code"`
-	VaccineLabel      string     `json:"vaccine_label"`
-	DisplayLabel      string     `json:"display_label"`
-	ShedID            string     `json:"shed_id,omitempty"`
-	ShedName          string     `json:"shed_name,omitempty"`
-	PartitionLabel    string     `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
+	ObligationID               string     `json:"obligation_id"`
+	ProtocolVersionID          string     `json:"protocol_version_id"`
+	RuleID                     string     `json:"rule_id"`
+	BatchID                    string     `json:"batch_id,omitempty"`
+	WorkflowRowID              string     `json:"workflow_row_id"`
+	Status                     string     `json:"status"`
+	DueAt                      time.Time  `json:"due_at"`
+	ClinicalDueAt              time.Time  `json:"clinical_due_at"`
+	ScheduledFor               *time.Time `json:"scheduled_for,omitempty"`
+	Sequence                   int32      `json:"sequence"`
+	DoseCode                   string     `json:"dose_code"`
+	VaccineLabel               string     `json:"vaccine_label"`
+	DisplayLabel               string     `json:"display_label"`
+	ShedID                     string     `json:"shed_id,omitempty"`
+	ShedName                   string     `json:"shed_name,omitempty"`
+	PartitionLabel             string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string     `json:"operational_location_display,omitempty"`
 }
 
 // HistoryItem is one administered/verified dose in the passport (API DTO).
 type HistoryItem struct {
-	CompletionID    string     `json:"completion_id"`
-	ObligationID    string     `json:"obligation_id"`
-	BatchID         string     `json:"batch_id,omitempty"`
-	Status          string     `json:"status"`
-	RouteSite       string     `json:"route_site,omitempty"`
-	AdministeredAt  time.Time  `json:"administered_at"`
-	Doses           int32      `json:"doses"`
-	DoseCode        string     `json:"dose_code"`
-	VaccineLabel    string     `json:"vaccine_label"`
-	DisplayLabel    string     `json:"display_label"`
-	AdverseReaction bool       `json:"adverse_reaction"`
-	WithdrawalUntil *time.Time `json:"withdrawal_until,omitempty"`
-	ShedID          string     `json:"shed_id,omitempty"`
-	ShedName        string     `json:"shed_name,omitempty"`
-	PartitionLabel  string     `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string `json:"operational_location_display,omitempty"`
+	CompletionID               string     `json:"completion_id"`
+	ObligationID               string     `json:"obligation_id"`
+	BatchID                    string     `json:"batch_id,omitempty"`
+	Status                     string     `json:"status"`
+	RouteSite                  string     `json:"route_site,omitempty"`
+	AdministeredAt             time.Time  `json:"administered_at"`
+	Doses                      int32      `json:"doses"`
+	DoseCode                   string     `json:"dose_code"`
+	VaccineLabel               string     `json:"vaccine_label"`
+	DisplayLabel               string     `json:"display_label"`
+	AdverseReaction            bool       `json:"adverse_reaction"`
+	WithdrawalUntil            *time.Time `json:"withdrawal_until,omitempty"`
+	ShedID                     string     `json:"shed_id,omitempty"`
+	ShedName                   string     `json:"shed_name,omitempty"`
+	PartitionLabel             string     `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string     `json:"operational_location_display,omitempty"`
 }
 
 // LastDose is a goat's most recent accepted administration (API DTO).

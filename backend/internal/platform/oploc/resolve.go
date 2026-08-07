@@ -32,7 +32,7 @@ import (
 const ShedScopedLocationSQL = `
 SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, ''),
        COALESCE((
-         SELECT sp.partition_label
+         SELECT min(sp.partition_label)
          FROM shed_partitions sp
          WHERE sp.tenant_id = shed.tenant_id
            AND sp.shed_id = shed.location_id
