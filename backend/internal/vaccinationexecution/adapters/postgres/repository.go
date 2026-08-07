@@ -3029,13 +3029,21 @@ func (r *Repository) listShedCanonical(ctx context.Context, q domain.ShedSummary
 // scale-guard:ignore: 5k-50k-envelope; see docs/decisions/operational-kernel-5k-50k-scale-envelope.md — shed rows are bounded (a few hundred sheds/tenant), driving obligation_instances scan is tenant/status/due-indexed and query-plan-tested (canonical_read_plan_test.go). Keyset replacement for the offset page is tracked as C35-020.
 const shedSummaryCanonicalReadSQL = `
 WITH alive AS (
-  SELECT g.shed_id AS shed_uuid, COUNT(*)::bigint AS animals
+  -- projection-review: membership=all alive goats at tenant grain; group_key=(shed_id, partition_label)
+  -- so animals from different partitions do not merge; partition_label comes from goat_shed_partitions
+  -- and is NULLIF-ed to 'whole' so undivided sheds carry a stable false-partition value for GROUP BY consistency.
+  -- join_cardinality=goat_shed_partitions is PK (tenant_id, goat_id) so LEFT JOIN is 0..1 per goat;
+  -- scope=tenant_id, carried on both sides of the JOIN.
+  SELECT g.shed_id AS shed_uuid, NULLIF(gsp.partition_label, 'whole'::text) AS partition_label, COUNT(*)::bigint AS animals
   FROM goats g
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
   WHERE g.tenant_id = $1::uuid
     AND g.lifecycle_status = 'alive'
     AND g.merged_into_goat_id IS NULL
     AND g.shed_id IS NOT NULL
-  GROUP BY g.shed_id
+  GROUP BY g.shed_id, NULLIF(gsp.partition_label, 'whole'::text)
 ),
 completions AS (
   SELECT
@@ -3101,6 +3109,7 @@ raw AS (
     te.has_terminal_event,
     oi.target_id AS goat_id,
     g.shed_id AS shed_uuid,
+    NULLIF(gsp.partition_label, 'whole'::text) AS partition_label,
     c.effective_status AS completion_status,
     c.last_accepted_at,
     COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) AS execution_due_at
@@ -3118,6 +3127,9 @@ raw AS (
    AND g.goat_id = oi.target_id
    AND g.merged_into_goat_id IS NULL
    AND g.lifecycle_status = 'alive'
+  LEFT JOIN goat_shed_partitions gsp
+    ON gsp.tenant_id = g.tenant_id
+   AND gsp.goat_id = g.goat_id
   LEFT JOIN obligation_batches ob
     ON ob.tenant_id = oi.tenant_id
    AND ob.batch_id = oi.batch_id
@@ -3143,11 +3155,12 @@ raw AS (
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= $3::timestamptz
     AND g.shed_id IS NOT NULL
 ),
--- projection-review: bucket-grain=business-day the overdue/due/scheduled reconstruction compares the IST (Asia/Kolkata) calendar DATE of execution_due_at against the IST date of as_of ($2), so a shed whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day
+-- projection-review: bucket-grain=business-day the overdue/due/scheduled reconstruction compares the IST (Asia/Kolkata) calendar DATE of execution_due_at against the IST date of as_of ($2), so a shed whose drive is planned for today reads due (not overdue) at any clock instant and rolls to overdue only on the next business day; grain=(shed_uuid, partition_label) so animals from different partitions do not merge
 effective AS (
   SELECT
     raw.goat_id,
     raw.shed_uuid,
+    raw.partition_label,
     raw.execution_due_at,
     raw.last_accepted_at,
     raw.completion_status,
@@ -3170,8 +3183,12 @@ effective AS (
   FROM raw
 ),
 due_agg AS (
+  -- projection-review: group_key=(shed_uuid, partition_label) so work metrics from different partitions
+  -- do not merge; count is at animal grain (DISTINCT goat_id) so completion/rejection status is captured
+  -- once per unique animal-metric pair; scope=tenant plus effective filtering applied earlier by effective CTE.
   SELECT
     effective.shed_uuid,
+    effective.partition_label,
     COUNT(DISTINCT effective.goat_id) FILTER (
       WHERE effective.eff_status IN ('overdue', 'due', 'in_progress')
          OR effective.completion_status IN ('recorded', 'rejected')
@@ -3182,7 +3199,7 @@ due_agg AS (
     MAX(effective.last_accepted_at) AS last_done,
     MIN(effective.execution_due_at) FILTER (WHERE effective.eff_status IN ('overdue', 'due', 'in_progress', 'scheduled')) AS next_due
   FROM effective
-  GROUP BY effective.shed_uuid
+  GROUP BY effective.shed_uuid, effective.partition_label
 ),
 shed_rows AS (
   SELECT
@@ -3190,6 +3207,7 @@ shed_rows AS (
     park.name AS park_name,
     shed.location_id::text AS shed_id,
     shed.name AS shed_name,
+    alive.partition_label,
     alive.animals,
     COALESCE(due_agg.due_animals, 0) AS due_animals,
     COALESCE(due_agg.overdue_animals, 0) AS overdue_animals,
@@ -3208,7 +3226,7 @@ shed_rows AS (
    AND park.location_id = shed.parent_location_id
    AND park.location_type = 'park'
    AND park.status = 'active'
-  LEFT JOIN due_agg ON due_agg.shed_uuid = alive.shed_uuid
+  LEFT JOIN due_agg ON due_agg.shed_uuid = alive.shed_uuid AND COALESCE(due_agg.partition_label, '') = COALESCE(alive.partition_label, '')
 ),
 scored AS (
   SELECT
