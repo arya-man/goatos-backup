@@ -73,6 +73,9 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font
 .seg button{background:none;border:0;color:var(--ink-2);font:inherit;font-size:13px;padding:5px 12px;
   border-radius:5px;cursor:pointer}
 .seg button[aria-pressed="true"]{background:var(--accent-dim);color:var(--accent);font-weight:600}
+.seg button[data-nodata] .nodata{font-size:10px;letter-spacing:.04em;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:3px;padding:1px 4px;margin-left:5px}
+.seg button[data-nodata]{color:var(--ink-3)}
 .chipinfo{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
 .chip{border:1px solid var(--line);border-radius:20px;padding:5px 13px;font-size:12.5px;color:var(--ink-2);
   font-family:var(--mono)}
@@ -271,6 +274,7 @@ svg.traj{width:100%;height:150px;display:block}
     <div class="chipinfo" id="chips"></div>
   </div>
   <div class="active" id="activeFilters" hidden></div>
+  <div class="note" id="stageEmpty" style="margin:0 26px 12px" hidden></div>
   </div>
 
   <div class="body">
@@ -288,7 +292,7 @@ svg.traj{width:100%;height:150px;display:block}
       <p class="sdesc">One row per partition. "Measurable" means the animal has two or more weighings, so a
       rate can be computed. Click a row to filter every table below to that partition.</p>
       <div class="tablewrap"><table>
-        <thead><tr><th>Park · shed · partition</th><th>How it is weighed</th><th>Animals weighed</th><th>Avg weight</th>
+        <thead><tr><th>Park · shed · partition</th><th>Stage</th><th>How it is weighed</th><th>Animals weighed</th><th>Avg weight</th>
         <th>Total weight</th><th>Weighings</th><th>Last weighed</th><th>Median gain</th><th>Spikes / drops</th><th>Real / bad / open</th></tr></thead>
         <tbody id="shedRows"></tbody></table></div>
     </section>
@@ -397,7 +401,7 @@ svg.traj{width:100%;height:150px;display:block}
         <span class="count" id="ce"></span>
       </div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Animal</th><th>Park · shed · part</th><th>From</th><th>To</th><th>Change</th>
+        <thead><tr><th>Animal</th><th>Park · shed · part</th><th>Stage</th><th>From</th><th>To</th><th>Change</th>
         <th>kg/day</th><th>Status</th><th>What we think happened</th></tr></thead>
         <tbody id="eventRows"></tbody></table></div>
       <div id="pagerE"></div>
@@ -482,7 +486,7 @@ function cutoff(w){if(!w)return '0000-01-01';const d=new Date(MAXDATE+'T00:00:00
 let F={weeks:4,mode:'',park:'',verdict:'',dir:'',type:'',stage:'',reason:'',shed:'',qa:'',qe:'',sa:'adg',se:'pct'};
 let sel=null;
 let win={};
-let sizeA=25, sizeE=25;            /* rows per page, user-settable */
+let sizeA=20, sizeE=20;            /* rows per page, user-settable */
 let pgA=1, pgE=1;
 let sigA='', sigE='';
 function pageReset(){
@@ -506,7 +510,7 @@ function pagerHTML(id,p,pages,total,size,noun){
     <button class="pgbtn" type="button" data-pg="${id}:last" ${p===pages?'disabled':''} aria-label="Last page">&raquo;</button>
     <span class="pgcount">${((p-1)*size+1).toLocaleString()}–${Math.min(p*size,total).toLocaleString()} of ${total.toLocaleString()} ${noun}</span>
     <label class="pgsize">Rows
-      <select data-pgsize="${id}">${[25,50,100].map(n=>
+      <select data-pgsize="${id}">${[20,50,100].map(n=>
         `<option value="${n}"${n===size?' selected':''}>${n}</option>`).join('')}</select>
     </label>
   </div>`;
@@ -516,10 +520,13 @@ function pagerHTML(id,p,pages,total,size,noun){
 const parks=[...new Set(ANIMALS.map(a=>a.farm))].filter(Boolean).sort();
 $('segPark').innerHTML=`<button type="button" data-v="" aria-pressed="true">All parks</button>`+
   parks.map(p=>`<button type="button" data-v="${p}">${p}</button>`).join('');
-const STAGE_ORDER=['K1','K2','K3','K4','F1','F2','PREGNANT','NON-PREGNANT','MILKING','BUCKS','ICU'];
-const stages=STAGE_ORDER.filter(t=>ANIMALS.some(a=>a.tag===t));
+const STAGE_ORDER=['K0','K1','K2','K3','K4','F1','F2','PREGNANT','NON-PREGNANT','MILKING','BUCKS','ICU'];
+const stageHas=t=>ANIMALS.some(a=>a.tag===t);
 $('segStage').innerHTML=`<button type="button" data-v="" aria-pressed="true">All</button>`+
-  stages.map(t=>`<button type="button" data-v="${t}">${t==='NON-PREGNANT'?'Not pregnant':t}</button>`).join('');
+  STAGE_ORDER.map(t=>{const has=stageHas(t);
+    return `<button type="button" data-v="${t}"${has?'':' data-nodata="1"'}
+      title="${has?'':'No weighing has ever carried this stage'}">${t==='NON-PREGNANT'?'Not pregnant':t}${
+      has?'':' <span class="nodata">no data</span>'}</button>`}).join('');
 const types=[...new Set(ANIMALS.map(a=>a.type))].filter(Boolean).sort();
 $('segType').innerHTML=`<button type="button" data-v="" aria-pressed="true">All</button>`+
   types.map(t=>`<button type="button" data-v="${t}">${t==='ADLUT'?'Adult':'Kid'}</button>`).join('');
@@ -543,7 +550,7 @@ function inPeriod(){const c=cutoff(F.weeks);
   return EVENTS.filter(e=>e.cd>c && (F.mode!=='shed') && (!F.mode||F.mode==='animal'))}
 function shedLevelInPeriod(){const c=cutoff(F.weeks);
   return SHEDLEVEL.filter(r=>r.date>c && (!F.park||r.farm===F.park) && F.mode!=='animal'
-    && WHOLESHED.has(SHEDKEY(r)) && (!F.shed||SHEDKEY(r)===F.shed))}
+    && WHOLESHED.has(SHEDKEY(r)) && (!F.stage||r.tag===F.stage) && (!F.shed||SHEDKEY(r)===F.shed))}
 function animalsIn(){
   const seen=new Set(inPeriod().map(e=>e.gid));
   return ANIMALS.filter(a=>seen.has(a.id)&&(!F.park||a.farm===F.park)&&(!F.type||a.type===F.type)&&
@@ -583,6 +590,17 @@ function render(){
     }
     w.days=d; w.adg=d>=4?(w.lw-w.fw)/d:null});
 
+
+  /* an empty selection has to say why, or the page just looks broken */
+  const emptyNote=(()=>{
+    if(A.length||!F.stage)return '';
+    const ever=ANIMALS.some(a=>a.tag===F.stage);
+    return ever
+      ? `No animal was tagged <b>${esc(F.stage)}</b> in this period. It appears in the history — widen the period to see it.`
+      : `No weighing has ever carried the stage <b>${esc(F.stage)}</b> in this data.`;
+  })();
+  $('stageEmpty').innerHTML=emptyNote;
+  $('stageEmpty').hidden=!emptyNote;
 
   /* chips */
   const sheds=new Set(A.map(a=>a.farm+'|'+a.shed)).size;
@@ -639,6 +657,8 @@ function render(){
     const t=ev.length||1;
     return `<tr class="click" data-shed="${esc(k)}" ${F.shed===k?'aria-selected="true"':''}>
       <td><span class="park">${esc(r.farm)}</span> · ${esc(r.shed)}${r.part?` <span class="sub">Part ${esc(r.part)}</span>`:' <span class="sub">whole shed</span>'}</td>
+      <td>${(()=>{const t=[...new Set(r.an.map(a=>a.tag).filter(Boolean))];
+        return t.length?t.map(x=>`<span class="tag t-none">${esc(x)}</span>`).join(' '):'<span class="sub">—</span>'})()}</td>
       <td><span class="tag t-none">Per-animal</span></td>
       <td class="num">${r.an.length}</td>
       <td class="num">${wsum.n?(wsum.t/wsum.n).toFixed(1)+' kg':'—'}</td>
@@ -654,12 +674,13 @@ function render(){
        return Object.entries(g2).sort((a,b)=>b[1].rows.length-a[1].rows.length).map(([k,r])=>{
          const kg=med(r.rows.map(x=>x.kg));
          return `<tr><td><span class="park">${esc(r.farm)}</span> · ${esc(r.shed)}${r.part?` <span class="sub">Part ${esc(r.part)}</span>`:''}</td>
+           <td>${r.rows[0].tag?`<span class="tag t-none">${esc(r.rows[0].tag)}</span>`:'<span class="sub">—</span>'}</td>
            <td><span class="tag t-unexplained">Whole shed</span></td>
            <td class="num sub">one total</td><td class="num">${kg} kg</td><td class="num sub">—</td>
            <td class="num">${r.rows.length}</td><td class="num sub">${r.last}</td>
            <td class="num sub" title="A whole-shed reading cannot report gain per animal">not measurable</td>
            <td class="num sub">—</td><td class="sub">weight only</td></tr>`}).join('')})()
-    || `<tr><td colspan="10" class="empty">No sheds match this filter.</td></tr>`;
+    || `<tr><td colspan="11" class="empty">No sheds match this filter.</td></tr>`;
   $('shedRows').onclick=e=>{const tr=e.target.closest('[data-shed]');if(!tr)return;
     F.shed=F.shed===tr.dataset.shed?'':tr.dataset.shed;render()};
 
@@ -788,6 +809,8 @@ function render(){
       .forEach(x=>push(sexLabel(x),'Sex',a=>a.gender===x));
     [...new Set(A.map(a=>a.farm))].filter(Boolean).sort()
       .forEach(f=>push(f,'Park',a=>a.farm===f));
+    STAGE_ORDER.filter(t=>A.some(a=>a.tag===t))
+      .forEach(t=>push(t,'Stage',a=>a.tag===t));
     groups.sort((x,y)=>x.kind===y.kind?y.g-x.g:(x.kind<y.kind?-1:1));
     let lastKind='';
     $('cohortRows').innerHTML=groups.map(r=>{
@@ -1057,13 +1080,16 @@ function render(){
     return `<tr class="click" tabindex="0" data-i="${i}" ${sel===i?'aria-selected="true"':''}>
       <td class="num">${esc(e.gid)}</td>
       <td><span class="park">${esc(e.farm)}</span> · ${esc(e.shed)}${e.part?' · Part '+esc(e.part):''}</td>
+      <td>${e.ptag&&e.ptag!==e.tag
+        ? `<span class="tag t-none">${esc(e.ptag)}</span><br><span class="sub">→ ${esc(e.tag||'—')}</span>`
+        : (e.tag?`<span class="tag t-none">${esc(e.tag)}</span>`:'<span class="sub">—</span>')}</td>
       <td class="num sub">${e.pd}<br><b>${e.pw} kg</b></td>
       <td class="num sub">${e.cd}<br><b>${e.cw} kg</b></td>
       <td class="num ${e.dir==='drop'?'neg':'pos'}">${e.delta>0?'+':''}${e.delta} kg<br><span class="sub">${e.pct}%</span></td>
       <td class="num ${e.dir==='drop'?'neg':'pos'}">${e.adg>0?'+':''}${e.adg}</td>
       <td><span class="tag t-${m[0]}">${VLAB[m[0]]}</span><br><span class="sub">${m[1]}</span></td>
       <td style="max-width:400px;font-size:12.5px;color:var(--ink-2)">${esc(e.why)}</td></tr>`}).join('')
-    || `<tr><td colspan="8" class="empty">No changes match.</td></tr>`);
+    || `<tr><td colspan="9" class="empty">No changes match.</td></tr>`);
   $('pagerE').innerHTML=pagerHTML('E',sliceE.page,sliceE.pages,EL.length,sizeE,'changes');
   $('eventRows').onclick=e=>{const tr=e.target.closest('[data-i]');if(!tr)return;
     lastFocus={list:'eventRows',key:tr.dataset.i}; sel=+tr.dataset.i; detail(EVENTS[sel]); render();};
