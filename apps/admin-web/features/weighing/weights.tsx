@@ -255,7 +255,7 @@ export async function WeighingWeightsPage({
       : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
 
   return (
-    <>
+    <div className="weights-page">
       <WorklistFilters
         basePath={PAGE_PATH}
         pageParam="offset"
@@ -572,6 +572,6 @@ export async function WeighingWeightsPage({
           </>
         )}
       </section>
-    </>
+    </div>
   );
 }
