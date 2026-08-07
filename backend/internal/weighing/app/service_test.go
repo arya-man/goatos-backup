@@ -17,24 +17,24 @@ import (
 )
 
 const (
-	testTenant   = "00000000-0000-4000-8000-000000000001"
-	testActor    = "00000000-0000-4000-8000-000000000101"
-	testPark     = "00000000-0000-4000-8000-000000000201"
-	testOp       = "00000000-0000-4000-8000-000000000301"
-	testShed     = "00000000-0000-4000-8000-000000000401"
+	testTenant = "00000000-0000-4000-8000-000000000001"
+	testActor  = "00000000-0000-4000-8000-000000000101"
+	testPark   = "00000000-0000-4000-8000-000000000201"
+	testOp     = "00000000-0000-4000-8000-000000000301"
+	testShed   = "00000000-0000-4000-8000-000000000401"
 	// testShedLocationID / testShedDisplay back fakeRepo.CampaignShedLocation. The display carries
 	// a partition suffix on purpose: the partition is the pen the animals actually stand in, and
 	// it was missing from every weighing verification label before this.
 	testShedLocationID = "00000000-0000-4000-8000-000000000404"
 	testShedDisplay    = "Godel 1 - Part 3"
-	secondShed   = "00000000-0000-4000-8000-000000000402"
-	perShedScope = "00000000-0000-4000-8000-000000000403"
-	animalOne    = "00000000-0000-4000-8000-000000000601"
-	animalTwo    = "00000000-0000-4000-8000-000000000602"
-	proofOne     = "00000000-0000-4000-8000-000000000701"
-	proofTwo     = "00000000-0000-4000-8000-000000000702"
-	proofThree   = "00000000-0000-4000-8000-000000000703"
-	proofShed    = "00000000-0000-4000-8000-000000000704"
+	secondShed         = "00000000-0000-4000-8000-000000000402"
+	perShedScope       = "00000000-0000-4000-8000-000000000403"
+	animalOne          = "00000000-0000-4000-8000-000000000601"
+	animalTwo          = "00000000-0000-4000-8000-000000000602"
+	proofOne           = "00000000-0000-4000-8000-000000000701"
+	proofTwo           = "00000000-0000-4000-8000-000000000702"
+	proofThree         = "00000000-0000-4000-8000-000000000703"
+	proofShed          = "00000000-0000-4000-8000-000000000704"
 )
 
 func TestWeighingRBACSeparatesPlanMonitorExecute(t *testing.T) {
