@@ -17,6 +17,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/health/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -374,38 +375,33 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	defer cancel()
 	var d domain.WorkItemDetail
 	var park, shed string
+	// The partition-label subquery used to be inlined three times in this SELECT (once to
+	// extract it, once in a CASE condition, once in the CASE ELSE), so Postgres evaluated it
+	// three times per row. It is now resolved ONCE via the grouped join below (one active,
+	// non-'whole' partition per shed, agree-or-go-bare via HAVING count(*)=1), and the display
+	// string is composed in Go through the shared oploc.OperationalLocation.Display() primitive
+	// instead of a hand-rolled SQL CASE -- same output, evaluated once, and routed through the
+	// canonical composer per the operational-location convention.
 	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,hc.duration_days,hs.business_date::text,hs.session,hs.due_at,
 CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
-COALESCE((
-  SELECT sp.partition_label
-  FROM shed_partitions sp
-  WHERE sp.tenant_id = hc.tenant_id
-    AND sp.shed_id = hc.shed_id
-    AND sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  HAVING count(*) = 1
-), ''),
-CASE WHEN COALESCE((
-  SELECT sp.partition_label
-  FROM shed_partitions sp
-  WHERE sp.tenant_id = hc.tenant_id
-    AND sp.shed_id = hc.shed_id
-    AND sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  HAVING count(*) = 1
-), '') = '' THEN coalesce(sl.name,'')
-ELSE coalesce(sl.name,'') || ' - ' || COALESCE((
-  SELECT sp.partition_label
-  FROM shed_partitions sp
-  WHERE sp.tenant_id = hc.tenant_id
-    AND sp.shed_id = hc.shed_id
-    AND sp.status = 'active'
-    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
-  HAVING count(*) = 1
-), '') END
+COALESCE(part.partition_label, '')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
-WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel, &d.OperationalLocationDisplay)
+LEFT JOIN (
+  SELECT sp.tenant_id, sp.shed_id, min(sp.partition_label) AS partition_label
+  FROM shed_partitions sp
+  WHERE sp.status = 'active'
+    AND COALESCE(NULLIF(sp.partition_label, ''), 'whole') <> 'whole'
+  GROUP BY sp.tenant_id, sp.shed_id
+  HAVING count(*) = 1
+) part ON part.tenant_id = hc.tenant_id AND part.shed_id = hc.shed_id
+WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel)
+	if err == nil {
+		d.OperationalLocationDisplay = oploc.OperationalLocation{
+			ShedName:       d.ShedLabel,
+			PartitionLabel: d.PartitionLabel,
+		}.Display()
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, ports.ErrNotFound
 	}
