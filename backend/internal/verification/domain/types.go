@@ -162,20 +162,20 @@ func (i Item) VerdictState() string {
 
 // CreateItem is the input a producer supplies to enqueue one verification item.
 type CreateItem struct {
-	TenantID        string
-	Vertical        string
-	Module          string
-	Category        string
-	SubjectLabel    *string
-	SubjectNote     *string
-	Source          SourceRef
-	MediaRefs       []string
-	OperatorID      *string
-	ShedID          *string
-	PartitionLabel  *string  // operational location partition (e.g. "Part 3"); NULL for undivided sheds
-	ParkID          *string
-	CapturedAt      time.Time
-	IdempotencyKey  string
+	TenantID       string
+	Vertical       string
+	Module         string
+	Category       string
+	SubjectLabel   *string
+	SubjectNote    *string
+	Source         SourceRef
+	MediaRefs      []string
+	OperatorID     *string
+	ShedID         *string
+	PartitionLabel *string // operational location partition (e.g. "Part 3"); NULL for undivided sheds
+	ParkID         *string
+	CapturedAt     time.Time
+	IdempotencyKey string
 	// ApplierAckExpected: set true only if this producer actually runs an applier
 	// that calls MarkVerdictApplied. Setting it true without wiring the ack would
 	// park every decided item of yours in VerdictStateApplying permanently.

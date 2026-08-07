@@ -25,10 +25,10 @@ func TestPartitionLabelWiringEndToEnd(t *testing.T) {
 	partitionLabel := "Part 3"
 	idempotencyKeyA := fmt.Sprintf("partition-test-%d", time.Now().UnixNano())
 	itemWithPartition, err := repo.CreateItem(ctx, domain.CreateItem{
-		TenantID:       tenantID,
-		Vertical:       "vaccination",
-		Module:         "vaccination",
-		Category:       "vaccination_proof",
+		TenantID: tenantID,
+		Vertical: "vaccination",
+		Module:   "vaccination",
+		Category: "vaccination_proof",
 		Source: domain.SourceRef{
 			Module:  "vaccination",
 			RefType: "vaccination_goat",
@@ -61,17 +61,17 @@ func TestPartitionLabelWiringEndToEnd(t *testing.T) {
 	// Create an item WITHOUT partition_label
 	idempotencyKeyB := fmt.Sprintf("no-partition-test-%d", time.Now().UnixNano())
 	itemWithoutPartition, err := repo.CreateItem(ctx, domain.CreateItem{
-		TenantID:       tenantID,
-		Vertical:       "vaccination",
-		Module:         "vaccination",
-		Category:       "vaccination_proof",
+		TenantID: tenantID,
+		Vertical: "vaccination",
+		Module:   "vaccination",
+		Category: "vaccination_proof",
 		Source: domain.SourceRef{
 			Module:  "vaccination",
 			RefType: "vaccination_goat",
 			RefID:   tenantID,
 		},
-		MediaRefs:  []string{},
-		CapturedAt: time.Now().UTC(),
+		MediaRefs:      []string{},
+		CapturedAt:     time.Now().UTC(),
 		IdempotencyKey: idempotencyKeyB,
 	})
 	if err != nil {
