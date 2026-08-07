@@ -100,7 +100,17 @@ class FeedTransportViewModel @Inject constructor(
                 status = selected.status,
             ),
             rows = page.items.map {
-                FeedTransportRowUi(it.taskId, it.parkId, it.shedId, it.shedLabel, it.parkLabel, it.status, it.reworkReason)
+                // Prefer the backend-composed operational location: shedLabel alone drops the
+                // partition, so a task in "Godel 1 - Part 3" would read as bare "Godel 1".
+                FeedTransportRowUi(
+                    it.taskId,
+                    it.parkId,
+                    it.shedId,
+                    it.operationalLocationDisplay.ifBlank { it.shedLabel },
+                    it.parkLabel,
+                    it.status,
+                    it.reworkReason,
+                )
             },
             isRefreshing = current.isRefreshing,
             isOffline = current.isOffline,

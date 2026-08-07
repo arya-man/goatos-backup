@@ -295,6 +295,12 @@ data class FeedTransportTaskDto(
     @SerialName("park_label") val parkLabel: String,
     @SerialName("shed_id") val shedId: String,
     @SerialName("shed_label") val shedLabel: String,
+    // The backend composes the operational location and marks it REQUIRED on this schema.
+    // Render operationalLocationDisplay VERBATIM -- shedLabel alone drops the partition, so a
+    // task in "Godel 1 - Part 3" reads as bare "Godel 1" on the phone. Defaults keep an older
+    // backend decodable.
+    @SerialName("partition_label") val partitionLabel: String? = null,
+    @SerialName("operational_location_display") val operationalLocationDisplay: String = "",
     @SerialName("business_date") val businessDate: String,
     @SerialName("status") val status: String,
     @SerialName("operator_id") val operatorId: String? = null,
