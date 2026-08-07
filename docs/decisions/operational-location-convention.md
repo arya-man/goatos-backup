@@ -4,6 +4,10 @@
 **Guard:** `make operational-location-guard`  
 **Owned by:** Maintainer (STANDING LOCK)
 
+**Verification Checklist:** See AGENTS.md → "Partition Change Verification Checklist" (mandatory before committing any location change).
+
+**The 10 Defect Classes Encoded:** See AGENTS.md → "Ten Defect Classes From Session 2026-08-07" (the lessons that make recurrence impossible).
+
 ---
 
 ## Problem Statement
@@ -198,31 +202,77 @@ If delegating location-bearing work to a subagent:
 
 ---
 
+## Validation Strategy (Session 2026-08-07)
+
+The partition convention spans ~5 handoffs (SQL → Go → wire DTO → OpenAPI → client render). Missing or corrupt values at ANY ONE point render a bare shed name end-to-end. Two validation patterns prevent this:
+
+### Cross-Layer Proof: DB Round-Trip Test
+
+Every location-displaying change MUST include an integration test that:
+1. Inserts a known partitioned shed into the test database (e.g., `Godel 1 - Part 3`)
+2. Calls the API/query/screen that READS that shed
+3. Asserts the RETURNED STRING exactly matches the database round-trip (e.g., `operational_location_display = 'Godel 1 - Part 3'`)
+
+Unit tests on Go formatters alone are insufficient (OL-9). Pure OpenAPI schema checks alone are insufficient (OL-10). The proof must span all five layers in one assertion.
+
+### Structural Checks: Schema + Struct Parity
+
+When a location response field is added to OpenAPI:
+1. Verify the Go struct has the same field (same name, same type)
+2. Verify the wire emitter populates the struct (scan the constructor/adapter)
+3. Verify the test asserts the populated value end-to-end
+
+Mismatch at any step (schema declared, struct missing) is a release blocker (OL-10, OL-11).
+
+### Subclass Check: Name-Keying Audit
+
+When grouping, filtering, or counting by location:
+1. Grep for `groupBy`, `GROUP BY`, `DISTINCT`, and any `WHERE shed_name = ` patterns
+2. Verify the key includes `shed_id` (UUID) + `park_id`
+3. Never key by `shed_name` alone (names repeat across parks — OL-15, OL-2)
+4. Run `make operational-location-guard` which flags this class
+
+---
+
 ## Machine Enforcement
 
-**Guard:** `make operational-location-guard` (in `make guardrails` and `make ci-local`)
+**Guard:** `make operational-location-guard` (in `make guardrails` and `make ci-local`)  
+**Executable:** `tools/agent-hooks/check-operational-location.mjs`  
+**Registration:** `tools/ci/guardrail-manifest.json`
 
-The guard runs three checks:
+The guard runs five checks (plus the three blind-spot cases below):
 
-1. **Name-keying validator** — detects GROUP BY / SELECT DISTINCT on `locations.name` without `park_id` or `shed_id` co-grouping.
-2. **Display drift detector** — scans all location-display assignments and checks them against the canonical helper output for known seeds.
-3. **Missing partition columns** — flags new rows in location-bearing tables that lack a `partition_label` field.
+1. **Name-keying validator** — detects GROUP BY / SELECT DISTINCT on `locations.name` without `park_id` or `shed_id` co-grouping. (OL-2, OL-15)
+2. **Response schema validator** — checks OpenAPI response schemas (not just Request) for location fields; ensures `partition_label` and `operational_location_display` are declared when location is present. (OL-10, OL-11)
+3. **Display drift detector** — scans all location-display assignments and checks them against the canonical helper output for known seeds. (OL-3, OL-7)
+4. **Missing partition columns** — flags new rows in location-bearing tables that lack a `partition_label` field. (OL-4, OL-5, OL-6)
+5. **Snapshot staleness** — flags `*assignment` tables that read `partition_label` directly instead of resolving from catalog. (OL-13)
+
+**Configuration note:** The guard requires `tools/ci/guardrail-manifest.json` to list `operational-location-guard` as part of the mandatory `run_common` suite. If the manifest does not include it, the guard does not run in `make ci-local` and will not block breaks.
 
 ### Known Blind Spots
 
 1. **Hardcoded literal strings** — a query with a hardcoded `'Castro 1'` literal will not be caught; use Grep to audit those.
 2. **Dynamic composition in application code** — concatenation in Go/Kotlin/TypeScript string templates may not be caught; run the display helpers through unit tests for all known locations.
 3. **Reflective queries** — queries built via string concatenation in middleware or ORM are not analyzed statically.
-4. **Commentary only** — a comment explaining the rule without enforcing it counts as a comment, not an enforcement.
+4. **Struct fields that go unpopulated** — if a Go struct field is declared but never written, only E2E/DB-round-trip tests will catch it (OL-3).
+5. **OpenAPI field mismatches with Go structs** — the guard checks field presence in schemas; field-by-field parity with the Go type requires manual verification (OL-10, OL-11).
+6. **Commentary only** — a comment explaining the rule without enforcing it counts as a comment, not an enforcement.
 
-**For these cases, rely on code review.** The guard catches the structural class; the brief and code review catch the semantic class.
+**For these cases, rely on code review and the DB-round-trip test.** The guard catches structural classes; the verification checklist (AGENTS.md) and tests catch semantic gaps.
 
 ---
 
 ## Related Docs
 
-- `AGENTS.md` → "Operational Location and Partition Convention" (maintainer lock)
-- `context/repo-audits/operational-location-do-not-reopen-ledger.md` — ledger of all defects found 2026-08-06
+- `AGENTS.md` → "Operational Location and Partition Convention" (maintainer lock, full context)
+- `AGENTS.md` → "Ten Defect Classes From Session 2026-08-07" (the 10 lessons that prevent recurrence)
+- `AGENTS.md` → "Partition Change Verification Checklist" (mandatory before any commit)
+- `context/repo-audits/operational-location-do-not-reopen-ledger.md` — all defects OL-1..OL-15, status, and closure criteria
+- `.agents/skills/frontend-anti-patterns/SKILL.md` — partition display rule for admin-web
+- `.agents/skills/mobile-anti-patterns/SKILL.md` — partition display rule for Android
+- `.agents/skills/db-migration-safety/SKILL.md` — location-bearing schema requirements
+- `.agents/skills/goatos-code-review/SKILL.md` → references/kernel-and-scale.md — full review context
 - `docs/features/weighing/TRD.md` → shed selection (weighing context)
 - `docs/features/vaccination/TRD.md` → drive planning (vaccination context)
 
@@ -234,6 +284,7 @@ The guard runs three checks:
 - **2026-08-03:** Weighing screens showed `Godel 1 1` (truncated partition label + shed name).
 - **2026-08-04:** Herd register showed multiple `Godel 1` rows instead of six distinct partitions.
 - **2026-08-05:** Evidence gathering from master registry, BigQuery, and legacy code confirmed three independent sources use dashed form.
-- **2026-08-06:** Full convention codified. Guard added. This ADR written.
+- **2026-08-06:** Full convention codified. Guard added. This ADR written. Do-not-reopen ledger created.
+- **2026-08-07:** Session found 15 defects (OL-1..OL-15) across the ~5-handoff chain. Updated AGENTS.md with 10 defect classes and partition-change verification checklist. Added guard check 5 (snapshot staleness). Extended do-not-reopen ledger to include OL-10..OL-15.
 
 This decision is FINAL and LOCKED. Any future proposal to relax the partition requirement, allow name-keying, or omit the partition from product display MUST start by explaining why the worked examples no longer apply.
