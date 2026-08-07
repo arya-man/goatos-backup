@@ -505,7 +505,14 @@
   .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
   .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
   .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
-  .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
+     LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
+     letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
+     measures off the real page (SPEC section 4: `th` 12px / 700, no uppercase, letter-spacing
+     normal). All-caps cramped headers are what made this table read as dated. `.screen` here
+     raises specificity so the intended rule actually applies -- do not drop it back to
+     `.vr-table th`, that is the bug. */
+  .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
 
@@ -532,12 +539,7 @@
   .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
-  /* flex-shrink:0 is load-bearing. .vr-modal-bd is a flex COLUMN with overflow-y:auto, so its
-     children shrink below their content by default -- this panel was being squeezed from its
-     63.5px content height down to 26px, and its own overflow:hidden then clipped every value away.
-     The verifier saw four headings (OPERATOR / CAPTURED AT / SHED / PARK) with nothing under them,
-     which is precisely the set of facts the locked spec says she checks the video against. */
-  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden;flex-shrink:0}
+  .vr-facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;background:var(--line2);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
   .vr-fact{background:var(--panel-2);padding:12px 14px;font-size:13.5px;font-weight:600}
   .vr-fact b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);font-weight:750;margin-bottom:4px}
   .grid{display:grid;gap:14px}
@@ -1843,6 +1845,12 @@ html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
 .vr-modal-hd .x { margin-left: auto; cursor: pointer; color: var(--muted); width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; font-size: 21px; }
 .vr-modal-hd .x:hover { background: var(--bg); }
 .vr-modal-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+/* The body is a flex COLUMN that scrolls, so by default every child shrinks below its own content
+   to fit -- which silently sliced the bottom off each section: the facts strip lost all four
+   values, Rework lost its input, Re-assign lost its picker, Penalty note lost its field. Children
+   must keep their natural height and let the BODY scroll instead. This belongs on the container,
+   not on one element: patching only .vr-facts fixed the strip and left every other card clipped. */
+.vr-modal-bd > * { flex-shrink: 0; }
 .vr-modal-ft { padding: 16px 22px; border-top: 1px solid var(--line); background: var(--panel-2); display: flex; gap: 11px; align-items: center; flex-wrap: wrap; }
 .vr-modal-ft .pos { margin-right: auto; font-size: 13px; color: var(--faint); font-weight: 650; }
 .vr-modal-ft .btn { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }
