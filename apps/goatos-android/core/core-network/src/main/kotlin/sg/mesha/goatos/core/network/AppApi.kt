@@ -100,6 +100,7 @@ import sg.mesha.goatos.core.network.dto.WeighingObservationResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerCatalogResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingPlannerParkBucketsResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingRosterResponseDto
+import sg.mesha.goatos.core.network.dto.VaccinationAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingAlertPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedPageResponseDto
 import sg.mesha.goatos.core.network.dto.WeighingLeadershipShedVideosResponseDto

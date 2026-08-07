@@ -489,7 +489,15 @@ var rolePermissions = map[string]map[string]struct{}{
 		// feed reads. Splitting feed_direction.read off is what makes one-module-one-director
 		// enforceable, and keeping the incidental feed access here would defeat it: the PC
 		// Director owns Vaccination, and Feed belongs to feed_director.
-		VerificationAct: {},
+		// VerificationReview is the READ of the evidence queue (GET /verification/queue): the
+		// items, their media, and the verdicts already recorded. VerificationAct is closing the
+		// source task / requesting rework. The PC Director held ACT without REVIEW, so the
+		// backend-composed nav offered a Videos entry whose only backing read 403'd -- observed
+		// on-device 2026-08-08. AGENTS.md's verdict-exclusivity lock is explicit that leadership
+		// KEEPS review and act and loses only VerificationVerdict (approve/reject), which stays
+		// verifier-only and is deliberately NOT added here: an independent second check the
+		// checked party can sign is not independent.
+		VerificationReview: {}, VerificationAct: {},
 		// Clinical authority over the configured disease course (maintainer decision 2026-07-30);
 		// raising a report is HealthReport, which every field tier holds.
 		HealthRead: {}, HealthReport: {}, HealthDiagnose: {},
