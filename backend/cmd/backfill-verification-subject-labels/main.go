@@ -83,21 +83,33 @@ func main() {
 		fmt.Printf("\nDRY RUN: %d label(s) would change. Re-run with -apply to write.\n", len(plan))
 		return
 	}
-	updated := 0
-	for _, change := range plan {
-		tag, err := pool.Exec(ctx, `
-UPDATE verification_items
-SET subject_label = $2, updated_at = now()
-WHERE item_id = $1::uuid
+	// ONE set-based statement, not an UPDATE per row. A loop of .Exec here is the N+1 shape the
+	// repo bans outright, and it is just as avoidable in a backfill as in a request path.
+	ids := make([]string, 0, len(plan))
+	next := make([]string, 0, len(plan))
+	prev := make([]string, 0, len(plan))
+	for _, c := range plan {
+		ids = append(ids, c.ItemID)
+		next = append(next, c.New)
+		prev = append(prev, c.Old)
+	}
+	tag, err := pool.Exec(ctx, `
+UPDATE verification_items vi
+SET subject_label = src.new_label, updated_at = now()
+FROM (
+  SELECT unnest($1::uuid[]) AS item_id,
+         unnest($2::text[]) AS new_label,
+         unnest($3::text[]) AS old_label
+) src
+WHERE vi.item_id = src.item_id
   -- Guarded on the exact value read during planning, so a row rewritten by a concurrent producer
   -- between plan and apply is skipped rather than clobbered.
-  AND subject_label IS NOT DISTINCT FROM $3`, change.ItemID, change.New, change.Old)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "update %s: %v\n", change.ItemID, err)
-			os.Exit(1)
-		}
-		updated += int(tag.RowsAffected())
+  AND vi.subject_label IS NOT DISTINCT FROM src.old_label`, ids, next, prev)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "apply: %v\n", err)
+		os.Exit(1)
 	}
+	updated := int(tag.RowsAffected())
 	fmt.Printf("\napplied: %d of %d planned label(s) updated\n", updated, len(plan))
 }
 
