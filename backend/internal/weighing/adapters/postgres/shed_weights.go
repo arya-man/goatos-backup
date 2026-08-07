@@ -65,6 +65,10 @@ func (r *Repository) GetShedWeights(ctx context.Context, tenantID string, parkID
 	out := domain.ShedWeights{
 		Rows:  []domain.ShedWeightsRow{},
 		Parks: []domain.GrowthPark{},
+		// Initialized here, not only on the success path: the no-parks early return
+		// below would otherwise leave this nil and serialize `by_load: null` against a
+		// contract that declares an array.
+		ByLoad: []domain.LoadGainBucket{},
 	}
 	if len(parkIDs) == 0 {
 		return out, nil
@@ -314,5 +318,16 @@ ORDER BY display_order, name, location_id`, tenantID, parkIDs)
 		summary.AverageWeightKg = &avg
 	}
 	out.Summary = summary
+
+	// Growth per procurement load, over the same tenant/park/window scope. Its own
+	// read rather than another CTE here: it collapses to LOAD grain, not shed grain,
+	// and folding a different grain into this query is how a shed ends up counted
+	// once per load it touches.
+	byLoad, unattributed, err := r.loadWeights(ctx, tenantID, parkIDs, periodStart, periodEnd)
+	if err != nil {
+		return domain.ShedWeights{}, err
+	}
+	out.ByLoad = byLoad
+	out.LoadUnattributedSheds = unattributed
 	return out, nil
 }

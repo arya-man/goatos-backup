@@ -121,6 +121,7 @@ export async function WeighingWeightsPage({
   const breedMetric = metric("breed_metric");
   const sexMetric = metric("sex_metric");
   const stageMetric = metric("stage_metric");
+  const loadMetric = metric("load_metric");
 
   // Period is a business-day window, not a clock offset: a weigh belongs to the
   // Asia/Kolkata day it happened on.
@@ -328,6 +329,35 @@ export async function WeighingWeightsPage({
       ? weightBuckets.map((b) => ({ key: b.label, label: b.label, value: Number(b.average_weight_kg.toFixed(1)) }))
       : gainBuckets.map((b) => ({ key: b.label, label: b.label, value: Math.round(b.median_gain_g_per_day) }));
 
+  // Growth per purchase load. The supplier is part of the label rather than a
+  // separate chart: the load number alone means nothing to a reader, and the
+  // question being asked is really about the supplier behind it.
+  //
+  // On the gain view a load with no second weigh is DROPPED rather than plotted at
+  // zero, which would read as "this supplier's kids are flat" when the truth is
+  // "nobody has weighed them twice yet". The span rides on the label for the same
+  // reason it does on the shed chart — a figure drawn from two days deserves to be
+  // discounted on sight.
+  const byLoad = weights.ok ? weights.data.by_load : [];
+  const loadUnattributed = weights.ok ? weights.data.load_unattributed_sheds : 0;
+  const loadBars =
+    loadMetric === "weight"
+      ? byLoad
+          .slice()
+          .sort((a, b) => b.average_weight_kg - a.average_weight_kg)
+          .map((load) => ({
+            key: load.load_ref,
+            label: load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref,
+            value: Number(load.average_weight_kg.toFixed(1)),
+          }))
+      : byLoad
+          .filter((load) => load.gain_g_per_day != null)
+          .map((load) => ({
+            key: load.load_ref,
+            label: `${load.owner_name ? `${load.load_ref} · ${load.owner_name}` : load.load_ref} (${load.gain_span_days ?? 0}d)`,
+            value: Math.round(load.gain_g_per_day as number),
+          }));
+
   return (
     <div className="weights-page">
       <WorklistFilters
@@ -506,6 +536,35 @@ export async function WeighingWeightsPage({
           />
         </section>
       </div>
+
+      {/* Row 3 — growth by purchase load, full width: the label carries both the load
+          number and the supplier, which does not fit a half-width card. */}
+      <section className="card" aria-label={copy(pageContract, "chart.load.aria")}>
+        <h2 className="h">
+          {loadMetric === "adg"
+            ? copy(pageContract, "chart.load.title")
+            : copy(pageContract, "chart.load.title_weight")}
+          <MetricToggle param="load_metric" current={loadMetric} params={params} pageContract={pageContract} />
+        </h2>
+        <p className="muted small">{copy(pageContract, "chart.load.caption")}</p>
+        <WeightBars
+          data={loadBars}
+          emptyLabel={
+            byLoad.length === 0
+              ? copy(pageContract, "empty.load.body")
+              : copy(pageContract, "empty.metric.no_gain")
+          }
+          unit={loadMetric === "adg" ? "g" : "kg"}
+          chartLabel={copy(pageContract, "chart.load.aria")}
+          size="short"
+          wide
+        />
+        {loadUnattributed > 0 ? (
+          <p className="muted small">
+            {loadUnattributed.toLocaleString("en-IN")} {copy(pageContract, "note.load.unmapped")}
+          </p>
+        ) : null}
+      </section>
 
       {demo ? (
         <p className="muted small">
