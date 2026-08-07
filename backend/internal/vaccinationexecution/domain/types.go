@@ -78,17 +78,31 @@ type Owner struct {
 }
 
 type ExecutionRow struct {
-	ParkID        string `json:"parkId"`
-	ParkName      string `json:"parkName"`
-	ShedID        string `json:"shedId"`
-	ShedName      string `json:"shedName"`
-	PhysicalShed  string `json:"physicalShed,omitempty"`
-	Partition     string `json:"partition,omitempty"`
-	AnimalStage   string `json:"animalStage"`
-	TargetCount   int    `json:"targetCount"`
-	OpenCount     int    `json:"openCount"`
-	DoneCount     int    `json:"doneCount"`
-	AcceptedCount int    `json:"acceptedCount"`
+	ParkID       string `json:"parkId"`
+	ParkName     string `json:"parkName"`
+	ShedID       string `json:"shedId"`
+	ShedName     string `json:"shedName"`
+	PhysicalShed string `json:"physicalShed,omitempty"`
+	// Partition is the LEGACY field: it carries the raw stored value including the
+	// 'whole' sentinel, which is a matching key and must never reach a screen. The
+	// three fields below are the operational-location contract (already declared in
+	// contracts/openapi/app-api.yaml -> VaccinationExecutionRow); the struct simply
+	// never carried them, so the operator drive list rendered a partitioned shed as a
+	// bare "Mandela 2" instead of "Mandela 2 - Part 3". Observed on a phone 2026-08-07.
+	Partition string `json:"partition,omitempty"`
+	// PartitionLabel is the raw label ('1', 'Part 3'), nil when the shed is not
+	// partitioned -- never the 'whole' sentinel.
+	PartitionLabel *string `json:"partition_label"`
+	// SourceShedName is the original partition-bearing name the row normalized FROM.
+	SourceShedName *string `json:"source_shed_name"`
+	// OperationalLocationDisplay is the ONLY string a screen may render for location.
+	// Composed by oploc.Display() so Go, admin-web and Android cannot drift.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	AnimalStage                string `json:"animalStage"`
+	TargetCount                int    `json:"targetCount"`
+	OpenCount                  int    `json:"openCount"`
+	DoneCount                  int    `json:"doneCount"`
+	AcceptedCount              int    `json:"acceptedCount"`
 	// ReviewCount is the number of items currently AWAITING A VERDICT (completion recorded but
 	// not yet accepted or rejected) -- it must always match what the verifier's own
 	// /verification/queue returns for the same scope. It EXCLUDES rejected items: a rejection is

@@ -439,7 +439,11 @@ class ShedsViewModel @Inject constructor(
             val effectiveDone = effectiveDoneCount(group)
             ShedRow(
                 id = identity.cardId,
-                name = first.shedName,
+                // The shed CARD TITLE. It must carry the backend-composed operational location,
+                // or a partitioned shed shows its bare name and every partition of that shed
+                // reads identically on the operator's list ("Mandela 2" three times instead of
+                // "Mandela 2 - Part 3"). Falls back to shedName for older API responses.
+                name = first.operationalLocationDisplay.ifBlank { first.shedName },
                 parkId = first.parkId,
                 parkName = first.parkName,
                 operatorName = first.owner?.operatorName.orEmpty(),
