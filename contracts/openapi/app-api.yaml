@@ -18428,6 +18428,21 @@ components:
         bucket_status:
           type: string
           enum: [pending, in_progress, completed, canceled]
+        shed_average_gain_g_per_day:
+          type: number
+          format: double
+          description: >-
+            How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed
+            more than once in the window. NOT per-animal growth: a shed's population
+            changes between weighs, so if the lightest animals leave the average rises
+            while no animal gained a gram. Measured across the full span, because
+            consecutive pairs at this grain are unusably noisy (the same shed produced
+            45 g/day one week and 391 the next).
+        gain_span_days:
+          type: integer
+          description: >-
+            The span that gain was measured over, so a short-span figure can be
+            discounted rather than hidden.
     WeighingShedWeightsSummary:
       type: object
       additionalProperties: false

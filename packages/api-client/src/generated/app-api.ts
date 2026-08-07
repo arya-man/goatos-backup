@@ -7084,6 +7084,13 @@ export interface components {
             last_weighed_date?: string;
             /** @enum {string} */
             bucket_status: "pending" | "in_progress" | "completed" | "canceled";
+            /**
+             * Format: double
+             * @description How fast this shed's AVERAGE weight is moving, for whole-shed sheds weighed more than once in the window. NOT per-animal growth: a shed's population changes between weighs, so if the lightest animals leave the average rises while no animal gained a gram. Measured across the full span, because consecutive pairs at this grain are unusably noisy (the same shed produced 45 g/day one week and 391 the next).
+             */
+            shed_average_gain_g_per_day?: number;
+            /** @description The span that gain was measured over, so a short-span figure can be discounted rather than hidden. */
+            gain_span_days?: number;
         };
         /** @description WHOLE-FILTER rollup behind the KPI cards. Paging changes rows only, never these numbers. */
         WeighingShedWeightsSummary: {
