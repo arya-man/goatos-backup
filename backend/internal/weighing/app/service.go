@@ -895,6 +895,13 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	// Re-capturing after a rejection means a NEW video. Re-sending the one the verifier just
 	// rejected was accepted with a 200 that changed nothing -- success on screen, animal still
 	// in rework, shed still unsubmittable. Refuse it by name instead.
+	// Resolved BEFORE the write, for the same reason parkID is: the shed name + partition is part
+	// of the verification item's identity, and a lookup that fails after the weight is committed
+	// would hand the operator an error over saved data.
+	shedLocationID, shedDisplay, err := s.repo.CampaignShedLocation(ctx, cmd.TenantID, cmd.CampaignShedID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
 	rejectedProof, err := s.repo.AnimalProofWasRejected(ctx, cmd.TenantID, cmd.CampaignShedID, cmd.ProofArtifactID)
 	if err != nil {
 		return domain.Observation{}, err
@@ -909,7 +916,7 @@ func (s *Service) RecordAnimalObservation(ctx context.Context, actor domain.Acto
 	if err := s.reviseVerificationRound(ctx, cmd.TenantID, obs); err != nil {
 		return domain.Observation{}, err
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, individualSubjectLabel(obs)); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, []string{obs.ProofArtifactID}, individualSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
@@ -950,6 +957,12 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if err != nil {
 		return domain.Observation{}, err
 	}
+	// See RecordAnimalObservation: resolved before the write so a failed lookup cannot land after
+	// the weight is already committed.
+	shedLocationID, shedDisplay, err := s.repo.CampaignShedLocation(ctx, cmd.TenantID, cmd.CampaignShedID)
+	if err != nil {
+		return domain.Observation{}, err
+	}
 	obs, err := s.repo.RecordShedObservation(ctx, cmd)
 	if err != nil {
 		return domain.Observation{}, err
@@ -958,7 +971,7 @@ func (s *Service) RecordShedObservation(ctx context.Context, actor domain.Actor,
 	if len(mediaRefs) == 0 && obs.ProofArtifactID != "" {
 		mediaRefs = []string{obs.ProofArtifactID}
 	}
-	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, lumpSumSubjectLabel(obs)); err != nil {
+	if err := s.enqueueVerification(ctx, cmd.TenantID, parkID, cmd.CampaignID, cmd.CampaignShedID, cmd.RecordedBy, obs, mediaRefs, lumpSumSubjectLabel(obs, shedDisplay), shedLocationID); err != nil {
 		return domain.Observation{}, err
 	}
 	return obs, nil
@@ -1008,8 +1021,18 @@ func (s *Service) reviseVerificationRound(ctx context.Context, tenantID string, 
 // Free-flow rule: the scanned tag IS the identity. Nothing here resolves it to a goat, and
 // lump-sum carries no per-animal identity at all, so it names only what the operator
 // actually entered: the total on the scale and how many animals it covered.
-func individualSubjectLabel(obs domain.Observation) string {
-	parts := make([]string, 0, 2)
+// Both labels LEAD with the shed, partition included ("Godel 1 - Part 3"), because the verifier
+// works a queue that mixes sheds: without it, "Tag 9010... · 28.1 kg" and the old literal "Whole
+// shed · 732.0 kg · 31 goats" gave her no way to tell WHERE a clip was shot, and the partition --
+// which is the actual pen the animals stand in -- was missing everywhere. shedDisplay is resolved
+// from the campaign-shed bucket (repo.CampaignShedLocation) and is "" only when that lookup found
+// nothing, in which case the label degrades to its old shed-less form rather than printing a
+// UUID or an empty separator (LOCKED SPEC section 5: never render an id as a label).
+func individualSubjectLabel(obs domain.Observation, shedDisplay string) string {
+	parts := make([]string, 0, 3)
+	if shed := strings.TrimSpace(shedDisplay); shed != "" {
+		parts = append(parts, shed)
+	}
 	if tag := strings.TrimSpace(obs.ScannedIdentifier); tag != "" {
 		parts = append(parts, "Tag "+tag)
 	}
@@ -1017,8 +1040,15 @@ func individualSubjectLabel(obs domain.Observation) string {
 	return strings.Join(parts, " · ")
 }
 
-func lumpSumSubjectLabel(obs domain.Observation) string {
-	label := "Whole shed · " + formatWeightKg(obs.WeightKg)
+// lumpSumSubjectLabel names the shed it weighed. It used to open with the hardcoded word "Whole
+// shed", which reads as a scope ("the whole shed was weighed at once") but was doing double duty
+// as the shed's NAME -- and so every lump-sum row in every shed rendered identically.
+func lumpSumSubjectLabel(obs domain.Observation, shedDisplay string) string {
+	head := strings.TrimSpace(shedDisplay)
+	if head == "" {
+		head = "Whole shed"
+	}
+	label := head + " · " + formatWeightKg(obs.WeightKg)
 	if obs.AnimalCount > 0 {
 		label += " · " + strconv.Itoa(obs.AnimalCount) + " goats"
 	}
@@ -1031,13 +1061,21 @@ func formatWeightKg(weightKg float64) string {
 	return strconv.FormatFloat(weightKg, 'f', 1, 64) + " kg"
 }
 
-func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label string) error {
+func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, campaignID, campaignShedID, operatorID string, obs domain.Observation, mediaRefs []string, label, shedLocationID string) error {
 	if s.enqueuer == nil {
 		return nil
 	}
 	category := domain.VerificationRefTypeAnimal
 	if obs.AnimalCount > 0 || len(mediaRefs) > 1 {
 		category = domain.VerificationRefTypeShed
+	}
+	// A lump-sum capture carries no per-animal expected location, so obs.ExpectedLocationID is
+	// empty on exactly the shed-grain item -- which is how every lump-sum verification row ended
+	// up with a NULL shed_id, invisible to the verifier's shed filter and to the drawer's Shed
+	// field. The campaign-shed bucket knows the shed either way, so fall back to it.
+	shedID := obs.ExpectedLocationID
+	if strings.TrimSpace(shedID) == "" {
+		shedID = shedLocationID
 	}
 	return s.enqueuer.EnqueueWeighingVerification(ctx, VerificationEnqueueRequest{
 		TenantID:       tenantID,
@@ -1047,7 +1085,7 @@ func (s *Service) enqueueVerification(ctx context.Context, tenantID, parkID, cam
 		CampaignShedID: campaignShedID,
 		MediaRefs:      mediaRefs,
 		OperatorID:     operatorID,
-		ShedID:         obs.ExpectedLocationID,
+		ShedID:         shedID,
 		ParkID:         parkID,
 		SubjectLabel:   label,
 		CapturedAt:     obs.AcceptedAt,

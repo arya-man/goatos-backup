@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -168,11 +169,17 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			shedID = stringPtr(completion.ShedID)
 		}
 		if completion.ShedID != "" {
+			// An unresolvable shed is OMITTED, never substituted with its id. This used to fall
+			// back to `label = completion.ShedID`, which put a raw UUID straight into the
+			// verifier's subject line the moment a shed name failed to resolve -- exactly what
+			// the locked spec forbids ("Never render a UUID as a label"), and doubly so now that
+			// the label LEADS with the shed. A leading "-" means only the partition suffix
+			// survived (" - Part 3"), which is an id-shaped fragment for the same reason.
+			// Callers treat a missing entry as "no shed to show" and drop the segment.
 			label := strings.TrimSpace(completion.ShedLabel)
-			if label == "" || strings.HasPrefix(label, "-") {
-				label = completion.ShedID
+			if label != "" && !strings.HasPrefix(label, "-") {
+				shedLabels[completion.ShedID] = label
 			}
-			shedLabels[completion.ShedID] = label
 		}
 		if parkID == nil && completion.ParkID != "" {
 			parkID = stringPtr(completion.ParkID)
@@ -315,7 +322,7 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			}
 		}
 		if len(groupMedia) > 0 {
-			subjectLabel := vaccinationSubjectLabel(len(byGoat), shedLabels)
+			subjectLabel := vaccinationSubjectLabel(len(byGoat), shedLabels, vaccinationVaccineSummary(byGoat))
 			if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 				TenantID:     tenantID,
 				Vertical:     "preventive_care",
@@ -351,27 +358,70 @@ func vaccinationAnimalSubjectLabel(completion vaccinationdomain.SubmissionComple
 	if animal == "" {
 		animal = "1 goat"
 	}
+	parts := make([]string, 0, 3)
 	shed := strings.TrimSpace(shedLabels[completion.ShedID])
-	if shed == "" || strings.HasPrefix(shed, "-") {
-		return animal
+	// A leading "-" means the shed name itself did not resolve and only the partition suffix
+	// survived (" - Part 3"), which is an id-shaped fragment, not a name -- drop it rather than
+	// show the verifier a dangling separator.
+	if shed != "" && !strings.HasPrefix(shed, "-") {
+		parts = append(parts, shed)
 	}
-	return shed + " · " + animal
+	parts = append(parts, animal)
+	// The vaccine is the whole point of the review: the verifier is deciding whether the clip
+	// shows THIS dose being given. Without it she is judging a video of an animal against nothing.
+	if vaccine := strings.TrimSpace(completion.VaccineLabel); vaccine != "" {
+		parts = append(parts, vaccine)
+	}
+	return strings.Join(parts, " · ")
 }
 
-func vaccinationSubjectLabel(goatCount int, shedLabels map[string]string) string {
-	animalSummary := fmt.Sprintf("%d goats", goatCount)
-	if len(shedLabels) == 0 {
-		return animalSummary
-	}
-	if len(shedLabels) == 1 {
-		for _, label := range shedLabels {
-			label = strings.TrimSpace(label)
-			if label == "" {
-				return animalSummary
-			}
-			return label + " · " + animalSummary
+// vaccinationVaccineSummary names the vaccine(s) a shed-grain submission covers. A drive is a park
+// visit that can mix vaccines within one shed, so this does not assume a single dose: it reports
+// every distinct human label, and collapses to a count past two so the row stays a row.
+func vaccinationVaccineSummary(completions map[string]vaccinationdomain.SubmissionCompletion) string {
+	seen := make(map[string]struct{}, 4)
+	labels := make([]string, 0, 4)
+	for _, completion := range completions {
+		label := strings.TrimSpace(completion.VaccineLabel)
+		if label == "" {
+			continue
 		}
+		if _, ok := seen[label]; ok {
+			continue
+		}
+		seen[label] = struct{}{}
+		labels = append(labels, label)
 	}
+	sort.Strings(labels) // map iteration is not stable; the label must not shuffle between reads
+	switch len(labels) {
+	case 0:
+		return ""
+	case 1, 2:
+		return strings.Join(labels, " + ")
+	default:
+		return strconv.Itoa(len(labels)) + " vaccines"
+	}
+}
+
+// vaccinationSubjectLabel composes the shed-grain sentence: WHERE · WHAT · HOW MANY, e.g.
+// "Sumathi 1 - Part 3 · ET+TT · 12 goats". The shed carries its partition because that is the pen
+// the animals stand in; the vaccine is what the verifier is actually judging the clip against.
+// Any part that does not resolve is omitted rather than substituted with an id or a placeholder.
+func vaccinationSubjectLabel(goatCount int, shedLabels map[string]string, vaccineSummary string) string {
+	parts := make([]string, 0, 3)
+	if shed := vaccinationShedSummary(shedLabels); shed != "" {
+		parts = append(parts, shed)
+	}
+	if vaccine := strings.TrimSpace(vaccineSummary); vaccine != "" {
+		parts = append(parts, vaccine)
+	}
+	parts = append(parts, fmt.Sprintf("%d goats", goatCount))
+	return strings.Join(parts, " · ")
+}
+
+// vaccinationShedSummary names the shed(s) a submission covers, collapsing past two so the row
+// stays a row. Returns "" when nothing resolved, so the caller omits the segment entirely.
+func vaccinationShedSummary(shedLabels map[string]string) string {
 	labels := make([]string, 0, len(shedLabels))
 	for _, label := range shedLabels {
 		if label = strings.TrimSpace(label); label != "" {
@@ -379,10 +429,14 @@ func vaccinationSubjectLabel(goatCount int, shedLabels map[string]string) string
 		}
 	}
 	sort.Strings(labels)
-	if len(labels) == 2 {
-		return strings.Join(labels, " + ") + " · " + animalSummary
+	switch len(labels) {
+	case 0:
+		return ""
+	case 1, 2:
+		return strings.Join(labels, " + ")
+	default:
+		return fmt.Sprintf("%d sheds", len(labels))
 	}
-	return fmt.Sprintf("%d sheds · %s", len(shedLabels), animalSummary)
 }
 
 func uniqueStrings(values []string) []string {

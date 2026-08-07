@@ -2796,6 +2796,48 @@ WHERE tenant_id=$1::uuid
 	return parkID, nil
 }
 
+// CampaignShedLocation reads the shed a campaign-shed bucket stands for: its canonical
+// location_id and the operational display name the VERIFIER should read ("Godel 1 - Part 3").
+//
+// It exists because a weighing verification item used to name no shed at all. The lump-sum label
+// was the hardcoded literal "Whole shed", and the individual label carried only the scanned tag --
+// so a verifier reviewing a queue of clips could not tell which shed, let alone which PARTITION,
+// any of them came from. Both facts are already flattened onto weighing_campaign_sheds at
+// bucket-creation time, so this reads them in one indexed lookup by primary key.
+//
+// Isolation (AGENTS.md "Weighing Is ISOLATED"): this touches ONLY weighing's own bucket table. It
+// does not join goats, goat_identifiers, or goat_shed_partitions to learn the partition -- the
+// partition is parsed back out of the catalog display name by splitShedPartitionName, exactly as
+// applyShedPartitionDisplay already does for the campaign-shed read models.
+//
+// The returned display is composed through oploc.OperationalLocation.Display() so it follows the
+// same rendering rule as every other module and can never surface the "whole" sentinel.
+func (r *Repository) CampaignShedLocation(ctx context.Context, tenantID, campaignShedID string) (locationID, display string, err error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
+	var displayName string
+	if err := r.pool.QueryRow(ctx, `
+SELECT location_id::text, display_name
+FROM weighing_campaign_sheds
+WHERE tenant_id=$1::uuid
+  AND campaign_shed_id=$2::uuid`, tenantID, campaignShedID).Scan(&locationID, &displayName); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", ports.ErrNotFound
+		}
+		return "", "", err
+	}
+	// display_name is used VERBATIM. It is the operational shed name already flattened onto the
+	// bucket from the `locations` catalog ("Godel 1 - Part 3", "Castro 2"), which is what the
+	// operator picked and what every other module names the same place.
+	//
+	// Deliberately NOT re-split through SplitShedPartitionName + oploc.Display here. That pass is
+	// right for weighing's own campaign-shed read models, but it rewrites "Castro 2" into
+	// "Castro - 2" -- and on the verifier's Actions queue a weighing row sits directly beside a
+	// vaccination row, which renders the same physical place as "Castro 2" (shed name plus the
+	// locations partition column). Splitting here would put two spellings of one shed in one list.
+	return locationID, strings.TrimSpace(displayName), nil
+}
+
 // RefreshAvailability and completeResolvedIndividualScopes were DELETED
 // (free-flow weighing mandate): they read goats.health_status /
 // goats.lifecycle_status and wrote clinical/herd state ('icu', 'quarantine',

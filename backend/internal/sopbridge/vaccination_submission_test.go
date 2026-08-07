@@ -3,6 +3,7 @@ package sopbridge
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,6 +247,15 @@ func TestVaccinationSubmissionBridgeLabelsGroupedShedSubmissionHonestly(t *testi
 	}
 }
 
+// An unresolvable shed must be OMITTED from the subject, never replaced by its id.
+//
+// This test previously asserted the opposite -- that a blank/partition-only shed label falls back
+// to completion.ShedID ("shed-1 · 1 goats"). The fixture's readable "shed-1" hid what that rule
+// does in production, where ShedID is a UUID: it renders "c9145aa4-90d2-5185-8ec3-5b79e13e711b ·
+// 11 goats" to the verifier. mock/verifier-web-mock.SPEC.md section 5 bans that outright ("Never
+// render a UUID as a label. If subject_label / shed_label is null, that is a backend/seed bug to
+// fix -- not something to paper over by printing the id"), and it matters more now that the label
+// LEADS with the shed. The assertion below is the spec's behaviour.
 func TestVaccinationSubmissionBridgeDoesNotEmitBarePartitionLabel(t *testing.T) {
 	administeredAt := time.Date(2026, 7, 13, 7, 55, 0, 0, time.UTC)
 	rec := &captureVaccinationRecorder{
@@ -270,8 +280,15 @@ func TestVaccinationSubmissionBridgeDoesNotEmitBarePartitionLabel(t *testing.T) 
 	if err := bridge.OnTaskSubmitted(context.Background(), "tenant-1", sopdomain.TaskSummary{TaskID: "task-1", SOPCode: "vaccination.drive"}, submission); err != nil {
 		t.Fatalf("vaccination submit: %v", err)
 	}
-	if producer.last.SubjectLabel == nil || *producer.last.SubjectLabel != "shed-1 · 1 goats" {
-		t.Fatalf("subject label = %v, want shed id fallback instead of bare partition", producer.last.SubjectLabel)
+	got := ""
+	if producer.last.SubjectLabel != nil {
+		got = *producer.last.SubjectLabel
+	}
+	if got != "1 goats" {
+		t.Fatalf("subject label = %q, want the unresolvable shed dropped entirely, not printed as an id", got)
+	}
+	if strings.Contains(got, "shed-1") {
+		t.Fatalf("subject label = %q leaked the raw shed id; SPEC section 5 forbids rendering an id as a label", got)
 	}
 }
 

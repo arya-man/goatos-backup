@@ -83,6 +83,26 @@ const COPY_FALLBACKS: Record<string, Record<string, string>> = {
     "command_board.future_drives.campaign_animals": "animals",
     "command_board.future_drives.campaign_doses": "doses",
     "command_board.filter.drives_truncated": "More drives exist than this list can show — narrow the farm scope to see the rest",
+    "command_board.kpi.missed": "Missed",
+    "command_board.kpi.missed_dl": "Dose window closed unvaccinated",
+    "command_board.shed_vaccine.title": "Shed × Vaccine",
+    "command_board.shed_vaccine.meta": "Red = goats not vaccinated yet, past their due date. All doses of that vaccine counted together. Click a red box to see which goats.",
+    "command_board.shed_vaccine.column.shed": "Shed",
+    "command_board.shed_vaccine.state.behind": "Goats not done",
+    "command_board.shed_vaccine.cell.behind_unit": "goats",
+    "command_board.shed_vaccine.state.ok": "All done",
+    "command_board.shed_vaccine.state.not_planned": "Not given in this shed",
+    "command_board.shed_vaccine.summary_behind": "sheds have goats pending",
+    "command_board.shed_vaccine.summary_clean": "Every shed is up to date on every vaccine",
+    "command_board.shed_vaccine.drawer.behind_of": "behind, of",
+    "command_board.shed_vaccine.drawer.column.due": "Was due",
+    "command_board.shed_vaccine.cell.verifying_unit": "pending",
+    "command_board.shed_vaccine.state.verifying": "Video check pending",
+    "command_board.shed_vaccine.drawer.verifying_of": "given and waiting for video check, of",
+    "command_board.shed_vaccine.drawer.no_video": "No video uploaded",
+    "command_board.shed_vaccine.drawer.shed_videos": "Shed video",
+    "command_board.shed_vaccine.drawer.clip": "Clip",
+    "command_board.shed_vaccine.drawer.truncated": "Showing the longest-waiting animals only — the count above is the full figure.",
     "command_board.kpi.closed_without_dose": "Closed, no dose",
     "command_board.kpi.closed_without_dose_dl": "In the roster, but every obligation closed with no dose given",
     "command_board.shed_matrix.waiting_suffix": "d waiting",
@@ -398,11 +418,17 @@ const TABLE_FALLBACKS: Record<string, Record<string, AdminUiTableContract>> = {
   },
 };
 
-export function copy(page: AdminUiPageContract, key: string): string {
+export function copy(page: AdminUiPageContract, key: string, whenAbsent?: string): string {
   const value = page.copy[key];
   if (typeof value !== "string") {
     const fallback = COPY_FALLBACKS[page.route_id]?.[key];
     if (fallback) return fallback;
+    // `whenAbsent` is for OPEN key spaces only -- keys derived at runtime from data, such as
+    // `feedback.<server error code>`, where the set is defined by the backend's error vocabulary
+    // and not every member is guaranteed to have copy. Passing it is an explicit statement that a
+    // miss is expected and renders nothing. Fixed keys still throw, which is what keeps a missing
+    // contract key a loud build/runtime failure instead of a blank label.
+    if (whenAbsent !== undefined) return whenAbsent;
     throw new Error(`Admin-web page contract ${page.route_id} missing copy key ${key}`);
   }
   return value;

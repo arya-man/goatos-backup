@@ -492,8 +492,17 @@
   .vr-board{padding:13px 16px;margin-bottom:16px}
   .vr-board>.bt{font-size:14px;font-weight:400;margin:0 0 14px}
   .vr-frow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:14px}
-  .vr-fld{display:flex;align-items:center;gap:9px}
-  .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted)}
+  /* Clear filters is a SECONDARY action beside a primary button. It inherited `.lk`'s blue
+     --info, off-palette in this green system and louder than the control next to it. */
+  .screen .vr-frow .lk{color:var(--muted)}
+  .screen .vr-frow .lk:hover{color:var(--brand)}
+  /* `.screen` qualifies these because the markup carries BOTH `vr-fld` and `fld`, and the generic
+     `.fld` rules (~1333 and ~1902) are declared LATER at equal specificity, so they won. That
+     stacked the label ABOVE the select instead of beside it -- which pushed "Apply filters" out of
+     line with the select it belongs to -- and rendered the label 10.5px/650 UPPERCASE with +0.5px
+     tracking instead of the spec's 12px/400 sentence case (SPEC section 4). */
+  .screen .vr-fld{display:flex;align-items:center;gap:9px}
+  .screen .vr-fld>label{font-size:12px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:normal;margin-bottom:0;display:inline-block}
   .vr-selbtn{appearance:none;border:1px solid var(--line);background:var(--panel);border-radius:18px;padding:7px 30px 7px 12px;font-size:12.5px;font-weight:550;color:var(--ink);cursor:pointer;min-width:176px;font-family:inherit}
   .vr-selbtn:hover,.vr-selbtn:focus{border-color:var(--brand)}
   .vr-legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
@@ -505,7 +514,14 @@
   .vr-secthd{display:flex;align-items:baseline;gap:12px;margin:4px 0 10px}
   .vr-secthd h2{font-size:14px;font-weight:650;margin:0}
   .vr-secthd .hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
-  .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  /* `.screen th` (line ~1091) has the SAME specificity as a bare `.vr-table th` and is declared
+     LATER, so it silently won: the verifier's column headers rendered 11px UPPERCASE with +0.4px
+     letter-spacing instead of the 12px, normal-case, normal-tracking headers the locked spec
+     measures off the real page (SPEC section 4: `th` 12px / 700, no uppercase, letter-spacing
+     normal). All-caps cramped headers are what made this table read as dated. `.screen` here
+     raises specificity so the intended rule actually applies -- do not drop it back to
+     `.vr-table th`, that is the bug. */
+  .screen .vr-table th{text-align:left;font-size:12px;letter-spacing:normal;text-transform:none;color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
   .vr-table td{font-size:11.5px;padding:11px 12px;border-bottom:1px solid var(--line2);vertical-align:middle}
   .vr-table tr:last-child td{border-bottom:0}
 
@@ -515,7 +531,12 @@
   .vr-thumb .ic{width:18px;height:18px}
   .vr-thumb .n{position:absolute;bottom:4px;right:5px;font-size:10px;font-weight:750;background:rgba(0,0,0,.62);color:#fff;border-radius:5px;padding:0 5px}
   .vr-player{background:#0a0f0c;border:1px solid var(--line);border-radius:12px;width:100%;aspect-ratio:16/9;max-height:44vh;display:flex;flex-direction:column;position:relative;overflow:hidden}
-  .vr-player video{width:100%;height:100%;object-fit:contain;background:#000}
+  /* position:absolute + inset:0 is what actually pins the video TO the stage. With plain
+     width/height:100% the height does not resolve against an aspect-ratio parent, so the element
+     fell back to the clip's intrinsic ratio -- a 720x1280 portrait proof rendered 852x1515 and
+     overflowed the 44vh stage, which is what read as a giant black rectangle. Pinned, portrait
+     letterboxes with bars left and right and landscape fills the rectangle. */
+  .vr-player video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
   .vr-player:fullscreen{max-height:none;width:100vw;height:100vh;border-radius:0;border:0}
   .vr-player-empty{display:grid;place-items:center;color:var(--muted);font-size:13px;height:100%}
   .vr-fsbtn{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:7px;display:grid;place-items:center;cursor:pointer;color:#E9F1EA;background:rgba(0,0,0,.5);border:0;z-index:2}
@@ -528,7 +549,10 @@
 
   /* Verifier queue rows are clickable end to end (the mock has no Details column): every cell wraps
      its content in the overlay link, so the link must fill the cell and inherit the row's type. */
-  .vr-row td{padding:0}
+  /* Same override trap: `.screen td{padding:11px 12px}` (~1099) is declared later and beat this,
+     so every cell paid the generic padding AND the row-link's own 11px 12px inside it -- doubling
+     the vertical space and inflating a one-line row past 150px. */
+  .screen .vr-row td{padding:0}
   .vr-rowlink{display:block;padding:11px 12px;color:inherit;text-decoration:none;font:inherit}
   .vr-row:hover td{background:var(--bg)}
   .vr-rowlink:focus-visible{outline:2px solid var(--brand);outline-offset:-2px;border-radius:6px}
@@ -694,6 +718,69 @@
   .cbm-section-head h3{margin:0;font-size:13px;font-weight:650}
   .cbm-section-head .cbm-meta{margin-left:auto;font-size:11.5px;color:var(--muted)}
   .cbm-hm{overflow-x:auto}
+  /* Shed x Vaccine roll-up. Fixed layout with equal columns so the whole vaccine catalogue fits one
+     screen without horizontal scrolling -- the dose-qualified matrix below scrolls sideways because
+     it must carry per-dose numbers, and that scroll is exactly what made "is anything red" an
+     unanswerable question at a glance. Cells carry a dot, never a number: a count here invites
+     reconciliation against the dose matrix, which uses a different grain. */
+  .cbm-sv-heat{table-layout:fixed}
+  .cbm-sv-heat td.cbm-sv-shed{width:150px;text-align:left;font-size:12.5px;color:var(--ink);padding:6px 8px;white-space:nowrap}
+  .cbm-sv-cell{text-align:center;padding:8px 4px;border-radius:6px}
+  /* Clean and unplanned cells are DELIBERATELY quiet. A bright dot on every clean cell turned an
+     11x6 grid into a wall of green that competed with the red for attention -- the reader had to
+     hunt for the one thing worth finding, and the dot itself carried nothing actionable. The tick
+     still distinguishes "checked, nothing behind" from "no data", which a blank cell would not. */
+  .cbm-sv-cell .cbm-sv-tick{display:inline-block;font-size:12px;line-height:13px;color:color-mix(in srgb,var(--ok) 55%,transparent)}
+  .cbm-sv-cell .cbm-sv-none{display:inline-block;font-size:12px;line-height:13px;color:var(--faint)}
+  .cbm-sv-cell .cbm-sv-dot{display:inline-block;width:13px;height:13px;border-radius:50%}
+  /* Legend swatches are coloured by CLASS, and these selectors carry an extra `.cbm` so they
+     outrank the POSITIONAL legend rules further down this stylesheet
+     (`.cbm .cbm-legend span:nth-child(n) i`, which paint swatch 1 green, 2 amber, 3 red for the
+     dose matrix's legend). Without it those positional rules win on specificity and this legend
+     renders a GREEN swatch against the word "Behind" and a RED one against "Not planned" -- a
+     legend stating the exact opposite of the grid it explains, which is worse than none. */
+  .cbm-sv-behind .cbm-sv-dot{background:var(--danger)}
+  .cbm-sv-ok .cbm-sv-dot{background:var(--ok)}
+  .cbm-sv-not_planned .cbm-sv-dot{background:var(--faint)}
+  /* Legend swatches are coloured by CLASS. The competing POSITIONAL rules further down this
+     stylesheet (`.cbm .cbm-legend span:nth-child(n) i`, which paint swatch 1 green, 2 amber, 3 red
+     for the dose matrix) score the SAME specificity, and they appear later, so a tie loses on source
+     order -- which is how this legend first shipped rendering a GREEN swatch against "Behind" and a
+     RED one against "Not planned", stating the exact opposite of the grid it explains. Matching
+     BOTH classes on the container raises specificity above the positional rules so the tie cannot
+     recur, rather than relying on where the block sits in the file. */
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-behind i{background:var(--danger)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-ok i{background:var(--ok)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-not_planned i{background:var(--faint)}
+  /* A behind cell is where the CEO's question STARTS, not ends: "Sumathi 1 is red" is only useful
+     if the next click names the animals. Behind cells are therefore real buttons and look it. */
+  /* A clean or unplanned cell has nothing to open, so it must not LOOK clickable. The surrounding
+     shed-row rule sets cursor:pointer for the dose matrix, which made ~85 of this matrix's 108
+     cells invite a click that did nothing. Only cells that actually open a drawer get the pointer. */
+  td.cbm-sv-cell{cursor:default}
+  td.cbm-sv-cell[role="button"]{cursor:pointer}
+  td.cbm-sv-behind[role="button"]:hover,td.cbm-sv-behind[role="button"]:focus-visible{outline:1px solid var(--danger);outline-offset:-1px}
+  td.cbm-sv-verifying[role="button"]:hover,td.cbm-sv-verifying[role="button"]:focus-visible{outline:1px solid var(--warn);outline-offset:-1px}
+  .cbm-sv-shed-park{color:var(--muted);font-size:11px;margin-left:6px}
+  /* The behind cell shows its NUMBER; green and grey stay dots. "How many are missing, each
+     vaccine, shed wise" is half the ask, and a bare colour forces a second question before the row
+     is actionable -- but a count on a clean cell is the "other information" the ask ruled out. */
+  /* The red cell answers the question in words as well as digits: "76" alone left a reader asking
+     "76 what -- goats, doses, days?", and that second question is exactly what this matrix exists to
+     remove. */
+  .cbm-sv-cell .cbm-sv-count{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:15px;font-weight:700;color:var(--danger);line-height:1}
+  /* Amber, deliberately NOT red: the goats were dosed, the wait is on a person at a desk. Making it
+     red put a herd emergency and a paperwork backlog in the same colour. */
+  .cbm-sv-cell .cbm-sv-verifying{display:inline-flex;flex-direction:column;align-items:center;gap:1px;font-size:15px;font-weight:700;color:var(--warn);line-height:1}
+  .cbm-sv-cell .cbm-sv-verifying i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--warn) 80%,transparent)}
+  td.cbm-sv-verifying{background:color-mix(in srgb,var(--warn) 18%,transparent)}
+  .cbm .cbm-legend.cbm-sv-legend span.cbm-sv-verifying i{background:var(--warn)}
+  .cbm-sv-cell .cbm-sv-count i{font-style:normal;font-size:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:color-mix(in srgb,var(--danger) 80%,transparent)}
+  /* The red cell gets a tinted background as well as a red dot. Colour alone at 13px is a weak
+     signal across a wide table, and this row is read from across a room. */
+  td.cbm-sv-behind{background:color-mix(in srgb,var(--danger) 22%,transparent)}
+  /* The clean tint drops to a whisper for the same reason the dot went: it is context, not signal. */
+  td.cbm-sv-ok{background:color-mix(in srgb,var(--ok) 4%,transparent)}
   .cbm-heat{border-collapse:separate;border-spacing:3px;width:100%}
   .cbm-heat th{font-size:10.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:4px 6px;text-align:center;white-space:nowrap}
   .cbm-heat th.cbm-rowh{text-align:left;color:var(--muted);text-transform:none;font-size:12px;letter-spacing:0}
@@ -762,6 +849,28 @@
   .cbm-closed-table{width:100%;border-collapse:collapse;font-size:12.5px}
   .cbm-closed-table th{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
   .cbm-closed-table td{padding:8px;border-bottom:1px solid #182219;vertical-align:top}
+  /* The verification drawer carries five columns inside a 498px panel. Laid out as a normal table
+     it overflowed and put ANIMAL -- the only column that identifies the goat -- off the left edge
+     behind a horizontal scrollbar, leaving five visible rows of identical text. Each row is
+     therefore a two-line CARD: identity on top, facts beneath, nothing to scroll sideways for. */
+  .cbm-verify-table{width:100%;border-collapse:collapse;font-size:12.5px;table-layout:fixed}
+  .cbm-verify-table td{padding:11px 14px;border-bottom:1px solid #182219;vertical-align:top;word-break:break-word}
+  /* Both ear tags sit side by side, monospaced and tabular so a 15-digit RFID can be scanned down
+     the column digit by digit -- the way someone actually matches a number to the tag in their hand.
+     Proportional digits made every row look the same length and the eye had nothing to lock onto. */
+  .cbm-verify-who{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+  .cbm-verify-who b{font-size:13.5px;font-weight:650;letter-spacing:.02em;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .cbm-verify-who b + b{color:var(--muted);font-weight:500}
+  /* ONE muted line, one weight, one colour. The previous row mixed 13px bold white, 10.5px grey,
+     11px amber bold and 11px faint across four fragments, so nothing led and the eye had no anchor.
+     Identity is the only thing that varies row to row, so identity is the only thing emphasised. */
+  .cbm-verify-meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;margin-top:5px;font-size:11px;line-height:1.45;color:var(--muted)}
+  /* The PEN is the one fact that sends a person to a physical place, so it gets the only accent in
+     the row rather than the state, which is identical on all 76 rows. */
+  .cbm-verify-pen{padding:1px 6px;border-radius:4px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn);font-weight:600;font-size:10.5px}
+  .cbm-verify-videos{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:baseline;padding:8px 14px;border-bottom:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+  .cbm-verify-videos a{color:var(--info);text-decoration:underline}
+  .cbm-verify-novideo{color:var(--faint)}
   .cbm-closed-tag{display:block;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
   .cbm-closed-tag2{display:block;font-weight:600;font-variant-numeric:tabular-nums}
   .cbm-closed-park{display:block;color:var(--faint);font-size:11px}
@@ -1843,6 +1952,12 @@ html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
 .vr-modal-hd .x { margin-left: auto; cursor: pointer; color: var(--muted); width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; font-size: 21px; }
 .vr-modal-hd .x:hover { background: var(--bg); }
 .vr-modal-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+/* The body is a flex COLUMN that scrolls, so by default every child shrinks below its own content
+   to fit -- which silently sliced the bottom off each section: the facts strip lost all four
+   values, Rework lost its input, Re-assign lost its picker, Penalty note lost its field. Children
+   must keep their natural height and let the BODY scroll instead. This belongs on the container,
+   not on one element: patching only .vr-facts fixed the strip and left every other card clipped. */
+.vr-modal-bd > * { flex-shrink: 0; }
 .vr-modal-ft { padding: 16px 22px; border-top: 1px solid var(--line); background: var(--panel-2); display: flex; gap: 11px; align-items: center; flex-wrap: wrap; }
 .vr-modal-ft .pos { margin-right: auto; font-size: 13px; color: var(--faint); font-weight: 650; }
 .vr-modal-ft .btn { flex: 0 0 auto; white-space: nowrap; min-height: 38px; }

@@ -3968,12 +3968,13 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//     "GET /vaccination/command — Grain and Buckets (disjoint unless noted)" + Bucket
 	//     Invariant): the FIVE numerator buckets are a DISJOINT and EXHAUSTIVE partition of
 	//     targets, evaluated as a priority chain —
+	//       missed     = status 'missed', regardless of what else the animal holds
 	//       verified   = has_accepted
 	//       awaiting   = has_recorded_unverified AND NOT has_accepted
 	//       overdue    = no completion AND OPEN AND due business date <  as_of business date
 	//       scheduled  = no completion AND OPEN AND due business date >= as_of business date
 	//       closed_without_dose = the residual: none of the above
-	//     so verified+awaiting+overdue+scheduled+closed_without_dose = targets.
+	//     so missed+verified+awaiting+overdue+scheduled+closed_without_dose = targets.
 	//
 	//     The chain used to be evaluated on the OBLIGATION row while targets counted DISTINCT
 	//     target_id — two different grains. An animal holding two obligations in different
@@ -3988,14 +3989,32 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//     animal's obligations into four booleans, then the priority chain picks exactly one),
 	//     so the buckets are disjoint at the SAME grain targets uses and the sum is restored.
 	//
-	//     PRECEDENCE: verified > awaiting > overdue > scheduled, i.e. the most-progressed dose
-	//     wins. This is the same order the per-obligation chain already used, so no tile changes
-	//     meaning for a single-dose animal; extending it unchanged to the animal grain keeps the
-	//     contract one rule instead of two. The consequence is stated rather than hidden: an
-	//     animal with one accepted dose and one overdue dose reports as verified, so the tiles
-	//     answer "how far has this animal got" and NOT "how much work is outstanding" — the
-	//     outstanding-work question is answered at dose grain by the shed dose matrix and the
-	//     verification queue below, which stay per-obligation.
+	//     PRECEDENCE: missed > verified > awaiting > overdue > scheduled, i.e. a missed dose wins
+	//     outright and otherwise the most-progressed dose wins. Below missed this is the same order
+	//     the per-obligation chain already used, so no tile changes meaning for a single-dose
+	//     animal; extending it unchanged to the animal grain keeps the contract one rule instead of
+	//     two. The consequence is stated rather than hidden: an animal with one accepted dose and
+	//     one overdue dose still reports as verified, so the tiles answer "how far has this animal
+	//     got" and NOT "how much work is outstanding" — the outstanding-work question is answered at
+	//     dose grain by the shed dose matrix and the verification queue below, which stay
+	//     per-obligation.
+	//
+	//     MISSED LEADS THE CHAIN, and it is the one exception to "most-progressed wins", because
+	//     letting verified lead made the board report the opposite of the truth. Folding to one row
+	//     per animal via bool_or means a single accepted dose anywhere in an animal's history sets
+	//     any_verified for good. On the live stg board 137 animals held a MISSED ET+TT dose; every
+	//     one of them also held an accepted dose of something else, so all 137 landed in
+	//     doses_verified and OVERDUE read 0 — a herd with 137 missed doses presented as fully green,
+	//     and the missed obligations were additionally invisible to any_overdue/any_scheduled
+	//     because each carried a recorded-but-unverified completion (no_completion = false). A
+	//     "how far has this animal got" reading cannot be allowed to answer "clear" for an animal
+	//     whose dose window closed unvaccinated: missed is not progress, it is the failure the board
+	//     exists to report, so it outranks every state an animal can simultaneously be in.
+	//
+	//     any_missed is deliberately NOT gated on no_completion. A missed obligation routinely holds
+	//     a recorded-unverified completion (the operator submitted proof after the window shut, or
+	//     the sweeper closed it while proof sat in the verification queue). Gating on no_completion
+	//     is exactly what hid all 137 rows.
 	//
 	//     CLOSED WITHOUT DOSE is why the sum used to be <= targets rather than = targets. An
 	//     animal whose every obligation reached a closed status with no completion row against it
@@ -4022,6 +4041,24 @@ func (r *Repository) VaccinationCommandBoard(ctx context.Context, q domain.Comma
 	//
 	// projection-review: membership=obligation_instances in the drive window, folded to one row per animal by per_animal; group_key=target_id (the ANIMAL), which is exactly the grain COUNT(DISTINCT target_id) uses for targets, so buckets and total share one key set; join_cardinality=comp is pre-aggregated per obligation before the fold, so a dose with several completions cannot multiply its animal, and every remaining join is 0..1 on a PK; pagination=NONE, these are whole-filter tile aggregates computed in the database and are page-size independent by construction; scope=tenant_id plus the capability-resolved park filter, parented through locations.parent_location_id
 	kpiSQL := `
+-- HERD MEMBERSHIP. Every read on this board joins goats and keeps only animals that are actually in
+-- the herd, spelled as the same positive IN-list the rest of the backend uses
+-- ('alive','sick','under_treatment','quarantine','icu').
+--
+-- It is a POSITIVE list on purpose. The filter here used to compare lifecycle_status against
+-- 'terminated', which excluded NOTHING: that is not one of the values goats_lifecycle_status_check
+-- permits, so the comparison is true for every row ever written. A dead, sold, culled, transferred
+-- or lost animal sailed straight through a filter that looked like it was doing the job. A
+-- negative list also silently readmits every status added later, which is how that hole would
+-- reopen.
+-- Merged animals are excluded separately via merged_into_goat_id, because a merge RETIRES the source
+-- goat into another record and counting it is counting the same animal twice.
+--
+-- This matters because the board's own halves disagree otherwise: the cohort matrix reads the live herd while
+-- these aggregates read obligation_instances directly, so a sold or merged goat still holding an
+-- open obligation inflates targets and the shed cells while the cohort head count drops it -- two
+-- numbers on one screen describing different herds, with no visible reconciliation break to hint at
+-- it.
 WITH comp AS (
   SELECT
     obligation_id,
@@ -4037,11 +4074,15 @@ scoped AS (
     COALESCE(comp.has_accepted, false) AS has_accepted,
     COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
     comp.obligation_id IS NULL AS no_completion,
+    oi.status = 'missed' AS is_missed,
     oi.status IN ('scheduled','due','in_progress','deferred','missed') AS is_open,
     (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AS due_before_as_of
   FROM obligation_instances oi
+  JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    AND g.merged_into_goat_id IS NULL
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
@@ -4051,6 +4092,12 @@ scoped AS (
 per_animal AS (
   SELECT
     target_id,
+    -- MISSED means no dose reached the animal. An obligation swept to 'missed' that carries a
+    -- recorded completion is a VERIFICATION backlog, not a missed dose: on stg all 137 such
+    -- obligations were dosed on the day they were due. Counting them here reported 137 vaccinated
+    -- animals as unvaccinated and simultaneously showed awaiting_verification = 0 while 137 proofs
+    -- sat in the queue -- both tiles wrong, in opposite directions, from the same predicate.
+    bool_or(is_missed AND no_completion) AS any_missed,
     bool_or(has_accepted) AS any_verified,
     bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
     bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
@@ -4060,11 +4107,12 @@ per_animal AS (
 )
 SELECT
   COUNT(*) AS targets,
-  COUNT(*) FILTER (WHERE any_verified) AS doses_verified,
-  COUNT(*) FILTER (WHERE any_awaiting AND NOT any_verified) AS awaiting_verification,
-  COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_verified) AS overdue_not_given,
-  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified) AS scheduled_ahead,
-  COUNT(*) FILTER (WHERE NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
+  COUNT(*) FILTER (WHERE any_missed) AS missed_not_given,
+  COUNT(*) FILTER (WHERE any_verified AND NOT any_missed) AS doses_verified,
+  COUNT(*) FILTER (WHERE any_awaiting AND NOT any_verified AND NOT any_missed) AS awaiting_verification,
+  COUNT(*) FILTER (WHERE any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS overdue_not_given,
+  COUNT(*) FILTER (WHERE any_scheduled AND NOT any_overdue AND NOT any_awaiting AND NOT any_verified AND NOT any_missed) AS scheduled_ahead,
+  COUNT(*) FILTER (WHERE NOT any_missed AND NOT any_verified AND NOT any_awaiting AND NOT any_overdue AND NOT any_scheduled) AS closed_without_dose
 FROM per_animal
 `
 	var parkID *string
@@ -4072,7 +4120,7 @@ FROM per_animal
 		parkID = q.ParkID
 	}
 	row := r.pool.QueryRow(ctx, kpiSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
-	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead, &resp.KPIs.ClosedWithoutDose); err != nil {
+	if err := row.Scan(&resp.KPIs.Targets, &resp.KPIs.MissedNotGiven, &resp.KPIs.DosesVerified, &resp.KPIs.AwaitingVerification, &resp.KPIs.OverdueNotGiven, &resp.KPIs.ScheduledAhead, &resp.KPIs.ClosedWithoutDose); err != nil {
 		return resp, fmt.Errorf("vaccination command board: kpi query: %w", err)
 	}
 
@@ -4111,18 +4159,36 @@ scoped AS (
     COALESCE(comp.has_recorded_unverified, false) AS has_recorded_unverified,
     comp.obligation_id IS NULL AS no_completion,
     oi.status IN ('scheduled','due','in_progress','deferred','missed') AS is_open,
+    oi.status = 'missed' AS is_missed,
     (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date AS due_before_as_of
   FROM obligation_instances oi
+  JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   WHERE oi.tenant_id = $1::uuid
+    AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    AND g.merged_into_goat_id IS NULL
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
       SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
     ))
 ),
+-- any_missed is carried HERE TOO, not only in kpiSQL, and the two must be changed together.
+-- This CTE is the drill-down list behind the ClosedWithoutDose TILE, and the pair is only
+-- trustworthy as a pair: the tile's count is kpiSQL's residual and this list is the residual
+-- below, so a predicate present in one and absent from the other lets the drawer name animals the
+-- tile does not count -- the exact "the list and the number can never describe different animals"
+-- guarantee this query's own header asserts.
+--
+-- Concretely, without any_missed here: an animal whose only obligation is 'missed' and whose
+-- completion has been REVERSED holds no accepted proof, no recorded-unverified proof, and is not
+-- open-with-no-completion, so it fails all four of the older booleans. kpiSQL now counts it under
+-- missed_not_given and excludes it from closed_without_dose; this query would still hand it to the
+-- ClosedWithoutDose drawer. Reversing a wrongly-accepted dose after the obligation has already
+-- been swept to missed is an ordinary correction, not a corner case.
 per_animal AS (
   SELECT
     target_id,
+    bool_or(is_missed) AS any_missed,
     bool_or(has_accepted) AS any_verified,
     bool_or(has_recorded_unverified AND NOT has_accepted) AS any_awaiting,
     bool_or(is_open AND no_completion AND due_before_as_of) AS any_overdue,
@@ -4315,7 +4381,8 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
   ))
-  AND g.lifecycle_status != 'terminated'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
 GROUP BY park.location_id, park.name, g.management_stage, g.sex, pr.dose_code
 ORDER BY park.name, g.management_stage, g.sex, pr.dose_code
 `
@@ -4399,7 +4466,8 @@ FROM goats g
 LEFT JOIN locations shed ON g.shed_id = shed.location_id AND g.tenant_id = shed.tenant_id
 LEFT JOIN locations park ON shed.parent_location_id = park.location_id AND shed.tenant_id = park.tenant_id
 WHERE g.tenant_id = $1::uuid
-  AND g.lifecycle_status != 'terminated'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
   AND (COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR park.location_id = $2::uuid)
 GROUP BY park.location_id, g.management_stage, g.sex
 `
@@ -4460,7 +4528,8 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $3::uuid
   ))
-  AND g.lifecycle_status != 'terminated'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
 GROUP BY park.location_id, g.management_stage, g.sex, pr.dose_code, administered_date
 ORDER BY administered_date
 `
@@ -4550,7 +4619,8 @@ WHERE oi.tenant_id = $1::uuid
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
     SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $3::uuid
   ))
-  AND g.lifecycle_status != 'terminated'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
   AND NOT EXISTS (
     SELECT 1 FROM obligation_instances self_oi
     JOIN vaccination_completions self_vc ON self_vc.obligation_id = self_oi.obligation_id AND self_vc.tenant_id = self_oi.tenant_id AND self_vc.status = 'accepted'
@@ -4645,10 +4715,13 @@ shed_dose_obligations AS (
     CASE WHEN oi.status IN ('scheduled','due','in_progress','deferred','missed') THEN oi.due_at END as due_at
   FROM obligation_instances oi
   JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+  JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
   LEFT JOIN comp ON oi.obligation_id = comp.obligation_id
   LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
   WHERE oi.tenant_id = $1::uuid
     AND oi.scope_type = 'shed'
+    AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+    AND g.merged_into_goat_id IS NULL
     AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
     AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR loc.parent_location_id = $4::uuid)
 )
@@ -4704,6 +4777,449 @@ ORDER BY shed_name, dose_code, state
 		return resp, fmt.Errorf("vaccination command board: shed dose rows: %w", err)
 	}
 
+	// 3b. Shed × VACCINE matrix, dose collapsed, reported as a flag.
+	//
+	// This is NOT a vaccine-collapsed rewrite of the dose matrix above, which stays dose-qualified
+	// because leadership asks per-dose figures and an earlier collapse was reverted for SUMMING
+	// Dose 1 + Dose 2 + Revaccination into a number that exceeded the cohort head count. The cell
+	// here carries no sum: state is bool_or over the shed's doses of that vaccine, so collapsing
+	// cannot over-count by construction. The two matrices answer different questions — "how much of
+	// each dose" and "is anything behind at all" — and neither can be derived from the other on the
+	// client without losing a guarantee.
+	//
+	// BEHIND is deliberately broader than the KPI row's missed bucket: an animal counts as behind
+	// when it holds a dose of this vaccine that is 'missed' OR is still open with its due business
+	// date already past, and has no accepted completion for it. A park head walking the shed cannot
+	// act on the distinction between "the sweeper has flipped this to missed" and "the sweeper has
+	// not run yet" — both mean the animal is unvaccinated past its window.
+	//
+	// projection-review: membership=obligation_instances in scope, scope_type='shed', joined to their rule's vaccine; group_key=(shed location_id, vaccine_code) — the cell grain the UI renders, so no client-side regrouping can change a cell's meaning; join_cardinality=comp pre-aggregated per obligation before the fold so a dose with several completions cannot multiply its animal, protocol_rule_dimensions is 1..N per rule_id (see (b)), locations 0..1 on PK; pagination=NONE, a bounded sheds × vaccines aggregate (11 × 6 on the live tenant) computed in the database; scope=tenant_id plus the capability-resolved park filter parented through locations.parent_location_id, PLUS the same scope_type='shed' guard the dose-matrix query carries, so the two cannot disagree about what counts as a shed.
+	// (a) producer unique columns: obligation_id | consumer GROUP BY: shed.location_id, d.vaccine_code.
+	// (b) join multiplicity: protocol_rule_dimensions is NOT 0..1 per rule_id — publish compiles one
+	//     rule into up to maxCompiledRuleDimensionsPerRule rows, one per selector combination. The
+	//     fan-out is harmless HERE, and only here, because vaccine_code is computed once per rule and
+	//     is therefore identical on every dimension row of that rule, while behind/total are
+	//     COUNT(DISTINCT target_id): the same (target_id, vaccine_code) pair collapses no matter how
+	//     many dimension rows the join emits. It is a real scan cost, not a real count error.
+	// (c) cap check: behind_animals <= total_animals by construction — the FILTER is a subset of the
+	//     same COUNT(DISTINCT target_id) key set.
+	// (d) scope_type='shed' is REQUIRED, not defensive. obligation_instances.scope_type also takes
+	//     'park', 'cohort', 'tenant' and 'custodian_party'. Without the guard a park-scoped
+	//     obligation joins locations on the PARK row and renders as a phantom shed named after the
+	//     park, and cohort/tenant/custodian-scoped rows miss the join entirely, COALESCE to an empty
+	//     shed id, and pile into a single blank row that silently mixes animals from everywhere.
+	shedVaccineSQL := `
+WITH comp AS (
+  SELECT obligation_id,
+         bool_or(status = 'accepted') AS has_accepted,
+         bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+)
+SELECT
+  shed.location_id::text AS shed_id,
+  COALESCE(shed.name, '') AS shed_name,
+  COALESCE(park.name, '') AS park_name,
+  d.vaccine_code,
+  -- BEHIND is "no dose reached this animal": no accepted completion AND no recorded proof waiting on
+  -- a verifier. The recorded-proof exclusion is the whole point. On stg all 137 obligations carrying
+  -- status='missed' were DOSED ON THE DAY THEY WERE DUE (due 2026-08-05 IST, administered
+  -- 2026-08-05 IST) and carry a 'recorded' completion whose verifier has not looked at it yet.
+  -- Counting those as behind told a park head that 76 goats in Sumathi 1 were unvaccinated when the
+  -- operator had already vaccinated every one of them -- the opposite of the truth, and it
+  -- contradicted the dose matrix on the same screen, which correctly showed them amber "given,
+  -- awaiting verification". A missed obligation with proof against it is a VERIFICATION backlog, not
+  -- a vaccination failure, and the two need completely different actions.
+  COUNT(DISTINCT oi.target_id) FILTER (
+    WHERE NOT COALESCE(comp.has_accepted, false)
+      AND NOT COALESCE(comp.has_recorded_unverified, false)
+      AND (
+        oi.status = 'missed'
+        OR (oi.status IN ('scheduled','due','in_progress','deferred')
+            AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+      )
+  )::bigint AS behind_animals,
+  -- Dose given, proof recorded, verifier has not accepted it yet.
+  COUNT(DISTINCT oi.target_id) FILTER (
+    WHERE NOT COALESCE(comp.has_accepted, false)
+      AND COALESCE(comp.has_recorded_unverified, false)
+  )::bigint AS verifying_animals,
+  COUNT(DISTINCT oi.target_id)::bigint AS total_animals
+FROM obligation_instances oi
+JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
+JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
+JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
+LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.scope_type = 'shed'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
+  AND d.vaccine_code <> ''
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+  ))
+GROUP BY shed.location_id, shed.name, park.name, d.vaccine_code
+`
+	shedVaccineRows, err := r.pool.Query(ctx, shedVaccineSQL, q.TenantID, asOf, q.DriveBatchID, parkID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: shed vaccine query: %w", err)
+	}
+	defer shedVaccineRows.Close()
+	type shedVaccineKey struct{ shedID, vaccine string }
+	type shedIdentity struct{ name, park string }
+	shedVaccineCells := map[shedVaccineKey]domain.CommandBoardShedVaccineCell{}
+	sheds := map[string]shedIdentity{}
+	shedOrder := []string{}
+	for shedVaccineRows.Next() {
+		var shedID, shedName, parkName, vaccineCode string
+		var behind, verifying, total int64
+		if err := shedVaccineRows.Scan(&shedID, &shedName, &parkName, &vaccineCode, &behind, &verifying, &total); err != nil {
+			return resp, fmt.Errorf("vaccination command board: shed vaccine scan: %w", err)
+		}
+		if _, seen := sheds[shedID]; !seen {
+			sheds[shedID] = shedIdentity{name: shedName, park: parkName}
+			shedOrder = append(shedOrder, shedID)
+		}
+		// BEHIND outranks VERIFYING: an animal nobody dosed is a bigger problem than one whose proof
+		// is queued, so a shed holding both reads red. Verifying is amber on its own -- the work is
+		// done and the wait is on a person at a desk, not on the herd.
+		state := "ok"
+		switch {
+		case behind > 0:
+			state = "behind"
+		case verifying > 0:
+			state = "verifying"
+		}
+		shedVaccineCells[shedVaccineKey{shedID, vaccineCode}] = domain.CommandBoardShedVaccineCell{
+			ShedID:           shedID,
+			ShedName:         shedName,
+			ParkName:         parkName,
+			VaccineCode:      vaccineCode,
+			State:            state,
+			BehindAnimals:    int(behind),
+			VerifyingAnimals: int(verifying),
+			TotalAnimals:     int(total),
+		}
+	}
+	if err := shedVaccineRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: shed vaccine rows: %w", err)
+	}
+
+	// Columns come from the tenant's PUBLISHED vaccination protocol -- not from the cells above, and
+	// not from every dimension row that has ever existed.
+	//
+	// Deriving them from the CELLS would drop a vaccine the protocol requires but which generated no
+	// obligations anywhere, and that silence is exactly what a reader needs: an all-grey column then
+	// means "the protocol asks for this and nothing is planned", which is a real finding.
+	//
+	// Taking the WHOLE dimension table instead invents findings. Dimensions accumulate per protocol
+	// VERSION and retired versions keep their rows forever -- on this tenant BLUE_TONGUE exists only
+	// on a RETIRED version, so listing it produced an all-grey column that read as a protocol gap
+	// when the vaccine had simply been withdrawn. Published versions of the vaccination category are
+	// the source-of-truth boundary: what the herd is currently required to receive.
+	vaccineCodeSQL := `
+SELECT DISTINCT d.vaccine_code
+FROM protocol_rule_dimensions d
+JOIN protocol_versions pv
+  ON pv.protocol_version_id = d.protocol_version_id
+ AND pv.tenant_id = d.tenant_id
+WHERE d.tenant_id = $1::uuid
+  AND d.vaccine_code <> ''
+  AND d.category = 'vaccination'
+  AND pv.status = 'published'
+ORDER BY d.vaccine_code
+`
+	vaccineCodeRows, err := r.pool.Query(ctx, vaccineCodeSQL, q.TenantID)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: vaccine catalogue query: %w", err)
+	}
+	defer vaccineCodeRows.Close()
+	for vaccineCodeRows.Next() {
+		var code string
+		if err := vaccineCodeRows.Scan(&code); err != nil {
+			return resp, fmt.Errorf("vaccination command board: vaccine catalogue scan: %w", err)
+		}
+		// Labelled HERE, from the one canonical vaccine labeller, so the column header is server
+		// copy like every other visible string on this board.
+		resp.ShedVaccineColumns = append(resp.ShedVaccineColumns, domain.CommandBoardVaccineColumn{
+			Code:  code,
+			Label: vaccinatdomain.VaccineAntigenLabel(code),
+		})
+	}
+	if err := vaccineCodeRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: vaccine catalogue rows: %w", err)
+	}
+
+	// 3c. The ANIMALS behind each red cell.
+	//
+	// A red cell without them is a dead end on the screen: "Sumathi 1 is behind on ET+TT" is where a
+	// leader's question starts, and the next one is always "which animals, and since when". Without
+	// this the only way to answer was a database query, so the matrix could raise an alarm it could
+	// not explain. Same reasoning, and the same shape, as the ClosedWithoutDose tile's animal list.
+	//
+	// Only BEHIND cells are listed — green and grey cells have nothing to explain — and the whole
+	// list is capped. The cell's behindAnimals COUNT stays whole-scope truth; the list is evidence,
+	// not the number, and the UI says so when it is truncated.
+	//
+	// projection-review: membership=behind obligations of shed-scoped instances in the same filter as the cell aggregate above; group_key=(shed, vaccine, animal) with one row per animal per cell; join_cardinality=goats 1:1 on target_id, locations 0..1 on PK, the identifier lookup is a LIMIT-1 scalar subquery, and DISTINCT ON collapses the protocol_rule_dimensions fan-out plus an animal's several behind doses of one vaccine to a single row; pagination=hard LIMIT, ordered so the cap is deterministic; scope=identical tenant/scope_type/batch/park predicate to the cell aggregate, so the list can never name an animal from outside the cell it explains.
+	shedVaccineAnimalSQL := `
+WITH per_animal_behind AS (
+WITH comp AS (
+  SELECT obligation_id,
+         bool_or(status = 'accepted') AS has_accepted,
+         bool_or(status = 'recorded' AND verified_at IS NULL) AS has_recorded_unverified,
+         max(administered_at) FILTER (WHERE status = 'recorded' AND verified_at IS NULL) AS recorded_at
+  FROM vaccination_completions
+  WHERE tenant_id = $1::uuid
+  GROUP BY obligation_id
+)
+SELECT DISTINCT ON (oi.scope_id, d.vaccine_code, g.goat_id)
+  oi.scope_id::text AS shed_id,
+  d.vaccine_code,
+  g.goat_id::text,
+  g.display_id,
+  -- BOTH ear tags, not just the primary. 1004 of this tenant's 1670 goats carry two active
+  -- identifiers and 172 carry three, so a LIMIT-1 on is_primary_for_goat printed one tag and hid the
+  -- other -- and an operator reading the other ear could not match the animal in front of them to
+  -- the row. The internal display_id is NOT an identity on the farm; it is a fallback for the rare
+  -- animal with no active tag at all.
+  COALESCE((
+    SELECT gi.identifier_value FROM goat_identifiers gi
+    WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+      AND gi.status = 'active' AND gi.identifier_type = 'animal_identifier_1'
+    LIMIT 1
+  ), '') AS tag1,
+  COALESCE((
+    SELECT gi.identifier_value FROM goat_identifiers gi
+    WHERE gi.tenant_id = g.tenant_id AND gi.goat_id = g.goat_id
+      AND gi.status = 'active' AND gi.identifier_type = 'animal_identifier_2'
+    LIMIT 1
+  ), '') AS tag2,
+  oi.status,
+  oi.due_at,
+  COALESCE(park.name, '') AS park_name,
+  COALESCE(shed.name, '') AS shed_name,
+  -- Ground location is park + physical shed + PARTITION. The shed name alone sends a person to
+  -- "Godel 1" when the animal is standing in "Godel 1 - Part 3", which on a partitioned shed is a
+  -- different pen and a wasted trip. Same source the closed-without-dose drawer already uses.
+  COALESCE(gsp.partition_label, '') AS partition_label,
+  COALESCE(comp.has_recorded_unverified, false) AS awaiting_verification,
+  comp.recorded_at
+FROM obligation_instances oi
+JOIN protocol_rule_dimensions d ON d.rule_id = oi.rule_id AND d.tenant_id = oi.tenant_id
+JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
+LEFT JOIN comp ON comp.obligation_id = oi.obligation_id
+LEFT JOIN locations shed ON shed.location_id = oi.scope_id AND shed.tenant_id = oi.tenant_id
+LEFT JOIN locations park ON park.location_id = shed.parent_location_id AND park.tenant_id = shed.tenant_id
+LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id
+WHERE oi.tenant_id = $1::uuid
+  AND oi.scope_type = 'shed'
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
+  AND d.vaccine_code <> ''
+  AND NOT COALESCE(comp.has_accepted, false)
+  AND (
+    -- Both flagged states drill down here: genuinely-behind animals AND animals whose proof is
+    -- waiting on a verifier. The row carries which one it is, so the drawer can say "video
+    -- verification pending" instead of accusing an operator who already did the work.
+    COALESCE(comp.has_recorded_unverified, false)
+    OR oi.status = 'missed'
+    OR (oi.status IN ('scheduled','due','in_progress','deferred')
+        AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < ($2::timestamptz AT TIME ZONE 'Asia/Kolkata')::date)
+  )
+  AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
+  AND (COALESCE($4::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR EXISTS (
+    SELECT 1 FROM locations pl WHERE pl.location_id = oi.scope_id AND pl.tenant_id = oi.tenant_id AND pl.parent_location_id = $4::uuid
+  ))
+ORDER BY oi.scope_id, d.vaccine_code, g.goat_id, oi.due_at ASC NULLS LAST
+)
+-- The cap is a GLOBAL budget across every behind cell, so the order that decides who survives it
+-- has to be applied HERE, over the whole set, and not inside the DISTINCT ON. Ordering by due date
+-- first means truncation drops the most recently missed rather than the longest waiting; without
+-- this wrapper the effective order was goat_id, i.e. arbitrary.
+SELECT * FROM per_animal_behind
+ORDER BY due_at ASC NULLS LAST, shed_id, vaccine_code, goat_id
+LIMIT $5
+`
+	behindAnimals := map[shedVaccineKey][]domain.CommandBoardShedVaccineAnimal{}
+	behindRows, err := r.pool.Query(ctx, shedVaccineAnimalSQL, q.TenantID, asOf, q.DriveBatchID, parkID,
+		domain.CommandBoardShedVaccineAnimalListCap)
+	if err != nil {
+		return resp, fmt.Errorf("vaccination command board: shed vaccine animals query: %w", err)
+	}
+	defer behindRows.Close()
+	for behindRows.Next() {
+		var shedID, vaccineCode, goatID, displayID, tag1, tag2, status string
+		var parkName, shedName, partitionLabel string
+		var dueAt, recordedAt pgtype.Timestamptz
+		var awaitingVerification bool
+		if err := behindRows.Scan(&shedID, &vaccineCode, &goatID, &displayID, &tag1, &tag2, &status, &dueAt,
+			&parkName, &shedName, &partitionLabel, &awaitingVerification, &recordedAt); err != nil {
+			return resp, fmt.Errorf("vaccination command board: shed vaccine animals scan: %w", err)
+		}
+		animal := domain.CommandBoardShedVaccineAnimal{
+			GoatID:               goatID,
+			DisplayID:            displayID,
+			Tag:                  tag1,
+			Tag2:                 tag2,
+			Status:               status,
+			AwaitingVerification: awaitingVerification,
+			LocationDisplay: oploc.OperationalLocation{
+				ParkName:       parkName,
+				ShedName:       shedName,
+				PartitionLabel: partitionLabel,
+			}.Display(),
+		}
+		// NormalizePartition collapses every non-partitioned encoding onto the "whole" MATCHING
+		// sentinel, which is a grouping key and never copy, so an unpartitioned shed puts no
+		// partition on the wire at all.
+		if normalized := oploc.NormalizePartition(partitionLabel); oploc.IsPartitioned(normalized) {
+			animal.PartitionLabel = strings.TrimSpace(partitionLabel)
+		}
+		if recordedAt.Valid {
+			rec := recordedAt.Time
+			animal.RecordedAt = &rec
+		}
+		if dueAt.Valid {
+			due := dueAt.Time
+			animal.DueAt = &due
+		}
+		key := shedVaccineKey{shedID, vaccineCode}
+		behindAnimals[key] = append(behindAnimals[key], animal)
+	}
+	if err := behindRows.Err(); err != nil {
+		return resp, fmt.Errorf("vaccination command board: shed vaccine animals rows: %w", err)
+	}
+
+	// 3d. The shed's proof VIDEOS for the day its pending doses were recorded.
+	//
+	// Grain matters here and getting it wrong is what made the first attempt useless. Vaccination
+	// proof is filmed PER SHED for the operator day -- Sumathi 1 has five clips for 2026-08-05
+	// covering 76 goats -- so hanging a video off each animal row repeated one link 76 times and
+	// implied per-goat footage that does not exist. The videos belong to the CELL, and the drawer
+	// header is where a verifier reaches them.
+	//
+	// The field_key predicate EXCLUDES the weighing captures by name rather than requiring the word
+	// "vaccination". Weighing writes weighing_individual_video and weighing_shed_partition_video --
+	// explicit, self-describing keys -- while the vaccination shed clip is the generic shed_video.
+	// An include-list keyed on "vaccination" therefore matched nothing and reported "no video
+	// uploaded" for 137 doses whose footage was sitting in GCS the whole time. Excluding the keys
+	// that are known to be something else keeps a verifier away from footage of a goat on a scale
+	// while still surfacing the clips that exist.
+	//
+	// projection-review: membership=proof_artifacts scoped to a shed in view with a completed video upload on the IST day that shed's pending doses were recorded; group_key=(shed, IST day) folded onto the cell; join_cardinality=locations 0..1 on PK, no obligation join exists on proof_artifacts so the day is the only correlation available and it is stated as such rather than implied to be per-animal; pagination=bounded by sheds-in-view x clips-per-day (11 on the live tenant); scope=tenant_id plus the same shed set the cell aggregate produced.
+	shedVideoSQL := `
+SELECT
+  pa.scope_id::text AS shed_id,
+  pa.proof_id::text,
+  pa.uploaded_at,
+  COALESCE(pa.duration_ms, 0)
+FROM proof_artifacts pa
+WHERE pa.tenant_id = $1::uuid
+  AND pa.proof_type = 'video'
+  AND pa.upload_state = 'completed'
+  AND COALESCE(pa.metadata->>'field_key', '') NOT LIKE 'weighing%'
+  AND pa.scope_id = ANY($2::uuid[])
+  AND (pa.uploaded_at AT TIME ZONE 'Asia/Kolkata')::date = ANY($3::date[])
+ORDER BY pa.uploaded_at
+`
+	// Only the sheds and days that actually have doses waiting on a verifier are asked for, so the
+	// query cannot drag in unrelated footage from other days.
+	videoShedIDs := []string{}
+	videoDays := []time.Time{}
+	seenDay := map[string]bool{}
+	for key, cell := range shedVaccineCells {
+		if cell.State != "verifying" {
+			continue
+		}
+		videoShedIDs = append(videoShedIDs, key.shedID)
+		for _, animal := range behindAnimals[key] {
+			if animal.RecordedAt == nil {
+				continue
+			}
+			day := animal.RecordedAt.In(biztime.DefaultLocation()).Format("2006-01-02")
+			if !seenDay[day] {
+				seenDay[day] = true
+				parsed, err := time.ParseInLocation("2006-01-02", day, biztime.DefaultLocation())
+				if err == nil {
+					videoDays = append(videoDays, parsed)
+				}
+			}
+		}
+	}
+	shedVideos := map[string][]domain.CommandBoardShedVideo{}
+	if len(videoShedIDs) > 0 && len(videoDays) > 0 {
+		videoRows, err := r.pool.Query(ctx, shedVideoSQL, q.TenantID, videoShedIDs, videoDays)
+		if err != nil {
+			return resp, fmt.Errorf("vaccination command board: shed video query: %w", err)
+		}
+		defer videoRows.Close()
+		for videoRows.Next() {
+			var shedID, proofID string
+			var uploadedAt pgtype.Timestamptz
+			var durationMS int64
+			if err := videoRows.Scan(&shedID, &proofID, &uploadedAt, &durationMS); err != nil {
+				return resp, fmt.Errorf("vaccination command board: shed video scan: %w", err)
+			}
+			video := domain.CommandBoardShedVideo{
+				// Playback PATH, not a bare id: the client must not have to know how proof URLs are
+				// built, and the signed GCS URL is minted per request by the proof service.
+				Path:       "/app/proofs/" + proofID + "/download",
+				DurationMS: durationMS,
+			}
+			if uploadedAt.Valid {
+				at := uploadedAt.Time
+				video.UploadedAt = &at
+			}
+			shedVideos[shedID] = append(shedVideos[shedID], video)
+		}
+		if err := videoRows.Err(); err != nil {
+			return resp, fmt.Errorf("vaccination command board: shed video rows: %w", err)
+		}
+	}
+	for key, cell := range shedVaccineCells {
+		if vids := shedVideos[key.shedID]; len(vids) > 0 {
+			cell.ProofVideos = vids
+			shedVaccineCells[key] = cell
+		}
+	}
+
+	// Densify: every shed in view gets a cell for every vaccine in the catalogue. A missing cell and
+	// a clean cell are different facts and the UI must not have to guess which a gap means.
+	//
+	// Ordered by shed NAME for the reader, but keyed throughout by shed id: the live tenant has 175
+	// sheds under only 99 distinct names ("Godel 1" exists in two parks), so name is a label, never
+	// an identity. Grouping by it merges two parks' sheds into one row and attributes one park's red
+	// cell to the other's shed.
+	sort.SliceStable(shedOrder, func(i, j int) bool {
+		a, b := sheds[shedOrder[i]], sheds[shedOrder[j]]
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		return a.park < b.park
+	})
+	for _, shedID := range shedOrder {
+		identity := sheds[shedID]
+		for _, column := range resp.ShedVaccineColumns {
+			code := column.Code
+			if cell, ok := shedVaccineCells[shedVaccineKey{shedID, code}]; ok {
+				cell.FlaggedAnimals = behindAnimals[shedVaccineKey{shedID, code}]
+				resp.ShedVaccineMatrix = append(resp.ShedVaccineMatrix, cell)
+				continue
+			}
+			resp.ShedVaccineMatrix = append(resp.ShedVaccineMatrix, domain.CommandBoardShedVaccineCell{
+				ShedID:      shedID,
+				ShedName:    identity.name,
+				ParkName:    identity.park,
+				VaccineCode: code,
+				State:       "not_planned",
+			})
+		}
+	}
+
 	// 4. Weekly given query (ISO week × vaccine × status)
 	// projection-review: membership=completions with administered_at; grain=ISO week × vaccine × status;
 	// join_cardinality=none
@@ -4719,7 +5235,10 @@ SELECT
 FROM vaccination_completions vc
 JOIN obligation_instances oi ON vc.obligation_id = oi.obligation_id AND vc.tenant_id = oi.tenant_id
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 WHERE vc.tenant_id = $1::uuid
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
   AND vc.administered_at IS NOT NULL
   AND vc.administered_at <= $2::timestamptz
   AND (COALESCE($3::uuid,'00000000-0000-0000-0000-000000000000') = '00000000-0000-0000-0000-000000000000' OR oi.batch_id = $3::uuid)
@@ -4772,9 +5291,12 @@ SELECT
   MIN(vc.administered_at) as first_given_date
 FROM obligation_instances oi
 JOIN protocol_rules pr ON oi.rule_id = pr.rule_id AND oi.tenant_id = pr.tenant_id
+JOIN goats g ON g.goat_id = oi.target_id AND g.tenant_id = oi.tenant_id
 LEFT JOIN vaccination_completions vc ON oi.obligation_id = vc.obligation_id AND vc.status = 'recorded' AND vc.verified_at IS NULL
 LEFT JOIN locations loc ON oi.scope_id = loc.location_id AND oi.tenant_id = loc.tenant_id
 WHERE oi.tenant_id = $1::uuid
+  AND g.lifecycle_status IN ('alive', 'sick', 'under_treatment', 'quarantine', 'icu')
+  AND g.merged_into_goat_id IS NULL
   AND $2::timestamptz IS NOT NULL
   AND oi.scope_type = 'shed'
   AND EXISTS (

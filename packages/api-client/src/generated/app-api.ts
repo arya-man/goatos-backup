@@ -5566,11 +5566,13 @@ export interface components {
             next_cursor?: string;
             freshness?: components["schemas"]["VaccinationProjectionFreshness"];
         };
-        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the five counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain verified > awaiting > overdue > scheduled > closedWithoutDose, i.e. its most-progressed dose wins. The tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
+        /** @description The board's headline row, at ANIMAL grain. targets counts DISTINCT animals in scope, and the six counts below it are a DISJOINT and EXHAUSTIVE partition of targets, so missedNotGiven + dosesVerified + awaitingVerification + overdueNotGiven + scheduledAhead + closedWithoutDose == targets always. Each animal is placed in exactly one bucket by the priority chain missed > verified > awaiting > overdue > scheduled > closedWithoutDose: a missed dose wins outright, and below that its most-progressed dose wins. Apart from missed the tiles therefore answer "how far has this animal got", not "how much work is outstanding"; the outstanding-work question is answered at dose grain by cohortMatrix and verificationQueue. Every due-date comparison is on the Asia/Kolkata BUSINESS DATE, never an instant, so a dose due today never reads overdue merely because as-of is later the same day. */
         VaccinationCommandBoardKPI: {
             /** @description Distinct ANIMALS in scope (the selected drive, or all history when no drive is selected). This is the roster size the tiles below partition — not an obligation count, so a multi-dose animal counts once. */
             targets: number;
-            /** @description Animals with at least one verifier-accepted completion. */
+            /** @description Animals holding at least one obligation in status 'missed' WITH NO COMPLETION AGAINST IT. Evaluated FIRST, ahead of dosesVerified, and gated on the absence of a completion — both deliberate. Leading the chain is necessary because it folds to one row per animal, so while verified led it a single accepted dose anywhere in an animal's history swallowed every missed dose it also held. The no-completion gate is necessary because an obligation swept to 'missed' that carries a recorded completion was DOSED. On the live tenant all 137 such obligations were administered on the exact day they were due and are waiting on a verifier; counting them here reported 137 vaccinated animals as unvaccinated while awaitingVerification simultaneously read 0. missedNotGiven means no dose reached the animal. Proof waiting in the verification queue is a desk backlog and surfaces as the shed x vaccine matrix's 'verifying' state, never here. A missed dose is the failure this board exists to report, so it outranks every state an animal can simultaneously be in. */
+            missedNotGiven: number;
+            /** @description Animals with at least one verifier-accepted completion and NO missed obligation. */
             dosesVerified: number;
             /** @description Animals with a recorded completion not yet verifier-accepted (status=recorded, verified_at=null) and no accepted completion. */
             awaitingVerification: number;
@@ -5776,7 +5778,77 @@ export interface components {
             /** @description Whole physical sheds assigned to this executable operator day. */
             shedNames: string[];
         };
+        /** @description One column of the shed x vaccine matrix. */
+        CommandBoardVaccineColumn: {
+            /** @description The protocol vaccine code the cells are keyed by (ET_TT, SHEEP_POX). */
+            code: string;
+            /** @description The header text. Empty when the canonical labeller does not recognise the code — clients should then fall back to showing the code, since a catalogue vaccine the label table has not caught up with is a gap worth seeing, not one worth hiding. */
+            label: string;
+        };
+        /** @description One shed x vaccine cell with every dose of that vaccine collapsed into a single flag. The question it answers is the one a park head asks walking into a shed: "is anything behind here, for this vaccine, today" — not how many, not which dose, not what is scheduled next quarter. behindAnimals exists only so the flag can be explained on hover; the cell's meaning is state. */
+        CommandBoardShedVaccineCell: {
+            /** @description The cell's IDENTITY. Clients MUST group rows on this, never on shedName. The live tenant runs 175 sheds under 99 distinct names ("Godel 1" exists in two parks), so grouping by name merges two parks' sheds into one row and attributes one park's red cell to the other park's shed. */
+            shedId: string;
+            /** @description A display label, not an identity. See shedId. */
+            shedName: string;
+            /** @description The shed's park, carried so two same-named sheds in different parks can be told apart on screen. Clients should show it whenever a shed name is not unique in the payload. */
+            parkName?: string;
+            vaccineCode: string;
+            /**
+             * @description behind — at least one animal in this shed holds a dose of this vaccine that is 'missed', or is still open with its due IST business date already past, and has no accepted completion. RED. ok — this vaccine is scheduled in this shed and nothing is behind. GREEN. not_planned — this shed has no obligation for this vaccine at all. GREY, and named rather than omitted: a blank cell told the reader nothing about whether the vaccine was clean, un-generated, or genuinely out of protocol for that shed. 'behind' is deliberately broader than the KPI row's missedNotGiven bucket. An operator standing in the shed cannot act on the difference between "the sweeper has flipped this to missed" and "the sweeper has not run yet" — both mean the animal is unvaccinated past its window.
+             * @enum {string}
+             */
+            state: "behind" | "verifying" | "ok" | "not_planned";
+            /** @description Animals whose dose WAS GIVEN, whose proof is recorded, and whose verifier has not accepted it yet. Never added to behindAnimals: one is a herd problem and the other is a desk problem. Merging them reported 76 vaccinated goats in Sumathi 1 as unvaccinated, because every obligation swept to 'missed' there had in fact been dosed on the day it was due. */
+            verifyingAnimals?: number;
+            /** @description DISTINCT animals behind for this shed and vaccine, and the number rendered ON the red cell. "How many are missing, each vaccine, shed wise" is half the ask this matrix answers; a bare colour answers only "is anything wrong" and forces a second question before the row is actionable. Because it counts DISTINCT ANIMALS rather than summing doses it can never exceed the shed's head count. Clients must still key the cell's COLOUR off state, not off this number being non-zero. */
+            behindAnimals: number;
+            /** @description DISTINCT animals in this shed carrying any obligation for this vaccine. behindAnimals is a subset of the same key set, so behindAnimals <= totalAnimals always. */
+            totalAnimals: number;
+            /** @description The shed's vaccination clips for the day these doses were recorded. SHED-and-day grain, not per animal: proof is filmed per shed for the operator day (Sumathi 1 has five clips covering 76 goats), so attaching one to every animal repeats a single link 76 times and implies per-goat footage that does not exist. Absent when nothing was filmed, which is a finding — a verification queue with nothing to watch cannot be drained. */
+            proofVideos?: components["schemas"]["CommandBoardShedVideo"][];
+            /** @description The animals behind BOTH flagged states — genuinely behind AND waiting on a verifier — capped across all flagged cells in one board read. Each row carries awaitingVerification, which is what tells the two apart; clients must read that rather than infer it from the cell's state. Previously named behindAnimalsList and documented as behind-only while it already carried verifier-backlog rows, so the field name asserted the opposite of the payload. Evidence for the flag, not the flag itself: behindAnimals and verifyingAnimals stay whole-scope truth, so when this list is shorter than their sum the client must say the list is partial rather than present it as complete. */
+            flaggedAnimals?: components["schemas"]["CommandBoardShedVaccineAnimal"][];
+        };
+        /** @description One proof clip a verifier has to watch, at shed-and-day grain. */
+        CommandBoardShedVideo: {
+            /** @description Playback path, never a bare id — the signed GCS URL is minted per request by the proof service. */
+            path: string;
+            /** Format: date-time */
+            uploadedAt?: string;
+            /** Format: int64 */
+            durationMs?: number;
+        };
+        /** @description One animal behind a shed x vaccine cell. */
+        CommandBoardShedVaccineAnimal: {
+            /** @description The animal's GROUND location — park, physical shed, and partition when the shed has one ("Godel 1 - Part 3"). The shed name alone is not a location on a partitioned shed: it sends a person to the wrong pen. */
+            locationDisplay: string;
+            /** @description Present only when the shed is genuinely partitioned. Absent on an unpartitioned shed — the "whole" sentinel is a grouping key, never display copy. */
+            partitionLabel?: string;
+            /** @description The dose was GIVEN and its proof is queued for a verifier. Clients must say so rather than render the raw obligation status: an animal dosed on its due date still reads status 'missed' when the sweeper closed the obligation before a verifier looked at the proof, and showing that word accuses an operator who did the work on time. */
+            awaitingVerification: boolean;
+            /**
+             * Format: date-time
+             * @description When the operator recorded the dose.
+             */
+            recordedAt?: string;
+            goatId: string;
+            /** @description The INTERNAL Goat OS id. A fallback label only, never the animal's identity — an operator sent to a shed cannot act on a UUID. */
+            displayId: string;
+            /** @description The animal's first EAR TAG — what identifies it standing in the shed. Empty only when the animal carries no active identifier at all. */
+            tag: string;
+            /** @description The second ear tag. Most of this herd carries two (1004 of 1670 goats, and 172 carry three), so a client showing only `tag` leaves an operator reading the other ear unable to match the animal to the row. */
+            tag2?: string;
+            /** @description The obligation status behind the flag. 'missed' and a still-open past-due status are the same red to a park head but different facts to whoever has to fix it. */
+            status: string;
+            /** Format: date-time */
+            dueAt?: string;
+        };
         VaccinationCommandBoardResponse: {
+            /** @description Shed x VACCINE, dose collapsed, reported as a flag. DENSE: every shed in view carries a cell for every code in shedVaccineCodes, so a gap in this array is never the answer "clean" — an unplanned vaccine is an explicit not_planned cell. This does NOT supersede shedDoseMatrix, which stays dose-qualified. An earlier attempt to collapse doses in that matrix was reverted because it SUMMED Dose 1 + Dose 2 + Revaccination into a figure that exceeded the cohort head count. This array carries no sum: its cell state is a boolean OR over the shed's doses, so collapsing cannot over-count by construction. The two matrices answer different questions — "how much of each dose" and "is anything behind at all" — and neither is derivable from the other on the client without losing a guarantee. */
+            shedVaccineMatrix: components["schemas"]["CommandBoardShedVaccineCell"][];
+            /** @description Column order for shedVaccineMatrix: the tenant's FULL protocol vaccine catalogue, not the distinct codes present in the cells. Clients must render columns from this list. Deriving columns from the cells drops any vaccine that generated zero obligations anywhere — the live tenant configures BLUE_TONGUE across eight rule dimensions and has produced no obligations for it at all, so a cells-derived header omits it silently and the matrix reads complete while a whole vaccine is unaccounted for. A column that is entirely not_planned is a finding, not an empty column. Each entry carries the header LABEL as well as the code, because visible copy must originate server-side; a client-side code-to-label map is a second, drifting copy of the canonical vaccine label table. */
+            shedVaccineColumns: components["schemas"]["CommandBoardVaccineColumn"][];
             /** @enum {string} */
             source: "api";
             kpis: components["schemas"]["VaccinationCommandBoardKPI"];

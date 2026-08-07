@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppApiComponents } from "@goatos/api-client";
@@ -422,6 +422,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // blank selection deliberately keeps the all-drives board so leadership sees the full programme.
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const driveOptions = useMemo(
     () => enrichDriveOptions(board.driveOptions ?? [], board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
     [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
@@ -438,7 +439,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     if (selection?.driveBatchId) params.set("cb_drive", selection.driveBatchId); else params.delete("cb_drive");
     if (selection?.parkId) params.set("cb_drive_park", selection.parkId); else params.delete("cb_drive_park");
     const query = params.toString();
-    router.push(query ? `?${query}` : "?", { scroll: false });
+    startTransition(() => {
+      router.push(query ? `?${query}` : "?", { scroll: false });
+    });
   };
 
   const vaccineOptions = useMemo(() => {
@@ -446,16 +449,26 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     return Array.from(new Set(labels)).sort();
   }, [board]);
   const [vaccine, setVaccine] = useState<string>("");
-  const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set(STATUS_KEYS));
+  // EMPTY means "no filter, show everything" — it does NOT mean "hide everything". The chips used
+  // to initialise to the full set and a click DELETED that status, so pressing "Overdue" hid the
+  // overdue cells and left the other three: a control that reads "show me this" did the exact
+  // opposite. Selecting into an empty set makes the chip mean what its label says, and keeps the
+  // unfiltered board reachable by deselecting rather than by re-selecting all four.
+  const [statuses, setStatuses] = useState<Set<StatusKey>>(new Set());
+  const statusVisible = (key: string) => statuses.size === 0 || statuses.has(key as StatusKey);
   // Cell drilldown is client-local overlay state: the cohort row already carries its sub-cohorts,
   // so opening a cell must not re-run the route (local-overlay rule).
   const [selectedCell, setSelectedCell] = useState<SelectedCohortCell | null>(null);
   // Client-local overlay state: the animals are already in the rendered payload, so opening the
   // drawer must not re-run the route.
   const [closedDrawerOpen, setClosedDrawerOpen] = useState(false);
+  // The behind cell's animals travel IN the board payload, so opening a red cell is a local
+  // overlay, not a second fetch (local-overlay rule).
+  const [selectedShedVaccine, setSelectedShedVaccine] =
+    useState<typeof board.shedVaccineMatrix[number] | null>(null);
   const closedAnimals = board.closedWithoutDoseAnimals ?? [];
   const futureCampaigns = useMemo(
-    () => statuses.has("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
+    () => statusVisible("scheduled") ? scheduledDriveCampaigns(futureDrives) : [],
     [futureDrives, statuses],
   );
 
@@ -464,7 +477,7 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
     return {
     ...board,
     shedDoseMatrix: (board.shedDoseMatrix ?? []).filter(
-      (c) => matchesVaccine(c.doseRule) && statuses.has(c.state as StatusKey),
+      (c) => matchesVaccine(c.doseRule) && statusVisible(c.state),
     ),
     cohortMatrix: (board.cohortMatrix ?? []).filter((c) => matchesVaccine(c.vaccineLabel)),
     verificationQueue: (board.verificationQueue ?? []).filter((r) => matchesVaccine(r.doseRule)),
@@ -491,15 +504,16 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   // drawer element only fires once focus is already inside it, so pressing Escape after opening a
   // drawer by mouse did nothing and the scrim kept swallowing the next click.
   useEffect(() => {
-    if (!selectedCell && !closedDrawerOpen) return;
+    if (!selectedCell && !closedDrawerOpen && !selectedShedVaccine) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       setSelectedCell(null);
       setClosedDrawerOpen(false);
+      setSelectedShedVaccine(null);
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [selectedCell, closedDrawerOpen]);
+  }, [selectedCell, closedDrawerOpen, selectedShedVaccine]);
 
   const filterBar = (
     <div className="cbm-filters">
@@ -521,8 +535,9 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           className="cbm-select cbm-select-wide"
           value={driveBatchId ? driveSelectionValue(driveBatchId, driveParkId) : ""}
           onChange={(e) => selectDrive(e.target.value)}
-          disabled={driveOptions.length === 0}
-          aria-disabled={driveOptions.length === 0}
+          disabled={driveOptions.length === 0 || isPending}
+          aria-disabled={driveOptions.length === 0 || isPending}
+          aria-busy={isPending}
           title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
@@ -595,6 +610,16 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="val">{view.kpis.targets}</div>
             <div className="dl">{copy(pageContract, "command_board.kpi.targets_dl")}</div>
           </div>
+          {/* Missed sits FIRST, immediately after the roster total and ahead of Verified, because
+              it is the one tile that reports a failure rather than progress. It is also the tile
+              whose absence made the board wrong: 137 animals holding a missed dose were being
+              counted as Verified while Overdue read 0. */}
+          <div className="kpi danger">
+            <div className="stripe"></div>
+            <div className="lbl">{copy(pageContract, "command_board.kpi.missed")}</div>
+            <div className="val">{view.kpis.missedNotGiven}</div>
+            <div className="dl">{copy(pageContract, "command_board.kpi.missed_dl")}</div>
+          </div>
           <div className="kpi ok">
             <div className="stripe"></div>
             <div className="lbl">{copy(pageContract, "command_board.kpi.verified")}</div>
@@ -650,6 +675,152 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
             <div className="dl">{copy(pageContract, "command_board.kpi.closed_without_dose_dl")}</div>
           </div>
         </div>
+
+        {/* Shed × Vaccine, dose collapsed, red/green only.
+            This sits ABOVE the dose-qualified matrix on purpose. The dose matrix answers "how much
+            of each dose", which is the follow-up; this one answers "is anything behind at all",
+            which is the question actually asked walking into a shed. It is deliberately not
+            filtered by the status chips: the chips select cell STATES of the dose matrix, and a
+            red/green shed roll-up filtered to "scheduled" would be a contradiction. It carries no
+            counts and no future dates by design — a count invites reconciling it against the dose
+            matrix, and the two use different grains. */}
+        {view.shedVaccineMatrix.length > 0 && view.shedVaccineColumns.length > 0 && (() => {
+          // Keyed by shedId, NEVER by shedName. The live tenant runs 175 sheds under 99 distinct
+          // names ("Godel 1" exists in two parks), so grouping by name merges two parks' sheds into
+          // one row and reports one park's red cell against the other park's shed.
+          const cellsByShed = new Map<string, Map<string, typeof view.shedVaccineMatrix[number]>>();
+          const shedOrder: string[] = [];
+          const shedLabel = new Map<string, { name: string; park?: string }>();
+          const nameCount = new Map<string, Set<string>>();
+          view.shedVaccineMatrix.forEach((cell) => {
+            let row = cellsByShed.get(cell.shedId);
+            if (!row) {
+              row = new Map();
+              cellsByShed.set(cell.shedId, row);
+              shedOrder.push(cell.shedId);
+              shedLabel.set(cell.shedId, { name: cell.shedName, park: cell.parkName });
+            }
+            row.set(cell.vaccineCode, cell);
+            const ids = nameCount.get(cell.shedName) ?? new Set<string>();
+            ids.add(cell.shedId);
+            nameCount.set(cell.shedName, ids);
+          });
+          // Counts sheds needing ANY attention, not just red ones. Counting only "behind" made the
+          // summary read "every shed is up to date on every vaccine" while three sheds sat amber
+          // with 137 doses waiting on a verifier -- the line directly contradicted the grid above it.
+          const flaggedSheds = shedOrder.filter((shedId) =>
+            Array.from(cellsByShed.get(shedId)?.values() ?? []).some(
+              (c) => c.state === "behind" || c.state === "verifying",
+            ),
+          ).length;
+          return (
+            <div className="cbm-shed-section cbm-sv">
+              <div className="cbm-section-head">
+                <h3>{copy(pageContract, "command_board.shed_vaccine.title")}</h3>
+                <span className="cbm-meta">{copy(pageContract, "command_board.shed_vaccine.meta")}</span>
+              </div>
+              <div className="cbm-hm">
+                <table className="cbm-heat cbm-sv-heat">
+                  <thead>
+                    <tr>
+                      <th>{copy(pageContract, "command_board.shed_vaccine.column.shed")}</th>
+                      {/* Header text is SERVER copy: the label travels with the column so the
+                          client holds no vaccine-name table of its own. Falling back to the code
+                          keeps an unlabelled catalogue vaccine visible instead of blank. */}
+                      {view.shedVaccineColumns.map((column) => (
+                        <th key={column.code}>{column.label || column.code}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shedOrder.map((shedId) => {
+                      const label = shedLabel.get(shedId);
+                      // Park is shown ONLY when the shed name is ambiguous in this payload, so the
+                      // row stays as short as the ask demanded until ambiguity forces otherwise.
+                      const ambiguous = (nameCount.get(label?.name ?? "")?.size ?? 0) > 1;
+                      return (
+                        <tr key={shedId}>
+                          <td className="cbm-sv-shed">
+                            {label?.name}
+                            {ambiguous && label?.park ? <span className="cbm-sv-shed-park">{label.park}</span> : null}
+                          </td>
+                          {view.shedVaccineColumns.map((column) => {
+                            const code = column.code;
+                            const cell = cellsByShed.get(shedId)?.get(code);
+                            const state = cell?.state ?? "not_planned";
+                            const behind = cell?.behindAnimals ?? 0;
+                            const openable = (state === "behind" || state === "verifying") && cell !== undefined;
+                            return (
+                              <td
+                                key={code}
+                                className={`cbm-sv-cell cbm-sv-${state}`}
+                                role={openable ? "button" : undefined}
+                                tabIndex={openable ? 0 : undefined}
+                                onClick={() => openable && setSelectedShedVaccine(cell)}
+                                onKeyDown={(e) => {
+                                  if (openable && (e.key === "Enter" || e.key === " ")) {
+                                    e.preventDefault();
+                                    setSelectedShedVaccine(cell);
+                                  }
+                                }}
+                                title={
+                                  state === "behind"
+                                    ? `${behind} of ${cell?.totalAnimals ?? 0} behind`
+                                    : state === "verifying"
+                                      ? `${cell?.verifyingAnimals ?? 0} of ${cell?.totalAnimals ?? 0} given, video verification pending`
+                                    : state === "ok"
+                                      ? `${cell?.totalAnimals ?? 0} on track`
+                                      : copy(pageContract, "command_board.shed_vaccine.state.not_planned")
+                                }
+                              >
+                                {/* Only the RED cell carries a mark, and it is the NUMBER. A grid
+                                    of bright dots on every clean cell competed with the red for
+                                    attention and made the one thing worth finding HARDER to find,
+                                    while telling the reader nothing they could act on. Clean cells
+                                    are now a quiet tick and unplanned ones a dash, so the eye lands
+                                    on red first and the row still says "checked, fine" rather than
+                                    "no data". */}
+                                {state === "behind" ? (
+                                  <span className="cbm-sv-count">
+                                    {behind}
+                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.behind_unit")}</i>
+                                  </span>
+                                ) : state === "verifying" ? (
+                                  <span className="cbm-sv-verifying">
+                                    {cell?.verifyingAnimals ?? 0}
+                                    <i>{copy(pageContract, "command_board.shed_vaccine.cell.verifying_unit")}</i>
+                                  </span>
+                                ) : state === "ok" ? (
+                                  <span className="cbm-sv-tick" aria-hidden="true">✓</span>
+                                ) : (
+                                  <span className="cbm-sv-none" aria-hidden="true">–</span>
+                                )}
+                                <span className="sr-only">
+                                  {copy(pageContract, `command_board.shed_vaccine.state.${state}`)}
+                                </span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="cbm-legend cbm-sv-legend">
+                <span className="cbm-sv-behind"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.behind")}</span>
+                <span className="cbm-sv-verifying"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.verifying")}</span>
+                <span className="cbm-sv-ok"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.ok")}</span>
+                <span className="cbm-sv-not_planned"><i></i>{copy(pageContract, "command_board.shed_vaccine.state.not_planned")}</span>
+                <span className="cbm-meta">
+                  {flaggedSheds > 0
+                    ? `${flaggedSheds} / ${shedOrder.length} ${copy(pageContract, "command_board.shed_vaccine.summary_behind")}`
+                    : copy(pageContract, "command_board.shed_vaccine.summary_clean")}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Vaccine × Shed status - colored grid heatmap */}
         {view.shedDoseMatrix.length > 0 && (() => {
@@ -985,6 +1156,122 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
           `transform: translateX(100%)` and the only rule that pulls it on screen is the DESCENDANT
           selector `.dscrim.on .drawer`. As a sibling it mounts, fills with data, and stays
           invisible -- the click looks dead. */}
+      {/* Shed x Vaccine behind drawer. Same structure and the same reason as the Closed, No Dose
+          drawer below: a red cell states the alarm, this names the animals behind it. Also a CHILD
+          of the scrim -- `.drawer` is parked off-canvas and only `.dscrim.on .drawer` pulls it in,
+          so mounting it as a sibling renders a dead click. */}
+      {selectedShedVaccine && (
+        <div className="dscrim on" onClick={() => setSelectedShedVaccine(null)}>
+          <aside
+            className="drawer on"
+            role="dialog"
+            aria-modal="true"
+            aria-label={copy(pageContract, "command_board.shed_vaccine.title")}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="dh">
+              <div style={{ flex: 1 }}>
+                <h3>
+                  {selectedShedVaccine.shedName} ·{" "}
+                  {view.shedVaccineColumns.find((c) => c.code === selectedShedVaccine.vaccineCode)?.label
+                    || selectedShedVaccine.vaccineCode}
+                </h3>
+                <span>
+                  {selectedShedVaccine.state === "verifying"
+                    ? `${selectedShedVaccine.verifyingAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.verifying_of")} ${selectedShedVaccine.totalAnimals}`
+                    : `${selectedShedVaccine.behindAnimals} ${copy(pageContract, "command_board.shed_vaccine.drawer.behind_of")} ${selectedShedVaccine.totalAnimals}`}
+                  {selectedShedVaccine.parkName ? ` · ${selectedShedVaccine.parkName}` : ""}
+                </span>
+              </div>
+              <button
+                className="cal-nav"
+                onClick={() => setSelectedShedVaccine(null)}
+                title={copy(pageContract, "command_board.cohort_matrix.detail.close")}
+              >
+                <X className="ic" aria-hidden="true" />
+              </button>
+            </div>
+            {/* The videos are SHED-and-day proof covering every animal below, so they belong once in
+                the header. Repeating a link on all 76 rows implied per-goat footage that does not
+                exist. */}
+            <div className="cbm-verify-videos">
+              {(selectedShedVaccine.proofVideos ?? []).length > 0 ? (
+                <>
+                  <span>{copy(pageContract, "command_board.shed_vaccine.drawer.shed_videos")}</span>
+                  {(selectedShedVaccine.proofVideos ?? []).map((video, index) => (
+                    <a key={video.path} href={video.path} target="_blank" rel="noreferrer">
+                      {copy(pageContract, "command_board.shed_vaccine.drawer.clip")} {index + 1}
+                    </a>
+                  ))}
+                </>
+              ) : (
+                <span className="cbm-verify-novideo">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.no_video")}
+                </span>
+              )}
+            </div>
+            <div className="db">
+              {/* One row per animal as a two-line card, not five columns. Five columns overflowed
+                  the drawer and pushed the animal identity off the left edge behind a horizontal
+                  scrollbar, leaving rows whose visible text was identical and gave the reader no way
+                  to tell which goat each belonged to. */}
+              <table className="cbm-verify-table">
+                <tbody>
+                  {(selectedShedVaccine.flaggedAnimals ?? []).map((animal) => (
+                    <tr key={animal.goatId}>
+                      <td>
+                        {/* EAR TAGS lead, both of them. Most of the herd carries two and an operator
+                            may be reading either ear, so printing one tag makes the row unmatchable
+                            at the animal. The internal id is not an identity on the farm and appears
+                            only for an animal that has no active tag at all. */}
+                        <div className="cbm-verify-who">
+                          {animal.tag || animal.tag2 ? (
+                            <>
+                              {animal.tag ? <b>{animal.tag}</b> : null}
+                              {animal.tag2 ? <b>{animal.tag2}</b> : null}
+                            </>
+                          ) : (
+                            <b>{animal.displayId}</b>
+                          )}
+                        </div>
+                        {/* One muted line. The state is identical on every row in a verifying cell,
+                            so shouting it 76 times in amber added noise and no information -- the
+                            drawer header already says what the whole list is waiting on. */}
+                        {/* Location leads the meta line: it is the only thing that varies row to
+                            row and the only thing that tells a person which pen to walk into. The
+                            state is identical on every row of a verifying cell and the header
+                            already says it, so it is not repeated here. */}
+                        {/* The PEN and the date, nothing else. Park and shed are constant for every
+                            row in this cell and already sit in the drawer header, so rendering the
+                            full location display on each line repeated the partition twice over and
+                            the shed once per animal. The pen is the only part that varies row to row
+                            and the only part that sends a person to a physical place. */}
+                        <div className="cbm-verify-meta">
+                          {animal.partitionLabel ? (
+                            <span className="cbm-verify-pen">{animal.partitionLabel}</span>
+                          ) : null}
+                          <span>
+                            {copy(pageContract, "command_board.shed_vaccine.drawer.column.due")}{" "}
+                            {animal.dueAt ? new Date(animal.dueAt).toLocaleDateString("en-GB") : "—"}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {/* The COUNT is whole-scope truth and the list is capped, so a shorter list must say
+                  so rather than read as the complete set. */}
+              {(selectedShedVaccine.flaggedAnimals ?? []).length < selectedShedVaccine.behindAnimals && (
+                <p className="cbm-meta">
+                  {copy(pageContract, "command_board.shed_vaccine.drawer.truncated")}
+                </p>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
+
       {closedDrawerOpen && (
         <div className="dscrim on" onClick={() => setClosedDrawerOpen(false)}>
           <aside
