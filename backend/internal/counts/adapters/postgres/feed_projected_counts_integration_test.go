@@ -511,6 +511,13 @@ func TestFeedProjectionIncomingGrainWithNoLiveAnimalsStillAppears(t *testing.T) 
 	if row.CurrentHeadCount != 0 {
 		t.Errorf("current_head_count=%d, want 0", row.CurrentHeadCount)
 	}
+	// A delta-only row's partition label can ONLY come from the delta side: there is no live row to
+	// COALESCE from. Before the delta CTE selected partition_label_raw this whole query failed with
+	// "column d.partition_label_raw does not exist", so this asserts the column exists and resolves
+	// (empty here because this fixture's movement carries no destination partition).
+	if row.PartitionLabel != "" {
+		t.Errorf("partition_label=%q, want empty for an unpartitioned destination", row.PartitionLabel)
+	}
 	if row.PendingDelta != 6 || row.ProjectedHeadCount != 6 {
 		t.Errorf("pending_delta=%d projected=%d, want 6/6", row.PendingDelta, row.ProjectedHeadCount)
 	}
@@ -815,6 +822,14 @@ func TestFeedProjectionPageBoundaryTotalRowsInvariantToPaging(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ProjectedShedCountsForFeed offset=%d: %v", offset, err)
 		}
+		// partition_key is part of the GROUP BY, so it participates in the grain the window function
+		// counts. A page must therefore carry the label for every row it returns -- a page whose rows
+		// lost it would mean the delta/live COALESCE resolved differently across the page boundary.
+		for _, row := range got.Items {
+			if row.ShedID == nil {
+				t.Errorf("offset=%d returned a row with no shed", offset)
+			}
+		}
 		// TotalRows is the FULL grain count on every page, never the page's own length.
 		if got.TotalRows != int64(len(breeds)) {
 			t.Fatalf("offset=%d total_rows=%d, want %d (a window-function total must not move with the page)",
@@ -837,5 +852,186 @@ func TestFeedProjectionPageBoundaryTotalRowsInvariantToPaging(t *testing.T) {
 
 	if len(seen) != len(breeds) {
 		t.Fatalf("drained %d distinct grains across pages, want %d — a page boundary dropped one", len(seen), len(breeds))
+	}
+}
+
+// TestFeedProjectionParkScopeCarriesPartitionLabelFromBothSides is the adversarial scope test for
+// the partition label, and the regression for the defect that 500'd every feed sheet.
+//
+// `combined` selects COALESCE(lv.partition_label_raw, d.partition_label_raw, NULL). The LIVE side
+// always produced that alias; the DELTA side did not, so the whole query failed with
+// "column d.partition_label_raw does not exist (SQLSTATE 42703)" -- and because feed's
+// ProjectedGrainsForSheds is READ 3 inside generate(), every in-horizon feed preview returned 500.
+//
+// Both sides are exercised under one park scope: a live partitioned grain (label from lv) and a
+// delta-only incoming grain into a partitioned destination holding none of that grain (label from
+// d, the side that was missing). A park-scoped read must return each with its OWN partition, not
+// one shed's label smeared across both.
+func TestFeedProjectionParkScopeCarriesPartitionLabelFromBothSides(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+
+	approvedAt := feedProjApproval(2026, time.July, 10, 9)
+	target := feedProjDay(2026, time.July, 20)
+
+	// LIVE side: two Beetal females in shed A, pinned to partition "Part 1".
+	for i := 0; i < 2; i++ {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K2", feedProjShedA)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, source_shed_name, partition_label)
+VALUES ($1::uuid, $2::uuid, $3::uuid, 'Shed A - Part 1', 'Part 1')`,
+			countsTenant, feedProjGoatUUID(i), feedProjShedA); err != nil {
+			t.Fatalf("seed partition row %d: %v", i, err)
+		}
+	}
+
+	// DELTA side: a movement into shed B, which holds NO animals of this grain at all, landing in
+	// partition "Part 3". Its label has no live row to come from.
+	insertFeedProjShifting(t, ctx, pool, "into-part-3", "low", approvedAt,
+		feedProjShedA, feedProjShedB, "authorized", "authorized",
+		[]feedProjImpact{{breedLabel: "Malai", stageTag: "K2", sex: "male", headCount: 6}})
+	if _, err := pool.Exec(ctx, `
+UPDATE shifting_events SET destination_partition_label = 'Part 3'
+WHERE tenant_id = $1::uuid AND logical_shifting_event_key = 'into-part-3'`, countsTenant); err != nil {
+		t.Fatalf("set destination partition: %v", err)
+	}
+
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(target))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+
+	live := findFeedProjRow(t, got, feedProjShedA, "Beetal", "K2", "female")
+	if live.PartitionLabel != "Part 1" {
+		t.Errorf("live partition_label=%q, want \"Part 1\"", live.PartitionLabel)
+	}
+
+	incoming := findFeedProjRow(t, got, feedProjShedB, "Malai", "K2", "male")
+	if incoming.CurrentHeadCount != 0 || incoming.ProjectedHeadCount != 6 {
+		t.Errorf("incoming current=%d projected=%d, want 0/6",
+			incoming.CurrentHeadCount, incoming.ProjectedHeadCount)
+	}
+	// THE REGRESSION. This label exists only because the delta CTE now aggregates
+	// min(l.partition_label_raw); without it the query does not run at all.
+	if incoming.PartitionLabel != "Part 3" {
+		t.Errorf("delta-only partition_label=%q, want \"Part 3\" -- the delta side must carry its own label",
+			incoming.PartitionLabel)
+	}
+
+	// Every returned row must stay inside the park the query scoped to.
+	for _, row := range got.Items {
+		if row.ParkID != nil && *row.ParkID != feedProjPark {
+			t.Errorf("row escaped the park scope: park_id=%v", *row.ParkID)
+		}
+	}
+}
+
+// TestFeedProjectionOneToManyPartitionsOfOneShedStayDistinctGrains is the cardinality adversarial
+// test for partition entering the GROUP BY.
+//
+// Partition is now part of the grain key, which cuts both ways. Too coarse and two pens of the same
+// breed/stage/sex collapse into one row carrying their SUM, so a per-pen feed quantity is computed
+// off the whole shed's head count. Too fine and one pen's animals split across rows and the shed is
+// fed several times over. Same breed, same stage, same sex, two partitions: exactly two rows,
+// carrying their own counts, and summing to the shed.
+func TestFeedProjectionOneToManyPartitionsOfOneShedStayDistinctGrains(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+	target := feedProjDay(2026, time.July, 20)
+
+	// 3 animals in Part 1, 2 in Part 2 -- identical on every other grain dimension.
+	partitions := []struct {
+		label string
+		head  int
+	}{{"Part 1", 3}, {"Part 2", 2}}
+	n := 0
+	for _, part := range partitions {
+		for i := 0; i < part.head; i++ {
+			insertFeedProjGoat(t, ctx, pool, n, "Beetal", "female", "K2", feedProjShedA)
+			if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, source_shed_name, partition_label)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
+				countsTenant, feedProjGoatUUID(n), feedProjShedA, "Shed A - "+part.label, part.label); err != nil {
+				t.Fatalf("seed partition row %d: %v", n, err)
+			}
+			n++
+		}
+	}
+
+	got, err := repo.ProjectedShedCountsForFeed(ctx, feedProjQuery(target))
+	if err != nil {
+		t.Fatalf("ProjectedShedCountsForFeed: %v", err)
+	}
+
+	byPartition := map[string]int64{}
+	rowsForGrain := 0
+	for _, row := range got.Items {
+		if row.ShedID == nil || *row.ShedID != feedProjShedA || row.Breed != "Beetal" {
+			continue
+		}
+		rowsForGrain++
+		byPartition[row.PartitionLabel] += row.CurrentHeadCount
+	}
+	if rowsForGrain != 2 {
+		t.Fatalf("rows for the Beetal/K2/female grain = %d, want exactly 2 (one per partition): %v",
+			rowsForGrain, byPartition)
+	}
+	if byPartition["Part 1"] != 3 || byPartition["Part 2"] != 2 {
+		t.Errorf("per-partition head counts = %v, want Part 1=3 Part 2=2", byPartition)
+	}
+	var total int64
+	for _, head := range byPartition {
+		total += head
+	}
+	if total != 5 {
+		t.Errorf("partition rows sum to %d, want 5 -- they must reconcile to the shed", total)
+	}
+}
+
+// TestFeedProjectionMultiPagePartitionGrainsAreNeitherDroppedNorDuplicated is the pagination
+// adversarial test for the same change: partitions MULTIPLY the grain count, so a shed that used to
+// be one row can now be several and a drain that pages must still see each exactly once.
+func TestFeedProjectionMultiPagePartitionGrainsAreNeitherDroppedNorDuplicated(t *testing.T) {
+	ctx := context.Background()
+	repo, pool := newFeedProjRepo(t, ctx)
+	target := feedProjDay(2026, time.July, 20)
+
+	labels := []string{"Part 1", "Part 2", "Part 3", "Part 4"}
+	for i, label := range labels {
+		insertFeedProjGoat(t, ctx, pool, i, "Beetal", "female", "K2", feedProjShedA)
+		if _, err := pool.Exec(ctx, `
+INSERT INTO goat_shed_partitions (tenant_id, goat_id, shed_id, source_shed_name, partition_label)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5)`,
+			countsTenant, feedProjGoatUUID(i), feedProjShedA, "Shed A - "+label, label); err != nil {
+			t.Fatalf("seed partition row %d: %v", i, err)
+		}
+	}
+
+	seen := map[string]int{}
+	var reportedTotal int64
+	for offset := int32(0); offset < int32(len(labels)); offset += 2 {
+		query := feedProjQuery(target)
+		query.Limit = 2
+		query.Offset = offset
+		query.StableOrder = true
+		got, err := repo.ProjectedShedCountsForFeed(ctx, query)
+		if err != nil {
+			t.Fatalf("offset=%d: %v", offset, err)
+		}
+		if reportedTotal == 0 {
+			reportedTotal = got.TotalRows
+		}
+		// The window count must not move with the page.
+		if got.TotalRows != reportedTotal {
+			t.Errorf("offset=%d total_rows=%d, want %d on every page", offset, got.TotalRows, reportedTotal)
+		}
+		for _, row := range got.Items {
+			seen[row.PartitionLabel]++
+		}
+	}
+	for _, label := range labels {
+		if seen[label] != 1 {
+			t.Errorf("partition %q seen %d time(s) across pages, want exactly 1: %v", label, seen[label], seen)
+		}
 	}
 }
