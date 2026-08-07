@@ -438,6 +438,16 @@ export function MeshaShell({
     const dateScope = leaf.href === "/calendar" ? { asOf: null } : {};
     return scopeHref(leaf.href, renderedScope, dateScope, leaf.extra ?? {});
   }
+  const warmNavHrefs = useMemo(
+    () => [
+      ...primary.map((item) => navHref(item)),
+      ...groups.flatMap((group) => group.leaves.filter((item) => item.enabled).map((item) => navHref(item))),
+    ],
+    [groups, primary, renderedScope, searchKey],
+  );
+  useEffect(() => {
+    for (const href of warmNavHrefs) router.prefetch(href);
+  }, [router, warmNavHrefs]);
   function navActive(leaf: NavItem): boolean {
     if (active !== leaf.href) return false;
     // Most routes have exactly one nav entry, so pathname alone decides. The verifier workspace is
