@@ -72,15 +72,55 @@ func main() {
 	}
 	plan = append(plan, weighingPlan...)
 
-	if len(plan) == 0 {
-		fmt.Println("nothing to backfill: every verification subject label already names its shed")
+	// The shed_id repair is counted separately from the label plan and gated independently. An
+	// earlier version returned early when the label plan was empty, which silently skipped the
+	// shed_id repair on exactly the databases where the labels had already been fixed -- leaving
+	// rows titled "Castro 2 · 758.0 kg · 32 goats" with an em-dash in their Shed field forever.
+	shedNulls, err := countRepairableShedIDs(ctx, pool)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "count repairable shed ids: %v\n", err)
+		os.Exit(1)
+	}
+	if len(plan) == 0 && shedNulls == 0 {
+		fmt.Println("nothing to backfill: every verification item already names and references its shed")
 		return
 	}
 	for _, change := range plan {
 		fmt.Printf("%s\n  old: %s\n  new: %s\n", change.ItemID, change.Old, change.New)
 	}
 	if !*apply {
-		fmt.Printf("\nDRY RUN: %d label(s) would change. Re-run with -apply to write.\n", len(plan))
+		fmt.Printf("\nDRY RUN: %d label(s) and %d shed reference(s) would change. Re-run with -apply to write.\n", len(plan), shedNulls)
+		return
+	}
+
+	// A lump-sum weighing capture has no per-animal expected location, so the producer left
+	// verification_items.shed_id NULL on exactly the shed-grain rows. The label backfill puts the
+	// shed back into the SENTENCE, but the drawer's SHED field and the queue's shed filter read the
+	// COLUMN -- so a row could read "Castro 2 · 758.0 kg · 32 goats" in its title and show an
+	// em-dash for Shed directly underneath it. Repair the column from the same campaign-shed bucket
+	// the writer now uses. Forward-only and idempotent: only NULLs are touched.
+	shedTag, err := pool.Exec(ctx, `
+UPDATE verification_items vi
+SET shed_id = src.location_id, updated_at = now()
+FROM (
+  SELECT wso.shed_observation_id, wcs.location_id
+  FROM weighing_shed_observations wso
+  JOIN weighing_campaign_sheds wcs
+    ON wcs.tenant_id = wso.tenant_id AND wcs.campaign_shed_id = wso.campaign_shed_id
+) src
+WHERE vi.category = 'weighing_proof'
+  AND vi.shed_id IS NULL
+  AND vi.source_ref_id = src.shed_observation_id`)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "backfill shed_id: %v\n", err)
+		os.Exit(1)
+	}
+	if n := shedTag.RowsAffected(); n > 0 {
+		fmt.Printf("repaired shed_id on %d lump-sum weighing item(s)\n", n)
+	}
+
+	if len(plan) == 0 {
+		fmt.Println("no subject labels needed changing")
 		return
 	}
 	// ONE set-based statement, not an UPDATE per row. A loop of .Exec here is the N+1 shape the
@@ -231,4 +271,21 @@ WHERE vi.category = 'weighing_proof'
 		}
 	}
 	return out, rows.Err()
+}
+
+// countRepairableShedIDs reports how many weighing items still carry a NULL shed_id that the
+// campaign-shed bucket can resolve. Read-only: it is what makes the dry run honest about the
+// second repair rather than only reporting the label plan.
+func countRepairableShedIDs(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	var n int
+	err := pool.QueryRow(ctx, `
+SELECT count(*)
+FROM verification_items vi
+JOIN weighing_shed_observations wso
+  ON wso.tenant_id = vi.tenant_id AND wso.shed_observation_id = vi.source_ref_id
+JOIN weighing_campaign_sheds wcs
+  ON wcs.tenant_id = wso.tenant_id AND wcs.campaign_shed_id = wso.campaign_shed_id
+WHERE vi.category = 'weighing_proof'
+  AND vi.shed_id IS NULL`).Scan(&n)
+	return n, err
 }
