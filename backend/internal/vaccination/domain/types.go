@@ -104,12 +104,12 @@ type RecordedCompletion struct {
 // completion row closes -- sopbridge's PEND-1 start trigger (markObligationsInProgress) calls
 // obligation.MarkInProgress per row using this id.
 type SubmissionCompletion struct {
-	CompletionID   string
-	SubmissionID   string
-	ObligationID   string
-	GoatID         string
-	GoatLabel      string
-	ShedID         string
+	CompletionID string
+	SubmissionID string
+	ObligationID string
+	GoatID       string
+	GoatLabel    string
+	ShedID       string
 	// PartitionLabel is the raw partition ('1', 'Part 3'), empty for a non-partitioned shed.
 	// Raw on purpose: the display is composed at the wire boundary via oploc.Display().
 	PartitionLabel string
