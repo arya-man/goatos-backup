@@ -1864,11 +1864,6 @@ html:has(.vr-modal.on), body:has(.vr-modal.on) { overflow: hidden; }
 .vr-modal-bd { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
 /* The body is a flex COLUMN that scrolls, so by default every child shrinks below its own content
    to fit -- which silently sliced the bottom off each section: the facts strip lost all four
-   values, Rework lost its input, Penalty note lost its field. Children keep their natural height
-   and the BODY scrolls instead. This belongs on the container, not on one element. */
-.vr-modal-bd > * { flex-shrink: 0; }
-/* The body is a flex COLUMN that scrolls, so by default every child shrinks below its own content
-   to fit -- which silently sliced the bottom off each section: the facts strip lost all four
    values, Rework lost its input, Re-assign lost its picker, Penalty note lost its field. Children
    must keep their natural height and let the BODY scroll instead. This belongs on the container,
    not on one element: patching only .vr-facts fixed the strip and left every other card clipped. */
