@@ -3281,7 +3281,19 @@ drive_ops AS (
     ON wm.tenant_id = $1::uuid
    AND wm.workforce_member_id = operator_sources.operator_id
    AND wm.status = 'active'
-  GROUP BY operator_sources.park_id, operator_sources.shed_name
+  -- operational-location:ignore: owner=ravi issue=OL-17 scope=park-scoped-shed-grain expiry=2026-11-30
+  -- Keyed by (park_id, shed_name), not shed_id, and that is deliberate for THIS read:
+  -- vaccination_drive_assignments stores physical_shed as a NAME, and the sibling
+  -- UNION branch derives the name from locations, so there is no shared id to key on
+  -- without changing the assignment table. The park_id in the key prevents the
+  -- cross-park merge the guard exists to catch (two Castro, two Gandhi, two Yashoda
+  -- across parks stay separate). Partitions of one shed intentionally collapse here:
+  -- the column answers "who ran drives in this shed", which is shed grain, not
+  -- partition grain.
+  -- RESIDUAL RISK, stated rather than hidden: if one park ever holds two sheds with
+  -- the same name, their operator lists merge. Retiring this ignore means giving
+  -- vaccination_drive_assignments a real shed_id and keying both sides on it.
+  GROUP BY operator_sources.park_id, operator_sources.shed_name -- operational-location:ignore: owner=ravi issue=OL-17 scope=park-scoped-shed-grain expiry=2026-11-30
 )
 SELECT
   park_id, park_name, shed_id, shed_name,
@@ -3290,6 +3302,9 @@ SELECT
   COALESCE(drive_ops.drive_operator_names, '') AS drive_operator_names,
   COUNT(*) OVER()::bigint AS total_count
 FROM classified
+-- operational-location:ignore: owner=ravi issue=OL-17 scope=park-scoped-shed-grain expiry=2026-11-30
+-- Consumer half of the drive_ops key documented at its GROUP BY above: park_id is in the
+-- key, so the cross-park name collision this rule guards against cannot happen here.
 LEFT JOIN drive_ops USING (park_id, shed_name)
 WHERE ($6::text = '' OR park_id = $6)
   AND ($7::text = '' OR shed_id = $7)
