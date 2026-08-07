@@ -1,5 +1,20 @@
 -- ============================================================================
--- stg-partition-catalog-repair.sql
+-- SUPERSEDED: DO NOT RUN — STG DATA ALREADY CORRECT
+--
+-- This script is a historical record of the partition catalog audit from
+-- 2026-08-07 and MUST NOT BE EXECUTED. When run against live STG read-only
+-- (2026-08-07), every repair class returned ZERO rows:
+--   * Class A corrupt shed_partitions rows: 0 (expected 2, found 0)
+--   * Class B redundant alias-as-shed locations: 0 (expected 15, found 0)
+--   * Class C Mandela 1 orphan rows: 0 (expected 10, found 0)
+--
+-- The data is already in the intended shape. The scripts were written against
+-- a mistaken reading of the data shape (see ops memo 2026-08-07, Finding 7).
+-- Running them is dangerous and unnecessary. Use the verification queries
+-- below to confirm STG is correct instead of running repairs.
+--
+-- ============================================================================
+-- ORIGINAL HEADER (2026-08-06):
 --
 -- Repairs the shed-partition catalog corruption behind the "Godel 1 1" /
 -- "Godel 1 10" shifting-partition dropdown bug and the Add-birth dropdown
