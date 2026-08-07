@@ -278,6 +278,52 @@ The guard runs five checks (plus the three blind-spot cases below):
 
 ---
 
+## Five Essential Rules From Session 2026-08-07 (Hard Encoding)
+
+These rules emerged from defects discovered on production code and live data TODAY. Each one makes a class of defect impossible. Encode them in every subagent brief and code review.
+
+### Rule 1: An Undivided Shed Whose Name Ends in a Number Is Never Split
+
+`Yashoda 2` is a SHED NAME, whole. It renders `Yashoda 2`, never `Yashoda - 2`. Same for `Ho Chi Minh 1`. The trailing number is part of the name, not a partition.
+
+**Contrast:** A genuinely partitioned shed renders as `Mandela 1 - Part 2` (shed `Mandela 1` + partition `Part 2`).
+
+**Defect:** A test fixture fed `operationalLocationLabel("Yashoda", "2")` and its expectation was "corrected" to `Yashoda - 2`. The formatter was right; the FIXTURE was wrong. **Rule: a fixture that asserts a shape the farm does not have is a defect even when the assertion passes.**
+
+### Rule 2: A Required Contract Field Must Be Populated on Every Construction Path, in the Same Change
+
+Marking a field `required` in OpenAPI while the Go struct lacks it, or has it but never fills it, ships a contract the client cannot rely on. This happened EIGHT times on this branch.
+
+**The complete checklist:** SQL column → scan destination → Go struct field → populated at EVERY construction site → wire DTO → OpenAPI → generated client → renderer. A gap at ANY hop renders bare shed name end to end.
+
+**Defect:** `operational_location_display` was required on `WeighingShedVideos` in OpenAPI while the serving struct had neither field nor composition logic.
+
+### Rule 3: Scaffolded Is Not Wired
+
+A migration, domain field, decoder helper, OpenAPI entry, and two client DTOs can all exist while the repository and handler touch none of them. Field-presence tests and pure-formatter unit tests both pass for scaffolding.
+
+**Rule: a feature is not done until a test asserts the OUTPUT STRING on a real round trip.**
+
+**Defect:** The partition feature added SQL migration, domain field, decoder helper, OpenAPI schema, and client DTOs — yet the handler never called the decoder and never populated the field. Real output was bare shed name.
+
+### Rule 4: Verify Data Against the Live Database Before Writing a Repair
+
+~500 lines of guarded repair SQL were written against a mistaken reading of STG inferred from code. A single read-only check showed every repair class returns ZERO rows.
+
+**Rule: query the live database FIRST; a repair script written from inferred shape is a destructive operation aimed at a problem that may not exist.**
+
+**Defect:** Repair scripts were generated to handle hypothetical `Mandela 1` partition-catalog orphans that never existed in STG.
+
+### Rule 5: Confirm the Repo Path Before Editing
+
+This workspace has multiple checkouts (`/Users/ravi/mesha/goatos`, `/Users/ravi/mesha/goatos-land`, review worktrees). An agent who does not confirm its tree will edit the wrong one.
+
+**Rule for delegated work:** state the absolute repo path in the brief and confirm with `git rev-parse --show-toplevel` before the first edit.
+
+**Defect:** Subagent edited `/Users/ravi/mesha/goatos/docs/decisions/...` instead of `/Users/ravi/mesha/goatos-land/docs/decisions/...` and reported files "don't exist" when simply in the wrong tree.
+
+---
+
 ## Decision Timeline
 
 - **2026-07-19:** Maintainer noted that movement is within-park only; parks and sheds are distinct.
