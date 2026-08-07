@@ -446,6 +446,11 @@ type Repository interface {
 	// caller: this method does no scoping of its own.
 	GetShedWeights(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.ShedWeights, error)
 
+	// GetWeightDemographics returns average weight by breed, sex and management stage.
+	// This is the ONE weighing read permitted to resolve a scanned tag to its animal
+	// (maintainer decision 2026-08-07); see domain.WeightDemographics for the scope.
+	GetWeightDemographics(ctx context.Context, tenantID string, parkIDs []string, periodStart, periodEnd time.Time) (domain.WeightDemographics, error)
+
 	// ExportCampaignCSV exports weighing observations for a campaign as CSV.
 	// It streams CSV-formatted rows to the provided writer, including both individual
 	// and lump-sum observations, with verification status and proof references.

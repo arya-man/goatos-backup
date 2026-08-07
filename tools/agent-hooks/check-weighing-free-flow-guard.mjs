@@ -213,6 +213,36 @@ function stripComments(text) {
 // Maintainer decision 2026-07-31 (strict form): weighing write may use campaign,
 // campaign_sheds, proof_artifacts, weighing_observations, and idempotency/audit/outbox.
 // No goats. No weighing_expected_animals. No vaccination tables. No clinical state.
+// THE ONE RECORDED EXCEPTION TO WEIGHING ISOLATION (maintainer decision 2026-08-07).
+//
+// The Kids — Weights screen reports average weight by BREED, SEX and MANAGEMENT
+// STAGE. Weighing stores a scanned tag and a weight, so those three facts can only
+// come from resolving the tag to its animal. The maintainer directed this
+// explicitly: "for id's we have details right what type they are", and "for
+// lumpsum use what that shed is assigned to".
+//
+// The exception is FILE-SCOPED on purpose. Adding goats/goat_identifiers to the
+// global allowlist would silently unlock every weighing file, including the write
+// path, which is the exact 2026-08-04 defect this guard exists to prevent. Only
+// the named reporting file may resolve a tag, and only to read breed/sex/stage.
+//
+// Boundaries that still hold inside the exempt file, and are the reason this is
+// safe: it is READ-ONLY, it is a reporting path with no capture, submit or close
+// behaviour, no scan is gated on identity, and a tag that resolves to nothing is
+// counted and reported rather than rejected — free-flow capture is untouched.
+//
+// Adding a file here is a MAINTAINER decision, never a developer convenience.
+const HERD_JOIN_EXEMPT_FILES = new Map([
+  [
+    "backend/internal/weighing/adapters/postgres/weight_demographics.go",
+    "maintainer decision 2026-08-07: average weight by breed/sex/stage on the Weights screen",
+  ],
+]);
+
+// The only herd tables an exempt file may resolve, and only for those three facts.
+// Vaccination, clinical, protocol and obligation tables stay banned everywhere.
+const HERD_JOIN_EXEMPT_TABLES = new Set(["goats", "goat_identifiers"]);
+
 const WRITE_PATH_ALLOWED_TABLES = new Set([
   "weighing_campaigns",
   "weighing_campaign_sheds",
@@ -395,6 +425,7 @@ export function anyPathTableFindings(rel, source) {
       "set", "select", "only", "unnest", "lateral", "values", "of",
       "with", "update", "skip", "nothing", "conflict", "returning", "where",
     ].includes(table)) continue;
+    if (HERD_JOIN_EXEMPT_FILES.has(rel) && HERD_JOIN_EXEMPT_TABLES.has(table)) continue;
     findings.push({
       rule: "weighing-reads-non-weighing-table",
       message: `${rel}: reads \`${table}\` — weighing is ISOLATED and may touch ONLY weighing-owned tables (plus proof/idempotency/audit/outbox), on READ paths as well as writes. Joining goats/goat_identifiers/vaccination/herd tables is banned outright, including from a report or read model (maintainer decision 2026-08-04). If weighing needs this fact, weighing must capture it itself.`,

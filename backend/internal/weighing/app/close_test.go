@@ -374,6 +374,10 @@ func (r *scenarioRepo) GetShedWeights(context.Context, string, []string, time.Ti
 	return domain.ShedWeights{}, nil
 }
 
+func (r *scenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+	return domain.WeightDemographics{}, nil
+}
+
 func (r *scenarioRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {
 	return nil, nil
 }
@@ -392,6 +396,10 @@ func (r *multiParkScenarioRepo) GetLeadershipGrowthADG(context.Context, string, 
 
 func (r *multiParkScenarioRepo) GetShedWeights(context.Context, string, []string, time.Time, time.Time) (domain.ShedWeights, error) {
 	return domain.ShedWeights{}, nil
+}
+
+func (r *multiParkScenarioRepo) GetWeightDemographics(context.Context, string, []string, time.Time, time.Time) (domain.WeightDemographics, error) {
+	return domain.WeightDemographics{}, nil
 }
 
 func (r *multiParkScenarioRepo) ListParks(context.Context, string) ([]domain.WeighingPark, error) {

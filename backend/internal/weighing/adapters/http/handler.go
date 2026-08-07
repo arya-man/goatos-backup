@@ -46,6 +46,7 @@ type Service interface {
 	GetWeightHistory(ctx context.Context, actor domain.Actor, parkID, campaignShedID string) (domain.WeightHistory, error)
 	GetLeadershipGrowthADG(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.GrowthADG, error)
 	GetShedWeights(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.ShedWeights, error)
+	GetWeightDemographics(ctx context.Context, actor domain.Actor, parkID, fromBusinessDate, toBusinessDate string) (domain.WeightDemographics, error)
 	ExportCampaignCSV(ctx context.Context, actor domain.Actor, campaignID string, writer io.Writer) error
 }
 
@@ -110,6 +111,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	// reads (mirroring /counts/milk-preparation and its /app twin): admin-web calls the
 	// bare path, the phone calls /app.
 	mux.HandleFunc("GET /weighing/shed-weights", h.GetShedWeights)
+	mux.HandleFunc("GET /weighing/weight-demographics", h.GetWeightDemographics)
 	mux.HandleFunc("GET /weighing/leadership/growth", h.GetLeadershipGrowthADG)
 }
 
@@ -173,6 +175,16 @@ func (h *Handler) GetShedWeights(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("park_id"),
 		r.URL.Query().Get("from"),
 		r.URL.Query().Get("to"),
+	)
+	h.respond(w, r, result, err)
+}
+
+// GetWeightDemographics serves the breed / sex / stage breakdown on the Weights
+// screen. This is the one weighing read that resolves a scanned tag to its animal.
+func (h *Handler) GetWeightDemographics(w http.ResponseWriter, r *http.Request) {
+	result, err := h.service.GetWeightDemographics(
+		r.Context(), actor(r),
+		r.URL.Query().Get("park_id"), r.URL.Query().Get("from"), r.URL.Query().Get("to"),
 	)
 	h.respond(w, r, result, err)
 }

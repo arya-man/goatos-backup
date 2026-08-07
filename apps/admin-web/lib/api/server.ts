@@ -19,6 +19,8 @@ export type GoatSearchResponse = AppApiComponents["schemas"]["GoatSearchResponse
 export type CountsBreakdownResponse = AppApiComponents["schemas"]["CountsBreakdownResponse"];
 export type CountsBreakdownRow = AppApiComponents["schemas"]["CountsBreakdownRow"];
 export type CountsBreakdownSeriesPoint = AppApiComponents["schemas"]["CountsBreakdownSeriesPoint"];
+export type WeightDemographicsResponse = AppApiComponents["schemas"]["WeighingWeightDemographicsResponse"];
+export type WeightDemographicBucket = AppApiComponents["schemas"]["WeighingWeightDemographicBucket"];
 export type WeighingGrowthResponse = AppApiComponents["schemas"]["WeighingGrowthADGResponse"];
 export type WeighingLosingAnimal = AppApiComponents["schemas"]["WeighingGrowthLosingAnimal"];
 export type ShedWeightsResponse = AppApiComponents["schemas"]["WeighingShedWeightsResponse"];
@@ -558,6 +560,24 @@ export async function getShedWeights(params: {
   const client = createAppApiClient(apiClientOptions(config.data));
   return request(() =>
     client.request<ShedWeightsResponse>("/weighing/shed-weights", {
+      cache: "no-store",
+      query: compactQuery(params),
+    }),
+  );
+}
+
+// Average weight by breed, sex and stage. The one weighing read that resolves a scanned tag
+// to its animal, so these three dimensions can exist at all.
+export async function getWeightDemographics(params: {
+  park_id?: string;
+  from?: string;
+  to?: string;
+}): Promise<ApiResult<WeightDemographicsResponse>> {
+  const config = await getServerConfig();
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<WeightDemographicsResponse>("/weighing/weight-demographics", {
       cache: "no-store",
       query: compactQuery(params),
     }),
