@@ -263,6 +263,7 @@ catchup_drive_events AS (
         'queue_preview', queue_meta.queue_preview,
         'shed_count', grouped.shed_count,
         'shed_labels', to_jsonb(grouped.shed_labels),
+        'shed_partition_labels', to_jsonb(grouped.shed_partition_labels),
         'vaccine_labels', to_jsonb(grouped.vaccine_labels)
       ),
       'source_and_rule', jsonb_build_object(
@@ -301,93 +302,146 @@ catchup_drive_events AS (
         AND status IN ('scheduled', 'due') AND due_at < now()
     )
     SELECT
-      loc.park_id,
-      loc.park_code,
-      count(DISTINCT loc.shed_id)::int AS shed_count,
-      NULLIF(min(loc.shed_id::text), '')::uuid AS primary_shed_id,
-      min(loc.shed_name) FILTER (WHERE loc.shed_name IS NOT NULL) AS primary_shed_name,
+      grouped_detail.park_id,
+      grouped_detail.park_code,
+      count(DISTINCT grouped_detail.shed_id)::int AS shed_count,
+      NULLIF(min(grouped_detail.shed_id::text), '')::uuid AS primary_shed_id,
+      min(grouped_detail.shed_name) FILTER (WHERE grouped_detail.shed_name IS NOT NULL) AS primary_shed_name,
       'Asia/Kolkata'::text AS timezone,
       'india_only'::text AS timezone_source,
-      to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
-      count(DISTINCT oi.target_id)::int AS target_count,
-      count(DISTINCT pr.rule_id)::int AS queue_count,
+      grouped_detail.due_day,
+      count(DISTINCT grouped_detail.target_id)::int AS target_count,
+      count(DISTINCT grouped_detail.rule_id)::int AS queue_count,
       array_agg(
-        DISTINCT COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
-        ORDER BY COALESCE(NULLIF(pr.dose_code, ''), pd.name) || '|' || pr.rule_id::text
+        DISTINCT COALESCE(NULLIF(grouped_detail.dose_code, ''), grouped_detail.vaccine_name) || '|' || grouped_detail.rule_id::text
+        ORDER BY COALESCE(NULLIF(grouped_detail.dose_code, ''), grouped_detail.vaccine_name) || '|' || grouped_detail.rule_id::text
       ) AS queue_labels,
-      array_agg(DISTINCT loc.shed_name ORDER BY loc.shed_name) FILTER (WHERE loc.shed_name IS NOT NULL) AS shed_labels,
+      -- NO DISTINCT here, deliberately. The inner subquery already emits exactly one row per
+      -- shed, and shed_partition_labels below must stay index-parallel to this array. DISTINCT
+      -- on names only would collapse two same-named sheds in different parks (two Castro, two
+      -- Gandhi are real) on ONE side of the pair, shifting every later index and pairing the
+      -- wrong partition with the wrong shed -- worse than omitting the partition entirely.
+      -- Keeping both rows is also more correct for display: they render as distinct
+      -- "Castro - 1" / "Castro - 2" rather than a single merged "Castro".
+      array_agg(grouped_detail.shed_name ORDER BY grouped_detail.shed_name) FILTER (WHERE grouped_detail.shed_name IS NOT NULL) AS shed_labels,
+      array_agg(grouped_detail.partition_label ORDER BY grouped_detail.shed_name) FILTER (WHERE grouped_detail.shed_name IS NOT NULL) AS shed_partition_labels,
       array_agg(
-        DISTINCT COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
-        ORDER BY COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name)
-      ) AS vaccine_labels,
-      min(oi.due_at) AS due_at,
-      min(COALESCE(oi.window_start, oi.due_at)) AS window_start,
-      max(COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days))) AS window_end,
+        DISTINCT COALESCE(NULLIF(grouped_detail.vaccine_display_name, ''), '')
+        ORDER BY COALESCE(NULLIF(grouped_detail.vaccine_display_name, ''), '')
+      ) FILTER (WHERE grouped_detail.vaccine_display_name IS NOT NULL AND grouped_detail.vaccine_display_name <> '') AS vaccine_labels,
+      min(grouped_detail.due_at) AS due_at,
+      min(COALESCE(grouped_detail.window_start, grouped_detail.due_at)) AS window_start,
+      max(COALESCE(grouped_detail.window_end, grouped_detail.due_at + make_interval(days => grouped_detail.due_window_days))) AS window_end,
       CASE
-        WHEN bool_or(oi.status = 'missed') THEN 'missed'
+        WHEN bool_or(grouped_detail.status = 'missed') THEN 'missed'
         WHEN bool_or(
-          oi.status IN ('scheduled', 'due')
-          AND (oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
+          grouped_detail.status IN ('scheduled', 'due')
+          AND (grouped_detail.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date
         ) THEN 'overdue'
-        WHEN bool_or(oi.status = 'in_progress') THEN 'in_progress'
-        WHEN bool_or(oi.status = 'deferred') THEN 'deferred'
-        WHEN bool_or(oi.status = 'due') THEN 'due'
+        WHEN bool_or(grouped_detail.status = 'in_progress') THEN 'in_progress'
+        WHEN bool_or(grouped_detail.status = 'deferred') THEN 'deferred'
+        WHEN bool_or(grouped_detail.status = 'due') THEN 'due'
         ELSE 'scheduled'
       END AS status,
       CASE
-        WHEN bool_or(oi.status = 'missed')
-          OR bool_or((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date) THEN 'critical'
-        WHEN min(oi.due_at) <= now() + interval '24 hours' THEN 'warning'
+        WHEN bool_or(grouped_detail.status = 'missed')
+          OR bool_or((grouped_detail.due_at AT TIME ZONE 'Asia/Kolkata')::date < (now() AT TIME ZONE 'Asia/Kolkata')::date) THEN 'critical'
+        WHEN min(grouped_detail.due_at) <= now() + interval '24 hours' THEN 'warning'
         ELSE 'info'
       END AS severity
-    FROM catchup_rows oi
-    JOIN protocol_versions pv
-      ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
-    JOIN protocol_definitions pd
-      ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
-    JOIN protocol_rules pr
-      ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
-    LEFT JOIN protocol_rule_dimensions prd
-      ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
-    LEFT JOIN locations scope_loc
-      ON scope_loc.tenant_id = oi.tenant_id
-     AND scope_loc.location_id = oi.scope_id
-     AND oi.scope_type IN ('park', 'shed', 'cohort')
-    LEFT JOIN locations scope_parent
-      ON scope_parent.tenant_id = oi.tenant_id
-     AND scope_parent.location_id = scope_loc.parent_location_id
-    LEFT JOIN locations scope_grand
-      ON scope_grand.tenant_id = oi.tenant_id
-     AND scope_grand.location_id = scope_parent.parent_location_id
-    LEFT JOIN LATERAL (
+    FROM (
+      -- Subquery that resolves partition labels per shed. For each shed in the drive,
+      -- if ALL animals share the SAME real (non-'whole') partition, that label is used;
+      -- otherwise NULL (multi-partition or non-partitioned sheds).
       SELECT
+        loc.park_id,
+        loc.park_code,
+        loc.shed_id,
+        loc.shed_name,
+        to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD') AS due_day,
+        oi.target_id,
+        pr.rule_id,
+        COALESCE(NULLIF(pr.dose_code, ''), pd.name) AS dose_code,
+        pd.name AS vaccine_name,
+        COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name) AS vaccine_display_name,
+        oi.due_at,
+        COALESCE(oi.window_start, oi.due_at) AS window_start,
+        COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days)) AS window_end,
+        pr.due_window_days,
+        oi.status,
+        -- Partition resolution: if all animals in this shed share ONE non-'whole' partition,
+        -- use it; else NULL. This matches the AGREEMENT rule from obligation_drive_shed_animals CTE.
         CASE
-          WHEN oi.scope_type = 'park' THEN scope_loc.location_id
-          WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
-          WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
-        END AS park_id,
-        CASE
-          WHEN oi.scope_type = 'park' THEN scope_loc.location_code
-          WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
-          WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
-        END AS park_code,
-        CASE
+          WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
+            THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
+          ELSE NULL
+        END AS partition_label
+      FROM catchup_rows oi
+      JOIN protocol_versions pv
+        ON pv.tenant_id = oi.tenant_id AND pv.protocol_version_id = oi.protocol_version_id
+      JOIN protocol_definitions pd
+        ON pd.tenant_id = pv.tenant_id AND pd.protocol_id = pv.protocol_id
+      JOIN protocol_rules pr
+        ON pr.tenant_id = oi.tenant_id AND pr.rule_id = oi.rule_id
+      LEFT JOIN protocol_rule_dimensions prd
+        ON prd.tenant_id = pr.tenant_id AND prd.rule_id = pr.rule_id
+      LEFT JOIN locations scope_loc
+        ON scope_loc.tenant_id = oi.tenant_id
+       AND scope_loc.location_id = oi.scope_id
+       AND oi.scope_type IN ('park', 'shed', 'cohort')
+      LEFT JOIN locations scope_parent
+        ON scope_parent.tenant_id = oi.tenant_id
+       AND scope_parent.location_id = scope_loc.parent_location_id
+      LEFT JOIN locations scope_grand
+        ON scope_grand.tenant_id = oi.tenant_id
+       AND scope_grand.location_id = scope_parent.parent_location_id
+      LEFT JOIN goat_shed_partitions gsp
+        ON gsp.tenant_id = oi.tenant_id
+       AND gsp.goat_id = oi.target_id
+       AND gsp.shed_id = CASE
           WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
           WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
-        END AS shed_id,
-        CASE
-          WHEN oi.scope_type = 'shed' THEN scope_loc.name
-          WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
-        END AS shed_name
-    ) loc ON true
-    WHERE pd.category = 'vaccination'
-      AND pv.status = 'published'
-      AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+       END
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN oi.scope_type = 'park' THEN scope_loc.location_id
+            WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_id
+            WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_id
+          END AS park_id,
+          CASE
+            WHEN oi.scope_type = 'park' THEN scope_loc.location_code
+            WHEN oi.scope_type = 'shed' AND scope_parent.location_type = 'park' THEN scope_parent.location_code
+            WHEN oi.scope_type = 'cohort' AND scope_grand.location_type = 'park' THEN scope_grand.location_code
+          END AS park_code,
+          CASE
+            WHEN oi.scope_type = 'shed' THEN scope_loc.location_id
+            WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.location_id
+          END AS shed_id,
+          CASE
+            WHEN oi.scope_type = 'shed' THEN scope_loc.name
+            WHEN oi.scope_type = 'cohort' AND scope_parent.location_type = 'shed' THEN scope_parent.name
+          END AS shed_name
+      ) loc ON true
+      WHERE pd.category = 'vaccination'
+        AND pv.status = 'published'
+        AND oi.status NOT IN ('waived', 'canceled', 'superseded', 'completed')
+      GROUP BY
+        loc.park_id, loc.park_code, loc.shed_id, loc.shed_name,
+        to_char((oi.due_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'),
+        oi.target_id, pr.rule_id,
+        COALESCE(NULLIF(pr.dose_code, ''), pd.name),
+        pd.name,
+        COALESCE(NULLIF(prd.vaccine_json->>'name', ''), pd.name),
+        oi.due_at,
+        COALESCE(oi.window_start, oi.due_at),
+        COALESCE(oi.window_end, oi.due_at + make_interval(days => pr.due_window_days)),
+        pr.due_window_days,
+        oi.status
+    ) grouped_detail
     GROUP BY
-      loc.park_id, loc.park_code,
-      'Asia/Kolkata'::text,
-      'india_only'::text,
-      due_day
+      grouped_detail.park_id, grouped_detail.park_code,
+      grouped_detail.due_day
   ) grouped
   CROSS JOIN LATERAL (
     SELECT
