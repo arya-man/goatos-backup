@@ -18,6 +18,7 @@ type FeedTransportVerificationEnqueuer interface {
 }
 type FeedTransportVerificationEnqueueRequest struct {
 	TenantID, AttemptID, ParkID, ShedID, ProofRef, OperatorID, IdempotencyKey string
+	ShedName, PartitionLabel                                                  string // used internally by enqueuer; compose display via shared primitive
 	CapturedAt                                                                time.Time
 }
 type SubmitTransportInput struct{ TenantID, TaskID, ProofRef, OperatorID, IdempotencyKey, ActorID, ActorType, TraceID string }
@@ -88,7 +89,7 @@ func (s *Service) SubmitTransport(ctx context.Context, in SubmitTransportInput) 
 	// Queue creation is idempotent. Re-enqueue an exact submit replay while the attempt is still
 	// verification_due so a transient failure between the task commit and queue creation self-heals.
 	if res.Status == "verification_due" {
-		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ProofRef: in.ProofRef, OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
+		err = s.transportEnqueuer.EnqueueFeedTransportVerification(ctx, FeedTransportVerificationEnqueueRequest{TenantID: in.TenantID, AttemptID: res.AttemptID, ParkID: res.ParkID, ShedID: res.ShedID, ShedName: res.ShedName, PartitionLabel: res.PartitionLabel, ProofRef: in.ProofRef, OperatorID: in.OperatorID, CapturedAt: s.now().UTC(), IdempotencyKey: "feed-transport-verification:" + res.AttemptID + ":" + strconv.Itoa(int(res.AttemptNo))})
 	}
 	return res, err
 }

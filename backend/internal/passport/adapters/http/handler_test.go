@@ -10,7 +10,7 @@ import (
 
 func TestGetPassportRejectsBadGoatID(t *testing.T) {
 	mux := http.NewServeMux()
-	Register(mux, NewHandler(app.NewService(nil, nil, nil))) // readers unused: uuid check fails first
+	Register(mux, NewHandler(app.NewService(nil, nil))) // readers unused: uuid check fails first
 
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/goats/not-a-uuid/passport", nil))

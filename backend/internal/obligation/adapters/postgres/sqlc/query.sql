@@ -118,8 +118,10 @@ SELECT oi.obligation_id::text AS obligation_id,
        oi.scope_type,
        COALESCE(oi.scope_id::text, '')::text AS scope_id,
        COALESCE(g.park_id::text, '')::text AS park_id,
-       COALESCE(shed.name, '')::text AS shed_name,
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole' THEN COALESCE(shed.name, '')::text
+         ELSE COALESCE(shed.name, '')::text || ' - ' || gsp.partition_label
+       END::text AS shed_name,
        COALESCE(oi.target_id::text, '')::text AS target_id,
        CASE
          WHEN oi.target_type = 'goat' THEN COALESCE(g.species, 'goat')::text

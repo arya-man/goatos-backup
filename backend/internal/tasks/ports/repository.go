@@ -125,4 +125,8 @@ type Repository interface {
 	BounceDeathVideosForRework(ctx context.Context, cmd DeathVerdictCommand) error
 	ApplyBirthSignoffApproved(ctx context.Context, cmd DeathVerdictCommand) error
 	BounceBirthVideoForRework(ctx context.Context, cmd DeathVerdictCommand) error
+
+	// FetchShedDetails fetches the shed name and partition label for operational location composition.
+	// Returns empty strings if the shed is not found or has no partition.
+	FetchShedDetails(ctx context.Context, tenantID, shedID string) (shedName, partitionLabel string, err error)
 }

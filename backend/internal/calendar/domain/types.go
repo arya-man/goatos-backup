@@ -111,60 +111,43 @@ type DriveShedSummary struct {
 	ShedID       string `json:"shed_id"`
 	ShedName     string `json:"shed_name"`
 	TotalAnimals int    `json:"total_animals"`
-	// PartitionLabel/OperationalLocationDisplay close DEFECT 1 (calendar had zero partition
-	// awareness): a drive-shed row used to carry only the bare physical shed name, so an
-	// operator viewing a drive scoped to one partition of a subdivided shed ("Mandela 2 - Part 3")
-	// saw only "Mandela 2" and could not tell which partition the drive covered.
-	//
-	// PartitionLabel is set by the backend (canonical_read.go obligation_drive_shed_animals CTE)
-	// ONLY when every animal counted in this shed's TotalAnimals resolves to the SAME real
-	// partition; it is nil when the shed's animals span more than one partition (a shed-wide
-	// drive has no single partition to show -- that is correct, never a bug) or when none of
-	// them are partitioned. OperationalLocationDisplay is composed ONCE in Go via
-	// oploc.OperationalLocation.Display(), never hand-built with string concatenation.
-	PartitionLabel             *string `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string  `json:"operational_location_display"`
 }
 
 // CalendarEvent is the generic hot-list/month payload. It intentionally stays source-agnostic.
 type CalendarEvent struct {
-	EventID          string     `json:"event_id"`
-	EventType        string     `json:"event_type"`
-	OwnerKey         string     `json:"owner_key"`
-	Title            string     `json:"title"`
-	Subtitle         string     `json:"subtitle"`
-	Aggregated       bool       `json:"aggregated"`
-	AllDay           bool       `json:"all_day"`
-	SummaryPrimary   string     `json:"summary_primary"`
-	SummarySecondary string     `json:"summary_secondary"`
-	SummaryTertiary  string     `json:"summary_tertiary"`
-	Status           string     `json:"status"`
-	Severity         string     `json:"severity"`
-	DueAt            time.Time  `json:"due_at"`
-	WindowStart      *time.Time `json:"window_start"`
-	WindowEnd        *time.Time `json:"window_end"`
-	Timezone         string     `json:"timezone"`
-	TimezoneSource   string     `json:"timezone_source"`
-	ParkID           *string    `json:"park_id"`
-	ParkCode         *string    `json:"park_code"`
-	ShedID           *string    `json:"shed_id"`
-	ShedName         *string    `json:"shed_name"`
-	CohortID         *string    `json:"cohort_id"`
-	CohortName       *string    `json:"cohort_name"`
-	TargetType       string     `json:"target_type"`
-	TargetCount      int        `json:"target_count"`
-	ShedCount        int        `json:"shed_count"`
-	VaccineCount     int        `json:"vaccine_count"`
-	DriveCount       int        `json:"drive_count"`
-	CatchUpCount     int        `json:"catch_up_count"`
-	ScheduledCount   int        `json:"scheduled_count"`
-	DeferredCount    int        `json:"deferred_count"`
-	ReviewCount      int        `json:"review_count"`
-	ShedLabels       []string   `json:"shed_labels"`
-	// ShedPartitionLabels carries partition labels index-parallel to ShedLabels. A nil/empty entry
-	// means no partition resolved (multi-partition shed, or non-partitioned). NEVER render a partition
-	// label without its corresponding shed label, or pair them incorrectly due to array misalignment.
-	ShedPartitionLabels        []string        `json:"shed_partition_labels,omitempty"`
+	EventID                    string          `json:"event_id"`
+	EventType                  string          `json:"event_type"`
+	OwnerKey                   string          `json:"owner_key"`
+	Title                      string          `json:"title"`
+	Subtitle                   string          `json:"subtitle"`
+	Aggregated                 bool            `json:"aggregated"`
+	AllDay                     bool            `json:"all_day"`
+	SummaryPrimary             string          `json:"summary_primary"`
+	SummarySecondary           string          `json:"summary_secondary"`
+	SummaryTertiary            string          `json:"summary_tertiary"`
+	Status                     string          `json:"status"`
+	Severity                   string          `json:"severity"`
+	DueAt                      time.Time       `json:"due_at"`
+	WindowStart                *time.Time      `json:"window_start"`
+	WindowEnd                  *time.Time      `json:"window_end"`
+	Timezone                   string          `json:"timezone"`
+	TimezoneSource             string          `json:"timezone_source"`
+	ParkID                     *string         `json:"park_id"`
+	ParkCode                   *string         `json:"park_code"`
+	ShedID                     *string         `json:"shed_id"`
+	ShedName                   *string         `json:"shed_name"`
+	CohortID                   *string         `json:"cohort_id"`
+	CohortName                 *string         `json:"cohort_name"`
+	TargetType                 string          `json:"target_type"`
+	TargetCount                int             `json:"target_count"`
+	ShedCount                  int             `json:"shed_count"`
+	VaccineCount               int             `json:"vaccine_count"`
+	DriveCount                 int             `json:"drive_count"`
+	CatchUpCount               int             `json:"catch_up_count"`
+	ScheduledCount             int             `json:"scheduled_count"`
+	DeferredCount              int             `json:"deferred_count"`
+	ReviewCount                int             `json:"review_count"`
+	ShedLabels                 []string        `json:"shed_labels"`
 	VaccineLabels              []string        `json:"vaccine_labels"`
 	ProtocolID                 *string         `json:"protocol_id"`
 	ProtocolVersionID          *string         `json:"protocol_version_id"`

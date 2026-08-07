@@ -11,7 +11,6 @@ import (
 	"time"
 
 	obldomain "github.com/vgoats/goatos/backend/internal/obligation/domain"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	vaccdomain "github.com/vgoats/goatos/backend/internal/vaccination/domain"
 )
 
@@ -26,26 +25,15 @@ type ObligationReader interface {
 	ListOpenByGoat(ctx context.Context, tenantID, goatID string, limit int32) ([]obldomain.OpenObligation, error)
 }
 
-// LocationReader resolves a goat's current ground location. Passport owns no location data itself
-// (goats/locations/goat_shed_partitions belong to the org/herd tables, not to passport); this is a
-// read-only port so the adapter can be swapped without passport depending on another module's
-// package, matching the pattern vaccination/counts already use for the same tables.
-type LocationReader interface {
-	GoatLocation(ctx context.Context, tenantID, goatID string) (oploc.OperationalLocation, bool, error)
-}
-
 // Service builds a goat passport from the vaccination + obligation reads.
 type Service struct {
 	vacc VaccinationReader
 	obl  ObligationReader
-	loc  LocationReader
 }
 
-// NewService wires the readers. loc may be nil (e.g. in tests that do not exercise location); a nil
-// reader simply leaves the passport's location fields empty rather than erroring, so a goat's
-// vaccination history is never blocked on location resolution.
-func NewService(vacc VaccinationReader, obl ObligationReader, loc LocationReader) *Service {
-	return &Service{vacc: vacc, obl: obl, loc: loc}
+// NewService wires the readers.
+func NewService(vacc VaccinationReader, obl ObligationReader) *Service {
+	return &Service{vacc: vacc, obl: obl}
 }
 
 // DueItem is one open obligation in the passport (API DTO).
@@ -90,21 +78,11 @@ type LastDose struct {
 
 // Passport is the aggregated read model for one goat.
 type Passport struct {
-	GoatID   string `json:"goat_id"`
-	ParkID   string `json:"park_id,omitempty"`
-	ParkName string `json:"park_name,omitempty"`
-	ShedID   string `json:"shed_id,omitempty"`
-	ShedName string `json:"shed_name,omitempty"`
-	// PartitionLabel is the raw stored partition label ("2", "Part 3"), or "" when the shed is not
-	// partitioned or the goat's location could not be resolved. Never the "whole" sentinel.
-	PartitionLabel string `json:"partition_label,omitempty"`
-	// OperationalLocationDisplay is oploc.OperationalLocation.Display(): "Castro 2" for a partition,
-	// bare "Yashoda" for a non-partitioned shed, "" if location could not be resolved.
-	OperationalLocationDisplay string        `json:"operational_location_display,omitempty"`
-	NextDue                    *DueItem      `json:"next_due"`
-	OpenObligations            []DueItem     `json:"open_obligations"`
-	LastAccepted               *LastDose     `json:"last_accepted"`
-	VaccinationHistory         []HistoryItem `json:"vaccination_history"`
+	GoatID             string        `json:"goat_id"`
+	NextDue            *DueItem      `json:"next_due"`
+	OpenObligations    []DueItem     `json:"open_obligations"`
+	LastAccepted       *LastDose     `json:"last_accepted"`
+	VaccinationHistory []HistoryItem `json:"vaccination_history"`
 }
 
 const passportLimit = 200
@@ -129,18 +107,6 @@ func (s *Service) GetPassport(ctx context.Context, tenantID, goatID string) (Pas
 		GoatID:             goatID,
 		OpenObligations:    make([]DueItem, 0, len(open)),
 		VaccinationHistory: make([]HistoryItem, 0, len(history)),
-	}
-	if s.loc != nil {
-		if loc, found, err := s.loc.GoatLocation(ctx, tenantID, goatID); err != nil {
-			return Passport{}, err
-		} else if found {
-			p.ParkID = loc.ParkID
-			p.ParkName = loc.ParkName
-			p.ShedID = loc.ShedID
-			p.ShedName = loc.ShedName
-			p.PartitionLabel = loc.PartitionLabel
-			p.OperationalLocationDisplay = loc.Display()
-		}
 	}
 	for _, o := range open {
 		p.OpenObligations = append(p.OpenObligations, DueItem{

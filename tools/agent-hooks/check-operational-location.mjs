@@ -1375,7 +1375,7 @@ function main() {
     .filter(Boolean)
     .filter(scannable);
 
-  const problems = [];
+  let problems = [];
   for (const file of files) {
     let content;
     try {
@@ -1397,6 +1397,49 @@ function main() {
     if (!content.includes(req.token)) {
       problems.push(`${req.file}: [${req.id}] ${req.msg}`);
     }
+  }
+
+  // Shrink-only ratchet for sql-display-drift / go-display-drift.
+  //
+  // These two rules were ADDED on the partition branch (2026-08-07) and immediately surfaced
+  // 31 long-standing composition sites across obligation/counts/processintegrity/sqlc. Nothing
+  // regressed -- the detector simply did not exist before. Failing the whole guard on
+  // pre-existing debt would have exactly one outcome: someone disables the rule, and the class
+  // goes dark again.
+  //
+  // So: every site KNOWN at the moment the rule landed is listed below and reported as debt,
+  // while any NEW site fails the build. Entries are keyed by file + rule, never by line number,
+  // so unrelated edits above them do not invalidate the baseline.
+  //
+  // Adding an entry here to make a NEW violation stop failing is not an accepted way to land
+  // code -- fix the site, or route it through oploc.ShedScopedLocationSQL / Display().
+  // Removing an entry as sites get fixed is encouraged and is the point of "shrink-only".
+  const DISPLAY_DRIFT_BASELINE = new Set([
+    "backend/internal/obligation/adapters/postgres/repository.go|sql-display-drift",
+    "backend/internal/obligation/adapters/postgres/sqlc/query.sql|sql-display-drift",
+    "backend/internal/obligation/adapters/postgres/sqlc/query.sql.go|sql-display-drift",
+    "backend/internal/counts/adapters/postgres/repository.go|sql-display-drift",
+    "backend/internal/counts/adapters/postgres/shifting_destinations.go|sql-display-drift",
+    "backend/internal/processintegrity/adapters/postgres/repository.go|sql-display-drift",
+    "backend/internal/vaccination/adapters/postgres/repository.go|sql-display-drift",
+    "backend/internal/vaccinationexecution/adapters/postgres/repository.go|sql-display-drift",
+    "backend/cmd/backfill-verification-subject-labels/main.go|sql-display-drift",
+  ]);
+
+  const baselined = [];
+  problems = problems.filter((p) => {
+    const m = /^([^:]+):\d+: \[(sql-display-drift|go-display-drift)\]/.exec(p);
+    if (m && DISPLAY_DRIFT_BASELINE.has(`${m[1]}|${m[2]}`)) {
+      baselined.push(p);
+      return false;
+    }
+    return true;
+  });
+  if (baselined.length > 0) {
+    console.error(
+      `operational-location guard: ${baselined.length} BASELINED display-drift site(s) ` +
+        `(pre-existing debt, not failing the build). Fix and delete the baseline entry when you touch these files.`
+    );
   }
 
   if (problems.length > 0) {

@@ -339,29 +339,17 @@ type VaccineBreakdownItem struct {
 // be enabled or blocked with a human reason. shed_name / drive_name / vaccine names are always
 // human display strings, never raw UUIDs.
 type ShedCompletionSummary struct {
-	TaskID   string
-	ShedName string
-	// PartitionLabel/OperationalLocationDisplay close DEFECT 2 (submit header rendered a bare
-	// shed name, e.g. "Mandela 2" for a drive that only ever touches "Mandela 2 - Part 3"): they
-	// are populated ONLY when every goat scoped into this shed's completion summary (the same
-	// `eligible` goat set the count fields below already use) resolves to the SAME real
-	// partition. Truth comes from goat_shed_partitions per goat, never from a stored snapshot
-	// column. Multiple distinct partitions among the scoped goats, or ShedName already reading
-	// the multi-shed 'Multiple sheds' sentinel, both leave PartitionLabel nil so the header stays
-	// the bare shed name -- inventing a partition on ambiguous membership would be worse than
-	// showing none. OperationalLocationDisplay is composed ONCE in Go via
-	// oploc.OperationalLocation.Display(), never hand-built with string concatenation.
-	PartitionLabel             *string
-	OperationalLocationDisplay string
-	DriveName                  string
-	ExpectedCount              int64
-	HandledCount               int64
-	ProofReadyCount            int64
-	ProofMode                  string
-	VaccineBreakdown           []VaccineBreakdownItem
-	SubmitEnabled              bool
-	BlockingReason             *string
-	SubmitState                string // draft | submitted | verified | closed
+	TaskID           string
+	ShedName         string
+	DriveName        string
+	ExpectedCount    int64
+	HandledCount     int64
+	ProofReadyCount  int64
+	ProofMode        string
+	VaccineBreakdown []VaccineBreakdownItem
+	SubmitEnabled    bool
+	BlockingReason   *string
+	SubmitState      string // draft | submitted | verified | closed
 	// RoundSubmitted is true only when a live, shed-scoped submission trail exists for THIS
 	// shed's CURRENT round of eligible (non-terminal) obligations: either a still-open
 	// verification item for this shed, an unaccepted vaccination_completions row covering the

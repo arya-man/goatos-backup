@@ -10,6 +10,7 @@ import (
 	"github.com/vgoats/goatos/backend/internal/counts/domain"
 	"github.com/vgoats/goatos/backend/internal/counts/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 )
 
 var (
@@ -155,7 +156,9 @@ func (s *ShiftingExecutionService) Complete(
 	if result.EventStatus == domain.ShiftingEventStatusPending ||
 		result.EventStatus == domain.ShiftingEventStatusPendingVerification ||
 		result.EventStatus == domain.ShiftingEventStatusApplied {
-		subject := "Shed move · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
+		loc := oploc.OperationalLocation{ShedName: result.DestinationShedName, PartitionLabel: result.DestinationPartitionLabel}
+		locDisplay := loc.Display()
+		subject := "Shed move · " + locDisplay + " · " + strconv.Itoa(len(result.MovedGoatIDs)) + " animals"
 		mediaRefs := []string{strings.TrimSpace(in.ProofRef)}
 		if ref := strings.TrimSpace(in.FeedPackingProofRef); ref != "" {
 			mediaRefs = append(mediaRefs, ref)

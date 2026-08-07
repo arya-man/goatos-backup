@@ -53,6 +53,7 @@ type SubmitTransportParams struct {
 }
 type SubmitTransportResult struct {
 	AttemptID, Status, ParkID, ShedID string
+	ShedName, PartitionLabel          string
 	AttemptNo                         int32
 	NewlyPending                      bool
 }

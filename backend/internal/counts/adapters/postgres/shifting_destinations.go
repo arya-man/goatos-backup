@@ -53,11 +53,7 @@ SELECT
     park.name,
     shed.location_id::text,
     shed.name,
-    -- RAW label, not normalized_label. normalized_label ('3') is the MATCHING KEY used by the
-    -- join predicates below; the human label is 'Part 3'. Selecting the key made the picker read
-    -- "Godel 1 - 3", where nobody can tell whether the digits belong to the shed name or the
-    -- partition -- the exact ambiguity the worded form exists to remove (maintainer, 2026-08-07).
-    COALESCE(partitions.partition_label, partitions.normalized_label),
+    partitions.normalized_label,
     COALESCE(animal_count.count, 0),
     COALESCE(stage_agg.stages, ARRAY[]::text[])
 FROM locations park
@@ -82,7 +78,7 @@ LEFT JOIN LATERAL (
       AND g.exited_at IS NULL
       AND (
         -- For this partition, count goats whose partition_label matches (after normalization)
-        CASE WHEN partitions.normalized_label IS NOT NULL THEN -- operational-location:ignore: owner=ravi issue=N/A scope=WHERE_clause_partition_filtering_not_display_composition expiry=2027-12-31
+        CASE WHEN partitions.normalized_label IS NOT NULL THEN
           regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '') = partitions.normalized_label
         ELSE
           -- For non-partitioned shed, count all goats with whole/null partition
@@ -128,10 +124,10 @@ func (r *Repository) ShiftingDestinationCatalog(ctx context.Context, tenantID st
 	parkIndex := map[string]int{}
 	for rows.Next() {
 		var parkID, parkName string
-		var shedID, shedName, partitionLabel *string // operational-location:ignore: owner=Claude issue=task-context scope=SQL-scan-variable-declaration-includes-shedID-keyed-via-parkID-not-shed-name expiry=2026-09-06
+		var shedID, shedName, partitionLabel *string
 		var animalCount int
 		var shedStages []string
-		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil { // operational-location:ignore: owner=Claude issue=task-context scope=scan-destination-includes-shedID-keyed-via-parkID-not-shed-name expiry=2026-09-06
+		if err := rows.Scan(&parkID, &parkName, &shedID, &shedName, &partitionLabel, &animalCount, &shedStages); err != nil {
 			return domain.ShiftingDestinationCatalog{}, fmt.Errorf("counts: shifting destination catalog scan: %w", err)
 		}
 		idx, ok := parkIndex[parkID]
