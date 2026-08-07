@@ -154,6 +154,33 @@ lump AS (
    AND sh.accepted_at >= $3::timestamptz AND sh.accepted_at < $4::timestamptz
    AND sh.verification_status <> 'rejected'
   WHERE s.weighing_category = 'per_shed_partition'
+),
+lump_span AS (
+  -- LAST TWO weighs and the days between them, matching the shed rows and the legacy
+  -- adg_goat_last2 shape. A full-span figure hides a shed that has just stalled.
+  --
+  -- projection-review: membership=one row per lump-sum location with at least two weighs in the window; group_key=location_id, exactly the GROUP BY; join_cardinality=weighing_shed_observations 0..N per location and COLLAPSED by the aggregate to one row, campaign_sheds 1 per bucket (PK), campaigns 1 per campaign (PK); pagination=NONE, joined 0..1 into the gain arms; scope=tenant_id + park_id = ANY($2)
+  --
+  -- Ratio key sets: the two averages and the day gap are drawn from the SAME two rows of the SAME location, so the division is always one shed against its own previous weigh.
+  SELECT sh.location_id,
+         (max(sh.average_weight_kg) FILTER (WHERE sh.rn = 1)
+        - max(sh.average_weight_kg) FILTER (WHERE sh.rn = 2)) * 1000.0
+          / NULLIF(max(sh.d) FILTER (WHERE sh.rn = 1) - max(sh.d) FILTER (WHERE sh.rn = 2), 0) AS g_per_day,
+         max(sh.animal_count) FILTER (WHERE sh.rn = 1)                                          AS animals
+  FROM (
+    SELECT cs2.location_id, so.average_weight_kg, so.animal_count,
+           (so.accepted_at AT TIME ZONE 'Asia/Kolkata')::date AS d,
+           row_number() OVER (PARTITION BY cs2.location_id ORDER BY so.accepted_at DESC) AS rn
+    FROM weighing_shed_observations so
+    JOIN weighing_campaign_sheds cs2 ON cs2.campaign_shed_id = so.campaign_shed_id
+    JOIN weighing_campaigns c2 ON c2.campaign_id = cs2.campaign_id
+    WHERE so.tenant_id = $1::uuid AND c2.park_id = ANY($2::uuid[])
+      AND so.withdrawn_at IS NULL AND so.verification_status <> 'rejected'
+      AND so.accepted_at >= $3::timestamptz AND so.accepted_at < $4::timestamptz
+  ) sh
+  WHERE sh.rn <= 2
+  GROUP BY sh.location_id
+  HAVING count(*) = 2
 )
 SELECT
   (SELECT count(*) FROM resolved WHERE breed IS NOT NULL),
@@ -189,14 +216,38 @@ SELECT
        ) parts GROUP BY stage
      ) st),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(breed, n, g) ORDER BY n DESC), '[]'::jsonb)
-     FROM (SELECT breed, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
-             FROM resolved_gain WHERE breed IS NOT NULL GROUP BY breed) gb),
+     FROM (SELECT breed, sum(n)::bigint n, (sum(tot)/NULLIF(sum(n),0))::float8 g FROM (
+             SELECT breed, count(*)::bigint n, sum(g)::float8 tot
+               FROM resolved_gain WHERE breed IS NOT NULL GROUP BY breed
+             UNION ALL
+             -- Whole-shed movement counts here too, weighted by the animals behind it.
+             -- Without this arm a stage weighed only as sheds showed nothing at all.
+             SELECT sc.breed, sum(ls.animals)::bigint, sum(ls.g_per_day * ls.animals)::float8
+               FROM lump_span ls JOIN shed_cohort sc ON sc.location_id = ls.location_id
+               WHERE sc.breeds = 1 AND sc.breed IS NOT NULL GROUP BY sc.breed) gp
+           GROUP BY breed) gb),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(sex, n, g) ORDER BY n DESC), '[]'::jsonb)
-     FROM (SELECT sex, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
-             FROM resolved_gain WHERE sex IS NOT NULL GROUP BY sex) gx),
+     FROM (SELECT sex, sum(n)::bigint n, (sum(tot)/NULLIF(sum(n),0))::float8 g FROM (
+             SELECT sex, count(*)::bigint n, sum(g)::float8 tot
+               FROM resolved_gain WHERE sex IS NOT NULL GROUP BY sex
+             UNION ALL
+             -- Whole-shed movement counts here too, weighted by the animals behind it.
+             -- Without this arm a stage weighed only as sheds showed nothing at all.
+             SELECT sc.sex, sum(ls.animals)::bigint, sum(ls.g_per_day * ls.animals)::float8
+               FROM lump_span ls JOIN shed_cohort sc ON sc.location_id = ls.location_id
+               WHERE sc.sexes = 1 AND sc.sex IS NOT NULL GROUP BY sc.sex) gp
+           GROUP BY sex) gx),
   (SELECT COALESCE(jsonb_agg(jsonb_build_array(management_stage, n, g) ORDER BY n DESC), '[]'::jsonb)
-     FROM (SELECT management_stage, count(*) n, percentile_cont(0.5) WITHIN GROUP (ORDER BY g)::float8 g
-             FROM resolved_gain WHERE management_stage IS NOT NULL GROUP BY management_stage) gs)`
+     FROM (SELECT management_stage, sum(n)::bigint n, (sum(tot)/NULLIF(sum(n),0))::float8 g FROM (
+             SELECT management_stage, count(*)::bigint n, sum(g)::float8 tot
+               FROM resolved_gain WHERE management_stage IS NOT NULL GROUP BY management_stage
+             UNION ALL
+             -- Whole-shed movement counts here too, weighted by the animals behind it.
+             -- Without this arm a stage weighed only as sheds showed nothing at all.
+             SELECT sc.stage, sum(ls.animals)::bigint, sum(ls.g_per_day * ls.animals)::float8
+               FROM lump_span ls JOIN shed_cohort sc ON sc.location_id = ls.location_id
+               WHERE sc.stages = 1 AND sc.stage IS NOT NULL GROUP BY sc.stage) gp
+           GROUP BY management_stage) gs)`
 
 	var (
 		resolvedCount, unresolvedCount, lumpTotal, lumpUnattributed int
