@@ -2072,6 +2072,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"kpi.gain.label":            "Median daily gain",
 			"kpi.gain.sub":              "per kid, own weighs",
 			"kpi.gain.none":             "needs a second weigh",
+			"kpi.gain.blended":          "kids weighed one by one and whole sheds together, per kid",
 			"kpi.park_gain.suffix":      "— daily gain",
 			"kpi.park_gain.all":         "All parks",
 			"section.park_gain.aria":    "Daily gain by park",
