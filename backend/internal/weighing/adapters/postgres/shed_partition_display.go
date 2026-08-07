@@ -53,3 +53,17 @@ func applyPlannerShedPartitionDisplay(shed *domain.PlannerShed) {
 		PartitionLabel: partition,
 	}.Display()
 }
+
+// applyLeadershipShedPartitionDisplay is the LeadershipShedVideos twin of
+// applyShedPartitionDisplay. It exists because the OpenAPI schema marks
+// operational_location_display REQUIRED on WeighingShedVideos: a required field the
+// backend never emits is a contract the client cannot rely on, and that exact shape
+// (schema declares it, Go never populates it) has shipped on this branch more than once.
+func applyLeadershipShedPartitionDisplay(shed *domain.LeadershipShedVideos) {
+	parent, partition := splitShedPartitionName(shed.ShedName)
+	shed.PartitionLabel = partition
+	shed.OperationalLocationDisplay = oploc.OperationalLocation{
+		ShedName:       parent,
+		PartitionLabel: partition,
+	}.Display()
+}

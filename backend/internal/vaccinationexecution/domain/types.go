@@ -710,6 +710,7 @@ type ShedSummaryProjection struct {
 	ParkName           string
 	ShedID             string
 	ShedName           string
+	PartitionLabel     *string        // partition_label; NULL for undivided sheds (stored as 'whole' in DB, NULLIF-ed to nil in query)
 	Animals            int
 	DueAnimals         int
 	OpenCells          int            // legacy open obligation rows; not the new operator capacity unit

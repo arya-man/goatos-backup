@@ -475,6 +475,15 @@ type LeadershipShedVideos struct {
 	CampaignID     string `json:"campaign_id"`
 	CampaignShedID string `json:"campaign_shed_id"`
 	ShedName       string `json:"shed_name"`
+	// PartitionLabel and OperationalLocationDisplay are DERIVED from ShedName by
+	// oploc.SplitShedPartitionName, never from a join: weighing is an isolated module
+	// and may not read goat_shed_partitions. ShedName carries the catalog name, which
+	// already encodes the partition ("Godel 1 - Part 3"), so the parse is the whole
+	// source. OperationalLocationDisplay is REQUIRED by the OpenAPI schema, so it must
+	// be populated on every construction path -- a required field the backend never
+	// emits is a contract the client cannot rely on.
+	PartitionLabel             string `json:"partition_label,omitempty"`
+	OperationalLocationDisplay string `json:"operational_location_display"`
 	// ParkName and WeighDate are the shed's OWN context, carried on the shed-grain
 	// read so a cold deep link into this surface renders a real eyebrow. They used
 	// to travel as client route args, which meant a link opened without the parent
