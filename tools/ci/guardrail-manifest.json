@@ -785,6 +785,17 @@
       "notes": "Weighing is free-flow (maintainer decision 2026-07-31, STRICT form). The observation write path may touch ONLY weighing-owned tables plus proof/idempotency/audit/outbox: no goats, no weighing_expected_animals, no vaccination tables, no clinical state; the write REQUEST must never require or carry animal_id; and no weighing UI may render an expected-animal denominator. Ten failure modes: (1) vaccination/herd-roster read in the write path; (2) animal_id NOT NULL reintroduced; (3) UNIQUE on scanned_identifier collapsing it across campaign_shed_id buckets; (4) rejecting a null animal_id instead of routing to the scanned_identifier path; (5) clinical-state read (goats.health_status / lifecycle_status / a clinical-defer vocabulary) used to gate a write; (6) weighing_expected_animals.status / availability_status used as a gate rather than a label; (7) STRICT allowlist catch-all for any table outside the weighing-owned set; (8) a Go struct tag or validator-library call making AnimalID a required/non-empty precondition anywhere in the module; (9) an Android Kotlin `Weighing*RequestDto` (the write-request DTO shape) declaring an animal_id/animalId field \u2014 scoped narrowly to that naming convention, so it does not fire on the read/response DTO, a Room entity, or Vaccination DTOs; (10) a weighing UI surface (Android Compose weighing screens, admin-web weighing pages) rendering/computing a ratio against an expected/roster-named denominator, or a literal N/N or /100 progress token. Scans the transitive closure of same-file helpers called from the write entry points, so extracting a gate into a private helper does not hide it. Vaccination stays strict and is untouched by this guard."
     },
     {
+      "id": "weighing-close-gate",
+      "script": "tools/agent-hooks/check-weighing-close-gate-guard.mjs",
+      "makeTarget": "weighing-close-gate-guard",
+      "realCheck": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs",
+      "selfTest": "node tools/agent-hooks/check-weighing-close-gate-guard.mjs --self-test",
+      "owningDoc": "context/repo-audits/weighing-implementation-do-not-reopen-ledger.md",
+      "requiredInCI": true,
+      "ciStep": "weighing-close-gate-guard",
+      "notes": "THE CLOSE GATE IS UNCONDITIONAL (maintainer decision 2026-08-03). Weighing has exactly two verbs, close and reopen; there is no force/override/skip variant of close and 'abandon' is a deleted verb. AGENTS.md claimed this script enforced the rule from 2026-08-03, but the FILE DID NOT EXIST until 2026-08-07 -- the gate was real in close.go and tested, yet nothing stopped a refactor from removing it while every author who read that line believed a machine was watching. Three failure modes: (1) close-gate-removed, no ErrVerificationPending reference survives anywhere in weighing; (2) close-bypass-parameter, a force/override/skip/ignore-verification flag on a weighing close request in Go/Kotlin/TS; (3) abandon-verb-returns, the deleted 'abandon' verb reappearing outside tests. BLIND SPOTS, stated so this guard is not over-trusted the way the missing one was: it cannot prove the gate is reached at runtime on every path (close.go's own tests do that), and it matches on NAMES, so a bypass named inventively (expedite, fastPath) passes -- extend the vocabulary when you meet one."
+    },
+    {
       "id": "weighing-kernel-phase2",
       "script": "tools/agent-hooks/check-weighing-kernel-phase2-guard.mjs",
       "makeTarget": "weighing-kernel-phase2-guard",
