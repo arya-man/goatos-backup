@@ -184,7 +184,14 @@ SELECT b.location_id, b.park_id,
        COALESCE(pk.name, ''), COALESCE(sh.name, ''),
        b.weighing_category, b.bucket_status,
        b.animals, b.avg_kg, b.total_kg, b.last_weighed,
-       b.ge_lower, b.ge_upper, b.threshold_basis
+       b.ge_lower, b.ge_upper, b.threshold_basis,
+       count(*) OVER()::int AS summary_sheds_in_scope,
+       count(*) FILTER (WHERE b.animals > 0) OVER()::int AS summary_sheds_weighed,
+       COALESCE(sum(CASE WHEN b.animals > 0 THEN b.animals ELSE 0 END) OVER(), 0)::int AS summary_animals_weighed,
+       COALESCE(sum(CASE WHEN b.animals > 0 THEN b.total_kg ELSE 0 END) OVER(), 0)::float8 AS summary_total_weight_kg,
+       COALESCE(sum(b.ge_lower) OVER(), 0)::int AS summary_ge_lower,
+       COALESCE(sum(b.ge_upper) OVER(), 0)::int AS summary_ge_upper,
+       COALESCE(sum(b.threshold_basis) OVER(), 0)::int AS summary_threshold_basis
 FROM latest_bucket b
 LEFT JOIN locations sh ON sh.location_id = b.location_id
 LEFT JOIN locations pk ON pk.location_id = b.park_id
@@ -211,11 +218,19 @@ LIMIT $7`
 			geLower     int
 			geUpper     int
 			basis       int
+			summaryRows domain.ShedWeightsSummary
 		)
 		if err := rows.Scan(&row.LocationID, &row.ParkID, &row.ParkName, &row.ShedDisplayName,
 			&row.WeighingCategory, &row.BucketStatus,
 			&animals, &avgKg, &totalKg, &lastWeighed,
-			&geLower, &geUpper, &basis); err != nil {
+			&geLower, &geUpper, &basis,
+			&summaryRows.ShedsInScope,
+			&summaryRows.ShedsWeighed,
+			&summaryRows.AnimalsWeighed,
+			&summaryRows.TotalWeightKg,
+			&summaryRows.AtOrAbove30Kg,
+			&summaryRows.AtOrAbove35Kg,
+			&summaryRows.ThresholdBasisAnimals); err != nil {
 			return domain.ShedWeights{}, err
 		}
 		row.AnimalsWeighed = animals
@@ -229,18 +244,7 @@ LIMIT $7`
 			row.LastWeighedDate = lastWeighed.Format("2006-01-02")
 		}
 		out.Rows = append(out.Rows, row)
-
-		summary.ShedsInScope++
-		if animals > 0 {
-			summary.ShedsWeighed++
-			summary.AnimalsWeighed += animals
-			if totalKg != nil {
-				summary.TotalWeightKg += *totalKg
-			}
-		}
-		summary.AtOrAbove30Kg += geLower
-		summary.AtOrAbove35Kg += geUpper
-		summary.ThresholdBasisAnimals += basis
+		summary = summaryRows
 	}
 	if err := rows.Err(); err != nil {
 		return domain.ShedWeights{}, err
