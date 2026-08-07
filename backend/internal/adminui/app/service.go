@@ -1032,6 +1032,12 @@ func pageSpecificCopy(id string) map[string]string {
 			"drawer.note":                   "Verifier decisions remain separate from source-task action. Rework and reassignment below act only on the linked SOP task.",
 			"feedback.done":                 "Done",
 			"feedback.failed":               "Action failed",
+			// feedback.<server error code>. The raw code is an internal token and must never be
+			// the sentence a verifier reads -- the screen literally said "Action failed
+			// missing_reason". Unmapped codes render nothing rather than leaking the token.
+			"feedback.missing_reason":    "A rejection needs a reason. Say what the video showed that failed the standard, then press Reject again.",
+			"feedback.permission_denied": "Recording a verdict is limited to the video verification team.",
+			"feedback.conflict":          "Someone else recorded a verdict on this action first. Reload to see it.",
 			// Rework / Re-assign / Penalty copy REMOVED with those panels (maintainer decision
 			// 2026-08-07). mock/verifier-web-mock.SPEC.md section 1: the verifier watches a proof
 			// video and accepts it, or rejects it with a reason -- "that is all. Nothing else
