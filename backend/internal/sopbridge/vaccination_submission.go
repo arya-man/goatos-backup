@@ -280,23 +280,6 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 			continue
 		}
 		animalLabel := vaccinationAnimalSubjectLabel(completion, shedLabels)
-		// This animal's OWN shed, not the submission-wide `shedID`. `shedID` is the first
-		// shed seen across the whole submission, so a submission spanning two sheds stamped
-		// every item with the first one -- observed on a real submit, 2026-08-07: two Castro 2
-		// goats were filed under Mandela 2. Worse, PartitionLabel below is already per-goat,
-		// so the pair composed a location that does not exist (goat A's partition on goat B's
-		// shed), and the leadership shed filter then hid the evidence under the wrong shed.
-		animalShedID := shedID
-		if completion.ShedID != "" {
-			animalShedID = stringPtr(completion.ShedID)
-		}
-		// PartitionLabel comes from the goat's current shed partition at submission time.
-		// This is the authoritative source: the same partition information the query uses to
-		// build shed_label and every other shed-aware read model.
-		partitionLabel := completion.PartitionLabel
-		if partitionLabel != "" {
-			partitionLabel = strings.TrimSpace(partitionLabel)
-		}
 		if _, err := b.verification.CreateItem(ctx, verificationdomain.CreateItem{
 			TenantID:     tenantID,
 			Vertical:     "preventive_care",
@@ -310,11 +293,10 @@ func (b *VaccinationSubmissionBridge) emitVerificationItems(
 				RefType:      "vaccination_goat",
 				RefID:        goatID,
 			},
-			MediaRefs:      animalMedia,
-			OperatorID:     operatorID,
-			ShedID:         animalShedID,
-			PartitionLabel: stringPtr(partitionLabel),
-			ParkID:         parkID,
+			MediaRefs:  animalMedia,
+			OperatorID: operatorID,
+			ShedID:     shedID,
+			ParkID:     parkID,
 			// This animal's own capture time, not the submission-wide earliest: the queue sorts
 			// on it, and a shared timestamp would collapse the ordering of a shed's animals.
 			CapturedAt:     completion.AdministeredAt,

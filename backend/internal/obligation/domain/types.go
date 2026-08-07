@@ -152,7 +152,6 @@ type UnbatchedDue struct {
 	ScopeID                  string
 	ParkID                   string
 	ShedName                 string
-	PartitionLabel           string
 	TargetID                 string
 	TargetSpecies            string
 	TargetAnimalStage        string
@@ -171,7 +170,6 @@ type ParkConsolidationCandidate struct {
 	RuleID                   string
 	ShedID                   string
 	ShedName                 string
-	PartitionLabel           string
 	ParkID                   string
 	TargetID                 string
 	TargetSpecies            string

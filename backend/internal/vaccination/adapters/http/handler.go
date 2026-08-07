@@ -325,23 +325,17 @@ type shedCompletionVaccineBreakdownItem struct {
 // below are exact per the frozen contract and must not change without updating every consumer
 // (Android SubmitScreen, admin-web record/verify drawer, OpenAPI spec + generated api-client).
 type shedCompletionSummaryResponse struct {
-	TaskID   string `json:"task_id"`
-	ShedName string `json:"shed_name"`
-	// The domain type resolves both of these (see ShedCompletionSummary) but this WIRE DTO
-	// dropped them, so the operator's submit header still read a bare "Mandela 2" for work in
-	// "Mandela 2 - Part 3". Same class as the verifier queue: the domain layer being right is
-	// not the payload being right, and no test crossed this boundary.
-	PartitionLabel             *string                              `json:"partition_label,omitempty"`
-	OperationalLocationDisplay string                               `json:"operational_location_display"`
-	DriveName                  string                               `json:"drive_name"`
-	ExpectedCount              int64                                `json:"expected_count"`
-	HandledCount               int64                                `json:"handled_count"`
-	ProofReadyCount            int64                                `json:"proof_ready_count"`
-	ProofMode                  string                               `json:"proof_mode"`
-	VaccineBreakdown           []shedCompletionVaccineBreakdownItem `json:"vaccine_breakdown"`
-	SubmitEnabled              bool                                 `json:"submit_enabled"`
-	BlockingReason             *string                              `json:"blocking_reason"`
-	SubmitState                string                               `json:"submit_state"`
+	TaskID           string                               `json:"task_id"`
+	ShedName         string                               `json:"shed_name"`
+	DriveName        string                               `json:"drive_name"`
+	ExpectedCount    int64                                `json:"expected_count"`
+	HandledCount     int64                                `json:"handled_count"`
+	ProofReadyCount  int64                                `json:"proof_ready_count"`
+	ProofMode        string                               `json:"proof_mode"`
+	VaccineBreakdown []shedCompletionVaccineBreakdownItem `json:"vaccine_breakdown"`
+	SubmitEnabled    bool                                 `json:"submit_enabled"`
+	BlockingReason   *string                              `json:"blocking_reason"`
+	SubmitState      string                               `json:"submit_state"`
 	// RoundSubmitted is true only when a live/accepted submission trail exists for THIS shed's
 	// CURRENT round of eligible obligations. See domain.ShedCompletionSummary.RoundSubmitted.
 	RoundSubmitted bool `json:"round_submitted"`
@@ -384,21 +378,19 @@ func (h *Handler) ShedCompletionSummary(w http.ResponseWriter, r *http.Request) 
 		breakdown = append(breakdown, shedCompletionVaccineBreakdownItem{Vaccine: item.Vaccine, Count: item.Count})
 	}
 	httpresponse.WriteJSON(w, http.StatusOK, shedCompletionSummaryResponse{
-		TaskID:                     summary.TaskID,
-		ShedName:                   summary.ShedName,
-		PartitionLabel:             summary.PartitionLabel,
-		OperationalLocationDisplay: summary.OperationalLocationDisplay,
-		DriveName:                  summary.DriveName,
-		ExpectedCount:              summary.ExpectedCount,
-		HandledCount:               summary.HandledCount,
-		ProofReadyCount:            summary.ProofReadyCount,
-		ProofMode:                  summary.ProofMode,
-		VaccineBreakdown:           breakdown,
-		SubmitEnabled:              summary.SubmitEnabled,
-		BlockingReason:             summary.BlockingReason,
-		SubmitState:                summary.SubmitState,
-		RoundSubmitted:             summary.RoundSubmitted,
-		RoundID:                    summary.RoundID,
+		TaskID:           summary.TaskID,
+		ShedName:         summary.ShedName,
+		DriveName:        summary.DriveName,
+		ExpectedCount:    summary.ExpectedCount,
+		HandledCount:     summary.HandledCount,
+		ProofReadyCount:  summary.ProofReadyCount,
+		ProofMode:        summary.ProofMode,
+		VaccineBreakdown: breakdown,
+		SubmitEnabled:    summary.SubmitEnabled,
+		BlockingReason:   summary.BlockingReason,
+		SubmitState:      summary.SubmitState,
+		RoundSubmitted:   summary.RoundSubmitted,
+		RoundID:          summary.RoundID,
 	})
 }
 

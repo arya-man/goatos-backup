@@ -40,6 +40,8 @@ type FeedPackingVerificationEnqueueRequest struct {
 	CompletionID    string
 	ParkID          string
 	ShedID          string
+	ShedName        string
+	PartitionLabel  string
 	SessionNo       int32
 	Workflow        string
 	TargetDate      time.Time
@@ -159,6 +161,8 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 			CompletionID:    result.CompletionID,
 			ParkID:          in.ParkID,
 			ShedID:          in.ShedID,
+			ShedName:        result.ShedName,
+			PartitionLabel:  result.PartitionLabel,
 			SessionNo:       in.SessionNo,
 			Workflow:        in.Workflow,
 			TargetDate:      in.TargetDate,

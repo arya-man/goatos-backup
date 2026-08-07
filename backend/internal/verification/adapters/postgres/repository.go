@@ -15,7 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	platformoploc "github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/verification/domain"
 	"github.com/vgoats/goatos/backend/internal/verification/ports"
@@ -64,13 +63,13 @@ var _ ports.Repository = (*Repository)(nil)
 
 const itemColumns = `item_id::text, tenant_id::text, vertical, module, category, source_module,
   source_task_id::text, source_submission_id::text, source_ref_type, source_ref_id::text, subject_label, subject_note, media_refs,
-  status, verdict_reason, operator_id::text, shed_id::text, partition_label, park_id::text, captured_at, verified_by::text,
+  status, verdict_reason, operator_id::text, shed_id::text, park_id::text, captured_at, verified_by::text,
   verified_at, closed_by::text, closed_at, applier_ack_expected, applied_at, applied_by_module,
   row_version, created_at, updated_at`
 
 const itemColumnsWithLabels = `vi.item_id::text, vi.tenant_id::text, vi.vertical, vi.module, vi.category, vi.source_module,
   vi.source_task_id::text, vi.source_submission_id::text, vi.source_ref_type, vi.source_ref_id::text, vi.subject_label, vi.subject_note, vi.media_refs,
-  vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.partition_label, vi.park_id::text, vi.captured_at, vi.verified_by::text,
+  vi.status, vi.verdict_reason, vi.operator_id::text, vi.shed_id::text, vi.park_id::text, vi.captured_at, vi.verified_by::text,
   vi.verified_at, vi.closed_by::text, vi.closed_at, vi.applier_ack_expected, vi.applied_at, vi.applied_by_module,
   vi.row_version, vi.created_at, vi.updated_at,
   operator.display_name::text, verifier.display_name::text,
@@ -93,19 +92,19 @@ func (r *Repository) CreateItem(ctx context.Context, in domain.CreateItem) (doma
 	err = tx.QueryRow(ctx, `
 INSERT INTO verification_items (
   tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id,
-  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, status, operator_id, shed_id, partition_label, park_id,
+  source_ref_type, source_ref_id, subject_label, subject_note, media_refs, status, operator_id, shed_id, park_id,
   captured_at, idempotency_key, applier_ack_expected
 ) VALUES (
   $1::uuid, $2, $3, $4, $5, nullif($6, '')::uuid, nullif($7, '')::uuid, $8, $9::uuid, nullif($10, ''),
   nullif($17, ''),
-  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($19, '')::text, nullif($14, '')::uuid, $15, $16, $18
+  $11::jsonb, 'pending', nullif($12, '')::uuid, nullif($13, '')::uuid, nullif($14, '')::uuid, $15, $16, $18
 )
 ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 RETURNING item_id::text`,
 		in.TenantID, in.Vertical, in.Module, in.Category, in.Source.Module,
 		derefStr(in.Source.TaskID), derefStr(in.Source.SubmissionID), in.Source.RefType, in.Source.RefID,
 		derefStr(in.SubjectLabel), string(mediaJSON), derefStr(in.OperatorID), derefStr(in.ShedID), derefStr(in.ParkID),
-		in.CapturedAt.UTC(), in.IdempotencyKey, derefStr(in.SubjectNote), in.ApplierAckExpected, derefStr(in.PartitionLabel),
+		in.CapturedAt.UTC(), in.IdempotencyKey, derefStr(in.SubjectNote), in.ApplierAckExpected,
 	).Scan(&itemID)
 	created := true
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -244,9 +243,6 @@ ORDER BY captured_at, item_id`, tenantID, submissionID)
 func (r *Repository) ListQueue(ctx context.Context, params ports.ListQueueParams) ([]domain.Item, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
-	// Filter options are keyed by oploc.Key() ("<uuid>#<partition>"), so the raw value
-	// cannot go into a ::uuid cast. See splitShedFilter.
-	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	var cursorCapturedAt any
 	var cursorItemID any
 	if params.Cursor != nil {
@@ -305,7 +301,6 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $6::boolean OR vi.park_id = ANY($7::uuid[]))
   AND ($14 = '' OR vi.park_id = $14::uuid)
   AND ($15 = '' OR vi.shed_id = $15::uuid)
-  AND ($19 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $19)
   AND ($16::timestamptz IS NULL OR vi.captured_at >= $16::timestamptz)
   AND ($17::timestamptz IS NULL OR vi.captured_at < $17::timestamptz)
   AND ($8::timestamptz IS NULL OR (vi.captured_at, vi.item_id) > ($8::timestamptz, $9::uuid))
@@ -339,9 +334,9 @@ LIMIT $11`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, cursorCapturedAt, cursorItemID,
 		params.ReadyForClosure, params.Limit, params.SubmissionScopedOnly, params.OpenOnly,
-		params.ParkID, shedFilterID,
+		params.ParkID, params.ShedID,
 		params.CapturedFrom, params.CapturedBefore,
-		params.AwaitingApplicationOnly, shedFilterPartition,
+		params.AwaitingApplicationOnly,
 	)
 	if err != nil {
 		return nil, err
@@ -359,8 +354,6 @@ LIMIT $11`,
 }
 
 func (r *Repository) ListQueueFilterOptions(ctx context.Context, params ports.ListQueueParams) (domain.QueueFilterOptions, error) {
-	// Same composite-key decode as ListQueue: counts must match the list they describe.
-	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	options := domain.QueueFilterOptions{}
@@ -413,15 +406,7 @@ ORDER BY label, vi.park_id::text`,
 	}
 
 	shedRows, err := r.pool.Query(ctx, `
--- Group on the NORMALIZED partition key, not the raw label. Grouping on the raw value
--- emitted one row for partition_label IS NULL and another for '', which COALESCE then
--- collapsed to the SAME option id -- the client rendered "Godel 1" twice, two entries
--- that filter identically. Observed on device, 2026-08-07. The normalization must stay
--- identical to oploc.NormalizePartition and to the filter predicate that consumes the
--- key, or an option would select rows other than the ones it counted.
-SELECT vi.shed_id::text,
-       COALESCE(min(NULLIF(btrim(vi.partition_label), '')), '') AS partition_label,
-       COALESCE(shed_loc.name, vi.shed_id::text) AS shed_name
+SELECT vi.shed_id::text, COALESCE(shed_loc.name, vi.shed_id::text) AS label
 FROM verification_items vi
 LEFT JOIN locations shed_loc ON vi.tenant_id = shed_loc.tenant_id AND vi.shed_id = shed_loc.location_id
 WHERE vi.tenant_id = $1::uuid
@@ -436,8 +421,8 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $10::boolean OR vi.closed_at IS NULL)
   AND ($11::timestamptz IS NULL OR vi.captured_at >= $11::timestamptz)
   AND ($12::timestamptz IS NULL OR vi.captured_at < $12::timestamptz)
-GROUP BY vi.shed_id, regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', ''), shed_loc.name
-ORDER BY shed_name, 2, vi.shed_id::text`,
+GROUP BY vi.shed_id, shed_loc.name
+ORDER BY label, vi.shed_id::text`,
 		params.TenantID, params.Status, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
 		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.SubmissionScopedOnly, params.OpenOnly,
 		params.CapturedFrom, params.CapturedBefore,
@@ -447,23 +432,11 @@ ORDER BY shed_name, 2, vi.shed_id::text`,
 	}
 	defer shedRows.Close()
 	for shedRows.Next() {
-		var shedID, partitionLabel, shedName string
-		if err := shedRows.Scan(&shedID, &partitionLabel, &shedName); err != nil {
+		var id, label string
+		if err := shedRows.Scan(&id, &label); err != nil {
 			return options, err
 		}
-		// Use the shared operational-location primitive to render the display label.
-		loc := platformoploc.OperationalLocation{
-			ShedID:         shedID,
-			ShedName:       shedName,
-			PartitionLabel: partitionLabel,
-		}
-		label := loc.Display()
-		if label == "" {
-			label = shedID
-		}
-		// Use Key() for stable grouping identity: shed_id + normalized partition
-		key := loc.Key()
-		options.Sheds = append(options.Sheds, domain.LocationFilterOption{ID: key, Label: label})
+		options.Sheds = append(options.Sheds, domain.LocationFilterOption{ID: id, Label: label})
 	}
 	if err := shedRows.Err(); err != nil {
 		return options, err
@@ -497,13 +470,12 @@ WHERE vi.tenant_id = $1::uuid
   AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
   AND ($7 = '' OR vi.park_id = $7::uuid)
   AND ($8 = '' OR vi.shed_id = $8::uuid)
-  AND ($11 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $11)
   AND ($9::timestamptz IS NULL OR vi.captured_at >= $9::timestamptz)
   AND ($10::timestamptz IS NULL OR vi.captured_at < $10::timestamptz)
 GROUP BY vi.status`,
 		params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.ParkID, shedFilterID,
-		params.CapturedFrom, params.CapturedBefore, shedFilterPartition,
+		params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID,
+		params.CapturedFrom, params.CapturedBefore,
 	)
 	if err != nil {
 		return options, err
@@ -540,13 +512,11 @@ SELECT EXISTS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($7 = '' OR vi.park_id = $7::uuid)
     AND ($8 = '' OR vi.shed_id = $8::uuid)
-  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
     AND vi.captured_at < $9::timestamptz
   LIMIT 1
 )`,
 			params.TenantID, strings.Join(categoryFilterList, ","), params.Vertical, params.Module,
-			params.ScopeRestricted, params.ParkIDs, params.ParkID, shedFilterID, params.MissedBefore,
-			shedFilterPartition,
+			params.ScopeRestricted, params.ParkIDs, params.ParkID, params.ShedID, params.MissedBefore,
 		).Scan(&options.HasMissed)
 		if err != nil {
 			return options, err
@@ -878,8 +848,6 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 }
 
 func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
-	// Same composite-key decode as ListQueue.
-	shedFilterID, shedFilterPartition := splitShedFilter(params.ShedID)
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
@@ -982,7 +950,6 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
-  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
   UNION ALL
   -- The archived counterpart of the branch above: an animal whose clip was sent back still has
   -- its verification item, and the drive must keep seeing it as a rejected video. Without this
@@ -1015,7 +982,6 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
-  AND ($10 = '' OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10)
   UNION ALL
   SELECT
     vc.batch_id,
@@ -1120,8 +1086,7 @@ WHERE proof_count = completion_count
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, shedFilterID,
-		shedFilterPartition)
+		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, params.ShedID)
 	if err != nil {
 		return nil, err
 	}
@@ -1771,14 +1736,10 @@ func verificationVerdictPayload(item domain.Item) map[string]any {
 		// "subject + body" concatenation always took the empty branch. The field exists on the row
 		// (verification_items.subject_label, populated by RecordVerdict's own scanItemRow read
 		// immediately above) -- it just was not being put on the wire.
-		"subject_label":    derefStr(item.SubjectLabel),
-		"operator_id":      derefStr(item.OperatorID),
-		"shed_id":          derefStr(item.ShedID),
-		"park_id":          derefStr(item.ParkID),
-		// GAP 2: partition_label enables backend-composed location in verification approval copy.
-		// Without it, notification reads "Weighing proof for Godel 1 (CBE)" instead of
-		// "Weighing proof for Godel 1 - Part 3 (CBE)" when the shed is partitioned.
-		"partition_label": derefStr(item.PartitionLabel),
+		"subject_label": derefStr(item.SubjectLabel),
+		"operator_id":   derefStr(item.OperatorID),
+		"shed_id":       derefStr(item.ShedID),
+		"park_id":       derefStr(item.ParkID),
 		"source": map[string]any{
 			"module":        item.Source.Module,
 			"task_id":       derefStr(item.Source.TaskID),
@@ -2103,18 +2064,18 @@ func scanItemRow(row rowScanner) (domain.Item, error) {
 
 func scanItem(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                                            domain.Item
-		sourceTaskID, sourceSubmissionID                                                *string
-		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel, subjectNote                                                       *string
-		mediaJSON                                                                       []byte
-		appliedByModule                                                                 *string
-		verifiedAt, closedAt, appliedAt                                                 *time.Time
+		item                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                *string
+		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
+		subjectLabel, subjectNote                                       *string
+		mediaJSON                                                       []byte
+		appliedByModule                                                 *string
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2128,7 +2089,6 @@ func scanItem(row rowScanner) (domain.Item, error) {
 	item.SubjectNote = subjectNote
 	item.OperatorID = operatorID
 	item.ShedID = shedID
-	item.PartitionLabel = partitionLabel
 	item.ParkID = parkID
 	item.VerifiedBy = verifiedBy
 	item.VerifiedAt = verifiedAt
@@ -2149,19 +2109,19 @@ func scanItem(row rowScanner) (domain.Item, error) {
 
 func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	var (
-		item                                                                            domain.Item
-		sourceTaskID, sourceSubmissionID                                                *string
-		operatorID, shedID, partitionLabel, parkID, verifiedBy, closedBy, verdictReason *string
-		subjectLabel, subjectNote                                                       *string
-		operatorName, verifiedByName, shedLabel, parkLabel                              *string
-		appliedByModule                                                                 *string
-		mediaJSON                                                                       []byte
-		verifiedAt, closedAt, appliedAt                                                 *time.Time
+		item                                                            domain.Item
+		sourceTaskID, sourceSubmissionID                                *string
+		operatorID, shedID, parkID, verifiedBy, closedBy, verdictReason *string
+		subjectLabel, subjectNote                                       *string
+		operatorName, verifiedByName, shedLabel, parkLabel              *string
+		appliedByModule                                                 *string
+		mediaJSON                                                       []byte
+		verifiedAt, closedAt, appliedAt                                 *time.Time
 	)
 	if err := row.Scan(
 		&item.ItemID, &item.TenantID, &item.Vertical, &item.Module, &item.Category,
 		&item.Source.Module, &sourceTaskID, &sourceSubmissionID, &item.Source.RefType, &item.Source.RefID,
-		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &partitionLabel, &parkID,
+		&subjectLabel, &subjectNote, &mediaJSON, &item.Status, &verdictReason, &operatorID, &shedID, &parkID,
 		&item.CapturedAt, &verifiedBy, &verifiedAt, &closedBy, &closedAt,
 		&item.ApplierAckExpected, &appliedAt, &appliedByModule,
 		&item.RowVersion, &item.CreatedAt, &item.UpdatedAt,
@@ -2177,7 +2137,6 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 	item.OperatorID = operatorID
 	item.OperatorName = operatorName
 	item.ShedID = shedID
-	item.PartitionLabel = partitionLabel
 	item.ShedLabel = shedLabel
 	item.ParkID = parkID
 	item.ParkLabel = parkLabel
@@ -2195,16 +2154,6 @@ func scanItemWithLabels(row rowScanner) (domain.Item, error) {
 		if err := json.Unmarshal(mediaJSON, &item.MediaRefs); err != nil {
 			return domain.Item{}, fmt.Errorf("verification: unmarshal media_refs: %w", err)
 		}
-	}
-	// Compose operational location display (shed + partition).
-	// Examples: "Castro 2", "Godel 1 - Part 3", "Yashoda"
-	if shedLabel != nil {
-		loc := platformoploc.OperationalLocation{
-			ShedName:       *shedLabel,
-			PartitionLabel: derefStr(partitionLabel),
-		}
-		displayStr := loc.Display()
-		item.OperationalLocationDisplay = &displayStr
 	}
 	return item, nil
 }

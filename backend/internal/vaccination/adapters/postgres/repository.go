@@ -19,7 +19,6 @@ import (
 
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 	"github.com/vgoats/goatos/backend/internal/platform/pgconv"
 	vaccinationdb "github.com/vgoats/goatos/backend/internal/vaccination/adapters/postgres/sqlc"
@@ -1816,23 +1815,6 @@ WHERE vc.tenant_id = $1
 // form answers. Every read here is a single tenant+task (or tenant+batch) equality lookup against
 // an indexed column (sop_task_scan_captures_task_idx, obligation_instances_batch_idx,
 // proof_artifacts_scope_idx) — bounded to one task's shed, never a table scan.
-// composeShedCompletionDisplay closes DEFECT 2 (vaccination submit header rendered a bare shed
-// name): the single place that turns a shed name plus an optional resolved partition label into
-// the operator-facing location string, via the shared oploc.Display() rule -- never hand-rolled
-// with '+'/fmt.Sprintf. partitionLabel is nil whenever the SQL layer could not resolve a single
-// real partition shared by every scoped goat (multi-partition shed, multiple sheds, or no
-// partitioned goats at all), in which case the bare shed name is returned.
-func composeShedCompletionDisplay(shedName string, partitionLabel *string) string {
-	label := ""
-	if partitionLabel != nil {
-		label = *partitionLabel
-	}
-	return oploc.OperationalLocation{
-		ShedName:       shedName,
-		PartitionLabel: label,
-	}.Display()
-}
-
 func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID, shedID string) (domain.ShedCompletionSummary, error) {
 	ctx, cancel := r.withTimeout(ctx)
 	defer cancel()
@@ -1864,10 +1846,6 @@ func (r *Repository) ShedCompletionSummary(ctx context.Context, tenantID, taskID
 		maxProofs     int64
 		proofMode     string
 		submitState   string
-		// partitionLabel closes DEFECT 2: nil unless every goat scoped into this shed's summary
-		// resolves to the same real partition; see the SQL obligation_shed CTE and the
-		// domain.ShedCompletionSummary field comment for the full rule.
-		partitionLabel *string
 	)
 	// projection-review: membership=obligation batch of this SOP task (obligation_batches.sop_task_id = the shed drive's batch); group_key=(tenant_id, task_id) resolving one batch_id, all counts keyed to that single batch/shed; join_cardinality=each count is a SEPARATE scalar sub-select over a 1-row-per-fact source (expected=one row per obligation_instance in the batch; handled=COUNT(DISTINCT goat_id) over scan_captures so multiple scans of one goat count once; proof_ready=per-goat mode counts COUNT(DISTINCT subject_id), shed-level mode counts completed shed proof_artifacts) — the buckets are never multiplied by a shared fan-out because they are computed independently, not from one wide JOIN; pagination=whole-shed totals computed server-side in one aggregation, NOT page-limited (no LIMIT/OFFSET on the counts); scope=explicit — the task's own scope_type='shed' resolves shed_name via locations, and expected animals come ONLY from obligation_instances joined to THIS task's batch_id, so no park/cohort/other-shed animals bleed in.
 	// grain: one summary row per (tenant, task/shed drive). status buckets: expected excludes terminal obligations ('completed','waived','canceled','superseded') to mirror RecordCompletionsFromSubmission; submit is enabled only when handled animals match expected and the SOP proof-mode gate is satisfied.
@@ -1998,27 +1976,13 @@ shed AS (
   WHERE t.scope_type = 'shed'
 ),
 obligation_shed AS (
-  SELECT
-    CASE
-      WHEN count(DISTINCT l.location_id) = 1 THEN max(l.name)
-      ELSE 'Multiple sheds'
-    END AS name,
-    count(DISTINCT l.location_id) AS distinct_shed_count,
-    -- DEFECT 2 fix: resolve partition truth from goat_shed_partitions per scoped goat, never a
-    -- stored snapshot column. Non-NULL only when every scoped goat's real (non-'whole')
-    -- partition agrees; see the domain.ShedCompletionSummary comment for the full rule.
-    CASE
-      WHEN count(DISTINCT gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole') = 1
-        THEN min(gsp.partition_label) FILTER (WHERE gsp.partition_label IS NOT NULL AND gsp.partition_label <> 'whole')
-      ELSE NULL
-    END AS single_partition_label
+  SELECT CASE
+    WHEN count(DISTINCT l.location_id) = 1 THEN max(l.name)
+    ELSE 'Multiple sheds'
+  END AS name
   FROM eligible e
   JOIN goats g ON g.tenant_id = $1 AND g.goat_id = e.goat_id
   JOIN locations l ON l.tenant_id = g.tenant_id AND l.location_id = g.shed_id
-  LEFT JOIN goat_shed_partitions gsp
-    ON gsp.tenant_id = $1
-   AND gsp.goat_id = e.goat_id
-   AND gsp.shed_id = g.shed_id
 )
 SELECT
   COALESCE((SELECT name FROM obligation_shed), shed.name, t.title),
@@ -2037,18 +2001,11 @@ SELECT
   CASE WHEN t.proof_mode = 'shed_level_video'
     THEN COALESCE((SELECT state FROM shed_submission_state), 'draft')
     ELSE ''
-  END,
-  -- Only trust the resolved partition label when obligation_shed itself resolved to exactly one
-  -- physical shed (distinct_shed_count = 1); a multi-shed task already renders 'Multiple sheds'
-  -- and must never simultaneously claim a specific partition of one of them.
-  CASE WHEN (SELECT distinct_shed_count FROM obligation_shed) = 1
-    THEN (SELECT single_partition_label FROM obligation_shed)
-    ELSE NULL
   END
 FROM t
 LEFT JOIN shed ON true`,
 		tenant, task, shed.Valid, shed,
-	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState, &partitionLabel)
+	).Scan(&shedName, &driveName, &state, &proofMode, &minProofs, &maxProofs, &expectedCount, &handledCount, &proofReady, &pendingVerify, &submitState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return domain.ShedCompletionSummary{}, fmt.Errorf("vaccination: shed completion summary: %w", ports.ErrNotFound)
@@ -2075,25 +2032,17 @@ LEFT JOIN shed ON true`,
 	}
 	roundID, roundState, roundSubmitted := shedCompletionRoundState(roundFacts, pendingVerify)
 
-	// DEFECT 2 fix: compose the display label ONCE here, in Go, via the shared oploc helper --
-	// never hand-rolled with '+'/fmt.Sprintf. A nil partitionLabel renders the bare shed name,
-	// matching the rule that an ambiguous (multi-partition or multi-shed) summary must never have
-	// a partition invented for it.
-	shedOperationalLocationDisplay := composeShedCompletionDisplay(shedName, partitionLabel)
-
 	summary := domain.ShedCompletionSummary{
-		TaskID:                     taskID,
-		ShedName:                   shedName,
-		PartitionLabel:             partitionLabel,
-		OperationalLocationDisplay: shedOperationalLocationDisplay,
-		DriveName:                  driveName,
-		ExpectedCount:              expectedCount,
-		HandledCount:               handledCount,
-		ProofReadyCount:            proofReady,
-		ProofMode:                  proofMode,
-		VaccineBreakdown:           breakdown,
-		SubmitState:                submitState,
-		RoundID:                    roundID,
+		TaskID:           taskID,
+		ShedName:         shedName,
+		DriveName:        driveName,
+		ExpectedCount:    expectedCount,
+		HandledCount:     handledCount,
+		ProofReadyCount:  proofReady,
+		ProofMode:        proofMode,
+		VaccineBreakdown: breakdown,
+		SubmitState:      submitState,
+		RoundID:          roundID,
 	}
 	if proofMode != "shed_level_video" {
 		// Per-goat mode: derive SubmitState/RoundSubmitted from the shed-scoped round-facts
@@ -2387,8 +2336,11 @@ SELECT vc.completion_id::text,
        vc.goat_id::text,
        g.display_id,
        COALESCE(g.shed_id::text, ''),
-       COALESCE(gsp.partition_label, '')::text AS partition_label,
-       COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')::text AS shed_label,
+       CASE
+         WHEN COALESCE(gsp.partition_label, 'whole') = 'whole'
+           THEN COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '')
+         ELSE COALESCE(NULLIF(shed.name, ''), NULLIF(shed.location_code, ''), g.shed_id::text, '') || ' - ' || gsp.partition_label
+       END::text AS shed_label,
        COALESCE(g.park_id::text, ''),
        COALESCE(proofs.proof_ids, ARRAY[]::text[]),
        vc.administered_at,
@@ -2455,7 +2407,6 @@ LIMIT 5000`, tenant, submission)
 			&item.GoatID,
 			&item.GoatLabel,
 			&item.ShedID,
-			&item.PartitionLabel,
 			&item.ShedLabel,
 			&item.ParkID,
 			&item.ProofRefIDs,

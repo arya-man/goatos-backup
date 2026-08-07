@@ -108,15 +108,31 @@ func (r *Repository) CompleteShiftingEvent(
 				return domain.ShiftingExecutionResult{}, false, ports.ErrIdempotencyConflict
 			}
 		}
+		destShedName := ""
+		if current.DestinationPartitionLabel != nil {
+			// Fetch the shed name to compose the location display
+			shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
+			if err == nil {
+				destShedName = shedName
+			}
+		} else {
+			// No partition; fetch shed name for unpartitioned display
+			shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
+			if err == nil {
+				destShedName = shedName
+			}
+		}
 		return domain.ShiftingExecutionResult{
-			ShiftingEventID:   in.ShiftingEventID,
-			EventStatus:       current.EventStatus,
-			DestinationParkID: destParkID,
-			DestinationShedID: destShedID,
-			MovedGoatIDs:      goatIDs,
-			RaiseComment:      current.RaiseComment,
-			AppliedAt:         current.AppliedAt,
-			AppliedBy:         current.AppliedBy,
+			ShiftingEventID:             in.ShiftingEventID,
+			EventStatus:                 current.EventStatus,
+			DestinationParkID:           destParkID,
+			DestinationShedID:           destShedID,
+			DestinationShedName:         destShedName,
+			DestinationPartitionLabel:   derefOrEmpty(current.DestinationPartitionLabel),
+			MovedGoatIDs:                goatIDs,
+			RaiseComment:                current.RaiseComment,
+			AppliedAt:                   current.AppliedAt,
+			AppliedBy:                   current.AppliedBy,
 		}, true, nil
 	}
 
@@ -217,13 +233,28 @@ WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
 	}
 	committed = true
 
+	destShedName := ""
+	if updated.DestinationPartitionLabel != nil {
+		shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
+		if err == nil {
+			destShedName = shedName
+		}
+	} else {
+		shedName, err := r.fetchShedName(ctx, in.TenantID, destShedID)
+		if err == nil {
+			destShedName = shedName
+		}
+	}
+
 	return domain.ShiftingExecutionResult{
-		ShiftingEventID:   in.ShiftingEventID,
-		EventStatus:       updated.EventStatus,
-		DestinationParkID: destParkID,
-		DestinationShedID: destShedID,
-		MovedGoatIDs:      goatIDs,
-		RaiseComment:      current.RaiseComment,
+		ShiftingEventID:             in.ShiftingEventID,
+		EventStatus:                 updated.EventStatus,
+		DestinationParkID:           destParkID,
+		DestinationShedID:           destShedID,
+		DestinationShedName:         destShedName,
+		DestinationPartitionLabel:   derefOrEmpty(updated.DestinationPartitionLabel),
+		MovedGoatIDs:                goatIDs,
+		RaiseComment:                current.RaiseComment,
 	}, false, nil
 }
 
@@ -632,10 +663,17 @@ RETURNING applied_at, applied_by::text`, tenantID, shiftingEventID, appliedAt.UT
 		srcShed = *sourceShedID
 	}
 	return domain.ShiftingExecutionResult{
-		ShiftingEventID: shiftingEventID, EventStatus: domain.ShiftingEventStatusApplied,
-		SourceParkID: srcPark, SourceShedID: srcShed,
-		DestinationParkID: destParkID, DestinationShedID: destShedID,
-		MovedGoatIDs: moved.MovedGoatIDs, AppliedAt: &stampedAt, AppliedBy: &stampedBy,
+		ShiftingEventID:             shiftingEventID,
+		EventStatus:                 domain.ShiftingEventStatusApplied,
+		SourceParkID:                srcPark,
+		SourceShedID:                srcShed,
+		DestinationParkID:           destParkID,
+		DestinationShedID:           destShedID,
+		DestinationShedName:         destShedName,
+		DestinationPartitionLabel:   derefOrEmpty(current.DestinationPartitionLabel),
+		MovedGoatIDs:                moved.MovedGoatIDs,
+		AppliedAt:                   &stampedAt,
+		AppliedBy:                   &stampedBy,
 	}, nil
 }
 
@@ -1079,4 +1117,18 @@ func derefOrEmpty(s *string) string {
 		return ""
 	}
 	return *s
+}
+
+// fetchShedName reads the display name of a shed location.
+func (r *Repository) fetchShedName(ctx context.Context, tenantID, shedID string) (string, error) {
+	var shedName string
+	err := r.pool.QueryRow(ctx, `
+SELECT COALESCE(NULLIF(shed.name, ''), shed.location_code, '')
+FROM locations shed
+WHERE shed.tenant_id = $1::uuid AND shed.location_id = $2::uuid`,
+		tenantID, shedID).Scan(&shedName)
+	if err != nil {
+		return "", fmt.Errorf("counts: fetch shed name %s: %w", shedID, err)
+	}
+	return shedName, nil
 }

@@ -133,14 +133,6 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 	} else if len(conflicts) > 0 {
 		return domain.Campaign{}, shedScheduleConflictError(cmd.StartBusinessDate, conflicts)
 	}
-	// Partition labels come from the shed_partitions CATALOG, resolved ONCE for the whole campaign
-	// (never inside the loop -- that would be an N+1 on the campaign write path). A name alone
-	// cannot prove a partition: "Castro 2" and "Mandela 1" are the same shape, and only the
-	// catalog knows which is a real partition.
-	resolvedPartitions, err := resolvePartitionLabels(ctx, tx, cmd.TenantID, createCampaignLocationIDs(cmd.Sheds))
-	if err != nil {
-		return domain.Campaign{}, err
-	}
 	for _, shed := range cmd.Sheds {
 		var cs domain.CampaignShed
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
@@ -154,16 +146,15 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		// expectation of one. Nothing derives business truth from this column any
 		// more (see progress() and kernel.go); 0 is the only value free-flow can
 		// honestly store.
-		partitionLabel := partitionLabelFor(resolvedPartitions, shed.LocationID, shed.DisplayName)
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
 			`
-INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date, partition_label)
+INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, denormalized from the campaign so the one-open-row-per
     -- (park, weigh date, shed) unique index can exist at all. Every write path
     -- must set these; migration 000062 fails loudly if one forgets.
-    $8::uuid, $9::date, $10)
-RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_count, $6, $7::text, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate, nullableString(partitionLabel)).
+    $8::uuid, $9::date)
+RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_count, $6, $7::text, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.OperatorUserID, &cs.Status)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
@@ -172,7 +163,6 @@ RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_co
 		if err != nil {
 			return domain.Campaign{}, mapShedUniqueViolation(err, cmd.StartBusinessDate, shed.DisplayName)
 		}
-		stampCampaignShedLocation(&cs, partitionLabel)
 		c.Sheds = append(c.Sheds, cs)
 	}
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
@@ -332,16 +322,7 @@ WHERE weighing_campaign_sheds.tenant_id=$1::uuid
 	} else if len(conflicts) > 0 {
 		return domain.Campaign{}, shedScheduleConflictError(cmd.StartBusinessDate, conflicts)
 	}
-	// Partition labels come from the shed_partitions CATALOG, resolved ONCE for the whole campaign
-	// (never inside the loop -- that would be an N+1 on the campaign write path). A name alone
-	// cannot prove a partition: "Castro 2" and "Mandela 1" are the same shape, and only the
-	// catalog knows which is a real partition.
-	resolvedPartitions, err := resolvePartitionLabels(ctx, tx, cmd.TenantID, createCampaignLocationIDs(cmd.Sheds))
-	if err != nil {
-		return domain.Campaign{}, err
-	}
 	for _, shed := range cmd.Sheds {
-		partitionLabel := partitionLabelFor(resolvedPartitions, shed.LocationID, shed.DisplayName)
 		var campaignShedID string
 		// The bucket's status BEFORE this edit. Read separately because an
 		// ON CONFLICT DO UPDATE cannot report the old row in RETURNING, and a CTE is
@@ -361,12 +342,12 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`,
 		// (expected_animal_count is written 0 = no expectation, same as create).
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
-INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date, partition_label)
+INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
 VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
     -- TASK IDENTITY, re-stated on every edit: an edit that moved the task's park
     -- or weigh date must move its buckets with it, or the duplicate guard would
     -- keep defending the OLD slot and stop defending the new one.
-    $8::uuid, $9::date, $10)
+    $8::uuid, $9::date)
 ON CONFLICT (tenant_id, campaign_id, location_id)
 DO UPDATE SET
   park_id=EXCLUDED.park_id,
@@ -376,14 +357,13 @@ DO UPDATE SET
   weighing_category=EXCLUDED.weighing_category,
   operator_user_id=EXCLUDED.operator_user_id,
   expected_animal_count=EXCLUDED.expected_animal_count,
-  partition_label=EXCLUDED.partition_label,
   status=CASE WHEN weighing_campaign_sheds.status='canceled' THEN 'pending' ELSE weighing_campaign_sheds.status END,
   updated_at=now()
 -- 'canceled' is deliberately NOT in this list: re-selecting a shed the planner had
 -- deselected must revive it, which is exactly what the CASE above does. Excluding
 -- canceled here made that CASE unreachable, so a re-added shed stayed canceled.
 WHERE weighing_campaign_sheds.status NOT IN ('completed','closed')
-RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate, nullableString(partitionLabel)).
+RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent upsert race */, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
@@ -3108,7 +3088,6 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	rows, err := tx.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
   `+readyToCloseCountsSQL+`
-, cs.partition_label
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
   ON op.tenant_id=cs.tenant_id AND op.user_id=cs.operator_user_id AND op.status='active'
@@ -3121,14 +3100,10 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		var storedPartition *string
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount, &storedPartition); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
-		if storedPartition != nil {
-			shed.PartitionLabel = *storedPartition
-		}
 		applyShedPartitionDisplay(&shed)
 		c.Sheds = append(c.Sheds, shed)
 	}
@@ -3155,7 +3130,6 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	rows, err := r.pool.Query(ctx, `
 SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
   `+readyToCloseCountsSQL+`
-, cs.partition_label
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
   ON op.tenant_id=cs.tenant_id AND op.user_id=cs.operator_user_id AND op.status='active'
@@ -3169,15 +3143,11 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	for rows.Next() {
 		var shed domain.CampaignShed
 		var submitted int
-		var storedPartition *string
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount, &storedPartition); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
-		if storedPartition != nil {
-			shed.PartitionLabel = *storedPartition
-		}
 		applyShedPartitionDisplay(&shed)
 		if idx, ok := byID[shed.CampaignID]; ok {
 			campaigns[idx].Sheds = append(campaigns[idx].Sheds, shed)

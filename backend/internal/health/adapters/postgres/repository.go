@@ -17,7 +17,6 @@ import (
 	"github.com/vgoats/goatos/backend/internal/health/domain"
 	"github.com/vgoats/goatos/backend/internal/health/ports"
 	"github.com/vgoats/goatos/backend/internal/platform/audit"
-	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	platformoutbox "github.com/vgoats/goatos/backend/internal/platform/outbox"
 )
 
@@ -59,13 +58,11 @@ func (r *Repository) OpenCase(ctx context.Context, in domain.OpenCaseInput) (dom
 	}()
 
 	var lifecycle, goatAgeBand string
-	var parkID, shedID, partitionLabel *string
+	var parkID, shedID *string
 	err = tx.QueryRow(ctx, `
-SELECT g.lifecycle_status, coalesce(g.age_band,''), g.park_id::text, g.shed_id::text, gsp.partition_label
-FROM goats g
-LEFT JOIN goat_shed_partitions gsp ON gsp.tenant_id = g.tenant_id AND gsp.goat_id = g.goat_id AND gsp.shed_id = g.shed_id
-WHERE g.tenant_id=$1::uuid AND g.goat_id=$2::uuid
-FOR SHARE OF g`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID, &partitionLabel)
+SELECT lifecycle_status, coalesce(age_band,''), park_id::text, shed_id::text
+FROM goats WHERE tenant_id=$1::uuid AND goat_id=$2::uuid
+FOR SHARE`, in.TenantID, in.GoatID).Scan(&lifecycle, &goatAgeBand, &parkID, &shedID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.OpenCaseResult{}, ports.ErrNotFound
 	}
@@ -111,11 +108,11 @@ FROM health_cases hc WHERE hc.tenant_id=$1::uuid AND hc.idempotency_key=$2`,
 	err = tx.QueryRow(ctx, `
 INSERT INTO health_cases (
  tenant_id,goat_id,health_protocol_version_id,disease_key,disease_name,age_band,start_date,
- duration_days,status,park_id,shed_id,partition_label,diagnosed_by,idempotency_key,request_fingerprint
+ duration_days,status,park_id,shed_id,diagnosed_by,idempotency_key,request_fingerprint
 ) VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5,$6,$7::date,$8,'active',
- nullif($9,'')::uuid,nullif($10,'')::uuid,nullif($11,''),$12::uuid,$13,$14)
+ nullif($9,'')::uuid,nullif($10,'')::uuid,$11::uuid,$12,$13)
 RETURNING health_case_id::text`, in.TenantID, in.GoatID, p.id, p.diseaseKey, p.diseaseName, p.ageBand,
-		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), valueOrEmpty(partitionLabel), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
+		in.StartDate.Format("2006-01-02"), p.duration, valueOrEmpty(parkID), valueOrEmpty(shedID), in.ActorID, in.IdempotencyKey, in.RequestFingerprint).Scan(&caseID)
 	if err != nil {
 		return domain.OpenCaseResult{}, fmt.Errorf("health: insert case: %w", err)
 	}
@@ -255,7 +252,7 @@ WITH page AS (
 )
 SELECT p.health_session_id::text,p.health_case_id::text,p.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,
  p.day_no,hc.duration_days,p.business_date::text,p.session,p.due_at,p.effective_status,
- coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(hc.partition_label,''),
+ coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),
  coalesce(sc.step_count,0),coalesce(sc.medication_count,0),coalesce(sc.has_critical,false)
 FROM page p JOIN health_cases hc ON hc.health_case_id=p.health_case_id JOIN goats g ON g.goat_id=p.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id
@@ -270,7 +267,7 @@ ORDER BY p.due_at,p.health_session_id`, args...)
 	for rows.Next() {
 		var it domain.WorkItem
 		var park, shed string
-		if err := rows.Scan(&it.SessionID, &it.CaseID, &it.GoatID, &it.GoatDisplayID, &it.DiseaseKey, &it.DiseaseName, &it.AgeBand, &it.DayNo, &it.DurationDays, &it.BusinessDate, &it.Session, &it.DueAt, &it.Status, &park, &it.ParkLabel, &shed, &it.ShedLabel, &it.PartitionLabel, &it.StepCount, &it.MedicationCount, &it.HasCriticalStep); err != nil {
+		if err := rows.Scan(&it.SessionID, &it.CaseID, &it.GoatID, &it.GoatDisplayID, &it.DiseaseKey, &it.DiseaseName, &it.AgeBand, &it.DayNo, &it.DurationDays, &it.BusinessDate, &it.Session, &it.DueAt, &it.Status, &park, &it.ParkLabel, &shed, &it.ShedLabel, &it.StepCount, &it.MedicationCount, &it.HasCriticalStep); err != nil {
 			return page, err
 		}
 		if park != "" {
@@ -281,9 +278,6 @@ ORDER BY p.due_at,p.health_session_id`, args...)
 		}
 		if it.Status == "held_death_review" {
 			it.Status = "held"
-		}
-		if it.ShedLabel != "" {
-			it.OperationalLocationDisplay = oploc.OperationalLocation{ShedID: shed, ShedName: it.ShedLabel, PartitionLabel: it.PartitionLabel}.Display()
 		}
 		page.Items = append(page.Items, it)
 	}
@@ -381,10 +375,10 @@ func (r *Repository) GetWorkItem(ctx context.Context, tenantID, sessionID string
 	var d domain.WorkItemDetail
 	var park, shed string
 	err := r.pool.QueryRow(ctx, `SELECT hs.health_session_id::text,hc.health_case_id::text,hs.goat_id::text,g.display_id,hc.disease_key,hc.disease_name,hc.age_band,hs.day_no,hc.duration_days,hs.business_date::text,hs.session,hs.due_at,
-CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,''),coalesce(hc.partition_label,'')
+CASE WHEN hs.status='scheduled' AND hs.due_at<=now() THEN 'due' ELSE hs.status END,coalesce(hc.park_id::text,''),coalesce(pl.name,''),coalesce(hc.shed_id::text,''),coalesce(sl.name,'')
 FROM health_treatment_sessions hs JOIN health_cases hc ON hc.tenant_id=hs.tenant_id AND hc.health_case_id=hs.health_case_id JOIN goats g ON g.goat_id=hs.goat_id
 LEFT JOIN locations pl ON pl.tenant_id=hc.tenant_id AND pl.location_id=hc.park_id LEFT JOIN locations sl ON sl.tenant_id=hc.tenant_id AND sl.location_id=hc.shed_id
-WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel, &d.PartitionLabel)
+WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessionID).Scan(&d.SessionID, &d.CaseID, &d.GoatID, &d.GoatDisplayID, &d.DiseaseKey, &d.DiseaseName, &d.AgeBand, &d.DayNo, &d.DurationDays, &d.BusinessDate, &d.Session, &d.DueAt, &d.Status, &park, &d.ParkLabel, &shed, &d.ShedLabel)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, ports.ErrNotFound
 	}
@@ -399,9 +393,6 @@ WHERE hs.tenant_id=$1::uuid AND hs.health_session_id=$2::uuid`, tenantID, sessio
 	}
 	if d.Status == "held_death_review" {
 		d.Status = "held"
-	}
-	if d.ShedLabel != "" {
-		d.OperationalLocationDisplay = oploc.OperationalLocation{ShedID: shed, ShedName: d.ShedLabel, PartitionLabel: d.PartitionLabel}.Display()
 	}
 	rows, err := r.pool.Query(ctx, `SELECT health_session_step_id::text,seq,record_type,medicine_name,dosage_text,dosage_denominator,medicine_route,instruction,critical_action_type,status FROM health_session_steps WHERE tenant_id=$1::uuid AND health_session_id=$2::uuid ORDER BY seq`, tenantID, sessionID)
 	if err != nil {

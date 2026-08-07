@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
+	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/tasks/domain"
 	"github.com/vgoats/goatos/backend/internal/tasks/ports"
 )
@@ -244,14 +245,18 @@ func (s *Service) CompleteAction(ctx context.Context, in CompleteActionInput) (d
 			// CreateItem).
 			return domain.ActionWriteResult{}, domain.ErrVerificationEnqueuerNotWired
 		}
+		// Fetch shed details for operational location composition
+		shedID := derefOr(result.Workflow.ShedID)
+		shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, in.TenantID, shedID)
+
 		if err := s.enqueuer.EnqueueDeathEvidenceVerification(ctx, DeathVerificationEnqueueRequest{
 			TenantID:       in.TenantID,
 			WorkflowID:     in.WorkflowID,
 			OperatorID:     strings.TrimSpace(in.CompletedBy),
 			ParkID:         derefOr(result.Workflow.ParkID),
-			ShedID:         derefOr(result.Workflow.ShedID),
+			ShedID:         shedID,
 			ProofRefs:      result.DeathProofRefs,
-			SubjectLabel:   "Death evidence · " + result.Workflow.EventDate,
+			SubjectLabel:   appendLocation("Death evidence · "+result.Workflow.EventDate, shedName, partitionLabel),
 			CapturedAt:     s.now().UTC(),
 			IdempotencyKey: deathEvidenceIdempotencyKey(in.WorkflowID, result.DeathReviewRound, result.DeathProofRefs),
 		}); err != nil {
@@ -276,10 +281,15 @@ func (s *Service) enqueueBirthWorkflowIfReady(ctx context.Context, tenantID, wor
 	if review.SubjectRole == domain.TemplateKeyBirthMother {
 		subject = "Mother"
 	}
+
+	// Fetch shed details for operational location composition
+	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, review.ShedID)
+
 	return s.enqueuer.EnqueueBirthEvidenceVerification(ctx, BirthVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
 		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
-		SubjectLabel: subject + " birth evidence · " + review.EventDate, CapturedAt: s.now().UTC(),
+		SubjectLabel: appendLocation(subject+" birth evidence · "+review.EventDate, shedName, partitionLabel),
+		CapturedAt: s.now().UTC(),
 		IdempotencyKey: birthEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
 	})
 }
@@ -416,10 +426,13 @@ func (s *Service) ReleaseApprovedDeathEvidence(ctx context.Context, tenantID, go
 	if capturedAt.IsZero() {
 		capturedAt = s.now().UTC()
 	}
+	// Fetch shed details for operational location composition
+	shedName, partitionLabel, _ := s.repo.FetchShedDetails(ctx, tenantID, review.ShedID)
+
 	return s.enqueuer.EnqueueDeathEvidenceVerification(ctx, DeathVerificationEnqueueRequest{
 		TenantID: tenantID, WorkflowID: review.WorkflowID, OperatorID: review.OperatorID,
 		ParkID: review.ParkID, ShedID: review.ShedID, ProofRefs: review.ProofRefs,
-		SubjectLabel: "Death evidence · " + review.EventDate, CapturedAt: capturedAt,
+		SubjectLabel: appendLocation("Death evidence · "+review.EventDate, shedName, partitionLabel), CapturedAt: capturedAt,
 		IdempotencyKey: deathEvidenceIdempotencyKey(review.WorkflowID, review.Round, review.ProofRefs),
 	})
 }
@@ -499,6 +512,29 @@ func birthMoment(dob *time.Time, rowTime *string, payloadTime string, occurredAt
 		}
 	}
 	return time.Date(day.Year(), day.Month(), day.Day(), hour, minute, 0, 0, loc)
+}
+
+// composeOperationalLocation composes a location display string from shed name and partition label.
+func composeOperationalLocation(shedName, partitionLabel string) string {
+	loc := oploc.OperationalLocation{
+		ShedName:       shedName,
+		PartitionLabel: partitionLabel,
+	}
+	return loc.Display()
+}
+
+// appendLocation adds " · <location>" to a subject label ONLY when the location resolves.
+//
+// An unresolvable shed must DEGRADE to the location-less label. Concatenating unconditionally
+// yields "Death evidence · 2026-08-07 · " -- a dangling separator in an operator's queue. That
+// is the same class as the `Raised by <uuid>` copy defect: a label composed from a value that
+// was not there.
+func appendLocation(label, shedName, partitionLabel string) string {
+	loc := composeOperationalLocation(shedName, partitionLabel)
+	if strings.TrimSpace(loc) == "" {
+		return label
+	}
+	return label + " · " + loc
 }
 
 func derefOr(s *string) string {
