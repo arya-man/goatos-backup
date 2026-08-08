@@ -346,14 +346,13 @@ func TestServeIssuedReturnsStoredRowsWithPageInvariantSummary(t *testing.T) {
 // Serve: generated preview (no issued sheet)
 // ---------------------------------------------------------------------------
 
-// TOMORROW (the default feed day) with no issue GENERATES the sheet and returns it as a `preview`
-// (maintainer decision 2026-07-20): rows AND a whole-scope summary, plus the per-workflow expected
-// issue time so the operator sees when it WILL be issued. Tomorrow is inside the [today, tomorrow]
-// generation horizon, so the on-the-fly generate is allowed. The per-workflow detail is `pending`
-// (issue instant still ahead). It live-computes, and it is NOT labelled draft.
-func TestServeTomorrowWithNoIssueReturnsGeneratedPreview(t *testing.T) {
+// BEFORE the dispatch clock, a feed day has NO ROWS AT ALL (maintainer decision 2026-08-08,
+// superseding the 2026-07-20 always-generate preview). The screen must not show a number that can
+// still move: it shows WHEN the sheet arrives. Critically the gate must also not live-compute --
+// generating rows and then hiding them would burn a config snapshot + counts read on every poll.
+func TestServeBeforeDispatchClockShowsNoRowsAndNamesTheArrivalTime(t *testing.T) {
 	t.Parallel()
-	// now = 2026-07-29 06:00 -> today 07-29, tomorrow 07-30 (= feedDayTarget), before the 07:00 issue.
+	// now = 2026-07-29 06:00 -> tomorrow 07-30 (= feedDayTarget) is issued at 07-29 07:00: one hour away.
 	now := istInstant(2026, 7, 29, 6)
 	svc, config, counts, _ := newLifecycleService(now)
 
@@ -361,57 +360,68 @@ func TestServeTomorrowWithNoIssueReturnsGeneratedPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Preview: %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePending {
+		t.Fatalf("state = %q, want pending before the dispatch clock", page.Lifecycle.State)
 	}
-	if page.Draft {
-		t.Fatal("a generated preview must NOT be labelled draft")
-	}
-	if len(page.Items) == 0 {
-		t.Fatal("preview must GENERATE and return rows, not an empty wall")
-	}
-	if page.Summary.Scope != domain.SummaryScopeFiltered || len(page.Summary.TotalKgByFeedItem) == 0 {
-		t.Fatalf("preview must carry a whole-scope summary, got %+v", page.Summary)
+	if len(page.Items) != 0 {
+		t.Fatalf("a gated day must serve NO rows, got %d", len(page.Items))
 	}
 	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].ExpectedIssueAt == nil {
-		t.Fatalf("preview must name the expected issue instant per workflow, got %+v", page.Lifecycle.Workflows)
-	}
-	if page.Lifecycle.Workflows[0].State != domain.LifecycleStatePending {
-		t.Fatalf("future workflow detail = %q, want pending", page.Lifecycle.Workflows[0].State)
+		t.Fatalf("a gated day must name the expected issue instant, got %+v", page.Lifecycle.Workflows)
 	}
 	want := domain.FormatBusinessInstant(istInstant(2026, 7, 29, 7))
 	if *page.Lifecycle.Workflows[0].ExpectedIssueAt != want {
 		t.Fatalf("expected_issue_at = %s, want %s", *page.Lifecycle.Workflows[0].ExpectedIssueAt, want)
 	}
-	if config.snapshotCalls == 0 || counts.calls == 0 {
-		t.Fatal("a generated preview MUST live-compute the rows")
+	if config.snapshotCalls != 0 || counts.calls != 0 {
+		t.Fatalf("a gated day must NOT live-compute (snapshots %d, counts %d)", config.snapshotCalls, counts.calls)
 	}
 }
 
-// TODAY with no issue also GENERATES a `preview` — today is the lower bound of the [today, tomorrow]
-// horizon ("today" is being fed, packed yesterday). The per-workflow detail is `not_issued` because
-// today's issue instant (yesterday 07:00) has passed.
-func TestServeTodayWithNoIssueReturnsGeneratedPreview(t *testing.T) {
+// AT/AFTER the dispatch clock the FIRST read generates the sheet AND FREEZES it, then serves the
+// frozen rows. This is the whole point of the gate: what the packing crew sees at 08:00 is what the
+// sheet said at 07:00, and it cannot drift afterwards. The second read must serve the SAME stored
+// rows without recomputing -- if it recomputed, a shifting approved between the two reads would move
+// the kilograms under a crew that has already packed the bags.
+func TestServeAfterDispatchClockFreezesOnFirstReadAndNeverRecomputes(t *testing.T) {
 	t.Parallel()
-	// now = 2026-07-30 08:00 -> today 07-30 (= feedDayTarget), after the 07-29 07:00 issue instant.
+	// now = 2026-07-30 08:00 -> today 07-30 (= feedDayTarget), past its 07-29 07:00 issue instant.
 	now := istInstant(2026, 7, 30, 8)
-	svc, config, counts, _ := newLifecycleService(now)
+	svc, config, counts, store := newLifecycleService(now)
 
-	page, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	first, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
-		t.Fatalf("Preview: %v", err)
+		t.Fatalf("Preview (first): %v", err)
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+	if first.Lifecycle.State != domain.IssueStateIssued {
+		t.Fatalf("state = %q, want issued: the first read past the clock must FREEZE", first.Lifecycle.State)
 	}
-	if len(page.Items) == 0 {
-		t.Fatal("today's preview must GENERATE rows")
+	if len(first.Items) == 0 {
+		t.Fatal("the frozen sheet must carry rows")
 	}
-	if len(page.Lifecycle.Workflows) != 1 || page.Lifecycle.Workflows[0].State != domain.LifecycleStateNotIssued {
-		t.Fatalf("today workflow detail = %+v, want not_issued", page.Lifecycle.Workflows)
+	if len(store.headers) == 0 {
+		t.Fatal("the first read past the clock must PERSIST the sheet, not just render it")
 	}
-	if config.snapshotCalls == 0 || counts.calls == 0 {
-		t.Fatal("a generated preview MUST live-compute the rows")
+
+	// The freeze is stamped at the SCHEDULED instant, not at first-read time, so the audit trail does
+	// not record whoever happened to open the screen first.
+	for _, header := range store.headers {
+		if got := header.IssuedAt.In(biztime.DefaultLocation()); !got.Equal(istInstant(2026, 7, 29, 7)) {
+			t.Fatalf("issued_at = %s, want the scheduled 07-29 07:00 instant", got)
+		}
+	}
+
+	snapAfterFreeze, countsAfterFreeze := config.snapshotCalls, counts.calls
+	second, err := svc.Preview(context.Background(), domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
+	if err != nil {
+		t.Fatalf("Preview (second): %v", err)
+	}
+	if config.snapshotCalls != snapAfterFreeze || counts.calls != countsAfterFreeze {
+		t.Fatalf("the second read RECOMPUTED (snapshots %d->%d, counts %d->%d): frozen rows must be served verbatim",
+			snapAfterFreeze, config.snapshotCalls, countsAfterFreeze, counts.calls)
+	}
+	if len(second.Items) != len(first.Items) {
+		t.Fatalf("frozen serve returned %d rows, first read had %d", len(second.Items), len(first.Items))
 	}
 }
 
@@ -497,11 +507,14 @@ func TestServeIssuedBeyondHorizonStillServesFrozenRows(t *testing.T) {
 	}
 }
 
-// The preview summary is WHOLE-SCOPE and page-size invariant, and blocked-vs-zero survives the
-// generated path exactly as it does on an issued sheet: a blocked cell is null + counted, never a 0.
+// The served summary is WHOLE-SCOPE and page-size invariant, and blocked-vs-zero survives the
+// freeze-on-first-read path exactly as it does on an already-issued sheet: a blocked cell is null +
+// counted, never a 0.
 func TestServePreviewSummaryIsWholeScopeAndPreservesBlocked(t *testing.T) {
 	t.Parallel()
-	now := istInstant(2026, 7, 29, 6) // tomorrow = feedDayTarget 07-30, inside the generation horizon
+	// 08:00 is PAST the 07:00 dispatch clock for feedDayTarget, so the first read freezes the sheet
+	// and every read after it serves those frozen rows.
+	now := istInstant(2026, 7, 29, 8)
 	svc, _, counts, _ := newLifecycleService(now)
 	// Give shed B a management stage with no authored ration so at least one cell BLOCKS.
 	counts.grains[shedB] = []domain.ShedGrain{{ManagementStage: "No-Such-Stage", Breed: "No-Such-Breed", HeadCount: 12}}
@@ -512,8 +525,8 @@ func TestServePreviewSummaryIsWholeScopeAndPreservesBlocked(t *testing.T) {
 		if err != nil {
 			t.Fatalf("preview(limit=%d): %v", limit, err)
 		}
-		if page.Lifecycle.State != domain.LifecycleStatePreview {
-			t.Fatalf("state = %q, want preview", page.Lifecycle.State)
+		if page.Lifecycle.State != domain.IssueStateIssued {
+			t.Fatalf("state = %q, want issued", page.Lifecycle.State)
 		}
 		if i == 0 {
 			reference = page.Summary
@@ -636,9 +649,10 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 		t.Fatal("draft must actually hit the generation reads")
 	}
 
-	// The non-draft serve of the same future day now GENERATES a preview (it also live-computes), but
-	// it is a `preview`, never a `draft`: draft is the explicit config-authoring escape hatch, preview
-	// is the serve-path fallback for a day with no issued sheet.
+	// Draft is the ONLY path that still live-computes an un-issued day on demand. The non-draft serve
+	// of that same day is GATED (the dispatch clock has not fired), so it returns `pending` with no
+	// rows -- proving the 2026-08-08 gate did not accidentally close the config-authoring what-if
+	// hatch along with the drifting preview.
 	page, err := svc.Preview(ctx, domain.PreviewQuery{TenantID: testTenant, ParkID: testPark, TargetDate: feedDayTarget()})
 	if err != nil {
 		t.Fatalf("serve Preview: %v", err)
@@ -646,8 +660,11 @@ func TestDraftLiveComputesAndIsLabelled(t *testing.T) {
 	if page.Draft {
 		t.Fatal("a non-draft serve must not be draft")
 	}
-	if page.Lifecycle.State != domain.LifecycleStatePreview {
-		t.Fatalf("non-draft serve of an un-issued day = %q, want preview", page.Lifecycle.State)
+	if page.Lifecycle.State != domain.LifecycleStatePending {
+		t.Fatalf("non-draft serve of a gated day = %q, want pending", page.Lifecycle.State)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("a gated day must serve no rows, got %d", len(page.Items))
 	}
 }
 

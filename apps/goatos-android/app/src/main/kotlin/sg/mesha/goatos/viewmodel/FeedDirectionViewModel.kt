@@ -96,7 +96,10 @@ class FeedDirectionViewModel @Inject constructor(
             summary = dto?.toSummaryUi() ?: FeedDirectionSummaryUi(),
             hasSummary = hasSummary,
             emptyMessage = when {
-                hasSummary && dto.summary.rowCount == 0 -> EMPTY_MESSAGE
+                // Gated day (before normal 07:00 / experiment 14:00): no rows is the intended state,
+                // and the backend sentence says when the sheet arrives. See FeedPackingViewModel.
+                hasSummary && dto.summary.rowCount == 0 ->
+                    dto.lifecycle.message.ifBlank { EMPTY_MESSAGE }
                 !hasSummary && isOffline -> ERROR_MESSAGE
                 !hasSummary -> LOADING_MESSAGE
                 else -> null
