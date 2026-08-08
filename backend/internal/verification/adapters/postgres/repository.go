@@ -848,6 +848,11 @@ ORDER BY captured_at, item_id`, in.TenantID, in.SubmissionID)
 	return closedItems, nil
 }
 
+// vaccinationProofCategory scopes the vaccination batch close to its OWN evidence. It mirrors the
+// Category the ready query and the HTTP handler pass ("vaccination_proof"); it is declared locally
+// rather than imported from sopbridge to keep this adapter free of that dependency.
+const vaccinationProofCategory = "vaccination_proof"
+
 func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
@@ -1266,6 +1271,14 @@ SELECT `+itemColumns+`
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid
   AND vi.source_submission_id IS NOT NULL
+  -- Vaccination proofs ONLY. The ready query that authorizes this button is category-filtered, so
+  -- a category-blind close is not self-consistent with it. Before the latest-verdict skip below
+  -- existed, being blind here merely OVER-blocked (a foreign-category rejection refused a
+  -- vaccination close -- wrong, but fail-closed). Combined with that skip it became fail-OPEN: a
+  -- higher-ranking approved item from another category on the same submission could win the
+  -- DISTINCT ON and mask a REJECTED vaccination proof, closing and accepting a batch with real
+  -- rework outstanding. Found in review of 99fd332b6.
+  AND vi.category = $3
   AND EXISTS (
     SELECT 1
     FROM vaccination_completions vc
@@ -1282,7 +1295,7 @@ WHERE vi.tenant_id = $1::uuid
       )
   )
 ORDER BY vi.captured_at, vi.item_id
-FOR UPDATE`, in.TenantID, in.BatchID)
+FOR UPDATE`, in.TenantID, in.BatchID, vaccinationProofCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -1317,13 +1330,14 @@ WHERE vc.tenant_id = $1::uuid
       SELECT 1
       FROM verification_items vi
       WHERE vi.tenant_id = vc.tenant_id
+        AND vi.category = $3
         AND vi.source_submission_id = si.submission_id
         AND (
           (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
           OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
         )
     )
-  )`, in.TenantID, in.BatchID).Scan(&coveredCount); err != nil {
+  )`, in.TenantID, in.BatchID, vaccinationProofCategory).Scan(&coveredCount); err != nil {
 			return nil, err
 		}
 		if coveredCount != expectedCount {
@@ -1362,9 +1376,10 @@ JOIN vaccination_completions vc
  AND vc.status IN ('recorded', 'accepted')
 WHERE vi.tenant_id = $1::uuid
   AND vi.source_submission_id IS NOT NULL
+  AND vi.category = $3
 ORDER BY vc.completion_id, vc.goat_id,
          (vi.shed_id IS NOT NULL) DESC, vi.closed_at DESC NULLS LAST, vi.item_id DESC`,
-		in.TenantID, in.BatchID)
+		in.TenantID, in.BatchID, vaccinationProofCategory)
 	if err != nil {
 		return nil, err
 	}
@@ -1462,6 +1477,7 @@ WHERE vi.tenant_id = $2::uuid
   AND vi.source_submission_id IS NOT NULL
   AND vi.status = 'approved'
   AND vi.closed_at IS NULL
+  AND vi.category = $4
   AND EXISTS (
     SELECT 1
     FROM vaccination_completions vc
@@ -1476,7 +1492,7 @@ WHERE vi.tenant_id = $2::uuid
         (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
         OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
       )
-  )`, in.ActorID, in.TenantID, in.BatchID); err != nil {
+  )`, in.ActorID, in.TenantID, in.BatchID, vaccinationProofCategory); err != nil {
 		return nil, mapWriteErr(err)
 	}
 	if err := r.acceptVaccinationBatch(ctx, tx, in.TenantID, in.BatchID, in.ActorID); err != nil {

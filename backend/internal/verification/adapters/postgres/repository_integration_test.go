@@ -1259,6 +1259,40 @@ func TestReadyClosureCountsLatestVerdictPerProofAndExcludesSupersededRejections_
 		t.Fatalf("foreign-shed closures=%+v, want none", foreignShed)
 	}
 
+	// CROSS-CATEGORY MASKING. goat C's vaccination proof is approved, but add a REJECTED
+	// vaccination proof for it plus an APPROVED item from ANOTHER category on the same submission,
+	// giving the foreign row the highest item_id so it wins the DISTINCT ON. If the close path is
+	// category-blind, the foreign approval is picked as goat C's "latest verdict", the real rejected
+	// vaccination proof is skipped as superseded, and the batch closes with rework outstanding --
+	// fail-OPEN. Found in review of 99fd332b6. Seeded, asserted, then removed so the rest of this
+	// test keeps its original shape.
+	const (
+		itemCVaccRejected = "00000000-0000-4000-8000-0000000003a1"
+		itemCForeign      = "00000000-0000-4000-8000-0000000003af"
+	)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, verdict_reason, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key)
+VALUES
+ ($1::uuid, $3::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $4::uuid, $5::uuid, 'sop_submission', $5::uuid, '["proof"]'::jsonb, 'rejected', 'dose not visible', $6::uuid, $7::uuid, $8::timestamptz, $9::uuid, now(), 'cross-category-vacc-rejected'),
+ ($2::uuid, $3::uuid, 'growth', 'weighing', 'weighing_proof', 'weighing', $4::uuid, $5::uuid, 'sop_submission', $5::uuid, '["proof"]'::jsonb, 'approved', NULL, $6::uuid, $7::uuid, $8::timestamptz, $9::uuid, now(), 'cross-category-foreign-approved')`,
+		itemCVaccRejected, itemCForeign, tenantID, taskID, submissionCID, parkID, shedAID, administeredAt, actorID); err != nil {
+		t.Fatalf("seed cross-category items: %v", err)
+	}
+	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
+		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
+	}); err == nil {
+		t.Fatal("CloseVaccinationBatch SUCCEEDED with a rejected vaccination proof outstanding -- an approved item from another category masked it as a superseded verdict")
+	} else {
+		var notVerified *ports.ErrBatchNotFullyVerified
+		if !errors.As(err, &notVerified) {
+			t.Fatalf("close error = %v, want ErrBatchNotFullyVerified naming the blocked animal", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM verification_items WHERE tenant_id = $1::uuid AND item_id = ANY(ARRAY[$2::uuid, $3::uuid])`,
+		tenantID, itemCVaccRejected, itemCForeign); err != nil {
+		t.Fatalf("remove cross-category items: %v", err)
+	}
+
 	// THE READ MODEL AND THE WRITE PATH MUST AGREE. Found in review of 59ba8bac7 and reproduced
 	// here before it was fixed: latest_proofs dedupes to the newest verdict, so this drive is
 	// OFFERED, but CloseVaccinationBatch loaded every historical verification_item and blocked on
