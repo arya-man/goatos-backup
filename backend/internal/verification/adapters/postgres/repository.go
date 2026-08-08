@@ -1073,7 +1073,14 @@ latest_proofs AS (
   SELECT DISTINCT ON (batch_id, completion_id, goat_id)
     batch_id, completion_id, goat_id, item_id, status, closed_at, park_id, shed_id
   FROM proofs
-  ORDER BY batch_id, completion_id, goat_id, closed_at DESC NULLS LAST, item_id DESC
+  -- Prefer a row that actually CARRIES the verification facts. proofs holds two kinds of row for
+  -- the same completion, and ordering by closed_at first picked the one with NULL item_id/shed_id,
+  -- so every count derived from them collapsed to zero and the close card read
+  -- "0 sheds - 0/0 videos approved" on a drive with 5 videos across 2 sheds. Rank identity-bearing
+  -- rows first, and only then take the newest verdict among them.
+  ORDER BY batch_id, completion_id, goat_id,
+           (item_id IS NOT NULL) DESC, (shed_id IS NOT NULL) DESC,
+           closed_at DESC NULLS LAST, item_id DESC
 ),
 -- projection-review: membership=vaccination_completions with non-null batch_id is the executed medical membership, independent of later obligation reassignment; group_key=batch_id; join_cardinality=verification_items may be one-to-many per submission/completion, so readiness counts DISTINCT completion_id while user-facing totals and status buckets count DISTINCT goat_id, and assignment rows are pre-aggregated inside expected; pagination=all completion/proof rows are reduced to one whole-batch rollup before the final LIMIT 20 closure page; scope=park/shed filters use explicit batch_scope rows from assignment or verification facts, never a generic hierarchy COALESCE
 rollup AS (
@@ -1115,6 +1122,16 @@ rollup AS (
 	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'approved')::int AS approved_completion_count,
 	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_completion_count,
 	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.status = 'pending')::int AS pending_completion_count,
+	-- Work not yet CLOSED. Closing stamps closed_at on the drive's verification items, but nothing
+	-- filtered on it, so a closed drive kept being offered for closing: the director tapped Close,
+	-- the server returned 200 and stamped the items, and the card stayed put -- indistinguishable
+	-- from a dead button ("on clicking close nothing happens", 2026-08-08).
+	COUNT(DISTINCT p.completion_id) FILTER (WHERE p.closed_at IS NULL)::int AS unclosed_completion_count,
+	MAX(p.closed_at) AS last_closed_at,
+	-- Work that is not yet CLOSED. Closing a drive stamps closed_at on its verification items, but
+	-- nothing filtered on that, so a closed drive kept being offered for closing: the operator
+	-- tapped Close, the server returned 200 and stamped the items, and the card stayed exactly
+	-- where it was -- indistinguishable from a dead button (reported 2026-08-08, "on clicking close
 	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'approved')::int AS approved_count,
 	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'rejected')::int AS rejected_count,
 	COUNT(DISTINCT p.goat_id) FILTER (WHERE p.status = 'pending')::int AS pending_count,
@@ -1129,7 +1146,9 @@ rollup AS (
 )
 SELECT batch_id, drive_key, drive_label, batch_label, park_id, park_label, start_date, end_date,
        total_count, approved_count, rejected_count, pending_count,
-       video_count, approved_videos, rejected_videos, pending_videos, shed_count
+       video_count, approved_videos, rejected_videos, pending_videos, shed_count,
+       (unclosed_completion_count = 0) AS closed,
+       COALESCE(to_char(last_closed_at AT TIME ZONE 'Asia/Kolkata', 'DD Mon YYYY'), '') AS closed_at
 FROM rollup
 WHERE proof_count = completion_count
   AND approved_completion_count = completion_count
@@ -1164,6 +1183,8 @@ LIMIT 20`,
 			&c.RejectedVideos,
 			&c.PendingVideos,
 			&c.ShedCount,
+			&c.Closed,
+			&c.ClosedAt,
 		); err != nil {
 			return nil, err
 		}

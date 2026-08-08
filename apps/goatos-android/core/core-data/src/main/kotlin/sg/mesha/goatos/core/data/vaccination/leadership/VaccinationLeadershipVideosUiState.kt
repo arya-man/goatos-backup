@@ -55,6 +55,9 @@ data class VaccinationLeadershipDriveClosureUi(
     val rejectedVideos: Int,
     val pendingVideos: Int,
     val ready: Boolean,
+    /** Read-only completed state: the drive was closed, so the card shows WHEN instead of an action. */
+    val closed: Boolean = false,
+    val closedAt: String = "",
 )
 
 /**

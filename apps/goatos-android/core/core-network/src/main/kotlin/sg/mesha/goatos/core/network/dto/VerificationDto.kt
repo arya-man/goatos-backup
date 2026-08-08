@@ -150,6 +150,12 @@ data class VerificationDriveClosureDto(
     @SerialName("pending_videos") val pendingVideos: Int = 0,
     @SerialName("shed_count") val shedCount: Int = 0,
     @SerialName("ready") val ready: Boolean = false,
+    /** True once the drive has been closed. Closed drives are STILL returned so the card can show a
+     *  read-only "Closed" state instead of vanishing -- a card that disappears on success gives
+     *  leadership no confirmation the close happened, and nothing at all after an app relaunch. */
+    @SerialName("closed") val closed: Boolean = false,
+    /** Backend-formatted Asia/Kolkata date the drive was closed (e.g. "08 Aug 2026"). */
+    @SerialName("closed_at") val closedAt: String? = null,
 )
 
 /** Request body for POST /verification/items/{item_id}/verdict. [reason] is mandatory for a

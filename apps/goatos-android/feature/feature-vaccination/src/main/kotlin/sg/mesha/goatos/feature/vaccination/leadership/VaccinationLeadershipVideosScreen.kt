@@ -206,6 +206,10 @@ fun VaccinationLeadershipVideosScreen(
                     // to do -- could no longer see the action that evidence unlocks, and had to
                     // scroll back up to find it. A drive-level action does not belong in the
                     // per-animal list.
+                    // Column, NOT bare siblings. The enclosing container is a Box, so a card placed
+                    // beside the LazyColumn OVERLAPS it and the list -- drawn last -- hides the card
+                    // completely: the close action was present in state and invisible on screen.
+                    Column(modifier = Modifier.fillMaxSize()) {
                     state.driveClosures.forEach { closure ->
                         LeadershipDriveCloseCard(
                             closure = closure,
@@ -238,10 +242,15 @@ fun VaccinationLeadershipVideosScreen(
                             }
                         }
                     }
+                    }
 
+                    // The notice used to be a Box aligned to TopCenter of the enclosing Box, i.e. an
+                    // OVERLAY. Once the close card was pinned to the top, the notice printed straight
+                    // across the card's title -- two strings on the same pixels. It now sits in the
+                    // normal flow above the content instead of floating over it.
                     if (state.staleNotice.isNotEmpty()) {
                         Box(
-                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(8.dp),
                             contentAlignment = Alignment.TopCenter,
                         ) {
                             Text(
@@ -444,27 +453,47 @@ private fun LeadershipDriveCloseCard(
                     style = MeshaType.cardSubtitle,
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                Text(
-                    text = "Video pending ${closure.pendingVideos} · rejected ${closure.rejectedVideos}",
-                    color = MeshaColors.Faint,
-                    style = MeshaType.pill,
-                    modifier = Modifier.padding(top = 6.dp),
-                )
+                // The card ONLY exists when pending and rejected are both zero, so printing
+                // "Video pending 0 · rejected 0" told the reader nothing -- dead microcopy on a
+                // decision surface (standing UI rule: every element filters, acts, or informs).
             }
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MeshaColors.Ok)
-                    .clickable(enabled = !isClosing, onClick = onClose)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (isClosing) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Surf, strokeWidth = 2.dp)
-                } else {
-                    Icon(MeshaIcons.CheckCircle, contentDescription = null, tint = MeshaColors.Surf, modifier = Modifier.size(16.dp))
+            // A CLOSED drive keeps its card and becomes read-only. It used to disappear the moment
+            // Close succeeded, which left the director with no confirmation the drive closed, no
+            // record of WHEN, and nothing at all after relaunching the app -- identical on screen to
+            // a button that did nothing, which is how it was reported (2026-08-08). The action is
+            // replaced by the outcome, not removed.
+            if (closure.closed) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MeshaColors.Surf)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(MeshaIcons.CheckCircle, contentDescription = null, tint = MeshaColors.Ok, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(6.dp))
-                    Text(text = "Close", color = MeshaColors.Surf, style = MeshaType.pillStrong)
+                    Text(
+                        text = if (closure.closedAt.isNotBlank()) "Closed ${closure.closedAt}" else "Closed",
+                        color = MeshaColors.Ok,
+                        style = MeshaType.pillStrong,
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MeshaColors.Ok)
+                        .clickable(enabled = !isClosing, onClick = onClose)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (isClosing) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MeshaColors.Surf, strokeWidth = 2.dp)
+                    } else {
+                        Icon(MeshaIcons.CheckCircle, contentDescription = null, tint = MeshaColors.Surf, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.size(6.dp))
+                        Text(text = "Close", color = MeshaColors.Surf, style = MeshaType.pillStrong)
+                    }
                 }
             }
         }
