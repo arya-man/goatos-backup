@@ -71,10 +71,17 @@ data class FeedItemTotalDto(
 )
 
 /** Issue lifecycle metadata (issued/amended/locked/pending/not_issued/draft). Lenient — only the
- *  state string the phone surfaces is bound. */
+ *  fields the phone surfaces are bound.
+ *
+ *  [message] is the backend-owned operator sentence and is REQUIRED for the gated case: before a
+ *  workflow's dispatch clock fires (normal 07:00, experiment 14:00) the sheet serves no rows, and
+ *  this sentence is the only thing that tells the crew when it arrives. Rendering the empty list
+ *  without it is an unexplained blank screen. Copy stays backend-owned — the phone never composes
+ *  its own wording for this. */
 @Serializable
 data class FeedLifecycleDto(
     @SerialName("state") val state: String = "",
+    @SerialName("message") val message: String = "",
 )
 
 /** One park (farm) the caller may generate a sheet for — the farm filter vocabulary. */
