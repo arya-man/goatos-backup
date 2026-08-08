@@ -1,5 +1,12 @@
 # Goat OS Android changelog
 
+## 0.1.15-stg — 2026-08-08
+
+- Uses the latest staging backend/admin runtime from `origin/main` at `188975a7cd73`.
+- Includes the admin root-route fix that routes verifier home away from the control tower.
+- Keeps the signed staging package on `sg.mesha.goatos.stg`.
+- Points the app at `https://stg-api.dashboard.mesha.sg/`.
+
 ## 0.1.14-stg — 2026-08-08
 
 - Uses the latest staging backend/admin runtime from `origin/main` at `fbd61bd7448`.
