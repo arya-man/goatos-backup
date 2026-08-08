@@ -37,12 +37,18 @@ import sg.mesha.goatos.core.designsystem.theme.MeshaColors
  * MANDATORY, blocking permission gate for the capture/submit surface
  * (docs/mobile/proof-capture-sync-and-e2e.md §4). Login is role-neutral and never asks
  * verifiers or leaders for capture access. Operator capture entry points request camera,
- * Bluetooth, notifications, and pre-Android-12 location when the RFID stack requires it.
- * There is no degraded operator capture path: if any required permission is denied,
- * [content] never composes.
+ * microphone, Bluetooth, notifications, and pre-Android-12 location when the RFID stack
+ * requires it. There is no degraded operator capture path: if any required permission is
+ * denied, [content] never composes.
+ *
+ * The microphone is on that blocking list deliberately (2026-08-08): a proof clip without the
+ * operator's voice is a weaker proof, so audio is compulsory rather than best-effort — see
+ * InAppVideoRecorder's `withAudioEnabled`. `internal` rather than `private` so
+ * ProofAudioCaptureTest can assert the mic never falls back out of the mandatory set.
  */
-private val MANDATORY_CAPTURE_PERMISSIONS: List<String> = buildList {
+internal val MANDATORY_CAPTURE_PERMISSIONS: List<String> = buildList {
     add(Manifest.permission.CAMERA)
+    add(Manifest.permission.RECORD_AUDIO)
     add(Manifest.permission.POST_NOTIFICATIONS) // no-op pre-33; harmless to request always.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -87,7 +93,7 @@ fun CaptureAccessGate(
         Icon(MeshaIcons.Video, contentDescription = null, tint = MeshaColors.Brand, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(16.dp))
         Text(
-            "Camera, RFID reader, and background upload access are required",
+            "Camera, microphone, RFID reader, and background upload access are required",
             color = MeshaColors.Ink,
             fontSize = 16.sp,
             fontWeight = FontWeight.W700,
@@ -125,8 +131,9 @@ fun CaptureAccessGate(
     }
 }
 
-private fun permissionLabel(permission: String): String = when (permission) {
+internal fun permissionLabel(permission: String): String = when (permission) {
     Manifest.permission.CAMERA -> "Camera"
+    Manifest.permission.RECORD_AUDIO -> "Microphone"
     Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth (RFID reader)"
     Manifest.permission.ACCESS_FINE_LOCATION -> "Location (Bluetooth dependency)"
     Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
