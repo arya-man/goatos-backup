@@ -2157,9 +2157,23 @@ class DefaultWeighingRepository(
         serverProofId: String?,
     ) = withContext(Dispatchers.IO) {
         val row = observationDao.findByScannedIdentifier(scopeKey, scannedIdentifier) ?: return@withContext
-        if (
-            row.syncStatus == WeighingSyncStatus.ACCEPTED.name &&
-            row.proofCaptureId == proofCaptureId &&
+        // SAME EVIDENCE, NOT A NEW ONE. Identity of a proof is the id the SERVER gave it, never
+        // the id of the local capture file that produced it.
+        //
+        // This guard used to also demand `row.proofCaptureId == proofCaptureId`, which a row
+        // restored from the server can never satisfy: refreshScope writes proofCaptureId =
+        // proofArtifactId (the server's id), while the capture screen replays the LOCAL capture
+        // row's id. So every restored capture looked like a re-shot video. attachProof then did
+        // what attaching a new video is supposed to do -- cleared verificationStatus/reworkReason,
+        // dropped the row back to READY_TO_SUBMIT and re-posted it under a fresh `:proof:` key --
+        // wiping the verifier's verdict a fraction of a second after the refresh delivered it.
+        // Two animals the verifier had sent back therefore rendered with no state at all: not
+        // finished (the verdict said rework), not sent back (the field had just been nulled), just
+        // an ordinary unfinished row for work that was in fact already recorded and rejected.
+        //
+        // If the server already holds this exact proof for this capture, there is nothing to
+        // attach, whatever the local file is called.
+        if (row.syncStatus == WeighingSyncStatus.ACCEPTED.name && !serverProofId.isNullOrBlank() &&
             row.serverProofId == serverProofId
         ) {
             return@withContext

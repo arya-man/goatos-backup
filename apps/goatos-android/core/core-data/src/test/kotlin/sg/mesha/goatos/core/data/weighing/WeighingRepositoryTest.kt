@@ -217,6 +217,62 @@ class WeighingRepositoryTest {
         assertTrue(drafts.single().syncedToBackend)
     }
 
+    // The verifier's verdict must survive the capture screen replaying the local video.
+    //
+    // refreshScope stores proofCaptureId = the SERVER's proof id, while the capture screen replays
+    // the LOCAL capture row's id for the same evidence. attachIndividualProof used to compare those
+    // two ids, so a restored capture always looked like a re-shot video and had its verdict cleared
+    // a fraction of a second after the refresh delivered it -- leaving a sent-back animal rendering
+    // as ordinary unfinished work.
+    @Test
+    fun `replaying the local video does not erase a sent-back verdict restored from the server`() = runTest {
+        val api = object : AppApi by FakeAppApi() {
+            override suspend fun getWeighingRoster(
+                campaignId: String,
+                campaignShedId: String,
+                observationsCursor: String?,
+                limit: Int,
+            ): WeighingRosterResponseDto = WeighingRosterResponseDto(
+                observations = listOf(
+                    WeighingAcceptedObservationDto(
+                        observationId = "observation-1",
+                        campaignId = campaignId,
+                        campaignShedId = campaignShedId,
+                        scannedIdentifier = "TAG-1",
+                        weightKg = 11.0,
+                        proofArtifactId = "proof-server-1",
+                        acceptedAt = "2026-08-08T07:21:09Z",
+                        verificationStatus = "rework",
+                        reworkReason = "bad",
+                    ),
+                ),
+            )
+        }
+        val store = FakeOutboxStore()
+        repository = DefaultWeighingRepository(
+            api = api,
+            tenantId = "tenant-live",
+            rosterDao = db.weighingRosterDao(),
+            observationDao = db.weighingObservationDao(),
+            shedObservationDao = db.weighingShedObservationDao(),
+            syncRepository = offlineSyncRepository(store),
+        )
+
+        repository.refreshScope("campaign-1", "group-1", "campaign-shed-1")
+        // The capture screen republishes its own SYNCED proof row for the same animal.
+        repository.attachIndividualProof(scopeKey, "TAG-1", "proof-local-1", "proof-server-1")
+
+        val draft = repository.observeScope(scopeKey, windowSize = 20).first().individualDrafts.single()
+        assertEquals("rework", draft.verificationStatus)
+        assertEquals("bad", draft.reworkReason)
+        assertTrue("a sent-back capture must stay server-known", draft.syncedToBackend)
+        assertEquals(
+            "the same evidence must not be posted again; rows=" + store.snapshot().map { it.idempotencyKey },
+            0,
+            store.snapshot().size,
+        )
+    }
+
     @Test
     fun `refresh scope drops stale accepted observations but keeps pending local work`() = runTest {
         repository.replaceRoster(
