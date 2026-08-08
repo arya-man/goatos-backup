@@ -22,13 +22,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -236,16 +235,14 @@ private fun FeedPackingFilterBar(filters: FeedFilterUi, onEvent: (FeedPackingEve
             Text(
                 text = stringResource(R.string.feed_filters_title),
                 color = MeshaColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pillStrong,
                 modifier = Modifier.weight(1f),
             )
             if (hasActive) {
                 Text(
                     text = stringResource(R.string.feed_filters_clear),
                     color = MeshaColors.BrandD,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.pillStrong,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onEvent(FeedPackingEvent.ClearFilters) }
@@ -312,8 +309,7 @@ private fun FeedPackingSummaryCard(summary: FeedPackingSummaryUi) {
         Text(
             text = stringResource(R.string.feed_totals_title),
             color = MeshaColors.Muted,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.W700,
+            style = MeshaType.pillStrong,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             FeedStatTile(
@@ -337,12 +333,11 @@ private fun FeedPackingSummaryCard(summary: FeedPackingSummaryUi) {
         }
         summary.totalsByItem.filter { it.quantityKg.toKgOrZero() != 0.0 || it.blockedCells > 0 }.forEach { total ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = total.feedItem, color = MeshaColors.Muted, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                Text(text = total.feedItem, color = MeshaColors.Muted, style = MeshaType.caption, modifier = Modifier.weight(1f))
                 Text(
                     text = stringResource(R.string.feed_kg_fmt, total.quantityKg),
                     color = MeshaColors.Ink,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.pillStrong,
                 )
             }
         }
@@ -365,7 +360,7 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi, canCapture: Boolean, onOpe
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            Text(text = row.shedLabel, color = MeshaColors.Ink, style = MeshaType.cardTitle, modifier = Modifier.weight(1f))
             FeedLifecycleChip(status = row.lifecycleStatus, completedLabel = stringResource(R.string.feed_completed_badge))
             FeedWorkflowChip(row.workflow)
         }
@@ -373,15 +368,15 @@ private fun FeedPackingRowCard(row: FeedPackingRowUi, canCapture: Boolean, onOpe
             add(row.sessionLabel)
             if (row.experimentArm.isNotBlank()) add(row.experimentArm)
         }.joinToString(" · ")
-        Text(text = subtitle, color = MeshaColors.Muted, fontSize = 12.sp)
+        Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.caption)
         // Hide 0-kg lines (nothing to pack for that item here); a BLOCKED line is not zero and stays.
         row.items.filter { it.blocked || it.quantityKg.toKgOrZero() != 0.0 }.forEach { item -> FeedItemQtyRow(item) }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text = stringResource(R.string.feed_pack_total), color = MeshaColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            Text(text = stringResource(R.string.feed_pack_total), color = MeshaColors.Muted, style = MeshaType.pillStrong, modifier = Modifier.weight(1f))
             if (row.status == "blocked") {
-                Text(text = stringResource(R.string.feed_blocked_label), color = MeshaColors.Danger, fontSize = 12.sp, fontWeight = FontWeight.W700)
+                Text(text = stringResource(R.string.feed_blocked_label), color = MeshaColors.Danger, style = MeshaType.pillStrong)
             } else {
-                Text(text = stringResource(R.string.feed_kg_fmt, row.totalKg), color = MeshaColors.BrandD, fontSize = 13.sp, fontWeight = FontWeight.W800)
+                Text(text = stringResource(R.string.feed_kg_fmt, row.totalKg), color = MeshaColors.BrandD, style = MeshaType.bodyStrong)
             }
         }
     }

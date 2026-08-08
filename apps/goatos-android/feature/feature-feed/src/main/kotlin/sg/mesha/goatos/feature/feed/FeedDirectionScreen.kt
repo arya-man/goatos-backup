@@ -25,14 +25,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import sg.mesha.goatos.core.designsystem.component.MeshaScreenHeader
 import sg.mesha.goatos.core.designsystem.icon.MeshaIcons
 import sg.mesha.goatos.core.designsystem.theme.MeshaColors
+import sg.mesha.goatos.core.designsystem.theme.MeshaType
 import sg.mesha.goatos.core.ui.EmptyState
 import sg.mesha.goatos.core.ui.EmptyTone
 import sg.mesha.goatos.core.ui.RefreshOnResume
@@ -330,16 +329,14 @@ private fun FeedDirectionFilterBar(filters: FeedFilterUi, onEvent: (FeedDirectio
             Text(
                 text = stringResource(R.string.feed_filters_title),
                 color = MeshaColors.Muted,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pillStrong,
                 modifier = Modifier.weight(1f),
             )
             if (hasActive) {
                 Text(
                     text = stringResource(R.string.feed_filters_clear),
                     color = MeshaColors.BrandD,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.W700,
+                    style = MeshaType.pillStrong,
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { onEvent(FeedDirectionEvent.ClearFilters) }
@@ -477,7 +474,7 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi, canCapture: Boolean, o
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = row.shedLabel, color = MeshaColors.Ink, fontSize = 15.sp, fontWeight = FontWeight.W700, modifier = Modifier.weight(1f))
+            Text(text = row.shedLabel, color = MeshaColors.Ink, style = MeshaType.cardTitle, modifier = Modifier.weight(1f))
             FeedDirectionStatusChip(status = row.lifecycleStatus)
             FeedWorkflowChip(row.workflow)
         }
@@ -491,7 +488,7 @@ private fun FeedDirectionRowCard(row: FeedDirectionRowUi, canCapture: Boolean, o
             add(row.sessionLabel)
         }.joinToString(" · ")
         if (subtitle.isNotBlank()) {
-            Text(text = subtitle, color = MeshaColors.Muted, fontSize = 12.sp)
+            Text(text = subtitle, color = MeshaColors.Muted, style = MeshaType.caption)
         }
     }
 }
@@ -511,8 +508,7 @@ internal fun FeedLifecycleChip(status: String, completedLabel: String) {
     Text(
         text = chip.label,
         color = chip.fg,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pillStrong,
         modifier = Modifier
             .padding(end = 6.dp)
             .clip(RoundedCornerShape(999.dp))
@@ -530,25 +526,23 @@ internal fun FeedDirectionStatusChip(status: String) {
 @Composable
 internal fun FeedItemQtyRow(item: FeedItemQtyUi) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = item.feedItem, color = MeshaColors.Ink, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(text = item.feedItem, color = MeshaColors.Ink, style = MeshaType.body, modifier = Modifier.weight(1f))
         if (item.blocked) {
             Text(
                 text = stringResource(R.string.feed_blocked_label),
                 color = MeshaColors.Danger,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.pillStrong,
             )
         } else {
             Text(
                 text = stringResource(R.string.feed_kg_fmt, item.quantityKg ?: "0"),
                 color = MeshaColors.Ink,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.W700,
+                style = MeshaType.bodyStrong,
             )
         }
     }
     if (item.blocked && item.blockedReason.isNotBlank()) {
-        Text(text = item.blockedReason, color = MeshaColors.Warn, fontSize = 11.sp)
+        Text(text = item.blockedReason, color = MeshaColors.Warn, style = MeshaType.caption)
     }
 }
 
@@ -561,12 +555,10 @@ internal fun FeedWorkflowChip(workflow: String) {
     Text(
         text = label,
         color = fg,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.W700,
+        style = MeshaType.pillStrong,
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(bg)
             .padding(horizontal = 10.dp, vertical = 3.dp),
     )
 }
-
