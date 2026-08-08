@@ -1,5 +1,12 @@
 # Goat OS Android changelog
 
+## 0.1.14-stg — 2026-08-08
+
+- Uses the latest staging backend/admin runtime from `origin/main` at `fbd61bd7448`.
+- Includes the feed fix for frozen sheets with partitioned sheds.
+- Keeps the signed staging package on `sg.mesha.goatos.stg`.
+- Points the app at `https://stg-api.dashboard.mesha.sg/`.
+
 ## 0.1.13-stg — 2026-07-29
 
 - Uses the latest staging backend/admin runtime from `origin/main`.
