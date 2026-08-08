@@ -1136,36 +1136,21 @@ class WeighingViewModel @Inject constructor(
                 // telling him to record it again -- the silent-failure this block was written to
                 // remove, reintroduced one line below it.
                 runCatching { repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS) }
-                // refreshScope writes Room; scopeState OBSERVES Room, so its value can still be the
-                // pre-write snapshot the instant the call returns. Wait for the observed state to
-                // actually carry each conflicted tag before judging it. Bounded: on timeout fall
-                // through to whatever is current rather than leaving the operator with no answer,
-                // and the tags that never appeared are treated as still-needing-work below, which
-                // is the safe direction (asking for a re-record that turns out unnecessary beats
-                // silently swallowing a real rejection).
-                // Wait for a draft that is demonstrably POST-refresh, not merely present.
+                // Read the refreshed record DIRECTLY, do not infer freshness from the stream.
                 //
-                // Tag presence is useless as a freshness test here: newlyConflicted is DERIVED from
-                // these same drafts a few lines above, so every tag already exists and first{}
-                // completes immediately on the pre-refresh snapshot -- preserving the exact race
-                // this wait was added to close.
+                // Four review rounds died on proxies here: awaiting a fire-and-forget refresh, then
+                // waiting for scopeState to emit, then for the tag to be present (it always was --
+                // newlyConflicted is derived from these very drafts), then for a non-null
+                // verificationStatus (a phone that had refreshed earlier already holds "pending",
+                // so a fresh rejection was still swallowed). Every one of them was "almost right,
+                // stale in one plausible path".
                 //
-                // verificationStatus is the discriminator. The roster read always carries one
-                // ('pending', 'verified' or 'rework' -- confirmed against the live API), while a
-                // purely local capture that has never round-tripped has it null. So a non-null
-                // status on every conflicted tag means the server's answer has landed in Room and
-                // been observed.
-                val afterRefresh = withTimeoutOrNull(CONFLICT_RECLASSIFY_TIMEOUT_MS) {
-                    scopeState.first { state ->
-                        val drafts = state?.individualDrafts.orEmpty()
-                        newlyConflicted.all { tag ->
-                            drafts.any {
-                                normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) &&
-                                    it.verificationStatus != null
-                            }
-                        }
-                    }?.individualDrafts.orEmpty()
-                } ?: emptyList()
+                // refreshScope writes Room inside its suspend call, so a one-shot read after it
+                // returns sees THIS refresh's answer by construction. No emission to wait for and
+                // no freshness heuristic to get wrong.
+                val activeScopeKey = scopeKey ?: return@collect
+                val afterRefresh = runCatching { repository.individualDraftsSnapshot(activeScopeKey) }
+                    .getOrElse { emptyList() }
                 val stillNeedsWork = newlyConflicted.filter { tag ->
                     val draft = afterRefresh.firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
                     draft == null || draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
@@ -3139,10 +3124,6 @@ private data class WeighingWeek(
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
 
-/** Upper bound on waiting for the refreshed scope before classifying a refused write. Long enough
- *  for a round trip on a shed network, short enough that the operator is never left without an
- *  answer about an animal he just recorded. */
-private const val CONFLICT_RECLASSIFY_TIMEOUT_MS = 5_000L
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
 

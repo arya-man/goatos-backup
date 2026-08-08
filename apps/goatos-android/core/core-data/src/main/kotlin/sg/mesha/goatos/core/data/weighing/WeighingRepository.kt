@@ -523,6 +523,11 @@ data class WeighingPlannerParkBucketsCache(
 
 interface WeighingRepository {
     fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState>
+
+    /** One-shot snapshot of a scope's individual drafts, for a caller that has just awaited a
+     *  refresh and needs THAT refresh's answer rather than whatever the observed stream currently
+     *  holds. See WeighingObservationDao.listForScope for why the Flow cannot serve this. */
+    suspend fun individualDraftsSnapshot(scopeKey: String): List<IndividualWeighingDraft>
     /**
      * Lists weighing assignments for ONE weighing surface.
      *
@@ -840,6 +845,9 @@ class DefaultWeighingRepository(
     init {
         startProofReadyReconciler()
     }
+
+    override suspend fun individualDraftsSnapshot(scopeKey: String): List<IndividualWeighingDraft> =
+        observationDao.listForScope(scopeKey).map { it.toDraft() }
 
     override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
         combine(

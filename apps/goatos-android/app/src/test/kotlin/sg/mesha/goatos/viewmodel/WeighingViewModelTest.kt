@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1814,6 +1815,9 @@ class WeighingViewModelTest {
             private set
         var updatedDraft: WeighingPlanDraft? = null
             private set
+
+        override suspend fun individualDraftsSnapshot(scopeKey: String): List<IndividualWeighingDraft> =
+            observeScope(scopeKey, Int.MAX_VALUE).first().individualDrafts
 
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             observedScope
