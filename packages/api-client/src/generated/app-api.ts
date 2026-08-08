@@ -1634,7 +1634,11 @@ export interface paths {
          */
         get: operations["listFeedConfigFeedItems"];
         put?: never;
-        post?: never;
+        /**
+         * Add one entry to the tenant's feed-item catalog.
+         * @description Adds a feed item -- a name the ration grid, the shed factors and the experiment sheds can then be indexed by. It is TENANT-scoped, not park-scoped: both parks author quantities against the same vocabulary, so there is no park_id. ADDING AN ITEM AUTHORS NO QUANTITY. The new label becomes selectable immediately, and every combination using it stays UNCONFIGURED -- and therefore blocking -- until someone authors a rate for it. This endpoint never creates a rate to go with the item, not even 0, because an implicit 0 would read as "feed none of it" for every group and tag in the tenant. The three nutritional attributes are OPTIONAL and are stored as NULL when omitted, which is the honest "not measured" state: unlike a ration rate, a missing energy value blocks only a rollup, never a feeding decision. An explicit 0 stays a measured zero, and a present but out-of-range value is rejected with a field error rather than clamped into the column's range. display_order is optional and defaults to the END of the catalog -- it is a presentation position no feeding decision reads. A name the catalog already holds (compared on the same normalization the storage key uses, so trailing whitespace and case do not create a second entry) is a 409 rather than an in-place update: this is an Add, and silently rewriting an existing item's attributes would change data the author never opened. Requires an Idempotency-Key: an exact replay returns the original result with idempotent_replay=true and re-runs no side effect, and reusing the key with a different payload is a 409.
+         */
+        post: operations["createFeedConfigFeedItem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3811,6 +3815,12 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description Display name of the physical shed, without the pen. */
+            shed_name: string;
+            /** @description The HUMAN pen label ('Part 3', '2'), never the normalized matching key ('3'). Absent or null means an undivided shed. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not identify a row -- send this back on upsert or the write targets the shed-wide row instead of the pen. */
+            partition_label?: string | null;
+            /** @description Backend-composed ground location ("Mandela 1 - Part 3", or just "Yashoda" when undivided). Render verbatim; never rejoin shed_name and partition_label client-side. */
+            operational_location_display: string;
             feed_item: string;
             /** @description Exact decimal string. A SHED TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the shed. Never multiply it by head_count. */
             absolute_kg: string;
@@ -3830,11 +3840,25 @@ export interface components {
             offset: number;
             has_more: boolean;
         };
+        CreateFeedConfigFeedItemRequest: {
+            /** @description The item's name, as it will appear on the ration grid, the shed factors, the experiment sheds and the generated feed sheet. Compared against the catalog on the same normalization the storage key uses, so a name differing only in case or surrounding whitespace is the SAME item and is rejected as a duplicate rather than added twice. */
+            feed_item: string;
+            /** @description OPTIONAL. Omit it when nobody has measured the item's energy -- it is stored as NULL, which is an honest gap: a missing energy value blocks a rollup, never a feeding decision. An explicit 0 is kept as a measured zero and is a different statement from omitting it. */
+            energy_kcal_per_kg?: number | null;
+            /** @description OPTIONAL fraction of the item that is dry matter, greater than 0 and at most 1. Both bounds are rejections, never clamps: 0 would say the item is entirely water and a value above 1 would say it is more than 100% dry matter. */
+            dry_matter_factor?: number | null;
+            /** @description OPTIONAL expected wastage fraction, at least 0 and less than 1. An authored 0 is legal (no expected wastage); 1 is not, because it would say the entire quantity is lost and nothing reaches the animals. */
+            wastage_factor?: number | null;
+            /** @description OPTIONAL sort position within the catalog. Omitted appends the item to the END rather than taking the column default of 0, which would place every new item first in every dropdown. This is the one derived value on this write, and it is derivable only because it is a presentation position no feeding decision reads. */
+            display_order?: number | null;
+        };
         UpsertFeedConfigExperimentRequest: {
             /** Format: uuid */
             park_id: string;
             /** Format: uuid */
             shed_id: string;
+            /** @description WHICH PEN of the shed is being authored -- echo back the partition_label the row was rendered with. Part of the row's identity: the natural key is (tenant, park, shed, partition, feed_item), so omitting it on a partitioned shed writes the shed-wide row instead of the pen the author clicked. Absent means an undivided shed. */
+            partition_label?: string | null;
             feed_item: string;
             /** @description Authored ABSOLUTE kg for the whole shed. REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */
             absolute_kg: number;
@@ -11903,6 +11927,37 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    createFeedConfigFeedItem: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateFeedConfigFeedItemRequest"];
+            };
+        };
+        responses: {
+            /** @description The add's outcome. Always "inserted" on success -- there is no update branch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedConfigWriteResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["WriteConflict"];
             500: components["responses"]["ServerError"];
         };
     };

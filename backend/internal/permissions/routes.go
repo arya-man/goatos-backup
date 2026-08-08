@@ -401,11 +401,17 @@ var protectedRoutes = []Route{
 	// sheet is not thereby entitled to read -- let alone rewrite -- the tenant-wide ration grid the
 	// whole farm is fed from.
 	//
-	// The three POSTs are the editable half the maintainer asked for. Each requires an
+	// The POSTs are the editable half the maintainer asked for. Each requires an
 	// Idempotency-Key, is effective-dated (an edit closes the current row and opens a new one rather
 	// than overwriting), and is recorded in feed_config_write_log. FeedConfigWrite does NOT imply
 	// FeedConfigRead and vice versa: Route.Permissions is ANDed, so each route names exactly what it
 	// needs and a read-only auditor stays read-only.
+	//
+	// createFeedConfigFeedItem is on FeedConfigWrite like the rest, even though adding a catalog
+	// entry authors no quantity of its own. It is the same authority for the same reason the
+	// experiment routes below share it: the feed-item catalog is the VOCABULARY every rate, factor
+	// and experiment cell is keyed by, so whoever may add to it shapes the grid the whole farm is
+	// fed from. A read-only auditor must not be able to extend it.
 	{OperationID: "listFeedConfigRationRates", Method: "GET", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigRead}},
 	{OperationID: "listFeedConfigRationGroups", Method: "GET", Pattern: "/feed-config/ration-groups", Permissions: []string{FeedConfigRead}},
 	{OperationID: "listFeedConfigShedTags", Method: "GET", Pattern: "/feed-config/shed-tags", Permissions: []string{FeedConfigRead}},
@@ -414,6 +420,7 @@ var protectedRoutes = []Route{
 	{OperationID: "listFeedConfigSchedule", Method: "GET", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigRead}},
 	{OperationID: "listFeedConfigShedFactors", Method: "GET", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigRead}},
 	{OperationID: "upsertFeedConfigRationRate", Method: "POST", Pattern: "/feed-config/ration-rates", Permissions: []string{FeedConfigWrite}},
+	{OperationID: "createFeedConfigFeedItem", Method: "POST", Pattern: "/feed-config/feed-items", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigShedFactor", Method: "POST", Pattern: "/feed-config/shed-factors", Permissions: []string{FeedConfigWrite}},
 	{OperationID: "upsertFeedConfigSchedule", Method: "POST", Pattern: "/feed-config/schedule", Permissions: []string{FeedConfigWrite}},
 

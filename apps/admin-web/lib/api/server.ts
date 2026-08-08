@@ -650,6 +650,7 @@ export type FeedConfigRationGroupPage = AppApiComponents["schemas"]["FeedConfigR
 export type FeedConfigShedTagPage = AppApiComponents["schemas"]["FeedConfigShedTagPage"];
 export type FeedConfigWriteResult = AppApiComponents["schemas"]["FeedConfigWriteResult"];
 export type UpsertFeedConfigRationRateRequest = AppApiComponents["schemas"]["UpsertFeedConfigRationRateRequest"];
+export type CreateFeedConfigFeedItemRequest = AppApiComponents["schemas"]["CreateFeedConfigFeedItemRequest"];
 export type UpsertFeedConfigShedFactorRequest = AppApiComponents["schemas"]["UpsertFeedConfigShedFactorRequest"];
 export type UpsertFeedConfigScheduleRequest = AppApiComponents["schemas"]["UpsertFeedConfigScheduleRequest"];
 export type FeedConfigExperimentPage = AppApiComponents["schemas"]["FeedConfigExperimentPage"];
@@ -825,6 +826,42 @@ export async function listFeedConfigShedTags(params: {
     client.request<FeedConfigShedTagPage>("/feed-config/shed-tags", {
       cache: "no-store",
       query: compactQuery(params),
+    }),
+  );
+}
+
+/**
+ * Add one entry to the tenant's feed-item catalog.
+ *
+ * The odd one out among the Feed Config writes, in two ways worth stating at the call site.
+ *
+ * It is TENANT-scoped — no `park_id` — because `feed_item_catalog` is keyed on (tenant, item) and
+ * both parks author quantities against one vocabulary.
+ *
+ * And it AUTHORS NO QUANTITY. Adding an item makes the name selectable on the ration grid, the shed
+ * factors and the experiment sheds; every combination using it stays unconfigured, and therefore
+ * BLOCKED, until a rate is authored for it. Do not "help" by following this call with a rate write:
+ * an implicit 0 would record "feed none of it" for every group and tag in the tenant.
+ *
+ * The four attributes are OPTIONAL here — genuinely optional, unlike `grams_per_head` below — and
+ * the optionality carries meaning: omitted stores NULL ("not measured"), while an explicit 0 stores
+ * a measured zero. A missing energy value blocks a nutritional rollup, never a feeding decision,
+ * which is why absence is representable here and is not on a rate. Out-of-range values are still
+ * forwarded verbatim for the backend to reject.
+ */
+export async function createFeedConfigFeedItem(
+  body: CreateFeedConfigFeedItemRequest,
+  idempotencyKey = `feed-item-${randomUUID()}`,
+): Promise<ApiResult<FeedConfigWriteResult>> {
+  const config = await getServerConfig(true);
+  if (!config.ok) return config;
+  const client = createAppApiClient(apiClientOptions(config.data));
+  return request(() =>
+    client.request<FeedConfigWriteResult>("/feed-config/feed-items", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
     }),
   );
 }

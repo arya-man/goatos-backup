@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import {
+  createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
   upsertFeedConfigExperiment,
   upsertFeedConfigRationRate,
@@ -147,6 +148,100 @@ export async function saveRationRate(formData: FormData): Promise<FeedConfigActi
   return { ok: true, messageKey: SAVED };
 }
 
+// -------------------------------------------------------------------------------------------------
+// Feed items (the catalog)
+//
+// RULE 1 IS INVERTED HERE, AND THE INVERSION IS THE POINT.
+//
+// Everywhere else on this screen a blank numeric field is REJECTED, because a missing quantity is a
+// blocking state that must never be filled in. On a catalog entry the four attributes are genuinely
+// optional and a blank is a legitimate authored statement — "nobody has measured this" — so a blank
+// is OMITTED FROM THE REQUEST rather than rejected, and stored as NULL.
+//
+//     blank        = not measured. Stored NULL. Blocks a nutritional rollup, nothing else.
+//     explicit 0   = measured as zero. A different fact, and it is preserved as one.
+//
+// What does NOT change is that a blank is never turned into a 0, and an out-of-range value is never
+// clamped — both are the same discipline as above, reaching the same conclusion from the other side.
+//
+// RULE 4 — ADDING AN ITEM AUTHORS NO QUANTITY.
+//
+// This action creates a NAME. It does not write a ration rate, a shed factor or an experiment cell,
+// and it must never be extended to do so as a convenience: seeding a rate for the new item would
+// author a number nobody entered, and seeding 0 would record "feed none of it" for every ration
+// group and shed tag in the tenant. The revalidations below are what make the new item appear in
+// the catalog list and in every feed-item picker; the ration grid correctly shows nothing for it
+// until someone authors a rate.
+// -------------------------------------------------------------------------------------------------
+
+const FEED_ITEM_REJECTED = "action.feed_item_rejected";
+const FEED_ITEM_SAVED = "action.feed_item_saved";
+
+/**
+ * Reads an OPTIONAL authored attribute.
+ *
+ * Returns `undefined` for a cleared field — the caller OMITS it, recording "not measured" — and
+ * `NaN` for a non-numeric one. An explicit "0" returns 0, which is a measured zero and a different
+ * statement from leaving the box empty.
+ */
+function readOptionalNumber(formData: FormData, field: string): number | undefined {
+  const raw = formData.get(field);
+  if (typeof raw !== "string") return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === "") return undefined; // not measured — NOT zero, and not rejected either.
+  return Number(trimmed);
+}
+
+export async function saveFeedItem(formData: FormData): Promise<FeedConfigActionResult> {
+  const feedItem = readRequiredText(formData, "feed_item");
+  // The name is the one REQUIRED field, and its own message: "rejected, correct the values" would
+  // not tell an operator who simply left the box empty what to do.
+  if (!feedItem) return { ok: false, messageKey: "reason.feed_item_name_required" };
+
+  const energy = readOptionalNumber(formData, "energy_kcal_per_kg");
+  const dryMatter = readOptionalNumber(formData, "dry_matter_factor");
+  const wastage = readOptionalNumber(formData, "wastage_factor");
+  const displayOrder = readOptionalNumber(formData, "display_order");
+  // Only a value that is not a number at all is rejected locally — there is nothing to send. Every
+  // out-of-range value goes to the backend verbatim so its field error is what the operator reads.
+  for (const value of [energy, dryMatter, wastage, displayOrder]) {
+    if (value !== undefined && Number.isNaN(value)) {
+      return { ok: false, messageKey: FEED_ITEM_REJECTED };
+    }
+  }
+
+  const result = await createFeedConfigFeedItem(
+    {
+      feed_item: feedItem,
+      // Each attribute is spread in ONLY when the operator typed one. Sending `null` would also
+      // store NULL today, but omission is the honest wire shape for "the author said nothing about
+      // this", and it keeps the door open for a future edit path where explicit null means "clear
+      // the value I previously recorded".
+      ...(energy === undefined ? {} : { energy_kcal_per_kg: energy }),
+      ...(dryMatter === undefined ? {} : { dry_matter_factor: dryMatter }),
+      ...(wastage === undefined ? {} : { wastage_factor: wastage }),
+      ...(displayOrder === undefined ? {} : { display_order: displayOrder }),
+    },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    // A duplicate name is its own explanation, not a generic rejection: the operator's next move is
+    // to look for the item that already exists, not to re-type what they entered.
+    const duplicate = result.error.code === "feed_item_exists";
+    return {
+      ok: false,
+      messageKey: duplicate ? "reason.feed_item_exists" : FEED_ITEM_REJECTED,
+      detail: duplicate ? undefined : result.error.message,
+    };
+  }
+
+  revalidatePath("/feed/config");
+  // Only /feed/config. Unlike every other write here, this one changes no quantity, so tomorrow's
+  // direction and pack list are the same documents they were a moment ago — revalidating them would
+  // imply the sheet moved when it did not.
+  return { ok: true, messageKey: FEED_ITEM_SAVED };
+}
+
 export async function saveShedFactor(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
@@ -226,6 +321,9 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
   if (!parkId || !shedId || !feedItem || !category) {
     return { ok: false, messageKey: REJECTED };
   }
+  // NOT readRequiredText: an undivided shed authors a blank pen legitimately, so blank must reach
+  // the backend as "the whole-shed row" rather than being rejected as a missing field.
+  const partitionLabel = (formData.get("partition_label") ?? "").toString().trim();
 
   const absoluteKg = readAuthoredNumber(formData, "absolute_kg");
   // Blank: the operator cleared the field. That is not "feed nothing" and not "leave it alone" — no
@@ -242,6 +340,9 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
     {
       park_id: parkId,
       shed_id: shedId,
+      // Identifies WHICH PEN is being authored. Without it the write lands on the shed-wide row and
+      // the author's number never reaches the pen they edited.
+      partition_label: partitionLabel,
       feed_item: feedItem,
       // Sent verbatim. A negative or over-precise value is the backend's to reject.
       absolute_kg: absoluteKg,

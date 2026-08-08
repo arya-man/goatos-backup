@@ -37,11 +37,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.flowOf
+import sg.mesha.goatos.feature.counts.ApprovalRowUi
+import sg.mesha.goatos.feature.counts.ApprovalScreen
+import sg.mesha.goatos.feature.counts.ApprovalUiState
 import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_PERMANENT
 import sg.mesha.goatos.feature.counts.BIRTH_ID_KIND_TEMPORARY
 import sg.mesha.goatos.feature.counts.BirthDeathField
+import sg.mesha.goatos.feature.counts.BirthDeathMode
 import sg.mesha.goatos.feature.counts.BirthDeathScreen
 import sg.mesha.goatos.feature.counts.BirthDeathUiState
+import sg.mesha.goatos.feature.counts.CountsFilterOptionUi
 import sg.mesha.goatos.feature.counts.MilkPreparationCardBucket
 import sg.mesha.goatos.feature.counts.MilkPreparationCardUi
 import sg.mesha.goatos.feature.counts.MilkPreparationChipUi
@@ -78,9 +83,17 @@ import sg.mesha.goatos.feature.counts.WorkflowListUiState
 import sg.mesha.goatos.feature.counts.WorkflowModuleUi
 import sg.mesha.goatos.feature.counts.WorkflowOverdueDateUi
 import sg.mesha.goatos.feature.counts.WorkflowStatusTone
+import sg.mesha.goatos.feature.feed.FeedDirectionRowUi
+import sg.mesha.goatos.feature.feed.FeedDirectionScreen
+import sg.mesha.goatos.feature.feed.FeedDirectionUiState
 import sg.mesha.goatos.feature.feed.FeedDistributionCompleteScreen
 import sg.mesha.goatos.feature.feed.FeedDistributionUiState
 import sg.mesha.goatos.feature.feed.FeedDropdownOption
+import sg.mesha.goatos.feature.feed.FeedFilterUi
+import sg.mesha.goatos.feature.feed.FeedItemQtyUi
+import sg.mesha.goatos.feature.feed.FeedPackingRowUi
+import sg.mesha.goatos.feature.feed.FeedPackingScreen
+import sg.mesha.goatos.feature.feed.FeedPackingUiState
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureScreen
 import sg.mesha.goatos.feature.feed.FeedTransportCaptureUiState
 import sg.mesha.goatos.feature.feed.FeedTransportFilterUi
@@ -570,15 +583,89 @@ class ScreenshotTest {
         )
     }
 
+    /**
+     * The breed vocabulary and the park -> shed destination catalog the Record screen actually
+     * renders. Both are backend-supplied and Room-cached; leaving them empty (as these fixtures
+     * did until now) rendered the form with "Select a breed" and "Select a farm" placeholders and
+     * no placement section filled, so the golden showed an EMPTY form rather than the screen an
+     * operator sees mid-entry.
+     */
+    private fun birthBreedOptions() = listOf(
+        CountsFilterOptionUi(key = "boer", label = "Boer", count = 412),
+        CountsFilterOptionUi(key = "sirohi", label = "Sirohi", count = 288),
+        CountsFilterOptionUi(key = "jamnapari", label = "Jamnapari", count = 96),
+    )
+
+    private fun birthDestinationParks() = listOf(
+        ShiftingParkUi(
+            parkId = "park-cpt",
+            name = "Channapatna",
+            sheds = listOf(
+                ShiftingShedUi(
+                    shedId = "shed-castro",
+                    name = "Castro",
+                    partitionLabel = "2",
+                    operationalLocationDisplay = "Castro - 2",
+                ),
+                ShiftingShedUi(
+                    shedId = "shed-gandhi-1",
+                    name = "Gandhi 1",
+                    partitionLabel = null,
+                    operationalLocationDisplay = "Gandhi 1",
+                ),
+            ),
+        ),
+        ShiftingParkUi(parkId = "park-cbe", name = "Coimbatore", sheds = emptyList()),
+    )
+
+    /** Record a birth on the TEMPORARY-tag path, filled in as an operator leaves it before saving. */
     @Test
     fun birth_temporary_tag() = shot("birth_temporary_tag") {
         BirthDeathScreen(
             state = BirthDeathUiState(
+                mode = BirthDeathMode.BIRTH,
                 idKind = BIRTH_ID_KIND_TEMPORARY,
                 tag = "TEMP-42",
                 species = "goat",
                 sex = "female",
-                dob = "2026-07-20",
+                breed = "boer",
+                breedOptions = birthBreedOptions(),
+                dob = "2026-08-06",
+                entryDate = "2026-08-06",
+                destinationParks = birthDestinationParks(),
+                parkId = "park-cpt",
+                shedId = "shed-castro",
+                partitionLabel = "2",
+                damId = "982000123456789",
+                canSubmit = true,
+            ),
+        )
+    }
+
+    /**
+     * Record a DEATH. This path had no golden at all, so the only "Record birth or death" images
+     * in the repo were the birth half of a two-mode screen -- the tag/RFID animal search, the
+     * selected animal and the reason field were never captured.
+     */
+    @Test
+    fun death_record() = shot("death_record") {
+        BirthDeathScreen(
+            state = BirthDeathUiState(
+                mode = BirthDeathMode.DEATH,
+                animalQuery = "982000123456789",
+                selectedAnimal = ShiftingAnimalUi(
+                    goatId = "goat-1",
+                    displayId = "CPT-10199",
+                    tag = "982000123456789",
+                    parkId = "park-cpt",
+                    shedId = "shed-mandela-1",
+                    parkName = "Channapatna",
+                    shedName = "Mandela 1",
+                    partitionLabel = "Part 2",
+                    locationLabel = "Mandela 1 - Part 2",
+                ),
+                reason = "Found down in the morning round; not responding to treatment.",
+                entryDate = "2026-08-06",
                 canSubmit = true,
             ),
         )
@@ -637,13 +724,24 @@ class ScreenshotTest {
     fun birth_permanent_rfid_scanning() = shot("birth_permanent_rfid_scanning") {
         BirthDeathScreen(
             state = BirthDeathUiState(
+                mode = BirthDeathMode.BIRTH,
                 idKind = BIRTH_ID_KIND_PERMANENT,
-                tag = "",
+                // First tag captured, second field now listening -- a newborn given two ear tags.
+                // The old fixture left both blank with nothing selected below, so it showed an
+                // empty form rather than the mid-scan state its name promises.
+                tag = "982000123456789",
                 tag2 = "",
-                scanningField = BirthDeathField.TAG,
+                scanningField = BirthDeathField.TAG2,
                 species = "goat",
-                sex = "female",
-                dob = "2026-07-20",
+                sex = "male",
+                breed = "sirohi",
+                breedOptions = birthBreedOptions(),
+                dob = "2026-08-06",
+                entryDate = "2026-08-06",
+                destinationParks = birthDestinationParks(),
+                parkId = "park-cpt",
+                shedId = "shed-gandhi-1",
+                damId = "982000987654321",
             ),
         )
     }
@@ -715,6 +813,270 @@ class ScreenshotTest {
         overdue = overdue,
         bucket = bucket,
     )
+
+    // ---------------------------------------------------------------------------------------
+    // Birth and Death LANDING screens.
+    //
+    // These were the coverage gap behind a real documentation defect: the only birth/death
+    // goldens were birth_temporary_tag / birth_permanent_rfid_scanning, which are the ADD FORM
+    // at Routes.COUNTS_BIRTH_ADD -- reached only from the ＋ button. The Birth and Death TABS
+    // themselves (Routes.COUNTS_BIRTH / COUNTS_DEATH) render WorkflowListDestination, i.e. the
+    // per-goat outstanding-action work list from the 2026-07-27 birth/death-workflows decision,
+    // and had no golden at all. Anyone reading the snapshot set concluded the tab was the form.
+    // ---------------------------------------------------------------------------------------
+
+    private fun workflowCard(
+        id: String,
+        displayId: String,
+        role: String,
+        done: Int,
+        total: Int,
+        next: String,
+        due: String,
+        overdue: Boolean,
+        bucket: WorkflowCardBucket,
+        meta: String,
+    ) = WorkflowCardUi(
+        workflowId = id,
+        displayId = displayId,
+        roleLabel = role,
+        metaLine = meta,
+        actionsDone = done,
+        actionsTotal = total,
+        nextKindLabel = if (bucket == WorkflowCardBucket.COMPLETED) "Done" else "Next",
+        nextTitle = next,
+        dueLabel = due,
+        overdue = overdue,
+        bucket = bucket,
+    )
+
+    /** The Birth tab as an operator actually lands on it: a work list, with ＋ to record a new one. */
+    @Test
+    fun birth_work_list() = shot("birth_work_list") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    workflowCard(
+                        id = "b-1", displayId = "CPT-10234", role = "Kid", done = 1, total = 4,
+                        next = "Weigh the kid", due = "2h late", overdue = true,
+                        bucket = WorkflowCardBucket.OVERDUE, meta = "Born 6 Aug 05:40 · Castro 2 · Boer",
+                    ),
+                    workflowCard(
+                        id = "b-2", displayId = "CPT-10235", role = "Kid", done = 0, total = 4,
+                        next = "Fit the ear tag", due = "15:00", overdue = false,
+                        bucket = WorkflowCardBucket.DUE, meta = "Born 5 Aug 23:10 · Gandhi 1 · Sirohi",
+                    ),
+                    workflowCard(
+                        id = "b-3", displayId = "CPT-10231", role = "Kid", done = 4, total = 4,
+                        next = "All actions done", due = "", overdue = false,
+                        bucket = WorkflowCardBucket.COMPLETED, meta = "Born 5 Aug 07:20 · Yashoda · Boer",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        WorkflowListScreen(
+            state = WorkflowListUiState(
+                module = WorkflowModuleUi.BIRTH,
+                subtitle = "3 births to finish",
+                dateIso = "2026-08-06",
+                dateLabel = "Today · 6 Aug",
+                isToday = true,
+                chips = listOf(
+                    WorkflowChipUi("all", "All", 3),
+                    WorkflowChipUi("overdue", "Overdue", 1),
+                    WorkflowChipUi("due", "Due", 1),
+                    WorkflowChipUi("completed", "Completed", 1),
+                ),
+                selectedFilter = "all",
+            ),
+            rows = rows,
+        )
+    }
+
+    /** The Death tab: same work-list anatomy, different module copy. */
+    @Test
+    fun death_work_list() = shot("death_work_list") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    workflowCard(
+                        id = "d-1", displayId = "CPT-10199", role = "Adult", done = 1, total = 3,
+                        next = "Record the post-mortem note", due = "1d late", overdue = true,
+                        bucket = WorkflowCardBucket.OVERDUE, meta = "Died 5 Aug · Mandela 1 · Boer",
+                    ),
+                    workflowCard(
+                        id = "d-2", displayId = "CPT-10204", role = "Adult", done = 2, total = 3,
+                        next = "Attach the disposal photo", due = "18:00", overdue = false,
+                        bucket = WorkflowCardBucket.DUE, meta = "Died 6 Aug · Godel 1 · Sirohi",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        WorkflowListScreen(
+            state = WorkflowListUiState(
+                module = WorkflowModuleUi.DEATH,
+                subtitle = "2 deaths to finish",
+                dateIso = "2026-08-06",
+                dateLabel = "Today · 6 Aug",
+                isToday = true,
+                chips = listOf(
+                    WorkflowChipUi("all", "All", 2),
+                    WorkflowChipUi("overdue", "Overdue", 1),
+                    WorkflowChipUi("due", "Due", 1),
+                    WorkflowChipUi("completed", "Completed", 0),
+                ),
+                selectedFilter = "all",
+            ),
+            rows = rows,
+        )
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Feed Direction and Feed Packing landing screens -- the first two tabs of the Feed bar.
+    // Only Feed Transport and the two capture screens had goldens, so two thirds of the feed
+    // chain was invisible in the snapshot set.
+    // ---------------------------------------------------------------------------------------
+
+    private fun feedItems() = listOf(
+        FeedItemQtyUi(feedItem = "Maize", quantityKg = "12.4", blocked = false, blockedReason = ""),
+        FeedItemQtyUi(feedItem = "Soya", quantityKg = "4.8", blocked = false, blockedReason = ""),
+        FeedItemQtyUi(feedItem = "Mineral mix", quantityKg = "0.6", blocked = false, blockedReason = ""),
+    )
+
+    private fun feedFilters() = FeedFilterUi(
+        parks = listOf(
+            FeedDropdownOption("park-1", "Channapatna"),
+            FeedDropdownOption("park-2", "Coimbatore"),
+        ),
+        selectedParkId = "park-1",
+        selectedParkLabel = "Channapatna",
+        sheds = listOf(
+            FeedDropdownOption("shed-1", "Gandhi 1"),
+            FeedDropdownOption("shed-2", "Godel 1"),
+        ),
+    )
+
+    /** The day's dispatch sheet: which shed gets what, and how much. */
+    @Test
+    fun feed_direction_sheet() = shot("feed_direction_sheet") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    FeedDirectionRowUi(
+                        grainKey = "row-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
+                        shedLabel = "Gandhi 1", shedTag = "Adult", breed = "Boer",
+                        rationGroup = "Milking does", experimentArm = "",
+                        sessionLabel = "Morning session", headCount = 40,
+                        headCountInformational = false, workflow = "normal",
+                        items = feedItems(), sessionTotalKg = "17.8",
+                        blocked = false, overduePending = false, completed = false,
+                        lifecycleStatus = "pending",
+                    ),
+                    FeedDirectionRowUi(
+                        grainKey = "row-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
+                        shedLabel = "Godel 1 - Part 3", shedTag = "Kid", breed = "Sirohi",
+                        rationGroup = "Weaners", experimentArm = "",
+                        sessionLabel = "Morning session", headCount = 18,
+                        headCountInformational = false, workflow = "normal",
+                        items = feedItems(), sessionTotalKg = "8.1",
+                        blocked = false, overduePending = false, completed = true,
+                        lifecycleStatus = "completed",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        FeedDirectionScreen(
+            state = FeedDirectionUiState(
+                title = "Feed Direction",
+                targetDateLabel = "2026-07-29",
+                today = "2026-07-29",
+                canCapture = true,
+                filters = feedFilters(),
+            ),
+            rows = rows,
+        )
+    }
+
+    /** The packing worklist: bags to make up today for tomorrow's feed. */
+    @Test
+    fun feed_packing_worklist() = shot("feed_packing_worklist") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    FeedPackingRowUi(
+                        grainKey = "pack-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
+                        shedLabel = "Gandhi 1", sessionLabel = "Morning session",
+                        workflow = "normal", experimentArm = "", headCount = 40,
+                        items = feedItems(), totalKg = "17.8",
+                        status = "ready", completed = false, lifecycleStatus = "pending",
+                    ),
+                    FeedPackingRowUi(
+                        grainKey = "pack-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
+                        shedLabel = "Godel 1 - Part 3", sessionLabel = "Morning session",
+                        workflow = "normal", experimentArm = "", headCount = 18,
+                        items = feedItems(), totalKg = "8.1",
+                        status = "ready", completed = false,
+                        lifecycleStatus = "pending_verification",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        FeedPackingScreen(
+            state = FeedPackingUiState(
+                title = "Feed Packing",
+                targetDateLabel = "2026-07-29",
+                feedForDateLabel = "2026-07-30",
+                today = "2026-07-29",
+                canCapture = true,
+                filters = feedFilters(),
+            ),
+            rows = rows,
+        )
+    }
+
+    /**
+     * The birth/death/shifting APPROVAL queue -- the surface a counts_approver or the CEO decides
+     * on. It had no golden, so documentation reached for the Shifting ACTIONS list instead, which
+     * is a different screen belonging to a different job (the operator carrying a move out).
+     *
+     * The row copy is backend-composed on purpose: `raisedBy` is a resolved NAME and `summaryLine`
+     * already has every id turned into a shed name. Both once rendered raw uuids at an approver,
+     * so this golden also pins that the screen shows farm language, never identifiers.
+     */
+    @Test
+    fun approval_queue() = shot("approval_queue") {
+        val rows = flowOf(
+            PagingData.from(
+                listOf(
+                    ApprovalRowUi(
+                        requestId = "req-1",
+                        typeLabel = "Shifting",
+                        requestType = "shifting",
+                        raisedBy = "Darshan Talwar",
+                        raisedAt = "Today · 09:12",
+                        summaryLine = "12 animals · Gandhi 1 → Gandhi 2 · Routine",
+                    ),
+                    ApprovalRowUi(
+                        requestId = "req-2",
+                        typeLabel = "Birth",
+                        requestType = "birth",
+                        raisedBy = "Amit Kumar",
+                        raisedAt = "Today · 07:40",
+                        summaryLine = "1 kid · Castro 2 · Boer · Female",
+                    ),
+                    ApprovalRowUi(
+                        requestId = "req-3",
+                        typeLabel = "Death",
+                        requestType = "death",
+                        raisedBy = "Sagar Mahoor",
+                        raisedAt = "Yesterday · 17:05",
+                        summaryLine = "1 adult · Mandela 1 · Sirohi",
+                    ),
+                ),
+            ),
+        ).collectAsLazyPagingItems()
+        ApprovalScreen(state = ApprovalUiState(), rows = rows)
+    }
 
     /** The Colostrum work list: bell + date bar + day-scoped chips, and NO + button. */
     @Test

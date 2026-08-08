@@ -26,6 +26,7 @@ import { isConfiguredZero } from "./feed-quantity";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
   saveExperimentCell,
+  saveFeedItem,
   saveRationRate,
   saveSchedule,
   saveShedFactor,
@@ -35,6 +36,7 @@ import {
   ExperimentCellEditor,
   ExperimentShedEnroller,
   ExperimentShedSwitch,
+  FeedItemCreator,
   RationRateEditor,
   ScheduleEditor,
   ShedFactorEditor,
@@ -100,13 +102,22 @@ function EffectiveWindow({
 }
 
 /**
- * One experiment shed: its arm, its informational head count, its authored cells, and whether it is
+ * One experiment PEN: its arm, its informational head count, its authored cells, and whether it is
  * currently on the experiment workflow.
+ *
+ * A pen, not a shed. A partitioned shed authors one cell per pen and each pen carries its own arm
+ * and head count -- Mandela 1 holds ten. Grouping by shed collapsed all ten into one row whose arm
+ * and count came from whichever pen happened to be first, and rendered the pens' cells as ten
+ * indistinguishable "Dry Masoor Bhusa" lines differing only by a number.
  */
 type ExperimentShedGroup = {
   shedId: string;
   parkId: string;
-  /** The experiment ARM. Taken from the shed's rows, which the writer keeps consistent. */
+  /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
+  partitionLabel: string;
+  /** Backend-composed "Mandela 1 - Part 3". Rendered verbatim -- never rejoined here. */
+  locationDisplay: string;
+  /** The experiment ARM. Taken from the pen's rows, which the writer keeps consistent. */
   category: string;
   /** INFORMATIONAL population. Null means not recorded — never rendered or sent as 0. */
   headCount: number | null;
@@ -121,20 +132,28 @@ type ExperimentShedGroup = {
 };
 
 /**
- * Regroups one bounded page of flat experiment cells into per-shed groups, preserving the backend's
- * (shed, feed item) order.
+ * Regroups one bounded page of flat experiment cells into per-PEN groups, preserving the backend's
+ * (shed, partition, feed item) order.
+ *
+ * Keyed on shed_id + partition, never on shed_id alone and never on a NAME. Shed names repeat
+ * across parks (two Castro, two Gandhi, two Yashoda), and one shed holds many pens -- keying on
+ * either one merges rows that describe different ground locations.
  *
  * This is NOT a read-time rollup presented as business truth: it re-shapes rows already fetched for
  * display and computes no total. Every number rendered is the backend's own authored value.
  */
 function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShedGroup[] {
-  const byShed = new Map<string, ExperimentShedGroup>();
+  const byPen = new Map<string, ExperimentShedGroup>();
   for (const row of rows) {
-    const existing = byShed.get(row.shed_id);
+    const partitionLabel = row.partition_label ?? "";
+    const key = `${row.shed_id}#${partitionLabel.trim().toLowerCase()}`;
+    const existing = byPen.get(key);
     if (!existing) {
-      byShed.set(row.shed_id, {
+      byPen.set(key, {
         shedId: row.shed_id,
         parkId: row.park_id,
+        partitionLabel,
+        locationDisplay: row.operational_location_display,
         category: row.experiment_category,
         headCount: row.head_count ?? null,
         active: row.status === "active",
@@ -148,7 +167,7 @@ function groupExperimentRowsByShed(rows: FeedConfigExperiment[]): ExperimentShed
     // value just because it is falsy.
     existing.headCount = existing.headCount ?? row.head_count ?? null;
   }
-  return Array.from(byShed.values());
+  return Array.from(byPen.values());
 }
 
 function SectionError({
@@ -276,6 +295,7 @@ export async function FeedConfigPage({
   const sessionCols = tableLabels(pageContract, "session-template");
   const scheduleCols = tableLabels(pageContract, "schedule-config");
   const experimentCols = tableLabels(pageContract, "experiment-config");
+  const feedItemCols = tableLabels(pageContract, "feed-items");
 
   const shedNameById = new Map(locations.sheds.map((shed) => [shed.id, shed.name]));
   const hasGridFilter = Boolean(rationGroupFilter || shedTagFilter || feedItemFilter);
@@ -482,6 +502,87 @@ export async function FeedConfigPage({
           authored zero, and it is the one thing an author on this screen must not get wrong. */}
       <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.blocked_note")}</div>
 
+      {/* ------------------------------------------------------------------- feed items (catalog) */}
+      {/* The vocabulary the grid above is indexed by, directly under it. Two things separate this
+          section from every other one on the page, and both are stated in its copy rather than left
+          to be inferred:
+
+          It is TENANT-wide, not park-scoped — the Park filter does not narrow it, because
+          feed_item_catalog is keyed on (tenant, item) and both parks author against one list.
+
+          And adding an item authors NO quantity. The new name becomes selectable on the grid above,
+          the shed factors and the experiment sheds; every combination using it stays unconfigured —
+          and therefore blocked — until a rate is authored. That is why this section sits next to
+          the ration grid rather than replacing any part of it. */}
+      <SectionError result={feedItemsResult} titleKey="state.feed_items_unavailable" pageContract={pageContract} />
+      <section className="card" style={{ marginBottom: 16 }}>
+        <div className="hd">
+          <h3>{copy(pageContract, "section.feed_items.title")}</h3>
+          <span className="small muted">{copy(pageContract, "section.feed_items.caption")}</span>
+          <div className="sp" style={{ flex: 1 }} />
+          {/* In the section header, next to the list it changes — the same placement as the
+              experiment enroller, for the same reason. */}
+          <FeedItemCreator pageContract={pageContract} action={saveFeedItem} />
+        </div>
+        <div
+          className="bd feed-scroll"
+          style={{ padding: 0, overflowX: "auto" }}
+          tabIndex={0}
+          role="group"
+          aria-label={copy(pageContract, "section.feed_items.aria")}
+        >
+          <table className="feed-table" aria-label={copy(pageContract, "table.feed_items.aria")}>
+            <thead>
+              <tr>
+                {feedItemCols.map((col) => (
+                  <th key={col}>{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(feedItems?.items ?? []).length === 0 ? (
+                <tr>
+                  <td colSpan={feedItemCols.length}>
+                    <div className="muted small" style={{ padding: "18px 4px", textAlign: "center", lineHeight: 1.6 }}>
+                      {!feedItemsResult || feedItemsResult.ok
+                        ? copy(pageContract, "empty.feed_items")
+                        : copy(pageContract, "state.feed_items_unavailable")}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                (feedItems?.items ?? []).map((row) => (
+                  <tr key={row.feed_item_id}>
+                    <td>{row.feed_item}</td>
+                    {/* An unset attribute renders as the contract's placeholder, never as 0 and
+                        never as a blank cell. Both of those would read as a measured value: a 0
+                        claims someone measured none, and an empty cell reads as one too on a table
+                        whose other columns are numbers. */}
+                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {row.energy_kcal_per_kg ?? copy(pageContract, "label.placeholder")}
+                    </td>
+                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {row.dry_matter_factor ?? copy(pageContract, "label.placeholder")}
+                    </td>
+                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {row.wastage_factor ?? copy(pageContract, "label.placeholder")}
+                    </td>
+                    <td className="muted" style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {row.display_order}
+                    </td>
+                    <td>
+                      <span className={row.status === "active" ? "tag t-ok" : "tag t-mut"}>{row.status}</span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "section.feed_items.note")}</div>
+      <div className="note" style={{ marginBottom: 16 }}>{copy(pageContract, "label.feed_item_attributes_note")}</div>
+
       {/* ---------------------------------------------------------------- shed factors (editable) */}
       <SectionError result={factorsResult} titleKey="state.shed_factors_unavailable" pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
@@ -612,13 +713,23 @@ export async function FeedConfigPage({
                 </tr>
               ) : (
                 experimentSheds.map((shed) => {
-                  const shedName = shedNameById.get(shed.shedId) ?? shed.shedId;
+                  // The backend composes this ("Mandela 1 - Part 3"); it is rendered verbatim rather
+                  // than rejoined here, so this screen reads identically to the direction sheet and
+                  // the mobile app. shedNameById is only the degraded fallback for a row whose shed
+                  // could not be resolved -- it holds no partition and cannot tell pens apart.
+                  const shedName =
+                    shed.locationDisplay || shedNameById.get(shed.shedId) || shed.shedId;
                   return (
-                    // Fragment.key, not a key on the first <tr>: a shed contributes SEVERAL sibling
+                    // Fragment.key, not a key on the first <tr>: a pen contributes SEVERAL sibling
                     // rows, so the fragment is the list item React reconciles and the key belongs on
                     // it. Keying only the inner rows leaves the fragment itself unkeyed.
-                    <Fragment key={shed.shedId}>
-                      {/* One header row per shed carrying the shed-level facts and the workflow
+                    //
+                    // The key carries the PARTITION as well as the shed: a partitioned shed yields
+                    // one group per pen, so shed_id alone gave ten siblings the SAME key -- React
+                    // then reconciles them onto each other and an edit to one pen can paint another
+                    // pen's row.
+                    <Fragment key={`${shed.shedId}#${shed.partitionLabel}`}>
+                      {/* One header row per PEN carrying its arm, head count and the workflow
                           switch, then one row per authored feed item beneath it. */}
                       <tr>
                         <td>
@@ -716,6 +827,7 @@ export async function FeedConfigPage({
                                 action={saveExperimentCell}
                                 parkId={row.park_id}
                                 shedId={row.shed_id}
+                                partitionLabel={row.partition_label ?? ""}
                                 feedItem={row.feed_item}
                                 experimentCategory={row.experiment_category}
                                 absoluteKg={row.absolute_kg}

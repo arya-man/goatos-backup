@@ -34,6 +34,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -41,9 +42,14 @@ import (
 // conditions -- per AGENTS.md, a PRESENT but out-of-range authored value fails the write; it is
 // never rewritten to a default the author never entered.
 var (
-	ErrMissingField     = errors.New("feedconfig: missing required field")
-	ErrInvalidDecimal   = errors.New("feedconfig: value is not a valid decimal")
-	ErrNegativeValue    = errors.New("feedconfig: value must not be negative")
+	ErrMissingField   = errors.New("feedconfig: missing required field")
+	ErrInvalidDecimal = errors.New("feedconfig: value is not a valid decimal")
+	ErrNegativeValue  = errors.New("feedconfig: value must not be negative")
+	// ErrValueOutOfRange is for a value that parses as a decimal and is non-negative but falls
+	// outside the column's own CHECK -- a dry-matter factor above 1, a wastage factor of 1 or more.
+	// It is a SEPARATE error from ErrNegativeValue because the author needs to be told which bound
+	// they crossed; both are rejections, and neither is ever repaired into range.
+	ErrValueOutOfRange  = errors.New("feedconfig: value is outside the allowed range")
 	ErrInvalidTime      = errors.New("feedconfig: value is not a valid local time (HH:MM or HH:MM:SS)")
 	ErrTimeOrder        = errors.New("feedconfig: schedule times are out of order")
 	ErrInvalidWorkflow  = errors.New("feedconfig: workflow must be 'normal' or 'experiment'")
@@ -82,6 +88,11 @@ const (
 	// are one authoring surface with one identity space; the ledger's outcome and result_row_id
 	// already distinguish what an individual edit did. Added to the schema by migration 000006.
 	WriteKindExperimentConfig = "experiment_config"
+	// WriteKindFeedItem covers adding an entry to the feed-item catalog -- the tenant's feed
+	// vocabulary. Its OWN kind rather than part of 'ration_rate' because adding an item authors no
+	// quantity: a new item feeds nothing until a rate, a shed factor or an experiment cell names it.
+	// Added to the schema by migration 000136.
+	WriteKindFeedItem = "feed_item"
 )
 
 // Experiment row statuses, mirroring feed_experiment_config.status.
@@ -317,7 +328,19 @@ type ExperimentConfig struct {
 	ExperimentConfigID string `json:"experiment_config_id"`
 	ParkID             string `json:"park_id"`
 	ShedID             string `json:"shed_id"`
-	FeedItemLabel      string `json:"feed_item"`
+	// ShedName and PartitionLabel are the two halves of the ground location, and they must always
+	// travel together. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not
+	// identify a row: Mandela 1 holds ten pens, each with its own arm, head count and quantities.
+	// Before these fields existed the screen rendered ten identical "Mandela 1 / Dry Masoor Bhusa"
+	// rows differing only by a number, which no operator could tell apart.
+	ShedName string `json:"shed_name"`
+	// PartitionLabel is the HUMAN label ('Part 3', '2'), never the normalized matching key ('3').
+	// Empty means an undivided shed -- 'whole' is a matching sentinel and never reaches a client.
+	PartitionLabel string `json:"partition_label,omitempty"`
+	// OperationalLocationDisplay is composed by the backend via oploc so every surface reads the
+	// same string ("Mandela 1 - Part 3"); clients render it verbatim and never rejoin the halves.
+	OperationalLocationDisplay string `json:"operational_location_display"`
+	FeedItemLabel              string `json:"feed_item"`
 	// AbsoluteKg is an exact decimal string for the same reason GramsPerHead is: numeric(12,3) is
 	// exact and a float round-trip is not.
 	AbsoluteKg string `json:"absolute_kg"`
@@ -432,12 +455,45 @@ type UpsertScheduleConfigCommand struct {
 // state the shed is empty.
 type UpsertExperimentConfigCommand struct {
 	WriteIdentity
-	ParkID             string
-	ShedID             string
+	ParkID string
+	ShedID string
+	// PartitionLabel names WHICH PEN of the shed this cell belongs to. It is part of the row's
+	// identity, not decoration: the natural key is
+	// (tenant_id, park_id, shed_id, partition_key, feed_item_key), so a write that omits it targets
+	// the 'whole' sentinel and inserts a phantom shed-wide row instead of editing the pen the
+	// author clicked. Empty is legitimate for an undivided shed and normalizes to 'whole'.
+	PartitionLabel     string
 	FeedItemLabel      string
 	AbsoluteKg         string
 	HeadCount          *int32
 	ExperimentCategory string
+}
+
+// CreateFeedItemCommand adds one entry to the tenant's feed-item catalog.
+//
+// ADDING AN ITEM AUTHORS NO QUANTITY. That is the whole safety property of this command and the
+// reason it is a plain create rather than an upsert of anything: the catalog is a VOCABULARY. A new
+// item is fed to nothing until a ration rate, a shed factor or an experiment cell names it, so this
+// write cannot change what any animal eats today. Nothing here may grow into a path that authors a
+// rate on the author's behalf -- an invented rate would be exactly the "value nobody entered" the
+// package comment bans, and an invented ZERO would read as "feed none of it" forever.
+//
+// The three nutritional attributes are POINTERS because NULL is the honest state for an item whose
+// energy value nobody has measured: a missing energy figure blocks a rollup, never a feeding
+// decision (see FeedItem and the column's own nullability). They are never defaulted to 0, which
+// would state a measured zero.
+//
+// DisplayOrder is a pointer for a different reason: absent means "put it at the end", which the
+// repository resolves from the catalog's current maximum inside the write transaction. That is a
+// PRESENTATION position, not a business value, which is why deriving it is acceptable here while
+// deriving a rate never is.
+type CreateFeedItemCommand struct {
+	WriteIdentity
+	FeedItemLabel   string
+	EnergyKcalPerKg *string
+	DryMatterFactor *string
+	WastageFactor   *string
+	DisplayOrder    *int32
 }
 
 // SetExperimentShedStatusCommand switches a WHOLE SHED between the experiment workflow and the
@@ -539,6 +595,112 @@ func NormalizeDecimal(field, raw string, scale int, allowZero bool) (string, err
 		return intPart, nil
 	}
 	return intPart + "." + frac, nil
+}
+
+// Scales of the three nullable feed_item_catalog attributes, mirroring the migration's column
+// types. Authored values are rejected rather than rounded to fit, so these must stay in step with
+// the schema: energy_kcal_per_kg numeric(10,3), dry_matter_factor numeric(6,4),
+// wastage_factor numeric(6,4).
+const (
+	energyScale     = 3
+	dryMatterScale  = 4
+	wastageScale    = 4
+	dryMatterMaxRaw = "1"
+	wastageMaxRaw   = "1"
+)
+
+// NormalizeEnergyKcalPerKg validates the optional energy attribute: >= 0, three decimal places.
+//
+// An authored 0 is accepted as a real measurement (an item that carries no metabolisable energy).
+// It is the ABSENT case that must not be turned into one -- absent means nobody measured it, and
+// that gap is reported as a gap rather than as a zero.
+func NormalizeEnergyKcalPerKg(field, raw string) (string, error) {
+	return NormalizeDecimal(field, raw, energyScale, true)
+}
+
+// NormalizeDryMatterFactor validates the optional dry-matter fraction: > 0 and <= 1.
+//
+// Both bounds mirror feed_item_catalog_dry_matter_check exactly, and both are rejections rather
+// than clamps. Zero is EXCLUDED here (unlike energy) because the column excludes it: a dry-matter
+// fraction of 0 says the item is entirely water, which is not a feed. A value above 1 says the
+// item is more than 100% dry matter, which is not a quantity that exists.
+func NormalizeDryMatterFactor(field, raw string) (string, error) {
+	normalized, err := NormalizeDecimal(field, raw, dryMatterScale, false)
+	if err != nil {
+		return "", err
+	}
+	return normalized, requireAtMost(field, normalized, dryMatterMaxRaw, dryMatterScale, true)
+}
+
+// NormalizeWastageFactor validates the optional wastage fraction: >= 0 and < 1.
+//
+// Mirrors feed_item_catalog_wastage_check. An authored 0 IS legal (an item with no expected
+// wastage); 1 is not, because a wastage fraction of 1 says the entire quantity is lost, leaving
+// nothing fed.
+func NormalizeWastageFactor(field, raw string) (string, error) {
+	normalized, err := NormalizeDecimal(field, raw, wastageScale, true)
+	if err != nil {
+		return "", err
+	}
+	return normalized, requireAtMost(field, normalized, wastageMaxRaw, wastageScale, false)
+}
+
+// requireAtMost enforces an upper bound on an ALREADY-canonical decimal.
+//
+// The comparison is done on scaled INTEGER units rather than on float64: the bound cases here are
+// exactly 1.0000, and a float round-trip is precisely where an equality check at a boundary stops
+// being reliable. Both operands come from NormalizeDecimal, so they share a fixed scale and their
+// digit strings compare as integers.
+func requireAtMost(field, canonical, maxRaw string, scale int, inclusive bool) error {
+	max, err := NormalizeDecimal(field, maxRaw, scale, true)
+	if err != nil {
+		return err
+	}
+	value, err := decimalUnits(canonical, scale)
+	if err != nil {
+		return fieldErr(field, ErrInvalidDecimal, canonical)
+	}
+	limit, err := decimalUnits(max, scale)
+	if err != nil {
+		return fieldErr(field, ErrInvalidDecimal, max)
+	}
+	if value > limit || (!inclusive && value == limit) {
+		bound := "less than"
+		if inclusive {
+			bound = "at most"
+		}
+		return fieldErr(field, ErrValueOutOfRange,
+			fmt.Sprintf("%s must be %s %s", canonical, bound, maxRaw))
+	}
+	return nil
+}
+
+// decimalUnits turns a canonical fixed-scale decimal ("0.8500") into its integer count of scaled
+// units (8500). Exact by construction: NormalizeDecimal has already guaranteed the shape.
+func decimalUnits(canonical string, scale int) (int64, error) {
+	intPart, fracPart, _ := strings.Cut(canonical, ".")
+	if scale > 0 && len(fracPart) != scale {
+		return 0, fmt.Errorf("feedconfig: %q is not at scale %d", canonical, scale)
+	}
+	return strconv.ParseInt(intPart+fracPart, 10, 64)
+}
+
+// ValidateDisplayOrder checks the optional catalog sort position.
+//
+// nil is legal and means "put it at the end", resolved by the write path from the catalog's current
+// maximum. A present negative value is rejected rather than clamped, for the same
+// validate-or-reject reason as every other authored field -- though note what is NOT at stake here:
+// display_order is a presentation position, so a wrong one misorders a dropdown and never misfeeds
+// an animal. That is exactly why deriving an absent one is acceptable while deriving an absent rate
+// is not.
+func ValidateDisplayOrder(field string, raw *int32) (*int32, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if *raw < 0 {
+		return nil, fieldErr(field, ErrNegativeValue, fmt.Sprintf("%d", *raw))
+	}
+	return raw, nil
 }
 
 func allDigits(s string) bool {

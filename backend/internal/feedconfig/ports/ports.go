@@ -23,6 +23,17 @@ var (
 	// ErrShedNotFound is the shed equivalent, for shed-factor writes.
 	ErrShedNotFound = errors.New("feedconfig: shed not found")
 
+	// ErrFeedItemExists is returned when a catalog entry with the same normalized label is already
+	// present in the tenant.
+	//
+	// The add fails CLOSED rather than updating the existing row, and that is the point rather than
+	// a missing feature: this is an ADD action, so silently rewriting an item's authored energy or
+	// wastage values under it would change data the author never opened. It is also not a silent
+	// success -- "Dry Masoor Bhusa" and "dry masoor bhusa " are ONE item by feed_config_norm, so
+	// pretending the second one was created would leave the author believing the catalog holds two
+	// entries while every rate keyed on the label resolves to one.
+	ErrFeedItemExists = errors.New("feedconfig: feed item already exists in this tenant")
+
 	// ErrFutureDatedRow is returned when the currently-open row takes effect AFTER the business date
 	// this edit would apply on. Neither effective-dating branch is correct for it: closing that row
 	// with today's date would violate valid_to > valid_from, and correcting it in place would rewrite
@@ -62,6 +73,19 @@ type Repository interface {
 
 	// UpsertShedFactor authors one shed multiplier on the same effective-dated terms.
 	UpsertShedFactor(ctx context.Context, cmd domain.UpsertShedFactorCommand) (domain.WriteResult, error)
+
+	// CreateFeedItem adds one entry to the tenant's feed-item catalog.
+	//
+	// CREATE, NOT UPSERT, and the vocabulary reflects it -- the only success outcome is 'inserted'.
+	// A duplicate normalized label is ErrFeedItemExists rather than a correction of the existing
+	// row: the catalog is not effective-dated, so an "update" here would overwrite authored
+	// attributes in place on a screen whose control says Add.
+	//
+	// Adding an item authors NO quantity. The new label is selectable on the ration grid, the shed
+	// factors and the experiment sheds from the moment it exists, and every one of those
+	// combinations stays UNCONFIGURED -- and therefore blocking -- until someone authors it. This
+	// write must never create a rate to go with the item, not even 0.
+	CreateFeedItem(ctx context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error)
 
 	// UpsertScheduleConfig authors one park/workflow dispatch clock on the same effective-dated
 	// terms. All three times are stored as LOCAL Asia/Kolkata wall-clock values with no offset.

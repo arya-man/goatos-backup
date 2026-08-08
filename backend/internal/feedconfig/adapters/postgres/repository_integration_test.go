@@ -1137,3 +1137,221 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid`, fcTen
 	}
 	return out
 }
+
+// ---------------------------------------------------------------------------
+// Feed items (the catalog)
+// ---------------------------------------------------------------------------
+
+func feedItemCommand(key, fingerprint, label string) domain.CreateFeedItemCommand {
+	return domain.CreateFeedItemCommand{
+		WriteIdentity: domain.WriteIdentity{
+			TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-19",
+			IdempotencyKey: key, RequestFingerprint: fingerprint,
+		},
+		FeedItemLabel: label,
+	}
+}
+
+// TestCreateFeedItemStoresUnmeasuredAttributesAsNull is the proof that only the database can give:
+// an omitted attribute is a real SQL NULL in the stored row, not a 0.
+//
+// The fake-backed service test proves nil reaches the repository; this proves the repository binds
+// it as NULL rather than letting a numeric column's default or a stray coalesce turn it into a
+// measurement nobody took. The distinction is visible only in the row itself.
+func TestCreateFeedItemStoresUnmeasuredAttributesAsNull(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	got, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00001", "fp-item", "RGS Concentrate"))
+	if err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+	if got.Outcome != domain.OutcomeInserted {
+		t.Fatalf("outcome = %q, want %q — an add has no update branch", got.Outcome, domain.OutcomeInserted)
+	}
+
+	var label, status string
+	var energy, dryMatter, wastage *string
+	if err := pool.QueryRow(ctx, `
+SELECT feed_item_label, energy_kcal_per_kg::text, dry_matter_factor::text, wastage_factor::text, status
+FROM feed_item_catalog
+WHERE feed_item_id = $1::uuid`, got.ResultRowID).
+		Scan(&label, &energy, &dryMatter, &wastage, &status); err != nil {
+		t.Fatalf("read stored feed item: %v", err)
+	}
+	if label != "RGS Concentrate" {
+		t.Fatalf("feed_item_label = %q, want %q", label, "RGS Concentrate")
+	}
+	if status != "active" {
+		t.Fatalf("status = %q, want active — an item added to the vocabulary is one the author intends to use", status)
+	}
+	for name, got := range map[string]*string{
+		"energy_kcal_per_kg": energy,
+		"dry_matter_factor":  dryMatter,
+		"wastage_factor":     wastage,
+	} {
+		if got != nil {
+			t.Fatalf("%s = %q, want SQL NULL — an unmeasured attribute must not be stored as a number", name, *got)
+		}
+	}
+}
+
+// TestCreateFeedItemAuthorsNoQuantity is the load-bearing test of this feature.
+//
+// Adding an item must leave feed_ration_rates, feed_shed_factors and feed_experiment_config
+// UNTOUCHED. A convenience row seeded here would be a quantity nobody entered, and a seeded 0 would
+// be worse than that: it would record "feed none of this item" for the combination it was created
+// under, permanently and invisibly, which is exactly the configured-zero collapse the whole module
+// is built to prevent.
+func TestCreateFeedItemAuthorsNoQuantity(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00002", "fp-item", "Vijay Concentrate")); err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+	for _, table := range []string{"feed_ration_rates", "feed_shed_factors", "feed_experiment_config"} {
+		var count int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM `+table+` WHERE tenant_id = $1::uuid`, fcTenant).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("%s holds %d rows after adding a catalog item; adding an item must author no quantity", table, count)
+		}
+	}
+}
+
+// TestCreateFeedItemDuplicateLabelIsRejectedOnTheNormalizedKey proves the duplicate check runs on
+// feed_config_norm, the same expression the stored key column is generated from — not on the raw
+// text.
+//
+// "Dry Masoor Bhusa" and "  dry masoor bhusa " are ONE item as far as every rate is concerned. A
+// raw-text comparison would let the second one through, and the catalog would then show two entries
+// that both resolve to the same key while every rate keyed on that label points at the first.
+func TestCreateFeedItemDuplicateLabelIsRejectedOnTheNormalizedKey(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	if _, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00003", "fp-item", "Dry Masoor Bhusa")); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	// A DIFFERENT idempotency key, so this is a genuinely new request rather than a replay.
+	_, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00004", "fp-item-2", "  dry masoor bhusa "))
+	if !errors.Is(err, ports.ErrFeedItemExists) {
+		t.Fatalf("duplicate add error = %v, want ErrFeedItemExists", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid`, fcTenant).Scan(&count); err != nil {
+		t.Fatalf("count catalog: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("catalog holds %d rows, want 1 — the rejected duplicate must not have been written", count)
+	}
+}
+
+// TestCreateFeedItemAppendsToTheEndOfTheCatalog proves an absent display_order resolves to the
+// catalog's maximum + 1 rather than to the column's DEFAULT 0.
+//
+// Taking the default would place every newly added item FIRST in every feed-item dropdown on the
+// screen, ahead of the items the farm actually uses daily — a silent reordering of the whole
+// vocabulary as a side effect of adding one name.
+func TestCreateFeedItemAppendsToTheEndOfTheCatalog(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO feed_item_catalog (tenant_id, feed_item_label, display_order, status)
+VALUES ($1::uuid, 'Existing Item', 7, 'active')`, fcTenant); err != nil {
+		t.Fatalf("seed existing catalog row: %v", err)
+	}
+
+	got, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00005", "fp-item", "Appended Item"))
+	if err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+	var order int32
+	if err := pool.QueryRow(ctx,
+		`SELECT display_order FROM feed_item_catalog WHERE feed_item_id = $1::uuid`, got.ResultRowID).Scan(&order); err != nil {
+		t.Fatalf("read display_order: %v", err)
+	}
+	if order != 8 {
+		t.Fatalf("display_order = %d, want 8 (max 7 + 1) — an absent order must append, not take the column default of 0", order)
+	}
+}
+
+// TestCreateFeedItemExactReplayReturnsOriginalWithoutASecondRow proves the add carries the same
+// idempotency contract as every other write here.
+//
+// It matters more than usual on a create: without it a browser retry would insert nothing (the
+// unique index holds) but would answer "already exists" for a name the operator submitted once,
+// which reads as a failure of their own action.
+func TestCreateFeedItemExactReplayReturnsOriginalWithoutASecondRow(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	first, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00006", "fp-item", "Replayed Item"))
+	if err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	replay, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00006", "fp-item", "Replayed Item"))
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if !replay.Replayed {
+		t.Fatalf("replay reported idempotent_replay=false")
+	}
+	if replay.ResultRowID != first.ResultRowID {
+		t.Fatalf("replay row = %q, want the original %q", replay.ResultRowID, first.ResultRowID)
+	}
+	var count int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM feed_item_catalog WHERE tenant_id = $1::uuid`, fcTenant).Scan(&count); err != nil {
+		t.Fatalf("count catalog: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("catalog holds %d rows after a replay, want 1", count)
+	}
+}
+
+// TestCreateFeedItemIsRecordedInTheWriteLog proves migration 000136 actually widened the ledger's
+// write_kind vocabulary.
+//
+// This is not a formality. The CHECK is closed and the ledger row shares the insert's transaction,
+// so before the migration this write would have failed the ledger insert and rolled the whole add
+// back — the endpoint would 500 on every attempt. The test therefore fails loudly if the migration
+// is ever reverted without the code.
+func TestCreateFeedItemIsRecordedInTheWriteLog(t *testing.T) {
+	ctx := context.Background()
+	pool := setupFeedConfigDB(t, ctx)
+	repo := fcRepo(pool)
+
+	got, err := repo.CreateFeedItem(ctx, feedItemCommand("key-item-00007", "fp-item", "Ledgered Item"))
+	if err != nil {
+		t.Fatalf("CreateFeedItem: %v", err)
+	}
+	var kind, outcome, actor, effectiveFrom, resultRow string
+	if err := pool.QueryRow(ctx, `
+SELECT write_kind, outcome, actor_ref, effective_from::text, result_row_id::text
+FROM feed_config_write_log
+WHERE tenant_id = $1::uuid AND idempotency_key = $2`, fcTenant, "key-item-00007").
+		Scan(&kind, &outcome, &actor, &effectiveFrom, &resultRow); err != nil {
+		t.Fatalf("read write log: %v", err)
+	}
+	if kind != domain.WriteKindFeedItem {
+		t.Fatalf("write_kind = %q, want %q", kind, domain.WriteKindFeedItem)
+	}
+	if outcome != domain.OutcomeInserted || resultRow != got.ResultRowID {
+		t.Fatalf("ledger row = (%s, %s), want (inserted, %s)", outcome, resultRow, got.ResultRowID)
+	}
+	// The catalog is not effective-dated, but the ledger still records WHEN the vocabulary changed.
+	if actor != "tester" || effectiveFrom != "2026-07-19" {
+		t.Fatalf("ledger audit = (%s, %s), want (tester, 2026-07-19)", actor, effectiveFrom)
+	}
+}
