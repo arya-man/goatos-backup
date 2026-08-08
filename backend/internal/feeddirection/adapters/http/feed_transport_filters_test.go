@@ -62,6 +62,10 @@ func (transportFilterService) SubmitTransport(context.Context, app.SubmitTranspo
 	return ports.SubmitTransportResult{}, nil
 }
 
+func (transportFilterService) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
+}
+
 func TestGetTransportTasksAppliesFarmShedAndStatusBeforePaging(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/feed-transport/tasks?business_date=2026-07-29&park_id=20000000-0000-4000-8000-000000000002&shed_id=30000000-0000-4000-8000-000000000002&status=completed&limit=20", nil)
 	ctx := httpmiddleware.WithActorID(httpmiddleware.WithTenantID(req.Context(), "00000000-0000-4000-8000-000000000001"), "40000000-0000-4000-8000-000000000001")

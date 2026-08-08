@@ -48,6 +48,10 @@ func (f *milkPreparationHandlerService) SubmitMilkFeeding(context.Context, domai
 	return domain.MilkFeedingSubmissionResult{}, f.feedingSubmitErr
 }
 
+func (f *milkPreparationHandlerService) ListAlerts(context.Context, string, string, bool, []string, string, int) (domain.AlertPage, error) {
+	return domain.AlertPage{}, nil
+}
+
 func TestSubmitMilkFeedingRejectsBeforeSessionUnlock(t *testing.T) {
 	service := &milkPreparationHandlerService{feedingSubmitErr: ports.ErrMilkFeedingNotYetAvailable}
 	handler := NewHandler(service, slog.Default())

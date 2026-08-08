@@ -244,6 +244,27 @@ const (
 	// tab is not the control — the routes above require this same permission, so a hidden
 	// page is unreachable, not merely invisible.
 	CountsRead = "counts.read"
+	// CountsAlertsRead gates the app-tier Counts Alerts feed's backing route
+	// (GET /app/counts/alerts), decoupled from CountsRead/CountsWrite the same way
+	// VaccinationAlertsRead is decoupled from ObligationRead/VaccinationRead above.
+	//
+	// This exists ONLY because COUNTS IS AN OFF FEATURE (AGENTS.md): health_director is Counts'
+	// documented owner and the leadership recipient of every counts.proof.* verification push
+	// (backend/internal/notificationbridge/verification_notify_consumer.go, moduleCounts
+	// profile), but deliberately holds NEITHER CountsRead NOR CountsWrite -- granting either would
+	// light up the Counts capture/census nav for that role and switch the feature on, which is
+	// exactly what AGENTS.md's "Ownership and access are separate decisions here" forbids. Without
+	// this permission, GET /app/counts/alerts would have to gate on CountsRead/CountsWrite/
+	// VerificationReview, and health_director would 403 on their own inbox -- the identical
+	// "recipient vs reader" gate-1 failure the weighing verifier hit on 2026-08-08, just with a
+	// permission grant standing in for the missing park-scope fix on the other two feeds.
+	//
+	// Route AnyPermissions on appListCountsAlerts is [CountsAlertsRead, CountsWrite,
+	// VerificationReview]: CountsAlertsRead admits health_director without widening any Counts
+	// access; CountsWrite admits park_head and RoleCEOInternal (both already hold it);
+	// VerificationReview admits the verifier. The query itself is scoped to
+	// context->>'member_id' = the caller, so this permission opens the tab, not the data.
+	CountsAlertsRead = "counts.alerts_read"
 	// CountsApproveLifecycle gates approving/rejecting a BIRTH or DEATH request
 	// (/app/counts/approvals/{id}/{approve,reject} for those two types).
 	//
@@ -639,6 +660,10 @@ var rolePermissions = map[string]map[string]struct{}{
 		// health_director are separate departments and merging them is prohibited. Vaccination
 		// protocol authoring stays on /config with ProtocolWrite, which this role does not hold.
 		HealthConfigRead: {}, HealthConfigWrite: {},
+		// CountsAlertsRead opens ONLY the Counts Alerts inbox (GET /app/counts/alerts) -- see its
+		// doc comment above. It is deliberately NOT CountsRead/CountsWrite: COUNTS IS AN OFF
+		// FEATURE and granting either of those would switch it on for this role.
+		CountsAlertsRead: {},
 	},
 	// The whole role: three approval permissions, nothing else. See RoleCountsApprover's doc
 	// comment for why this exists as its own role rather than as additions to pc_director /
