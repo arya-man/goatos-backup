@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+[ -n "$repo" ] || { echo "release-tag: run inside a Git worktree" >&2; exit 2; }
+cd "$repo"
+
+die() {
+  echo "release-tag: $*" >&2
+  exit 1
+}
+
+short_sha() {
+  printf '%.12s' "$1"
+}
+
+section_for_path() {
+  case "$1" in
+    backend/*|contracts/*|packages/api-client/*)
+      echo "Backend"
+      ;;
+    apps/admin-web/*|mock/*)
+      echo "Frontend/Admin Web"
+      ;;
+    apps/goatos-android/*)
+      echo "Mobile Android"
+      ;;
+    deploy/*|infra/*|tools/deploy/*|tools/release/*|tools/ci/*|tools/agent-hooks/*|Makefile|context/deploy-contract.json)
+      echo "Infra/Deploy"
+      ;;
+    docs/*|context/*|fixtures/*|source-material/*|seed*|*.md)
+      echo "Docs/Seed/Data"
+      ;;
+    *)
+      echo "Other"
+      ;;
+  esac
+}
+
+unique_lines() {
+  awk 'NF && !seen[$0]++'
+}
+
+env_name="${ENV:-stg}"
+target_sha="${SHA:-$(git rev-parse HEAD)}"
+target_sha="$(git rev-parse "$target_sha")"
+tag_date="${DATE:-$(date -u +%Y-%m-%d)}"
+tag_name="${TAG_NAME:-${env_name}/release-${tag_date}-$(short_sha "$target_sha")}"
+push_tag="${PUSH_TAG:-1}"
+dry_run="${DRY_RUN:-0}"
+update_tag="${UPDATE_TAG:-0}"
+cloud_deploy_release="${CLOUD_DEPLOY_RELEASE:-}"
+firebase_release_url="${FIREBASE_RELEASE_URL:-}"
+android_version="${ANDROID_VERSION:-}"
+android_version_code="${ANDROID_VERSION_CODE:-}"
+env_label="$(printf '%s' "$env_name" | tr '[:lower:]' '[:upper:]')"
+
+case "$env_name" in
+  dev|stg|prod) ;;
+  *) die "ENV must be dev, stg, or prod; got $env_name" ;;
+esac
+
+origin_url="$(git remote get-url origin 2>/dev/null || true)"
+case "$origin_url" in
+  git@github.com:vgoats/goatos.git|ssh://git@github.com/vgoats/goatos.git|https://github.com/vgoats/goatos.git|https://github.com/vgoats/goatos) ;;
+  *) die "origin must be vgoats/goatos; got ${origin_url:-<missing>}" ;;
+esac
+
+if [ "$dry_run" != "1" ] && [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+  die "worktree is dirty; run from the exact clean release checkout"
+fi
+
+existing_local=0
+existing_remote=0
+if git rev-parse -q --verify "refs/tags/$tag_name" >/dev/null; then
+  existing_local=1
+  existing="$(git rev-parse "refs/tags/$tag_name^{commit}")"
+  [ "$existing" = "$target_sha" ] || die "tag $tag_name already points to $(short_sha "$existing"), not $(short_sha "$target_sha")"
+fi
+if git ls-remote --exit-code --tags origin "refs/tags/$tag_name" >/dev/null 2>&1; then
+  existing_remote=1
+fi
+
+if [ "$existing_local" = "1" ] || [ "$existing_remote" = "1" ]; then
+  if [ "$update_tag" != "1" ]; then
+    if [ -n "$firebase_release_url" ] || [ -n "$android_version" ] || [ -n "$android_version_code" ]; then
+      die "tag $tag_name already exists; rerun with UPDATE_TAG=1 to replace same-SHA metadata with Firebase provenance"
+    fi
+    echo "release-tag: tag already exists: $tag_name"
+    exit 0
+  fi
+  [ "$existing_local" = "1" ] || git fetch --quiet origin "refs/tags/$tag_name:refs/tags/$tag_name"
+  existing="$(git rev-parse "refs/tags/$tag_name^{commit}")"
+  [ "$existing" = "$target_sha" ] || die "UPDATE_TAG=1 refuses to move $tag_name from $(short_sha "$existing") to $(short_sha "$target_sha")"
+fi
+
+previous_tag="$(
+  git tag --list "${env_name}/release-*" --merged "$target_sha" --sort=-creatordate | head -1
+)"
+
+if [ -n "$previous_tag" ]; then
+  range="${previous_tag}..${target_sha}"
+else
+  base="$(git merge-base "$target_sha" origin/main 2>/dev/null || true)"
+  range="${base:-$target_sha}..${target_sha}"
+fi
+
+notes_file="$(mktemp "${TMPDIR:-/tmp}/goatos-release-tag.XXXXXX")"
+trap 'rm -f "$notes_file"' EXIT
+
+{
+  echo "Goat OS ${env_label} release"
+  echo
+  echo "Commit: $target_sha"
+  echo "Previous release tag: ${previous_tag:-none}"
+  if [ -n "$cloud_deploy_release" ]; then
+    echo "Cloud Deploy: $cloud_deploy_release"
+  fi
+  if [ -n "$android_version" ] || [ -n "$android_version_code" ]; then
+    echo "Firebase Android: ${android_version:-unknown}${android_version_code:+ / versionCode $android_version_code}"
+  fi
+  if [ -n "$firebase_release_url" ]; then
+    echo "Firebase release: $firebase_release_url"
+  fi
+  echo
+  for section in "Backend" "Frontend/Admin Web" "Mobile Android" "Infra/Deploy" "Docs/Seed/Data" "Other"; do
+    commits="$(
+      while read -r commit; do
+        [ -n "$commit" ] || continue
+        if git diff-tree --no-commit-id --name-only -r "$commit" | while read -r path; do
+          [ "$(section_for_path "$path")" = "$section" ] && exit 0
+        done; then
+          git log -1 --format='- %h %s' "$commit"
+        fi
+      done <<EOF_COMMITS
+$(git rev-list --reverse "$range")
+EOF_COMMITS
+    )"
+    commits="$(printf '%s\n' "$commits" | unique_lines)"
+    echo "$section"
+    if [ -z "$commits" ]; then
+      echo "- No changes detected."
+    else
+      printf '%s\n' "$commits"
+    fi
+    echo
+  done
+  echo "Release Tag Provenance"
+  echo "- Tag: $tag_name"
+  echo "- Target commit: $target_sha"
+  echo "- Generated by: tools/release/create-release-tag.sh"
+} >"$notes_file"
+
+if [ "$dry_run" = "1" ]; then
+  cat "$notes_file"
+  exit 0
+fi
+
+if [ "$update_tag" = "1" ] && git rev-parse -q --verify "refs/tags/$tag_name" >/dev/null; then
+  git tag -d "$tag_name" >/dev/null
+fi
+git tag -a "$tag_name" -F "$notes_file" "$target_sha"
+echo "release-tag: created annotated tag $tag_name -> $(short_sha "$target_sha")"
+
+if [ "$push_tag" = "1" ]; then
+  if [ "$update_tag" = "1" ]; then
+    git push --force-with-lease origin "refs/tags/$tag_name"
+  else
+    git push origin "refs/tags/$tag_name"
+  fi
+  echo "release-tag: pushed $tag_name"
+else
+  echo "release-tag: PUSH_TAG=0, tag left local"
+fi

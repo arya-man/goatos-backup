@@ -45,14 +45,18 @@ Current Secret Manager state:
 ```text
 Exists: android-stg-upload-* signing secrets
 Exists: goatos-stg-firebase-web-config
-Missing: Firebase App Distribution service-account JSON secret
+Exists: goatos-stg-firebase-app-distribution-sa-json
 ```
 
-Before using the service-account JSON path, create a Secret Manager entry for
-that JSON and document its exact secret name in this runbook. Restore the JSON
-to a gitignored local path and export `GOOGLE_APPLICATION_CREDENTIALS` before
-running the Gradle upload task. Do not commit the JSON or paste it into chat,
-tickets, or email.
+Codex, Claude, and developers should restore both Android signing and Firebase
+upload auth through the repo helper:
+
+```bash
+make restore-stg-android-release-env
+source .local/android-signing/stg-release-env.sh
+```
+
+Do not commit the JSON or paste it into chat, tickets, or email.
 
 ## Restore local signing files
 
@@ -87,13 +91,12 @@ export GOATOS_ANDROID_STG_KEY_PASSWORD="$(
 )"
 ```
 
-If using the service-account JSON path for Firebase upload auth, first create
-and document the Secret Manager entry, then restore it like this:
+If manual restore is needed, use the documented service-account JSON secret:
 
 ```bash
 gcloud secrets versions access latest \
   --project goatos-stg \
-  --secret <firebase-app-distribution-service-account-json-secret-name> \
+  --secret goatos-stg-firebase-app-distribution-sa-json \
   --out-file .local/android-signing/firebase-app-distribution-sa.json
 
 export GOOGLE_APPLICATION_CREDENTIALS="$PWD/.local/android-signing/firebase-app-distribution-sa.json"
@@ -154,6 +157,23 @@ Every Firebase App Distribution upload is traceable to source:
 - `appDistributionUploadStgRelease` refuses dirty local worktrees unless the
   builder deliberately passes `-PallowDirtyFirebaseDistribution=true` for a
   throwaway/debug build.
+
+After upload, create or update the GitHub release tag with the Firebase release
+URL printed by Gradle:
+
+```bash
+make release-tag \
+  ENV=stg \
+  SHA="$(git rev-parse HEAD)" \
+  TAG_NAME="android/stg/v0.1.14" \
+  UPDATE_TAG=1 \
+  ANDROID_VERSION=0.1.14-stg \
+  ANDROID_VERSION_CODE=15 \
+  FIREBASE_RELEASE_URL="<Firebase console release URL>"
+```
+
+Do not call the Firebase release closed until the GitHub tag exists and includes
+the Android version/code and Firebase release URL.
 
 Do not use a dirty upload to answer whether a production-like phone APK contains
 a feature. If `-PallowDirtyFirebaseDistribution=true` is used, mark the Firebase

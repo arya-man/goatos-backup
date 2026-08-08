@@ -198,6 +198,12 @@ staging", or similar:
 - do NOT offer GitHub Actions or PR-driven deploy options
 - do NOT force-push a `stg` branch
 - verify `ravi@mesha.sg` / `vgoats.com` / `goatos-stg` before any cloud command
+- every completed release must have a GitHub release tag from `make release-tag`
+  with separate Backend, Frontend/Admin Web, Mobile Android, Infra/Deploy,
+  Docs/Seed/Data, and Other sections
+- Firebase App Distribution releases must first run
+  `make restore-stg-android-release-env`, then record the Firebase release URL
+  and Android version/code in the GitHub tag
 
 ## Context Files
 

@@ -174,6 +174,9 @@ verify_stg_images() {
 if [[ "$WAIT_FOR_ROLLOUT" == "1" ]]; then
   wait_for_rollout
   verify_stg_images
+  ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="$release_id" \
+    tools/release/create-release-tag.sh
 else
   echo "Rollout wait skipped by GOATOS_STG_RELEASE_WAIT=0; image parity not verified."
+  die "release tag creation requires verified rollout/image parity; rerun with GOATOS_STG_RELEASE_WAIT=1"
 fi
