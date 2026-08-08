@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -440,6 +441,9 @@ class WeighingPlanWizardEditHydrationTest {
         ): AppResult<Int> = AppResult.Ok(0)
 
         // ---- everything below this line is untouched by this test ---------------------------
+
+        override suspend fun individualDraftsSnapshot(scopeKey: String): List<IndividualWeighingDraft> =
+            observeScope(scopeKey, Int.MAX_VALUE).first().individualDrafts
 
         override fun observeScope(scopeKey: String, windowSize: Int): Flow<WeighingScopeState> =
             MutableStateFlow(WeighingScopeState(emptyList(), emptyList(), emptyList(), 0))

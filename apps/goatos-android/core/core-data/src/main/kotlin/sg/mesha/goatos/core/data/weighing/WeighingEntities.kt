@@ -182,6 +182,16 @@ interface WeighingObservationDao {
     @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey ORDER BY capturedAtMs ASC LIMIT :limit")
     fun observeForScope(scopeKey: String, limit: Int = MAX_OBSERVATIONS_PER_SCOPE): Flow<List<WeighingObservationEntity>>
 
+    /** One-shot read of the same rows [observeForScope] emits.
+     *
+     *  A caller that has just awaited a refresh needs THIS refresh's answer, and the observed Flow
+     *  cannot prove that: its current value may still be the pre-write snapshot, and every proxy for
+     *  freshness (row present, status non-null) is satisfied by a stale row that happens to look
+     *  similar. refreshScope writes Room inside its suspend call, so reading directly after it
+     *  returns sees that write by construction -- no timing assumption at all. */
+    @Query("SELECT * FROM weighing_observation WHERE scopeKey = :scopeKey ORDER BY capturedAtMs ASC LIMIT :limit")
+    suspend fun listForScope(scopeKey: String, limit: Int = MAX_OBSERVATIONS_PER_SCOPE): List<WeighingObservationEntity>
+
     @Query("SELECT * FROM weighing_observation WHERE idempotencyKey = :idempotencyKey LIMIT 1")
     suspend fun findByIdempotencyKey(idempotencyKey: String): WeighingObservationEntity?
 
