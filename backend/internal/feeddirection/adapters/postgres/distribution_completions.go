@@ -109,15 +109,15 @@ func (r *Repository) CompleteDistribution(ctx context.Context, p ports.CompleteD
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_distribution_completions (
-  tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
+  tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
   distribution_proof_ref, water_proof_ref, completed_by, idempotency_key
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4, $5::date, $6, 'pending_verification',
-  $7, $8, nullif($9::text, '')::uuid, $10
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
+  $8, $9, nullif($10::text, '')::uuid, $11
 )
-ON CONFLICT (tenant_id, park_id, shed_id, session_no, target_date, workflow) DO NOTHING
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
-		p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
+		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		distProof, waterProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -127,8 +127,9 @@ RETURNING completion_id::text, row_version`,
 SELECT completion_id::text, status, row_version
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
-			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow).
+  AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
+			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
+			domain.PartitionMatchKey(p.PartitionLabel)).
 			Scan(&completionID, &existingStatus, &rowVersion); err != nil {
 			return ports.CompleteDistributionResult{}, fmt.Errorf("feeddirection: read existing distribution completion: %w", err)
 		}
@@ -243,7 +244,7 @@ func (r *Repository) ListDistributionSessionStatuses(ctx context.Context, tenant
 
 	// scale-guard:ignore: bounded read of ONE park-day's distribution shed-session statuses, covered by feed_distribution_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's shed catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, session_no, workflow, status
+SELECT shed_id::text, coalesce(partition_label, ''), session_no, workflow, status
 FROM feed_distribution_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
@@ -254,7 +255,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 	out := make([]ports.SessionCompletionStatus, 0)
 	for rows.Next() {
 		var d ports.SessionCompletionStatus
-		if err := rows.Scan(&d.ShedID, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
 			return nil, fmt.Errorf("feeddirection: scan distribution session status: %w", err)
 		}
 		out = append(out, d)

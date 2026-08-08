@@ -64,6 +64,9 @@ data class FeedDirectionRowUi(
     val shedId: String,
     val sessionNo: Int,
     val shedLabel: String,
+    /** The PEN, "" for an undivided shed. Separate from the composed [shedLabel] because the
+     *  completion needs the raw pen — a shed-only completion closes every pen at once. */
+    val partitionLabel: String,
     val shedTag: String,
     val breed: String,
     val rationGroup: String,
@@ -171,6 +174,7 @@ sealed interface FeedDirectionEvent {
         val sessionNo: Int,
         val workflow: String,
         val shedLabel: String,
+        val partitionLabel: String,
         val sessionLabel: String,
     ) : FeedDirectionEvent
     data object ClearFilters : FeedDirectionEvent
@@ -250,6 +254,7 @@ fun FeedDirectionScreen(
                                 sessionNo = row.sessionNo,
                                 workflow = row.workflow,
                                 shedLabel = row.shedLabel,
+                                partitionLabel = row.partitionLabel,
                                 sessionLabel = row.sessionLabel,
                             ),
                         )

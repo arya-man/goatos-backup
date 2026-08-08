@@ -29,6 +29,9 @@ type CompletePackingParams struct {
 	TenantID   string
 	ParkID     string
 	ShedID     string
+	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
+	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
+	PartitionLabel string
 	SessionNo  int32
 	TargetDate time.Time
 	Workflow   string

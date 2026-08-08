@@ -269,8 +269,12 @@ type completeSessionResponse struct {
 // on which feed day and workflow, plus the TWO mandatory proof references (a feed-distribution video
 // and a water proof). The Idempotency-Key header, not the body, carries the replay key.
 type completeDistributionRequest struct {
-	ParkID               string `json:"park_id"`
-	ShedID               string `json:"shed_id"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel names the PEN the operator worked ("2", "Part 3"); omit or send "" for an
+	// undivided shed. It is part of the completion's identity: without it one pen's video closed
+	// out every pen of the shed (STG 2026-08-08). See migration 000137.
+	PartitionLabel       string `json:"partition_label"`
 	SessionNo            int32  `json:"session_no"`
 	TargetDate           string `json:"target_date"`
 	Workflow             string `json:"workflow"`
@@ -348,6 +352,7 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		TenantID:             tenantID,
 		ParkID:               strings.TrimSpace(body.ParkID),
 		ShedID:               strings.TrimSpace(body.ShedID),
+		PartitionLabel:       strings.TrimSpace(body.PartitionLabel),
 		SessionNo:            body.SessionNo,
 		TargetDate:           targetDate,
 		Workflow:             strings.TrimSpace(body.Workflow),
@@ -374,8 +379,10 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 // feed day and workflow, plus the ONE mandatory packing video reference. The Idempotency-Key header,
 // not the body, carries the replay key.
 type completePackingRequest struct {
-	ParkID          string `json:"park_id"`
-	ShedID          string `json:"shed_id"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel names the PEN the operator worked; see completeDistributionRequest.
+	PartitionLabel  string `json:"partition_label"`
 	SessionNo       int32  `json:"session_no"`
 	TargetDate      string `json:"target_date"`
 	Workflow        string `json:"workflow"`
@@ -441,6 +448,7 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		TenantID:        tenantID,
 		ParkID:          strings.TrimSpace(body.ParkID),
 		ShedID:          strings.TrimSpace(body.ShedID),
+		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		SessionNo:       body.SessionNo,
 		TargetDate:      targetDate,
 		Workflow:        strings.TrimSpace(body.Workflow),

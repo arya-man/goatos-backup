@@ -380,6 +380,9 @@ data class FeedTransportTaskPageDto(
 data class FeedDistributionCompleteRequestDto(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
+    /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
+     *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
@@ -420,6 +423,9 @@ data class FeedDistributionCompleteResponseDto(
 data class FeedPackingCompleteRequestDto(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
+    /** The PEN worked ("2", "Part 3"); null/"" for an undivided shed. Part of the completion's
+     *  IDENTITY — omitting it on a partitioned shed makes one video close out every pen. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,

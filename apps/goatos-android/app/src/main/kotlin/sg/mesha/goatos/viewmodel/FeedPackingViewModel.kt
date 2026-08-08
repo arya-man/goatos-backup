@@ -265,6 +265,7 @@ class FeedPackingViewModel @Inject constructor(
         // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
         // identical "Castro" lines the operator cannot tell apart.
         shedLabel = operationalLocationLabel(shedLabel, partitionLabel),
+        partitionLabel = partitionLabel.orEmpty(),
         sessionLabel = sessionLabel,
         workflow = workflow,
         experimentArm = experimentArm,
@@ -272,7 +273,7 @@ class FeedPackingViewModel @Inject constructor(
         items = items.map { FeedItemQtyUi(it.feedItem, it.quantityKg, it.isBlocked, it.blockedReason?.detail.orEmpty()) },
         totalKg = totalKg,
         status = status,
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, sessionNo, workflow)),
+        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
         lifecycleStatus = lifecycleStatus,
     )
 

@@ -414,7 +414,7 @@ object Routes {
     // roots and from [FEED_COMPLETE] (the untouched Packing/direction-shared completion) — never a
     // prefix reuse. Same grain args as [FEED_COMPLETE]; the operator records BOTH mandatory proofs here.
     const val FEED_DISTRIBUTION_COMPLETE =
-        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+        "/feed/distribution/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}"
 
     fun feedDistributionCompleteRoute(
         parkId: String,
@@ -424,11 +424,15 @@ object Routes {
         targetDate: String,
         shedLabel: String,
         sessionLabel: String,
+        // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
+        // still resolves; the completion needs it because proof is per-pen, not per-shed.
+        partitionLabel: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/distribution/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
+            "&partition_label=${e(partitionLabel)}"
     }
 
     // L2 verifier-GATED feed-PACKING completion, reached ONLY by tapping a shed-session row on Feed
@@ -436,7 +440,7 @@ object Routes {
     // direction-shared completion), and [FEED_DISTRIBUTION_COMPLETE] — never a prefix reuse. Same
     // grain args; simpler than distribution — the operator records ONE mandatory proof here.
     const val FEED_PACKING_COMPLETE =
-        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}"
+        "/feed/packing/complete/{park_id}/{shed_id}/{session_no}/{workflow}/{target_date}?shed_label={shed_label}&session_label={session_label}&partition_label={partition_label}"
 
     fun feedPackingCompleteRoute(
         parkId: String,
@@ -446,11 +450,15 @@ object Routes {
         targetDate: String,
         shedLabel: String,
         sessionLabel: String,
+        // The PEN worked, "" for an undivided shed. Carried as a query arg so an older deep link
+        // still resolves; the completion needs it because proof is per-pen, not per-shed.
+        partitionLabel: String,
     ): String {
         fun e(value: String): String = Uri.encode(value)
         val park = parkId.ifBlank { "-" }
         return "/feed/packing/complete/${e(park)}/${e(shedId)}/$sessionNo/${e(workflow)}/${e(targetDate)}" +
-            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}"
+            "?shed_label=${e(shedLabel)}&session_label=${e(sessionLabel)}" +
+            "&partition_label=${e(partitionLabel)}"
     }
 
     /**
@@ -2266,6 +2274,7 @@ fun AppNavHost(
                                 targetDate = state.targetDateLabel,
                                 shedLabel = event.shedLabel,
                                 sessionLabel = event.sessionLabel,
+                                partitionLabel = event.partitionLabel,
                             ),
                         ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
@@ -2307,6 +2316,7 @@ fun AppNavHost(
                                 targetDate = state.feedForDateLabel,
                                 shedLabel = event.shedLabel,
                                 sessionLabel = event.sessionLabel,
+                                partitionLabel = event.partitionLabel,
                             ),
                         ) { launchSingleTop = true }
                         else -> vm.onEvent(event)
@@ -2403,6 +2413,10 @@ fun AppNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(FeedDistributionCompleteViewModel.ARG_PARTITION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
             ),
         ) {
             val vm: FeedDistributionCompleteViewModel = hiltViewModel()
@@ -2451,6 +2465,10 @@ fun AppNavHost(
                     defaultValue = ""
                 },
                 navArgument(FeedPackingCompleteViewModel.ARG_SESSION_LABEL) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(FeedPackingCompleteViewModel.ARG_PARTITION_LABEL) {
                     type = NavType.StringType
                     defaultValue = ""
                 },

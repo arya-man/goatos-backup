@@ -3593,6 +3593,8 @@ export interface components {
              * @description The shed whose feeding session was distributed.
              */
             shed_id: string;
+            /** @description The PEN inside the shed that was worked ("2", "Part 3"). Omit or send "" for an undivided shed. This is part of the completion's IDENTITY, not a label: a partitioned shed has one completion PER PEN, so omitting it on a partitioned shed records the work against the shed as a whole and one video stands as proof for every pen (the defect reported on STG 2026-08-08). See migration 000137. */
+            partition_label?: string;
             /** @description The feeding session that was distributed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
             session_no: number;
             /**
@@ -3632,6 +3634,8 @@ export interface components {
              * @description The shed whose packing session was carried out.
              */
             shed_id: string;
+            /** @description The PEN inside the shed that was packed ("2", "Part 3"). Omit or send "" for an undivided shed. Part of the completion's IDENTITY: a partitioned shed has one completion PER PEN, so omitting it records the work against the whole shed and one video stands as proof for every pen. See FeedDistributionCompleteRequest and migration 000137. */
+            partition_label?: string;
             /** @description The feeding session that was packed. A concrete session (>= 1); session 0 is a read filter, never a completion target. */
             session_no: number;
             /**

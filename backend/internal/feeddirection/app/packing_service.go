@@ -57,6 +57,9 @@ type CompletePackingInput struct {
 	TenantID        string
 	ParkID          string
 	ShedID          string
+	// PartitionLabel is the pen the operator actually worked ("2", "Part 3"); empty for an
+	// undivided shed. Carried end-to-end so ONE pen's proof closes ONE pen -- see migration 000137.
+	PartitionLabel string
 	SessionNo       int32
 	TargetDate      time.Time
 	Workflow        string
@@ -137,6 +140,7 @@ func (s *Service) CompletePacking(ctx context.Context, in CompletePackingInput) 
 		TenantID:        in.TenantID,
 		ParkID:          in.ParkID,
 		ShedID:          in.ShedID,
+		PartitionLabel:  in.PartitionLabel,
 		SessionNo:       in.SessionNo,
 		TargetDate:      in.TargetDate,
 		Workflow:        in.Workflow,
