@@ -2718,11 +2718,21 @@ class WeighingViewModel @Inject constructor(
             ?: autoProofs.value[animalId]
     }
 
+    // A proof belongs to an animal because it NAMES that animal -- not because it happens to be
+    // mid-upload. The fallback branch used to require syncStatus != SYNCED, so a video matched its
+    // row only while it was still uploading: the instant the upload finished the row stopped
+    // seeing its own proof and went back to "Proof required", with the file sitting completed on
+    // the server. The operator is then told to re-shoot a video that already exists -- observed on
+    // 2026-08-08 with three proof_artifacts at upload_state='completed' against a row asking for
+    // proof.
+    //
+    // Ownership is the caption/subject match. Upload status is rendered separately (uploading /
+    // synced / failed) and must not decide whether the proof is FOUND.
     private fun ProofCaptureRow.matchesAnimalProof(animalId: String, draftProofId: String?): Boolean =
         if (draftProofId != null) {
             id == draftProofId
         } else {
-            syncStatus != CaptureSyncStatus.SYNCED && (caption == animalId || subjectId == animalId)
+            caption == animalId || subjectId == animalId
         }
 
     private fun RfidReaderStatus.toScanReaderConnection(readerName: String?): ScanReaderConnection =
