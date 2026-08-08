@@ -468,7 +468,7 @@ export async function WeighingWeightsPage({
       {/* Row 1 — shed and breed side by side, equal width, fixed height with the
           list scrolling inside so neither card grows with its row count. */}
       <div className="grid g2">
-        <section className="card" aria-label={copy(pageContract, "chart.average.aria")}>
+        <section className="card wchart" aria-label={copy(pageContract, "chart.average.aria")}>
           <h2 className="h">
             <Scale className="ic" size={15} aria-hidden />{" "}
             {shedMetric === "adg" ? copy(pageContract, "chart.gain.title") : copy(pageContract, "chart.average.title")}
@@ -491,7 +491,7 @@ export async function WeighingWeightsPage({
             size="tall"
           />
         </section>
-        <section className="card" aria-label={copy(pageContract, "chart.breed.aria")}>
+        <section className="card wchart" aria-label={copy(pageContract, "chart.breed.aria")}>
           <h2 className="h">
             {copy(pageContract, "chart.breed.title")}
             <MetricToggle param="breed_metric" current={breedMetric} params={params} pageContract={pageContract} />
@@ -509,7 +509,7 @@ export async function WeighingWeightsPage({
 
       {/* Row 2 — sex and stage. Few rows each, so a shorter box. */}
       <div className="grid g2">
-        <section className="card" aria-label={copy(pageContract, "chart.sex.aria")}>
+        <section className="card wchart" aria-label={copy(pageContract, "chart.sex.aria")}>
           <h2 className="h">
             {copy(pageContract, "chart.sex.title")}
             <MetricToggle param="sex_metric" current={sexMetric} params={params} pageContract={pageContract} />
@@ -522,7 +522,7 @@ export async function WeighingWeightsPage({
             size="short"
           />
         </section>
-        <section className="card" aria-label={copy(pageContract, "chart.stage.aria")}>
+        <section className="card wchart" aria-label={copy(pageContract, "chart.stage.aria")}>
           <h2 className="h">
             {copy(pageContract, "chart.stage.title")}
             <MetricToggle param="stage_metric" current={stageMetric} params={params} pageContract={pageContract} />
@@ -539,7 +539,7 @@ export async function WeighingWeightsPage({
 
       {/* Row 3 — growth by purchase load, full width: the label carries both the load
           number and the supplier, which does not fit a half-width card. */}
-      <section className="card" aria-label={copy(pageContract, "chart.load.aria")}>
+      <section className="card wchart" aria-label={copy(pageContract, "chart.load.aria")}>
         <h2 className="h">
           {loadMetric === "adg"
             ? copy(pageContract, "chart.load.title")

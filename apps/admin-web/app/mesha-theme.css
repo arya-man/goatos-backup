@@ -2167,3 +2167,17 @@ select:disabled { opacity: .45; }
    metric rows included — sits flush against the next with a literal 0px between
    them. Scoped to this page so the shared container is untouched. */
 .weights-page{display:flex;flex-direction:column;gap:16px}
+/* Chart cards carry their own inset. `.card` on this page resolves to 0 padding, so the
+   title, caption, bars and footnote all sat 1px off the border — the bar labels and the
+   "N sheds are not counted" line read as touching the frame. Scoped to the chart cards
+   by class rather than applied to every `.card`, because the shed and losing-kid TABLES
+   in the same page are deliberately full-bleed and would be inset away from their own
+   header row. */
+.wchart{padding:14px 16px}
+/* The bar list keeps its own right gutter for the scrollbar, so the card's own right
+   padding would otherwise read as double. */
+.wchart .wbars{padding-right:2px}
+/* Footnote under a chart ("N sheds are not counted here…") — it butted straight up
+   against the bars above it. */
+.wchart .wbars + .muted,
+.wchart .wbars-empty + .muted{margin-top:10px}
