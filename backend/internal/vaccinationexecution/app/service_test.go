@@ -707,3 +707,10 @@ func TestExecutionDisplayCountsTreatsRejectedAsOpenNotDone(t *testing.T) {
 		t.Fatalf("open = %d, want 1 (the rejected animal is outstanding work)", open)
 	}
 }
+
+// Value receiver: this fake is used as a struct value, not a pointer.
+func (fakeRepo) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
+}

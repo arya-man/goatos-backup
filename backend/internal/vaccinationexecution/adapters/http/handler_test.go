@@ -1354,3 +1354,11 @@ func TestPutCapacityConfigConflict(t *testing.T) {
 		t.Fatalf("status = %d want 409 body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+// ListAlerts satisfies the Reader boundary for the vaccination alerts feed. The HTTP tests here
+// exercise other routes, so the feed returns an empty page rather than a fixture.
+func (f *fakeReader) ListAlerts(
+	_ context.Context, _, _ string, _ bool, _ []string, _ string, _ int,
+) (domain.AlertPage, error) {
+	return domain.AlertPage{Items: []domain.Alert{}}, nil
+}
