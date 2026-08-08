@@ -26,15 +26,15 @@ var (
 // CompletePackingParams is the persisted gated-completion write, at the shed-session grain
 // (tenant, park, shed, session_no, target_date, workflow).
 type CompletePackingParams struct {
-	TenantID   string
-	ParkID     string
-	ShedID     string
+	TenantID string
+	ParkID   string
+	ShedID   string
 	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
 	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
 	PartitionLabel string
-	SessionNo  int32
-	TargetDate time.Time
-	Workflow   string
+	SessionNo      int32
+	TargetDate     time.Time
+	Workflow       string
 	// PackingProofRef is the ONE MANDATORY packing VIDEO proof_id. It travels into the queued
 	// verification item.
 	PackingProofRef string

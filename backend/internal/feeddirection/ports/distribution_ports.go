@@ -28,15 +28,15 @@ var (
 // CompleteDistributionParams is the persisted gated-completion write, at the shed-session grain
 // (tenant, park, shed, session_no, target_date, workflow).
 type CompleteDistributionParams struct {
-	TenantID   string
-	ParkID     string
-	ShedID     string
+	TenantID string
+	ParkID   string
+	ShedID   string
 	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
 	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
 	PartitionLabel string
-	SessionNo  int32
-	TargetDate time.Time
-	Workflow   string
+	SessionNo      int32
+	TargetDate     time.Time
+	Workflow       string
 	// DistributionProofRef is the MANDATORY feed-distribution VIDEO proof_id. WaterProofRef is the
 	// MANDATORY water proof_id (photo or video). Both travel into the queued verification item.
 	DistributionProofRef string

@@ -395,6 +395,21 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		// Android reads the generated feed sheet from this legacy non-/app route. Admit a
 		// park-scoped feed reader here; GetPreview capability-clamps park_id before reading.
 		route.Pattern == "/feed-direction/preview" ||
+		// Bug found on STG 2026-08-08: a park-scoped OPERATOR could see Feed Direction but got 403 on
+		// packing, transport and the distribution completion -- 13 denials, zero successes -- because
+		// this function dropped their park grant before AuthorizeRoute ever ran (roles resolved to "").
+		// RoleOperator genuinely holds FeedPackingRead / FeedTransportRead / FeedDirectionComplete, so
+		// no amount of granting a permission could have fixed it; only a tenant-scoped principal
+		// (Chandrakant, CEO) worked, and that was incidental rather than intended. Same shape as the
+		// /control-tower/ case documented below.
+		//
+		// Each of these three CLAMPS park_id to the caller's own grant via
+		// ResolveAuthorizedParkScopeForCapabilities before it reads or writes anything, which is the
+		// precondition for being listed here -- a CPT operator naming a CBE park is refused by the
+		// handler, not merely hidden. Do NOT add a fourth feed route here without the same clamp.
+		route.Pattern == "/feed-packing/worklist" ||
+		route.Pattern == "/feed-transport/tasks" ||
+		route.Pattern == "/feed-direction/distribution/complete" ||
 		// Android shifting resolves a scanned tag through this legacy non-/app route. Admit
 		// only the search route; SearchGoats capability-clamps park_id before reading.
 		route.Pattern == "/goats/search" ||
