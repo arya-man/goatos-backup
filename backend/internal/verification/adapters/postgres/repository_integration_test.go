@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
@@ -1371,5 +1372,449 @@ LIMIT 1`, tenantID, submissionAID).Scan(&rankedStatus); err != nil {
 	}
 	if rankedStatus != "approved" {
 		t.Fatalf("ranked verdict for goat A = %s, want approved -- the ORDER BY tiebreak among unclosed items is item_id DESC", rankedStatus)
+	}
+}
+// TestReadyClosureOneToMany_RealPostgres exercises OneToMany cardinality: one completion with multiple verdicts.
+func TestReadyClosureOneToMany_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "10000000-0000-4000-8000-000000000001"
+		versionID    = "10000000-0000-4000-8000-000000000002"
+		ruleID       = "10000000-0000-4000-8000-000000000003"
+		sopID        = "10000000-0000-4000-8000-000000000004"
+		sopVersionID = "10000000-0000-4000-8000-000000000005"
+		taskID       = "10000000-0000-4000-8000-000000000006"
+		batchID      = "10000000-0000-4000-8000-000000000007"
+		parkID       = "10000000-0000-4000-8000-000000000008"
+		shedID       = "10000000-0000-4000-8000-000000000009"
+		goatID       = "10000000-0000-4000-8000-000000000011"
+		obligationID = "10000000-0000-4000-8000-000000000021"
+		submissionID = "10000000-0000-4000-8000-000000000031"
+		submissionItemID = "10000000-0000-4000-8000-000000000041"
+		completionID = "10000000-0000-4000-8000-000000000051"
+		itemReject1 = "10000000-0000-4000-8000-000000000061"
+		itemReject2 = "10000000-0000-4000-8000-000000000062"
+		itemApprove = "10000000-0000-4000-8000-000000000063"
+	)
+
+	plannedDate := time.Date(2026, time.August, 8, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("shed", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vacc_onetomany', 'Vacc OneToMany', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vacc_onetomany', 'Vacc OneToMany', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 1, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	seed("assignment", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 1)`, tenantID, batchID, plannedDate, parkID, shedID)
+
+	seed("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, goatID, tenantID, actorID, shedID)
+	seed("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`, obligationID, tenantID, versionID, ruleID, batchID, goatID, shedID, administeredAt, taskID, "onetomany-obligation")
+	seed("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID, "onetomany-sub")
+	seed("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, submissionItemID, tenantID, submissionID, taskID, goatID, "onetomany-item")
+	seed("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, submissionItemID, administeredAt, actorID, "onetomany-completion")
+
+	now := time.Now()
+	seed("item-reject1", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, verdict_reason, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'rejected', 'poor lighting', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, $9::timestamptz, $10)`, itemReject1, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, now.Add(-2*time.Second), "onetomany-reject1")
+	seed("item-reject2", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, verdict_reason, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'rejected', 'animal not visible', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, $9::timestamptz, $10)`, itemReject2, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, now.Add(-1*time.Second), "onetomany-reject2")
+	seed("item-approve", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'approved', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, $9::timestamptz, $10)`, itemApprove, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, now, "onetomany-approve")
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 {
+		t.Fatalf("OneToMany: expected 1 batch, got %d", len(closures))
+	}
+	if closures[0].ApprovedCount != 1 {
+		t.Fatalf("OneToMany: approved_count should be 1 (picked latest approved verdict from 3), got %d", closures[0].ApprovedCount)
+	}
+}
+
+// TestReadyClosureDateShift_RealPostgres exercises DateShift: verifies verified_at timestamp ordering in latest_proofs CTE.
+func TestReadyClosureDateShift_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "20000000-0000-4000-8000-000000000001"
+		versionID    = "20000000-0000-4000-8000-000000000002"
+		ruleID       = "20000000-0000-4000-8000-000000000003"
+		sopID        = "20000000-0000-4000-8000-000000000004"
+		sopVersionID = "20000000-0000-4000-8000-000000000005"
+		taskID       = "20000000-0000-4000-8000-000000000006"
+		batchID      = "20000000-0000-4000-8000-000000000007"
+		parkID       = "20000000-0000-4000-8000-000000000008"
+		shedID       = "20000000-0000-4000-8000-000000000009"
+		goatID       = "20000000-0000-4000-8000-000000000011"
+		obligationID = "20000000-0000-4000-8000-000000000021"
+		submissionID = "20000000-0000-4000-8000-000000000031"
+		submissionItemID = "20000000-0000-4000-8000-000000000041"
+		completionID = "20000000-0000-4000-8000-000000000051"
+		itemReject = "20000000-0000-4000-8000-000000000062"
+		itemApprove = "20000000-0000-4000-8000-000000000061"
+	)
+
+	plannedDate := time.Date(2026, time.August, 8, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("shed", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vacc_dateshift', 'Vacc DateShift', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vacc_dateshift', 'Vacc DateShift', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 1, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	seed("assignment", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 1)`, tenantID, batchID, plannedDate, parkID, shedID)
+
+	seed("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, goatID, tenantID, actorID, shedID)
+	seed("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`, obligationID, tenantID, versionID, ruleID, batchID, goatID, shedID, administeredAt, taskID, "dateshift-obligation")
+	seed("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID, "dateshift-sub")
+	seed("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, submissionItemID, tenantID, submissionID, taskID, goatID, "dateshift-item")
+	seed("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, submissionItemID, administeredAt, actorID, "dateshift-completion")
+
+	now := time.Now()
+	oldTime := now.Add(-10 * time.Second)
+	seed("item-reject", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, verdict_reason, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'rejected', 'poor quality', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, $9::timestamptz, $10)`, itemReject, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, oldTime, "dateshift-reject")
+	seed("item-approve", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'approved', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, $9::timestamptz, $10)`, itemApprove, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, now, "dateshift-approve")
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 {
+		t.Fatalf("DateShift: expected 1 batch, got %d", len(closures))
+	}
+	// Should have latest (newest verified_at)
+	if closures[0].ApprovedCount != 1 {
+		t.Fatalf("DateShift: approved_count should be 1, got %d", closures[0].ApprovedCount)
+	}
+}
+
+// TestReadyClosureParkScope_RealPostgres exercises ParkScope filtering.
+func TestReadyClosureParkScope_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "30000000-0000-4000-8000-000000000001"
+		versionID    = "30000000-0000-4000-8000-000000000002"
+		ruleID       = "30000000-0000-4000-8000-000000000003"
+		sopID        = "30000000-0000-4000-8000-000000000004"
+		sopVersionID = "30000000-0000-4000-8000-000000000005"
+		taskID       = "30000000-0000-4000-8000-000000000006"
+		batchID      = "30000000-0000-4000-8000-000000000007"
+		parkID       = "30000000-0000-4000-8000-000000000008"
+		otherParkID  = "30000000-0000-4000-8000-000000000009"
+		shedID       = "30000000-0000-4000-8000-000000000010"
+		goatID       = "30000000-0000-4000-8000-000000000011"
+		obligationID = "30000000-0000-4000-8000-000000000021"
+		submissionID = "30000000-0000-4000-8000-000000000031"
+		submissionItemID = "30000000-0000-4000-8000-000000000041"
+		completionID = "30000000-0000-4000-8000-000000000051"
+		itemID       = "30000000-0000-4000-8000-000000000061"
+	)
+
+	plannedDate := time.Date(2026, time.August, 8, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("other-park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'Coimbatore', 'active')`, otherParkID, tenantID)
+	seed("shed", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vacc_parkscope', 'Vacc ParkScope', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vacc_parkscope', 'Vacc ParkScope', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 1, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	seed("assignment", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 1)`, tenantID, batchID, plannedDate, parkID, shedID)
+
+	seed("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, goatID, tenantID, actorID, shedID)
+	seed("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`, obligationID, tenantID, versionID, ruleID, batchID, goatID, shedID, administeredAt, taskID, "parkscope-obligation")
+	seed("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID, "parkscope-sub")
+	seed("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, submissionItemID, tenantID, submissionID, taskID, goatID, "parkscope-item")
+	seed("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, submissionItemID, administeredAt, actorID, "parkscope-completion")
+	seed("item", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'approved', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, now(), $9)`, itemID, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, "parkscope-item")
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	// Query all parks: should get 1 batch
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 {
+		t.Fatalf("ParkScope (no filter): expected 1 batch, got %d", len(closures))
+	}
+
+	// Query specific park: should get 1 batch
+	parkScoped, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ParkID: parkID, OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures (park-scoped): %v", err)
+	}
+	if len(parkScoped) != 1 {
+		t.Fatalf("ParkScope (with parkID): expected 1 batch, got %d", len(parkScoped))
+	}
+
+	// Query other park: should get 0 batches
+	otherParkScoped, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ParkID: otherParkID, OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures (other-park): %v", err)
+	}
+	if len(otherParkScoped) != 0 {
+		t.Fatalf("ParkScope (other park): expected 0 batches, got %d", len(otherParkScoped))
+	}
+}
+
+// TestReadyClosureStatusMatrix_RealPostgres exercises StatusMatrix across all verdict states.
+func TestReadyClosureStatusMatrix_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "40000000-0000-4000-8000-000000000001"
+		versionID    = "40000000-0000-4000-8000-000000000002"
+		ruleID       = "40000000-0000-4000-8000-000000000003"
+		sopID        = "40000000-0000-4000-8000-000000000004"
+		sopVersionID = "40000000-0000-4000-8000-000000000005"
+		taskID       = "40000000-0000-4000-8000-000000000006"
+		batchID      = "40000000-0000-4000-8000-000000000007"
+		parkID       = "40000000-0000-4000-8000-000000000008"
+		shedID       = "40000000-0000-4000-8000-000000000009"
+		goatID       = "40000000-0000-4000-8000-000000000011"
+		obligationID = "40000000-0000-4000-8000-000000000021"
+		submissionID = "40000000-0000-4000-8000-000000000031"
+		submissionItemID = "40000000-0000-4000-8000-000000000041"
+		completionID = "40000000-0000-4000-8000-000000000051"
+		itemApproved = "40000000-0000-4000-8000-000000000061"
+	)
+
+	plannedDate := time.Date(2026, time.August, 8, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("shed", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vacc_statusmatrix', 'Vacc StatusMatrix', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vacc_statusmatrix', 'Vacc StatusMatrix', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 1, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	seed("assignment", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 1)`, tenantID, batchID, plannedDate, parkID, shedID)
+
+	seed("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, goatID, tenantID, actorID, shedID)
+	seed("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`, obligationID, tenantID, versionID, ruleID, batchID, goatID, shedID, administeredAt, taskID, "statusmatrix-obligation")
+	seed("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID, "statusmatrix-sub")
+	seed("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, submissionItemID, tenantID, submissionID, taskID, goatID, "statusmatrix-item")
+	seed("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, submissionItemID, administeredAt, actorID, "statusmatrix-completion")
+	seed("item-approved", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'approved', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, now(), $9)`, itemApproved, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, "statusmatrix-approved")
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 {
+		t.Fatalf("StatusMatrix: expected 1 batch, got %d", len(closures))
+	}
+	if closures[0].ApprovedCount != 1 || closures[0].RejectedCount != 0 || closures[0].PendingCount != 0 {
+		t.Fatalf("StatusMatrix: approved_count=%d rejected_count=%d pending_count=%d, want approved=1 rejected=0 pending=0",
+			closures[0].ApprovedCount, closures[0].RejectedCount, closures[0].PendingCount)
+	}
+}
+
+// TestReadyClosurePageBoundary_RealPostgres exercises PageBoundary pagination.
+func TestReadyClosurePageBoundary_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "50000000-0000-4000-8000-000000000001"
+		versionID    = "50000000-0000-4000-8000-000000000002"
+		ruleID       = "50000000-0000-4000-8000-000000000003"
+		sopID        = "50000000-0000-4000-8000-000000000004"
+		sopVersionID = "50000000-0000-4000-8000-000000000005"
+		taskID       = "50000000-0000-4000-8000-000000000006"
+		batchID      = "50000000-0000-4000-8000-000000000007"
+		parkID       = "50000000-0000-4000-8000-000000000008"
+		shedID       = "50000000-0000-4000-8000-000000000009"
+	)
+
+	plannedDate := time.Date(2026, time.August, 8, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("shed", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vacc_pageboundary', 'Vacc PageBoundary', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vacc_pageboundary', 'Vacc PageBoundary', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 2, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	seed("assignment", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 2)`, tenantID, batchID, plannedDate, parkID, shedID)
+
+	// Create 2 goats with complete vaccination records
+	for i := 0; i < 2; i++ {
+		suffix := fmt.Sprintf("%012d", i)
+		goatID := fmt.Sprintf("50000000-0000-4000-8000-%s", suffix)
+		obligationID := fmt.Sprintf("50000000-0000-4000-8001-%s", suffix)
+		submissionID := fmt.Sprintf("50000000-0000-4000-8002-%s", suffix)
+		submissionItemID := fmt.Sprintf("50000000-0000-4000-8003-%s", suffix)
+		completionID := fmt.Sprintf("50000000-0000-4000-8004-%s", suffix)
+		itemID := fmt.Sprintf("50000000-0000-4000-8005-%s", suffix)
+
+		seed(fmt.Sprintf("goat-%d", i), `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, goatID, tenantID, actorID, shedID)
+		seed(fmt.Sprintf("obligation-%d", i), `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`, obligationID, tenantID, versionID, ruleID, batchID, goatID, shedID, administeredAt, taskID, fmt.Sprintf("pageboundary-obligation-%d", i))
+		seed(fmt.Sprintf("submission-%d", i), `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, submissionID, tenantID, taskID, sopVersionID, actorID, fmt.Sprintf("pageboundary-sub-%d", i))
+		seed(fmt.Sprintf("submission-item-%d", i), `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, submissionItemID, tenantID, submissionID, taskID, goatID, fmt.Sprintf("pageboundary-item-%d", i))
+		seed(fmt.Sprintf("completion-%d", i), `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`, completionID, tenantID, obligationID, batchID, goatID, submissionItemID, administeredAt, actorID, fmt.Sprintf("pageboundary-completion-%d", i))
+		seed(fmt.Sprintf("item-%d", i), `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, 'approved', $5::uuid, $6::uuid, $7::timestamptz, $8::uuid, now(), $9)`, itemID, tenantID, taskID, submissionID, parkID, shedID, administeredAt, actorID, fmt.Sprintf("pageboundary-item-%d", i))
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false, Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures (limit=1): %v", err)
+	}
+	if len(closures) != 1 {
+		t.Fatalf("PageBoundary (limit=1): expected 1 batch, got %d", len(closures))
+	}
+	if closures[0].TotalCount != 2 {
+		t.Fatalf("PageBoundary (limit=1): batch should show total_count=2, got %d", closures[0].TotalCount)
 	}
 }
