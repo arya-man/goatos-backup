@@ -1556,7 +1556,6 @@ WHERE si.tenant_id = $1::uuid
 		return fmt.Errorf("sop: supersede earlier verification items for goat: %w", err)
 	}
 
-
 	var matchingItems int
 	if err := tx.QueryRow(ctx, `
 SELECT count(*)

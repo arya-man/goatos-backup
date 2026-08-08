@@ -1608,10 +1608,15 @@ func (s *Service) shedWeightsFor(ctx context.Context, actor domain.Actor, parkID
 
 // producer routes too broadly.
 func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor string, limit int) (domain.AlertPage, error) {
+	// VerificationReview is here for the same reason it is on the route: the weighing verification
+	// consumer addresses "weighing.proof.pending.verifier" alerts to the VERIFIER, who holds no
+	// weighing capability. Without it this guard rejected the very person the system had chosen as
+	// the recipient, and their Alerts tab stayed empty with messages waiting.
 	if !permissions.RolesAuthorizeAny(actor.Roles, []string{
 		permissions.WeighingExecute,
 		permissions.WeighingMonitor,
 		permissions.WeighingPlan,
+		permissions.VerificationReview,
 	}) {
 		return domain.AlertPage{}, ports.ErrForbidden
 	}
@@ -1625,6 +1630,21 @@ func (s *Service) ListAlerts(ctx context.Context, actor domain.Actor, cursor str
 	grants := httpmiddleware.AuthGrantsFromContext(ctx)
 	tenantWide := false
 	parkIDs := []string{}
+	// A VERIFIER is a legitimate recipient of weighing proof alerts -- the verification consumer
+	// addresses "weighing.proof.pending.verifier" to them by workforce_member_id -- but holds no
+	// weighing capability, so the loop below left tenantWide=false with an EMPTY park list and the
+	// park predicate excluded every row. The route returned 200 with zero alerts while messages sat
+	// addressed to that exact person (observed 2026-08-08: 11 pending-verifier notifications, empty
+	// tab). The verifier is tenant-level by design -- one verifier reviews proof across all parks.
+	//
+	// This is not a widening: the query is already scoped to context->>'member_id' = the caller, so
+	// it can only ever return alerts addressed to them.
+	for _, grant := range grants {
+		if permissions.RoleHasPermission(grant.Role, permissions.VerificationReview) {
+			tenantWide = true
+			break
+		}
+	}
 	for _, capability := range []string{
 		permissions.WeighingExecute,
 		permissions.WeighingMonitor,

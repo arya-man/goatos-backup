@@ -1,5 +1,10 @@
 package sg.mesha.goatos.feature.weighing
 
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import android.content.Context
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,9 +21,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,10 +46,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
@@ -54,6 +68,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -1299,7 +1315,15 @@ private fun WeighingExecutionScanScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // CONSUME THE KEYBOARD INSET. MainActivity calls enableEdgeToEdge(), and under
+                // edge-to-edge the manifest's adjustResize NO LONGER resizes the window for the
+                // IME -- the app must consume the inset itself. Without this the list keeps its
+                // full height when the keyboard opens, so the bottom of the capture screen
+                // (including Submit) sits BEHIND the keyboard with dead space above it and nothing
+                // scrollable into view. Reported from the shed on 2026-08-08: "I can't scroll to
+                // see submit, blank black space on top of keyboard".
+                .imePadding(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -1351,7 +1375,19 @@ private fun WeighingExecutionScanScreen(
                 } else {
                     items(
                         items = state.visibleRows,
-                        key = { row -> row.id },
+                        // KEY ON THE ANIMAL, never on row.id. row.id is derived from the draft /
+                        // observation (id = draft.observationId), so it CHANGES the moment a
+                        // capture syncs -- the LazyColumn then treats it as a different item,
+                        // destroys the row and rebuilds it. That tears the weight field out from
+                        // under the IME while it is attaching, the InputConnection goes inactive
+                        // and the keyboard closes itself ~370ms after opening. Measured on device
+                        // 2026-08-08: onStartInputView 18.457 -> inactive InputConnection 18.655
+                        // -> onFinishInputView 18.824, and it never returned until the operator
+                        // tapped the field again 48s later.
+                        //
+                        // The animal is the stable identity of a capture row; its upload state is
+                        // not. Do not put a proof/observation id back in this key.
+                        key = { row -> row.animalId },
                     ) { row ->
                         WeighingFreeFlowFeedRow(
                             row = row,
@@ -1473,6 +1509,11 @@ private fun WeighingFreeFlowFeedRow(
 ) {
     val focusManager = LocalFocusManager.current
     val weightKeyboard = LocalSoftwareKeyboardController.current
+    val windowInfo = LocalWindowInfo.current
+    var weightFieldFocused by remember(row.animalId) { mutableStateOf(false) }
+    val weightBringIntoView = remember(row.animalId) { BringIntoViewRequester() }
+    val weightBringIntoViewScope = rememberCoroutineScope()
+    val weightFieldView = LocalView.current
     val weightFocusRequester = remember(row.animalId) { FocusRequester() }
     var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }
     var draftWeight by remember(row.animalId) { mutableStateOf(row.weightInput) }
@@ -1488,12 +1529,18 @@ private fun WeighingFreeFlowFeedRow(
     // drew its focused outline and caret -- but requesting focus does NOT raise the soft keyboard,
     // so the operator saw a live-looking field, typed nothing, and had to tap it a second time.
     // In a shed, holding a reader in one hand, that second tap is the whole interaction.
-    LaunchedEffect(row.animalId, editingWeight, row.weightSaved) {
-        if (editingWeight && !row.weightSaved) {
-            runCatching { weightFocusRequester.requestFocus() }
-            weightKeyboard?.show()
-        }
-    }
+    // NO SYSTEM IME ON THIS FIELD. Eight attempts to make Android's keyboard behave here failed,
+    // because the keyboard is not the app's to control: the row is composed the moment the tag is
+    // scanned, the capture screen takes the window token a split second later, and the IME is
+    // killed by that transition (dumpsys input_method: SHOW_SOFT_INPUT -> ATTACH_NEW_INPUT ->
+    // HIDE_UNSPECIFIED_WINDOW 29ms later, softInputMode ADJUST_NOTHING). Focus retries, forcing the
+    // IME, stable list keys, window-focus gating and post-camera gating all left the operator
+    // tapping the field a second time in a shed.
+    //
+    // The weight is a number with a decimal point. An in-app keypad renders inside our own window,
+    // so no InputConnection, no window-token race, and no interference from the RFID reader (which
+    // pairs as a Bluetooth HID keyboard). It also keeps the scanner working while the operator
+    // types, which the system IME could not.
     val canSaveDraftWeight = draftWeight.toDoubleOrNull()?.let { it > 0.0 } == true
     val complete = row.weightSaved &&
         row.proofUploadStatus == ProofUploadStatus.SYNCED &&
@@ -1619,10 +1666,15 @@ private fun WeighingFreeFlowFeedRow(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     enabled = !updating,
+                    // Driven by the in-app keypad below, never by the system IME.
+                    readOnly = true,
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(weightFocusRequester)
-                        .onFocusChanged { onWeightEntryActive(it.isFocused) },
+                        .onFocusChanged {
+                            weightFieldFocused = it.isFocused
+                            onWeightEntryActive(it.isFocused)
+                        },
                 )
                 ActionButton(
                     text = when {
@@ -1636,6 +1688,20 @@ private fun WeighingFreeFlowFeedRow(
                         onSaveWeight(draftWeight)
                     },
                     primary = true,
+                )
+            }
+            // App-drawn keypad, not the system IME. See the note above the field: Android's IME is
+            // a separate Gboard-owned window, and the capture screen's window transition tears it
+            // down no matter how or when we ask for it. These are ordinary buttons in our own
+            // window, so the operator can always type a weight the moment the row appears.
+            if (!updating) {
+                WeighingNumericKeypad(
+                    value = draftWeight,
+                    onValueChange = {
+                        draftWeight = it
+                        onWeightChange(it)
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
@@ -2452,6 +2518,61 @@ private fun DraftRow(row: WeighingDraftUiRow) {
                 style = MeshaType.caption,
                 color = if (row.readyToSubmit) MeshaColors.BrandD else MeshaColors.Muted,
             )
+        }
+    }
+}
+
+/**
+ * In-app numeric keypad for the weight field.
+ *
+ * Renders inside the app's own window, so it cannot be torn down by the capture screen's window
+ * transition the way the system IME is, and it is unaffected by the RFID reader pairing as a
+ * Bluetooth HID keyboard. Digits, one decimal point, backspace.
+ */
+@Composable
+private fun WeighingNumericKeypad(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val rows = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf(".", "0", "\u232B"),
+    )
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        rows.forEach { keyRow ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                keyRow.forEach { key ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MeshaColors.Surf)
+                            .border(1.dp, MeshaColors.Hair, RoundedCornerShape(8.dp))
+                            .clickable {
+                                val next = when (key) {
+                                    "\u232B" -> value.dropLast(1)
+                                    // Exactly one decimal point, and never as the first character.
+                                    "." -> if (value.contains(".") || value.isEmpty()) value else value + "."
+                                    else -> value + key
+                                }
+                                onValueChange(next)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = key, color = MeshaColors.Ink, style = MeshaType.pillStrong)
+                    }
+                }
+            }
         }
     }
 }

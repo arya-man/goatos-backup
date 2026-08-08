@@ -61,10 +61,10 @@ type Alert struct {
 	Severity  string `json:"severity"`
 	// Target is the in-app destination the producer chose for this transition.
 	// Tapping the row goes here.
-	Target    string    `json:"target"`
-	ShedLabel string    `json:"shed_label,omitempty"`
-	DriveID   string    `json:"drive_id,omitempty"`
-	ParkID    string    `json:"park_id,omitempty"`
+	Target     string    `json:"target"`
+	ShedLabel  string    `json:"shed_label,omitempty"`
+	DriveID    string    `json:"drive_id,omitempty"`
+	ParkID     string    `json:"park_id,omitempty"`
 	OccurredAt time.Time `json:"occurred_at"`
 }
 

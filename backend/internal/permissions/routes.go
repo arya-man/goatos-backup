@@ -288,7 +288,14 @@ var protectedRoutes = []Route{
 	// ObligationRead/VaccinationRead: /alerts is the vaccination process-integrity
 	// feed, and pointing the weighing bar at it is exactly what made the previous
 	// weighing alerts tab 403 for weighing operators and got it deleted.
-	{OperationID: "appListWeighingAlerts", Method: "GET", Pattern: "/app/weighing/alerts", AnyPermissions: []string{WeighingExecute, WeighingMonitor, WeighingPlan}},
+	// VerificationReview belongs here. The weighing verification consumer addresses
+	// "weighing.proof.pending.verifier" notifications to the VERIFIER by workforce_member_id, and
+	// the verifier holds none of the weighing capabilities -- so the feed 403'd and their Alerts
+	// tab was permanently empty while 11 messages sat addressed to them (observed 2026-08-08).
+	// A person the system chooses as a recipient must be able to read their own inbox. The feed
+	// itself is already scoped to context->>'member_id' = caller, so this grants no one sight of
+	// anybody else's alerts.
+	{OperationID: "appListWeighingAlerts", Method: "GET", Pattern: "/app/weighing/alerts", AnyPermissions: []string{WeighingExecute, WeighingMonitor, WeighingPlan, VerificationReview}},
 	// App-tier vaccination execution: gated on AppBootstrap = any authenticated
 	// app user (operators + leadership all hold it), NOT the admin-tier
 	// LocationsRead/ObligationRead/VaccinationRead/CalendarAction combo RoleOperator
