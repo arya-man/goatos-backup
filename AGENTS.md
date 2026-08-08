@@ -2217,6 +2217,15 @@ git rev-parse --show-toplevel  # Must print THIS repo root, not another checkout
   only the scoped work and use a clean isolated worktree for landing. Standalone
   `make ci-local` remains valid for development/hosted CI; `make land-main` is
   the release path that mutates history and pushes.
+- **Mandatory GitHub release tags and Firebase provenance**: Every dev/stg/prod
+  release must create an annotated GitHub tag through `make release-tag`, never
+  a hand-written `git tag` command. The tag message must keep separate Backend,
+  Frontend/Admin Web, Mobile Android, Infra/Deploy, Docs/Seed/Data, and Other
+  sections. STG Cloud Deploy creates the tag automatically after verified
+  rollout. Firebase App Distribution releases must restore credentials with
+  `make restore-stg-android-release-env`, then add the Android version/code and
+  Firebase release URL to the tag before handoff. See
+  `docs/runbooks/release-tags.md` and `docs/mobile/stg-signed-release.md`.
 - Treat Goat OS time semantics as India-business-calendar semantics. Physical
   storage may use `timestamptz`/absolute instants, but every business meaning
   derived from those instants — scheduling, due/missed buckets, reminder keys,

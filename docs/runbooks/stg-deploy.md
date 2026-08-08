@@ -55,6 +55,37 @@ Expected:
 - source SHA: latest approved `origin/main`
 - working tree: clean
 
+Authorized STG release-builder accounts:
+
+```text
+ravi@mesha.sg
+manohark@mesha.sg
+```
+
+Runtime DB URLs, API/admin secrets, service-account bindings, and Cloud Run env
+are injected by the existing `goatos-stg` Cloud Run/Secret Manager configuration.
+Normal DB schema changes are applied by the Cloud Deploy migration job; do not
+run manual SQL for a normal release.
+
+## GitHub Release Tag
+
+Every successful STG release must create an annotated GitHub tag with Backend,
+Frontend/Admin Web, Mobile Android, Infra/Deploy, Docs/Seed/Data, and Other
+sections. The normal STG release helper does this automatically after rollout
+success and image parity verification:
+
+```bash
+tools/deploy/stg-clouddeploy-release.sh
+```
+
+Manual repair command:
+
+```bash
+make release-tag ENV=stg SHA="$(git rev-parse HEAD)" CLOUD_DEPLOY_RELEASE="<release-id>"
+```
+
+Do not call a STG release closed until the tag exists on GitHub.
+
 ## Migration Drift Guardrail
 
 Never edit a migration file that STG may already have applied, including the
