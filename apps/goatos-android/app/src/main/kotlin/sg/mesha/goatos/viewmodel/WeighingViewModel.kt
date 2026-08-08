@@ -12,6 +12,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -1126,8 +1128,29 @@ class WeighingViewModel @Inject constructor(
                 // not reliably available here -- and string-matching copy is not a contract. The
                 // refetch settles it from the record instead, which also removes the need to leave
                 // the screen and come back for it to look right.
-                refresh()
-                val afterRefresh = scopeState.value?.individualDrafts.orEmpty()
+                // AWAIT the refetch. refresh() -> refreshScope() only LAUNCHES a coroutine, so
+                // calling it and reading scopeState on the next line classifies against the
+                // PRE-refresh draft. That fails in exactly the case this exists for: a sent-back
+                // animal whose local draft has not yet been updated to `rework` reads as "already
+                // stored", stillNeedsWork comes out empty, and the operator never sees the banner
+                // telling him to record it again -- the silent-failure this block was written to
+                // remove, reintroduced one line below it.
+                runCatching { repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS) }
+                // refreshScope writes Room; scopeState OBSERVES Room, so its value can still be the
+                // pre-write snapshot the instant the call returns. Wait for the observed state to
+                // actually carry each conflicted tag before judging it. Bounded: on timeout fall
+                // through to whatever is current rather than leaving the operator with no answer,
+                // and the tags that never appeared are treated as still-needing-work below, which
+                // is the safe direction (asking for a re-record that turns out unnecessary beats
+                // silently swallowing a real rejection).
+                val afterRefresh = withTimeoutOrNull(CONFLICT_RECLASSIFY_TIMEOUT_MS) {
+                    scopeState.first { state ->
+                        val drafts = state?.individualDrafts.orEmpty()
+                        newlyConflicted.all { tag ->
+                            drafts.any { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
+                        }
+                    }?.individualDrafts.orEmpty()
+                } ?: scopeState.value?.individualDrafts.orEmpty()
                 val stillNeedsWork = newlyConflicted.filter { tag ->
                     val draft = afterRefresh.firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
                     draft == null || draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
@@ -3100,6 +3123,11 @@ private data class WeighingWeek(
 // sync port hands ViewModels a String opType precisely so `:app` never depends on core-database's
 // Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
 private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
+
+/** Upper bound on waiting for the refreshed scope before classifying a refused write. Long enough
+ *  for a round trip on a shed network, short enough that the operator is never left without an
+ *  answer about an animal he just recorded. */
+private const val CONFLICT_RECLASSIFY_TIMEOUT_MS = 5_000L
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
 
