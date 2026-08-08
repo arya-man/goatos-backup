@@ -287,6 +287,7 @@ private class FakeShiftingSyncRepository : SyncRepository {
             items = listOf(
                 SyncQueueItem(
                     id = itemId,
+                    idempotencyKey = "test-idempotency-key",
                     opType = "SHIFTING_COMPLETE",
                     groupKey = "group",
                     status = sg.mesha.goatos.core.data.sync.SyncItemStatus.SUCCEEDED,

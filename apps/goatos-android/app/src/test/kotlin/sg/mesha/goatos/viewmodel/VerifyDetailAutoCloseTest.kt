@@ -211,6 +211,7 @@ private class AutoCloseSyncRepository(private val queue: AutoCloseRepository? = 
         AppResult.Ok(
             SyncQueueItem(
                 id = itemId,
+                idempotencyKey = "test-idempotency-key",
                 opType = "verification_verdict",
                 groupKey = "item-1",
                 status = SyncItemStatus.SUCCEEDED,

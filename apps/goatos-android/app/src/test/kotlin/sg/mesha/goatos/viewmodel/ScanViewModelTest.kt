@@ -1632,6 +1632,7 @@ private class CapturingSubmitSyncRepository : SyncRepository {
             items = listOf(
                 SyncQueueItem(
                     id = "item-1",
+                    idempotencyKey = "test-idempotency-key",
                     opType = "shed_submit",
                     groupKey = groupKey,
                     status = SyncItemStatus.QUEUED,

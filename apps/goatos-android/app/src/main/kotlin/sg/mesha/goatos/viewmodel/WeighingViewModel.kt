@@ -103,7 +103,11 @@ class WeighingViewModel @Inject constructor(
     private val proofCaptureRepository: ProofCaptureRepository,
     private val scanCaptureRepository: ScanCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
-    private val syncRepository: SyncRepository,
+    // Optional for the same reason WeighingRepository takes it optionally: a unit test that
+    // exercises capture logic has no queue to observe, and the 90-method port is not worth a fake
+    // per test. Hilt always supplies it in the app, so the conflict watch below is live in
+    // production and simply absent in tests that never enqueue.
+    private val syncRepository: SyncRepository? = null,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val repeatSeedStore: WeighingRepeatSeedStore,
@@ -1096,8 +1100,9 @@ class WeighingViewModel @Inject constructor(
         // so neither can name the animal -- an earlier attempt parsed the tag out of `item.id` and
         // therefore matched nothing, leaving the operator with the same false "saved" it was
         // written to prevent. The key is carried verbatim from the capture, so the match is exact.
-        viewModelScope.launch {
-            syncRepository.observeStatus().collect { status ->
+        val syncStatuses = syncRepository?.observeStatus()
+        if (syncStatuses != null) viewModelScope.launch {
+            syncStatuses.collect { status ->
                 val conflictedKeys = status.items
                     .filter { it.opType == WEIGHING_ANIMAL_OBSERVATION_OP && it.conflict }
                     .map { it.idempotencyKey }

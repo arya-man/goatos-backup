@@ -128,6 +128,7 @@ class SyncStatusViewModelTest {
 
     private fun queueItem(id: String, status: SyncItemStatus) = SyncQueueItem(
         id = id,
+        idempotencyKey = "test-idempotency-key",
         opType = "SHED_SUBMIT",
         groupKey = "shed-1",
         status = status,

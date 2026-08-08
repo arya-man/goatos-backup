@@ -324,6 +324,7 @@ private class NoopShiftingSyncRepository : SyncRepository {
             items = listOf(
                 SyncQueueItem(
                     id = itemId,
+                    idempotencyKey = "test-idempotency-key",
                     opType = "COUNTS_SHIFTING",
                     groupKey = CBE_SHED_ID_FOR_SYNC,
                     status = SyncItemStatus.SUCCEEDED,
