@@ -181,7 +181,12 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
                         if (state.items.isEmpty()) {
                             state.copy(error = t.message ?: "Failed to load videos")
                         } else {
-                            state.copy(staleNotice = "Showing the last saved videos. ${t.message.orEmpty()}".trim())
+                            // COPY FIREWALL: never append the throwable message. It carries transport detail
+                            // ("Failed to connect to localhost/127.0.0.1:8080") and that rendered on a
+                            // DIRECTOR's screen. AGENTS.md bans localhost/API/technical vocabulary in
+                            // user-facing copy; the farm-readable fact is simply that these are the last
+                            // saved videos.
+                            state.copy(staleNotice = "Showing the last saved videos.")
                         }
                     }
                 },
@@ -235,18 +240,41 @@ class VaccinationLeadershipVideosViewModel @Inject constructor(
                         AnalyticsFunnels.trackVerifyDriveCloseSucceeded(analytics, trimmed)
                         refresh()
                     } else {
-                        _uiState.update { it.copy(closeErrorBatchId = trimmed, closeErrorMessage = error) }
+                        _uiState.update { it.copy(closeErrorBatchId = trimmed, closeErrorMessage = closeFailureCopy(error)) }
                         AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, trimmed, error)
                     }
                 }
                 is AppResult.Err -> {
                     _uiState.update {
-                        it.copy(closingBatchId = null, closeErrorBatchId = trimmed, closeErrorMessage = result.message)
+                        it.copy(closingBatchId = null, closeErrorBatchId = trimmed, closeErrorMessage = closeFailureCopy(result.message))
                     }
                     result.cause?.let { crashReporter.recordException(it, "vaccination leadership drive close enqueue failed") }
                     AnalyticsFunnels.trackVerifyDriveCloseFailed(analytics, trimmed, result.message)
                 }
             }
+        }
+    }
+
+
+    /**
+     * Farm-readable copy for a failed drive close. The raw throwable/transport message is LOGGED
+     * (crashReporter + analytics) and NEVER rendered: a director saw
+     * "Idempotency-Key was reused with a different request payload" and
+     * "Failed to connect to localhost/127.0.0.1:8080" on his own screen. Maintainer rule
+     * 2026-08-08: internal detail may be logged anywhere, but must never reach the UI, whatever the
+     * network call. See the copy firewall in AGENTS.md.
+     */
+    private fun closeFailureCopy(raw: String?): String {
+        val text = raw.orEmpty().lowercase()
+        return when {
+            text.contains("idempotency") -> "This drive was already being closed. Pull to refresh."
+            text.contains("conflict") || text.contains("row_version") || text.contains("409") ->
+                "Someone else updated this drive. Pull to refresh and try again."
+            text.contains("connect") || text.contains("timeout") || text.contains("host") ||
+                text.contains("network") || text.contains("unable to resolve") ->
+                "No connection. The drive will close when you are back online."
+            text.contains("forbidden") || text.contains("403") -> "You do not have permission to close this drive."
+            else -> "Could not close the drive. Try again."
         }
     }
 
@@ -348,6 +376,8 @@ private fun VerificationDriveClosureDto.toUi() = VaccinationLeadershipDriveClosu
     rejectedVideos = rejectedVideos,
     pendingVideos = pendingVideos,
     ready = ready,
+    closed = closed,
+    closedAt = closedAt.orEmpty(),
 )
 
 private fun formatLeadershipStatus(status: String): String = when (status.lowercase()) {

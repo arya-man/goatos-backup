@@ -247,6 +247,13 @@ type VaccinationBatchClosure struct {
 	PendingVideos  int    `json:"pending_videos"`
 	ShedCount      int    `json:"shed_count"`
 	Ready          bool   `json:"ready"`
+	// Closed marks a drive whose work is finished AND already closed. Such drives stay in the
+	// response instead of vanishing: a card that simply disappears on Close gives the director no
+	// confirmation the drive closed, who closed it, or when -- indistinguishable from a dead
+	// button, which is exactly how it was read on 2026-08-08. Clients render a closed drive as a
+	// read-only state, never as an action.
+	Closed   bool   `json:"closed"`
+	ClosedAt string `json:"closed_at,omitempty"`
 }
 
 type LocationFilterOption struct {
