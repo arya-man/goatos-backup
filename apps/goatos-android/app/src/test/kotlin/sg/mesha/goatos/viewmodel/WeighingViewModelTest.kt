@@ -39,6 +39,10 @@ import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ProofCaptureRow
 import sg.mesha.goatos.core.data.capture.ProofCaptureRepository
 import sg.mesha.goatos.core.data.capture.ProofSubject
+import sg.mesha.goatos.core.data.sync.SyncItemStatus
+import sg.mesha.goatos.core.data.sync.SyncQueueItem
+import sg.mesha.goatos.core.data.sync.SyncRepository
+import sg.mesha.goatos.core.data.sync.SyncStatus
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingDraft
 import sg.mesha.goatos.core.data.weighing.ShedPartitionWeighingCapture
@@ -1561,6 +1565,142 @@ class WeighingViewModelTest {
         )
     }
 
+    // --- Conflicted-write classification ------------------------------------------------
+    //
+    // When the server REFUSES a weight write with a conflict, the phone has to decide one thing:
+    // does the operator have to walk back to that animal and do it again? Getting it wrong is
+    // costly in both directions -- a false "record it again" sends someone to repeat work that is
+    // already saved, and a swallowed rejection leaves an animal silently unrecorded behind a
+    // success message. Every one of these tests drives the real collector: a conflicted row is
+    // pushed into the write queue the ViewModel is observing, and the assertion is on what the
+    // operator's screen then says.
+
+    /** The draft the phone holds for [TEST_TAG], with the verifier's verdict on it. */
+    private fun conflictDraft(verificationStatus: String?) =
+        acceptedDraft(weightKg = 21.5).copy(
+            idempotencyKey = CONFLICT_KEY,
+            verificationStatus = verificationStatus,
+        )
+
+    private fun conflictScope(verificationStatus: String?) = WeighingScopeState(
+        rosterWindow = listOf(rosterRow()),
+        individualDrafts = listOf(conflictDraft(verificationStatus)),
+        shedDrafts = emptyList(),
+        totalExpected = 0,
+    )
+
+    @Test
+    fun `a refused write whose refreshed record says the animal was sent back tells the operator to record it again`() =
+        runTest(dispatcher) {
+            val repository = FakeWeighingRepository(
+                scopeState = conflictScope(verificationStatus = null),
+                postRefreshScopeState = conflictScope(verificationStatus = "rework"),
+            )
+            val sync = FakeWeighingSyncRepository()
+            val vm = weighingViewModel(repository, scoped = true, syncRepository = sync)
+            backgroundScope.launch(dispatcher) { vm.state.collect {} }
+            advanceUntilIdle()
+
+            val refreshesBefore = repository.refreshScopeCalls
+            repository.postRefreshArmed = true
+            sync.conflict(CONFLICT_KEY)
+            advanceUntilIdle()
+
+            assertEquals("This animal was sent back. Record it again.", vm.state.value.message)
+            assertTrue(vm.state.value.visibleRows.single().weightSyncConflict)
+        }
+
+    /**
+     * The other conflict, and the reason the refetch exists at all: the weight is ALREADY STORED
+     * server-side and the phone simply re-posted it. Nothing was lost, so the operator must not be
+     * sent back -- and the row must not light up as a problem.
+     */
+    @Test
+    fun `a refused write whose refreshed record is still standing leaves the animal alone`() =
+        runTest(dispatcher) {
+            val repository = FakeWeighingRepository(
+                scopeState = conflictScope(verificationStatus = null),
+                postRefreshScopeState = conflictScope(verificationStatus = "pending"),
+            )
+            val sync = FakeWeighingSyncRepository()
+            val vm = weighingViewModel(repository, scoped = true, syncRepository = sync)
+            backgroundScope.launch(dispatcher) { vm.state.collect {} }
+            advanceUntilIdle()
+
+            val refreshesBefore = repository.refreshScopeCalls
+            repository.postRefreshArmed = true
+            sync.conflict(CONFLICT_KEY)
+            advanceUntilIdle()
+
+            assertNull(vm.state.value.message)
+            assertFalse(vm.state.value.visibleRows.single().weightSyncConflict)
+        }
+
+    /**
+     * The refetch FAILED, so the phone knows nothing new. The local draft still reads "pending",
+     * which is exactly the stale answer that would swallow a real rejection -- so a failed refresh
+     * must NOT be treated as "the record is fine". An unnecessary re-record is recoverable; an
+     * animal silently left unrecorded is not.
+     */
+    @Test
+    fun `a refused write whose refetch fails flags the animal rather than trusting the stale record`() =
+        runTest(dispatcher) {
+            val repository = FakeWeighingRepository(
+                // The phone's own copy says the animal is fine. It is the ONLY thing a failed
+                // refresh leaves behind, and it must not be believed.
+                scopeState = conflictScope(verificationStatus = "pending"),
+                refreshScopeResult = AppResult.Err("Weighing roster sync is not configured."),
+                postRefreshScopeState = conflictScope(verificationStatus = "pending"),
+            )
+            val sync = FakeWeighingSyncRepository()
+            val vm = weighingViewModel(repository, scoped = true, syncRepository = sync)
+            backgroundScope.launch(dispatcher) { vm.state.collect {} }
+            advanceUntilIdle()
+
+            val refreshesBefore = repository.refreshScopeCalls
+            repository.postRefreshArmed = true
+            sync.conflict(CONFLICT_KEY)
+            advanceUntilIdle()
+
+            assertEquals(refreshesBefore + 1, repository.refreshScopeCalls)
+            assertEquals("This animal was sent back. Record it again.", vm.state.value.message)
+            assertTrue(vm.state.value.visibleRows.single().weightSyncConflict)
+        }
+
+    /**
+     * The race four earlier fixes failed to close. BEFORE the refetch the phone's draft says
+     * "pending"; the verifier's send-back only arrives WITH the refetch. Classifying against the
+     * pre-refresh copy reads "already stored", says nothing, and the operator never learns the
+     * animal is owed. The fake deliberately answers differently before and after the refetch so a
+     * classification reading the wrong one cannot pass.
+     */
+    @Test
+    fun `the verdict is read from the refreshed record, not the copy the phone held before it`() =
+        runTest(dispatcher) {
+            val repository = FakeWeighingRepository(
+                scopeState = conflictScope(verificationStatus = "pending"),
+                postRefreshScopeState = conflictScope(verificationStatus = "rework"),
+            )
+            val sync = FakeWeighingSyncRepository()
+            val vm = weighingViewModel(repository, scoped = true, syncRepository = sync)
+            backgroundScope.launch(dispatcher) { vm.state.collect {} }
+            advanceUntilIdle()
+
+            // Proof the fixture really is a before/after pair: the pre-refresh answer is the
+            // benign one, so a stale read would classify this as "nothing to do".
+            assertEquals("pending", repository.individualDraftsSnapshot(CONFLICT_SCOPE_KEY).single().verificationStatus)
+
+            val refreshesBefore = repository.refreshScopeCalls
+            repository.postRefreshArmed = true
+            sync.conflict(CONFLICT_KEY)
+            advanceUntilIdle()
+
+            assertEquals(refreshesBefore + 1, repository.refreshScopeCalls)
+            assertEquals("rework", repository.individualDraftsSnapshot(CONFLICT_SCOPE_KEY).single().verificationStatus)
+            assertEquals("This animal was sent back. Record it again.", vm.state.value.message)
+            assertTrue(vm.state.value.visibleRows.single().weightSyncConflict)
+        }
+
     private fun weighingViewModel(
         repository: FakeWeighingRepository,
         scoped: Boolean = false,
@@ -1576,11 +1716,16 @@ class WeighingViewModelTest {
         // Shared with a WeighingPlanWizardViewModel in a test that exercises the repeat/edit
         // handoff -- the two ViewModels only agree on a seed if they hold the SAME store instance.
         repeatSeedStore: WeighingRepeatSeedStore = WeighingRepeatSeedStore(),
+        // The write queue. Left null for every test that does not care, exactly as production
+        // leaves it null in a unit test -- but the conflict watcher only STARTS when one is
+        // supplied, so a test of that watcher has to hand one in.
+        syncRepository: SyncRepository? = null,
     ): WeighingViewModel =
         WeighingViewModel(
             repository = repository,
             bootstrapRepository = bootstrapRepository,
             reader = FakeRfidReaderPort(),
+            syncRepository = syncRepository,
             scanCaptureRepository = scanCaptureRepository,
             proofCaptureRepository = proofCaptureRepository,
             proofCaptureSource = proofCaptureSource,
@@ -1707,6 +1852,83 @@ class WeighingViewModelTest {
         override fun onKeyEvent(event: KeyEvent): Boolean = false
     }
 
+    /**
+     * The write queue, as far as the weighing screen is concerned: a status stream it can push a
+     * refused write into. Everything else is unused here and says so.
+     */
+    private class FakeWeighingSyncRepository : SyncRepository {
+        private val status = MutableStateFlow(SyncStatus.empty(online = true))
+
+        /** Reports that the weight write carrying [idempotencyKey] was REFUSED by the server. */
+        fun conflict(idempotencyKey: String) {
+            val now = 1_000L
+            status.value = SyncStatus(
+                online = true,
+                pendingCount = 0,
+                inFlightCount = 0,
+                failedCount = 1,
+                deadLetterCount = 0,
+                lastSyncAt = now,
+                items = listOf(
+                    SyncQueueItem(
+                        // A row uuid and a shed-scoped group key, exactly as production carries
+                        // them -- neither can name the animal, so a match on either would find
+                        // nothing. The idempotency key is the only join.
+                        id = "outbox-row-uuid",
+                        idempotencyKey = idempotencyKey,
+                        opType = "WEIGHING_ANIMAL_OBSERVATION",
+                        groupKey = "campaign-shed-1",
+                        status = SyncItemStatus.FAILED,
+                        attemptCount = 1,
+                        maxAttempts = 5,
+                        conflict = true,
+                        createdAt = now,
+                        updatedAt = now,
+                        lastError = "Already recorded.",
+                    ),
+                ),
+            )
+        }
+
+        override fun observeStatus(): StateFlow<SyncStatus> = status
+        override fun observeItem(itemId: String): Flow<SyncQueueItem?> = flowOf(null)
+        override suspend fun enqueueShedSubmit(
+            taskId: String,
+            groupKey: String,
+            idempotencyKey: String,
+            request: sg.mesha.goatos.core.network.dto.SubmitTaskRequestDto,
+        ): AppResult<String> = error("unused")
+        override suspend fun enqueueReschedule(
+            obligationId: String,
+            groupKey: String,
+            idempotencyKey: String,
+            request: sg.mesha.goatos.core.network.dto.RescheduleObligationRequestDto,
+        ): AppResult<String> = error("unused")
+        override suspend fun enqueueProofUpload(
+            groupKey: String,
+            idempotencyKey: String,
+            request: sg.mesha.goatos.core.network.dto.ProofUploadRequestDto,
+            localFilePath: String,
+            durationMs: Long?,
+        ): AppResult<String> = error("unused")
+        override suspend fun enqueueVerifyTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+        override suspend fun enqueueReworkTask(taskId: String, reason: String, rowVersion: Int): AppResult<String> = error("unused")
+        override suspend fun enqueueVerificationVerdict(
+            itemId: String,
+            decision: String,
+            reason: String?,
+            rowVersion: Int,
+        ): AppResult<String> = error("unused")
+        override suspend fun enqueueCountsShifting(
+            groupKey: String,
+            idempotencyKey: String,
+            request: sg.mesha.goatos.core.network.dto.CountsShiftingEventRequestDto,
+        ): AppResult<String> = error("unused")
+        override suspend fun retry(itemId: String): AppResult<Unit> = error("unused")
+        override suspend fun deleteOutboxItem(itemId: String): AppResult<Unit> = AppResult.Ok(Unit)
+        override suspend fun triggerDrain() = Unit
+    }
+
     private class FakeWeighingRepository(
         private val plannerCatalogResult: AppResult<WeighingPlannerCatalog>? = null,
         scopeState: WeighingScopeState = WeighingScopeState(emptyList(), emptyList(), emptyList(), 0),
@@ -1743,6 +1965,16 @@ class WeighingViewModelTest {
         // prove the observed window and the appended cursor pages stay in lockstep.
         private val pagedTasks: List<WeighingTask>? = null,
         private val pagedTasksPageSize: Int = WEIGHING_LEADERSHIP_PAGE_SIZE,
+        // What the SERVER says when the scope is refetched, and what Room holds AFTERWARDS.
+        //
+        // The conflict watcher's whole job is to re-ask the server before telling an operator to
+        // redo an animal, so a test of it has to be able to make the answer CHANGE across that
+        // call -- otherwise "read the refreshed record" and "read the stale one" are
+        // indistinguishable and the test cannot fail. `refreshScopeResult` is the AppResult the
+        // refetch returns; `postRefreshScopeState` is what the fake's Room holds once an Ok
+        // refresh has run.
+        private val refreshScopeResult: AppResult<Int> = AppResult.Ok(0),
+        private val postRefreshScopeState: WeighingScopeState? = null,
     ) : WeighingRepository {
 
         /** How many of [pagedTasks] the cursor has appended into the fake's "Room" so far. */
@@ -1986,8 +2218,26 @@ class WeighingViewModelTest {
             return AppResult.Ok(Unit)
         }
 
-        override suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int): AppResult<Int> =
-            AppResult.Ok(0)
+        /** How many times the scope refetch was issued. */
+        var refreshScopeCalls = 0
+            private set
+
+        /**
+         * Whether the server has the NEW answer yet. Opening the screen already refetches once, so
+         * a test that wants the verdict to arrive with a LATER refetch has to say when the server
+         * changed its mind -- that gap is the race being tested.
+         */
+        var postRefreshArmed = false
+
+        override suspend fun refreshScope(campaignId: String, workGroupId: String, campaignShedId: String, maxRows: Int): AppResult<Int> {
+            refreshScopeCalls++
+            // Room is written INSIDE the suspend call in production, so the fake does the same:
+            // only a SUCCESSFUL refresh replaces what a later snapshot read will see.
+            if (refreshScopeResult is AppResult.Ok && postRefreshArmed) {
+                postRefreshScopeState?.let { observedScope.value = it }
+            }
+            return refreshScopeResult
+        }
 
         override suspend fun replaceRoster(scopeKey: String, rows: List<WeighingRosterRowEntity>) {}
 
@@ -2067,6 +2317,12 @@ class WeighingViewModelTest {
 
     private companion object {
         const val TEST_TAG = "901007000504407"
+
+        /** The capture's own idempotency key -- the only field joining a refused write to an animal. */
+        const val CONFLICT_KEY = "weighing-capture-key-1"
+
+        /** The scoped ViewModel's Room key, mirroring the scoped savedStateHandle below. */
+        const val CONFLICT_SCOPE_KEY = "campaign-1:group-1:campaign-shed-1"
         const val SECOND_TAG = "901007000504408"
         const val SCOPE_KEY = "campaign-1:group-1:campaign-shed-1"
         const val WEIGHING_SCAN_FIELD_KEY = "weighing_free_flow_scan"

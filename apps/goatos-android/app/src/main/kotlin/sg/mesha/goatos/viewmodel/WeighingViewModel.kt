@@ -1142,6 +1142,8 @@ class WeighingViewModel @Inject constructor(
                 // licenses trusting the snapshot.
                 val refreshed = runCatching {
                     repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS)
+                }.onFailure { error ->
+                    crashReporter.recordException(error, "weighing conflict reclassify refresh failed")
                 }.getOrNull() is AppResult.Ok
                 // Read the refreshed record DIRECTLY, do not infer freshness from the stream.
                 //
