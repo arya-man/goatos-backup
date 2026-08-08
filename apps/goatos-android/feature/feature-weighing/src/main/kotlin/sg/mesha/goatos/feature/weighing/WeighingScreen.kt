@@ -1375,19 +1375,16 @@ private fun WeighingExecutionScanScreen(
                 } else {
                     items(
                         items = state.visibleRows,
-                        // KEY ON THE ANIMAL, never on row.id. row.id is derived from the draft /
-                        // observation (id = draft.observationId), so it CHANGES the moment a
-                        // capture syncs -- the LazyColumn then treats it as a different item,
-                        // destroys the row and rebuilds it. That tears the weight field out from
-                        // under the IME while it is attaching, the InputConnection goes inactive
-                        // and the keyboard closes itself ~370ms after opening. Measured on device
-                        // 2026-08-08: onStartInputView 18.457 -> inactive InputConnection 18.655
-                        // -> onFinishInputView 18.824, and it never returned until the operator
-                        // tapped the field again 48s later.
+                        // Per-ROW id, not the animal: a list can hold more than one row per
+                        // animal, and duplicate lazy keys crash with "Key was already used"
+                        // (android-compose-lists-guard, lazy-list-entity-id-key).
                         //
-                        // The animal is the stable identity of a capture row; its upload state is
-                        // not. Do not put a proof/observation id back in this key.
-                        key = { row -> row.animalId },
+                        // This was briefly keyed on animalId while chasing a keyboard defect on the
+                        // theory that row.id churn was tearing the weight field out from under the
+                        // IME. It was not: the system IME is a separate Gboard window that the
+                        // capture screen's transition tears down regardless, which is why the field
+                        // now uses an in-app keypad instead. Do not key on the animal again.
+                        key = { row -> row.id },
                     ) { row ->
                         WeighingFreeFlowFeedRow(
                             row = row,
@@ -1666,7 +1663,9 @@ private fun WeighingFreeFlowFeedRow(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     enabled = !updating,
-                    // Driven by the in-app keypad below, never by the system IME.
+                    // Driven by the in-app keypad, never by the system IME. readOnly keeps the
+                    // field focusable (so tapping it selects which animal the keypad types into)
+                    // while guaranteeing Android never raises its own keyboard for it.
                     readOnly = true,
                     modifier = Modifier
                         .weight(1f)
@@ -1694,7 +1693,11 @@ private fun WeighingFreeFlowFeedRow(
             // a separate Gboard-owned window, and the capture screen's window transition tears it
             // down no matter how or when we ask for it. These are ordinary buttons in our own
             // window, so the operator can always type a weight the moment the row appears.
-            if (!updating) {
+            // ONE keypad, on the row being entered -- never one per row. Rendering it for every
+            // captured animal stacked a full keypad under each row: two animals meant two keypads,
+            // twenty meant twenty, and the list became unusable. The operator types into one animal
+            // at a time, so the keypad belongs to the selected row only.
+            if (!updating && weightFieldFocused) {
                 WeighingNumericKeypad(
                     value = draftWeight,
                     onValueChange = {
