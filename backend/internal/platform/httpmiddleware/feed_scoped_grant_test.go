@@ -28,6 +28,7 @@ func TestParkScopedOperatorKeepsItsGrantOnTheFeedFieldRoutes(t *testing.T) {
 		{"GET", "/feed-packing/worklist"},
 		{"GET", "/feed-transport/tasks"},
 		{"POST", "/feed-direction/distribution/complete"},
+		{"POST", "/feed-direction/packing/complete"},
 		{"GET", "/feed-direction/preview"}, // already admitted; guards against a regression
 	} {
 		route, ok := permissions.Match(tc.method, tc.path)
