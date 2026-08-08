@@ -19,12 +19,12 @@ import (
 // could never be submitted.
 //
 // Weighing is SAFE because:
-// 1. Campaign does NOT auto-close when one bucket reaches 'completed'.
-//    Campaign only closes when ALL buckets are terminal ('closed'/'canceled').
-// 2. Verifier REJECT (rework) reopens the bucket to 'in_progress' state.
-// 3. Rework buckets never reach terminal state -- they go back to 'in_progress'.
-// 4. Therefore, campaign can never enter a state that refuses resubmission
-//    while a sibling bucket is still awaiting rework.
+//  1. Campaign does NOT auto-close when one bucket reaches 'completed'.
+//     Campaign only closes when ALL buckets are terminal ('closed'/'canceled').
+//  2. Verifier REJECT (rework) reopens the bucket to 'in_progress' state.
+//  3. Rework buckets never reach terminal state -- they go back to 'in_progress'.
+//  4. Therefore, campaign can never enter a state that refuses resubmission
+//     while a sibling bucket is still awaiting rework.
 //
 // This test models two buckets (A and B) in one campaign: both submitted to
 // 'completed', bucket A's observations approved (auto-closing it), bucket B's
@@ -59,15 +59,15 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing
 
 	// BUCKET A (repoShedScope): Submit lump-sum observation
 	obsA, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID:        repoTenant,
-		CampaignID:      repoCampaign,
-		CampaignShedID:  repoShedScope,
-		WeightKg:        100.0,
-		AverageWeightKg: 100.0,
-		AnimalCount:     10,
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   repoShedScope,
+		WeightKg:         100.0,
+		AverageWeightKg:  100.0,
+		AnimalCount:      10,
 		ProofArtifactIDs: []string{repoShedProof},
-		RecordedBy:      repoOperator,
-		IdempotencyKey:  "bucket-a-submit-" + repoShedScope,
+		RecordedBy:       repoOperator,
+		IdempotencyKey:   "bucket-a-submit-" + repoShedScope,
 	})
 	if err != nil {
 		t.Fatalf("bucket A submit failed: %v", err)
@@ -79,15 +79,15 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing
 
 	// BUCKET B (shedTwo): Submit lump-sum observation
 	obsB, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID:        repoTenant,
-		CampaignID:      repoCampaign,
-		CampaignShedID:  shedTwo,
-		WeightKg:        200.0,
-		AverageWeightKg: 200.0,
-		AnimalCount:     20,
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   shedTwo,
+		WeightKg:         200.0,
+		AverageWeightKg:  200.0,
+		AnimalCount:      20,
 		ProofArtifactIDs: []string{proofB},
-		RecordedBy:      repoOperator,
-		IdempotencyKey:  "bucket-b-submit-" + shedTwo,
+		RecordedBy:       repoOperator,
+		IdempotencyKey:   "bucket-b-submit-" + shedTwo,
 	})
 	if err != nil {
 		t.Fatalf("bucket B submit failed: %v", err)
@@ -144,15 +144,15 @@ ON CONFLICT (campaign_shed_id) DO UPDATE SET weighing_category=EXCLUDED.weighing
 	proofB2 := "00000000-0000-4000-8000-000000009488"
 	insertProof(t, ctx, pool, proofB2, "video", "completed", "shed", repoActualShed, "shed", repoActualShed)
 	rescanB, err := repo.RecordShedObservation(ctx, domain.RecordShedObservation{
-		TenantID:        repoTenant,
-		CampaignID:      repoCampaign,
-		CampaignShedID:  shedTwo,
-		WeightKg:        210.0, // slightly different weight
-		AverageWeightKg: 210.0,
-		AnimalCount:     21,
+		TenantID:         repoTenant,
+		CampaignID:       repoCampaign,
+		CampaignShedID:   shedTwo,
+		WeightKg:         210.0, // slightly different weight
+		AverageWeightKg:  210.0,
+		AnimalCount:      21,
 		ProofArtifactIDs: []string{proofB2},
-		RecordedBy:      repoOperator,
-		IdempotencyKey:  "bucket-b-rescan-" + shedTwo,
+		RecordedBy:       repoOperator,
+		IdempotencyKey:   "bucket-b-rescan-" + shedTwo,
 	})
 	if err != nil {
 		// THIS IS THE FAILURE CONDITION if the deadlock exists:
