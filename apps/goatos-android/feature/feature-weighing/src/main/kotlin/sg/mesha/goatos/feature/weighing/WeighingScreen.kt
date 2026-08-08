@@ -52,6 +52,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -1470,6 +1472,8 @@ private fun WeighingFreeFlowFeedRow(
     onReuploadVideo: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
+    val weightKeyboard = LocalSoftwareKeyboardController.current
+    val weightFocusRequester = remember(row.animalId) { FocusRequester() }
     var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }
     var draftWeight by remember(row.animalId) { mutableStateOf(row.weightInput) }
     LaunchedEffect(row.animalId, row.weightInput, row.weightSaved) {
@@ -1479,6 +1483,16 @@ private fun WeighingFreeFlowFeedRow(
     }
     LaunchedEffect(row.savedWeightLabel) {
         if (row.weightSaved) editingWeight = false
+    }
+    // Open the keyboard on the freshly scanned animal. The field was already focused -- it even
+    // drew its focused outline and caret -- but requesting focus does NOT raise the soft keyboard,
+    // so the operator saw a live-looking field, typed nothing, and had to tap it a second time.
+    // In a shed, holding a reader in one hand, that second tap is the whole interaction.
+    LaunchedEffect(row.animalId, editingWeight, row.weightSaved) {
+        if (editingWeight && !row.weightSaved) {
+            runCatching { weightFocusRequester.requestFocus() }
+            weightKeyboard?.show()
+        }
     }
     val canSaveDraftWeight = draftWeight.toDoubleOrNull()?.let { it > 0.0 } == true
     val complete = row.weightSaved &&
@@ -1607,6 +1621,7 @@ private fun WeighingFreeFlowFeedRow(
                     enabled = !updating,
                     modifier = Modifier
                         .weight(1f)
+                        .focusRequester(weightFocusRequester)
                         .onFocusChanged { onWeightEntryActive(it.isFocused) },
                 )
                 ActionButton(
