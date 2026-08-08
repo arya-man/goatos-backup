@@ -20,7 +20,13 @@ type HerdRegisterService struct {
 	milkFeedingStore        ports.MilkFeedingStore
 	milkFeedingProofs       MilkFeedingProofValidator
 	milkFeedingEnqueuer     MilkFeedingVerificationEnqueuer
-	now                     func() time.Time
+	// alerts is the OPTIONAL reader for the counts module's own lifecycle alerts feed
+	// (backend/internal/counts/domain/alerts.go). Resolved by type assertion, same as
+	// milkPreparationStore/milkFeedingStore above, so adding it cannot break every fake
+	// implementing ports.Repository. Without it, ListAlerts fails closed with
+	// ErrAlertsUnavailable. See alerts.go.
+	alerts ports.AlertsRepository
+	now    func() time.Time
 }
 
 // NewHerdRegisterService creates a new herd register service.
@@ -31,6 +37,9 @@ func NewHerdRegisterService(repo ports.Repository) *HerdRegisterService {
 	}
 	if store, ok := repo.(ports.MilkFeedingStore); ok {
 		service.milkFeedingStore = store
+	}
+	if store, ok := repo.(ports.AlertsRepository); ok {
+		service.alerts = store
 	}
 	return service
 }

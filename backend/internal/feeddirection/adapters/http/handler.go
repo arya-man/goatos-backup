@@ -40,6 +40,9 @@ type Service interface {
 	CompletePacking(ctx context.Context, in app.CompletePackingInput) (ports.CompletePackingResult, error)
 	ListTransportTasks(ctx context.Context, in app.ListTransportTasksInput) (ports.FeedTransportTaskPage, error)
 	SubmitTransport(ctx context.Context, in app.SubmitTransportInput) (ports.SubmitTransportResult, error)
+	// ListAlerts serves the feed module's own lifecycle alerts feed, the twin of
+	// GET /app/weighing/alerts and GET /app/vaccination/alerts. See app/alerts.go.
+	ListAlerts(ctx context.Context, tenantID, memberOrUserID string, tenantWide bool, parkIDs []string, cursor string, limit int) (domain.AlertPage, error)
 }
 
 type Handler struct {
@@ -64,6 +67,62 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("POST /feed-direction/packing/complete", h.PostCompletePacking)
 	mux.HandleFunc("GET /feed-transport/tasks", h.GetTransportTasks)
 	mux.HandleFunc("POST /feed-transport/tasks/{task_id}/submit", h.PostTransportSubmit)
+	mux.HandleFunc("GET /app/feed/alerts", h.ListAlerts)
+}
+
+// ListAlerts serves GET /app/feed/alerts -- the feed module's OWN alerts feed, the twin of
+// GET /app/weighing/alerts and GET /app/vaccination/alerts.
+//
+// WHY IT EXISTS: backend/internal/notificationbridge/verification_notify_consumer.go has been
+// queuing feed.proof.* / feed.record.closed notifications for the verifier, feed_director,
+// park_head and CEO since the feed verification gates shipped (2026-07-26), and there was no route
+// to read them back.
+//
+// SCOPE: the query filters on context->>'member_id' = the caller, so the feed is already "my own
+// alerts" and cannot leak another person's row. Park scope is therefore passed WIDE here (tenantWide
+// = true, parkIDs = nil) rather than re-deriving a capability park list: a narrower park filter
+// could only ever HIDE alerts that were addressed to this caller on purpose -- it can never widen
+// what is visible, because the audience predicate above already pins the caller's identity. This
+// mirrors vaccinationexecution's handler and is the fix for the "recipient vs reader" defect class:
+// deriving tenantWide/parkIDs from the caller's FEED capabilities (as the route-level permission
+// check does) would leave a verifier -- who holds VerificationReview but no feed_direction.*
+// capability -- with tenantWide=false and an EMPTY park list, so the SQL predicate
+// ($4::bool OR context->>'park_id' = ANY($5)) would silently exclude every row addressed to them.
+func (h *Handler) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	limit := domain.AlertPageSize
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "limit must be a positive integer", nil)
+			return
+		}
+		limit = parsed
+	}
+	if limit > domain.MaxAlertPageSize {
+		limit = domain.MaxAlertPageSize
+	}
+
+	tenant := httpmiddleware.TenantIDFromContext(r.Context())
+	actor := httpmiddleware.ActorIDFromContext(r.Context())
+	if tenant == "" || actor == "" {
+		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
+		return
+	}
+
+	page, err := h.service.ListAlerts(
+		r.Context(), tenant, actor,
+		true, nil,
+		strings.TrimSpace(r.URL.Query().Get("cursor")), limit,
+	)
+	if err != nil {
+		if errors.Is(err, ports.ErrInvalidArgument) {
+			httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, "the paging cursor is not valid", nil)
+			return
+		}
+		httpresponse.WriteError(w, r, h.log, http.StatusInternalServerError, "list feed alerts", err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, page)
 }
 
 type transportTaskDTO struct {

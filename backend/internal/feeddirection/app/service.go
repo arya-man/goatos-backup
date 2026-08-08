@@ -93,6 +93,10 @@ type Service struct {
 	transportEnqueuer FeedTransportVerificationEnqueuer
 	// proofs is the OPTIONAL validator for attached video proofs. Nil skips validation.
 	proofs ports.ProofValidator
+	// alerts is the OPTIONAL reader for the feed module's own lifecycle alerts feed
+	// (backend/internal/feeddirection/domain/alerts.go). Without it, ListAlerts fails closed with
+	// ErrAlertsUnavailable. See alerts.go.
+	alerts ports.AlertsRepository
 }
 
 func NewService(config ports.ConfigRepository, counts ports.ShedCountsReader) *Service {

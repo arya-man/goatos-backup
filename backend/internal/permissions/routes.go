@@ -309,6 +309,19 @@ var protectedRoutes = []Route{
 	// and no role gains anything new. The feed's audience is enforced inside the
 	// query by member_id equality, so this permission opens the tab, not the data.
 	{OperationID: "appListVaccinationAlerts", Method: "GET", Pattern: "/app/vaccination/alerts", AnyPermissions: []string{VaccinationAlertsRead, ObligationRead, VaccinationRead}},
+	// The feed module's OWN alerts feed, the twin of appListWeighingAlerts /
+	// appListVaccinationAlerts. FeedDirectionRead admits feed_director, park_head, and
+	// RoleCEOInternal (all three already hold it); VerificationReview admits the verifier, who
+	// holds no feed_direction.* capability. See notificationbridge.pendingModuleProfiles["feed"]
+	// for the recipient set this feed reads back (verifier, park_head, feed_director, ceo).
+	{OperationID: "appListFeedAlerts", Method: "GET", Pattern: "/app/feed/alerts", AnyPermissions: []string{FeedDirectionRead, VerificationReview}},
+	// The counts module's OWN alerts feed, the twin of appListWeighingAlerts /
+	// appListVaccinationAlerts. See the CountsAlertsRead doc comment (permissions.go) for why this
+	// route needs its own dedicated permission rather than CountsRead/CountsWrite: health_director
+	// is Counts' documented owner and verification-push recipient but deliberately holds neither,
+	// because COUNTS IS AN OFF FEATURE and granting either would switch it on. CountsWrite admits
+	// park_head and CEO; VerificationReview admits the verifier.
+	{OperationID: "appListCountsAlerts", Method: "GET", Pattern: "/app/counts/alerts", AnyPermissions: []string{CountsAlertsRead, CountsWrite, VerificationReview}},
 	{OperationID: "appListVaccinationExecution", Method: "GET", Pattern: "/app/vaccination/execution", Permissions: []string{AppBootstrap}},
 	{OperationID: "appGetVaccinationExecutionShedDrilldown", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}", Permissions: []string{AppBootstrap}},
 	{OperationID: "appScanRoster", Method: "GET", Pattern: "/app/vaccination/execution/sheds/{shed_id}/roster", Permissions: []string{AppBootstrap}},
