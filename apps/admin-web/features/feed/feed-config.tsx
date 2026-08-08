@@ -115,7 +115,7 @@ type ExperimentShedGroup = {
   parkId: string;
   /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
   partitionLabel: string;
-  /** Backend-composed "Mandela 1 - Part 3". Rendered verbatim -- never rejoined here. */
+  /** Server-composed "Mandela 1 - Part 3". Shown verbatim -- never rejoined here. */
   locationDisplay: string;
   /** The experiment ARM. Taken from the pen's rows, which the writer keeps consistent. */
   category: string;

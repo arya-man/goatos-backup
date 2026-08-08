@@ -965,6 +965,7 @@ class ScreenshotTest {
                     FeedDirectionRowUi(
                         grainKey = "row-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
                         shedLabel = "Gandhi 1", shedTag = "Adult", breed = "Boer",
+                        partitionLabel = "",
                         rationGroup = "Milking does", experimentArm = "",
                         sessionLabel = "Morning session", headCount = 40,
                         headCountInformational = false, workflow = "normal",
@@ -975,6 +976,7 @@ class ScreenshotTest {
                     FeedDirectionRowUi(
                         grainKey = "row-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
                         shedLabel = "Godel 1 - Part 3", shedTag = "Kid", breed = "Sirohi",
+                        partitionLabel = "Part 3",
                         rationGroup = "Weaners", experimentArm = "",
                         sessionLabel = "Morning session", headCount = 18,
                         headCountInformational = false, workflow = "normal",
@@ -1006,6 +1008,7 @@ class ScreenshotTest {
                     FeedPackingRowUi(
                         grainKey = "pack-1", parkId = "park-1", shedId = "shed-1", sessionNo = 1,
                         shedLabel = "Gandhi 1", sessionLabel = "Morning session",
+                        partitionLabel = "",
                         workflow = "normal", experimentArm = "", headCount = 40,
                         items = feedItems(), totalKg = "17.8",
                         status = "ready", completed = false, lifecycleStatus = "pending",
@@ -1013,6 +1016,7 @@ class ScreenshotTest {
                     FeedPackingRowUi(
                         grainKey = "pack-2", parkId = "park-1", shedId = "shed-2", sessionNo = 1,
                         shedLabel = "Godel 1 - Part 3", sessionLabel = "Morning session",
+                        partitionLabel = "Part 3",
                         workflow = "normal", experimentArm = "", headCount = 18,
                         items = feedItems(), totalKg = "8.1",
                         status = "ready", completed = false,
