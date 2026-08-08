@@ -1135,7 +1135,14 @@ class WeighingViewModel @Inject constructor(
                 // stored", stillNeedsWork comes out empty, and the operator never sees the banner
                 // telling him to record it again -- the silent-failure this block was written to
                 // remove, reintroduced one line below it.
-                runCatching { repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS) }
+                // A FAILED refresh is not an answer. refreshScope returns AppResult, so a server
+                // error comes back as Err rather than a throw -- runCatching alone treats that as
+                // success and the code below then reads whatever Room already held, which is
+                // exactly the stale "pending" that swallows a real rejection. Only an Ok refresh
+                // licenses trusting the snapshot.
+                val refreshed = runCatching {
+                    repository.refreshScope(campaignId, workGroupId, campaignShedId, ROSTER_SYNC_MAX_ROWS)
+                }.getOrNull() is AppResult.Ok
                 // Read the refreshed record DIRECTLY, do not infer freshness from the stream.
                 //
                 // Four review rounds died on proxies here: awaiting a fire-and-forget refresh, then
@@ -1148,9 +1155,16 @@ class WeighingViewModel @Inject constructor(
                 // refreshScope writes Room inside its suspend call, so a one-shot read after it
                 // returns sees THIS refresh's answer by construction. No emission to wait for and
                 // no freshness heuristic to get wrong.
+                //
+                // Without a successful refresh the draft set is treated as EMPTY, which drops every
+                // conflicted tag into the "record it again" branch below. That is the safe
+                // direction: an unnecessary re-record is recoverable, a swallowed rejection is not.
                 val activeScopeKey = scopeKey ?: return@collect
-                val afterRefresh = runCatching { repository.individualDraftsSnapshot(activeScopeKey) }
-                    .getOrElse { emptyList() }
+                val afterRefresh = if (refreshed) {
+                    runCatching { repository.individualDraftsSnapshot(activeScopeKey) }.getOrElse { emptyList() }
+                } else {
+                    emptyList()
+                }
                 val stillNeedsWork = newlyConflicted.filter { tag ->
                     val draft = afterRefresh.firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
                     draft == null || draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
