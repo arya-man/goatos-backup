@@ -314,6 +314,7 @@ class SubmitViewModelSubmitDeduplicationTest {
             enqueueCalls.add(EnqueueCall(itemId, request))
             itemFlow.value = SyncQueueItem(
                 id = itemId,
+                idempotencyKey = "test-idempotency-key",
                 opType = "shed_submit",
                 groupKey = groupKey,
                 status = SyncItemStatus.QUEUED,

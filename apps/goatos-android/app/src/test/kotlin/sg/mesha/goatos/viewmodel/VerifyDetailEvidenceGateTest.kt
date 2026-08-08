@@ -210,6 +210,7 @@ private class GateSyncRepository : SyncRepository {
         AppResult.Ok(
             SyncQueueItem(
                 id = itemId,
+                idempotencyKey = "test-idempotency-key",
                 opType = "verification_verdict",
                 groupKey = "item-1",
                 status = SyncItemStatus.SUCCEEDED,

@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -53,9 +55,20 @@ private data class VerifyDetailFlags(
      *  evidence that the video exists — the object behind it can be gone while the link still
      *  resolves — so a real playback failure is the honest client-side "she cannot see this". */
     val unplayableProofIds: Set<String> = emptySet(),
+    /** True while a verdict submission is resolving. refresh() is launched as a background
+     *  coroutine, so a gap exists between when waitForBackendDecision returns and when the
+     *  background refresh completes. During this window, observedGroup may emit empty (the
+     *  decided item no longer matches pending filter), but the empty state is not a final answer.
+     *  This flag stays true until the refetch delivers the decided item with its new status. */
+    val isDecisionResolving: Boolean = false,
 )
 
 private const val VERIFY_DETAIL_PAGE_SIZE = 20
+
+/** Upper bound on how long the screen holds its skeleton waiting for the refetch to return the
+ *  decided item. Generous enough for a slow round trip, short enough that a refetch which never
+ *  arrives degrades to the ordinary empty state instead of a permanent skeleton. */
+private const val DECIDED_ITEM_DELIVERY_TIMEOUT_MS = 10_000L
 
 /**
  * The standalone Verifier section's detail state holder (context/architecture/
@@ -170,7 +183,7 @@ class VerifyDetailViewModel @Inject constructor(
         _flags,
         _hasLoadedOnce,
     ) { items, flags, hasLoadedOnce ->
-        items.toUiState(flags = flags).copy(hasLoadedOnce = hasLoadedOnce)
+        items.toUiState(flags = flags).copy(hasLoadedOnce = hasLoadedOnce, isDecisionResolving = flags.isDecisionResolving)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VerifyDetailUiState(itemId = itemId))
 
     init {
@@ -285,7 +298,7 @@ class VerifyDetailViewModel @Inject constructor(
         if (decision == VerificationDecision.APPROVED && targetEntry?.isApproveEnabled != true) return@launch
 
         val rowVersion = observedGroup.value.firstOrNull { it.itemId == targetItemId }?.rowVersion ?: 1
-        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null) }
+        _flags.update { it.copy(isSubmitting = true, awaitingBackendDecision = false, autoCloseAfterDecision = false, errorMessage = null, isDecisionResolving = true) }
         AnalyticsFunnels.trackVerifyVerdictAttempted(analytics, targetItemId, decision, totalWatchTimeMs())
         val result = syncRepo.enqueueVerificationVerdict(
             itemId = targetItemId,
@@ -304,9 +317,17 @@ class VerifyDetailViewModel @Inject constructor(
                     // the rest, exactly the fix this task exists for (one reject must not evict
                     // her from the shed's other, still-pending, animals).
                     val stillPending = observedGroup.value.any { it.status == VerificationStatus.PENDING }
+                    // isDecisionResolving deliberately stays TRUE here. refresh() is launched, not
+                    // awaited, so the queue re-emission lands AFTER this point: the decided item
+                    // stops matching the observed query and the group goes momentarily empty. That
+                    // is the window that flashed "No video attached to this item" -- clearing the
+                    // flag here (as isSubmitting does) closes a window that was already shut.
+                    // awaitDecidedItemDelivered below clears it once the refetch actually returns
+                    // the item, or after a bounded wait so the screen can never latch.
                     _flags.update {
                         it.copy(isSubmitting = false, awaitingBackendDecision = false, autoCloseAfterDecision = !stillPending)
                     }
+                    awaitDecidedItemDelivered(targetItemId)
                     AnalyticsFunnels.trackVerifyVerdictSucceeded(analytics, targetItemId, decision, totalWatchTimeMs())
                     watchTimeByProof.clear()
                 } else {
@@ -315,12 +336,13 @@ class VerifyDetailViewModel @Inject constructor(
                             isSubmitting = false,
                             awaitingBackendDecision = false,
                             errorMessage = waitError,
+                            isDecisionResolving = false,
                         )
                     }
                 }
             }
             is AppResult.Err -> {
-                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message) }
+                _flags.update { it.copy(isSubmitting = false, awaitingBackendDecision = false, errorMessage = result.message, isDecisionResolving = false) }
                 result.cause?.let { error ->
                     runCatching { crashReporter.recordException(error, "verification verdict enqueue failed") }
                 }
@@ -391,6 +413,32 @@ class VerifyDetailViewModel @Inject constructor(
         // never fires a false-positive report against this now-cleared ViewModel.
         playWatchdogs.values.forEach { it.cancel() }
         playWatchdogs.clear()
+    }
+
+    /**
+     * Holds [VerifyDetailFlags.isDecisionResolving] until the refetch has DELIVERED the decided
+     * item, then clears it.
+     *
+     * The verdict path calls refresh() without awaiting it, so the queue re-emission arrives after
+     * submitVerdict has already finished. Between the verdict landing and that emission the group
+     * filters to empty, and the screen drew its definitive "No video attached to this item" state
+     * into that gap -- the flash a verifier sees right after tapping Approve. Two earlier attempts
+     * keyed the guard on isSubmitting (and on a rename of it) and both cleared at the same instant,
+     * i.e. before the gap they were meant to cover, which is why the flash survived them.
+     *
+     * Waits for the item to REAPPEAR carrying a terminal status. Bounded: on timeout the flag is
+     * cleared anyway, so a refetch that never delivers leaves the screen showing its ordinary empty
+     * state rather than a skeleton forever.
+     */
+    private suspend fun awaitDecidedItemDelivered(targetItemId: String) {
+        runCatching {
+            withTimeout(DECIDED_ITEM_DELIVERY_TIMEOUT_MS) {
+                observedGroup.first { items ->
+                    items.any { it.itemId == targetItemId && it.status != VerificationStatus.PENDING }
+                }
+            }
+        }
+        _flags.update { it.copy(isDecisionResolving = false) }
     }
 
     private suspend fun waitForBackendDecision(targetItemId: String, outboxItemId: String): String? {

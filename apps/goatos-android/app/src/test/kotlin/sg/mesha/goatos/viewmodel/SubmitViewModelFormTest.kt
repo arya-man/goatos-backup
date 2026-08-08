@@ -1753,6 +1753,7 @@ private class CapturingSyncRepository : SyncRepository {
         lastIdempotencyKey = idempotencyKey
         val queued = SyncQueueItem(
             id = "item-1",
+            idempotencyKey = "test-idempotency-key",
             opType = "shed_submit",
             groupKey = groupKey,
             status = SyncItemStatus.QUEUED,

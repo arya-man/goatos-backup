@@ -158,6 +158,10 @@ data class VerifyDetailUiState(
     val isRejectEnabled: Boolean = false,
     val decisionUnavailableReason: VerifyDecisionUnavailableReason = VerifyDecisionUnavailableReason.NONE,
     val isSubmitting: Boolean = false,
+    /** True while a verdict submission is being resolved by the backend. refresh() is launched as a
+     *  background coroutine, so a gap exists where observedGroup emits empty while the refetch
+     *  is still in flight. This flag blocks the empty state during that window. */
+    val isDecisionResolving: Boolean = false,
     // Offline-first sync state (docs/decisions/android-offline-first.md).
     val isRefreshing: Boolean = false,
     /** True once the cache/network has ANSWERED at least once. The empty state is a definitive
@@ -311,8 +315,16 @@ fun VerifyDetailScreen(
                     // answer arrives made every open flash the warning state and then swap to the
                     // video -- which reads as lag, and briefly tells a verifier the proof is
                     // missing when it is not. Hold the skeleton until an answer exists.
+                    //
+                    // hasLoadedOnce alone only covers the FIRST load. Casting a verdict empties
+                    // this group a second time: the decided item stops matching the observed
+                    // query until the refetch returns it with its new status. refresh() is
+                    // launched as a background coroutine, so a window exists where observedGroup
+                    // emits empty while the refetch is still in flight. A dedicated isDecisionResolving
+                    // flag blocks the empty state during this gap, staying true until the decided
+                    // item's new status arrives from the backend.
                     item {
-                        if (state.hasLoadedOnce) {
+                        if (state.hasLoadedOnce && !state.isDecisionResolving) {
                             EmptyState(
                                 title = stringResource(R.string.verify_detail_no_media),
                                 icon = MeshaIcons.Video,

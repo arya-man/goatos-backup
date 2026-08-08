@@ -367,6 +367,7 @@ private class RecordingAddSyncRepository : SyncRepository {
             items = listOf(
                 SyncQueueItem(
                     id = "outbox-birth-1",
+                    idempotencyKey = "test-idempotency-key",
                     opType = "COUNTS_BIRTH",
                     groupKey = "birth-1",
                     status = SyncItemStatus.SUCCEEDED,
