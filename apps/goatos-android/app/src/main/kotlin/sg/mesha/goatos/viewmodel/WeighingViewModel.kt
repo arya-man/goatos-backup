@@ -1114,16 +1114,37 @@ class WeighingViewModel @Inject constructor(
                     .toSet()
                 val newlyConflicted = affected - conflictedAnimalIds.value
                 if (newlyConflicted.isEmpty()) return@collect
-                conflictedAnimalIds.value = conflictedAnimalIds.value + newlyConflicted
-                newlyConflicted.forEach { _ ->
+                // ASK THE SERVER WHAT ACTUALLY HAPPENED. A refused write is not automatically lost
+                // work: the two conflicts this path sees mean opposite things. `duplicate_scan`
+                // means the weight is ALREADY STORED and the phone simply re-posted it -- there is
+                // nothing to redo. `weighing_rejected_proof_reuse` means the verifier sent this
+                // animal back and the old video cannot stand. Telling an operator to "record the
+                // animal again" in the first case sends him to repeat work that is already saved,
+                // the same class of lie as a rejection banner that outlives its re-shoot.
+                //
+                // The outbox stores only the server's display text, not its code, so the code is
+                // not reliably available here -- and string-matching copy is not a contract. The
+                // refetch settles it from the record instead, which also removes the need to leave
+                // the screen and come back for it to look right.
+                refresh()
+                val afterRefresh = scopeState.value?.individualDrafts.orEmpty()
+                val stillNeedsWork = newlyConflicted.filter { tag ->
+                    val draft = afterRefresh.firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
+                    draft == null || draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
+                }.toSet()
+                conflictedAnimalIds.value = conflictedAnimalIds.value + stillNeedsWork
+                if (stillNeedsWork.isEmpty()) {
+                    // Already recorded on the server. Say nothing alarming and leave the row alone.
+                    return@collect
+                }
+                stillNeedsWork.forEach { _ ->
                     analytics.track(
                         AnalyticsEvents.WEIGHING_CAPTURE_CONFLICT,
                         weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
                     )
                 }
-                // Say it plainly and unconditionally -- not only when that row happens to be
-                // selected. The whole point is that the operator was told the weight was safe.
-                message.value = "Couldn't save that weight. Record the animal again."
+                // Only reached when the record itself says this animal still owes work.
+                message.value = "This animal was sent back. Record it again."
             }
         }
     }
@@ -2253,7 +2274,21 @@ class WeighingViewModel @Inject constructor(
                 captureVideoForRow(key, existingRow)
                 return@launch
             }
-            if (existingRow != null && proofForAnimal(existingRow.animalId) == null) {
+            // A video that already reached the SERVER is evidence, even when this phone no longer
+            // holds the local capture row.
+            //
+            // proofForAnimal() reads only local proof captures, so anything that clears local state
+            // -- reinstall, app-data clear, cache eviction -- made every already-submitted animal
+            // read as "no video" and sent the operator straight back into the camera. Re-recording
+            // then REPLACED a video that was already submitted and waiting on the verifier, and
+            // flipped that animal back to unsubmitted. Absence of the local cache is not absence of
+            // evidence; the draft carries the server proof id precisely so this is answerable
+            // offline.
+            val serverProofForTag = scopeState.value?.individualDrafts.orEmpty()
+                .firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizedTag }
+                ?.serverProofId
+                ?.takeIf { it.isNotBlank() }
+            if (existingRow != null && serverProofForTag == null && proofForAnimal(existingRow.animalId) == null) {
                 message.value = null
                 captureVideoForRow(key, existingRow)
                 return@launch

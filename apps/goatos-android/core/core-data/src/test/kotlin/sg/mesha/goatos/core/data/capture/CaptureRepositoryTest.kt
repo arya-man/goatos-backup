@@ -1590,6 +1590,7 @@ private fun syncQueueItem(
 ) = SyncQueueItem(
     id = id,
     opType = "PROOF_UPLOAD",
+    idempotencyKey = "test-idempotency-key",
     groupKey = groupKey,
     status = status,
     attemptCount = 0,
