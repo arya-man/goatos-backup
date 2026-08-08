@@ -97,10 +97,14 @@ type IssueHeader struct {
 // blocked; a resolved authored zero is a non-nil "0.000". BlockedReasonCode is set if and only if
 // QuantityKg is nil. Nothing here can turn a blocked cell into a numeric zero.
 type StoredCell struct {
-	ParkID                 string
-	ParkLabel              string
-	ShedID                 string
-	ShedLabel              string
+	ParkID    string
+	ParkLabel string
+	ShedID    string
+	ShedLabel string
+	// PartitionLabel is the pen inside ShedLabel ("2", "Part 3"), empty for an undivided shed. A
+	// partitioned shed emits one cell PER PEN for the same (shed, session, item), so this is part of
+	// the cell's identity, not decoration -- see CellKey.
+	PartitionLabel         string
 	ShedTag                string
 	Breed                  string
 	RationGroup            string
@@ -129,21 +133,27 @@ type StoredCell struct {
 // shed_tag and breed are normalized because that is the grain group key the generator uses, so two
 // grains of a multi-grain shed never collapse and a cosmetic spelling variant never splits one.
 type CellKey struct {
-	ShedID      string
-	SessionNo   int32
-	ShedTagKey  string
-	BreedKey    string
-	FeedItemKey string
+	ShedID string
+	// PartitionKey is the normalized pen ('whole' for an undivided shed). WITHOUT it, Castro 1 /
+	// Castro 2 / Castro 3 collapse to one identity: they share shed_id, session, tag, breed and
+	// item, and differ ONLY by pen. That collision is what violated
+	// feed_direction_issue_rows_natural_key_uidx and 500'd every feed read on 2026-08-08.
+	PartitionKey string
+	SessionNo    int32
+	ShedTagKey   string
+	BreedKey     string
+	FeedItemKey  string
 }
 
 // Key returns the cell's natural identity.
 func (c StoredCell) Key() CellKey {
 	return CellKey{
-		ShedID:      c.ShedID,
-		SessionNo:   c.SessionNo,
-		ShedTagKey:  NormalizeConfigKey(c.ShedTag),
-		BreedKey:    NormalizeConfigKey(c.Breed),
-		FeedItemKey: c.FeedItemKey,
+		ShedID:       c.ShedID,
+		PartitionKey: PartitionMatchKey(c.PartitionLabel),
+		SessionNo:    c.SessionNo,
+		ShedTagKey:   NormalizeConfigKey(c.ShedTag),
+		BreedKey:     NormalizeConfigKey(c.Breed),
+		FeedItemKey:  c.FeedItemKey,
 	}
 }
 
@@ -191,6 +201,7 @@ func FlattenRows(rows []DirectionRow) []StoredCell {
 				ParkLabel:              row.ParkLabel,
 				ShedID:                 row.ShedID,
 				ShedLabel:              row.ShedLabel,
+				PartitionLabel:         row.PartitionLabel,
 				ShedTag:                row.ShedTag,
 				Breed:                  row.Breed,
 				RationGroup:            row.RationGroup,
@@ -247,6 +258,7 @@ func ReconstructRows(cells []StoredCell) []DirectionRow {
 				ParkLabel:              cell.ParkLabel,
 				ShedID:                 cell.ShedID,
 				ShedLabel:              cell.ShedLabel,
+				PartitionLabel:         cell.PartitionLabel,
 				ShedTag:                cell.ShedTag,
 				Breed:                  cell.Breed,
 				RationGroup:            cell.RationGroup,
