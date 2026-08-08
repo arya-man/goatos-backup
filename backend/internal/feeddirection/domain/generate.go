@@ -398,9 +398,18 @@ func kgStringToGrams(kg string) (int64, bool) {
 // blocked. It is NOT packed from the resolved remainder, because a partially resolved line looks
 // like a complete instruction and would send the shed short.
 func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
+	// ONE BAG PER OPERATIONAL LOCATION, per session -- so the partition is part of the key, not just
+	// a label carried on the row. Keyed by (shedID, sessionNo) alone until 2026-08-08, which merged
+	// every partition of a shed into a single line and stamped it with whichever partition's row
+	// happened to arrive first: Castro 1 and Castro 2 became one "Castro - 1" bag carrying BOTH pens'
+	// quantities, and Castro 2 vanished from the worklist entirely.
+	//
+	// partitionKey, not the raw label, so an authoring variant ("Part 3" vs "part 3") cannot split
+	// one pen into two bags -- the same normalization the experiment config and the projection use.
 	type lineKey struct {
-		shedID    string
-		sessionNo int32
+		shedID       string
+		partitionKey string
+		sessionNo    int32
 	}
 	type line struct {
 		order   int
@@ -416,7 +425,11 @@ func BuildPackingRows(rows []DirectionRow, items []FeedItem) []PackingRow {
 	lines := map[lineKey]*line{}
 	order := 0
 	for _, row := range rows {
-		key := lineKey{shedID: row.ShedID, sessionNo: row.SessionNo}
+		key := lineKey{
+			shedID:       row.ShedID,
+			partitionKey: PartitionMatchKey(row.PartitionLabel),
+			sessionNo:    row.SessionNo,
+		}
 		l, ok := lines[key]
 		if !ok {
 			l = &line{

@@ -1527,3 +1527,80 @@ func TestPartitionMatchKeyNormalizesLabelVariantsAndBlank(t *testing.T) {
 		t.Fatal("Part 3 and Part 4 share a match key")
 	}
 }
+
+// TestPackingLinesAreOnePerPartitionNotPerShed is the regression for what a packer actually holds.
+//
+// Reported from the phone (2026-08-08): Feed Packing showed "Castro - 1" and nothing for Castro 2,
+// and only "Gandhi - 1" for a shed with three pens. The line key was (shedID, sessionNo), so every
+// partition of a shed merged into ONE bag whose quantities were the SUM of all pens, stamped with
+// whichever partition's row arrived first. The missing pens do not read as an error -- they read as
+// sheds that need no feed -- and the surviving bag is over-weight.
+//
+// One bag per operational location, per session. This is the packing twin of the direction grain,
+// and it matters more: direction is a document, a bag is a physical thing somebody carries.
+func TestPackingLinesAreOnePerPartitionNotPerShed(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg = withRate(cfg, "Anantapur Sheep", "Non-Pregnant", "Concentrate", "1000.000")
+
+	// Same shed, same session, same grain -- two different pens with different head counts.
+	var rows []DirectionRow
+	for _, part := range []struct {
+		label string
+		head  int64
+	}{{"1", 10}, {"2", 4}} {
+		in := ShedInput{
+			ShedID:         testShedID,
+			ShedLabel:      "Castro",
+			PartitionLabel: part.label,
+			Grains: []ShedGrain{{
+				ManagementStage: "Non-Pregnant", Breed: "Anantapur Sheep",
+				HeadCount: part.head, PartitionLabel: part.label,
+			}},
+		}
+		rows = append(rows, generate(cfg, in, 1)...)
+	}
+
+	lines := BuildPackingRows(rows, cfg.FeedItems)
+
+	byPartition := map[string]PackingRow{}
+	for _, l := range lines {
+		if _, clash := byPartition[l.PartitionLabel]; clash {
+			t.Fatalf("two bags for partition %q in one session", l.PartitionLabel)
+		}
+		byPartition[l.PartitionLabel] = l
+	}
+	if len(lines) != 2 {
+		t.Fatalf("packing lines = %d, want 2 (one bag per pen); got %v", len(lines), byPartition)
+	}
+	for _, want := range []string{"1", "2"} {
+		if _, ok := byPartition[want]; !ok {
+			t.Fatalf("no bag for Castro %s -- the pen vanished from the worklist; got %v", want, byPartition)
+		}
+	}
+
+	// And the quantities must be the PEN's, not the shed's sum. 10 head x 1000 g x 0.5 = 5.000 kg;
+	// 4 head x 1000 g x 0.5 = 2.000 kg. A merged bag would read 7.000 on one line and lose the other.
+	for _, tc := range []struct{ partition, wantKg string }{{"1", "5.000"}, {"2", "2.000"}} {
+		got := packingItemKg(t, byPartition[tc.partition], "Concentrate")
+		if got != tc.wantKg {
+			t.Errorf("Castro %s pack quantity = %q, want %q (this pen only, never the shed total)",
+				tc.partition, got, tc.wantKg)
+		}
+	}
+}
+
+// packingItemKg reads one feed item's quantity off a packing line.
+func packingItemKg(t *testing.T, line PackingRow, item string) string {
+	t.Helper()
+	for _, it := range line.Items {
+		if it.FeedItem == item {
+			if it.QuantityKg == nil {
+				t.Fatalf("%s is blocked on the %q bag", item, line.PartitionLabel)
+			}
+			return *it.QuantityKg
+		}
+	}
+	t.Fatalf("no %s on the %q bag", item, line.PartitionLabel)
+	return ""
+}
