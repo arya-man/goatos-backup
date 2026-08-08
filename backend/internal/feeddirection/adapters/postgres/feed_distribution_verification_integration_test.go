@@ -69,6 +69,7 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 		TenantID:       fdTenant,
 		ParkID:         fdPark,
 		ShedID:         fdShedA,
+		PartitionLabel: "2",
 		SessionNo:      1,
 		TargetDate:     businessDay(2026, 7, 22),
 		Workflow:       domain.WorkflowNormal,
@@ -102,6 +103,41 @@ func TestCompleteDistributionRequiresBothProofsAtAppLayer(t *testing.T) {
 	}
 	if len(verified) != 0 {
 		t.Fatalf("verified distributions = %d, want 0", len(verified))
+	}
+}
+
+func TestCompleteDistributionEnqueueRequestCarriesPartition(t *testing.T) {
+	ctx := context.Background()
+	repo, _ := setupFeedDirectionDB(t, ctx)
+
+	enq := &recordingDistributionEnqueuer{}
+	svc := feeddirectionapp.NewService(nil, nil).
+		WithDistributionStore(repo).
+		WithDistributionVerificationEnqueuer(enq)
+
+	_, err := svc.CompleteDistribution(ctx, feeddirectionapp.CompleteDistributionInput{
+		TenantID:             fdTenant,
+		ParkID:               fdPark,
+		ShedID:               fdShedA,
+		PartitionLabel:       "2",
+		SessionNo:            1,
+		TargetDate:           businessDay(2026, 7, 22),
+		Workflow:             domain.WorkflowNormal,
+		DistributionProofRef: "proof-distribution-0001",
+		WaterProofRef:        "proof-water-0001",
+		CompletedBy:          fdActor,
+		IdempotencyKey:       "feed-distribution-partition-enqueue-0001",
+		ActorID:              fdActor,
+		ActorType:            "operator",
+	})
+	if err != nil {
+		t.Fatalf("CompleteDistribution: %v", err)
+	}
+	if len(enq.calls) != 1 {
+		t.Fatalf("enqueue calls = %d, want 1", len(enq.calls))
+	}
+	if enq.calls[0].PartitionLabel != "2" {
+		t.Fatalf("enqueue partition = %q, want 2", enq.calls[0].PartitionLabel)
 	}
 }
 

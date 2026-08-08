@@ -40,6 +40,7 @@ type FeedDistributionVerificationEnqueueRequest struct {
 	CompletionID         string
 	ParkID               string
 	ShedID               string
+	PartitionLabel       string
 	SessionNo            int32
 	Workflow             string
 	TargetDate           time.Time
@@ -171,6 +172,7 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 			CompletionID:         result.CompletionID,
 			ParkID:               in.ParkID,
 			ShedID:               in.ShedID,
+			PartitionLabel:       in.PartitionLabel,
 			SessionNo:            in.SessionNo,
 			Workflow:             in.Workflow,
 			TargetDate:           in.TargetDate,

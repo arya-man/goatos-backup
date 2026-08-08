@@ -5,6 +5,8 @@ package verificationbridge
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	feeddirectionapp "github.com/vgoats/goatos/backend/internal/feeddirection/app"
 	feeddirectiondomain "github.com/vgoats/goatos/backend/internal/feeddirection/domain"
@@ -36,11 +38,13 @@ var _ feeddirectionapp.FeedDistributionVerificationEnqueuer = (*Enqueuer)(nil)
 // idempotent on (tenant, idempotency_key), so a retry after a prior failure heals rather than
 // duplicates.
 func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in feeddirectionapp.FeedDistributionVerificationEnqueueRequest) error {
+	subjectLabel := feedDistributionSubjectLabel(in.SessionNo, in.ShedID, in.PartitionLabel)
 	_, err := e.verification.CreateItem(ctx, verificationdomain.CreateItem{
-		TenantID: in.TenantID,
-		Vertical: feeddirectiondomain.VerificationVerticalFeed,
-		Module:   feeddirectiondomain.VerificationModuleFeed,
-		Category: feeddirectiondomain.VerificationCategoryFeed,
+		TenantID:     in.TenantID,
+		Vertical:     feeddirectiondomain.VerificationVerticalFeed,
+		Module:       feeddirectiondomain.VerificationModuleFeed,
+		Category:     feeddirectiondomain.VerificationCategoryFeed,
+		SubjectLabel: subjectLabel,
 		Source: verificationdomain.SourceRef{
 			Module:  feeddirectiondomain.VerificationModuleFeed,
 			RefType: feeddirectiondomain.VerificationRefTypeFeed,
@@ -50,11 +54,30 @@ func (e *Enqueuer) EnqueueFeedDistributionVerification(ctx context.Context, in f
 		MediaRefs:      []string{in.DistributionProofRef, in.WaterProofRef},
 		OperatorID:     ptrIfSet(in.OperatorID),
 		ShedID:         ptrIfSet(in.ShedID),
+		PartitionLabel: ptrIfSet(in.PartitionLabel),
 		ParkID:         ptrIfSet(in.ParkID),
 		CapturedAt:     in.CapturedAt,
 		IdempotencyKey: in.IdempotencyKey,
 	})
 	return err
+}
+
+func feedDistributionSubjectLabel(sessionNo int32, shedID, partitionLabel string) *string {
+	parts := make([]string, 0, 3)
+	if sessionNo > 0 {
+		parts = append(parts, fmt.Sprintf("Session %d", sessionNo))
+	}
+	if strings.TrimSpace(shedID) != "" {
+		parts = append(parts, strings.TrimSpace(shedID))
+	}
+	if strings.TrimSpace(partitionLabel) != "" {
+		parts = append(parts, "Pen "+strings.TrimSpace(partitionLabel))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	label := strings.Join(parts, " · ")
+	return &label
 }
 
 func ptrIfSet(s string) *string {
