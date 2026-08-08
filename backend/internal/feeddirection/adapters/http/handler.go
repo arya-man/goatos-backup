@@ -160,6 +160,19 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		httpresponse.WriteError(w, r, h.log, http.StatusUnauthorized, "missing actor context", nil)
 		return
 	}
+	// Park scope is CLAMPED to the caller's own grant before anything is read or written. This is
+	// the precondition for admitting a park-scoped grant on this route in
+	// httpmiddleware.routeAllowsScopedGrants: without it a CPT operator could name a CBE park_id.
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenant, strings.TrimSpace(r.URL.Query().Get("park_id")), permissions.FeedTransportRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
+			"code": parkScope.Code, "message": parkScope.Message,
+		}, nil)
+		return
+	}
+
 	limit, err := boundedIntParam(r.URL.Query(), "limit", 20, 1, 100)
 	if err != nil {
 		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, err.Error(), nil)
@@ -169,7 +182,7 @@ func (h *Handler) GetTransportTasks(w http.ResponseWriter, r *http.Request) {
 		TenantID: tenant,
 		ActorID:  actor,
 		Date:     r.URL.Query().Get("business_date"),
-		ParkID:   r.URL.Query().Get("park_id"),
+		ParkID:   parkScope.ParkID,
 		ShedID:   r.URL.Query().Get("shed_id"),
 		Status:   r.URL.Query().Get("status"),
 		Cursor:   r.URL.Query().Get("cursor"),
@@ -348,9 +361,22 @@ func (h *Handler) PostCompleteDistribution(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Park scope is CLAMPED to the caller's own grant before the write. Precondition for admitting a
+	// park-scoped grant on this route (httpmiddleware.routeAllowsScopedGrants): a CPT operator must
+	// not be able to record CBE work by naming another park in the body.
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(body.ParkID), permissions.FeedDirectionComplete,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
+			"code": parkScope.Code, "message": parkScope.Message,
+		}, nil)
+		return
+	}
+
 	res, err := h.service.CompleteDistribution(r.Context(), app.CompleteDistributionInput{
 		TenantID:             tenantID,
-		ParkID:               strings.TrimSpace(body.ParkID),
+		ParkID:               parkScope.ParkID,
 		ShedID:               strings.TrimSpace(body.ShedID),
 		PartitionLabel:       strings.TrimSpace(body.PartitionLabel),
 		SessionNo:            body.SessionNo,
@@ -444,9 +470,22 @@ func (h *Handler) PostCompletePacking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Park scope is CLAMPED to the caller's own grant before the write. Precondition for admitting a
+	// park-scoped grant on this route (httpmiddleware.routeAllowsScopedGrants): a CPT operator must
+	// not be able to record CBE work by naming another park in the body.
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(body.ParkID), permissions.FeedDirectionComplete,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
+			"code": parkScope.Code, "message": parkScope.Message,
+		}, nil)
+		return
+	}
+
 	res, err := h.service.CompletePacking(r.Context(), app.CompletePackingInput{
 		TenantID:        tenantID,
-		ParkID:          strings.TrimSpace(body.ParkID),
+		ParkID:          parkScope.ParkID,
 		ShedID:          strings.TrimSpace(body.ShedID),
 		PartitionLabel:  strings.TrimSpace(body.PartitionLabel),
 		SessionNo:       body.SessionNo,
@@ -559,6 +598,18 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
+	// Park scope is CLAMPED to the caller's own grant before anything is read or written. This is
+	// the precondition for admitting a park-scoped grant on this route in
+	// httpmiddleware.routeAllowsScopedGrants: without it a CPT operator could name a CBE park_id.
+	parkScope := httpmiddleware.ResolveAuthorizedParkScopeForCapabilities(
+		r.Context(), tenantID, strings.TrimSpace(query.Get("park_id")), permissions.FeedPackingRead,
+	)
+	if !parkScope.Allowed {
+		httpresponse.WriteError(w, r, h.log, parkScope.Status, map[string]string{
+			"code": parkScope.Code, "message": parkScope.Message,
+		}, nil)
+		return
+	}
 
 	targetDate, err := requiredBusinessDate(query, "target_date")
 	if err != nil {
@@ -591,7 +642,7 @@ func (h *Handler) GetPackingWorklist(w http.ResponseWriter, r *http.Request) {
 
 	page, err := h.service.PackingWorklist(r.Context(), domain.PackingQuery{
 		TenantID:   tenantID,
-		ParkID:     strings.TrimSpace(query.Get("park_id")),
+		ParkID:     parkScope.ParkID,
 		TargetDate: targetDate,
 		SessionNo:  sessionNo,
 		Workflow:   strings.TrimSpace(query.Get("workflow")),

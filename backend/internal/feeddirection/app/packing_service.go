@@ -54,12 +54,12 @@ type FeedPackingVerificationEnqueueRequest struct {
 // CompletePackingInput is the app-level packing completion request the HTTP handler builds from the
 // body plus the authenticated actor context.
 type CompletePackingInput struct {
-	TenantID        string
-	ParkID          string
-	ShedID          string
+	TenantID string
+	ParkID   string
+	ShedID   string
 	// PartitionLabel is the pen the operator actually worked ("2", "Part 3"); empty for an
 	// undivided shed. Carried end-to-end so ONE pen's proof closes ONE pen -- see migration 000137.
-	PartitionLabel string
+	PartitionLabel  string
 	SessionNo       int32
 	TargetDate      time.Time
 	Workflow        string
