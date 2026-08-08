@@ -1018,16 +1018,42 @@ proofs AS (
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
   UNION ALL
+  -- Accepted completions whose verification item the OpenOnly filter above removed (it drops
+  -- anything with closed_at set). They must still count toward readiness, but they must NOT be
+  -- fabricated: NULL item_id/shed_id here is what produced "Closed · 0 sheds · 0/0 videos
+  -- approved" on a finished drive, because these rows are all that survives once the real ones are
+  -- filtered out, and every count derives from columns that are NULL.
+  --
+  -- Carry the REAL identity from the closed verification item instead of inventing one, so
+  -- video_count and shed_count stay true whether the drive is open or closed.
   SELECT
     vc.batch_id,
 	vc.completion_id,
 	vc.goat_id,
-    NULL::uuid AS item_id,
+    closed_vi.item_id,
     'approved'::text AS status,
-    now() AS closed_at,
-    NULL::uuid AS park_id,
-    NULL::uuid AS shed_id
+    -- NOT COALESCE(..., now()). Stamping a close time on a row that is not closed makes
+    -- unclosed_completion_count zero and the drive reports closed=true while it is still open.
+    closed_vi.closed_at,
+    closed_vi.park_id,
+    closed_vi.shed_id
   FROM vaccination_completions vc
+  LEFT JOIN LATERAL (
+    SELECT vi2.item_id, vi2.closed_at, vi2.park_id, vi2.shed_id
+    FROM sop_submission_items si2
+    JOIN verification_items vi2
+      ON vi2.tenant_id = si2.tenant_id
+     AND vi2.source_submission_id = si2.submission_id
+     AND (
+       (vi2.source_ref_type = 'sop_submission' AND vi2.source_ref_id = si2.submission_id)
+       OR (vi2.source_ref_type = 'vaccination_goat' AND vi2.source_ref_id = si2.goat_id)
+     )
+    WHERE si2.tenant_id = vc.tenant_id
+      AND si2.item_id = vc.sop_submission_item_id
+      AND vi2.category = $2
+    ORDER BY vi2.closed_at DESC NULLS LAST, vi2.item_id DESC
+    LIMIT 1
+  ) closed_vi ON TRUE
   WHERE vc.tenant_id = $1::uuid
     AND vc.status = 'accepted'
     AND (

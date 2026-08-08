@@ -1512,6 +1512,23 @@ private fun WeighingFreeFlowFeedRow(
     val weightBringIntoViewScope = rememberCoroutineScope()
     val weightFieldView = LocalView.current
     val weightFocusRequester = remember(row.animalId) { FocusRequester() }
+
+    // Select the freshly captured row so its keypad is up the moment the camera returns.
+    //
+    // The keypad renders only for the focused row (one keypad, not one per animal), so without
+    // this nothing focuses and the operator still has to tap the field first -- the exact
+    // complaint the keypad was meant to end. Requesting focus is safe HERE in a way it never was
+    // with the system IME: the field is readOnly, so focus selects the row without asking Android
+    // for a keyboard, and there is no InputConnection for the capture screen's window transition
+    // to tear down.
+    //
+    // Gated on proofUploadStatus leaving MISSING, i.e. a video exists and the camera has already
+    // come and gone -- focusing before that aims at a row the transition is about to replace.
+    LaunchedEffect(row.animalId, row.weightSaved, row.proofUploadStatus) {
+        if (row.weightSaved) return@LaunchedEffect
+        if (row.proofUploadStatus == ProofUploadStatus.MISSING) return@LaunchedEffect
+        runCatching { weightFocusRequester.requestFocus() }
+    }
     var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }
     var draftWeight by remember(row.animalId) { mutableStateOf(row.weightInput) }
     LaunchedEffect(row.animalId, row.weightInput, row.weightSaved) {

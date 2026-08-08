@@ -991,3 +991,292 @@ func isUUID(s string) bool {
 // TestReadyVaccinationBatchClosuresPaginationPageBoundary_RealPostgres asserts that the LIMIT 20
 // pagination does not truncate a batch's rows mid-result; summary counts span the full filtered set,
 // not just the visible page.
+
+// TestReadyClosureCountsLatestVerdictPerProofAndExcludesSupersededRejections_RealPostgres is the
+// adversarial companion to the fixture above. That one carries exactly ONE proof row per
+// completion and every completion ends in a single verdict, so it cannot see the four defects that
+// made a finished drive un-closeable on 2026-08-08 -- reverting the status filter or the
+// DISTINCT ON ranking leaves it green. This fixture reproduces them.
+//
+// Shape (one batch, one park, TWO sheds, THREE animals):
+//
+//	goat A / shed A -- completion C1, verdict history reject -> reject -> approve. THREE
+//	                   verification_items against the SAME submission, so latest_proofs must
+//	                   collapse them to the newest verdict.
+//	goat B / shed B -- completion C2 'accepted' (the redo), PLUS an archived
+//	                   vaccination_completion_rejections row for the superseded attempt, which
+//	                   carries its own verification_item. Both the expected CTE and the archive
+//	                   branch of proofs must drop the archived attempt.
+//	goat C / shed A -- completion C3 'accepted' with one approved proof. Volume, and the second
+//	                   shed-A member so shed_count is a real 2.
+//
+// Every completion is 'accepted', which is the state a fully approved drive actually reaches, so
+// a proofs CTE scoped to 'recorded' alone sees none of them.
+func TestReadyClosureCountsLatestVerdictPerProofAndExcludesSupersededRejections_RealPostgres(t *testing.T) {
+	pgtest.SkipIfNoDocker(t)
+	ctx := context.Background()
+	pool := pgtest.StartPostgres(t, ctx)
+	defer pool.Close()
+
+	repo := NewRepository(pool, 5*time.Second)
+	tenantID := newTenant(t, ctx, pool)
+	actorID := tenantID
+
+	const (
+		protocolID   = "00000000-0000-4000-8000-000000000301"
+		versionID    = "00000000-0000-4000-8000-000000000302"
+		ruleID       = "00000000-0000-4000-8000-000000000303"
+		sopID        = "00000000-0000-4000-8000-000000000304"
+		sopVersionID = "00000000-0000-4000-8000-000000000305"
+		taskID       = "00000000-0000-4000-8000-000000000306"
+		batchID      = "00000000-0000-4000-8000-000000000307"
+		parkID       = "00000000-0000-4000-8000-000000000308"
+		shedAID      = "00000000-0000-4000-8000-000000000309"
+		shedBID      = "00000000-0000-4000-8000-00000000030a"
+		otherParkID  = "00000000-0000-4000-8000-00000000030b"
+
+		goatAID = "00000000-0000-4000-8000-000000000311"
+		goatBID = "00000000-0000-4000-8000-000000000312"
+		goatCID = "00000000-0000-4000-8000-000000000313"
+
+		obligationAID = "00000000-0000-4000-8000-000000000321"
+		obligationBID = "00000000-0000-4000-8000-000000000322"
+		obligationCID = "00000000-0000-4000-8000-000000000323"
+
+		submissionAID      = "00000000-0000-4000-8000-000000000331"
+		submissionBID      = "00000000-0000-4000-8000-000000000332"
+		submissionBOldID   = "00000000-0000-4000-8000-000000000333"
+		submissionCID      = "00000000-0000-4000-8000-000000000334"
+		submissionItemAID  = "00000000-0000-4000-8000-000000000341"
+		submissionItemBID  = "00000000-0000-4000-8000-000000000342"
+		submissionItemBOld = "00000000-0000-4000-8000-000000000343"
+		submissionItemCID  = "00000000-0000-4000-8000-000000000344"
+		completionAID      = "00000000-0000-4000-8000-000000000351"
+		completionBID      = "00000000-0000-4000-8000-000000000352"
+		completionBOldID   = "00000000-0000-4000-8000-000000000353"
+		completionCID      = "00000000-0000-4000-8000-000000000354"
+
+		// goat A's verdict history. All three are UNCLOSED, so the fixed DISTINCT ON ranking ties
+		// on closed_at and falls through to `item_id DESC` -- which is why the APPROVED item
+		// deliberately carries the HIGHEST id. That tiebreak is load-bearing and arbitrary; see the
+		// note at the end of this test.
+		itemAReject1 = "00000000-0000-4000-8000-000000000361"
+		itemAReject2 = "00000000-0000-4000-8000-000000000362"
+		itemAApprove = "00000000-0000-4000-8000-000000000363"
+		itemB        = "00000000-0000-4000-8000-000000000371"
+		itemBOld     = "00000000-0000-4000-8000-000000000372"
+		itemC        = "00000000-0000-4000-8000-000000000381"
+	)
+	plannedDate := time.Date(2026, time.August, 7, 0, 0, 0, 0, biztime.DefaultLocation())
+	administeredAt := biztime.BusinessDayStart(plannedDate)
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin seed: %v", err)
+	}
+	seed := func(label, sql string, args ...any) {
+		t.Helper()
+		if _, err := tx.Exec(ctx, sql, args...); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("seed %s: %v", label, err)
+		}
+	}
+	seed("party", `INSERT INTO parties (party_id, party_type, display_name, status) VALUES ($1::uuid, 'person', 'Verifier', 'active')`, actorID)
+	seed("park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CPT', 'Channapatna', 'active')`, parkID, tenantID)
+	seed("other-park", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status) VALUES ($1::uuid, $2::uuid, 'park', 'CBE', 'Coimbatore', 'active')`, otherParkID, tenantID)
+	seed("shed-a", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-CASTRO', 'Castro', 'active', $3::uuid)`, shedAID, tenantID, parkID)
+	seed("shed-b", `INSERT INTO locations (location_id, tenant_id, location_type, location_code, name, status, parent_location_id) VALUES ($1::uuid, $2::uuid, 'shed', 'CPT-GANDHI', 'Gandhi', 'active', $3::uuid)`, shedBID, tenantID, parkID)
+	seed("protocol", `INSERT INTO protocol_definitions (protocol_id, tenant_id, code, name, category, status) VALUES ($1::uuid, $2::uuid, 'vaccination_latest_verdict', 'Vaccination latest verdict', 'vaccination', 'active')`, protocolID, tenantID)
+	seed("protocol-version", `INSERT INTO protocol_versions (protocol_version_id, tenant_id, protocol_id, scope_type, version, status, effective_from, rule_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'tenant', 1, 'draft', now(), '{}'::jsonb, '{}'::jsonb)`, versionID, tenantID, protocolID)
+	seed("protocol-rule", `INSERT INTO protocol_rules (rule_id, tenant_id, protocol_version_id, dose_code, sequence, trigger_type, eligibility_json, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 'fmd_primary', 1, 'manual_campaign', '{"vaccine":{"code":"FMD"}}'::jsonb, '{}'::jsonb)`, ruleID, tenantID, versionID)
+	seed("sop", `INSERT INTO sop_definitions (sop_id, tenant_id, code, name, status) VALUES ($1::uuid, $2::uuid, 'vaccination_latest_verdict', 'Vaccination latest verdict', 'active')`, sopID, tenantID)
+	seed("sop-version", `INSERT INTO sop_versions (sop_version_id, tenant_id, sop_id, version, version_label, status, form_dsl, proof_policy) VALUES ($1::uuid, $2::uuid, $3::uuid, 1, 'v1', 'published', '{}'::jsonb, '{}'::jsonb)`, sopVersionID, tenantID, sopID)
+	seed("task", `INSERT INTO sop_tasks (task_id, tenant_id, sop_id, sop_version_id, task_type, title, state, scope_type, scope_id) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'vaccination_drive', 'Vaccination drive', 'submitted', 'park', $5::uuid)`, taskID, tenantID, sopID, sopVersionID, parkID)
+	seed("batch", `INSERT INTO obligation_batches (batch_id, tenant_id, protocol_version_id, scope_type, scope_id, status, estimated_targets, sop_task_id, planned_date) VALUES ($1::uuid, $2::uuid, $3::uuid, 'park', $4::uuid, 'in_progress', 3, $5::uuid, $6::date)`, batchID, tenantID, versionID, parkID, taskID, plannedDate)
+	// Two sheds in one park: shed_count must read 2, and planned_shed_count drives the "2 sheds"
+	// batch label.
+	seed("assignment-a", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Castro', 2)`, tenantID, batchID, plannedDate, parkID, shedAID)
+	seed("assignment-b", `INSERT INTO vaccination_drive_assignments (tenant_id, batch_id, planned_date, park_id, shed_id, physical_shed, animal_count) VALUES ($1::uuid, $2::uuid, $3::date, $4::uuid, $5::uuid, 'Gandhi', 1)`, tenantID, batchID, plannedDate, parkID, shedBID)
+
+	type animal struct {
+		goatID, obligationID, key string
+	}
+	for _, a := range []animal{
+		{goatAID, obligationAID, "latest-verdict-a"},
+		{goatBID, obligationBID, "latest-verdict-b"},
+		{goatCID, obligationCID, "latest-verdict-c"},
+	} {
+		seed("goat", `INSERT INTO goats (goat_id, tenant_id, lifecycle_status, species, custodian_party_id, sex, shed_id) VALUES ($1::uuid, $2::uuid, 'alive', 'goat', $3::uuid, 'female', $4::uuid)`, a.goatID, tenantID, actorID, shedAID)
+		seed("obligation", `INSERT INTO obligation_instances (obligation_id, tenant_id, protocol_version_id, rule_id, batch_id, target_type, target_id, scope_type, scope_id, due_at, status, sop_task_id, idempotency_key) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, 'goat', $6::uuid, 'shed', $7::uuid, $8::timestamptz, 'in_progress', $9::uuid, $10)`,
+			a.obligationID, tenantID, versionID, ruleID, batchID, a.goatID, shedAID, administeredAt, taskID, a.key)
+	}
+
+	type submission struct {
+		id, itemID, goatID, key, itemKey string
+	}
+	for _, s := range []submission{
+		{submissionAID, submissionItemAID, goatAID, "latest-verdict-sub-a", "dose-a"},
+		{submissionBID, submissionItemBID, goatBID, "latest-verdict-sub-b", "dose-b"},
+		{submissionBOldID, submissionItemBOld, goatBID, "latest-verdict-sub-b-old", "dose-b-old"},
+		{submissionCID, submissionItemCID, goatCID, "latest-verdict-sub-c", "dose-c"},
+	} {
+		seed("submission", `INSERT INTO sop_submissions (submission_id, tenant_id, task_id, sop_version_id, submitted_by, idempotency_key, answers, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, '{}'::jsonb, 'submitted')`, s.id, tenantID, taskID, sopVersionID, actorID, s.key)
+		seed("submission-item", `INSERT INTO sop_submission_items (item_id, tenant_id, submission_id, task_id, goat_id, item_key, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, 'needs_review')`, s.itemID, tenantID, s.id, taskID, s.goatID, s.itemKey)
+	}
+
+	// Every live completion is 'accepted' -- the state a fully approved drive actually reaches.
+	type completion struct {
+		id, obligationID, goatID, itemID, key string
+	}
+	for _, c := range []completion{
+		{completionAID, obligationAID, goatAID, submissionItemAID, "latest-verdict-completion-a"},
+		{completionBID, obligationBID, goatBID, submissionItemBID, "latest-verdict-completion-b"},
+		{completionCID, obligationCID, goatCID, submissionItemCID, "latest-verdict-completion-c"},
+	} {
+		seed("completion", `INSERT INTO vaccination_completions (completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, status, verified_by, verified_at, idempotency_key, recorded_by) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'accepted', $8::uuid, now(), $9, $8::uuid)`,
+			c.id, tenantID, c.obligationID, batchID, c.goatID, c.itemID, administeredAt, actorID, c.key)
+	}
+
+	// goat B was sent back and REDONE. The superseded attempt lives in the rejection archive AND
+	// still has its own verification_item, so it is visible to BOTH the expected CTE and the
+	// archive branch of proofs. Counting it on either side makes completion_count and proof_count
+	// disagree and the readiness gate can never hold.
+	seed("archived-rejection", `INSERT INTO vaccination_completion_rejections (rejection_id, completion_id, tenant_id, obligation_id, batch_id, goat_id, sop_submission_item_id, administered_at, original_status, rejection_reason, recorded_by, original_idempotency_key, original_row_version, original_created_at, original_updated_at, rejected_by) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7::timestamptz, 'rejected', 'clip too dark', $8::uuid, 'latest-verdict-completion-b-old', 1, now(), now(), $8::uuid)`,
+		completionBOldID, tenantID, obligationBID, batchID, goatBID, submissionItemBOld, administeredAt.Add(-2*time.Hour), actorID)
+
+	// verification_items. Rejected rows MUST leave closed_at NULL
+	// (verification_items_closed_approved_check) and MUST carry a verdict_reason
+	// (verification_items_reject_reason_check). Nothing here is closed yet, so the drive is ready
+	// but not closed.
+	type item struct {
+		id, submissionID, status, reason, shedID string
+	}
+	for _, it := range []item{
+		{itemAReject1, submissionAID, "rejected", "shed sign not visible", shedAID},
+		{itemAReject2, submissionAID, "rejected", "animal not identifiable", shedAID},
+		{itemAApprove, submissionAID, "approved", "", shedAID},
+		{itemB, submissionBID, "approved", "", shedBID},
+		{itemBOld, submissionBOldID, "rejected", "clip too dark", shedBID},
+		{itemC, submissionCID, "approved", "", shedAID},
+	} {
+		var reason any
+		if it.reason != "" {
+			reason = it.reason
+		}
+		seed("verification-item", `INSERT INTO verification_items (item_id, tenant_id, vertical, module, category, source_module, source_task_id, source_submission_id, source_ref_type, source_ref_id, media_refs, status, verdict_reason, park_id, shed_id, captured_at, verified_by, verified_at, idempotency_key) VALUES ($1::uuid, $2::uuid, 'preventive_care', 'vaccination', 'vaccination_proof', 'vaccination', $3::uuid, $4::uuid, 'sop_submission', $4::uuid, '["proof"]'::jsonb, $5, $6, $7::uuid, $8::uuid, $9::timestamptz, $10::uuid, now(), $11)`,
+			it.id, tenantID, taskID, it.submissionID, it.status, reason, parkID, it.shedID, administeredAt, actorID, "latest-verdict-item:"+it.id)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit seed: %v", err)
+	}
+
+	closures, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", OpenOnly: false,
+	})
+	if err != nil {
+		t.Fatalf("ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(closures) != 1 || closures[0].BatchID != batchID {
+		t.Fatalf("closures=%+v, want exactly one ready batch %s -- a drive whose every animal's LATEST verdict is approved MUST be closeable", closures, batchID)
+	}
+	got := closures[0]
+	if !got.Ready {
+		t.Fatalf("closure=%+v, want ready=true", got)
+	}
+	// FIX 2 -- latest verdict per proof. goat A carries reject -> reject -> approve against ONE
+	// completion. Counting every historical verification_item keeps rejected_completion_count above
+	// zero forever, so `rejected_completion_count = 0` never holds and the drive returns nothing.
+	// FIX 4 -- superseded archive. goat B's archived attempt must be dropped from BOTH the expected
+	// CTE and the archive branch of proofs. Counting it on one side only makes completion_count and
+	// proof_count disagree (4 vs 3) and `proof_count = completion_count` never holds.
+	// Both defects are ALREADY proven by len(closures) == 1 above; the counts below pin the rest.
+	if got.TotalCount != 3 {
+		t.Fatalf("closure=%+v, want total_count=3 (three distinct animals; the archived superseded attempt is history, not a fourth member)", got)
+	}
+	if got.ApprovedCount != 3 || got.RejectedCount != 0 || got.PendingCount != 0 {
+		t.Fatalf("closure=%+v, want approved=3 rejected=0 pending=0 -- a superseded rejection is history, not outstanding work", got)
+	}
+	// FIX 1 -- 'accepted' as well as 'recorded' in the proofs status filter, and FIX 3 -- rank
+	// identity-bearing proof rows ahead of the degenerate NULL item_id/shed_id row. Either defect
+	// collapses these to zero and the card reads "0 sheds - 0/0 videos approved" on a drive with
+	// real videos in real sheds. proof_count still equals completion_count via the degenerate
+	// branch, so the gate passes and the drive is returned LOOKING empty -- which is why these are
+	// asserted as exact values, not merely non-zero.
+	if got.ShedCount != 2 {
+		t.Fatalf("closure=%+v, want shed_count=2 -- zero here means the proofs CTE lost the 'accepted' completions or the DISTINCT ON picked a row with NULL shed_id", got)
+	}
+	if got.VideoCount != 3 || got.ApprovedVideos != 3 || got.RejectedVideos != 0 || got.PendingVideos != 0 {
+		t.Fatalf("closure=%+v, want videos total=3 approved=3 rejected=0 pending=0 -- one surviving latest-verdict proof per completion, all approved", got)
+	}
+	// Ready but NOT yet closed: nothing stamped closed_at, so the card must offer the action.
+	if got.Closed {
+		t.Fatalf("closure=%+v, want closed=false -- no verification item is closed yet", got)
+	}
+	if got.ParkID != parkID {
+		t.Fatalf("closure=%+v, want park_id=%s", got, parkID)
+	}
+
+	// Park scope still holds with the multi-row history in place.
+	parkScoped, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ParkID: parkID,
+	})
+	if err != nil {
+		t.Fatalf("park-scoped ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(parkScoped) != 1 || parkScoped[0].ShedCount != 2 {
+		t.Fatalf("park-scoped closures=%+v, want the same batch with shed_count=2", parkScoped)
+	}
+	otherPark, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ParkID: otherParkID,
+	})
+	if err != nil {
+		t.Fatalf("other-park ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(otherPark) != 0 {
+		t.Fatalf("other-park closures=%+v, want none", otherPark)
+	}
+
+	// A shed inside the drive still resolves the WHOLE drive's rollup -- readiness is a property of
+	// the batch, not of the selected shed, so a director filtered to one shed still sees the real
+	// 2-shed / 3-video totals rather than a shed-sized slice of them.
+	shedScoped, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ShedID: shedBID,
+	})
+	if err != nil {
+		t.Fatalf("shed-scoped ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(shedScoped) != 1 || shedScoped[0].ShedCount != 2 || shedScoped[0].VideoCount != 3 {
+		t.Fatalf("shed-B-scoped closures=%+v, want the whole batch with shed_count=2 video_count=3", shedScoped)
+	}
+	// A shed that is NOT in this drive must resolve nothing.
+	foreignShed, err := repo.ListReadyVaccinationBatchClosures(ctx, ports.ListQueueParams{
+		TenantID: tenantID, Category: "vaccination_proof", ShedID: "00000000-0000-4000-8000-0000000003ff",
+	})
+	if err != nil {
+		t.Fatalf("foreign-shed ListReadyVaccinationBatchClosures: %v", err)
+	}
+	if len(foreignShed) != 0 {
+		t.Fatalf("foreign-shed closures=%+v, want none", foreignShed)
+	}
+
+	// FRAGILITY, recorded deliberately rather than silently relied upon: all three of goat A's
+	// items are unclosed, so the DISTINCT ON ranking ties on `closed_at` and the winner is decided
+	// by `item_id DESC`. This fixture gives the APPROVED item the highest id. In production those
+	// ids are random uuids, so which verdict wins among several UNCLOSED items for one completion
+	// is a coin flip. The query has no monotonic verdict clock (verified_at is not in the ORDER BY)
+	// to break that tie. Asserted here so the dependency is visible; reported as a live finding.
+	var rankedStatus string
+	if err := pool.QueryRow(ctx, `
+SELECT vi.status
+FROM verification_items vi
+WHERE vi.tenant_id = $1::uuid
+  AND vi.source_submission_id = $2::uuid
+ORDER BY (vi.item_id IS NOT NULL) DESC, (vi.shed_id IS NOT NULL) DESC,
+         vi.closed_at DESC NULLS LAST, vi.item_id DESC
+LIMIT 1`, tenantID, submissionAID).Scan(&rankedStatus); err != nil {
+		t.Fatalf("read ranked verdict: %v", err)
+	}
+	if rankedStatus != "approved" {
+		t.Fatalf("ranked verdict for goat A = %s, want approved -- the ORDER BY tiebreak among unclosed items is item_id DESC", rankedStatus)
+	}
+}
