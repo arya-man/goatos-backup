@@ -100,13 +100,21 @@ func TestItemReviewFactsWatchFractionCountsDistinctCoveredRanges_RealPostgres(t 
 	pos := func(ms int64) *int64 { return &ms }
 	events := []domain.ReviewEvent{
 		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventItemOpened, OccurredAt: base, ClientEventID: uuid.NewString()},
-		// First play: watches [0,5000) of the video.
+		// First play: watches [0,5000) of the video, over 5s of WALL CLOCK.
+		//
+		// The wall-clock gaps here are load-bearing, not decoration. clampSpanToElapsed caps a
+		// claimed span at MaxPlausiblePlaybackRate (2x) * elapsed + 500ms slack, so a 5000ms span
+		// claimed one second apart is cut to 2500ms -- which is the anti-fraud rule working, not a
+		// bug. This fixture previously spaced the events 1s apart and asserted the unclamped 7000,
+		// so it failed for a correct reason: it claimed 5s of video played in 1s of real time. Keep
+		// each play->pause gap >= half the video span it claims, or the clamp will fire and the
+		// union assertion below will measure clamping instead of interval merging.
 		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(1 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(0), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(2 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(5000)}, ClientEventID: uuid.NewString()},
-		// Replay: watches [2000,7000) -- overlaps the first span by 3000ms.
-		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(3 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(2000), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(4 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(7000)}, ClientEventID: uuid.NewString()},
-		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVerdictRecorded, OccurredAt: base.Add(5 * time.Second), ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(6 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(5000)}, ClientEventID: uuid.NewString()},
+		// Replay: watches [2000,7000) -- overlaps the first span by 3000ms -- again over 5s of wall clock.
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPlay, OccurredAt: base.Add(7 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(2000), VideoDurationMs: &durationMs}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVideoPause, OccurredAt: base.Add(12 * time.Second), Payload: domain.ReviewEventPayload{VideoPositionMs: pos(7000)}, ClientEventID: uuid.NewString()},
+		{TenantID: tenantID, ItemID: &item.ItemID, ActorID: actorID, SessionID: "sess-1", EventType: domain.ReviewEventVerdictRecorded, OccurredAt: base.Add(13 * time.Second), ClientEventID: uuid.NewString()},
 	}
 	if _, err := reviewRepo.InsertReviewEvents(ctx, domain.ReviewEventBatch{TenantID: tenantID, ActorID: actorID, Events: events}); err != nil {
 		t.Fatalf("insert events: %v", err)
@@ -138,9 +146,10 @@ func TestItemReviewFactsWatchFractionCountsDistinctCoveredRanges_RealPostgres(t 
 	}
 	if f.TimeToVerdictSeconds == nil {
 		t.Fatal("time_to_verdict_seconds should be set (item_opened and verdict_recorded both present)")
-	} else if *f.TimeToVerdictSeconds < 4.9 || *f.TimeToVerdictSeconds > 5.1 {
-		// item_opened is at base, verdict_recorded at base+5s.
-		t.Fatalf("time_to_verdict_seconds = %f, want ~5", *f.TimeToVerdictSeconds)
+	} else if *f.TimeToVerdictSeconds < 12.9 || *f.TimeToVerdictSeconds > 13.1 {
+		// item_opened is at base, verdict_recorded at base+13s -- the plays above each span 5s of
+		// wall clock so clampSpanToElapsed does not fire, which pushes the verdict out to +13s.
+		t.Fatalf("time_to_verdict_seconds = %f, want ~13", *f.TimeToVerdictSeconds)
 	}
 }
 
