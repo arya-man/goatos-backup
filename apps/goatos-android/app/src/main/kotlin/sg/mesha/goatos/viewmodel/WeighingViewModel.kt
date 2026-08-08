@@ -1143,14 +1143,29 @@ class WeighingViewModel @Inject constructor(
                 // and the tags that never appeared are treated as still-needing-work below, which
                 // is the safe direction (asking for a re-record that turns out unnecessary beats
                 // silently swallowing a real rejection).
+                // Wait for a draft that is demonstrably POST-refresh, not merely present.
+                //
+                // Tag presence is useless as a freshness test here: newlyConflicted is DERIVED from
+                // these same drafts a few lines above, so every tag already exists and first{}
+                // completes immediately on the pre-refresh snapshot -- preserving the exact race
+                // this wait was added to close.
+                //
+                // verificationStatus is the discriminator. The roster read always carries one
+                // ('pending', 'verified' or 'rework' -- confirmed against the live API), while a
+                // purely local capture that has never round-tripped has it null. So a non-null
+                // status on every conflicted tag means the server's answer has landed in Room and
+                // been observed.
                 val afterRefresh = withTimeoutOrNull(CONFLICT_RECLASSIFY_TIMEOUT_MS) {
                     scopeState.first { state ->
                         val drafts = state?.individualDrafts.orEmpty()
                         newlyConflicted.all { tag ->
-                            drafts.any { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
+                            drafts.any {
+                                normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) &&
+                                    it.verificationStatus != null
+                            }
                         }
                     }?.individualDrafts.orEmpty()
-                } ?: scopeState.value?.individualDrafts.orEmpty()
+                } ?: emptyList()
                 val stillNeedsWork = newlyConflicted.filter { tag ->
                     val draft = afterRefresh.firstOrNull { normalizeFreeFlowTag(it.scannedIdentifier) == normalizeFreeFlowTag(tag) }
                     draft == null || draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
