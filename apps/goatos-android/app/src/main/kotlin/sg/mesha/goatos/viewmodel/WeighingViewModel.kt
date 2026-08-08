@@ -38,6 +38,7 @@ import sg.mesha.goatos.core.data.capture.ProofSubject
 import sg.mesha.goatos.core.data.capture.CaptureSyncStatus
 import sg.mesha.goatos.core.data.capture.ScanCaptureRepository
 import sg.mesha.goatos.core.data.forms.ProofPolicy
+import sg.mesha.goatos.core.data.sync.SyncRepository
 import sg.mesha.goatos.core.data.weighing.IndividualWeighingCapture
 import sg.mesha.goatos.core.data.weighing.WeighingCsvExportRow
 import sg.mesha.goatos.core.data.weighing.parseWeighingExportCsv
@@ -102,6 +103,7 @@ class WeighingViewModel @Inject constructor(
     private val proofCaptureRepository: ProofCaptureRepository,
     private val scanCaptureRepository: ScanCaptureRepository,
     private val proofCaptureSource: ProofCaptureSource,
+    private val syncRepository: SyncRepository,
     private val analytics: AnalyticsPort,
     private val crashReporter: CrashReporter,
     private val repeatSeedStore: WeighingRepeatSeedStore,
@@ -136,6 +138,10 @@ class WeighingViewModel @Inject constructor(
     private val animalWeightInputs = MutableStateFlow<Map<String, String>>(emptyMap())
     private val selectedRow = MutableStateFlow<WeighingRosterRowEntity?>(null)
     private val scannedRows = MutableStateFlow<List<WeighingRosterRowEntity>>(emptyList())
+    // Track which animals have experienced server-side weight write conflicts. Used to display
+    // an error message to the operator instead of the false "saved" message.
+    // mobile-guard:ignore: bounded by one scope's captured animals (typically <100 per session).
+    private val conflictedAnimalIds = MutableStateFlow<Set<String>>(emptySet())
     private val autoProofs = MutableStateFlow<Map<String, ProofCaptureRow>>(emptyMap())
     private val proofReplacementAnimalId = MutableStateFlow<String?>(null)
     private val observedProofs = MutableStateFlow<List<ProofCaptureRow>>(emptyList())
@@ -1082,6 +1088,39 @@ class WeighingViewModel @Inject constructor(
                 // else keeps the paged park fallback instead of a guaranteed-forbidden request.
             }
         }
+        // Observe sync status for weight write conflicts. When the server rejects a
+        // WEIGHING_ANIMAL_OBSERVATION write with 409, mark that animal as having a conflict so the
+        // UI can show an error instead of the false success message.
+        // Join the failed write back to the animal on the IDEMPOTENCY KEY, which is the only field
+        // that identifies the capture. The row's own id is a uuid and groupKey is the shed scope,
+        // so neither can name the animal -- an earlier attempt parsed the tag out of `item.id` and
+        // therefore matched nothing, leaving the operator with the same false "saved" it was
+        // written to prevent. The key is carried verbatim from the capture, so the match is exact.
+        viewModelScope.launch {
+            syncRepository.observeStatus().collect { status ->
+                val conflictedKeys = status.items
+                    .filter { it.opType == WEIGHING_ANIMAL_OBSERVATION_OP && it.conflict }
+                    .map { it.idempotencyKey }
+                    .toSet()
+                if (conflictedKeys.isEmpty()) return@collect
+                val affected = scopeState.value?.individualDrafts.orEmpty()
+                    .filter { it.idempotencyKey in conflictedKeys }
+                    .map { it.scannedIdentifier }
+                    .toSet()
+                val newlyConflicted = affected - conflictedAnimalIds.value
+                if (newlyConflicted.isEmpty()) return@collect
+                conflictedAnimalIds.value = conflictedAnimalIds.value + newlyConflicted
+                newlyConflicted.forEach { _ ->
+                    analytics.track(
+                        AnalyticsEvents.WEIGHING_CAPTURE_CONFLICT,
+                        weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                    )
+                }
+                // Say it plainly and unconditionally -- not only when that row happens to be
+                // selected. The whole point is that the operator was told the weight was safe.
+                message.value = "Couldn't save that weight. Record the animal again."
+            }
+        }
     }
 
     fun refresh() {
@@ -1736,6 +1775,9 @@ class WeighingViewModel @Inject constructor(
                     ),
                 )) {
                     is AppResult.Ok -> {
+                        // Clear any previous conflict for this animal (re-capture after failure)
+                        conflictedAnimalIds.value = conflictedAnimalIds.value - row.animalId
+
                         val proof = proofForAnimal(row.animalId)
                         if (proof != null) {
                             repository.attachIndividualProof(key, row.animalId, proof.id, proof.serverProofId)
@@ -1751,23 +1793,27 @@ class WeighingViewModel @Inject constructor(
                             )
                             }
                         }
-                            message.value = if (proof == null) {
-                                "Weight saved. Video is still required."
-                            } else {
-                                "Weight saved. Video continues syncing in the background."
-                            }
-                            analytics.track(
-                                AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
-                                weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
-                            )
-                            scanCaptureRepository.markLocalScanSynced(
-                                taskId = key,
-                                fieldKey = WEIGHING_SCAN_FIELD_KEY,
-                                tag = row.animalId,
-                            )
-                            weightInput.value = ""
-                            animalWeightInputs.value = animalWeightInputs.value - row.animalId
-                            scanInput.value = ""
+                        // Do NOT show the success message yet - it's only queued locally. The outbox
+                        // may reject it with 409 conflict. Instead, show a generic "recording" message
+                        // or nothing, and let the sync status tell the truth when the write is accepted
+                        // or rejected. For now, show "syncing" to align with the video upload behavior.
+                        message.value = if (proof == null) {
+                            "Weight queued. Video is still required."
+                        } else {
+                            "Weight queued. Video continues syncing in the background."
+                        }
+                        analytics.track(
+                            AnalyticsEvents.WEIGHING_CAPTURE_SUCCESS,
+                            weighingCaptureProps(INDIVIDUAL_ANIMAL_CATEGORY),
+                        )
+                        scanCaptureRepository.markLocalScanSynced(
+                            taskId = key,
+                            fieldKey = WEIGHING_SCAN_FIELD_KEY,
+                            tag = row.animalId,
+                        )
+                        weightInput.value = ""
+                        animalWeightInputs.value = animalWeightInputs.value - row.animalId
+                        scanInput.value = ""
                         recorded.value
                     }
                     is AppResult.Err -> {
@@ -2606,6 +2652,7 @@ class WeighingViewModel @Inject constructor(
                 reuploadRequested = row.animalId == replacementAnimalId,
                 sentBack = draft?.verificationStatus == WEIGHING_VERIFICATION_REWORK,
                 sentBackReason = draft?.reworkReason,
+                weightSyncConflict = row.animalId in conflictedAnimalIds.value,
             )
         }
 
@@ -2978,6 +3025,11 @@ private data class WeighingWeek(
             WeighingWeek(startDate = today.with(DayOfWeek.MONDAY).format(isoFormatter))
     }
 }
+
+// Mirrors OutboxOpType.WEIGHING_ANIMAL_OBSERVATION.name. Compared as a string deliberately: the
+// sync port hands ViewModels a String opType precisely so `:app` never depends on core-database's
+// Room types (module boundary: feature-*/:app -> core-*, never straight to Room).
+private const val WEIGHING_ANIMAL_OBSERVATION_OP = "WEIGHING_ANIMAL_OBSERVATION"
 
 private const val WEIGHING_BUSINESS_ZONE = "Asia/Kolkata"
 

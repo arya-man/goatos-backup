@@ -138,6 +138,7 @@ class RoomOutboxStore(private val dao: OutboxDao) : OutboxStore {
 fun OutboxEntity.toSyncQueueItem(): SyncQueueItem = SyncQueueItem(
     id = id,
     opType = opType,
+    idempotencyKey = idempotencyKey,
     groupKey = groupKey,
     status = SyncItemStatus.valueOf(status),
     attemptCount = attemptCount,

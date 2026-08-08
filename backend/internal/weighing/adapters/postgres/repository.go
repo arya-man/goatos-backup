@@ -1444,6 +1444,15 @@ const recordAnimalObservationMaxSerializationRetries = 5
 func (r *Repository) RecordAnimalObservation(ctx context.Context, cmd domain.RecordAnimalObservation) (domain.Observation, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
+	// Correct a stale derived 'completed' BEFORE the capture transaction reads the campaign gate,
+	// and in its OWN transaction rather than inside the capture's. Inside it, the correction is
+	// rolled back with every rejected write -- which is exactly the case that needs it -- so the
+	// campaign stays stale forever and the bucket stays unscannable. See
+	// reopenCampaignIfShedStillOpen for why the pair (campaign completed, bucket open) is
+	// reachable at all.
+	if err := r.reopenStaleCompletedCampaign(ctx, cmd.TenantID, cmd.CampaignID); err != nil {
+		return domain.Observation{}, err
+	}
 	var lastErr error
 	for attempt := 0; attempt < recordAnimalObservationMaxSerializationRetries; attempt++ {
 		obs, err := r.recordAnimalObservationAttempt(ctx, cmd)
@@ -2753,6 +2762,56 @@ WHERE tenant_id=$1::uuid
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// reopenCampaignIfShedStillOpen is the inverse of completeCampaignIfDone, and it exists because
+// campaign completion is DERIVED from its sheds but was only ever computed in one direction.
+//
+// completeCampaignIfDone flips the campaign to 'completed' once no shed is outside
+// completed/canceled. Nothing flipped it back when a shed returned to pending or in_progress, so
+// the pair (campaign completed, shed pending) was reachable and permanent. In that state the
+// campaign gate on the capture path rejects every observation with ErrImmutable -> 409
+// invalid_state, while the shed gate right below it would have allowed the write: the shed is
+// pending. The operator's app still offers "Scan animals" for that shed, so the only visible
+// symptom is a scan that dies in the outbox on a shed that looks perfectly scannable.
+// Observed 2026-08-08 on Mandela 2.
+//
+// A campaign that still has open work is NOT completed, so the stale flag is corrected rather than
+// worked around. 'closed' and 'canceled' are deliberately NOT reopened -- those are real terminal
+// decisions with their own gates (close.go), not a derived rollup, and a bucket must never become
+// writable again by side effect of a scan.
+// reopenStaleCompletedCampaign runs the correction in its own transaction, so it survives the
+// rollback of a capture transaction that the stale flag itself caused to fail.
+func (r *Repository) reopenStaleCompletedCampaign(ctx context.Context, tenantID, campaignID string) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err := r.reopenCampaignIfShedStillOpen(ctx, tx, tenantID, campaignID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *Repository) reopenCampaignIfShedStillOpen(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {
+	_, err := tx.Exec(ctx, `
+UPDATE weighing_campaigns wc
+SET status='in_progress',
+  completed_at=NULL,
+  updated_at=now(),
+  row_version=row_version+1
+WHERE wc.tenant_id=$1::uuid
+  AND wc.campaign_id=$2::uuid
+  AND wc.status='completed'
+  AND EXISTS (
+    SELECT 1
+    FROM weighing_campaign_sheds cs
+    WHERE cs.tenant_id=wc.tenant_id
+      AND cs.campaign_id=wc.campaign_id
+      AND cs.status IN ('pending', 'in_progress')
+  )`, tenantID, campaignID)
+	return err
 }
 
 func (r *Repository) completeCampaignIfDone(ctx context.Context, tx pgx.Tx, tenantID, campaignID string) error {

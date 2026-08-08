@@ -15,6 +15,11 @@ enum class SyncItemStatus { QUEUED, IN_FLIGHT, SUCCEEDED, FAILED }
 data class SyncQueueItem(
     val id: String,
     val opType: String,
+    /** The write's idempotency key -- the ONLY field that identifies WHICH capture this row is.
+     *  [id] is the outbox row's own uuid and [groupKey] is the shed scope, so a caller that needs
+     *  to map a failed write back to the animal it came from must join on this. Reading the tag
+     *  out of [id] instead compiles, never matches, and silently disables the feature built on it. */
+    val idempotencyKey: String,
     val groupKey: String,
     val status: SyncItemStatus,
     val attemptCount: Int,

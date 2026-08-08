@@ -274,6 +274,11 @@ data class WeighingRosterUiRow(
      */
     val sentBack: Boolean = false,
     val sentBackReason: String? = null,
+    /**
+     * Set when the server rejected the weight write with a conflict (409). The weight was
+     * silently discarded and the operator must re-capture this animal to retry.
+     */
+    val weightSyncConflict: Boolean = false,
 ) {
     val isResolved: Boolean
         get() = status.equals("weighed", ignoreCase = true) ||
@@ -1249,6 +1254,18 @@ private fun WeighingExecutionScanScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // ONE row owns the keypad, decided here for the whole list -- never per row.
+    //
+    // Each row used to request focus itself whenever it had a video and no saved weight. With
+    // several unfinished animals on screen that is a race: every such row fires its effect and
+    // whichever composes last steals the keypad, so the operator can be typing into an animal
+    // they did not just scan. The newest unfinished capture is the one the camera just returned
+    // from, so it is the only legitimate owner.
+    val autoFocusRowId = remember(state.visibleRows) {
+        state.visibleRows.lastOrNull { row ->
+            !row.weightSaved && row.proofUploadStatus != ProofUploadStatus.MISSING
+        }?.id
+    }
     if (state.showSubmitConfirmation) {
         SubmitConfirmationDialog(
             title = stringResource(R.string.weighing_submit_confirm_title),
@@ -1388,6 +1405,7 @@ private fun WeighingExecutionScanScreen(
                     ) { row ->
                         WeighingFreeFlowFeedRow(
                             row = row,
+                            autoFocusWeight = row.id == autoFocusRowId,
                             updating = row.weightUpdating,
                             onWeightChange = { onAnimalWeightChange(row.animalId, it) },
                             onWeightEntryActive = onWeightEntryActive,
@@ -1497,6 +1515,7 @@ private fun WeighingDuplicateNotice(message: String) {
 @Composable
 private fun WeighingFreeFlowFeedRow(
     row: WeighingRosterUiRow,
+    autoFocusWeight: Boolean,
     updating: Boolean,
     onWeightChange: (String) -> Unit,
     onWeightEntryActive: (Boolean) -> Unit,
@@ -1524,9 +1543,13 @@ private fun WeighingFreeFlowFeedRow(
     //
     // Gated on proofUploadStatus leaving MISSING, i.e. a video exists and the camera has already
     // come and gone -- focusing before that aims at a row the transition is about to replace.
-    LaunchedEffect(row.animalId, row.weightSaved, row.proofUploadStatus) {
+    //
+    // [autoFocusWeight] is decided ONCE for the whole list by the parent, so exactly one row can
+    // claim the keypad. Deciding it here per row let every unfinished animal request focus and the
+    // last one composed win, which put the keypad on an animal the operator had not just scanned.
+    LaunchedEffect(row.id, autoFocusWeight, row.weightSaved) {
+        if (!autoFocusWeight) return@LaunchedEffect
         if (row.weightSaved) return@LaunchedEffect
-        if (row.proofUploadStatus == ProofUploadStatus.MISSING) return@LaunchedEffect
         runCatching { weightFocusRequester.requestFocus() }
     }
     var editingWeight by remember(row.animalId, row.weightSaved) { mutableStateOf(!row.weightSaved) }

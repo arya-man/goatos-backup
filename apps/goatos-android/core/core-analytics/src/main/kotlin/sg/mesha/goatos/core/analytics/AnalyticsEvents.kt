@@ -169,6 +169,10 @@ object AnalyticsEvents {
     /** A weighing capture could not be queued or proof storage failed. */
     const val WEIGHING_CAPTURE_FAILURE = "weighing_capture_failure"
 
+    /** A weight write was rejected by the server (409 conflict), indicating the weight was
+     *  silently discarded and the operator must re-capture the animal. */
+    const val WEIGHING_CAPTURE_CONFLICT = "weighing_capture_conflict"
+
     /** A weighing proof video's upload failed an attempt and will be re-tried. Emitted once per
      *  DISTINCT failure, not once per Room emission, so the funnel counts real attempts.
      *  [Params.SUBJECT_TYPE] separates the lump-sum shed video from the per-animal one,

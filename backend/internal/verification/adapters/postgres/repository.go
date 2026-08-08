@@ -948,6 +948,8 @@ proofs AS (
     vi.item_id,
     vi.status,
     vi.closed_at,
+    vi.verified_at,
+    vi.captured_at,
     vi.park_id,
     vi.shed_id
   FROM vaccination_completions vc
@@ -988,6 +990,8 @@ proofs AS (
     vi.item_id,
     vi.status,
     vi.closed_at,
+    vi.verified_at,
+    vi.captured_at,
     vi.park_id,
     vi.shed_id
   FROM vaccination_completion_rejections vcr
@@ -1040,11 +1044,13 @@ proofs AS (
     -- NOT COALESCE(..., now()). Stamping a close time on a row that is not closed makes
     -- unclosed_completion_count zero and the drive reports closed=true while it is still open.
     closed_vi.closed_at,
+    closed_vi.verified_at,
+    closed_vi.captured_at,
     closed_vi.park_id,
     closed_vi.shed_id
   FROM vaccination_completions vc
   LEFT JOIN LATERAL (
-    SELECT vi2.item_id, vi2.closed_at, vi2.park_id, vi2.shed_id
+    SELECT vi2.item_id, vi2.closed_at, vi2.verified_at, vi2.captured_at, vi2.park_id, vi2.shed_id
     FROM sop_submission_items si2
     JOIN verification_items vi2
       ON vi2.tenant_id = si2.tenant_id
@@ -1056,7 +1062,7 @@ proofs AS (
     WHERE si2.tenant_id = vc.tenant_id
       AND si2.item_id = vc.sop_submission_item_id
       AND vi2.category = $2
-    ORDER BY vi2.closed_at DESC NULLS LAST, vi2.item_id DESC
+    ORDER BY vi2.verified_at DESC NULLS LAST, vi2.captured_at DESC NULLS LAST, vi2.item_id DESC
     LIMIT 1
   ) closed_vi ON TRUE
   WHERE vc.tenant_id = $1::uuid
@@ -1109,9 +1115,15 @@ latest_proofs AS (
   -- so every count derived from them collapsed to zero and the close card read
   -- "0 sheds - 0/0 videos approved" on a drive with 5 videos across 2 sheds. Rank identity-bearing
   -- rows first, and only then take the newest verdict among them.
+  --
+  -- Rank on the VERDICT time, not closed_at. closed_at is NULL for every unclosed attempt, so
+  -- ordering by it left several live attempts tied and the winner fell through to item_id DESC --
+  -- random UUID order, which can pick an older rejection over the later approval and hide the
+  -- close card again. verified_at is when the verifier actually decided; captured_at is NOT NULL
+  -- and breaks the remaining tie deterministically; item_id is only the final total-order fallback.
   ORDER BY batch_id, completion_id, goat_id,
            (item_id IS NOT NULL) DESC, (shed_id IS NOT NULL) DESC,
-           closed_at DESC NULLS LAST, item_id DESC
+           verified_at DESC NULLS LAST, captured_at DESC NULLS LAST, item_id DESC
 ),
 -- projection-review: membership=vaccination_completions with non-null batch_id is the executed medical membership, independent of later obligation reassignment; group_key=batch_id; join_cardinality=verification_items may be one-to-many per submission/completion, so readiness counts DISTINCT completion_id while user-facing totals and status buckets count DISTINCT goat_id, and assignment rows are pre-aggregated inside expected; pagination=all completion/proof rows are reduced to one whole-batch rollup before the final LIMIT 20 closure page; scope=park/shed filters use explicit batch_scope rows from assignment or verification facts, never a generic hierarchy COALESCE
 rollup AS (
