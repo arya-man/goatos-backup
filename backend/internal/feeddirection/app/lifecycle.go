@@ -182,9 +182,10 @@ func (s *Service) prepareLifecycle(ctx context.Context, req IssueRequest, genera
 // ---------------------------------------------------------------------------
 
 // servePreview serves one page of feed direction rows for a feed day. When an issued/amended/locked
-// sheet exists it returns the FROZEN stored rows (issued always wins). When NOTHING is issued it does
-// NOT show an empty wall: it GENERATES the full scope on demand and returns it as a `preview`
-// lifecycle (maintainer decision 2026-07-20 -- see LifecycleStatePreview).
+// sheet exists it returns the FROZEN stored rows (issued always wins). When nothing is issued the
+// DISPATCH GATE decides: before the workflow's clock the day has no rows at all, and at/after it the
+// first read freezes the sheet and serves it frozen. See lifecycle_gate.go (maintainer decision
+// 2026-08-08, superseding the 2026-07-20 always-generate preview).
 func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
 	if s.issues == nil {
 		return domain.PreviewPage{}, fmt.Errorf("feeddirection: issue store is required to serve issued sheets")
@@ -195,7 +196,30 @@ func (s *Service) servePreview(ctx context.Context, q domain.PreviewQuery) (doma
 		return domain.PreviewPage{}, err
 	}
 	if !served {
-		return s.servePreviewGenerated(ctx, q, feedDay)
+		gate, err := s.gateOrFreeze(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PreviewPage{}, err
+		}
+		if !gate.frozeAny {
+			// Nothing is due yet (or the day is outside the generation horizon): no rows, and a
+			// lifecycle that says when the sheet arrives.
+			return domain.PreviewPage{
+				Items:      []domain.DirectionRow{},
+				Summary:    emptyPreviewSummary(),
+				Lifecycle:  gate.emptyLifecycle,
+				TargetDate: feedDay,
+				Limit:      q.Limit,
+				Offset:     q.Offset,
+			}, nil
+		}
+		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PreviewPage{}, err
+		}
+		if !served {
+			return domain.PreviewPage{}, fmt.Errorf("feeddirection: froze the %s sheet for %s but no stored rows came back", q.Workflow, feedDay)
+		}
+		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
 	// Apply the shed and session narrowing to the stored rows, exactly as the live path filtered its
@@ -235,7 +259,30 @@ func (s *Service) servePacking(ctx context.Context, q domain.PackingQuery) (doma
 		return domain.PackingPage{}, err
 	}
 	if !served {
-		return s.servePackingGenerated(ctx, q, feedDay)
+		// Packing has no gate of its own: it freezes with the direction sheet it reads. Normal
+		// packing therefore freezes at 07:00 and experiment at 14:00, from the same clock.
+		gate, err := s.gateOrFreeze(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PackingPage{}, err
+		}
+		if !gate.frozeAny {
+			return domain.PackingPage{
+				Items:      []domain.PackingRow{},
+				Summary:    emptyPackingSummary(),
+				Lifecycle:  gate.emptyLifecycle,
+				TargetDate: feedDay,
+				Limit:      q.Limit,
+				Offset:     q.Offset,
+			}, nil
+		}
+		scopeRows, lifecycle, served, err = s.loadServedRows(ctx, q.TenantID, q.ParkID, feedDay, q.Workflow)
+		if err != nil {
+			return domain.PackingPage{}, err
+		}
+		if !served {
+			return domain.PackingPage{}, fmt.Errorf("feeddirection: froze the %s sheet for %s but no stored rows came back", q.Workflow, feedDay)
+		}
+		lifecycle = withPendingWorkflows(lifecycle, gate.pending)
 	}
 
 	// Session filter (worklist has no shed filter, so the shedID arg is empty). Applied to the whole

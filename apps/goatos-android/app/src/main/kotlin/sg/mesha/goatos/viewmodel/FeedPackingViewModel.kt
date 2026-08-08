@@ -87,7 +87,11 @@ class FeedPackingViewModel @Inject constructor(
             summary = dto?.toSummaryUi() ?: FeedPackingSummaryUi(),
             hasSummary = hasSummary,
             emptyMessage = when {
-                hasSummary && dto.summary.lineCount == 0 -> EMPTY_MESSAGE
+                // A day whose dispatch clock has not fired serves no bags ON PURPOSE (normal 07:00,
+                // experiment 14:00). The backend sentence names when the sheet arrives, so prefer it
+                // over the generic "nothing to pack" — otherwise a gated morning reads as a fault.
+                hasSummary && dto.summary.lineCount == 0 ->
+                    dto.lifecycle.message.ifBlank { EMPTY_MESSAGE }
                 !hasSummary && isOffline -> ERROR_MESSAGE
                 !hasSummary -> LOADING_MESSAGE
                 else -> null
