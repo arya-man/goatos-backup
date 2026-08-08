@@ -410,6 +410,7 @@ func routeAllowsScopedGrants(route permissions.Route) bool {
 		route.Pattern == "/feed-packing/worklist" ||
 		route.Pattern == "/feed-transport/tasks" ||
 		route.Pattern == "/feed-direction/distribution/complete" ||
+		route.Pattern == "/feed-direction/packing/complete" ||
 		// Android shifting resolves a scanned tag through this legacy non-/app route. Admit
 		// only the search route; SearchGoats capability-clamps park_id before reading.
 		route.Pattern == "/goats/search" ||
