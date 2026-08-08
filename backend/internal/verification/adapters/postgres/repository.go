@@ -1504,6 +1504,13 @@ SELECT `+itemColumns+`
 FROM verification_items vi
 WHERE vi.tenant_id = $1::uuid
   AND vi.source_submission_id IS NOT NULL
+  -- Vaccination proofs ONLY, the same scope as the decision queries and the stamping update above.
+  -- This read feeds BOTH the returned items and one EventItemClosed per row, and the stamping
+  -- update is category-scoped, so a foreign-category row reached here UNSTAMPED and still had a
+  -- close event published for it -- a vaccination close announcing that a weighing proof was
+  -- closed, to consumers that would act on it. Found in review of 628eee913, the query the
+  -- "all four queries" sweep in that commit missed.
+  AND vi.category = $3
   AND EXISTS (
     SELECT 1
     FROM vaccination_completions vc
@@ -1519,7 +1526,7 @@ WHERE vi.tenant_id = $1::uuid
         OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
       )
   )
-ORDER BY vi.captured_at, vi.item_id`, in.TenantID, in.BatchID)
+ORDER BY vi.captured_at, vi.item_id`, in.TenantID, in.BatchID, vaccinationProofCategory)
 	if err != nil {
 		return nil, err
 	}

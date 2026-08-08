@@ -1288,9 +1288,12 @@ VALUES
 			t.Fatalf("close error = %v, want ErrBatchNotFullyVerified naming the blocked animal", err)
 		}
 	}
-	if _, err := pool.Exec(ctx, `DELETE FROM verification_items WHERE tenant_id = $1::uuid AND item_id = ANY(ARRAY[$2::uuid, $3::uuid])`,
-		tenantID, itemCVaccRejected, itemCForeign); err != nil {
-		t.Fatalf("remove cross-category items: %v", err)
+	// Drop ONLY the rejected vaccination proof. The foreign-category APPROVED item deliberately
+	// SURVIVES into the successful close below: the close must neither return it nor publish a
+	// close event for it. Deleting it here is what let that hole through review of 628eee913.
+	if _, err := pool.Exec(ctx, `DELETE FROM verification_items WHERE tenant_id = $1::uuid AND item_id = $2::uuid`,
+		tenantID, itemCVaccRejected); err != nil {
+		t.Fatalf("remove cross-category rejected item: %v", err)
 	}
 
 	// THE READ MODEL AND THE WRITE PATH MUST AGREE. Found in review of 59ba8bac7 and reproduced
@@ -1302,11 +1305,40 @@ VALUES
 	// which is WORSE than the original defect: the button appears, the director taps it, and
 	// nothing happens, so a broken drive is indistinguishable from a broken app. Offering an
 	// action the write path will refuse is the bug -- assert the two halves agree.
-	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
+	closedItems, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
 		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("the ready list offered batch %s but CloseVaccinationBatch refused it: %v -- the read model and the close path disagree about superseded verdict history", batchID, err)
 	}
+	// A vaccination close must not speak for another module's evidence. The foreign weighing_proof
+	// item is still present and was NOT stamped by the category-scoped update, so returning it or
+	// publishing EventItemClosed for it announces a close that never happened -- to consumers that
+	// act on it.
+	for _, it := range closedItems {
+		if it.ItemID == itemCForeign {
+			t.Fatalf("CloseVaccinationBatch returned foreign-category item %s -- a vaccination close must return only vaccination proofs", itemCForeign)
+		}
+	}
+	var foreignCloseEvents int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM outbox_messages
+WHERE tenant_id = $1::uuid AND event_type = $2 AND aggregate_id = $3::uuid`,
+		tenantID, EventItemClosed, itemCForeign).Scan(&foreignCloseEvents); err != nil {
+		t.Fatalf("count foreign close events: %v", err)
+	}
+	if foreignCloseEvents != 0 {
+		t.Fatalf("%s events for foreign-category item = %d, want 0 -- it was never stamped closed", EventItemClosed, foreignCloseEvents)
+	}
+	var foreignClosedAt *time.Time
+	if err := pool.QueryRow(ctx, `SELECT closed_at FROM verification_items WHERE tenant_id=$1::uuid AND item_id=$2::uuid`,
+		tenantID, itemCForeign).Scan(&foreignClosedAt); err != nil {
+		t.Fatalf("read foreign item closed_at: %v", err)
+	}
+	if foreignClosedAt != nil {
+		t.Fatalf("foreign-category item closed_at = %v, want NULL -- a vaccination close must not stamp another module's proof", foreignClosedAt)
+	}
+
 	// The superseded rejections must still NOT be stamped closed: the CHECK constraint
 	// verification_items_closed_approved_check forbids a closed non-approved row, and their history
 	// value is that they stay readable as rejections.
