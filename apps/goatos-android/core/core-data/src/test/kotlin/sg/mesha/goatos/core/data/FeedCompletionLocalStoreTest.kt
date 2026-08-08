@@ -42,7 +42,7 @@ class FeedCompletionLocalStoreTest {
     @Test
     fun `clear drops the departing operator's optimistic completions`() {
         val store = FeedCompletionLocalStore()
-        val key = FeedCompletionLocalStore.key("shed-1", 1, "feed_direction")
+        val key = FeedCompletionLocalStore.key("shed-1", null, 1, "feed_direction")
         store.markCompleted(key)
         assertTrue("precondition: the completion is visible", store.isCompleted(key))
 
@@ -55,7 +55,7 @@ class FeedCompletionLocalStoreTest {
     @Test
     fun `logout clears the feed completion overlay so the next operator sees none of it`() = runTest {
         val store = FeedCompletionLocalStore()
-        val key = FeedCompletionLocalStore.key("shed-1", 1, "feed_direction")
+        val key = FeedCompletionLocalStore.key("shed-1", null, 1, "feed_direction")
         store.markCompleted(key)
 
         val coordinator = LogoutCoordinator(
@@ -81,11 +81,11 @@ class FeedCompletionLocalStoreTest {
     fun `yesterday's completion cannot resurface on today's due row`() {
         val store = FeedCompletionLocalStore()
         fakeToday = "2026-07-31"
-        val yesterdayKey = FeedCompletionLocalStore.key("shed-1", 1, "feed_direction")
+        val yesterdayKey = FeedCompletionLocalStore.key("shed-1", null, 1, "feed_direction")
         store.markCompleted(yesterdayKey)
 
         fakeToday = "2026-08-01"
-        val todayKey = FeedCompletionLocalStore.key("shed-1", 1, "feed_direction")
+        val todayKey = FeedCompletionLocalStore.key("shed-1", null, 1, "feed_direction")
 
         assertFalse("same shed/session/workflow is a NEW obligation today", store.isCompleted(todayKey))
         assertTrue("the key is day-scoped", yesterdayKey != todayKey)
@@ -95,11 +95,11 @@ class FeedCompletionLocalStoreTest {
     fun `marking today prunes stale earlier-day entries so the set stays bounded`() {
         val store = FeedCompletionLocalStore()
         fakeToday = "2026-07-31"
-        store.markCompleted(FeedCompletionLocalStore.key("shed-1", 1, "feed_direction"))
-        store.markCompleted(FeedCompletionLocalStore.key("shed-2", 1, "feed_direction"))
+        store.markCompleted(FeedCompletionLocalStore.key("shed-1", null, 1, "feed_direction"))
+        store.markCompleted(FeedCompletionLocalStore.key("shed-2", null, 1, "feed_direction"))
 
         fakeToday = "2026-08-01"
-        val todayKey = FeedCompletionLocalStore.key("shed-3", 1, "feed_direction")
+        val todayKey = FeedCompletionLocalStore.key("shed-3", null, 1, "feed_direction")
         store.markCompleted(todayKey)
 
         assertEquals(
@@ -107,5 +107,17 @@ class FeedCompletionLocalStoreTest {
             setOf(todayKey),
             store.completedKeys.value,
         )
+    }
+
+    @Test
+    fun `one pen completion does not badge sibling pen done`() {
+        val store = FeedCompletionLocalStore()
+
+        val pen1 = FeedCompletionLocalStore.key("castro", "1", 1, "feed_direction")
+        val pen2 = FeedCompletionLocalStore.key("castro", "2", 1, "feed_direction")
+        store.markCompleted(pen1)
+
+        assertTrue("precondition: submitted pen is optimistically complete", store.isCompleted(pen1))
+        assertFalse("sibling pen remains open until its own proof submits", store.isCompleted(pen2))
     }
 }
