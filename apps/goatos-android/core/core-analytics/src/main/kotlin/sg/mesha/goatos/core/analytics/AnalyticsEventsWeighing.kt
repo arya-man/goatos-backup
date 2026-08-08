@@ -73,4 +73,32 @@ object AnalyticsEventsWeighing {
          *  lowercase of the [WeighingWizardStep] enum name. */
         const val WIZARD_STEP = "wizard_step"
     }
+
+    /**
+     * The weight field could not take focus immediately after the camera returned, so the operator
+     * sat in front of a focused-looking field with no keyboard.
+     *
+     * Measured on a physical device 2026-08-08: WindowManager withheld INPUT focus from the app for
+     * ~10s after the in-process CameraX surface tore down, so every showSoftInput() before that was
+     * accepted by the IME service and dropped ("getSurroundingText on inactive InputConnection").
+     * [Params.DURATION_MS] carries how long the retry took to win focus, so this is measurable in
+     * the field across every operator and phone instead of one person noticing it in a shed.
+     */
+    const val WEIGHING_WEIGHT_FIELD_FOCUS_DELAYED = "weighing_weight_field_focus_delayed"
+
+    /**
+     * The retry budget expired without the field ever gaining focus — the operator is stuck mid-weighing,
+     * unable to enter the weight and unable to proceed. This is a field-blocking failure: the operator
+     * scanned an animal and captured video proof, but cannot type the weight because the keyboard focus
+     * system is unrecoverable after the camera surface tore down, leaving WindowManager's INPUT focus
+     * held by another surface. A spike in this event signals operators in sheds unable to progress through
+     * their weighing capture flow; every affected animal must be re-scanned.
+     *
+     * Root cause (same as [WEIGHING_WEIGHT_FIELD_FOCUS_DELAYED]): the LazyColumn row key was derived
+     * from a mutable server ID, so when the upload synced, the row rebuilt and tore the OutlinedTextField
+     * from under the IME. The fix was to key on the stable animal ID, not the upload state. This event
+     * should be rare/zero after that fix lands; a spike indicates the fix was reverted or a similar key
+     * instability was reintroduced.
+     */
+    const val WEIGHING_WEIGHT_FIELD_FOCUS_FAILED = "weighing_weight_field_focus_failed"
 }
