@@ -198,7 +198,11 @@ export function ShedFactorEditor({
 }
 
 /**
- * Authored ABSOLUTE kg for one (park, shed, feed item) of an experiment shed.
+ * Authored ABSOLUTE kg for one (park, shed, PEN, feed item) of an experiment shed.
+ *
+ * The pen is part of that key, not decoration. A partitioned shed authors one cell per pen, so a
+ * write that omits partition_label targets the shed-wide row instead of the pen the author clicked
+ * -- and the field ids below would collide across pens, wiring one pen's label to another's input.
  *
  * Same uncontrolled-input discipline as the ration rate editor, for a reason that is quieter here:
  * a blank rate on the grid BLOCKS the shed visibly, while a blank experiment cell just stops the
@@ -214,6 +218,7 @@ export function ExperimentCellEditor({
   action,
   parkId,
   shedId,
+  partitionLabel,
   feedItem,
   experimentCategory,
   absoluteKg,
@@ -223,6 +228,8 @@ export function ExperimentCellEditor({
   action: SaveAction;
   parkId: string;
   shedId: string;
+  /** The pen this cell belongs to; empty for an undivided shed. */
+  partitionLabel: string;
   feedItem: string;
   experimentCategory: string;
   /** The currently authored kg, or undefined when this item has no row for the shed. */
@@ -230,7 +237,10 @@ export function ExperimentCellEditor({
   /** Absent means the population was not recorded — never rendered or sent as 0. */
   headCount?: number | null;
 }) {
-  const fieldId = `exp-${shedId}-${feedItem}`;
+  // The pen is in the field id for the same reason it is in the form body: ten pens of one shed
+  // render ten copies of this editor, and without it every copy shares one id -- so a <label
+  // htmlFor> points at the first pen's input whichever pen the author opened.
+  const fieldId = `exp-${shedId}-${partitionLabel}-${feedItem}`;
   return (
     <FeedConfigFormShell
       pageContract={pageContract}
@@ -240,6 +250,7 @@ export function ExperimentCellEditor({
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
+      <input type="hidden" name="partition_label" value={partitionLabel} />
       <input type="hidden" name="feed_item" value={feedItem} />
       <div className="fld" style={{ marginBottom: 0 }}>
         <label htmlFor={`${fieldId}-kg`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
@@ -431,6 +442,123 @@ export function ExperimentShedEnroller({
         {copy(pageContract, "section.experiment.switch_note")}
       </div>
     </FeedConfigFormShell>
+  );
+}
+
+/**
+ * Add a feed item to the tenant's catalog — the "Add feed type" control.
+ *
+ * THE ONE CONTROL ON THIS SCREEN WHERE A BLANK IS NOT A REJECTION.
+ *
+ * Every other editor here treats a cleared numeric box as an error, because a missing quantity is a
+ * blocking state. The four attributes below are genuinely optional: a blank one is omitted from the
+ * request and stored as "not measured", which is honest and consequence-free — it blocks a
+ * nutritional rollup, never a feeding decision. An explicit 0 still means a measured zero. The
+ * inputs stay UNCONTROLLED and `type="text"` for exactly the same reason as the rest of the file:
+ * so a cleared box holds no characters rather than quietly becoming 0.
+ *
+ * AND IT AUTHORS NO QUANTITY. The hint under the name says so, because the expectation this control
+ * invites — "I added the item, so it will be on tomorrow's sheet" — is wrong: the item becomes
+ * SELECTABLE, and every combination using it stays unconfigured until a rate is authored.
+ */
+export function FeedItemCreator({
+  pageContract,
+  action,
+}: {
+  pageContract: AdminUiPageContract;
+  action: SaveAction;
+}) {
+  return (
+    // Bounded width. The shell's form is a flex ITEM of the section header, and with five fields it
+    // grew to the full card width — which squeezed the section title into a two-line sliver on the
+    // left and stretched every input to ~800px for values like "0.9". The cap keeps the form the
+    // size of the values it collects and leaves the header readable while it is open. maxWidth
+    // rather than width so it still shrinks on a narrow viewport.
+    <div style={{ maxWidth: 380, width: "100%" }}>
+      <FeedConfigFormShell
+        pageContract={pageContract}
+        action={action}
+        editLabel={copy(pageContract, "action.add_feed_item")}
+        openLabel={copy(pageContract, "action.add_feed_item_open")}
+      >
+        <div className="fld" style={{ marginBottom: 0 }}>
+          <label htmlFor="feed-item-new-name">{copy(pageContract, "label.feed_item_name")}</label>
+          <input
+            id="feed-item-new-name"
+            name="feed_item"
+            type="text"
+            defaultValue=""
+            aria-describedby="feed-item-new-name-hint"
+          />
+          <div id="feed-item-new-name-hint" className="small muted" style={{ marginTop: 4 }}>
+            {copy(pageContract, "label.feed_item_name_note")}
+          </div>
+        </div>
+        {/* The four optional attributes. Each carries its own hint naming what a blank means, rather
+            than relying on one note at the bottom of the form — the blank-vs-zero distinction is
+            per-field, and the operator is deciding it one box at a time. */}
+        <div className="fld" style={{ marginBottom: 0 }}>
+          <label htmlFor="feed-item-new-energy">{copy(pageContract, "label.energy_kcal_per_kg")}</label>
+          <input
+            id="feed-item-new-energy"
+            name="energy_kcal_per_kg"
+            type="text"
+            inputMode="decimal"
+            defaultValue=""
+            aria-describedby="feed-item-new-energy-hint"
+          />
+          <div id="feed-item-new-energy-hint" className="small muted" style={{ marginTop: 4 }}>
+            {copy(pageContract, "label.energy_kcal_per_kg_note")}
+          </div>
+        </div>
+        <div className="fld" style={{ marginBottom: 0 }}>
+          <label htmlFor="feed-item-new-dry-matter">{copy(pageContract, "label.dry_matter_factor")}</label>
+          <input
+            id="feed-item-new-dry-matter"
+            name="dry_matter_factor"
+            type="text"
+            inputMode="decimal"
+            defaultValue=""
+            aria-describedby="feed-item-new-dry-matter-hint"
+          />
+          <div id="feed-item-new-dry-matter-hint" className="small muted" style={{ marginTop: 4 }}>
+            {copy(pageContract, "label.dry_matter_factor_note")}
+          </div>
+        </div>
+        <div className="fld" style={{ marginBottom: 0 }}>
+          <label htmlFor="feed-item-new-wastage">{copy(pageContract, "label.wastage_factor")}</label>
+          <input
+            id="feed-item-new-wastage"
+            name="wastage_factor"
+            type="text"
+            inputMode="decimal"
+            defaultValue=""
+            aria-describedby="feed-item-new-wastage-hint"
+          />
+          <div id="feed-item-new-wastage-hint" className="small muted" style={{ marginTop: 4 }}>
+            {copy(pageContract, "label.wastage_factor_note")}
+          </div>
+        </div>
+        <div className="fld" style={{ marginBottom: 0 }}>
+          <label htmlFor="feed-item-new-order">{copy(pageContract, "label.display_order")}</label>
+          <input
+            id="feed-item-new-order"
+            name="display_order"
+            type="text"
+            inputMode="numeric"
+            defaultValue=""
+            aria-describedby="feed-item-new-order-hint"
+          />
+          <div id="feed-item-new-order-hint" className="small muted" style={{ marginTop: 4 }}>
+            {copy(pageContract, "label.display_order_note")}
+          </div>
+        </div>
+        {/* The consequence, stated at the point of action: this adds a NAME. */}
+        <div className="small muted" style={{ lineHeight: 1.5 }}>
+          {copy(pageContract, "section.feed_items.note")}
+        </div>
+      </FeedConfigFormShell>
+    </div>
   );
 }
 

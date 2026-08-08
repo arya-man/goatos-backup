@@ -394,6 +394,101 @@ func (s *Service) UpsertShedFactor(ctx context.Context, in UpsertShedFactorInput
 	})
 }
 
+// CreateFeedItemInput adds one entry to the tenant's feed-item catalog.
+//
+// NO park_id, on purpose: feed_item_catalog is keyed (tenant, feed_item_key), so the vocabulary is
+// shared by every park. This is the only write in the module that is not park-scoped.
+//
+// The three nutritional attributes are *string for a DIFFERENT reason than GramsPerHead's pointer
+// above, and the difference matters. There, nil is rejected because absence of a rate is a blocking
+// state that must never be filled in. Here, nil is ACCEPTED and stored as NULL, because the column
+// is genuinely nullable and the consequence is bounded: a missing energy value blocks a rollup, not
+// a feeding decision. What the pointer buys is the same distinction either way -- an unmeasured
+// attribute stays distinguishable from a measured 0, and neither is invented from the other.
+//
+// A PRESENT but out-of-range attribute is still rejected with a field error, never clamped into the
+// column's CHECK range.
+type CreateFeedItemInput struct {
+	TenantID        string
+	ActorRef        string
+	FeedItemLabel   string
+	EnergyKcalPerKg *string
+	DryMatterFactor *string
+	WastageFactor   *string
+	DisplayOrder    *int32
+
+	IdempotencyKey     string
+	RequestFingerprint string
+}
+
+// CreateFeedItem validates and adds one catalog entry.
+//
+// WHAT THIS WRITE DOES NOT DO, stated because the screen it serves sits next to the ration grid:
+// it authors no rate, no shed factor and no experiment quantity. The new label becomes SELECTABLE
+// on those surfaces immediately, and every combination using it stays unconfigured -- and therefore
+// blocking -- until someone authors it. Adding a convenience "seed a 0 rate for the new item" step
+// here would author "feed none of it" for every group and tag in the tenant, which is the exact
+// blank-is-not-zero collapse this module exists to prevent.
+func (s *Service) CreateFeedItem(ctx context.Context, in CreateFeedItemInput) (domain.WriteResult, error) {
+	identity, err := s.writeIdentity(in.TenantID, in.ActorRef, in.IdempotencyKey, in.RequestFingerprint)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	label, err := domain.RequireNonBlank("feed_item", in.FeedItemLabel)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	// Each optional attribute is validated ONLY when present. An absent one stays nil and is stored
+	// as NULL -- "not measured" -- rather than being normalized into a 0 that claims it was.
+	energy, err := normalizeOptional(in.EnergyKcalPerKg, func(raw string) (string, error) {
+		return domain.NormalizeEnergyKcalPerKg("energy_kcal_per_kg", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	dryMatter, err := normalizeOptional(in.DryMatterFactor, func(raw string) (string, error) {
+		return domain.NormalizeDryMatterFactor("dry_matter_factor", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	wastage, err := normalizeOptional(in.WastageFactor, func(raw string) (string, error) {
+		return domain.NormalizeWastageFactor("wastage_factor", raw)
+	})
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	displayOrder, err := domain.ValidateDisplayOrder("display_order", in.DisplayOrder)
+	if err != nil {
+		return domain.WriteResult{}, err
+	}
+	return s.repo.CreateFeedItem(ctx, domain.CreateFeedItemCommand{
+		WriteIdentity:   identity,
+		FeedItemLabel:   label,
+		EnergyKcalPerKg: energy,
+		DryMatterFactor: dryMatter,
+		WastageFactor:   wastage,
+		DisplayOrder:    displayOrder,
+	})
+}
+
+// normalizeOptional runs a validator over a value only when the caller SENT one.
+//
+// The nil passthrough is the whole point: it keeps "the author did not fill this in" out of the
+// validators entirely, so no validator can accidentally turn an absent attribute into a canonical
+// "0.000". A present-but-blank string is NOT treated as absent -- it reaches the validator, which
+// rejects it as a missing field, because a client that sent the key meant to send a value.
+func normalizeOptional(raw *string, normalize func(string) (string, error)) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	normalized, err := normalize(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
+}
+
 // UpsertScheduleConfigInput authors one park/workflow dispatch clock.
 //
 // TransportTime is a **string so three states stay distinguishable: absent (leave whatever policy
@@ -478,10 +573,14 @@ func (s *Service) UpsertScheduleConfig(ctx context.Context, in UpsertScheduleCon
 // It is a pointer so "not recorded" stays distinct from an authored 0, which would state the shed is
 // empty.
 type UpsertExperimentConfigInput struct {
-	TenantID           string
-	ActorRef           string
-	ParkID             string
-	ShedID             string
+	TenantID string
+	ActorRef string
+	ParkID   string
+	ShedID   string
+	// PartitionLabel names which PEN of the shed this cell belongs to. Empty is legitimate (an
+	// undivided shed) and is NOT rejected -- but on a partitioned shed an empty label authors the
+	// shed-wide 'whole' row rather than a pen, so the client must send the pen it rendered.
+	PartitionLabel     string
 	FeedItemLabel      string
 	AbsoluteKg         *string
 	HeadCount          *int32
@@ -532,6 +631,7 @@ func (s *Service) UpsertExperimentConfig(ctx context.Context, in UpsertExperimen
 		WriteIdentity:      identity,
 		ParkID:             parkID,
 		ShedID:             shedID,
+		PartitionLabel:     strings.TrimSpace(in.PartitionLabel),
 		FeedItemLabel:      item,
 		AbsoluteKg:         kg,
 		HeadCount:          headCount,

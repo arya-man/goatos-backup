@@ -21,6 +21,7 @@ import (
 type fakeRepo struct {
 	lastRationRate domain.UpsertRationRateCommand
 	lastShedFactor domain.UpsertShedFactorCommand
+	lastFeedItem   domain.CreateFeedItemCommand
 	lastSchedule   domain.UpsertScheduleConfigCommand
 	lastRateQuery  domain.RationRateQuery
 	lastTagQuery   domain.ShedTagQuery
@@ -95,6 +96,12 @@ func (f *fakeRepo) UpsertRationRate(_ context.Context, cmd domain.UpsertRationRa
 func (f *fakeRepo) UpsertShedFactor(_ context.Context, cmd domain.UpsertShedFactorCommand) (domain.WriteResult, error) {
 	f.writeCalls++
 	f.lastShedFactor = cmd
+	return f.result, f.err
+}
+
+func (f *fakeRepo) CreateFeedItem(_ context.Context, cmd domain.CreateFeedItemCommand) (domain.WriteResult, error) {
+	f.writeCalls++
+	f.lastFeedItem = cmd
 	return f.result, f.err
 }
 
@@ -679,5 +686,187 @@ func TestListExperimentConfigDefaultsToBothStatuses(t *testing.T) {
 	repo2 := &fakeRepo{}
 	if _, err := pinnedService(repo2).ListExperimentConfig(context.Background(), "tenant", "park", "", "paused", nil, nil); err == nil {
 		t.Fatal("unrecognised status filter was accepted; it must be rejected rather than ignored")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Feed items (the catalog)
+// ---------------------------------------------------------------------------
+
+// TestCreateFeedItemKeepsUnmeasuredAttributesNull is the feed-item twin of the absent-vs-zero tests
+// above, and it asserts the OPPOSITE conclusion for a reason worth stating.
+//
+// On a ration rate, an absent value is REJECTED: a missing rate means "not configured", which the
+// feed path must block on, so filling it in with 0 would author "feed nothing" for a shed nobody
+// configured. On a catalog attribute, an absent value is ACCEPTED AS NULL: nobody measured the
+// item's energy, which blocks a nutritional rollup and nothing else.
+//
+// What must hold in BOTH directions is that absence is never converted into a number. A nil energy
+// that arrived at the repository as "0.000" would state that someone measured the item as carrying
+// no energy at all.
+func TestCreateFeedItemKeepsUnmeasuredAttributesNull(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.CreateFeedItem(context.Background(), CreateFeedItemInput{
+		TenantID: "tenant", ActorRef: "actor",
+		FeedItemLabel:      "RGS Concentrate",
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("feed item with no attributes rejected: %v", err)
+	}
+	cmd := repo.lastFeedItem
+	if cmd.FeedItemLabel != "RGS Concentrate" {
+		t.Fatalf("feed_item = %q, want %q", cmd.FeedItemLabel, "RGS Concentrate")
+	}
+	for name, got := range map[string]*string{
+		"energy_kcal_per_kg": cmd.EnergyKcalPerKg,
+		"dry_matter_factor":  cmd.DryMatterFactor,
+		"wastage_factor":     cmd.WastageFactor,
+	} {
+		if got != nil {
+			t.Fatalf("%s = %q, want nil — an unmeasured attribute must reach the repository as NULL, never as a number", name, *got)
+		}
+	}
+	// An absent display_order stays nil so the WRITE PATH can append the item to the end of the
+	// catalog. Resolving it to 0 here would place every new item first in every dropdown.
+	if cmd.DisplayOrder != nil {
+		t.Fatalf("display_order = %d, want nil so the write path appends to the end", *cmd.DisplayOrder)
+	}
+}
+
+// TestCreateFeedItemKeepsMeasuredZeroDistinctFromUnmeasured is the other half of the same rule: an
+// explicit 0 is a MEASUREMENT and must survive as one. Wastage is the honest example — an item with
+// no expected wastage really is 0.0000, and collapsing that into "not measured" would lose a fact
+// the author recorded.
+func TestCreateFeedItemKeepsMeasuredZeroDistinctFromUnmeasured(t *testing.T) {
+	repo := &fakeRepo{}
+	svc := pinnedService(repo)
+
+	if _, err := svc.CreateFeedItem(context.Background(), CreateFeedItemInput{
+		TenantID: "tenant", ActorRef: "actor",
+		FeedItemLabel:      "Dry Masoor Bhusa",
+		EnergyKcalPerKg:    str("0"),
+		WastageFactor:      str("0"),
+		DryMatterFactor:    str("0.85"),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("authored zero attributes rejected: %v", err)
+	}
+	cmd := repo.lastFeedItem
+	if cmd.EnergyKcalPerKg == nil || *cmd.EnergyKcalPerKg != "0.000" {
+		t.Fatalf("energy_kcal_per_kg = %v, want an exact authored %q", cmd.EnergyKcalPerKg, "0.000")
+	}
+	if cmd.WastageFactor == nil || *cmd.WastageFactor != "0.0000" {
+		t.Fatalf("wastage_factor = %v, want an exact authored %q", cmd.WastageFactor, "0.0000")
+	}
+	// Canonicalized to the column's scale, never rounded away from what was typed.
+	if cmd.DryMatterFactor == nil || *cmd.DryMatterFactor != "0.8500" {
+		t.Fatalf("dry_matter_factor = %v, want %q", cmd.DryMatterFactor, "0.8500")
+	}
+}
+
+// TestCreateFeedItemRejectsOutOfRangeAttributes locks the bounds to the columns' own CHECKs, and
+// locks that they are REJECTIONS rather than clamps. A dry-matter factor of 1.5 says the item is
+// 150% dry matter; a wastage factor of 1 says the entire quantity is lost. Neither is a value to
+// quietly pull into range on the author's behalf.
+//
+// It also proves the repository was never called, so nothing was written for a rejected add.
+func TestCreateFeedItemRejectsOutOfRangeAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input CreateFeedItemInput
+		field string
+	}{
+		{"dry matter above 1", CreateFeedItemInput{DryMatterFactor: str("1.5")}, "dry_matter_factor"},
+		// 0 is excluded on dry matter (an item that is entirely water is not a feed), which is the
+		// one place these three attributes disagree about zero.
+		{"dry matter of zero", CreateFeedItemInput{DryMatterFactor: str("0")}, "dry_matter_factor"},
+		{"wastage of one", CreateFeedItemInput{WastageFactor: str("1")}, "wastage_factor"},
+		{"wastage above one", CreateFeedItemInput{WastageFactor: str("1.2")}, "wastage_factor"},
+		{"negative energy", CreateFeedItemInput{EnergyKcalPerKg: str("-1")}, "energy_kcal_per_kg"},
+		{"negative display order", CreateFeedItemInput{DisplayOrder: i32(-1)}, "display_order"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeRepo{}
+			in := tc.input
+			in.TenantID, in.ActorRef = "tenant", "actor"
+			in.FeedItemLabel = "Some Item"
+			in.IdempotencyKey, in.RequestFingerprint = "key-12345678", "fp"
+
+			_, err := pinnedService(repo).CreateFeedItem(context.Background(), in)
+			var fe *domain.FieldError
+			if !errors.As(err, &fe) || fe.Field != tc.field {
+				t.Fatalf("error = %v, want a FieldError naming %s", err, tc.field)
+			}
+			if repo.writeCalls != 0 {
+				t.Fatalf("repository was called %d times for a rejected add, want 0", repo.writeCalls)
+			}
+		})
+	}
+}
+
+// TestCreateFeedItemDryMatterUpperBoundIsInclusive pins the boundary the two factors treat
+// differently, because "0 to 1" is ambiguous prose and the columns are not: dry matter may BE 1
+// (an entirely dry item), wastage may not (nothing would reach the animals).
+func TestCreateFeedItemDryMatterUpperBoundIsInclusive(t *testing.T) {
+	repo := &fakeRepo{}
+	if _, err := pinnedService(repo).CreateFeedItem(context.Background(), CreateFeedItemInput{
+		TenantID: "tenant", ActorRef: "actor",
+		FeedItemLabel:      "Fully Dry Item",
+		DryMatterFactor:    str("1"),
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("dry_matter_factor of exactly 1 rejected: %v — the column allows it", err)
+	}
+	if got := repo.lastFeedItem.DryMatterFactor; got == nil || *got != "1.0000" {
+		t.Fatalf("dry_matter_factor = %v, want %q", got, "1.0000")
+	}
+}
+
+// TestCreateFeedItemRequiresAName: the label is the item's identity and the whole point of the
+// write. A blank one is a missing field, never an empty-named catalog row.
+func TestCreateFeedItemRequiresAName(t *testing.T) {
+	repo := &fakeRepo{}
+	_, err := pinnedService(repo).CreateFeedItem(context.Background(), CreateFeedItemInput{
+		TenantID: "tenant", ActorRef: "actor",
+		FeedItemLabel:      "   ",
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	})
+	var fe *domain.FieldError
+	if !errors.As(err, &fe) || fe.Field != "feed_item" {
+		t.Fatalf("error = %v, want a FieldError naming feed_item", err)
+	}
+	if repo.writeCalls != 0 {
+		t.Fatalf("repository was called %d times for a rejected add, want 0", repo.writeCalls)
+	}
+}
+
+// TestCreateFeedItemSucceedsWithoutAParkAndDatesTheLedger covers the two things that make this
+// write different from every other one in the module.
+//
+// It takes NO park — feed_item_catalog is keyed (tenant, item), so the vocabulary is shared and an
+// add cannot be scoped to one park in a way that leaves the other unable to author rates for it.
+// Every other write here would fail without a park_id; this one must not.
+//
+// And the business date still travels on the write identity, so the ledger records WHEN the
+// vocabulary changed even though the catalog itself is not effective-dated. The pinned clock is
+// late in the UTC day, so a service deriving the date from UTC would record 2026-07-19.
+func TestCreateFeedItemSucceedsWithoutAParkAndDatesTheLedger(t *testing.T) {
+	repo := &fakeRepo{}
+	if _, err := pinnedService(repo).CreateFeedItem(context.Background(), CreateFeedItemInput{
+		TenantID: "tenant", ActorRef: "actor",
+		FeedItemLabel:      "Tenant Wide Item",
+		IdempotencyKey:     "key-12345678",
+		RequestFingerprint: "fp",
+	}); err != nil {
+		t.Fatalf("tenant-scoped add rejected: %v", err)
+	}
+	if repo.lastFeedItem.EffectiveFrom != "2026-07-20" {
+		t.Fatalf("effective_from = %q, want the Asia/Kolkata business date 2026-07-20", repo.lastFeedItem.EffectiveFrom)
 	}
 }

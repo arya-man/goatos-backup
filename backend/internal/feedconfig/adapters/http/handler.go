@@ -63,6 +63,7 @@ const (
 	// Command names namespace the fingerprint hash so the same body posted to two different write
 	// routes can never collide on one idempotency key.
 	upsertRationRateCommand    = "feedconfig.ration_rate.upsert"
+	createFeedItemCommand      = "feedconfig.feed_item.create"
 	upsertShedFactorCommand    = "feedconfig.shed_factor.upsert"
 	upsertScheduleCommand      = "feedconfig.schedule_config.upsert"
 	upsertExperimentCommand    = "feedconfig.experiment_config.upsert"
@@ -84,6 +85,7 @@ type Service interface {
 	ListExperimentConfig(ctx context.Context, tenantID, parkID, shedID, status string, limit, offset *int32) (domain.ExperimentConfigPage, error)
 
 	UpsertRationRate(ctx context.Context, in feedconfigapp.UpsertRationRateInput) (domain.WriteResult, error)
+	CreateFeedItem(ctx context.Context, in feedconfigapp.CreateFeedItemInput) (domain.WriteResult, error)
 	UpsertShedFactor(ctx context.Context, in feedconfigapp.UpsertShedFactorInput) (domain.WriteResult, error)
 	UpsertScheduleConfig(ctx context.Context, in feedconfigapp.UpsertScheduleConfigInput) (domain.WriteResult, error)
 	UpsertExperimentConfig(ctx context.Context, in feedconfigapp.UpsertExperimentConfigInput) (domain.WriteResult, error)
@@ -113,6 +115,7 @@ func Register(mux *http.ServeMux, h *Handler) {
 	mux.HandleFunc("GET "+experimentRoute, h.ListExperimentConfig)
 
 	mux.HandleFunc("POST "+rationRatesRoute, h.UpsertRationRate)
+	mux.HandleFunc("POST "+feedItemsRoute, h.CreateFeedItem)
 	mux.HandleFunc("POST "+shedFactorsRoute, h.UpsertShedFactor)
 	mux.HandleFunc("POST "+scheduleRoute, h.UpsertScheduleConfig)
 	mux.HandleFunc("POST "+experimentRoute, h.UpsertExperimentConfig)
@@ -337,6 +340,67 @@ func (h *Handler) UpsertRationRate(w http.ResponseWriter, r *http.Request) {
 	httpresponse.WriteJSON(w, http.StatusOK, result)
 }
 
+// createFeedItemRequest adds one entry to the tenant's feed vocabulary.
+//
+// NO park_id: feed_item_catalog is keyed (tenant, feed_item_key) and is shared by every park.
+//
+// The three attributes are *json.Number, and here the POINTER means something DIFFERENT from what
+// it means on grams_per_head. There, absent is rejected because a missing rate is a blocking state.
+// Here, absent is ACCEPTED and stored as NULL -- the honest "nobody measured this" -- while an
+// explicit 0 stays a measured zero. json.Number still keeps the authored decimal exact, so a
+// dry-matter factor of 0.8500 does not become 0.8499999.
+//
+// DisplayOrder is a *int32 whose absence means "append to the end of the catalog", resolved
+// server-side. That derivation is allowed only because display_order is a presentation position no
+// feeding decision reads.
+type createFeedItemRequest struct {
+	FeedItem        string       `json:"feed_item"`
+	EnergyKcalPerKg *json.Number `json:"energy_kcal_per_kg"`
+	DryMatterFactor *json.Number `json:"dry_matter_factor"`
+	WastageFactor   *json.Number `json:"wastage_factor"`
+	DisplayOrder    *int32       `json:"display_order"`
+}
+
+func (h *Handler) CreateFeedItem(w http.ResponseWriter, r *http.Request) {
+	tenantID, ok := h.tenant(w, r)
+	if !ok {
+		return
+	}
+	key, ok := h.idempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var req createFeedItemRequest
+	if !h.decode(w, r, &req, "CreateFeedConfigFeedItemRequest") {
+		return
+	}
+	// Normalized before hashing, like every other write here, so two submissions differing only in
+	// the label's surrounding whitespace are recognised as the same request rather than as two.
+	req.FeedItem = strings.TrimSpace(req.FeedItem)
+
+	fingerprint, err := requestFingerprint(tenantID, createFeedItemCommand, feedItemsRoute, req)
+	if err != nil {
+		h.writeError(w, r, http.StatusBadRequest, "invalid_json", "request body must be valid JSON", err)
+		return
+	}
+	result, err := h.service.CreateFeedItem(r.Context(), feedconfigapp.CreateFeedItemInput{
+		TenantID:           tenantID,
+		ActorRef:           h.actor(r),
+		FeedItemLabel:      req.FeedItem,
+		EnergyKcalPerKg:    numberPtr(req.EnergyKcalPerKg),
+		DryMatterFactor:    numberPtr(req.DryMatterFactor),
+		WastageFactor:      numberPtr(req.WastageFactor),
+		DisplayOrder:       req.DisplayOrder,
+		IdempotencyKey:     key,
+		RequestFingerprint: fingerprint,
+	})
+	if err != nil {
+		h.writeServiceError(w, r, err)
+		return
+	}
+	httpresponse.WriteJSON(w, http.StatusOK, result)
+}
+
 type upsertShedFactorRequest struct {
 	ParkID     string       `json:"park_id"`
 	ShedID     string       `json:"shed_id"`
@@ -454,8 +518,12 @@ func (h *Handler) UpsertScheduleConfig(w http.ResponseWriter, r *http.Request) {
 // pointer so "not recorded" stays distinct from an authored 0. It is INFORMATIONAL: nothing
 // multiplies it into absolute_kg.
 type upsertExperimentRequest struct {
-	ParkID             string       `json:"park_id"`
-	ShedID             string       `json:"shed_id"`
+	ParkID string `json:"park_id"`
+	ShedID string `json:"shed_id"`
+	// PartitionLabel identifies WHICH PEN of the shed is being authored. A partitioned shed holds
+	// one cell per pen, so shed_id + feed_item does not identify a row -- the client echoes back
+	// the partition_label it rendered. Absent means the undivided-shed row.
+	PartitionLabel     string       `json:"partition_label"`
 	FeedItem           string       `json:"feed_item"`
 	AbsoluteKg         *json.Number `json:"absolute_kg"`
 	HeadCount          *int32       `json:"head_count"`
@@ -477,6 +545,7 @@ func (h *Handler) UpsertExperimentConfig(w http.ResponseWriter, r *http.Request)
 	}
 	req.ParkID = strings.TrimSpace(req.ParkID)
 	req.ShedID = strings.TrimSpace(req.ShedID)
+	req.PartitionLabel = strings.TrimSpace(req.PartitionLabel)
 	req.FeedItem = strings.TrimSpace(req.FeedItem)
 	req.ExperimentCategory = strings.TrimSpace(req.ExperimentCategory)
 
@@ -490,6 +559,7 @@ func (h *Handler) UpsertExperimentConfig(w http.ResponseWriter, r *http.Request)
 		ActorRef:           h.actor(r),
 		ParkID:             req.ParkID,
 		ShedID:             req.ShedID,
+		PartitionLabel:     req.PartitionLabel,
 		FeedItemLabel:      req.FeedItem,
 		AbsoluteKg:         numberPtr(req.AbsoluteKg),
 		HeadCount:          req.HeadCount,
@@ -559,11 +629,17 @@ func (h *Handler) SetExperimentShedStatus(w http.ResponseWriter, r *http.Request
 // plumbing
 // ---------------------------------------------------------------------------
 
+// errorEnvelope is the FLAT {code, message} shape declared by ErrorEnvelope in
+// contracts/openapi/app-api.yaml, and the same shape the sibling feed modules emit.
+//
+// It was previously nested as {"error":{"code":…,"message":…}}, which no client could read: the
+// admin-web parser requires top-level `code` and `message` strings and falls back to a generic
+// "Backend service returned 409." when it does not find them. Every backend-authored message on
+// this surface -- the field errors naming which authored value was refused, the duplicate feed-item
+// name, the future-dated-row conflict -- was therefore discarded before it reached the operator,
+// which is precisely what the backend-owns-the-copy rule exists to prevent. The nesting was the
+// outlier, so the shape moved to the contract rather than the parser widening to accept both.
 type errorEnvelope struct {
-	Error errorBody `json:"error"`
-}
-
-type errorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	// Field names the offending input when the failure is a field-level validation error, so the UI
@@ -635,7 +711,7 @@ func (h *Handler) decode(w http.ResponseWriter, r *http.Request, dest any, schem
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, status int, code, message string, cause error) {
-	httpresponse.WriteError(w, r, h.log, status, errorEnvelope{Error: errorBody{Code: code, Message: message}}, cause)
+	httpresponse.WriteError(w, r, h.log, status, errorEnvelope{Code: code, Message: message}, cause)
 }
 
 // writeServiceError maps the module's errors onto status codes.
@@ -652,6 +728,13 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 	case errors.Is(err, ports.ErrFutureDatedRow):
 		h.writeError(w, r, http.StatusConflict, "future_dated_config",
 			"the currently-open configuration row takes effect on a later date; resolve it before editing", nil)
+	case errors.Is(err, ports.ErrFeedItemExists):
+		// 409, not 400 and not a silent success. The author asked to ADD a name the vocabulary
+		// already holds; reporting success would leave them believing there are now two entries when
+		// feed_config_norm makes them one, and every rate keyed on that label resolves to the
+		// original.
+		h.writeError(w, r, http.StatusConflict, "feed_item_exists",
+			"a feed item with this name already exists in this tenant", nil)
 	case errors.Is(err, ports.ErrParkNotFound):
 		h.writeError(w, r, http.StatusNotFound, "park_not_found", "park not found in this tenant", nil)
 	case errors.Is(err, ports.ErrShedNotFound):
@@ -668,9 +751,9 @@ func (h *Handler) writeServiceError(w http.ResponseWriter, r *http.Request, err 
 		// Field errors carry the offending input name so the UI can attach the message to it. This is
 		// the "validate or reject" surface: the author sees WHICH value was refused and why, rather
 		// than a value quietly rewritten to a default they never entered.
-		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, errorEnvelope{Error: errorBody{
+		httpresponse.WriteError(w, r, h.log, http.StatusBadRequest, errorEnvelope{
 			Code: "invalid_field", Message: fieldErr.Error(), Field: fieldErr.Field,
-		}}, nil)
+		}, nil)
 	default:
 		h.writeError(w, r, http.StatusInternalServerError, "internal_error", "internal server error", err)
 	}
