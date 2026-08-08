@@ -211,9 +211,17 @@ interface WeighingObservationDao {
     )
     suspend fun listReadyProofs(limit: Int = READY_PROOF_RECONCILE_LIMIT): List<WeighingIndividualReadyProofRow>
 
+    // Clearing verificationStatus/reworkReason is part of attaching a NEW proof, not a separate
+    // concern. A sent-back animal keeps verificationStatus='rework' and the verifier's reason on
+    // its local row, and the capture screen renders the red "Sent back -- record this animal
+    // again" strip from exactly those two fields. Leaving them set meant that after the operator
+    // re-scanned and recorded the replacement video -- which reached the server correctly, with a
+    // new proof and verification back to pending -- the phone still showed the rejection, telling
+    // him to redo work he had just done. The rejection is history the moment new evidence exists.
     @Query(
         "UPDATE weighing_observation SET proofCaptureId = :proofCaptureId, serverProofId = :serverProofId, " +
-            "idempotencyKey = :idempotencyKey, syncStatus = :syncStatus, lastError = NULL " +
+            "idempotencyKey = :idempotencyKey, syncStatus = :syncStatus, lastError = NULL, " +
+            "verificationStatus = NULL, reworkReason = NULL " +
             "WHERE observationId = :observationId",
     )
     suspend fun attachProof(

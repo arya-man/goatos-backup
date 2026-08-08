@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -166,16 +167,37 @@ class VerifyDetailViewModel @Inject constructor(
     // (ref_type=sop_submission, several clips under one verdict) or any item with no siblings,
     // so a lone item still resolves to a group of exactly itself.
     /**
-     * Flips on the FIRST emission from the observed queue, whatever it contained. The empty state
-     * is a definitive claim, so it must wait for an answer; before that the screen shows a
-     * skeleton instead of flashing "No video attached to this item".
+     * Flips once the observed queue has actually ANSWERED -- i.e. carried data. The empty state is
+     * a definitive claim, so it must wait for an answer; before that the screen shows a skeleton
+     * instead of flashing "No video attached to this item".
+     *
+     * This used to flip on the first emission "whatever it contained", which is the bug: a Resource
+     * in flight carries data = null, and every refresh emits one. So the flag went true on a
+     * NON-answer and stayed true forever after.
      */
     private val _hasLoadedOnce = MutableStateFlow(false)
 
+    /**
+     * The group this screen renders, latched against in-flight emissions.
+     *
+     * `resource.data` is null while a load is in flight, and `.orEmpty()` turned that into an EMPTY
+     * GROUP -- indistinguishable, downstream, from "this item genuinely has no video". Combined with
+     * hasLoadedOnce being true, the screen drew its definitive "No video attached to this item"
+     * state on every single refresh: on open, on each resume (RefreshOnResume re-fetches every time
+     * the screen is shown), and after each verdict. That is the flicker on the weighing proof screen
+     * AND the jittery load -- one cause, reported as two symptoms.
+     *
+     * A load in flight is not an answer, so it does not change what is on screen: the previous group
+     * is held until a resource actually carries data. An answer that genuinely contains no matching
+     * item still yields an empty group, so a real "gone" still renders and still auto-closes.
+     */
     private val observedGroup: StateFlow<List<VerificationQueueItem>> =
         observedQueue
-            .onEach { _hasLoadedOnce.value = true }
-            .map { resource -> resource.data?.items?.filter { it.verificationGroupKey() == itemId }.orEmpty() }
+            .onEach { resource -> if (resource.data != null) _hasLoadedOnce.value = true }
+            .scan(emptyList<VerificationQueueItem>()) { previous, resource ->
+                val answered = resource.data ?: return@scan previous
+                answered.items.filter { it.verificationGroupKey() == itemId }
+            }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<VerifyDetailUiState> = combine(

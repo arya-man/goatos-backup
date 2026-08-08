@@ -2258,7 +2258,31 @@ class WeighingViewModel @Inject constructor(
                 captureVideoForRow(key, existingRow)
                 return@launch
             }
-            val alreadyRecorded = scopeState.value?.individualDrafts.orEmpty().any { draft ->
+            // A SENT-BACK animal is work, not a duplicate.
+            //
+            // The verifier rejecting a weighing proof puts that observation into rework and hands
+            // the shed back to the operator to redo. The local draft still exists and still carries
+            // the tag, so this guard -- which looked only at the tag -- refused the re-scan with
+            // "Already scanned" and left the operator with no way to record the new video. The tag
+            // is genuinely the same animal; that is the point of a re-shoot.
+            //
+            // Same rule vaccination already settled (ExecutionRepository.isServerDone): the STATUS
+            // decides, not the fact that a scan once happened. A rejected capture keeps its history
+            // forever and must never read as done.
+            val drafts = scopeState.value?.individualDrafts.orEmpty()
+            val sentBackDraft = drafts.firstOrNull { draft ->
+                normalizeFreeFlowTag(draft.scannedIdentifier) == normalizedTag &&
+                    draft.verificationStatus == WEIGHING_VERIFICATION_REWORK
+            }
+            if (sentBackDraft != null) {
+                if (!fromTypedEntry) scanInput.value = normalizedTag
+                message.value = null
+                val reworkRow = unknownWeighingRow(key, normalizedTag)
+                selectedRow.value = reworkRow
+                captureVideoForRow(key, reworkRow)
+                return@launch
+            }
+            val alreadyRecorded = drafts.any { draft ->
                 normalizeFreeFlowTag(draft.scannedIdentifier) == normalizedTag
             }
             if (alreadyRecorded || existingRow != null) {
@@ -2306,6 +2330,12 @@ class WeighingViewModel @Inject constructor(
         val row = scannedRows.value.firstOrNull { it.animalId == animalId } ?: return
         proofReplacementAnimalId.value = animalId
         message.value = null
+        // Actually open the camera. Marking the row as awaiting a replacement changed a flag and
+        // nothing else, so Re-upload was an inert button: the operator tapped it, saw no camera and
+        // no message, and had no way to replace a video the verifier had sent back. Recording the
+        // new video IS the action the control names.
+        val key = scopeKey ?: return
+        captureVideoForRow(key, row)
     }
 
     /** Opens the video camera for [row]. Only one animal's video can be RECORDING at a time — the
