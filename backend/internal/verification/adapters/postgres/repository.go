@@ -1330,9 +1330,65 @@ WHERE vc.tenant_id = $1::uuid
 			return nil, ports.ErrConflict
 		}
 	}
+	// LATEST VERDICT PER PROOF, the same rule the ready query's latest_proofs CTE applies. The
+	// items query above deliberately locks EVERY verification_item for the batch, superseded
+	// verdicts included, so a concurrent verdict cannot slip in behind this close. But a superseded
+	// verdict must not BLOCK the close: a rejected -> re-shot -> approved animal keeps its historical
+	// rejected rows forever, and treating them as outstanding work made the read model and the write
+	// path disagree. The ready list offered the drive (it dedupes to the latest verdict) and then
+	// close refused it with "batch has unverified or rejected animals" -- moving the defect from
+	// "button missing" to "button appears and does nothing", which is strictly worse because
+	// leadership cannot tell a broken drive from a broken app. Found in review of 59ba8bac7.
+	//
+	// Ranking mirrors latest_proofs: identity-bearing row first, then newest close, then item_id.
+	// The stamping UPDATE below already filters status='approved', so a superseded rejected row is
+	// still never stamped closed (verification_items_closed_approved_check forbids it).
+	latestVerdictItems := make(map[string]struct{}, len(items))
+	latestRows, err := tx.Query(ctx, `
+-- projection-review: membership=verification_items reachable from this batch's live vaccination_completions via sop_submission_items, the same membership the locking query above uses; group_key=(vc.completion_id, vc.goat_id) -- the proof grain, identical to the ready query's latest_proofs DISTINCT ON; join_cardinality=verification_items is one-to-many per completion (reject -> re-shoot -> approve), which is exactly why this DISTINCT ON exists, and both joined sides (sop_submission_items, vaccination_completions) are keyed 1:1 on (tenant_id, item_id) and (tenant_id, sop_submission_item_id) so neither fans the row set out; pagination=none -- this is a whole-batch close decision, never a page, and it is bounded by the batch's own animal count; scope=batch_id equality only, because a close acts on one batch and inherits that batch's park/shed scope rather than re-deriving it
+SELECT DISTINCT ON (vc.completion_id, vc.goat_id) vi.item_id::text
+FROM verification_items vi
+JOIN sop_submission_items si
+  ON si.tenant_id = vi.tenant_id
+ AND si.submission_id = vi.source_submission_id
+ AND (
+   (vi.source_ref_type = 'sop_submission' AND vi.source_ref_id = si.submission_id)
+   OR (vi.source_ref_type = 'vaccination_goat' AND vi.source_ref_id = si.goat_id)
+ )
+JOIN vaccination_completions vc
+  ON vc.tenant_id = vi.tenant_id
+ AND vc.sop_submission_item_id = si.item_id
+ AND vc.batch_id = $2::uuid
+ AND vc.status IN ('recorded', 'accepted')
+WHERE vi.tenant_id = $1::uuid
+  AND vi.source_submission_id IS NOT NULL
+ORDER BY vc.completion_id, vc.goat_id,
+         (vi.shed_id IS NOT NULL) DESC, vi.closed_at DESC NULLS LAST, vi.item_id DESC`,
+		in.TenantID, in.BatchID)
+	if err != nil {
+		return nil, err
+	}
+	for latestRows.Next() {
+		var itemID string
+		if scanErr := latestRows.Scan(&itemID); scanErr != nil {
+			latestRows.Close()
+			return nil, scanErr
+		}
+		latestVerdictItems[itemID] = struct{}{}
+	}
+	if err := latestRows.Err(); err != nil {
+		latestRows.Close()
+		return nil, err
+	}
+	latestRows.Close()
+
 	allClosed := true
 	blocking := make([]string, 0)
 	for _, item := range items {
+		if _, isLatest := latestVerdictItems[item.ItemID]; !isLatest {
+			// Superseded verdict: history, not outstanding work.
+			continue
+		}
 		if item.Status != domain.StatusApproved {
 			blocking = append(blocking, blockingSubjectLabel(item))
 			continue

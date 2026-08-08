@@ -1259,6 +1259,33 @@ func TestReadyClosureCountsLatestVerdictPerProofAndExcludesSupersededRejections_
 		t.Fatalf("foreign-shed closures=%+v, want none", foreignShed)
 	}
 
+	// THE READ MODEL AND THE WRITE PATH MUST AGREE. Found in review of 59ba8bac7 and reproduced
+	// here before it was fixed: latest_proofs dedupes to the newest verdict, so this drive is
+	// OFFERED, but CloseVaccinationBatch loaded every historical verification_item and blocked on
+	// any non-approved one -- goat A's two superseded rejections. The observed failure was
+	//   "ready list offered batch ... but CloseVaccinationBatch REFUSED it:
+	//    verification: batch has unverified or rejected animals"
+	// which is WORSE than the original defect: the button appears, the director taps it, and
+	// nothing happens, so a broken drive is indistinguishable from a broken app. Offering an
+	// action the write path will refuse is the bug -- assert the two halves agree.
+	if _, err := repo.CloseVaccinationBatch(ctx, domain.CloseVaccinationBatchAction{
+		TenantID: tenantID, BatchID: batchID, ActorID: actorID,
+	}); err != nil {
+		t.Fatalf("the ready list offered batch %s but CloseVaccinationBatch refused it: %v -- the read model and the close path disagree about superseded verdict history", batchID, err)
+	}
+	// The superseded rejections must still NOT be stamped closed: the CHECK constraint
+	// verification_items_closed_approved_check forbids a closed non-approved row, and their history
+	// value is that they stay readable as rejections.
+	var closedRejected int
+	if err := pool.QueryRow(ctx, `
+SELECT count(*) FROM verification_items
+WHERE tenant_id = $1::uuid AND status = 'rejected' AND closed_at IS NOT NULL`, tenantID).Scan(&closedRejected); err != nil {
+		t.Fatalf("count closed rejected items: %v", err)
+	}
+	if closedRejected != 0 {
+		t.Fatalf("closed rejected verification_items = %d, want 0 -- a superseded rejection is skipped for blocking, never stamped closed", closedRejected)
+	}
+
 	// FRAGILITY, recorded deliberately rather than silently relied upon: all three of goat A's
 	// items are unclosed, so the DISTINCT ON ranking ties on `closed_at` and the winner is decided
 	// by `item_id DESC`. This fixture gives the APPROVED item the highest id. In production those
