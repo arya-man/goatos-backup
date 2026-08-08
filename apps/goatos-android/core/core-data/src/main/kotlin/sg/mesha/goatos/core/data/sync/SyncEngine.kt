@@ -653,6 +653,7 @@ class SyncEngine(
             FeedDistributionCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,
@@ -678,6 +679,7 @@ class SyncEngine(
             FeedPackingCompleteRequestDto(
                 parkId = payload.parkId,
                 shedId = payload.shedId,
+                partitionLabel = payload.partitionLabel,
                 sessionNo = payload.sessionNo,
                 targetDate = payload.targetDate,
                 workflow = payload.workflow,

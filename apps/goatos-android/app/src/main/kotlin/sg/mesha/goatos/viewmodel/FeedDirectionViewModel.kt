@@ -283,6 +283,7 @@ class FeedDirectionViewModel @Inject constructor(
         // LOCATION, so Castro 1 and Castro 2 share a shed_id and would otherwise print as two
         // identical "Castro" lines the operator cannot tell apart.
         shedLabel = operationalLocationLabel(shedLabel, partitionLabel),
+        partitionLabel = partitionLabel.orEmpty(),
         shedTag = shedTag,
         breed = breed,
         rationGroup = rationGroup,
@@ -296,7 +297,7 @@ class FeedDirectionViewModel @Inject constructor(
         blocked = blocked,
         overduePending = overduePending,
         // Backend truth OR the optimistic local overlay for a just-completed shed-session.
-        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, sessionNo, workflow)),
+        completed = completed || locallyCompleted.contains(FeedCompletionLocalStore.key(shedId, partitionLabel, sessionNo, workflow)),
         lifecycleStatus = lifecycleStatus,
     )
 

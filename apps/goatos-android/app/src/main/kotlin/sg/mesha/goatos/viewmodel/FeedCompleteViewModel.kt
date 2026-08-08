@@ -67,7 +67,7 @@ class FeedCompleteViewModel @Inject constructor(
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
 
-    private val completionKey = FeedCompletionLocalStore.key(shedId, sessionNo, workflow)
+    private val completionKey = FeedCompletionLocalStore.key(shedId, null, sessionNo, workflow)
 
     private val completeKey = DraftIdempotencyKey(savedStateHandle, KEY_COMPLETE_IDEMPOTENCY, "feed-direction-complete")
     private val proofKey = DraftIdempotencyKey(savedStateHandle, KEY_PROOF_IDEMPOTENCY, "feed-direction-proof")

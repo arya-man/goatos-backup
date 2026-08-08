@@ -317,7 +317,7 @@ func (s *Service) directionStatusMap(ctx context.Context, tenantID, parkID strin
 	}
 	out := make(map[string]string, len(list))
 	for _, d := range list {
-		out[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
+		out[completedKey(d.ShedID, d.PartitionLabel, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
 	}
 	return out, nil
 }
@@ -334,7 +334,7 @@ func (s *Service) packingStatusMap(ctx context.Context, tenantID, parkID string,
 	}
 	out := make(map[string]string, len(list))
 	for _, d := range list {
-		out[completedKey(d.ShedID, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
+		out[completedKey(d.ShedID, d.PartitionLabel, d.SessionNo, d.Workflow)] = domain.NormalizeSessionStatus(d.Status)
 	}
 	return out, nil
 }
@@ -350,7 +350,7 @@ func stampAndFilterDirectionRows(rows []domain.DirectionRow, statusMap map[strin
 		out = make([]domain.DirectionRow, 0, len(rows))
 	}
 	for i := range rows {
-		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow)]
+		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].PartitionLabel, rows[i].SessionNo, rows[i].Workflow)]
 		if bucket == "" {
 			bucket = domain.SessionStatusPending
 		}
@@ -372,7 +372,7 @@ func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]st
 		out = make([]domain.PackingRow, 0, len(rows))
 	}
 	for i := range rows {
-		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].SessionNo, rows[i].Workflow)]
+		bucket := statusMap[completedKey(rows[i].ShedID, rows[i].PartitionLabel, rows[i].SessionNo, rows[i].Workflow)]
 		if bucket == "" {
 			bucket = domain.SessionStatusPending
 		}
@@ -387,8 +387,14 @@ func stampAndFilterPackingRows(rows []domain.PackingRow, statusMap map[string]st
 	return out
 }
 
-func completedKey(shedID string, sessionNo int32, workflow string) string {
-	return shedID + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
+// completedKey is the identity of ONE completion: a shed's PEN, in one session, in one workflow.
+//
+// The pen is not decoration here. It was missing until 2026-08-08, so all three Castro pens shared
+// a single key: submitting the Castro - 1 morning video flipped Castro - 2 and Castro - 3 to "in
+// review" as well, and one clip stood as proof for pens nobody filmed. Normalized via
+// PartitionMatchKey so 'Part 3'/'part 3' are one pen and an undivided shed is a stable 'whole'.
+func completedKey(shedID, partitionLabel string, sessionNo int32, workflow string) string {
+	return shedID + "|" + domain.PartitionMatchKey(partitionLabel) + "|" + strconv.Itoa(int(sessionNo)) + "|" + workflow
 }
 
 // Preview serves one page of feed direction rows for a feed day.

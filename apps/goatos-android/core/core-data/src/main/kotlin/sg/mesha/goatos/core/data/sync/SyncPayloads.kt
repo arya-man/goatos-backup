@@ -248,6 +248,9 @@ data class FeedDirectionCompletePayload(
 data class FeedDistributionCompletePayload(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
+    /** The PEN worked; null for an undivided shed. Defaulted so an outbox row written by an older
+     *  build still decodes — it simply predates per-pen completions. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,
@@ -317,6 +320,9 @@ data class HealthCaseOpenPayload(
 data class FeedPackingCompletePayload(
     @SerialName("park_id") val parkId: String? = null,
     @SerialName("shed_id") val shedId: String,
+    /** The PEN worked; null for an undivided shed. Defaulted so an outbox row written by an older
+     *  build still decodes — it simply predates per-pen completions. */
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("session_no") val sessionNo: Int,
     @SerialName("target_date") val targetDate: String,
     @SerialName("workflow") val workflow: String,

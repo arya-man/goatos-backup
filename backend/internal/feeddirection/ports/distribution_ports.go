@@ -31,6 +31,9 @@ type CompleteDistributionParams struct {
 	TenantID   string
 	ParkID     string
 	ShedID     string
+	// PartitionLabel is the pen this completion covers ("2", "Part 3"); empty for an undivided
+	// shed. Part of the completion's IDENTITY -- see migration 000137 and app.completedKey.
+	PartitionLabel string
 	SessionNo  int32
 	TargetDate time.Time
 	Workflow   string
@@ -76,10 +79,15 @@ type VerifiedDistribution struct {
 // Shared by the distribution and packing status reads. A shed-session with NO completion row is
 // simply absent from the list (the serve path treats absence as pending).
 type SessionCompletionStatus struct {
-	ShedID    string
-	SessionNo int32
-	Workflow  string
-	Status    string
+	ShedID string
+	// PartitionLabel is the pen this completion covers ("2", "Part 3"), empty for an undivided
+	// shed. It is part of the completion's IDENTITY: without it every pen of a shed resolves to
+	// one status, so a video shot in Castro - 1 marked Castro - 2 and Castro - 3 "in review" too
+	// (reported on STG 2026-08-08). See migration 000137.
+	PartitionLabel string
+	SessionNo      int32
+	Workflow       string
+	Status         string
 }
 
 // ApplyDistributionParams flips a distribution completion whose video a verifier APPROVED

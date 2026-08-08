@@ -108,15 +108,15 @@ func (r *Repository) CompletePacking(ctx context.Context, p ports.CompletePackin
 	)
 	err = tx.QueryRow(ctx, `
 INSERT INTO feed_packing_completions (
-  tenant_id, park_id, shed_id, session_no, target_date, workflow, status,
+  tenant_id, park_id, shed_id, partition_label, session_no, target_date, workflow, status,
   packing_proof_ref, completed_by, idempotency_key
 ) VALUES (
-  $1::uuid, $2::uuid, $3::uuid, $4, $5::date, $6, 'pending_verification',
-  $7, nullif($8::text, '')::uuid, $9
+  $1::uuid, $2::uuid, $3::uuid, nullif($4::text, ''), $5, $6::date, $7, 'pending_verification',
+  $8, nullif($9::text, '')::uuid, $10
 )
-ON CONFLICT (tenant_id, park_id, shed_id, session_no, target_date, workflow) DO NOTHING
+ON CONFLICT (tenant_id, park_id, shed_id, partition_key, session_no, target_date, workflow) DO NOTHING
 RETURNING completion_id::text, row_version`,
-		p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
+		p.TenantID, p.ParkID, p.ShedID, p.PartitionLabel, p.SessionNo, targetDate, p.Workflow,
 		packingProof, p.CompletedBy, p.IdempotencyKey).Scan(&completionID, &rowVersion)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -126,8 +126,9 @@ RETURNING completion_id::text, row_version`,
 SELECT completion_id::text, status, row_version
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
-  AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
-			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow).
+  AND partition_key = $7 AND session_no = $4 AND target_date = $5::date AND workflow = $6`,
+			p.TenantID, p.ParkID, p.ShedID, p.SessionNo, targetDate, p.Workflow,
+			domain.PartitionMatchKey(p.PartitionLabel)).
 			Scan(&completionID, &existingStatus, &rowVersion); err != nil {
 			return ports.CompletePackingResult{}, fmt.Errorf("feeddirection: read existing packing completion: %w", err)
 		}
@@ -240,7 +241,7 @@ func (r *Repository) ListPackingSessionStatuses(ctx context.Context, tenantID, p
 
 	// scale-guard:ignore: bounded read of ONE park-day's packing shed-session statuses, covered by feed_packing_completions_serving_idx (tenant_id, park_id, target_date, workflow). Bounded by the park's shed catalog x sessions (physical infrastructure), never by herd size; binds are cast, indexed columns stay bare.
 	rows, err := r.pool.Query(ctx, `
-SELECT shed_id::text, session_no, workflow, status
+SELECT shed_id::text, coalesce(partition_label, ''), session_no, workflow, status
 FROM feed_packing_completions
 WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 		tenantID, parkID, targetDate.Format("2006-01-02"))
@@ -251,7 +252,7 @@ WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND target_date = $3::date`,
 	out := make([]ports.SessionCompletionStatus, 0)
 	for rows.Next() {
 		var d ports.SessionCompletionStatus
-		if err := rows.Scan(&d.ShedID, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
+		if err := rows.Scan(&d.ShedID, &d.PartitionLabel, &d.SessionNo, &d.Workflow, &d.Status); err != nil {
 			return nil, fmt.Errorf("feeddirection: scan packing session status: %w", err)
 		}
 		out = append(out, d)

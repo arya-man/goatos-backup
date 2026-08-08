@@ -70,6 +70,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
     private val targetDate: String = savedStateHandle.get<String>(ARG_TARGET_DATE).orEmpty()
     private val shedLabel: String = savedStateHandle.get<String>(ARG_SHED_LABEL).orEmpty()
     private val sessionLabel: String = savedStateHandle.get<String>(ARG_SESSION_LABEL).orEmpty()
+    private val partitionLabel: String = savedStateHandle.get<String>(ARG_PARTITION_LABEL).orEmpty()
 
     // The shed-session partitions ordering for BOTH the proof AND the completion, so the proof
     // drains strictly before the gated completion that references it.
@@ -206,6 +207,7 @@ class FeedPackingCompleteViewModel @Inject constructor(
                     idempotencyKey = completeIdempotencyKey,
                     parkId = parkId,
                     shedId = shedId,
+                    partitionLabel = partitionLabel,
                     sessionNo = sessionNo,
                     targetDate = targetDate,
                     workflow = workflow,
@@ -275,6 +277,10 @@ class FeedPackingCompleteViewModel @Inject constructor(
         const val ARG_TARGET_DATE = "target_date"
         const val ARG_SHED_LABEL = "shed_label"
         const val ARG_SESSION_LABEL = "session_label"
+
+        /** The PEN worked. Part of the completion's identity: without it one pen's video closed
+         *  out every pen of the shed (STG 2026-08-08). */
+        const val ARG_PARTITION_LABEL = "partition_label"
 
         /** Draft step name in the shared capture-draft store. */
         private const val STEP_VIDEO = "video"

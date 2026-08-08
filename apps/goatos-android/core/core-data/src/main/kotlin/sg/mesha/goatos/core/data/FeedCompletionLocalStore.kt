@@ -75,7 +75,16 @@ class FeedCompletionLocalStore {
          * CURRENT BUSINESS DAY. The date is part of the key (not an argument) so every caller —
          * writer and reader — is day-scoped without change.
          */
-        fun key(shedId: String, sessionNo: Int, workflow: String): String =
-            listOf(businessDate(), shedId, sessionNo.toString(), workflow).joinToString("|")
+        /** The optimistic key must carry the PEN for the same reason the backend's natural key
+         *  does: Castro 1 and Castro 2 share a shed_id, so a shed-only key made one pen's submit
+         *  grey out every pen of that shed on the spot (STG 2026-08-08). */
+        fun key(shedId: String, partitionLabel: String?, sessionNo: Int, workflow: String): String =
+            listOf(
+                businessDate(),
+                shedId,
+                partitionLabel?.trim().orEmpty().lowercase().ifBlank { "whole" },
+                sessionNo.toString(),
+                workflow,
+            ).joinToString("|")
     }
 }

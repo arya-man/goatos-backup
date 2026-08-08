@@ -46,6 +46,9 @@ data class FeedPackingRowUi(
     val shedId: String,
     val sessionNo: Int,
     val shedLabel: String,
+    /** The PEN, "" for an undivided shed. Carried separately from the composed [shedLabel]
+     *  because the completion needs the raw pen, not the display string. */
+    val partitionLabel: String,
     val sessionLabel: String,
     val workflow: String,
     val experimentArm: String,
@@ -120,6 +123,7 @@ sealed interface FeedPackingEvent {
         val sessionNo: Int,
         val workflow: String,
         val shedLabel: String,
+        val partitionLabel: String,
         val sessionLabel: String,
     ) : FeedPackingEvent
     data object ClearFilters : FeedPackingEvent
@@ -199,6 +203,7 @@ fun FeedPackingScreen(
                                 sessionNo = row.sessionNo,
                                 workflow = row.workflow,
                                 shedLabel = row.shedLabel,
+                                partitionLabel = row.partitionLabel,
                                 sessionLabel = row.sessionLabel,
                             ),
                         )
