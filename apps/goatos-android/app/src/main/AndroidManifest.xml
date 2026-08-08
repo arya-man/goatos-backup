@@ -12,6 +12,16 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Proof video sound. Until 2026-08-08 the in-app recorder produced SILENT clips — not
+         muted, no audio track at all (344 in-app STG proofs had `soun`=0/`mp4a`=0, while the 17
+         gallery-imported ones carried AAC because the phone's own camera app recorded them). A
+         verifier reviewing a proof clip needs what the operator says on it, so audio is now
+         mandatory on the in-app recorder (InAppVideoRecorder.withAudioEnabled) and the mic sits
+         in the blocking capture-permission set (CaptureAccessGate.kt). Audio on a
+         gallery-imported video stays OPTIONAL (maintainer decision 2026-08-08) — nothing on the
+         upload path validates for an audio track. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Obligation/escalation alert notifications rendered from FCM
          (docs/mobile/trd-operator-mobile.md §8), AND the MOB-002 background upload progress
          notification (docs/mobile/proof-capture-sync-and-e2e.md §3, UploadForegroundService).

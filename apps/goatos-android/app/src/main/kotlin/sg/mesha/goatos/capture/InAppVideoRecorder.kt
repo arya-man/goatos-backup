@@ -1,6 +1,8 @@
 package sg.mesha.goatos.capture
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
@@ -109,11 +111,21 @@ fun InAppVideoRecorderOverlay(
         val output = FileOutputOptions.Builder(file).build()
         cancelled = false
         startedAtMs = System.currentTimeMillis()
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            file.delete()
+            deliver(null)
+            return
+        }
         activeRecording = capture.output
             .prepareRecording(context, output)
-            // No audio: RECORD_AUDIO is not part of the mandatory capture-permission set.
+            // Audio is MANDATORY on every in-app proof clip: a verifier reviewing the video needs
+            // what the operator says over it. Without this call CameraX writes a container with no
+            // audio track at all (not muted — absent), which is how 344 silent STG proofs shipped.
+            // RECORD_AUDIO is therefore part of the blocking capture-permission set
+            // (CaptureAccessGate.kt), so the mic is already granted by the time this runs.
             // The camera writes directly to app-private storage, so no storage permission
             // or gallery/file-picker surface is needed.
+            .withAudioEnabled()
             .start(ContextCompat.getMainExecutor(context)) { event ->
                 if (event is VideoRecordEvent.Finalize) {
                     isRecording = false
