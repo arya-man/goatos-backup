@@ -4559,8 +4559,8 @@ paths:
         undivided shed. The legacy path name is retained for compatibility.
         Withdrawal is a status flip rather than a delete, so the authored quantities survive and a
         pen can be restored without re-keying them. A pen with no authored rows at all is 404: there
-        is no experiment configuration to switch, and a caller wanting to enrol one authors its first
-        quantity through POST /feed-config/experiment instead.
+        is no experiment configuration to switch, and a caller wanting to enrol one submits its
+        complete item set through POST /feed-config/experiment/batch instead.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -8897,10 +8897,10 @@ components:
         experiment_arm:
           type: string
           description: >-
-            The trial group a hand-authored experiment shed is enrolled in (`Sheep M NEW`); empty on
+            The trial group a hand-authored experiment pen is enrolled in (`Sheep M NEW`); empty on
             every normal row. A SEPARATE field from `shed_tag` because the two are different facts:
             a tag is the animals' management stage and selects the ration course, an arm is which
-            trial the shed is in and selects nothing, since the quantity is hand-entered. Mirrors
+            trial the pen is in and selects nothing, since the quantity is hand-entered. Mirrors
             the `Experiment arm` column Feed Config shows over the same authored value.
         session_no:
           type: integer
@@ -8916,14 +8916,14 @@ components:
           type: boolean
           description: >-
             True when `head_count` did NOT drive the quantity, i.e. the `experiment` workflow, whose
-            authored kg is already a shed total. Multiplying by head count there would overfeed the
-            shed by a factor of its whole population, so this flag exists to stop exactly that.
+            authored kg is already a pen total. Multiplying by head count there would overfeed the
+            pen by a factor of its whole population, so this flag exists to stop exactly that.
         workflow:
           type: string
           enum: [normal, experiment]
           description: >-
             Which quantity strategy produced the row. `normal` resolves from the ration grid;
-            `experiment` uses hand-authored absolute kg per shed.
+            `experiment` uses hand-authored absolute kg per pen (an undivided shed is one pen).
         items:
           type: array
           items:
@@ -9244,7 +9244,7 @@ components:
         experiment_arm:
           type: string
           description: >-
-            The trial group of a hand-authored experiment shed, empty on normal lines. Carried here
+            The trial group of a hand-authored experiment pen, empty on normal lines. Carried here
             as well as on the direction row so a packer knows which trial a bag belongs to without
             cross-referencing the direction sheet. Never a shed tag.
         head_count:
@@ -9254,8 +9254,9 @@ components:
         items:
           type: array
           description: >-
-            SHED-level expected quantity per feed item, with the ration grains already summed,
-            because a packer fills one bag per item per shed. The same blocked-vs-zero contract as
+            Operational-pen expected quantity per feed item, with the ration grains already summed
+            within that pen (an undivided shed is one pen), because a packer fills one bag per item
+            per operational location. The same blocked-vs-zero contract as
             the preview applies: a blocked item has `quantity_kg: null`.
           items:
             $ref: "#/components/schemas/FeedDirectionItemQuantity"
@@ -9944,8 +9945,8 @@ components:
           nullable: true
           description: >-
             WHICH PEN is being authored. Part of the row's identity -- omitting it on a partitioned
-            shed writes the shed-wide row instead of the pen, creating a phantom whole-shed row
-            beside the real pens. Absent means an undivided shed.
+            shed is rejected rather than creating a phantom whole-shed row. Absent means an
+            undivided shed.
         experiment_category:
           type: string
           minLength: 1
@@ -10088,7 +10089,7 @@ components:
           minLength: 1
           description: >-
             The experiment arm. REQUIRED rather than defaulted because it is what the direction sheet
-            prints in the shed-tag column for an experiment shed -- the operator's only cue that these
+            prints in the shed-tag column for an experiment pen -- the operator's only cue that these
             numbers are hand-entered rather than computed.
     SetFeedConfigExperimentShedStatusRequest:
       type: object
