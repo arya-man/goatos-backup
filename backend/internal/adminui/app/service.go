@@ -2640,7 +2640,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"action.restore_experiment_shed":       "Return this pen to the experiment",
 			"action.experiment_saved":              "Saved. This pen is fed the absolute kg authored here; its head count is not multiplied in.",
 			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
-			"reason.experiment_blank_is_not_zero":  "Leave the kg blank only if you do not intend to author this item for this shed. To feed none of it, enter an explicit 0. A cleared field is not zero.",
+			"reason.experiment_blank_is_not_zero":  "Leave the kg blank only if you do not intend to author this item for this pen. To feed none of it, enter an explicit 0. A cleared field is not zero.",
 			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the shed's other pens are untouched.",
 			"empty.experiment":                     "No experiment pens authored for this park. Every operational pen in it is fed from the ration grid above.",
 			"empty.experiment_filtered":            "No experiment pens match these filters.",

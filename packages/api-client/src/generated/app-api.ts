@@ -3568,7 +3568,7 @@ export interface components {
             experiment_arm: string;
             /**
              * Format: int64
-             * @description The shed's projected head count, summed across its ration grains.
+             * @description The operational pen's projected or informational head count. An undivided shed is its single pen; never interpret a partitioned row as the building-wide count.
              */
             head_count: number;
             /** @description Operational-pen expected quantity per feed item, with the ration grains already summed within that pen (an undivided shed is one pen), because a packer fills one bag per item per operational location. The same blocked-vs-zero contract as the preview applies: a blocked item has `quantity_kg: null`. */
