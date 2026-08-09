@@ -347,6 +347,11 @@ export function MeshaShell({
       const nextUrl = new URL(anchor.href, window.location.href);
       if (nextUrl.origin !== window.location.origin) return;
       if (nextUrl.pathname === window.location.pathname && nextUrl.search === window.location.search) return;
+      // Same-page query updates drive local controls such as filters, tabs, and pagers. They already
+      // keep the old page visible while the RSC payload swaps in, so the global route-busy affordance
+      // reads as a stuck full-page navigation when the payload finishes before React reports a route
+      // change. Reserve it for actual path changes.
+      if (nextUrl.pathname === window.location.pathname) return;
       startRoutePending(anchor);
       if (anchor.closest(".navback")) return;
 
