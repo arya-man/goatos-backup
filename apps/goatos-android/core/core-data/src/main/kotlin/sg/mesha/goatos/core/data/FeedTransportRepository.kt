@@ -18,10 +18,11 @@ data class FeedTransportQuery(
     val businessDate: String,
     val parkId: String = "",
     val shedId: String = "",
+    val partitionLabel: String = "",
     val status: String = "",
 ) {
     internal val scopeKey: String
-        get() = listOf(businessDate, parkId, shedId, status).joinToString("|")
+        get() = listOf(businessDate, parkId, shedId, partitionLabel, status).joinToString("|")
 }
 
 class FeedTransportRepository(
@@ -76,6 +77,7 @@ class FeedTransportRepository(
             businessDate = query.businessDate,
             parkId = query.parkId.takeIf { it.isNotBlank() },
             shedId = query.shedId.takeIf { it.isNotBlank() },
+            partitionLabel = query.partitionLabel.takeIf { it.isNotBlank() },
             status = query.status.takeIf { it.isNotBlank() },
             cursor = cursor,
             limit = PAGE_SIZE,

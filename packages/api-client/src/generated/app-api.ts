@@ -3737,6 +3737,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             label: string;
+            partition_label?: string;
         };
         FeedTransportFilterOptions: {
             parks: components["schemas"]["FeedTransportFilterOption"][];
@@ -11811,6 +11812,8 @@ export interface operations {
                 park_id?: string;
                 /** @description Optional physical-shed filter; must remain shed-grain and never imply a feed session. */
                 shed_id?: string;
+                /** @description Optional operational partition filter within the selected shed. */
+                partition_label?: string;
                 /** @description Optional verification-lifecycle filter. */
                 status?: "due" | "verification_due" | "rework" | "completed";
                 cursor?: string;

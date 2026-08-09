@@ -26,7 +26,7 @@ type FeedTransportTask struct {
 }
 
 type FeedTransportFilterOption struct {
-	ID, Label string
+	ID, Label, PartitionLabel string
 }
 
 type FeedTransportFilterOptions struct {
@@ -40,9 +40,9 @@ type FeedTransportTaskPage struct {
 }
 
 type ListTransportTasksParams struct {
-	TenantID, ActorID, ParkID, ShedID, Status, Cursor string
-	Day                                               time.Time
-	Limit                                             int
+	TenantID, ActorID, ParkID, ShedID, PartitionLabel, Status, Cursor string
+	Day                                                               time.Time
+	Limit                                                             int
 }
 
 type MaterializeTransportParams struct {

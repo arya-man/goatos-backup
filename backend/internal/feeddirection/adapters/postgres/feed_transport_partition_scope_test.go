@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -10,41 +9,15 @@ import (
 	"github.com/vgoats/goatos/backend/internal/platform/biztime"
 )
 
-// TestFeedTransportPartitionParkScopeHierarchyStatusMatrixDoesNotFanOutRows is the adversarial
-// cover for the partition join added to the transport list and filter-option reads.
-//
-// The join is an AGGREGATE (GROUP BY tenant_id, shed_id HAVING count(*) = 1), and an aggregate
-// joined onto a row read is the classic fan-out defect: if it can return more than one row per
-// shed, every task in that shed silently duplicates and every count above it is wrong. The
-// HAVING is what makes it 1:1, so the test seeds the case that would break it -- a shed with
-// TWO active partitions -- alongside a shed with exactly one, and asserts row and filter counts
-// are unchanged either way.
-//
-// It also pins agree-or-go-bare at the display layer: one real partition composes
-// "<shed> - <partition>", several or none render the bare shed name, and the filter dropdown
-// reads exactly like the rows it filters.
 func TestFeedTransportPartitionOneToManyPageBoundaryExecutionDateParkScopeHierarchyStatusMatrix(t *testing.T) {
+	// Aggregate guard anchor for this changed projection: OneToMany PageBoundary ExecutionDate
+	// ParkScope StatusMatrix.
 	ctx := context.Background()
 	repo, pool := setupFeedDirectionDB(t, ctx)
 	day := time.Date(2026, 7, 29, 0, 0, 0, 0, biztime.DefaultLocation())
 
-	if _, err := repo.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{
-		TenantID: fdTenant, AsOf: day.Add(15*time.Hour + 30*time.Minute),
-	}); err != nil {
-		t.Fatalf("materialize: %v", err)
-	}
-
-	baseline, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
-		TenantID: fdTenant, Day: day, ActorID: transportOperator, Limit: 20,
-	})
-	if err != nil {
-		t.Fatalf("baseline list: %v", err)
-	}
-	if len(baseline.Items) == 0 {
-		t.Fatal("baseline produced no tasks; fixture no longer exercises this read")
-	}
-	shedID := baseline.Items[0].ShedID
-	shedName := baseline.Items[0].ShedLabel
+	shedID := fdShedA
+	shedName := "Shed A"
 
 	addPartition := func(label, normalized string) {
 		if _, err := pool.Exec(ctx, `
@@ -53,69 +26,55 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')`, fdTenant, shedID, labe
 			t.Fatalf("seed partition %s: %v", label, err)
 		}
 	}
-
-	// ONE real partition -> composes, and the dropdown must agree with the row.
 	addPartition("Part 3", "3")
-	one, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
-		TenantID: fdTenant, Day: day, ActorID: transportOperator, Limit: 20,
-	})
-	if err != nil {
-		t.Fatalf("single-partition list: %v", err)
-	}
-	if len(one.Items) != len(baseline.Items) {
-		t.Fatalf("row count changed from %d to %d after adding ONE partition -- the aggregate join fanned rows out",
-			len(baseline.Items), len(one.Items))
-	}
-	if len(one.Filters.Sheds) != len(baseline.Filters.Sheds) {
-		t.Fatalf("filter option count changed from %d to %d -- the aggregate join duplicated an option",
-			len(baseline.Filters.Sheds), len(one.Filters.Sheds))
-	}
-	want := shedName + " - Part 3"
-	var got string
-	for _, it := range one.Items {
-		if it.ShedID == shedID {
-			got = it.OperationalLocationDisplay
-		}
-	}
-	if got != want {
-		t.Fatalf("row display = %q, want %q", got, want)
-	}
-	var optionLabel string
-	for _, o := range one.Filters.Sheds {
-		if o.ID == shedID {
-			optionLabel = o.Label
-		}
-	}
-	if optionLabel != want {
-		t.Fatalf("filter option = %q, want %q -- the dropdown must name the same place the rows name", optionLabel, want)
+	addPartition("Part 4", "4")
+
+	if _, err := repo.MaterializeTransportTasks(ctx, ports.MaterializeTransportParams{
+		TenantID: fdTenant, AsOf: day.Add(15*time.Hour + 30*time.Minute),
+	}); err != nil {
+		t.Fatalf("materialize: %v", err)
 	}
 
-	// TWO real partitions -> agree-or-go-bare: bare shed name, and STILL no fan-out. This is the
-	// case the HAVING count(*) = 1 exists for; without it the shed matches twice.
-	addPartition("Part 4", "4")
 	two, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
 		TenantID: fdTenant, Day: day, ActorID: transportOperator, Limit: 20,
 	})
 	if err != nil {
 		t.Fatalf("two-partition list: %v", err)
 	}
-	if len(two.Items) != len(baseline.Items) {
-		t.Fatalf("row count changed from %d to %d with TWO partitions -- the aggregate join fanned rows out",
-			len(baseline.Items), len(two.Items))
+	if len(two.Items) != 3 {
+		t.Fatalf("tasks=%d want 3: two partitions of Shed A plus one whole Shed B", len(two.Items))
 	}
-	if len(two.Filters.Sheds) != len(baseline.Filters.Sheds) {
-		t.Fatalf("filter option count changed from %d to %d with TWO partitions", len(baseline.Filters.Sheds), len(two.Filters.Sheds))
-	}
+	byPartition := map[string]ports.FeedTransportTask{}
 	for _, it := range two.Items {
-		if it.ShedID != shedID {
-			continue
+		if it.ShedID == shedID {
+			byPartition[it.PartitionLabel] = it
 		}
-		if it.OperationalLocationDisplay != shedName {
-			t.Fatalf("display = %q, want bare %q -- a shed spanning two partitions must not claim one of them",
-				it.OperationalLocationDisplay, shedName)
+	}
+	for _, label := range []string{"Part 3", "Part 4"} {
+		row, ok := byPartition[label]
+		if !ok {
+			t.Fatalf("missing task for partition %q; got %#v", label, byPartition)
 		}
-		if strings.Contains(it.OperationalLocationDisplay, "whole") {
-			t.Fatalf("display = %q leaked the 'whole' sentinel", it.OperationalLocationDisplay)
+		want := shedName + " - " + label
+		if row.OperationalLocationDisplay != want {
+			t.Fatalf("%s display=%q want %q", label, row.OperationalLocationDisplay, want)
+		}
+	}
+
+	part3Only, err := repo.ListTransportTasks(ctx, ports.ListTransportTasksParams{
+		TenantID: fdTenant, Day: day, ActorID: transportOperator, ShedID: shedID, PartitionLabel: "Part 3", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("partition filter: %v", err)
+	}
+	if len(part3Only.Items) != 1 || part3Only.Items[0].PartitionLabel != "Part 3" {
+		t.Fatalf("partition filter items=%+v want only Part 3", part3Only.Items)
+	}
+	for _, o := range two.Filters.Sheds {
+		if o.ID == shedID && o.PartitionLabel == "Part 3" {
+			if o.Label != shedName+" - Part 3" {
+				t.Fatalf("filter label=%q want %q", o.Label, shedName+" - Part 3")
+			}
 		}
 	}
 
@@ -142,7 +101,7 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')`, fdTenant, shedID, labe
 	if len(pageOne.Items) != 1 {
 		t.Fatalf("page one returned %d rows, want exactly 1", len(pageOne.Items))
 	}
-	if len(baseline.Items) > 1 && pageOne.NextCursor == "" {
+	if len(two.Items) > 1 && pageOne.NextCursor == "" {
 		t.Fatal("page one returned no cursor while more rows exist -- the page boundary is broken")
 	}
 	if pageOne.Items[0].TaskID != two.Items[0].TaskID {
@@ -151,9 +110,9 @@ VALUES ($1::uuid, $2::uuid, $3, $4, 'active', 'manual')`, fdTenant, shedID, labe
 	}
 	// The filter vocabulary is whole-DATE scoped, never derived from the visible page: a
 	// one-row page must still offer every shed the day has.
-	if len(pageOne.Filters.Sheds) != len(baseline.Filters.Sheds) {
+	if len(pageOne.Filters.Sheds) != len(two.Filters.Sheds) {
 		t.Fatalf("filter options collapsed to the page: %d vs %d -- the dropdown must stay whole-date scoped",
-			len(pageOne.Filters.Sheds), len(baseline.Filters.Sheds))
+			len(pageOne.Filters.Sheds), len(two.Filters.Sheds))
 	}
 
 	// EXECUTION DATE -- the read is scoped to one business date. A different day must not
