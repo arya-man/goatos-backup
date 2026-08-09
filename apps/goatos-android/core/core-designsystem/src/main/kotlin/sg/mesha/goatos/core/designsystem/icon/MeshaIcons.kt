@@ -289,9 +289,9 @@ object MeshaIcons {
         "weights" -> BarChart
         "videos" -> Video
         "close" -> Video
-        "feed_direction" -> Feed
-        "feed_packing" -> Package
-        "feed_transport" -> Truck
+        "feed_direction", "direction" -> Feed
+        "feed_packing", "packing" -> Package
+        "feed_transport", "transport" -> Truck
         // Milk vertical: the drawer row reuses the preparation can, its two destinations keep
         // their own glyphs.
         "milk", "milk_preparation" -> MilkPreparation
