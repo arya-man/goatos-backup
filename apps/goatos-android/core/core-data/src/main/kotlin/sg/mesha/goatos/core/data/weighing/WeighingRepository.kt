@@ -152,6 +152,7 @@ data class WeighingTaskShed(
     val campaignShedId: String,
     val locationId: String,
     val displayName: String,
+    val partitionLabel: String? = null,
     val category: String,
     val operatorUserId: String,
     /**
@@ -324,6 +325,7 @@ data class WeighingPlannerPark(
 data class WeighingPlannerShed(
     val locationId: String,
     val name: String,
+    val partitionLabel: String? = null,
     val kidCount: Int,
     val category: String = "per_shed_partition",
     val operatorUserId: String = "",
@@ -1572,6 +1574,7 @@ class DefaultWeighingRepository(
                             WeighingPlannerShedRowEntity(
                                 queryKey = queryKey,
                                 locationId = shed.locationId,
+                                partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
                                 parkId = parkId,
                                 parkName = "",
                                 sortIndex = startIndex + offset,
@@ -1634,6 +1637,7 @@ class DefaultWeighingRepository(
                         WeighingPlannerShedRowEntity(
                             queryKey = queryKey,
                             locationId = shed.locationId,
+                            partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
                             parkId = parkId,
                             parkName = "",
                             sortIndex = startIndex + offset,
@@ -1692,6 +1696,7 @@ class DefaultWeighingRepository(
                         WeighingPlannerShedRowEntity(
                             queryKey = queryKey,
                             locationId = shed.locationId,
+                            partitionKey = shed.partitionLabel.normalizedWeighingPartitionKey(),
                             parkId = parkId,
                             parkName = "",
                             sortIndex = startIndex + offset,
@@ -1797,7 +1802,7 @@ class DefaultWeighingRepository(
         if (draft.sheds.isEmpty()) return@withContext AppResult.Err("Select at least one kid shed.")
         runCatching {
             val createIdem = "weighing:create:${draft.periodStartDate}:${draft.parkId}:" +
-                weighingBucketSetDigest(draft.sheds.map { it.locationId })
+                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.partitionLabel.normalizedWeighingPartitionKey()}" })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -1815,7 +1820,7 @@ class DefaultWeighingRepository(
             // The key names the WORK, not the attempt: the same date, park and bucket set is the
             // same task, so a retry after a dropped response cannot create a second one.
             val createIdem = "weighing:create:${draft.startBusinessDate}:${draft.parkId}:" +
-                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.category}:${it.operatorUserId}" })
+                weighingBucketSetDigest(draft.sheds.map { "${it.locationId}:${it.partitionLabel.normalizedWeighingPartitionKey()}:${it.category}:${it.operatorUserId}" })
             val created = client.createWeighingCampaign(
                 idempotencyKey = createIdem,
                 request = draft.toCreateRequest(),
@@ -2483,7 +2488,8 @@ private fun String.toEpochMillisOrNow(): Long =
 private fun WeighingPlannerShedDto.toPlannerShed(): WeighingPlannerShed =
     WeighingPlannerShed(
         locationId = locationId,
-        name = name,
+        name = operationalLocationDisplay.ifBlank { name },
+        partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
         kidCount = kidCount,
         scheduled = scheduled,
         scheduledStatus = scheduledStatus,
@@ -2566,7 +2572,8 @@ private fun WeighingCampaignShedDto.toTaskShed(): WeighingTaskShed =
     WeighingTaskShed(
         campaignShedId = campaignShedId,
         locationId = locationId,
-        displayName = displayName,
+        displayName = operationalLocationDisplay.ifBlank { displayName },
+        partitionLabel = partitionLabel?.takeIf { it.isNotBlank() },
         category = weighingCategory,
         operatorUserId = operatorUserId,
         operatorDisplayName = operatorDisplayName,
@@ -2633,6 +2640,7 @@ private fun WeighingPlanDraft.toCreateRequest(): WeighingCreateCampaignRequestDt
                 locationId = it.locationId,
                 locationType = "shed",
                 displayName = it.name,
+                partitionLabel = it.partitionLabel,
                 weighingCategory = it.category,
                 operatorUserId = it.operatorUserId.ifBlank { operatorUserId },
             )
@@ -2659,7 +2667,8 @@ private fun WeighingCampaignDto.toTask(): WeighingTask =
                 WeighingTaskShed(
                     campaignShedId = shed.campaignShedId,
                     locationId = shed.locationId,
-                    displayName = shed.displayName,
+                    displayName = shed.operationalLocationDisplay.ifBlank { shed.displayName },
+                    partitionLabel = shed.partitionLabel?.takeIf { it.isNotBlank() },
                     category = shed.weighingCategory,
                     operatorUserId = shed.operatorUserId.ifBlank { operatorUserId },
                     status = shed.status,
@@ -2746,6 +2755,9 @@ internal fun weighingBucketSetDigest(buckets: List<String>): String {
     val digest = java.security.MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray())
     return digest.joinToString("") { "%02x".format(it) }
 }
+
+private fun String?.normalizedWeighingPartitionKey(): String =
+    this?.trim()?.lowercase().orEmpty()
 
 fun individualIdempotencyKey(
     campaignId: String,

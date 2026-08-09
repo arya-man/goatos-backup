@@ -304,6 +304,7 @@ data class WeighingCreateCampaignShedDto(
     @SerialName("location_id") val locationId: String,
     @SerialName("location_type") val locationType: String,
     @SerialName("display_name") val displayName: String,
+    @SerialName("partition_label") val partitionLabel: String? = null,
     @SerialName("weighing_category") val weighingCategory: String,
     @SerialName("operator_user_id") val operatorUserId: String? = null,
 )

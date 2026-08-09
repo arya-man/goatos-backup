@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"strings"
+
 	"github.com/vgoats/goatos/backend/internal/platform/oploc"
 	"github.com/vgoats/goatos/backend/internal/weighing/domain"
 )
@@ -42,6 +44,20 @@ func applyShedPartitionDisplay(shed *domain.CampaignShed) {
 	}.Display()
 }
 
+func applyShedPartitionDisplayWithStoredLabel(shed *domain.CampaignShed, storedPartitionLabel string) {
+	applyShedPartitionDisplay(shed)
+	partition := strings.TrimSpace(storedPartitionLabel)
+	if partition == "" {
+		return
+	}
+	shed.PartitionLabel = partition
+	shed.OperationalLocationDisplay = oploc.OperationalLocation{
+		ShedID:         shed.LocationID,
+		ShedName:       shed.ParentShedName,
+		PartitionLabel: partition,
+	}.Display()
+}
+
 // applyPlannerShedPartitionDisplay is the PlannerShed twin of applyShedPartitionDisplay.
 func applyPlannerShedPartitionDisplay(shed *domain.PlannerShed) {
 	parent, partition := splitShedPartitionName(shed.Name)
@@ -51,6 +67,27 @@ func applyPlannerShedPartitionDisplay(shed *domain.PlannerShed) {
 		ShedID:         shed.LocationID,
 		ShedName:       parent,
 		PartitionLabel: partition,
+	}.Display()
+}
+
+func applyPlannerShedOperationalDisplay(shed *domain.PlannerShed) {
+	parent := strings.TrimSpace(shed.ParentShedName)
+	if parent == "" {
+		parent = strings.TrimSpace(shed.Name)
+	}
+	partition := strings.TrimSpace(shed.PartitionLabel)
+	display := operationalLocationDisplay(shed.LocationID, parent, partition)
+	shed.ParentShedName = parent
+	shed.PartitionLabel = partition
+	shed.Name = display
+	shed.OperationalLocationDisplay = display
+}
+
+func operationalLocationDisplay(shedID, shedName, partitionLabel string) string {
+	return oploc.OperationalLocation{
+		ShedID:         strings.TrimSpace(shedID),
+		ShedName:       strings.TrimSpace(shedName),
+		PartitionLabel: strings.TrimSpace(partitionLabel),
 	}.Display()
 }
 

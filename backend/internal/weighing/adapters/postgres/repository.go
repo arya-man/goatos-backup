@@ -99,6 +99,9 @@ func (r *Repository) CreateCampaign(ctx context.Context, cmd domain.CreateCampai
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
+	if cmd.Sheds, err = r.hydrateCreateCampaignShedPartitions(ctx, tx, cmd.TenantID, cmd.Sheds); err != nil {
+		return domain.Campaign{}, err
+	}
 	fingerprint := idempotencyFingerprint(cmd)
 	if existing, ok, err := r.campaignByIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint); err != nil || ok {
 		return existing, err
@@ -128,7 +131,7 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 	// DUPLICATE WORK BLOCK: one open weighing row per (park, weigh date, shed).
 	// Checked before any bucket is written so the whole create fails as one unit
 	// with the conflicting bucket names, rather than half-writing a task.
-	if conflicts, err := r.shedScheduleConflicts(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.StartBusinessDate, c.CampaignID, createCampaignLocationIDs(cmd.Sheds)); err != nil {
+	if conflicts, err := r.shedScheduleConflicts(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.StartBusinessDate, c.CampaignID, cmd.Sheds); err != nil {
 		return domain.Campaign{}, err
 	} else if len(conflicts) > 0 {
 		return domain.Campaign{}, shedScheduleConflictError(cmd.StartBusinessDate, conflicts)
@@ -148,21 +151,22 @@ RETURNING campaign_id::text, tenant_id::text, park_id::text, period_start_date::
 		// honestly store.
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is written once during campaign setup
 			`
-INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
+INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, partition_label, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, NULLIF(BTRIM($6::text), ''), $7, $8::uuid, 0,
     -- TASK IDENTITY, denormalized from the campaign so the one-open-row-per
     -- (park, weigh date, shed) unique index can exist at all. Every write path
     -- must set these; migration 000062 fails loudly if one forgets.
-    $8::uuid, $9::date)
-RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_count, $6, $7::text, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
+    $9::uuid, $10::date)
+RETURNING campaign_shed_id::text, $1::text, $3::text, $4, $5, expected_animal_count, $7, $8::text, 'pending'`, c.CampaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.PartitionLabel, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.OperatorUserID, &cs.Status)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, c.CampaignID, shed.LocationID).
+			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent insert race */, `SELECT campaign_shed_id::text, campaign_id::text, location_id::text, location_type, display_name, expected_animal_count, weighing_category, operator_user_id::text, status FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid AND COALESCE(partition_label, '') = COALESCE(NULLIF(BTRIM($4::text), ''), '')`, cmd.TenantID, c.CampaignID, shed.LocationID, shed.PartitionLabel).
 				Scan(&cs.CampaignShedID, &cs.CampaignID, &cs.LocationID, &cs.LocationType, &cs.DisplayName, &cs.ExpectedAnimalCount, &cs.WeighingCategory, &cs.OperatorUserID, &cs.Status)
 		}
 		if err != nil {
 			return domain.Campaign{}, mapShedUniqueViolation(err, cmd.StartBusinessDate, shed.DisplayName)
 		}
+		applyShedPartitionDisplayWithStoredLabel(&cs, shed.PartitionLabel)
 		c.Sheds = append(c.Sheds, cs)
 	}
 	if err := r.recordIdempotency(ctx, tx, cmd.TenantID, "weighing.campaign_created", cmd.IdempotencyKey, fingerprint, "weighing_campaign", c.CampaignID, c); err != nil {
@@ -240,6 +244,9 @@ func (r *Repository) UpdateCampaign(ctx context.Context, campaignID string, cmd 
 		return domain.Campaign{}, err
 	}
 	defer tx.Rollback(ctx)
+	if cmd.Sheds, err = r.hydrateCreateCampaignShedPartitions(ctx, tx, cmd.TenantID, cmd.Sheds); err != nil {
+		return domain.Campaign{}, err
+	}
 	fingerprint := idempotencyFingerprint(struct {
 		CampaignID string
 		Command    domain.UpdateCampaign
@@ -299,9 +306,9 @@ WHERE weighing_campaigns.tenant_id=$1::uuid
 	if tag.RowsAffected() == 0 {
 		return domain.Campaign{}, ports.ErrImmutable
 	}
-	selectedLocationIDs := make([]string, 0, len(cmd.Sheds))
+	selectedOperationalKeys := make([]string, 0, len(cmd.Sheds))
 	for _, shed := range cmd.Sheds {
-		selectedLocationIDs = append(selectedLocationIDs, shed.LocationID)
+		selectedOperationalKeys = append(selectedOperationalKeys, createCampaignShedOperationalKey(shed))
 	}
 	if _, err := tx.Exec(ctx, `
 UPDATE weighing_campaign_sheds
@@ -312,12 +319,12 @@ SET status='canceled', updated_at=now()
 WHERE weighing_campaign_sheds.tenant_id=$1::uuid
   AND campaign_id=$2::uuid
   AND status NOT IN ('completed', 'closed', 'canceled')
-  AND NOT (location_id = ANY($3::uuid[]))`, cmd.TenantID, campaignID, selectedLocationIDs); err != nil {
+  AND NOT (location_id::text || '#' || COALESCE(partition_label, '') = ANY($3::text[]))`, cmd.TenantID, campaignID, selectedOperationalKeys); err != nil {
 		return domain.Campaign{}, err
 	}
 	// DUPLICATE WORK BLOCK, same rule as create. This campaign is excluded from the
 	// check: re-saving a shed the task already owns is not a duplicate.
-	if conflicts, err := r.shedScheduleConflicts(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.StartBusinessDate, campaignID, createCampaignLocationIDs(cmd.Sheds)); err != nil {
+	if conflicts, err := r.shedScheduleConflicts(ctx, tx, cmd.TenantID, cmd.ParkID, cmd.StartBusinessDate, campaignID, cmd.Sheds); err != nil {
 		return domain.Campaign{}, err
 	} else if len(conflicts) > 0 {
 		return domain.Campaign{}, shedScheduleConflictError(cmd.StartBusinessDate, conflicts)
@@ -332,8 +339,8 @@ WHERE weighing_campaign_sheds.tenant_id=$1::uuid
 		// scale-guard:ignore: bounded planner shed list; one single-row unique-key lookup per selected bucket, same grain as the upsert it precedes
 		if err := tx.QueryRow(ctx, `
 SELECT status FROM weighing_campaign_sheds
-WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`,
-			cmd.TenantID, campaignID, shed.LocationID).Scan(&priorStatus); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid AND COALESCE(partition_label, '') = COALESCE(NULLIF(BTRIM($4::text), ''), '')`,
+			cmd.TenantID, campaignID, shed.LocationID, shed.PartitionLabel).Scan(&priorStatus); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return domain.Campaign{}, err
 		}
 		operatorID := weighingShedOperatorID(cmd.OperatorUserID, shed)
@@ -342,18 +349,19 @@ WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`,
 		// (expected_animal_count is written 0 = no expectation, same as create).
 		err = tx.QueryRow(ctx, // scale-guard:ignore: bounded planner shed list; each selected bucket is upserted once during campaign edit
 			`
-INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
-VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::uuid, 0,
+INSERT INTO weighing_campaign_sheds (campaign_id, tenant_id, location_id, location_type, display_name, partition_label, weighing_category, operator_user_id, expected_animal_count, park_id, start_business_date)
+VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, NULLIF(BTRIM($6::text), ''), $7, $8::uuid, 0,
     -- TASK IDENTITY, re-stated on every edit: an edit that moved the task's park
     -- or weigh date must move its buckets with it, or the duplicate guard would
     -- keep defending the OLD slot and stop defending the new one.
-    $8::uuid, $9::date)
-ON CONFLICT (tenant_id, campaign_id, location_id)
+    $9::uuid, $10::date)
+ON CONFLICT (tenant_id, campaign_id, location_id, COALESCE(partition_label, ''))
 DO UPDATE SET
   park_id=EXCLUDED.park_id,
   start_business_date=EXCLUDED.start_business_date,
   location_type=EXCLUDED.location_type,
   display_name=EXCLUDED.display_name,
+  partition_label=EXCLUDED.partition_label,
   weighing_category=EXCLUDED.weighing_category,
   operator_user_id=EXCLUDED.operator_user_id,
   expected_animal_count=EXCLUDED.expected_animal_count,
@@ -363,10 +371,10 @@ DO UPDATE SET
 -- deselected must revive it, which is exactly what the CASE above does. Excluding
 -- canceled here made that CASE unreachable, so a re-added shed stayed canceled.
 WHERE weighing_campaign_sheds.status NOT IN ('completed','closed')
-RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
+RETURNING campaign_shed_id::text`, campaignID, cmd.TenantID, shed.LocationID, shed.LocationType, shed.DisplayName, shed.PartitionLabel, shed.WeighingCategory, operatorID, cmd.ParkID, cmd.StartBusinessDate).
 			Scan(&campaignShedID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent upsert race */, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid`, cmd.TenantID, campaignID, shed.LocationID).Scan(&campaignShedID)
+			err = tx.QueryRow(ctx /* scale-guard:ignore: bounded planner shed fallback lookup after idempotent upsert race */, `SELECT campaign_shed_id::text FROM weighing_campaign_sheds WHERE tenant_id=$1::uuid AND campaign_id=$2::uuid AND location_id=$3::uuid AND COALESCE(partition_label, '') = COALESCE(NULLIF(BTRIM($4::text), ''), '')`, cmd.TenantID, campaignID, shed.LocationID, shed.PartitionLabel).Scan(&campaignShedID)
 		}
 		if err != nil {
 			return domain.Campaign{}, mapShedUniqueViolation(err, cmd.StartBusinessDate, shed.DisplayName)
@@ -1002,18 +1010,18 @@ func (r *Repository) PlannerParkBuckets(ctx context.Context, tenantID, parkID, p
 	}
 	// projection-review: membership=the active sheds of ONE park, decorated with (a) that shed's
 	// alive-kid count and (b) the open weighing claim on ONE weigh date; group_key=shed
-	// location_id; join_cardinality=taken is pre-aggregated to EXACTLY ONE row per (tenant_id,
-	// location_id) before the join and the kid count is a per-row LATERAL aggregate, so neither
-	// can multiply shed rows; pagination=KEYSET on (display_order, name, location_id) within the
+	// location_id + partition_label; join_cardinality=taken is pre-aggregated to EXACTLY ONE row per
+	// (tenant_id, location_id, partition_label) before the join and the kid count is a per-row LATERAL aggregate, so neither
+	// can multiply shed rows; pagination=KEYSET on (display_order, operational name, location_id) within the
 	// park with a ~20 default page; scope=tenant_id, one park_id, and the single requested
 	// business date.
 	//
 	// Grain proof (taken):
 	//   producer weighing_campaign_sheds unique per open claim: guaranteed 1 row per
-	//     (tenant_id, park_id, start_business_date, location_id) by uq_weighing_open_shed_per_park_date
-	//     (migration 000062). The DISTINCT ON is belt-and-braces for the excluded-campaign case and
+	//     (tenant_id, park_id, start_business_date, location_id, partition_label) by the open-task
+	//     unique index. The DISTINCT ON is belt-and-braces for the excluded-campaign case and
 	//     for the window before that index exists in an old database.
-	//   consumer shed row              match: (taken.tenant_id, taken.location_id) = (shed.tenant_id, shed.location_id)
+	//   consumer bucket row            match: tenant + location_id + normalized partition key
 	//   => 0..1 taken rows per shed row. LEFT JOIN, never a fan-out.
 	//   The taken set is narrowed to THIS park, so it is an index scan over just this park's open
 	//   buckets for that day, evaluated ONCE for the page.
@@ -1024,15 +1032,19 @@ func (r *Repository) PlannerParkBuckets(ctx context.Context, tenantID, parkID, p
 	//   goats_current_location_lifecycle_idx (current_location_id, lifecycle_status). It replaces
 	//   a GROUP BY over every goat of the tenant, which was computed in full to decorate ~20 rows.
 	//
-	// Ordering is served by locations_tenant_parent_status_idx
-	// (tenant_id, parent_location_id, status, display_order, name, location_id): the three
-	// equality columns first, then exactly this keyset tuple in this order, so the LIMIT stops the
-	// index walk and no Sort node is needed.
+	// projection-review: membership=active physical sheds in the requested park expanded to active
+	// shed_partitions when present, otherwise the parent shed itself; group_key=(location_id,
+	// partition_label); join_cardinality=shed_partitions is a bounded 1:N catalog expansion and
+	// taken is pre-deduped to one open campaign row per operational shed key before the join;
+	// pagination=keyset over parent shed order/name plus partition order/key inside one requested
+	// park; scope=tenant_id + requested park_id + requested start date, excluding canceled/closed/
+	// completed taken rows.
 	rows, err := r.pool.Query(ctx, `
 WITH taken AS (
-  SELECT DISTINCT ON (cs.tenant_id, cs.location_id)
+  SELECT DISTINCT ON (cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, ''))
     cs.tenant_id,
     cs.location_id,
+    COALESCE(cs.partition_label, '') AS partition_key,
     cs.campaign_id::text AS campaign_id,
     cs.status,
     cs.operator_user_id::text AS operator_user_id,
@@ -1054,32 +1066,56 @@ WITH taken AS (
     AND cs.start_business_date=$3::date
     AND cs.status NOT IN ('canceled', 'closed', 'completed')
     AND ($4::uuid IS NULL OR cs.campaign_id <> $4::uuid)
-  ORDER BY cs.tenant_id, cs.location_id, cs.created_at, cs.campaign_shed_id
+  ORDER BY cs.tenant_id, cs.location_id, COALESCE(cs.partition_label, ''), cs.created_at, cs.campaign_shed_id
+),
+bucket_catalog AS (
+  SELECT
+    shed.tenant_id,
+    shed.location_id,
+    shed.display_order,
+    shed.name AS parent_shed_name,
+    NULLIF(BTRIM(sp.partition_label), '') AS partition_label,
+    COALESCE(sp.display_order, 2147483647) AS partition_order,
+    COALESCE(sp.normalized_label, '') AS partition_key
+  FROM locations shed
+  LEFT JOIN shed_partitions sp
+    ON sp.tenant_id=shed.tenant_id
+   AND sp.shed_id=shed.location_id
+   AND sp.status='active'
+   AND COALESCE(NULLIF(BTRIM(sp.partition_label), ''), 'whole') <> 'whole'
+  WHERE shed.tenant_id=$1::uuid
+    AND shed.parent_location_id=$2::uuid
+    AND shed.location_type='shed'
+    AND shed.status='active'
+    AND shed.retired_at IS NULL
 )
 SELECT
-  shed.display_order,
-  shed.name,
-  shed.location_id::text,
+  bucket.display_order,
+  bucket.parent_shed_name,
+  bucket.location_id::text,
+  bucket.parent_shed_name,
+  bucket.partition_label,
+  bucket.partition_order,
+  bucket.partition_key,
   taken.campaign_id,
   taken.status,
   taken.operator_user_id,
   taken.operator_display_name,
   taken.weighing_category
-FROM locations shed
-LEFT JOIN taken ON taken.tenant_id=shed.tenant_id AND taken.location_id=shed.location_id
-WHERE shed.tenant_id=$1::uuid
-  AND shed.parent_location_id=$2::uuid
-  AND shed.location_type='shed'
-  AND shed.status='active'
-  AND shed.retired_at IS NULL
+FROM bucket_catalog bucket
+LEFT JOIN taken
+  ON taken.tenant_id=bucket.tenant_id
+ AND taken.location_id=bucket.location_id
+ AND taken.partition_key=COALESCE(bucket.partition_label, '')
+WHERE true
   AND (
     $5::int IS NULL
-    OR (shed.display_order, shed.name, shed.location_id) > ($5::int, $6::text, $7::uuid)
+    OR (bucket.display_order, bucket.parent_shed_name, bucket.partition_order, bucket.partition_key, bucket.location_id) > ($5::int, $6::text, $7::int, $8::text, $9::uuid)
   )
-ORDER BY shed.display_order, shed.name, shed.location_id
-LIMIT $8`,
+ORDER BY bucket.display_order, bucket.parent_shed_name, bucket.partition_order, bucket.partition_key, bucket.location_id
+LIMIT $10`,
 		tenantID, parkID, periodStartDate, nullableString(strings.TrimSpace(excludeCampaignID)),
-		cur.orderArg(), cur.nameArg(), cur.idArg(),
+		cur.orderArg(), cur.nameArg(), cur.partitionOrderArg(), cur.partitionKeyArg(), cur.idArg(),
 		limit+1)
 	if err != nil {
 		return domain.PlannerParkBuckets{}, err
@@ -1091,8 +1127,11 @@ LIMIT $8`,
 		var shed domain.PlannerShed
 		var sort plannerBucketCursor
 		var takenCampaignID, takenStatus, takenOperatorID, takenOperatorName, takenCategory *string
+		var parentShedName, partitionLabel *string
 		if err := rows.Scan(
 			&sort.ShedOrder, &sort.ShedName, &shed.LocationID,
+			&parentShedName, &partitionLabel,
+			&sort.PartitionOrder, &sort.PartitionKey,
 			&takenCampaignID, &takenStatus, &takenOperatorID, &takenOperatorName, &takenCategory,
 		); err != nil {
 			return domain.PlannerParkBuckets{}, err
@@ -1100,13 +1139,15 @@ LIMIT $8`,
 		sort.ShedID = shed.LocationID
 		sort.Set = true
 		shed.Name = sort.ShedName
+		shed.ParentShedName = deref(parentShedName)
+		shed.PartitionLabel = deref(partitionLabel)
+		applyPlannerShedOperationalDisplay(&shed)
 		shed.Scheduled = takenCampaignID != nil
 		shed.ScheduledCampaignID = deref(takenCampaignID)
 		shed.ScheduledStatus = deref(takenStatus)
 		shed.ScheduledOperatorUserID = deref(takenOperatorID)
 		shed.ScheduledOperatorDisplayName = deref(takenOperatorName)
 		shed.ScheduledWeighingCategory = deref(takenCategory)
-		applyPlannerShedPartitionDisplay(&shed)
 		out.Sheds = append(out.Sheds, shed)
 		sorts = append(sorts, sort)
 	}
@@ -2938,9 +2979,13 @@ func (r *Repository) timeout(ctx context.Context) (context.Context, context.Canc
 // still impossible is two people owing the same shed on the same date.
 // Served by uq_weighing_open_shed_per_park_date (tenant_id, park_id,
 // start_business_date, location_id).
-func (r *Repository) shedScheduleConflicts(ctx context.Context, tx pgx.Tx, tenantID, parkID, weighDate, excludeCampaignID string, locationIDs []string) ([]string, error) {
-	if len(locationIDs) == 0 {
+func (r *Repository) shedScheduleConflicts(ctx context.Context, tx pgx.Tx, tenantID, parkID, weighDate, excludeCampaignID string, sheds []domain.CreateCampaignShed) ([]string, error) {
+	if len(sheds) == 0 {
 		return nil, nil
+	}
+	operationalKeys := make([]string, 0, len(sheds))
+	for _, shed := range sheds {
+		operationalKeys = append(operationalKeys, createCampaignShedOperationalKey(shed))
 	}
 	rows, err := tx.Query(ctx, `
 SELECT DISTINCT cs.display_name
@@ -2948,10 +2993,10 @@ FROM weighing_campaign_sheds cs
 WHERE cs.tenant_id=$1::uuid
   AND cs.park_id=$2::uuid
   AND cs.start_business_date=$3::date
-  AND cs.location_id = ANY($4::uuid[])
+  AND cs.location_id::text || '#' || COALESCE(cs.partition_label, '') = ANY($4::text[])
   AND cs.status NOT IN ('canceled', 'closed', 'completed')
   AND ($5::uuid IS NULL OR cs.campaign_id <> $5::uuid)
-ORDER BY cs.display_name`, tenantID, parkID, weighDate, locationIDs, nullableString(strings.TrimSpace(excludeCampaignID)))
+ORDER BY cs.display_name`, tenantID, parkID, weighDate, operationalKeys, nullableString(strings.TrimSpace(excludeCampaignID)))
 	if err != nil {
 		return nil, err
 	}
@@ -2968,7 +3013,7 @@ ORDER BY cs.display_name`, tenantID, parkID, weighDate, locationIDs, nullableStr
 }
 
 // campaignScheduleConflicts is the publish-time re-check: are THIS campaign's own
-// open buckets still the only claim on their (park, weigh date, shed) slots?
+// open buckets still the only claim on their (park, weigh date, shed, partition) slots?
 //
 // Publishing is the moment the work becomes an operator's, so it re-asks even
 // though creation already checked -- a sibling task could have taken the slot in
@@ -2982,6 +3027,7 @@ JOIN weighing_campaign_sheds other
  AND other.park_id=mine.park_id
  AND other.start_business_date=mine.start_business_date
  AND other.location_id=mine.location_id
+ AND COALESCE(other.partition_label, '')=COALESCE(mine.partition_label, '')
  AND other.campaign_id <> mine.campaign_id
  AND other.status NOT IN ('canceled', 'closed', 'completed')
 WHERE mine.tenant_id=$1::uuid
@@ -3034,9 +3080,9 @@ func shedScheduleConflictError(weighDate string, sheds []string) error {
 //
 // Two shed-grain unique indexes land here:
 //
-//   - uq_weighing_open_shed_per_park_date - scheduling: this shed is already
-//     somebody's work on that date. weighDate/displayName name the blocked bucket
-//     for the planner's inline 409 and only apply to this case.
+//   - uq_weighing_open_shed_partition_per_park_date - scheduling: this operational
+//     shed bucket is already somebody's work on that date. weighDate/displayName name
+//     the blocked bucket for the planner's inline 409 and only apply to this case.
 //   - weighing_shed_observations_one_open_scope_uidx (pre-000067:
 //     weighing_shed_observations_one_active_scope_uidx) - submission: this bucket
 //     already holds its one OPEN lump-sum submission. The write path serializes this
@@ -3054,7 +3100,8 @@ func mapShedUniqueViolation(err error, weighDate, displayName string) error {
 	// back to it. Dropping either name would turn the race into a 500 exactly
 	// when the schema is mid-migration.
 	case "uq_weighing_open_shed_per_park_date_v2",
-		"uq_weighing_open_shed_per_park_date":
+		"uq_weighing_open_shed_per_park_date",
+		"uq_weighing_open_shed_partition_per_park_date":
 		return shedScheduleConflictError(weighDate, []string{displayName})
 	case "weighing_shed_observations_one_active_scope_uidx",
 		"weighing_shed_observations_one_open_scope_uidx":
@@ -3107,12 +3154,148 @@ func mapObservationUniqueViolation(err error) error {
 	return err
 }
 
-func createCampaignLocationIDs(sheds []domain.CreateCampaignShed) []string {
-	ids := make([]string, 0, len(sheds))
+func createCampaignShedOperationalKey(shed domain.CreateCampaignShed) string {
+	return shed.LocationID + "#" + strings.TrimSpace(shed.PartitionLabel)
+}
+
+func (r *Repository) hydrateCreateCampaignShedPartitions(ctx context.Context, tx pgx.Tx, tenantID string, sheds []domain.CreateCampaignShed) ([]domain.CreateCampaignShed, error) {
+	locationIDs := make([]string, 0, len(sheds))
 	for _, shed := range sheds {
-		ids = append(ids, shed.LocationID)
+		locationIDs = append(locationIDs, shed.LocationID)
 	}
-	return ids
+	if len(locationIDs) == 0 {
+		return sheds, nil
+	}
+	rows, err := tx.Query(ctx, `
+WITH requested AS (
+  SELECT unnest($2::uuid[]) AS requested_location_id
+),
+parent_options AS (
+  SELECT
+    r.requested_location_id::text,
+    parent.location_id::text AS canonical_location_id,
+    parent.name AS parent_shed_name,
+    sp.partition_label,
+    true AS partitioned
+  FROM requested r
+  JOIN locations parent
+    ON parent.tenant_id=$1::uuid
+   AND parent.location_id=r.requested_location_id
+  JOIN shed_partitions sp
+    ON sp.tenant_id=parent.tenant_id
+   AND sp.shed_id=parent.location_id
+   AND sp.status='active'
+),
+alias_options AS (
+  SELECT
+    r.requested_location_id::text,
+    parent.location_id::text AS canonical_location_id,
+    parent.name AS parent_shed_name,
+    sp.partition_label,
+    true AS partitioned
+  FROM requested r
+  JOIN locations alias
+    ON alias.tenant_id=$1::uuid
+   AND alias.location_id=r.requested_location_id
+  JOIN locations parent
+    ON parent.tenant_id=alias.tenant_id
+   AND parent.parent_location_id=alias.parent_location_id
+   AND parent.location_type='shed'
+   AND parent.status='active'
+   AND parent.retired_at IS NULL
+  JOIN shed_partitions sp
+    ON sp.tenant_id=parent.tenant_id
+   AND sp.shed_id=parent.location_id
+   AND sp.status='active'
+),
+unpartitioned AS (
+  SELECT
+    r.requested_location_id::text,
+    shed.location_id::text AS canonical_location_id,
+    shed.name AS parent_shed_name,
+    NULL::text AS partition_label,
+    false AS partitioned
+  FROM requested r
+  JOIN locations shed
+    ON shed.tenant_id=$1::uuid
+   AND shed.location_id=r.requested_location_id
+  WHERE NOT EXISTS (
+    SELECT 1 FROM shed_partitions sp
+    WHERE sp.tenant_id=shed.tenant_id
+      AND sp.shed_id=shed.location_id
+      AND sp.status='active'
+  )
+)
+SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
+FROM parent_options
+UNION ALL
+SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
+FROM alias_options
+UNION ALL
+SELECT requested_location_id, canonical_location_id, parent_shed_name, partition_label, partitioned
+FROM unpartitioned`, tenantID, locationIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type partitionOption struct {
+		canonicalLocationID string
+		shedName            string
+		label               string
+		partitioned         bool
+	}
+	byLocation := map[string][]partitionOption{}
+	for rows.Next() {
+		var locationID, canonicalLocationID, shedName string
+		var label *string
+		var partitioned bool
+		if err := rows.Scan(&locationID, &canonicalLocationID, &shedName, &label, &partitioned); err != nil {
+			return nil, err
+		}
+		byLocation[locationID] = append(byLocation[locationID], partitionOption{
+			canonicalLocationID: canonicalLocationID,
+			shedName:            shedName,
+			label:               strings.TrimSpace(deref(label)),
+			partitioned:         partitioned,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := append([]domain.CreateCampaignShed(nil), sheds...)
+	for i := range out {
+		requestedLabel := strings.TrimSpace(out[i].PartitionLabel)
+		displayName := strings.TrimSpace(out[i].DisplayName)
+		options := byLocation[out[i].LocationID]
+		if len(options) == 0 {
+			continue
+		}
+		if len(options) == 1 && !options[0].partitioned {
+			out[i].LocationID = options[0].canonicalLocationID
+			out[i].DisplayName = options[0].shedName
+			out[i].PartitionLabel = ""
+			continue
+		}
+		var matched *partitionOption
+		for j := range options {
+			option := options[j]
+			if requestedLabel != "" && strings.EqualFold(requestedLabel, option.label) {
+				matched = &options[j]
+				break
+			}
+			if requestedLabel == "" && strings.EqualFold(displayName, operationalLocationDisplay(option.canonicalLocationID, option.shedName, option.label)) {
+				matched = &options[j]
+				break
+			}
+		}
+		if matched == nil {
+			return nil, ports.ErrInvalidArgument
+		}
+		out[i].LocationID = matched.canonicalLocationID
+		out[i].DisplayName = operationalLocationDisplay(matched.canonicalLocationID, matched.shedName, matched.label)
+		out[i].PartitionLabel = matched.label
+	}
+	return out, nil
 }
 
 func weighingShedOperatorID(defaultOperatorID string, shed domain.CreateCampaignShed) string {
@@ -3151,7 +3334,7 @@ func (r *Repository) getCampaignTx(ctx context.Context, tx pgx.Tx, tenantID, cam
 	// selected the name at all, so admin-web always fell back to its
 	// "Roster gap (operator not found)" placeholder for every assigned shed.
 	rows, err := tx.Query(ctx, `
-SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
@@ -3164,12 +3347,13 @@ ORDER BY cs.display_name`, tenantID, campaignID)
 	defer rows.Close()
 	for rows.Next() {
 		var shed domain.CampaignShed
+		var partitionLabel string
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			return domain.Campaign{}, err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
-		applyShedPartitionDisplay(&shed)
+		applyShedPartitionDisplayWithStoredLabel(&shed, partitionLabel)
 		c.Sheds = append(c.Sheds, shed)
 	}
 	completedAnimals, completedScopes, wrongShed, missing, err := r.progressStats(ctx, tx, tenantID, campaignID)
@@ -3193,7 +3377,7 @@ func (r *Repository) hydrateCampaigns(ctx context.Context, tenantID string, ids 
 	// ListCampaignSheds' join, not inventing a second way to resolve an
 	// operator's display name.
 	rows, err := r.pool.Query(ctx, `
-SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
+SELECT cs.campaign_shed_id::text, cs.campaign_id::text, cs.location_id::text, cs.location_type, cs.display_name, COALESCE(cs.partition_label, ''), cs.expected_animal_count, cs.weighing_category, cs.operator_user_id::text, COALESCE(op.display_name, ''), cs.status,
   `+readyToCloseCountsSQL+`
 FROM weighing_campaign_sheds cs
 LEFT JOIN workforce_members op
@@ -3207,13 +3391,14 @@ ORDER BY cs.campaign_id, cs.display_name`, tenantID, ids, nullableString(operato
 	}
 	for rows.Next() {
 		var shed domain.CampaignShed
+		var partitionLabel string
 		var submitted int
-		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
+		if err := rows.Scan(&shed.CampaignShedID, &shed.CampaignID, &shed.LocationID, &shed.LocationType, &shed.DisplayName, &partitionLabel, &shed.ExpectedAnimalCount, &shed.WeighingCategory, &shed.OperatorUserID, &shed.OperatorDisplayName, &shed.Status, &shed.ClosureKind, &submitted, &shed.PendingVerificationCount, &shed.ReworkCount, &shed.VerifiedCount, &shed.AnimalsWeighedCount, &shed.AnimalsSubmittedCount); err != nil {
 			rows.Close()
 			return err
 		}
 		shed.ReadyToClose = shed.Status == domain.StatusCompleted && submitted > 0 && shed.PendingVerificationCount == 0
-		applyShedPartitionDisplay(&shed)
+		applyShedPartitionDisplayWithStoredLabel(&shed, partitionLabel)
 		if idx, ok := byID[shed.CampaignID]; ok {
 			campaigns[idx].Sheds = append(campaigns[idx].Sheds, shed)
 		}
@@ -3897,19 +4082,21 @@ func decodeObservationsCursor(value string) (observationsCursor, error) {
 	return cursor, nil
 }
 
-// plannerBucketCursor is the keyset over the sheds of ONE park, ordered by
-// (display_order, name, location_id). It is a WITHIN-PARK cursor: the park is a
-// separate request argument, so a page can never wander into another park the
-// way the old flattened park+shed cursor did.
+// plannerBucketCursor is the keyset over the operational sheds of ONE park, ordered by
+// (display_order, parent_shed_name, partition_order, partition_key, location_id). It is a
+// WITHIN-PARK cursor: the park is a separate request argument, so a page can never wander into
+// another park the way the old flattened park+shed cursor did.
 //
 // Set distinguishes "no cursor, start at the beginning" from a real cursor whose
 // first component happens to be 0 -- display_order defaults to 0, so a
 // nil-if-zero encoding would silently restart the scan on the second page.
 type plannerBucketCursor struct {
-	Set       bool   `json:"-"`
-	ShedOrder int    `json:"shed_order"`
-	ShedName  string `json:"shed_name"`
-	ShedID    string `json:"shed_id"`
+	Set            bool   `json:"-"`
+	ShedOrder      int    `json:"shed_order"`
+	ShedName       string `json:"shed_name"`
+	PartitionOrder int    `json:"partition_order"`
+	PartitionKey   string `json:"partition_key"`
+	ShedID         string `json:"shed_id"`
 }
 
 func (c plannerBucketCursor) orderArg() any {
@@ -3924,6 +4111,20 @@ func (c plannerBucketCursor) nameArg() any {
 		return nil
 	}
 	return c.ShedName
+}
+
+func (c plannerBucketCursor) partitionOrderArg() any {
+	if !c.Set {
+		return nil
+	}
+	return c.PartitionOrder
+}
+
+func (c plannerBucketCursor) partitionKeyArg() any {
+	if !c.Set {
+		return nil
+	}
+	return c.PartitionKey
 }
 
 func (c plannerBucketCursor) idArg() any {

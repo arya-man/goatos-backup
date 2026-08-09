@@ -758,6 +758,7 @@ type CreateCampaignShed struct {
 	LocationID       string `json:"location_id"`
 	LocationType     string `json:"location_type"`
 	DisplayName      string `json:"display_name"`
+	PartitionLabel   string `json:"partition_label,omitempty"`
 	WeighingCategory string `json:"weighing_category"`
 	OperatorUserID   string `json:"operator_user_id,omitempty"`
 }
