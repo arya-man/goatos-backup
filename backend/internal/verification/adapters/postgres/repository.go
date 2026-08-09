@@ -889,6 +889,7 @@ const vaccinationProofCategory = "vaccination_proof"
 func (r *Repository) ListReadyVaccinationBatchClosures(ctx context.Context, params ports.ListQueueParams) ([]domain.VaccinationBatchClosure, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
+	filterShedID, filterPartition := splitShedFilter(params.ShedID)
 	rows, err := r.pool.Query(ctx, `
 WITH batch_scope AS (
   SELECT vda.batch_id, vda.park_id, vda.shed_id
@@ -1012,6 +1013,10 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+    AND (
+      $10 = ''
+      OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10
+    )
   UNION ALL
   -- The archived counterpart of the branch above: an animal whose clip was sent back still has
   -- its verification item, and the drive must keep seeing it as a rejected video. Without this
@@ -1059,6 +1064,10 @@ proofs AS (
     AND (NOT $5::boolean OR vi.park_id = ANY($6::uuid[]))
     AND ($8 = '' OR vi.park_id = $8::uuid)
     AND ($9 = '' OR vi.shed_id = $9::uuid)
+    AND (
+      $10 = ''
+      OR regexp_replace(lower(btrim(COALESCE(vi.partition_label, 'whole'))), '^part[[:space:]]+', '') = $10
+    )
   UNION ALL
   -- Accepted completions whose verification item the OpenOnly filter above removed (it drops
   -- anything with closed_at set). They must still count toward readiness, but they must NOT be
@@ -1233,7 +1242,7 @@ WHERE proof_count = completion_count
 ORDER BY batch_id
 LIMIT 20`,
 		params.TenantID, params.Category, params.Vertical, params.Module,
-		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, params.ShedID)
+		params.ScopeRestricted, params.ParkIDs, params.OpenOnly, params.ParkID, filterShedID, filterPartition)
 	if err != nil {
 		return nil, err
 	}

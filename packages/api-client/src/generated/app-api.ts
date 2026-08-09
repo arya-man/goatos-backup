@@ -4307,6 +4307,8 @@ export interface components {
             /** Format: uuid */
             sop_version_id: string;
             idempotency_key: string;
+            /** @description Raw partition label for a partition-scoped shed submission. Omit for unpartitioned sheds. */
+            partition_label?: string;
             answers: {
                 [key: string]: unknown;
             };
@@ -5901,6 +5903,12 @@ export interface components {
             targetCount: number;
             /** @description Distinct vaccine-dose obligations assigned to this executable operator day. */
             doseCount: number;
+            /** @description Per-business-day execution totals for completed or in-progress drives. */
+            operatorDays?: {
+                date: string;
+                targetCount: number;
+                doseCount: number;
+            }[];
             /** @description Whole physical sheds assigned to this executable operator day. */
             shedNames: string[];
             /** @description Location IDs of the physical sheds assigned to this executable operator day. */
@@ -5927,6 +5935,10 @@ export interface components {
             shedId: string;
             /** @description A display label, not an identity. See shedId. */
             shedName: string;
+            /** @description Raw stored partition label for shedId. Omitted for unpartitioned sheds. */
+            partition_label?: string;
+            /** @description Backend-owned display label for shed plus partition. */
+            operational_location_display?: string;
             /** @description The shed's park, carried so two same-named sheds in different parks can be told apart on screen. Clients should show it whenever a shed name is not unique in the payload. */
             parkName?: string;
             vaccineCode: string;

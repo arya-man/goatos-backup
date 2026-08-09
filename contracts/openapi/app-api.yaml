@@ -9681,7 +9681,9 @@ components:
       additionalProperties: false
       required: [id, label]
       properties:
-        id: { type: string, format: uuid }
+        id:
+          type: string
+          description: Opaque partition-grain option key. For sheds this is not guaranteed to be a UUID because one physical shed can expose multiple partition options.
         label: { type: string }
         partition_label: { type: string }
     FeedTransportFilterOptions:
@@ -11137,6 +11139,9 @@ components:
           type: string
           minLength: 8
           maxLength: 200
+        partition_label:
+          type: string
+          description: Raw partition label for a partition-scoped shed submission. Omit for unpartitioned sheds.
         answers:
           type: object
           additionalProperties: true
@@ -15748,6 +15753,20 @@ components:
         doseCount:
           type: integer
           description: Distinct vaccine-dose obligations assigned to this executable operator day.
+        operatorDays:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, targetCount, doseCount]
+            properties:
+              date:
+                type: string
+              targetCount:
+                type: integer
+              doseCount:
+                type: integer
+          description: Per-business-day execution totals for completed or in-progress drives.
         shedNames:
           type: array
           items:
@@ -15759,6 +15778,23 @@ components:
             type: string
             format: uuid
           description: Location IDs of the physical sheds assigned to this executable operator day.
+        shedLocations:
+          type: array
+          description: Operational shed locations assigned to this executable operator day. Partitioned sheds appear once per real partition, using shedId + partition_label as identity and operational_location_display for UI labels.
+          items:
+            type: object
+            additionalProperties: false
+            required: [shedId, shedName, operational_location_display]
+            properties:
+              shedId:
+                type: string
+                format: uuid
+              shedName:
+                type: string
+              partition_label:
+                type: string
+              operational_location_display:
+                type: string
     CommandBoardVaccineColumn:
       type: object
       additionalProperties: false
@@ -15803,6 +15839,12 @@ components:
         shedName:
           type: string
           description: A display label, not an identity. See shedId.
+        partition_label:
+          type: string
+          description: Raw stored partition label for shedId. Omitted for unpartitioned sheds.
+        operational_location_display:
+          type: string
+          description: Backend-owned display label for shed plus partition.
         parkName:
           type: string
           description: >-

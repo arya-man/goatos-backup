@@ -248,6 +248,7 @@ function RegisterGoatDrawer({
   parks,
   sheds,
   operationalLocations,
+  operationalLocationsAvailable,
   farms,
   animalStages,
   locationsAvailable,
@@ -261,6 +262,7 @@ function RegisterGoatDrawer({
   parks: LocationOption[];
   sheds: LocationOption[];
   operationalLocations: HerdOperationalLocationOption[];
+  operationalLocationsAvailable: boolean;
   farms: LocationOption[];
   animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
@@ -281,15 +283,21 @@ function RegisterGoatDrawer({
   const operationalOptions = operationalLocations
     .filter((location) => !parkId || location.parkId === parkId)
     .filter((location) => location.partitionLabel || !partitionedShedIds.has(location.shedId));
-  const locationOptions = operationalOptions.length > 0
-    ? operationalOptions
-    : shedOptions.map((shed) => ({
+  const operationalShedIds = new Set(operationalOptions.map((location) => location.shedId));
+  const unpartitionedEmptyShedOptions = operationalLocationsAvailable
+    ? shedOptions
+      .filter((shed) => !partitionedShedIds.has(shed.id) && !operationalShedIds.has(shed.id))
+      .map((shed) => ({
         key: shed.id,
         shedId: shed.id,
         parkId: shed.parentId,
         partitionLabel: null,
         label: `${shed.name}${shed.code ? ` · ${shed.code}` : ""}`,
-      }));
+      }))
+    : [];
+  const locationOptions = operationalLocationsAvailable
+    ? [...operationalOptions, ...unpartitionedEmptyShedOptions]
+    : [];
   const selectedLocation = locationOptions.find((location) => location.key === selectedLocationKey) ?? locationOptions[0] ?? null;
   const sexOptions = optionGroup(pageContract, "herd_sex");
   const speciesOptions = optionGroup(pageContract, "herd_species");
@@ -1055,6 +1063,7 @@ export function HerdActions({
   parks,
   sheds,
   operationalLocations,
+  operationalLocationsAvailable,
   farms,
   animalStages,
   locationsAvailable,
@@ -1066,6 +1075,7 @@ export function HerdActions({
   parks: LocationOption[];
   sheds: LocationOption[];
   operationalLocations: HerdOperationalLocationOption[];
+  operationalLocationsAvailable: boolean;
   farms: LocationOption[];
   animalStages: HerdAnimalStageOption[];
   locationsAvailable: boolean;
@@ -1097,6 +1107,7 @@ export function HerdActions({
         parks={parks}
         sheds={sheds}
         operationalLocations={operationalLocations}
+        operationalLocationsAvailable={operationalLocationsAvailable}
         farms={farms}
         animalStages={animalStages}
         locationsAvailable={locationsAvailable}

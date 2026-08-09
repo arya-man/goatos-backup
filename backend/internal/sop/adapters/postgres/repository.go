@@ -1078,7 +1078,7 @@ RETURNING attempt_id::text, task_id::text, field_key, tag, COALESCE(goat_id::tex
 	return item, nil
 }
 
-func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
+func (r *Repository) ShedCompletionReadiness(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string, minProofs, maxProofs int) (ports.ShedCompletionReadiness, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {
@@ -1144,6 +1144,11 @@ eligible AS (
   WHERE oi.tenant_id = $1::uuid
     AND oi.status NOT IN ('completed', 'waived', 'canceled', 'superseded')
     AND (target.shed_id IS NULL OR g.shed_id = target.shed_id)
+    AND (
+      NULLIF(BTRIM($5), '') IS NULL
+      OR regexp_replace(lower(btrim(COALESCE(gsp.partition_label, 'whole'))), '^part[[:space:]]+', '')
+       = regexp_replace(lower(btrim($5)), '^part[[:space:]]+', '')
+    )
     AND COALESCE(vda.assignment_planned_at, ob.planned_date::timestamp AT TIME ZONE 'Asia/Kolkata', oi.due_at) <= now()
 ),
 expected AS (
@@ -1192,6 +1197,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 		taskID,
 		proofSubject,
 		shedID,
+		partitionLabel,
 	).Scan(&expected, &handled, &proofReady)
 	if err != nil {
 		return ports.ShedCompletionReadiness{}, err
@@ -1223,7 +1229,7 @@ SELECT COALESCE((SELECT n FROM expected), 0),
 	return ports.ShedCompletionReadiness{Enabled: true}, nil
 }
 
-func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID string) ([]domain.ProofReference, error) {
+func (r *Repository) CompletedTaskProofRefs(ctx context.Context, tenantID, taskID, proofSubject, shedID, partitionLabel string) ([]domain.ProofReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	if proofSubject == "" {

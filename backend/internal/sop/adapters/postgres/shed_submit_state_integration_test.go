@@ -430,7 +430,7 @@ func TestCompletedTaskProofRefsDoesNotRecoverParkScopedShedProofWithoutShedID(t 
 		proofTwo, tenantID, shedTwo)
 
 	repo := NewRepository(pool, 5*time.Second)
-	refs, err := repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "shed", "")
+	refs, err := repo.CompletedTaskProofRefs(ctx, tenantID, taskID, "shed", "", "")
 	if err != nil {
 		t.Fatalf("CompletedTaskProofRefs() error = %v", err)
 	}

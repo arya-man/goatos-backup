@@ -241,6 +241,7 @@ export async function HerdRegisterPage({
           parks={locations.parks}
           sheds={locations.sheds}
           operationalLocations={operationalLocations}
+          operationalLocationsAvailable={breakdownResult.ok}
           farms={locations.farms}
           animalStages={animalStages}
           locationsAvailable={locations.available}

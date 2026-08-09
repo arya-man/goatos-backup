@@ -320,9 +320,9 @@ class FakeTasksRepositoryForCapture(
     override fun observeTaskDetail(taskId: String): Flow<Resource<TaskDetail>> =
         MutableStateFlow(Resource(data = detail))
     override suspend fun refreshTaskDetail(taskId: String): Result<Unit> = Result.success(Unit)
-    override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> =
+    override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> =
         summaryFlow(taskId, shedId)
-    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> {
+    override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> {
         refreshedShedIds += shedId
         summaryFlow(taskId, shedId).value = summaryOnRefresh
         return Result.success(Unit)

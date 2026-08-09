@@ -287,9 +287,9 @@ class SubmitViewModelSubmitDeduplicationTest {
             flow.value = Resource(data = TaskDetail(task = task, form = form, proofPolicy = proofPolicy), lastSyncedAt = 1L)
         }
 
-        override fun observeShedCompletionSummary(taskId: String, shedId: String?): Flow<ShedCompletionSummaryDto?> = summaryFlow
+        override fun observeShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Flow<ShedCompletionSummaryDto?> = summaryFlow
 
-        override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?): Result<Unit> = runCatching {
+        override suspend fun refreshShedCompletionSummary(taskId: String, shedId: String?, partitionLabel: String?): Result<Unit> = runCatching {
             summaryFlow.value = shedSummary
         }
     }

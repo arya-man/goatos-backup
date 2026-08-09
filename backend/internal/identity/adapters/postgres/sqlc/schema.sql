@@ -2672,8 +2672,8 @@ CREATE TABLE public.shifting_events (
     feed_config_fingerprint text,
     feed_requirement_snapshot jsonb,
     raise_comment text,
-    destination_partition_label text,
-    source_partition_label text,
+    destination_partition_label text DEFAULT ''::text NOT NULL,
+    source_partition_label text DEFAULT ''::text NOT NULL,
     CONSTRAINT shifting_events_auth_state_check CHECK ((authorization_state = ANY (ARRAY['pending'::text, 'authorized'::text, 'rejected'::text]))),
     CONSTRAINT shifting_events_category_check CHECK ((category = ANY (ARRAY['growth'::text, 'health'::text, 'breeding'::text, 'delivery'::text]))),
     CONSTRAINT shifting_events_high_priority_feed_evidence_consistent_check CHECK ((((feed_packing_proof_ref IS NULL) AND (feed_given_proof_ref IS NULL) AND (feed_config_fingerprint IS NULL) AND (feed_requirement_snapshot IS NULL)) OR ((btrim(feed_packing_proof_ref) <> ''::text) AND (btrim(feed_given_proof_ref) <> ''::text) AND (btrim(feed_config_fingerprint) <> ''::text) AND (jsonb_typeof(feed_requirement_snapshot) = 'object'::text)))),
@@ -3329,7 +3329,7 @@ CREATE TABLE public.verification_items (
     applied_at timestamp with time zone,
     applied_by_module text,
     subject_note text,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     CONSTRAINT verification_items_applied_ack_complete_chk CHECK (((applied_at IS NULL) = (applied_by_module IS NULL))),
     CONSTRAINT verification_items_closed_approved_check CHECK (((closed_at IS NULL) OR (status = 'approved'::text))),
     CONSTRAINT verification_items_closed_pair_check CHECK (((closed_by IS NULL) = (closed_at IS NULL))),
@@ -4202,7 +4202,7 @@ CREATE TABLE public.vaccination_eligibility_rollups (
     source_revision bigint DEFAULT 0 NOT NULL,
     recomputed_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     CONSTRAINT vaccination_eligibility_rollups_count_check CHECK ((animal_count >= 0))
 );
 
@@ -4614,7 +4614,7 @@ CREATE TABLE public.weighing_campaign_sheds (
     park_id uuid,
     start_business_date date,
     closure_kind text,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     CONSTRAINT weighing_campaign_sheds_category_check CHECK ((weighing_category = ANY (ARRAY['individual_animal'::text, 'per_shed_partition'::text]))),
     CONSTRAINT weighing_campaign_sheds_closure_kind_check CHECK (((closure_kind IS NULL) OR (closure_kind = ANY (ARRAY['verified'::text, 'early'::text])))),
     CONSTRAINT weighing_campaign_sheds_expected_animal_count_check CHECK ((expected_animal_count >= 0)),
@@ -5766,7 +5766,7 @@ CREATE TABLE public.feed_experiment_config (
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     partition_key text GENERATED ALWAYS AS (
 CASE
     WHEN ((partition_label IS NULL) OR (btrim(partition_label) = ''::text)) THEN 'whole'::text
@@ -6028,7 +6028,7 @@ CREATE TABLE public.feed_transport_tasks (
     tenant_id uuid NOT NULL,
     park_id uuid NOT NULL,
     shed_id uuid NOT NULL,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     business_date date NOT NULL,
     scheduled_at timestamp with time zone NOT NULL,
     status text DEFAULT 'due'::text NOT NULL,
@@ -6233,7 +6233,7 @@ CREATE TABLE public.health_cases (
     row_version integer DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition_label text,
+    partition_label text DEFAULT ''::text NOT NULL,
     CONSTRAINT health_cases_age_band_check CHECK ((age_band = ANY (ARRAY['adult'::text, 'kid'::text]))),
     CONSTRAINT health_cases_duration_days_check CHECK (((duration_days >= 1) AND (duration_days <= 90))),
     CONSTRAINT health_cases_row_version_check CHECK ((row_version >= 1)),
@@ -11599,7 +11599,7 @@ CREATE UNIQUE INDEX feed_transport_attempts_tenant_attempt_uq ON public.feed_tra
 
 
 --
--- Name: feed_transport_tasks_daily_shed_uq; Type: INDEX; Schema: public; Owner: -
+-- Name: feed_transport_tasks_daily_location_uq; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX feed_transport_tasks_daily_location_uq ON public.feed_transport_tasks USING btree (tenant_id, business_date, shed_id, COALESCE(NULLIF(btrim(partition_label), ''::text), 'whole'::text));
@@ -11623,7 +11623,7 @@ CREATE UNIQUE INDEX feed_transport_tasks_tenant_task_uq ON public.feed_transport
 -- Name: feed_transport_tasks_today_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX feed_transport_tasks_today_idx ON public.feed_transport_tasks USING btree (tenant_id, business_date, status, shed_id);
+CREATE INDEX feed_transport_tasks_today_idx ON public.feed_transport_tasks USING btree (tenant_id, business_date, status, shed_id, partition_label);
 
 
 --

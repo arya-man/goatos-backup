@@ -279,13 +279,19 @@ WITH claimed AS (
          survivor.work_item_id AS survivor_id,
          survivor.operator_user_id AS survivor_operator
   FROM weighing_work_items slipped
+  JOIN weighing_campaign_sheds slipped_bucket
+    ON slipped_bucket.tenant_id = slipped.tenant_id
+   AND slipped_bucket.campaign_shed_id = slipped.campaign_shed_id
   JOIN LATERAL (
     SELECT other.work_item_id, other.operator_user_id
     FROM weighing_work_items other
+    JOIN weighing_campaign_sheds other_bucket
+      ON other_bucket.tenant_id = other.tenant_id
+     AND other_bucket.campaign_shed_id = other.campaign_shed_id
     WHERE other.tenant_id = slipped.tenant_id
       AND other.park_id = slipped.park_id
       AND other.shed_location_id = slipped.shed_location_id
-      AND COALESCE(other.partition_label, '') = COALESCE(slipped.partition_label, '')
+      AND COALESCE(other_bucket.partition_label, '') = COALESCE(slipped_bucket.partition_label, '')
       AND other.due_business_date = $2::date
       AND other.work_state IN ('scheduled','delayed')
       AND other.work_item_id <> slipped.work_item_id
