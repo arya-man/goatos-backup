@@ -105,7 +105,25 @@ enum class VerifyContextKind { SHED, PARK, OPERATOR, CAPTURED_AT, RAISED_NOTE }
 
 /** One context line: [kind] picks the localized label, [value] is the backend-composed
  *  display string (shed/park/operator name, or a formatted capture timestamp). */
-data class VerifyContextRow(val kind: VerifyContextKind, val value: String)
+/**
+ * One context line on the verify detail screen.
+ *
+ * [kind] resolves a LOCAL label for the fixed rows the client itself knows about (shed, park,
+ * operator, captured-at, operator note). [backendLabel], when set, is a BACKEND-COMPOSED label the
+ * producing module attached with the item -- "Expected ration", "Animals in this pen" -- and it wins
+ * over [kind]. Those rows say what the work was EXPECTED to be, which is the difference between a
+ * verifier confirming a video exists and confirming the work was right.
+ *
+ * Backend rows are rendered verbatim and are deliberately NOT switched on: producers add rows
+ * whenever they have something to state, so the client must render whatever arrives rather than
+ * keeping a private table of known labels that silently drops the rest.
+ */
+@Immutable
+data class VerifyContextRow(
+    val kind: VerifyContextKind,
+    val value: String,
+    val backendLabel: String? = null,
+)
 
 /**
  * ONE animal's proof clip and ITS OWN verdict, inside a shed-level detail screen.
@@ -1307,7 +1325,7 @@ private fun ContextCard(rows: List<VerifyContextRow>) {
             ) {
                 // design-system:ignore: 13sp/W400 has no close token — the only W400 style is
                 // `body` at 14.5sp, which would render this label larger than its 13.5sp value.
-                Text(text = contextKindLabel(row.kind), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(text = contextRowLabel(row), color = MeshaColors.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
                 val displayValue = remember(row.value, row.kind, locale) {
                     if (row.kind == VerifyContextKind.CAPTURED_AT) {
                         formatCapturedAt(row.value, locale, ZoneId.of("Asia/Kolkata"))
@@ -1332,6 +1350,10 @@ internal fun formatCapturedAt(raw: String, locale: java.util.Locale, zoneId: Zon
             .withZone(zoneId)
             .format(Instant.parse(raw))
     }.getOrDefault(raw)
+
+@Composable
+private fun contextRowLabel(row: VerifyContextRow): String =
+    row.backendLabel?.takeIf { it.isNotBlank() } ?: contextKindLabel(row.kind)
 
 @Composable
 private fun contextKindLabel(kind: VerifyContextKind): String = when (kind) {

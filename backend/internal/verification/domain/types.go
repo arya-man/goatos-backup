@@ -90,6 +90,22 @@ type SourceRef struct {
 	RefID        string  `json:"ref_id"`
 }
 
+// ContextRow is one backend-composed label/value pair describing what the reviewed work was
+// EXPECTED to be -- "Expected ration" / "Maize 12.5 kg · Soya 4 kg".
+//
+// It exists because a verification item said WHICH work was done and never WHAT was expected of it,
+// so a feed packing verifier could confirm a video existed but not that the right feed was packed
+// (STG 2026-08-09). It is generic on purpose: the queue is module-agnostic, so each producer
+// attaches its own context rather than verification growing a column per vertical.
+//
+// Both fields are DISPLAY STRINGS the producer composes in farm language and the client renders
+// verbatim -- never a config token, never parsed back into business logic. Order is the producer's
+// and is preserved.
+type ContextRow struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
 // Item is one unit of media awaiting (or having received) independent verification.
 type Item struct {
 	ItemID       string
@@ -101,7 +117,10 @@ type Item struct {
 	// SubjectNote is optional free text from whoever RAISED the underlying work, shown to the
 	// verifier during review. Kept separate from SubjectLabel on purpose: the label is
 	// system-composed identity ("Shed move · 12 animals"), this is a human's words about it.
-	SubjectNote    *string
+	SubjectNote *string
+	// ContextRows is what the work was EXPECTED to be, composed by the producing module at enqueue
+	// and rendered verbatim. See ContextRow.
+	ContextRows    []ContextRow
 	Source         SourceRef
 	MediaRefs      []string // proof_artifact IDs; signed URLs resolved at read time.
 	Status         string
@@ -162,12 +181,16 @@ func (i Item) VerdictState() string {
 
 // CreateItem is the input a producer supplies to enqueue one verification item.
 type CreateItem struct {
-	TenantID       string
-	Vertical       string
-	Module         string
-	Category       string
-	SubjectLabel   *string
-	SubjectNote    *string
+	TenantID     string
+	Vertical     string
+	Module       string
+	Category     string
+	SubjectLabel *string
+	SubjectNote  *string
+	// ContextRows is what this work was EXPECTED to be, for the verifier to judge the proof
+	// against. Compose it in farm language; it is rendered verbatim. Nil is valid -- a producer
+	// with no expectation to state simply attaches none.
+	ContextRows    []ContextRow
 	Source         SourceRef
 	MediaRefs      []string
 	OperatorID     *string

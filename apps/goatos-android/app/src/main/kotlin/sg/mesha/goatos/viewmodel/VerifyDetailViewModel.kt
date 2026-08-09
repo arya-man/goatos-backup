@@ -616,6 +616,23 @@ class VerifyDetailViewModel @Inject constructor(
             // Last, and only when present: the operator's reason for raising this work, so the
             // reviewer reads it beside the video instead of judging the evidence without it.
             item.subjectNote?.takeIf { it.isNotBlank() }?.let { VerifyContextRow(VerifyContextKind.RAISED_NOTE, it) },
-        )
+        ) + backendContextRows(item)
     }
+
+    /**
+     * The producing module's "what was expected" rows -- for a feed packing proof, the frozen ration
+     * for that pen-session and the head count it was computed from.
+     *
+     * Rendered VERBATIM and in the producer's order. Deliberately not switched on by label and not
+     * merged into the fixed rows above: producers add rows whenever they have something to state, so
+     * a client-side table of known labels would silently drop everything it had not been taught. A
+     * row missing either half is dropped -- a label with no value states nothing and reads as a bug.
+     */
+    private fun backendContextRows(item: VerificationQueueItem): List<VerifyContextRow> =
+        item.contextRows.mapNotNull { row ->
+            val label = row.label.trim()
+            val value = row.value.trim()
+            if (label.isEmpty() || value.isEmpty()) return@mapNotNull null
+            VerifyContextRow(kind = VerifyContextKind.RAISED_NOTE, value = value, backendLabel = label)
+        }
 }

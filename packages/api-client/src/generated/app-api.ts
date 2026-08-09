@@ -8001,6 +8001,13 @@ export interface components {
             attempt_no: number;
             row_version: number;
         };
+        /** @description One backend-composed "what was expected" line on a verification item, e.g. label "Expected ration", value "Maize 12.5 kg · Soya 4 kg". Both fields are DISPLAY strings in farm language, composed by the producing module and rendered verbatim; neither is a config token and neither may be parsed back into business logic. The label is not an enum — producers choose their own, so a client must render whatever arrives rather than switching on a known set. */
+        VerificationContextRow: {
+            /** @description What the value describes, e.g. "Expected ration". */
+            label: string;
+            /** @description The expectation itself, e.g. "Maize 12.5 kg · Soya 4 kg". */
+            value: string;
+        };
         /** @enum {string} */
         VerificationItemStatus: "pending" | "approved" | "rejected" | "withdrawn";
         VerificationSourceRef: {
@@ -8033,6 +8040,8 @@ export interface components {
             subject_label?: string;
             /** @description Optional free-text note written by whoever raised the underlying work (for a shifting movement, the operator's reason for moving the animals), shown to the verifier during evidence review. Absent when the producer supplied none. Distinct from subject_label, which is system-composed identity text. */
             subject_note?: string;
+            /** @description What the reviewed work was EXPECTED to be, so the verifier can judge the proof against a standard rather than only confirming a video exists. Backend-composed label/value pairs attached by the PRODUCING module at enqueue time, in the producer's order; for a feed packing proof these carry the frozen ration for that pen-session and the head count it was computed from. Rendered VERBATIM: clients must not parse, reorder, or re-label them, and must not assume a fixed set of labels — a producer may add rows at any time. Always present; empty when the producer attached none. */
+            context_rows?: components["schemas"]["VerificationContextRow"][];
             status: components["schemas"]["VerificationItemStatus"];
             verdict_reason?: string;
             /** Format: uuid */
