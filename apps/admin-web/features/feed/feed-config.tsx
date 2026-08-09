@@ -117,7 +117,7 @@ function EffectiveWindow({
 type ExperimentShedGroup = {
   shedId: string;
   parkId: string;
-  /** Backend-supplied park name. Rendered as its own column because the list may span both parks. */
+  /** Backend-supplied park name. Shown as its own column because the list may span both parks. */
   parkName: string;
   /** The pen's HUMAN label; empty for an undivided shed. Echoed back on every write. */
   partitionLabel: string;
