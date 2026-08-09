@@ -147,6 +147,13 @@ type PreviewQuery struct {
 	// PreviewPage.
 	Limit  int32
 	Offset int32
+	// AuthorizedParkIDs is the caller's OWN park scope, resolved from their grants at the HTTP
+	// boundary. It bounds two things: which park an omitted park_id may default to, and which parks
+	// the response offers as filter vocabulary. EMPTY means unrestricted -- a tenant-wide principal
+	// (CEO/director) or an internal/service context -- matching
+	// httpmiddleware.ParkScopeDecision.ParkIDs, which is nil for exactly those cases. See
+	// FeedFilterOptions.Parks for why the vocabulary must be narrowed and not just the read.
+	AuthorizedParkIDs []string
 }
 
 // PackingQuery selects one park's packing worklist for one day.
@@ -166,6 +173,10 @@ type PackingQuery struct {
 	Draft  bool
 	Limit  int32
 	Offset int32
+	// AuthorizedParkIDs is the caller's own park scope; empty means unrestricted. Same contract as
+	// PreviewQuery.AuthorizedParkIDs -- packing and direction share one filter builder, so they must
+	// share one scoping rule.
+	AuthorizedParkIDs []string
 }
 
 // ---------------------------------------------------------------------------
@@ -482,6 +493,12 @@ type FeedFilterShed struct {
 // FeedFilterOptions is the backend-owned filter vocabulary for the feed screens, so the client
 // holds no park/shed list of its own (the golden frontend rule). It is bounded by physical
 // infrastructure — parks and one park's shed catalog — never by herd size.
+//
+// Parks is narrowed to the CALLER'S OWN authorized scope, not the tenant catalog. The route already
+// refuses a park outside that scope (403 park_scope_forbidden), so offering the others put dead
+// choices in an operator's farm dropdown: selecting one returned an error instead of a sheet. A
+// filter dropdown is a statement about what this principal may do, so an option they cannot open is
+// not offered. A tenant-wide principal has no park restriction and still sees every park.
 //
 // ServedParkID is the park this response was actually generated for. It equals the requested
 // park_id, or — when the request omitted park_id — the default park the server selected, so the

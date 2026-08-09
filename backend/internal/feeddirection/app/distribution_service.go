@@ -88,7 +88,10 @@ func (s *Service) CompleteDistribution(ctx context.Context, in CompleteDistribut
 		return ports.CompleteDistributionResult{}, ErrDistributionEnqueuerNotWired
 	}
 
-	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID)
+	// No authorized-park narrowing here: this is a WRITE path whose route already clamped the park to
+	// the caller's grant, so in.ParkID is non-empty for any grant-holding caller and the default-park
+	// branch is unreachable. Reads pass their set because they also publish filter vocabulary.
+	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID, nil)
 	if err != nil {
 		return ports.CompleteDistributionResult{}, err
 	}

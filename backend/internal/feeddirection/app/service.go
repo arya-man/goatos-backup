@@ -217,7 +217,8 @@ func (s *Service) CompleteSession(ctx context.Context, in CompleteSessionInput) 
 	if s.completions == nil {
 		return ports.CompleteSessionResult{}, ports.ErrCompletionUnavailable
 	}
-	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID)
+	// Write path: the route already clamped the park to the caller's grant. See CompleteDistribution.
+	resolvedPark, err := s.resolveParkID(ctx, in.TenantID, in.ParkID, nil)
 	if err != nil {
 		return ports.CompleteSessionResult{}, err
 	}
@@ -407,9 +408,9 @@ func completedKey(shedID, partitionLabel string, sessionNo int32, workflow strin
 // that path alone carries the past-date regeneration guard.
 func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.PreviewPage, error) {
 	// Resolve the park BEFORE normalize's park-required check: an omitted park_id defaults to the
-	// tenant's first park so the client's first load has a sheet to show, rather than a 400 it must
-	// recover from. This never mixes parks — exactly one park is selected.
-	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID)
+	// caller's first authorized park so the client's first load has a sheet to show, rather than a
+	// 400 it must recover from. This never mixes parks — exactly one park is selected.
+	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID, q.AuthorizedParkIDs)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
@@ -430,7 +431,7 @@ func (s *Service) Preview(ctx context.Context, q domain.PreviewQuery) (domain.Pr
 	// LifecycleStatus + the status filter are applied INSIDE the serve/generate paths, over the whole
 	// scope before paging (servePreview / servePreviewGenerated), and stamp-only for draft below -- so
 	// a status-filtered page and its summary stay consistent and pagination stays correct.
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
 	if err != nil {
 		return domain.PreviewPage{}, err
 	}
@@ -480,7 +481,7 @@ func (s *Service) previewDraft(ctx context.Context, normalized domain.PreviewQue
 // Read-only: no proof capture, no video, no packing status is recorded anywhere. The status field
 // is derived from the generation result.
 func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (domain.PackingPage, error) {
-	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID)
+	resolvedPark, err := s.resolveParkID(ctx, q.TenantID, q.ParkID, q.AuthorizedParkIDs)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
@@ -500,7 +501,7 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 	}
 	// LifecycleStatus + the status filter are applied INSIDE servePacking / servePackingGenerated over
 	// the whole scope before paging (stamp-only for draft), same contract as the preview path.
-	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate)
+	filters, err := s.buildFilters(ctx, normalized.TenantID, normalized.ParkID, normalized.TargetDate, normalized.AuthorizedParkIDs)
 	if err != nil {
 		return domain.PackingPage{}, err
 	}
@@ -509,11 +510,16 @@ func (s *Service) PackingWorklist(ctx context.Context, q domain.PackingQuery) (d
 }
 
 // resolveParkID selects the park a feed read serves. A non-empty park_id is returned as-is (trimmed)
-// and validated downstream; an empty park_id defaults to the tenant's FIRST park so the client's
-// first load has a sheet to render instead of a park-required error. It never selects more than one
-// park, so the one-park-per-sheet invariant holds. A tenant with no parks still yields
-// ErrParkRequired, the same closed-fail as before.
-func (s *Service) resolveParkID(ctx context.Context, tenantID, parkID string) (string, error) {
+// and validated downstream; an empty park_id defaults to the first park the CALLER is authorized for
+// so the client's first load has a sheet to render instead of a park-required error. It never
+// selects more than one park, so the one-park-per-sheet invariant holds. A tenant with no parks --
+// or a caller authorized for none of them -- still yields ErrParkRequired, the same closed-fail as
+// before.
+//
+// The authorized filter matters even though the route resolver normally hands down a concrete park:
+// defaulting to the tenant's FIRST park would serve a park-scoped operator someone else's farm
+// whenever their own park is not first in the catalog.
+func (s *Service) resolveParkID(ctx context.Context, tenantID, parkID string, authorizedParkIDs []string) (string, error) {
 	if trimmed := strings.TrimSpace(parkID); trimmed != "" {
 		return trimmed, nil
 	}
@@ -524,17 +530,49 @@ func (s *Service) resolveParkID(ctx context.Context, tenantID, parkID string) (s
 	if err != nil {
 		return "", err
 	}
+	parks = parksInScope(parks, authorizedParkIDs)
 	if len(parks) == 0 {
 		return "", ports.ErrParkRequired
 	}
 	return parks[0].ParkID, nil
 }
 
+// parksInScope narrows a park catalog to the caller's own authorized set, PRESERVING catalog order
+// so the default-park pick and the dropdown stay deterministic. An empty authorized set means
+// unrestricted (tenant-wide principal or internal context) and returns the catalog untouched -- the
+// same nil-means-everything contract httpmiddleware.ParkScopeDecision.ParkIDs uses.
+func parksInScope(parks []ports.Park, authorizedParkIDs []string) []ports.Park {
+	if len(authorizedParkIDs) == 0 {
+		return parks
+	}
+	allowed := make(map[string]struct{}, len(authorizedParkIDs))
+	for _, id := range authorizedParkIDs {
+		if trimmed := strings.TrimSpace(id); trimmed != "" {
+			allowed[trimmed] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return parks
+	}
+	out := make([]ports.Park, 0, len(parks))
+	for _, park := range parks {
+		if _, ok := allowed[park.ParkID]; ok {
+			out = append(out, park)
+		}
+	}
+	return out
+}
+
 // buildFilters assembles the backend-owned farm/shed filter vocabulary for the served park. Two
 // bounded reads: the tenant park catalog (order-of two parks) and the served park's active shed
 // catalog (bounded by physical infrastructure, the same read the generation already trusts). The
 // client renders its farm/shed pickers from this and holds no location list of its own.
-func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string, asOf time.Time) (domain.FeedFilterOptions, error) {
+//
+// The park catalog is narrowed to authorizedParkIDs -- the caller's own scope -- so the dropdown
+// offers only parks this principal may actually open. Empty means unrestricted (tenant-wide
+// principal or internal context). Sheds need no equivalent narrowing: they are already read for the
+// SERVED park alone, and that park was clamped to the caller's scope at the route boundary.
+func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID string, asOf time.Time, authorizedParkIDs []string) (domain.FeedFilterOptions, error) {
 	parks, err := s.config.ListParks(ctx, tenantID)
 	if err != nil {
 		return domain.FeedFilterOptions{}, err
@@ -553,6 +591,7 @@ func (s *Service) buildFilters(ctx context.Context, tenantID, servedParkID strin
 	if err != nil {
 		return domain.FeedFilterOptions{}, err
 	}
+	parks = parksInScope(parks, authorizedParkIDs)
 	parkOptions := make([]domain.FeedFilterPark, 0, len(parks))
 	for _, p := range parks {
 		parkOptions = append(parkOptions, domain.FeedFilterPark{ParkID: p.ParkID, Label: p.Label})
