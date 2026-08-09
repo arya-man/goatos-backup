@@ -642,6 +642,13 @@ WHERE shed.tenant_id = $1::uuid
   AND ($2::uuid IS NULL OR shed.parent_location_id = $2::uuid)
   AND shed.location_type = 'shed'
   AND shed.status = 'active'
+  AND (
+    sp.normalized_label IS NOT NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM shed_partitions any_sp
+      WHERE any_sp.tenant_id = shed.tenant_id AND any_sp.shed_id = shed.location_id
+    )
+  )
 ORDER BY shed.parent_location_id, shed.display_order, shed.name, shed.location_id,
          sp.normalized_label NULLS FIRST
 LIMIT $3 OFFSET $4`
@@ -1024,6 +1031,18 @@ func (r *Repository) UpsertExperimentConfig(ctx context.Context, cmd domain.Upse
 		if err := requirePartitionInShed(ctx, tx, cmd.TenantID, cmd.ShedID, cmd.PartitionLabel); err != nil {
 			return writeEffect{}, err
 		}
+		var penConfigured bool
+		if err := tx.QueryRow(ctx, `
+SELECT EXISTS (
+  SELECT 1 FROM feed_experiment_config
+  WHERE tenant_id = $1::uuid AND park_id = $2::uuid AND shed_id = $3::uuid
+    AND partition_key = `+partitionKeyMatch("$4")+`
+)`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.PartitionLabel).Scan(&penConfigured); err != nil {
+			return writeEffect{}, fmt.Errorf("feedconfig: check experiment pen before cell edit: %w", err)
+		}
+		if !penConfigured {
+			return writeEffect{}, ports.ErrExperimentPenNotConfigured
+		}
 
 		// Lock the row for this key. FOR UPDATE so two concurrent edits of the SAME cell serialize
 		// instead of both deciding "no row" and racing into feed_experiment_config_natural_key_uidx.
@@ -1047,8 +1066,8 @@ FOR UPDATE`, cmd.TenantID, cmd.ParkID, cmd.ShedID, cmd.FeedItemLabel, cmd.Partit
 
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			// First authored cell for this (shed, item). If it is also the shed's first cell overall,
-			// this write is what ENROLS the shed onto the experiment workflow -- membership is the flag.
+			// A newly-added item on an already-enrolled pen. First enrollment cannot reach this path:
+			// the pen-level existence check above reserves that atomic transition for the batch write.
 			var newID string
 			// partition_label is written; partition_key is GENERATED from it, so the pen the author
 			// clicked is the pen the row belongs to. Omitting the label here defaulted every insert
@@ -1224,21 +1243,30 @@ func partitionKeyMatch(placeholder string) string {
 // An UNDIVIDED shed has no shed_partitions rows at all and takes a blank label; a SUBDIVIDED shed
 // requires one of its own. Both directions are rejected, because both author a row nothing reads.
 func requirePartitionInShed(ctx context.Context, tx pgx.Tx, tenantID, shedID, partitionLabel string) error {
-	var subdivided bool
+	var hasPartitions, hasActivePartitions bool
 	if err := tx.QueryRow(ctx, `
 SELECT EXISTS (
-  SELECT 1 FROM shed_partitions
-  WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND status = 'active'
-)`,
-		tenantID, shedID).Scan(&subdivided); err != nil {
+         SELECT 1 FROM shed_partitions
+         WHERE tenant_id = $1::uuid AND shed_id = $2::uuid
+       ),
+       EXISTS (
+         SELECT 1 FROM shed_partitions
+         WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND status = 'active'
+       )`,
+		tenantID, shedID).Scan(&hasPartitions, &hasActivePartitions); err != nil {
 		return fmt.Errorf("feedconfig: resolve shed partitions: %w", err)
 	}
 
 	wanted := strings.TrimSpace(partitionLabel)
-	if !subdivided {
+	if !hasPartitions {
 		if wanted == "" {
 			return nil
 		}
+		return ports.ErrPartitionNotFound
+	}
+	// A historically partitioned shed with no active pens is not an undivided shed. Treating it as
+	// one would resurrect a retired operational location under the phantom 'whole' key.
+	if !hasActivePartitions {
 		return ports.ErrPartitionNotFound
 	}
 	if wanted == "" {
@@ -1430,6 +1458,15 @@ func (r *Repository) runWrite(
 		return domain.WriteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize one idempotency identity before its first ledger read. A loser then observes the
+	// winner's committed write log and replays it instead of entering the effect with stale absence.
+	// The database lock is transaction-scoped, so crashes and rollbacks release it automatically.
+	if _, err := tx.Exec(ctx, `
+SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))`,
+		identity.TenantID, identity.IdempotencyKey); err != nil {
+		return domain.WriteResult{}, fmt.Errorf("feedconfig: lock idempotency key: %w", err)
+	}
 
 	if out, found, err := lookupWriteLog(ctx, tx, identity); err != nil || found {
 		return out, err

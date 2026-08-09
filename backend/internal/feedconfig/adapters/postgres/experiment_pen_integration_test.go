@@ -84,6 +84,18 @@ func penCommand(key, pen, item, kg string) domain.UpsertExperimentConfigCommand 
 	}
 }
 
+func enrollExperimentPen(t *testing.T, ctx context.Context, repo *Repository, key, shedID, pen, category string, head *int32, cells []domain.ExperimentBatchCell) domain.WriteResult {
+	t.Helper()
+	out, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+		WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: key, RequestFingerprint: "fp-" + key},
+		ParkID:        fcPark, ShedID: shedID, PartitionLabel: pen, ExperimentCategory: category, HeadCount: head, Cells: cells,
+	})
+	if err != nil {
+		t.Fatalf("enroll experiment pen: %v", err)
+	}
+	return out
+}
+
 // penCells reads (feed item -> kg) for one pen, keyed the way the DATABASE keys it.
 func penCells(t *testing.T, ctx context.Context, pool *pgxpool.Pool, pen string) map[string]string {
 	t.Helper()
@@ -154,10 +166,8 @@ func TestEditingACellOfAPenWhoseLabelHasASeparator(t *testing.T) {
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	first, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-sep-insert", fcPenA, "Concentrate", "1.500"))
-	if err != nil {
-		t.Fatalf("insert cell on a separator-bearing pen: %v", err)
-	}
+	first := enrollExperimentPen(t, ctx, repo, "pen-sep-insert", fcPennedShed, fcPenA, "Arm A", nil,
+		[]domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.500"}})
 	if first.Outcome != domain.OutcomeInserted {
 		t.Fatalf("first write outcome = %q, want %q", first.Outcome, domain.OutcomeInserted)
 	}
@@ -186,12 +196,8 @@ func TestExperimentWriteLandsOnTheAddressedPenOnly(t *testing.T) {
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-iso-a", fcPenA, "Concentrate", "1.000")); err != nil {
-		t.Fatalf("author pen A: %v", err)
-	}
-	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-iso-b", fcPenB, "Concentrate", "9.000")); err != nil {
-		t.Fatalf("author pen B: %v", err)
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-iso-a", fcPennedShed, fcPenA, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}})
+	enrollExperimentPen(t, ctx, repo, "pen-iso-b", fcPennedShed, fcPenB, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "9.000"}})
 
 	// Two pens of ONE shed, same feed item, different quantities. Under a shed-grain natural key
 	// these would be one row and the second write would overwrite the first.
@@ -215,14 +221,8 @@ func TestSetExperimentStatusRetiresOnePenAndLeavesItsSiblingsAlone(t *testing.T)
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	for _, item := range []string{"Concentrate", "Hybrid"} {
-		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-st-a-"+item, fcPenA, item, "1.000")); err != nil {
-			t.Fatalf("author pen A %s: %v", item, err)
-		}
-		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-st-b-"+item, fcPenB, item, "2.000")); err != nil {
-			t.Fatalf("author pen B %s: %v", item, err)
-		}
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-st-a", fcPennedShed, fcPenA, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}, {FeedItemLabel: "Hybrid", AbsoluteKg: "1.000"}})
+	enrollExperimentPen(t, ctx, repo, "pen-st-b", fcPennedShed, fcPenB, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "2.000"}, {FeedItemLabel: "Hybrid", AbsoluteKg: "2.000"}})
 
 	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
 		WriteIdentity: domain.WriteIdentity{
@@ -273,12 +273,8 @@ func TestEditingOnePenDoesNotReactivateOrRestampItsSiblings(t *testing.T) {
 		cmd.HeadCount = head
 		return cmd
 	}
-	if _, err := repo.UpsertExperimentConfig(ctx, authored("pen-md-a", fcPenA, "Concentrate", "1.000", "Sheep M NEW", &countA)); err != nil {
-		t.Fatalf("author pen A: %v", err)
-	}
-	if _, err := repo.UpsertExperimentConfig(ctx, authored("pen-md-b", fcPenB, "Concentrate", "2.000", "B+S Goat F NEW", &countB)); err != nil {
-		t.Fatalf("author pen B: %v", err)
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-md-a", fcPennedShed, fcPenA, "Sheep M NEW", &countA, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}})
+	enrollExperimentPen(t, ctx, repo, "pen-md-b", fcPennedShed, fcPenB, "B+S Goat F NEW", &countB, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "2.000"}})
 
 	// Retire the sibling, then edit the OTHER pen. Neither the retirement nor the arm/head count of
 	// the sibling may move.
@@ -383,11 +379,7 @@ func TestExperimentWriteRejectsAPenLabelOnAnUndividedShed(t *testing.T) {
 	}
 
 	// A blank label on that same shed is the legitimate whole-shed case and must still work.
-	ok := penCommand("pen-on-undivided-blank", "", "Concentrate", "1.000")
-	ok.ShedID = fcShed
-	if _, err := repo.UpsertExperimentConfig(ctx, ok); err != nil {
-		t.Fatalf("whole-shed write on an undivided shed: %v", err)
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-on-undivided-blank", fcShed, "", "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}})
 }
 
 // TestUpsertExperimentConfigBatchWritesEveryCellOrNone proves the atomicity the batch endpoint
@@ -462,14 +454,12 @@ func TestExperimentConfigPagingKeepsAPensCellsTogether(t *testing.T) {
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	for i, item := range []string{"Concentrate", "Hybrid", "COFS", "Silage", "Mineral", "Salt"} {
-		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-page-a-"+item, fcPenA, item, "1.000")); err != nil {
-			t.Fatalf("author pen A item %d: %v", i, err)
-		}
+	pageCells := []domain.ExperimentBatchCell{}
+	for _, item := range []string{"Concentrate", "Hybrid", "COFS", "Silage", "Mineral", "Salt"} {
+		pageCells = append(pageCells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: "1.000"})
 	}
-	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-page-b", fcPenB, "Concentrate", "2.000")); err != nil {
-		t.Fatalf("author pen B: %v", err)
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-page-a", fcPennedShed, fcPenA, "Arm A", nil, pageCells)
+	enrollExperimentPen(t, ctx, repo, "pen-page-b", fcPennedShed, fcPenB, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "2.000"}})
 
 	first, err := repo.ListExperimentConfig(ctx, domain.ExperimentConfigQuery{
 		TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 1},
@@ -527,6 +517,25 @@ WHERE tenant_id = $1::uuid AND shed_id = $2::uuid AND partition_label = $3`, fcT
 	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("retired-pen-write", fcPenA, "Concentrate", "1.000")); !errors.Is(err, ports.ErrPartitionNotFound) {
 		t.Fatalf("write to retired pen err = %v, want %v", err, ports.ErrPartitionNotFound)
 	}
+
+	if _, err := pool.Exec(ctx, `
+UPDATE shed_partitions SET status = 'retired'
+WHERE tenant_id = $1::uuid AND shed_id = $2::uuid`, fcTenant, fcPennedShed); err != nil {
+		t.Fatalf("retire remaining partitions: %v", err)
+	}
+	page, err = repo.ListPens(ctx, domain.PenQuery{TenantID: fcTenant, ParkID: fcPark, Page: domain.Page{Limit: 50}})
+	if err != nil {
+		t.Fatalf("list all-retired shed: %v", err)
+	}
+	for _, pen := range page.Items {
+		if pen.ShedID == fcPennedShed {
+			t.Fatalf("all-retired partitioned shed reappeared as a phantom whole pen: %#v", pen)
+		}
+	}
+	blank := penCommand("all-retired-blank", "", "Concentrate", "1.000")
+	if _, err := repo.UpsertExperimentConfig(ctx, blank); !errors.Is(err, ports.ErrPartitionNotFound) {
+		t.Fatalf("blank write to all-retired partitioned shed err = %v, want %v", err, ports.ErrPartitionNotFound)
+	}
 }
 
 // TestBatchEnrollmentRejectsAnAlreadyConfiguredPen prevents a stale enrollment form from turning
@@ -536,11 +545,7 @@ func TestBatchEnrollmentRejectsAnAlreadyConfiguredPen(t *testing.T) {
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	for _, item := range []string{"Concentrate", "Hybrid"} {
-		if _, err := repo.UpsertExperimentConfig(ctx, penCommand("existing-"+item, fcPenA, item, "1.000")); err != nil {
-			t.Fatalf("seed existing pen: %v", err)
-		}
-	}
+	enrollExperimentPen(t, ctx, repo, "existing-pen", fcPennedShed, fcPenA, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}, {FeedItemLabel: "Hybrid", AbsoluteKg: "1.000"}})
 	_, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
 		WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: "stale-enrol", RequestFingerprint: "fp-stale-enrol"},
 		ParkID:        fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenA, ExperimentCategory: "Arm A",
@@ -616,6 +621,52 @@ func TestConcurrentBatchEnrollmentsCannotMergeOrOverwrite(t *testing.T) {
 	}
 }
 
+func TestConcurrentIdenticalBatchRetryReplaysWinner(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+	start := make(chan struct{})
+	results := make(chan struct {
+		out domain.WriteResult
+		err error
+	}, 2)
+	for range 2 {
+		go func() {
+			<-start
+			out, err := repo.UpsertExperimentConfigBatch(ctx, domain.UpsertExperimentConfigBatchCommand{
+				WriteIdentity: domain.WriteIdentity{TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-08-09", IdempotencyKey: "same-key-batch", RequestFingerprint: "fp-same-key-batch"},
+				ParkID:        fcPark, ShedID: fcPennedShed, PartitionLabel: fcPenA, ExperimentCategory: "Arm A",
+				Cells: []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}, {FeedItemLabel: "Hybrid", AbsoluteKg: "2.000"}},
+			})
+			results <- struct {
+				out domain.WriteResult
+				err error
+			}{out, err}
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+	if first.err != nil || second.err != nil {
+		t.Fatalf("identical retries returned errors: %v, %v", first.err, second.err)
+	}
+	if first.out.WriteID != second.out.WriteID || first.out.Replayed == second.out.Replayed {
+		t.Fatalf("results = %#v and %#v, want same write with exactly one replay", first.out, second.out)
+	}
+}
+
+func TestSingleCellWriteCannotEnrollAnEmptyPen(t *testing.T) {
+	ctx := context.Background()
+	pool := setupPennedDB(t, ctx)
+	repo := fcRepo(pool)
+	_, err := repo.UpsertExperimentConfig(ctx, penCommand("single-cannot-enrol", fcPenA, "Concentrate", "1.000"))
+	if !errors.Is(err, ports.ErrExperimentPenNotConfigured) {
+		t.Fatalf("single-cell first write err = %v, want %v", err, ports.ErrExperimentPenNotConfigured)
+	}
+	if got := penCells(t, ctx, pool, fcPenA); len(got) != 0 {
+		t.Fatalf("rejected single-cell enrollment wrote rows: %#v", got)
+	}
+}
+
 // TestListPensReturnsTheHumanLabelAndItsConfiguredFlag pins the READ the enroller depends on.
 //
 // Two things it must never do, both of which have shipped in this codebase before: return
@@ -627,9 +678,7 @@ func TestListPensReturnsTheHumanLabelAndItsConfiguredFlag(t *testing.T) {
 	pool := setupPennedDB(t, ctx)
 	repo := fcRepo(pool)
 
-	if _, err := repo.UpsertExperimentConfig(ctx, penCommand("pen-list-a", fcPenA, "Concentrate", "1.000")); err != nil {
-		t.Fatalf("author pen A: %v", err)
-	}
+	enrollExperimentPen(t, ctx, repo, "pen-list-a", fcPennedShed, fcPenA, "Arm A", nil, []domain.ExperimentBatchCell{{FeedItemLabel: "Concentrate", AbsoluteKg: "1.000"}})
 
 	page, err := repo.ListPens(ctx, domain.PenQuery{
 		TenantID: fcTenant, ParkID: fcPark,

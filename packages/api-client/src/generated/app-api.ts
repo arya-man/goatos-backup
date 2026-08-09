@@ -1721,14 +1721,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List hand-authored experiment sheds, for one park or the whole tenant.
-         * @description Returns the authored ABSOLUTE kg per feed item for each experiment shed in the park. absolute_kg is a SHED TOTAL, never a per-head rate, and head_count travels with it as informational context only -- multiplying the two would overfeed the shed by a factor of its entire population. Membership in this table with status='active' IS what makes a shed an experiment shed; a shed with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn shed's authored quantities stay visible and can be restored without re-keying them. Pagination counts complete operational pens, not individual cells: every feed-item row for a selected pen is returned on the same page, and limit/offset therefore refer to pens.
+         * List hand-authored experiment pens, for one park or the whole tenant.
+         * @description Returns the authored ABSOLUTE kg per feed item for each experiment pen (an undivided shed is its single whole-shed pen). absolute_kg is a PEN TOTAL, never a per-head rate, and head_count travels as informational context only -- multiplying the two would overfeed the pen by its entire population. Active membership puts that pen on the experiment workflow; a pen with no active row is fed from the per-head ration grid instead. Both statuses are returned by default so a withdrawn pen's authored quantities stay visible and can be restored without re-keying them. Pagination counts complete operational pens, not individual cells: every feed-item row for a selected pen is returned on the same page, and limit/offset therefore refer to pens.
          */
         get: operations["listFeedConfigExperiment"];
         put?: never;
         /**
-         * Author one experiment shed's absolute kg of one feed item.
-         * @description Authors the absolute kg for one (park, shed, feed_item). absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Authoring a shed's FIRST cell is what enrols it onto the experiment workflow, and any write forces the row back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
+         * Edit one feed-item cell of an already-enrolled experiment pen.
+         * @description Authors the absolute kg for one (park, shed, partition, feed_item). The pen must already have experiment configuration; first enrollment is accepted only by the atomic batch endpoint, so this route cannot leave a new pen with a partial feed set. absolute_kg is REQUIRED and validated rather than defaulted: absent fails the request, an explicit 0 is accepted (an arm that deliberately gets none of an item), and a negative or over-precise value is rejected with a field error. Any edit forces the pen's rows back to status='active' -- a quantity stored on a retired row is a number nothing reads. Unlike the ration-rate write this is NOT effective-dated: an existing row is corrected in place, so the outcome is never "superseded".
          */
         post: operations["upsertFeedConfigExperiment"];
         delete?: never;
@@ -3859,19 +3859,19 @@ export interface components {
             shed_id: string;
             /** @description Display name of the physical shed, without the pen. */
             shed_name: string;
-            /** @description The HUMAN pen label ('Part 3', '2'), never the normalized matching key ('3'). Absent or null means an undivided shed. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not identify a row -- send this back on upsert or the write targets the shed-wide row instead of the pen. */
+            /** @description The HUMAN pen label ('Part 3', '2'), never the normalized matching key ('3'). Absent or null means an undivided shed. A partitioned shed authors ONE CELL PER PEN, so shed_id alone does not identify a row -- send this back on edit or the request is rejected. */
             partition_label?: string | null;
             /** @description Backend-composed ground location ("Mandela 1 - Part 3", or just "Yashoda" when undivided). Render verbatim; never rejoin shed_name and partition_label client-side. */
             operational_location_display: string;
             feed_item: string;
-            /** @description Exact decimal string. A SHED TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the shed. Never multiply it by head_count. */
+            /** @description Exact decimal string. A PEN TOTAL in kg, never a per-head rate -- it is already inclusive of however many animals are in the pen. Never multiply it by head_count. */
             absolute_kg: string;
-            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the shed is empty. */
+            /** @description INFORMATIONAL only: the population the hand-entered quantity was authored against. It is never a multiplier. Null means the population was not recorded, which is NOT the same as 0 -- rendering null as 0 would state the pen is empty. */
             head_count?: number | null;
-            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment shed has no ration grain and so no authored tag to report. */
+            /** @description The experiment ARM (e.g. "Sheep M NEW"). It stands in for the shed tag on the direction sheet, because an experiment pen has no ration grain and so no authored tag to report. */
             experiment_category: string;
             /**
-             * @description The workflow switch, not a visibility flag. "active" = this shed is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
+             * @description The workflow switch, not a visibility flag. "active" = this pen is fed the absolute kg authored here. "retired" = it is fed from the normal per-head ration grid instead.
              * @enum {string}
              */
             status: "active" | "retired";
@@ -3937,7 +3937,7 @@ export interface components {
             park_id: string;
             /** Format: uuid */
             shed_id: string;
-            /** @description WHICH PEN of the shed is being authored -- echo back the partition_label the row was rendered with. Part of the row's identity: the natural key is (tenant, park, shed, partition, feed_item), so omitting it on a partitioned shed writes the shed-wide row instead of the pen the author clicked. Absent means an undivided shed. */
+            /** @description WHICH PEN of the shed is being authored -- echo back the partition_label the row was rendered with. Part of the row's identity: the natural key is (tenant, park, shed, partition, feed_item), so omitting it on a partitioned shed is rejected rather than targeting a different place. Absent means an undivided shed. */
             partition_label?: string | null;
             feed_item: string;
             /** @description Authored ABSOLUTE kg for the addressed pen (or undivided shed). REQUIRED -- it must never be omitted and filled in as 0. The failure mode of an absent value is quieter than on the ration grid and worse for it: a missing ration rate BLOCKS the shed loudly, while a missing experiment row silently drops the shed back onto the per-head grid and prints a complete-looking sheet with roughly twice the authored quantity. An explicit 0 is accepted; a negative or over-precise value is rejected with a field error rather than clamped. A cleared input in the UI must NOT be sent as 0. */

@@ -892,13 +892,11 @@ func TestUpsertExperimentConfigReactivatesWholeShedNotJustEditedCell(t *testing.
 	repo := fcRepo(pool)
 
 	items := []string{"Concentrate", "Hybrid", "COFS", "Hedge Lucerne", "Dry Maize"}
-	for i, item := range items {
-		cmd := experimentCommand(
-			"key-retire5-insert-"+item, "fp-insert-"+item, item, "1.500")
-		if _, err := repo.UpsertExperimentConfig(ctx, cmd); err != nil {
-			t.Fatalf("insert cell %d (%s): %v", i, item, err)
-		}
+	cells := make([]domain.ExperimentBatchCell, 0, len(items))
+	for _, item := range items {
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: "1.500"})
 	}
+	enrollExperimentPen(t, ctx, repo, "key-retire5-insert", fcShed, "", "Arm A", nil, cells)
 
 	// Retire the whole shed. All five rows must flip to 'retired'.
 	if _, err := repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
@@ -1047,19 +1045,11 @@ func TestUpsertExperimentConfigSyncsShedMetadataAcrossCells(t *testing.T) {
 
 	initialHeadCount := int32(40)
 	items := []string{"Concentrate", "Fodder", "Mineral Mix"}
-	for i, item := range items {
-		cmd := domain.UpsertExperimentConfigCommand{
-			WriteIdentity: domain.WriteIdentity{
-				TenantID: fcTenant, ActorRef: "tester", EffectiveFrom: "2026-07-20",
-				IdempotencyKey: "key-cr07-insert-" + item, RequestFingerprint: "fp-cr07-" + item,
-			},
-			ParkID: fcPark, ShedID: fcShed, FeedItemLabel: item, AbsoluteKg: "1.500",
-			ExperimentCategory: "control", HeadCount: &initialHeadCount,
-		}
-		if _, err := repo.UpsertExperimentConfig(ctx, cmd); err != nil {
-			t.Fatalf("insert cell %d (%s): %v", i, item, err)
-		}
+	cells := make([]domain.ExperimentBatchCell, 0, len(items))
+	for _, item := range items {
+		cells = append(cells, domain.ExperimentBatchCell{FeedItemLabel: item, AbsoluteKg: "1.500"})
 	}
+	enrollExperimentPen(t, ctx, repo, "key-cr07-insert", fcShed, "", "control", &initialHeadCount, cells)
 
 	// Sanity: all three rows agree before the edit under test.
 	before := experimentShedMetadata(t, ctx, pool)
