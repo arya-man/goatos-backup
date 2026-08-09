@@ -304,10 +304,10 @@ export function ExperimentCellEditor({
  * Author a feed item this pen does NOT yet have a cell for.
  *
  * WHY THIS EXISTS AS ITS OWN CONTROL. ExperimentCellEditor edits an existing cell and
- * ExperimentShedEnroller only offers sheds with no experiment rows at all, so a pen that was already
- * on the experiment had no way to gain a SIXTH feed item -- the only route was a hand-written
- * database write. That is also why a partly-experimental shed could not have another of its pens
- * enrolled: the enroller filters on shed_id, so one enrolled pen hid the rest of the building.
+ * ExperimentPenEnroller offers only pens with no authored cell at all, so a pen that is already on
+ * the experiment would otherwise have no way to gain a SIXTH feed item -- the only route was a
+ * hand-written database write. The enroller covers "this pen is new"; this covers "this pen needs
+ * one more item".
  *
  * It posts to the SAME single-cell upsert the editor uses. That write already inserts when no row
  * exists for (shed, pen, item), so nothing new is needed on the write path -- and because one cell
@@ -436,14 +436,23 @@ export function ExperimentShedSwitch({
   parkId,
   shedId,
   shedName,
+  partitionLabel,
   targetStatus,
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
   parkId: string;
   shedId: string;
+  /** The PEN's display name, exactly as the row above shows it ("Godel 1 - Part 3"). */
   shedName: string;
-  /** "active" enrols the shed onto absolute kg; "retired" returns it to the per-head grid. */
+  /**
+   * The raw authored pen this switch applies to; blank for an undivided shed.
+   *
+   * Load-bearing, not decorative: without it the write was shed-wide while this control was
+   * captioned with one pen's name, so retiring "Godel 1 - Part 3" retired all ten Godel 1 pens.
+   */
+  partitionLabel: string;
+  /** "active" enrols the pen onto absolute kg; "retired" returns it to the per-head grid. */
   targetStatus: "active" | "retired";
 }) {
   const labelKey =
@@ -459,9 +468,11 @@ export function ExperimentShedSwitch({
     >
       <input type="hidden" name="park_id" value={parkId} />
       <input type="hidden" name="shed_id" value={shedId} />
+      <input type="hidden" name="partition_label" value={partitionLabel} />
       <input type="hidden" name="status" value={targetStatus} />
-      {/* The shed is named back to the operator before they apply. This control is one click away
-          from changing a park's feed plan, so it confirms WHICH shed and WHAT will happen. */}
+      {/* The pen is named back to the operator before they apply. This control is one click away
+          from changing a park's feed plan, so it confirms WHICH pen and WHAT will happen — and the
+          name shown is now the same scope the write touches. */}
       <div className="small" style={{ lineHeight: 1.5 }}>
         <b>{shedName}</b>
         <div className="muted">{copy(pageContract, outcomeKey)}</div>
@@ -471,90 +482,146 @@ export function ExperimentShedSwitch({
 }
 
 /**
- * Enrol a shed that has no experiment rows yet, by authoring its first cell.
+ * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in one atomic write.
  *
- * Enrolment happens through a QUANTITY, not a status flip, and that is the backend contract rather
- * than a UI choice: membership in the table is the workflow flag, so a shed cannot be "on the
+ * Enrolment happens through QUANTITIES, not a status flip, and that is the backend contract rather
+ * than a UI choice: membership in the table is the workflow flag, so a pen cannot be "on the
  * experiment" with nothing authored. Creating empty rows to carry a status would author cells nobody
- * entered — and the shed would be enrolled while being fed nothing it was configured for.
+ * entered — and the pen would be enrolled while being fed nothing it was configured for.
+ *
+ * Three defects in the shed-level predecessor, all fixed here:
+ *
+ *  1. IT OFFERED SHEDS. A shed with some pens already enrolled was excluded wholesale, so a NEW pen
+ *     of that shed (Godel 1 - Part 8) could not be added from this screen at all — the complaint
+ *     this control exists to answer.
+ *  2. IT DERIVED CANDIDATES FROM THE PAGINATED CELL LIST. A pen whose cells sat on another page
+ *     read as unconfigured. Candidates now come from the pen CATALOG, which states per pen whether
+ *     it is already configured, so paging cannot change the answer.
+ *  3. IT AUTHORED ONE FEED ITEM. A pen is fed several; entering them one at a time could leave the
+ *     pen enrolled after the first write and fed a fraction of what was intended.
+ *
+ * THE PARK IS CHOSEN FIRST, and the pen list is empty until it is. When the top bar reads
+ * company-wide this table spans both parks, so an enroller that silently assumed one of them would
+ * put a pen on the experiment in a park nobody picked.
  */
-export function ExperimentShedEnroller({
+export function ExperimentPenEnroller({
   pageContract,
   action,
-  parkId,
-  sheds,
+  parks,
+  pens,
   feedItems,
 }: {
   pageContract: AdminUiPageContract;
   action: SaveAction;
-  parkId: string;
-  /** Sheds in this park with no experiment rows at all. */
-  sheds: { id: string; name: string }[];
+  /** The parks in scope. One entry when a park is selected; both when the top bar is company-wide. */
+  parks: { id: string; name: string }[];
+  /** Pens with NO authored experiment cell, from the pen catalog — never from the cell page. */
+  pens: { parkId: string; shedId: string; partitionLabel: string; display: string }[];
   /** The tenant's feed vocabulary, from the catalog — never a local literal list. */
   feedItems: string[];
 }) {
-  if (sheds.length === 0) {
+  // Preselected when there is exactly one park, so the common single-park case is not made to click
+  // a select with one option. With two, it starts empty on purpose: see the kdoc.
+  const [parkId, setParkId] = useState(parks.length === 1 ? parks[0].id : "");
+  const parkPens = parkId ? pens.filter((pen) => pen.parkId === parkId) : [];
+
+  if (pens.length === 0) {
     return <div className="small muted">{copy(pageContract, "empty.experiment_candidates")}</div>;
   }
   return (
     <FeedConfigFormShell
       pageContract={pageContract}
       action={action}
-      editLabel={copy(pageContract, "action.add_experiment_shed")}
+      editLabel={copy(pageContract, "action.add_experiment_pen")}
       openLabel={copy(pageContract, "section.experiment.switch_note")}
     >
-      <input type="hidden" name="park_id" value={parkId} />
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`exp-new-shed-${parkId}`}>{copy(pageContract, "filter.shed_label")}</label>
-        <select id={`exp-new-shed-${parkId}`} name="shed_id" defaultValue="">
-          {sheds.map((shed) => (
-            <option key={shed.id} value={shed.id}>
-              {shed.name}
+        <label htmlFor="exp-new-park">{copy(pageContract, "filter.park_label")}</label>
+        <select
+          id="exp-new-park"
+          name="park_id"
+          value={parkId}
+          onChange={(event) => setParkId(event.target.value)}
+          aria-describedby="exp-new-park-hint"
+        >
+          {/* An explicit empty option when there is a real choice to make. Defaulting to the first
+              park would be the silent assumption this control exists to prevent. */}
+          {parks.length > 1 ? <option value="" /> : null}
+          {parks.map((park) => (
+            <option key={park.id} value={park.id}>
+              {park.name}
             </option>
           ))}
         </select>
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`exp-new-item-${parkId}`}>{copy(pageContract, "filter.feed_item_label")}</label>
-        <select id={`exp-new-item-${parkId}`} name="feed_item" defaultValue="">
-          {feedItems.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`exp-new-arm-${parkId}`}>{copy(pageContract, "label.experiment_category")}</label>
-        <input id={`exp-new-arm-${parkId}`} name="experiment_category" type="text" defaultValue="" />
-      </div>
-      <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`exp-new-kg-${parkId}`}>{copy(pageContract, "label.experiment_absolute_kg")}</label>
-        <input
-          id={`exp-new-kg-${parkId}`}
-          name="absolute_kg"
-          type="text"
-          inputMode="decimal"
-          defaultValue=""
-          aria-describedby={`exp-new-kg-hint-${parkId}`}
-        />
-        <div id={`exp-new-kg-hint-${parkId}`} className="small muted" style={{ marginTop: 4 }}>
-          {copy(pageContract, "label.experiment_absolute_kg_note")}
+        <div id="exp-new-park-hint" className="small muted" style={{ marginTop: 4 }}>
+          {copy(pageContract, "reason.experiment_enrol_park")}
         </div>
       </div>
       <div className="fld" style={{ marginBottom: 0 }}>
-        <label htmlFor={`exp-new-count-${parkId}`}>{copy(pageContract, "label.experiment_head_count")}</label>
+        <label htmlFor="exp-new-pen">{copy(pageContract, "filter.pen_label")}</label>
+        {/* The pen carries its shed id and its RAW partition label as one JSON value. A delimiter
+            would be unsafe — a partition label is free text and may contain spaces or hyphens, so
+            any separator character could occur inside it. The label travels verbatim; the backend
+            normalizes and validates it against the shed's own catalog. */}
+        <select id="exp-new-pen" name="pen" defaultValue="" disabled={parkPens.length === 0}>
+          {parkPens.map((pen) => (
+            <option
+              key={`${pen.shedId}#${pen.partitionLabel}`}
+              value={JSON.stringify({ s: pen.shedId, p: pen.partitionLabel })}
+            >
+              {pen.display}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor="exp-new-arm">{copy(pageContract, "label.experiment_category")}</label>
+        <input id="exp-new-arm" name="experiment_category" type="text" defaultValue="" />
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <label htmlFor="exp-new-count">{copy(pageContract, "label.experiment_head_count")}</label>
         <input
-          id={`exp-new-count-${parkId}`}
+          id="exp-new-count"
           name="head_count"
           type="text"
           inputMode="numeric"
           defaultValue=""
-          aria-describedby={`exp-new-count-hint-${parkId}`}
+          aria-describedby="exp-new-count-hint"
         />
-        <div id={`exp-new-count-hint-${parkId}`} className="small muted" style={{ marginTop: 4 }}>
+        <div id="exp-new-count-hint" className="small muted" style={{ marginTop: 4 }}>
           {copy(pageContract, "label.experiment_head_count_note")}
         </div>
+      </div>
+      <div className="fld" style={{ marginBottom: 0 }}>
+        <div className="small" style={{ fontWeight: 600 }}>
+          {copy(pageContract, "label.experiment_enrol_items")}
+        </div>
+        <div className="small muted" style={{ marginTop: 4, marginBottom: 8, lineHeight: 1.5 }}>
+          {copy(pageContract, "label.experiment_enrol_items_note")}
+        </div>
+        {/* One row per catalog item, every row always rendered. The two fields are paired by their
+            shared INDEX in the name, not by position in two arrays: a conditionally-rendered field
+            would shift a parallel array and pair a quantity with the wrong feed item, which here
+            means feeding a pen the wrong thing. */}
+        {feedItems.map((item, index) => (
+          <div
+            key={item}
+            style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}
+          >
+            <input type="hidden" name={`item_label_${index}`} value={item} />
+            <label htmlFor={`exp-new-kg-${index}`} className="small" style={{ flex: 1 }}>
+              {item}
+            </label>
+            <input
+              id={`exp-new-kg-${index}`}
+              name={`item_kg_${index}`}
+              type="text"
+              inputMode="decimal"
+              defaultValue=""
+              style={{ width: 96 }}
+            />
+          </div>
+        ))}
       </div>
       <div className="small muted" style={{ lineHeight: 1.5 }}>
         {copy(pageContract, "section.experiment.switch_note")}

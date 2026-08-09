@@ -7,6 +7,7 @@ import type { FeedConfigExperiment } from "@/lib/api/server";
 import {
   firstAuthRequiredError,
   listFeedConfigExperiment,
+  listFeedConfigPens,
   listFeedConfigFeedItems,
   listFeedConfigRationGroups,
   listFeedConfigRationRates,
@@ -25,6 +26,7 @@ import { FeedFaroView } from "./feed-faro-view";
 import { isConfiguredZero } from "./feed-quantity";
 import { feedHref, feedLimit, feedOffset, resolveFeedScope } from "./feed-scope";
 import {
+  enrolExperimentPen,
   saveExperimentCell,
   saveFeedItem,
   saveRationRate,
@@ -35,7 +37,7 @@ import {
 import {
   ExperimentCellEditor,
   ExperimentCellAdder,
-  ExperimentShedEnroller,
+  ExperimentPenEnroller,
   ExperimentShedSwitch,
   FeedItemCreator,
   RationRateEditor,
@@ -71,6 +73,9 @@ const EXPERIMENT_PAGE_SIZE = 100;
 // Both parks at once: 35 pens x 5 items = 175 rows today, so a 100-row page would cut the second
 // park in half. 200 is the contract's largest declared option and the backend's own cap.
 const EXPERIMENT_ALL_PARKS_PAGE_SIZE = 200;
+// The pen catalog is authored infrastructure, not herd data: two live parks hold ~20 sheds and ~40
+// pens each, so one bounded page covers the tenant with room to spare. It cannot grow with animals.
+const PEN_CATALOG_PAGE_SIZE = 200;
 // The authored feed vocabulary (ration groups, shed tags, feed items) backs the FILTER dropdowns,
 // so the whole catalog must arrive in one bounded page — a screenful-sized limit would silently
 // truncate it (there are already 31 shed tags, past SECONDARY_PAGE_SIZE) and reintroduce the very
@@ -262,6 +267,7 @@ export async function FeedConfigPage({
     sessionsResult,
     scheduleResult,
     experimentResult,
+    pensResult,
     feedItemsResult,
     rationGroupsResult,
     shedTagsResult,
@@ -290,6 +296,22 @@ export async function FeedConfigPage({
             : { park_id: scope.parkId, limit: experimentLimit, offset: experimentOffset },
         )
       : Promise.resolve(null),
+    // The PEN CATALOG, for the enrol control's candidate list.
+    //
+    // Read from locations/shed_partitions, NOT derived from the experiment cells above, and that is
+    // the whole point of the endpoint: the cell list is paginated and shed-incomplete, so deriving
+    // candidates from it made a pen configured on another page look unconfigured, and made a NEW pen
+    // of an already-enrolled shed unreachable entirely. It follows the same all-parks rule as the
+    // cell read so the two sections agree about what is in scope.
+    experimentAllParks || scope.parkId
+      ? listFeedConfigPens(
+          experimentAllParks
+            // park_id omitted entirely -- the backend reads that as "every park", the same rule the
+            // experiment read above follows so the table and its enroller agree about scope.
+            ? { limit: PEN_CATALOG_PAGE_SIZE }
+            : { park_id: scope.parkId, limit: PEN_CATALOG_PAGE_SIZE },
+        )
+      : Promise.resolve(null),
     // The tenant's feed vocabulary, for the enrol control's item picker. It comes from the catalog
     // endpoint rather than a local list: feed items are live module-owned data, and hardcoding them
     // here would break the moment a workbook adds one (as RGS/Vijay Concentrate just did).
@@ -307,6 +329,7 @@ export async function FeedConfigPage({
     sessionsResult,
     scheduleResult,
     experimentResult,
+    pensResult,
     feedItemsResult,
     rationGroupsResult,
     shedTagsResult,
@@ -318,6 +341,7 @@ export async function FeedConfigPage({
   const sessions = sessionsResult && sessionsResult.ok ? sessionsResult.data : null;
   const schedule = scheduleResult && scheduleResult.ok ? scheduleResult.data : null;
   const experiment = experimentResult && experimentResult.ok ? experimentResult.data : null;
+  const pens = pensResult && pensResult.ok ? pensResult.data : null;
   const feedItems = feedItemsResult && feedItemsResult.ok ? feedItemsResult.data : null;
   const rationGroups = rationGroupsResult && rationGroupsResult.ok ? rationGroupsResult.data : null;
   const shedTags = shedTagsResult && shedTagsResult.ok ? shedTagsResult.data : null;
@@ -328,13 +352,24 @@ export async function FeedConfigPage({
   // — no second fetch, no accumulation across pages, and the shed's own rows are the only input.
   const experimentRows = experiment?.items ?? [];
   const experimentSheds = groupExperimentRowsByShed(experimentRows);
-  // Sheds in this park that have no experiment rows at all — the candidates the enrol control offers.
-  // A shed with only RETIRED rows is deliberately NOT a candidate: it already has authored
-  // quantities, so it is restored through its own row group rather than re-enrolled from scratch.
-  const experimentShedIds = new Set(experimentRows.map((row) => row.shed_id));
-  const candidateSheds = locations.sheds
-    .filter((shed) => shed.parentId === scope.parkId && !experimentShedIds.has(shed.id))
-    .map((shed) => ({ id: shed.id, name: shed.name }));
+  // PENS with no authored experiment cell — the candidates the enrol control offers.
+  //
+  // `has_experiment_config` is computed by the backend against the SAME (shed, partition) natural
+  // key the experiment table is unique on, so the candidate filter cannot disagree with what a
+  // write would land on. It replaces a filter derived from `experimentRows`, i.e. from ONE PAGE of
+  // cells, which had two failure modes: a pen whose cells fell on another page looked unconfigured,
+  // and a shed with any enrolled pen excluded ALL its pens — so a new pen of that shed could not be
+  // added at all. A pen holding only RETIRED cells is correctly not a candidate: it already has
+  // authored quantities and is restored through its own row group rather than re-enrolled.
+  const candidatePens = (pens?.items ?? [])
+    .filter((pen) => !pen.has_experiment_config)
+    .map((pen) => ({
+      parkId: pen.park_id,
+      shedId: pen.shed_id,
+      partitionLabel: pen.partition_label ?? "",
+      // Backend-composed. Clients never rejoin a shed name and a partition themselves.
+      display: pen.operational_location_display,
+    }));
   const catalogItems = (feedItems?.items ?? []).map((item) => item.feed_item);
 
   const gridCols = tableLabels(pageContract, "ration-grid");
@@ -348,6 +383,12 @@ export async function FeedConfigPage({
   // The park being read, by name. Live data from the locations master — never composed from a code
   // or an id, and blank only when the master returned no parks at all.
   const parkName = locations.parks.find((park) => park.id === scope.parkId)?.name ?? "";
+  // The park the enroller offers in SINGLE-park mode: exactly the one being read, so its select has
+  // one option and is preselected. Empty when the locations master returned no match, which leaves
+  // the enroller with nothing to enrol into rather than guessing a park.
+  const parkScopedParks = locations.parks
+    .filter((park) => park.id === scope.parkId)
+    .map((park) => ({ id: park.id, name: park.name }));
   const hasGridFilter = Boolean(rationGroupFilter || shedTagFilter || feedItemFilter);
 
   const gridRows = rates?.items ?? [];
@@ -715,18 +756,24 @@ export async function FeedConfigPage({
           must never be multiplied by anything. Putting them in one table would place both under a
           single "quantity" heading on a screen whose output is a feeding instruction.
 
-          Rows are grouped by SHED because the shed is the unit of every decision here — the arm, the
-          head count, and the workflow switch all describe a shed rather than a cell. */}
+          Rows are grouped by PEN because the pen is the unit of every decision here — the arm, the
+          head count, and the workflow switch all describe one pen rather than a cell, and rather
+          than a whole shed: Mandela 1's ten pens each carry their own arm and head count. */}
       <SectionError result={experimentResult} titleKey="state.experiment_unavailable" pageContract={pageContract} />
       <section className="card" style={{ marginBottom: 16 }}>
         <div className="hd">
           <h3>{copy(pageContract, "section.experiment.title")}</h3>
-          {/* The park, on the section itself. Every row in this table belongs to ONE park and the
-              table deliberately carries no park column (see the ration grid above), so without this
-              chip the screen never states which park's sheds these are — and when the top bar reads
-              company-wide it silently shows one. The NAME is live data from the locations master;
-              the LABEL it is titled with stays backend-owned. */}
-          {parkName ? (
+          {/* The scope, on the section itself, and it must state what the table ACTUALLY holds.
+              In company-wide mode this read is tenant-wide and the table carries a park column, so
+              naming one park here would label a two-park table as one park — the fallback park at
+              that, which nobody chose. Single-park mode names the park, because the table then
+              really is one park's and carries no park column. The NAME is live data from the
+              locations master; both LABELS stay backend-owned. */}
+          {experimentAllParks ? (
+            <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
+              {copy(pageContract, "label.all_parks")}
+            </span>
+          ) : parkName ? (
             <span className="tag t-mut" title={copy(pageContract, "filter.park_label")}>
               {parkName}
             </span>
@@ -734,16 +781,16 @@ export async function FeedConfigPage({
           <span className="small muted">{copy(pageContract, "section.experiment.caption")}</span>
           <div className="sp" style={{ flex: 1 }} />
           {/* Enrolment lives in the section header, next to the list it changes. It authors the
-              shed's first quantity, which IS what moves it onto the experiment workflow. */}
-          {scope.parkId ? (
-            <ExperimentShedEnroller
-              pageContract={pageContract}
-              action={saveExperimentCell}
-              parkId={scope.parkId}
-              sheds={candidateSheds}
-              feedItems={catalogItems}
-            />
-          ) : null}
+              pen's first quantities, which IS what moves it onto the experiment workflow.
+              In company-wide mode it offers BOTH parks and makes the reader pick one, rather than
+              silently enrolling into the fallback park the table is no longer scoped to. */}
+          <ExperimentPenEnroller
+            pageContract={pageContract}
+            action={enrolExperimentPen}
+            parks={experimentAllParks ? locations.parks.map((park) => ({ id: park.id, name: park.name })) : parkScopedParks}
+            pens={candidatePens}
+            feedItems={catalogItems}
+          />
         </div>
 
         <div
@@ -862,6 +909,7 @@ export async function FeedConfigPage({
                               parkId={shed.parkId}
                               shedId={shed.shedId}
                               shedName={shedName}
+                              partitionLabel={shed.partitionLabel}
                               targetStatus={shed.active ? "retired" : "active"}
                             />
                             {/* Adding a feed item is a PEN-level act, so it sits on the pen's own

@@ -256,9 +256,11 @@ func (s *Service) ListPens(ctx context.Context, tenantID, parkID string, limit, 
 	if strings.TrimSpace(tenantID) == "" {
 		return domain.PenPage{}, ErrMissingTenant
 	}
-	if strings.TrimSpace(parkID) == "" {
-		return domain.PenPage{}, ErrMissingPark
-	}
+	// park_id is OPTIONAL here, matching ListExperimentConfig. Omitted means every pen in the
+	// tenant, which is what the enroller needs when the top bar reads company-wide: the experiment
+	// table is tenant-wide in that mode, so a park-locked candidate list would offer nothing for the
+	// other park's rows. Requiring it made the company-wide enroller receive ZERO pens and render
+	// "every pen already has quantities" over a park with 37 free ones.
 	page, err := resolvePage(limit, offset)
 	if err != nil {
 		return domain.PenPage{}, err
@@ -769,7 +771,11 @@ type SetExperimentShedStatusInput struct {
 	ActorRef string
 	ParkID   string
 	ShedID   string
-	Status   string
+	// PartitionLabel names the PEN being switched. Required for a subdivided shed and blank for an
+	// undivided one; the adapter validates it against the shed's own catalog. Without it this
+	// switch retired every pen of the shed while the UI captioned it with one pen's name.
+	PartitionLabel string
+	Status         string
 
 	IdempotencyKey     string
 	RequestFingerprint string
@@ -793,10 +799,11 @@ func (s *Service) SetExperimentShedStatus(ctx context.Context, in SetExperimentS
 		return domain.WriteResult{}, err
 	}
 	return s.repo.SetExperimentShedStatus(ctx, domain.SetExperimentShedStatusCommand{
-		WriteIdentity: identity,
-		ParkID:        parkID,
-		ShedID:        shedID,
-		Status:        status,
+		WriteIdentity:  identity,
+		ParkID:         parkID,
+		ShedID:         shedID,
+		PartitionLabel: strings.TrimSpace(in.PartitionLabel),
+		Status:         status,
 	})
 }
 

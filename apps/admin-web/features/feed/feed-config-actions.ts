@@ -6,6 +6,7 @@ import {
   createFeedConfigFeedItem,
   setFeedConfigExperimentShedStatus,
   upsertFeedConfigExperiment,
+  upsertFeedConfigExperimentBatch,
   upsertFeedConfigRationRate,
   upsertFeedConfigSchedule,
   upsertFeedConfigShedFactor,
@@ -313,6 +314,94 @@ function readOptionalCount(formData: FormData, field: string): number | undefine
   return Number(trimmed);
 }
 
+/**
+ * Enrol ONE PEN onto the experiment workflow, authoring every feed item of it in a single write.
+ *
+ * REPLACES the old shed-level, one-item-at-a-time enroller, which had three defects at once: it
+ * offered SHEDS (so a new pen of an already-enrolled shed — Godel 1 - Part 8 — was unreachable), it
+ * derived its candidate list from the current paginated cell page (so a pen configured on page 2
+ * looked unconfigured on page 1), and it authored exactly one feed item, which is not what enrolling
+ * a pen means. Candidates now come from the pen catalog endpoint, which states per pen whether it is
+ * already configured.
+ *
+ * ONE ATOMIC WRITE. The quantities go through /feed-config/experiment/batch as a single transaction:
+ * either the pen gets all of them or none. Posting N single-cell writes could half-succeed and leave
+ * the pen ENROLLED — membership is the workflow flag — while fed only a subset of what was entered,
+ * which is worse than not enrolling it at all.
+ *
+ * FIELDS ARE READ BY INDEXED NAME, NOT BY POSITION. Each row contributes `item_label_<i>` and
+ * `item_kg_<i>`, paired by their shared index rather than by two `getAll()` arrays. Parallel arrays
+ * are the grain bug this codebase keeps paying for: one array filtered and the other not shifts
+ * every index and pairs a quantity with the wrong feed item — here, silently feeding a pen the wrong
+ * thing.
+ */
+export async function enrolExperimentPen(formData: FormData): Promise<FeedConfigActionResult> {
+  const parkId = readRequiredText(formData, "park_id");
+  const penRaw = readRequiredText(formData, "pen");
+  const category = readRequiredText(formData, "experiment_category");
+  if (!parkId || !penRaw || !category) {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  // The pen select carries shed id and raw partition label as one JSON value. A delimiter would be
+  // unsafe: a partition label is free text ("Part 3"), so any separator could appear inside it.
+  let shedId = "";
+  let partitionLabel = "";
+  try {
+    const parsed: unknown = JSON.parse(penRaw);
+    if (typeof parsed !== "object" || parsed === null) return { ok: false, messageKey: REJECTED };
+    const pen = parsed as { s?: unknown; p?: unknown };
+    if (typeof pen.s !== "string" || pen.s.trim() === "") return { ok: false, messageKey: REJECTED };
+    // Absent `p` is a real value — an undivided shed — and must stay distinguishable from a bad one.
+    if (pen.p !== undefined && typeof pen.p !== "string") return { ok: false, messageKey: REJECTED };
+    shedId = pen.s.trim();
+    partitionLabel = (pen.p ?? "").toString().trim();
+  } catch {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  const headCount = readOptionalCount(formData, "head_count");
+  if (headCount !== undefined && Number.isNaN(headCount)) {
+    return { ok: false, messageKey: REJECTED };
+  }
+
+  const items: { feed_item: string; absolute_kg: number }[] = [];
+  for (let i = 0; ; i += 1) {
+    const label = formData.get(`item_label_${i}`);
+    if (typeof label !== "string") break;
+    const trimmedLabel = label.trim();
+    // A blank kg authors NOTHING for that item — the rule-1 blank-is-not-zero contract, applied per
+    // row. It is skipped rather than sent as 0, which would mean "feed none of this, deliberately".
+    const kg = readAuthoredNumber(formData, `item_kg_${i}`);
+    if (kg === null) continue;
+    if (Number.isNaN(kg) || trimmedLabel === "") return { ok: false, messageKey: REJECTED };
+    items.push({ feed_item: trimmedLabel, absolute_kg: kg });
+  }
+  // Enrolling with no quantity would put the pen on the experiment workflow with nothing authored,
+  // and the direction generator would then feed it nothing at all.
+  if (items.length === 0) return EXPERIMENT_BLANK_IS_NOT_ZERO;
+
+  const result = await upsertFeedConfigExperimentBatch(
+    {
+      park_id: parkId,
+      shed_id: shedId,
+      partition_label: partitionLabel,
+      head_count: headCount ?? null,
+      experiment_category: category,
+      items,
+    },
+    readIdempotencyKey(formData),
+  );
+  if (!result.ok) {
+    return { ok: false, messageKey: REJECTED, detail: result.error.message };
+  }
+
+  revalidatePath("/feed/config");
+  revalidatePath("/feed/direction");
+  revalidatePath("/feed/packing");
+  return { ok: true, messageKey: EXPERIMENT_SAVED };
+}
+
 export async function saveExperimentCell(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
@@ -364,18 +453,27 @@ export async function saveExperimentCell(formData: FormData): Promise<FeedConfig
 }
 
 /**
- * Move a whole shed onto or off the experiment workflow.
+ * Move ONE PEN onto or off the experiment workflow.
  *
  * This is the switch the maintainer asked to be explicit: it is not a filter or a display toggle. An
- * active shed is fed the absolute kg authored for it; a retired one is fed from the ration grid
+ * active pen is fed the absolute kg authored for it; a retired one is fed from the ration grid
  * again. The status is read as a literal and validated against the two legal values rather than
  * being inferred from a checkbox — an unparsed value must never fall through to a default, because
- * both defaults would change what a shed's animals eat.
+ * both defaults would change what a pen's animals eat.
+ *
+ * PEN-SCOPED since 2026-08-09. The write used to be shed-wide while this screen was already
+ * pen-grouped, so the button captioned "Return Godel 1 - Part 3" retired all ten Godel 1 pens. The
+ * partition is sent verbatim and NOT defaulted when absent: a blank label is a real value meaning
+ * "undivided shed", so it cannot be distinguished from a missing one here — the backend validates
+ * it against the shed's catalog and rejects a blank on a subdivided shed rather than guessing.
  */
 export async function setExperimentShedStatus(formData: FormData): Promise<FeedConfigActionResult> {
   const parkId = readRequiredText(formData, "park_id");
   const shedId = readRequiredText(formData, "shed_id");
   const status = readRequiredText(formData, "status");
+  // Optional by shape, meaningful when blank: an undivided shed legitimately has no pen.
+  const partitionRaw = formData.get("partition_label");
+  const partitionLabel = typeof partitionRaw === "string" ? partitionRaw.trim() : "";
   if (!parkId || !shedId || (status !== "active" && status !== "retired")) {
     return { ok: false, messageKey: REJECTED };
   }
@@ -384,6 +482,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
     {
       park_id: parkId,
       shed_id: shedId,
+      partition_label: partitionLabel,
       status,
     },
     readIdempotencyKey(formData),
@@ -393,7 +492,7 @@ export async function setExperimentShedStatus(formData: FormData): Promise<FeedC
   }
 
   revalidatePath("/feed/config");
-  // The switch changes which planner owns the shed, so tomorrow's direction and pack list are both
+  // The switch changes which planner owns the pen, so tomorrow's direction and pack list are both
   // different documents now.
   revalidatePath("/feed/direction");
   revalidatePath("/feed/packing");

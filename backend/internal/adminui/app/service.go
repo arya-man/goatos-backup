@@ -2619,7 +2619,7 @@ func pageSpecificCopy(id string) map[string]string {
 			"section.experiment.aria":              "Hand-authored experiment sheds",
 			"section.experiment.caption":           "Sheds fed a hand-entered absolute kg instead of the ration grid above",
 			"section.experiment.note":              "These sheds are NOT computed from the ration grid. An operator hand-enters the absolute kg the whole shed receives of each item, so the head count shown here is context for that decision and is never multiplied in. While a shed is listed here, the rates and shed factors above have no effect on it.",
-			"section.experiment.switch_note":       "A shed is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a shed switches it off the per-head grid; returning it switches it straight back. Returning a shed keeps its authored quantities, so restoring it later does not mean re-entering them.",
+			"section.experiment.switch_note":       "A pen is on the experiment workflow because it is listed here, and for no other reason — there is no separate flag. Adding a pen switches it off the per-head grid; returning it switches it straight back, and only that pen: a shed's other pens are untouched. Returning a pen keeps its authored quantities, so restoring it later does not mean re-entering them.",
 			"table.experiment.aria":                "Experiment shed rows",
 			"table.experiment.noun":                "experiment row",
 			"label.experiment_absolute_kg":         "Absolute kg (whole shed)",
@@ -2629,22 +2629,22 @@ func pageSpecificCopy(id string) map[string]string {
 			"label.experiment_category":            "Experiment arm",
 			"label.experiment_category_note":       "Which arm of the trial this shed is on. It appears in the shed-tag column of the direction sheet, where it is the operator's cue that these numbers were hand-entered rather than computed.",
 			"label.experiment_active":              "On experiment (absolute kg)",
-			"label.experiment_active_note":         "This shed is fed the absolute kg authored here. The ration grid, its shed factors, and its projected head count do not affect it.",
+			"label.experiment_active_note":         "This pen is fed the absolute kg authored here. The ration grid, its shed factors, and its projected head count do not affect it.",
 			"label.experiment_retired":             "On the normal grid (per head)",
-			"label.experiment_retired_note":        "This shed has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
+			"label.experiment_retired_note":        "This pen has been returned to the ration grid and is fed projected head count × grams per head × shed factor again. Its authored experiment quantities are kept, so restoring it does not mean re-entering them.",
 			"label.experiment_not_dated_note":      "Unlike the rates above, experiment quantities are not effective-dated: an edit corrects the figure in place. They are hand-entered numbers for a running trial, not a standing rule a past feed sheet has to be explained against. Who changed what is still recorded.",
-			"action.add_experiment_shed":           "Move shed to experiment",
+			"action.add_experiment_pen":            "Move a pen to the experiment",
 			"action.add_experiment_item":           "Add feed item",
 			"action.edit_experiment_cell":          "Edit kg",
-			"action.withdraw_experiment_shed":      "Return shed to normal grid",
-			"action.restore_experiment_shed":       "Return shed to experiment",
-			"action.experiment_saved":              "Saved. This shed is fed the absolute kg authored here; its head count is not multiplied in.",
-			"action.experiment_switched":           "Workflow switched. What this shed is fed has changed — check the next Feed Direction for this park.",
+			"action.withdraw_experiment_shed":      "Return this pen to the normal grid",
+			"action.restore_experiment_shed":       "Return this pen to the experiment",
+			"action.experiment_saved":              "Saved. This pen is fed the absolute kg authored here; its head count is not multiplied in.",
+			"action.experiment_switched":           "Workflow switched. What this pen is fed has changed — check the next Feed Direction for this park.",
 			"reason.experiment_blank_is_not_zero":  "Leave the kg blank only if you do not intend to author this item for this shed. To feed none of it, enter an explicit 0. A cleared field is not zero.",
-			"reason.experiment_switch_consequence": "Switching a shed changes what its animals eat; it is not a display setting.",
+			"reason.experiment_switch_consequence": "Switching a pen changes what its animals eat; it is not a display setting. Only the pen named here changes; the shed's other pens are untouched.",
 			"empty.experiment":                     "No experiment sheds authored for this park. Every shed in it is fed from the ration grid above.",
 			"empty.experiment_filtered":            "No experiment sheds match these filters.",
-			"empty.experiment_candidates":          "Every shed in this park is already listed as an experiment shed.",
+			"empty.experiment_candidates":          "Every pen in this park already has authored experiment quantities.",
 			// Shown on a pen whose every catalog item already has an authored cell. Distinct from
 			// empty.experiment_candidates, which is about SHEDS not yet on the experiment workflow.
 			"empty.experiment_items_authored": "Every feed item is already authored for this pen. Edit a kg above to change one.",
@@ -2652,7 +2652,16 @@ func pageSpecificCopy(id string) map[string]string {
 			// construction -- a ration grid, a session split and a dispatch clock are all park-scoped
 			// -- so a company-wide top-bar scope cannot be honoured here and one park is shown instead.
 			// Without this the screen silently reads the alphabetically first park and says nothing.
-			"notice.park_scope_fallback":   "Experiment sheds below show BOTH parks. The ration grid, shed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
+			"notice.park_scope_fallback": "Experiment sheds below show BOTH parks. The ration grid, shed factors, session template and feeding schedule are authored per park and cannot be shown for all parks at once, so those four are reading the park named here — use the Park filter to change it.",
+			// The enroller. It authors a PEN and every feed item of it in ONE atomic write, so its copy
+			// has to say both things: which pen, and that a blank kg authors nothing rather than zero.
+			"filter.pen_label":                  "Pen",
+			"label.experiment_enrol_items":      "Quantities",
+			"label.experiment_enrol_items_note": "Enter a kg for each feed item this pen gets. Leave an item blank to author nothing for it — blank is not zero. All of them are saved together, or none is.",
+			// Shown instead of a park name when the top bar reads company-wide. The experiment table
+			// genuinely spans both parks in that mode, so naming one park above it would be a lie.
+			"label.all_parks":              "All parks",
+			"reason.experiment_enrol_park": "Choose the park first: a pen belongs to one park, and the pens offered below are that park's.",
 			"state.experiment_unavailable": "Experiment sheds unavailable",
 			// ---- feed items (the catalog) -----------------------------------------------------
 			// Copy for the vocabulary section. Its job is to keep ONE fact un-missable: adding an

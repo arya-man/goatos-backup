@@ -4456,9 +4456,9 @@ paths:
       tags:
         - Feed Config
       operationId: listFeedConfigPens
-      summary: List a park's operational locations (sheds and their pens).
+      summary: List operational locations (sheds and their pens).
       description: >-
-        Returns every active shed in the park, and every pen of a subdivided shed, each flagged with
+        Returns every active shed in scope, and every pen of a subdivided shed, each flagged with
         whether it already carries experiment configuration. This is the experiment enroller's
         candidate source. It cannot be derived from the experiment list (that only knows locations
         already enrolled) nor from the shed list (one enrolled pen makes the whole building look
@@ -4468,7 +4468,12 @@ paths:
       parameters:
         - name: park_id
           in: query
-          required: true
+          required: false
+          description: >-
+            Omitted means every park in the tenant, matching listFeedConfigExperiment. The enroller
+            needs that when the top bar reads company-wide: the experiment table spans both parks in
+            that mode, so a park-locked candidate list would offer nothing for the other park's rows.
+            Every returned pen carries its own park_id.
           schema:
             type: string
             format: uuid
@@ -10093,11 +10098,19 @@ components:
         shed_id:
           type: string
           format: uuid
+        partition_label:
+          type: string
+          description: >-
+            The PEN being switched, spelled as the shed's own catalog spells it ("2", "Part 3").
+            Required for a subdivided shed; omitted or blank for an undivided one, and validated
+            against shed_partitions either way. Without it this switch was shed-wide while the
+            screen above it was already pen-grouped, so a control captioned "Return Godel 1 - Part
+            3" retired all ten Godel 1 pens and dropped nine of them back to the per-head grid.
         status:
           type: string
           enum: [active, retired]
           description: >-
-            REQUIRED with no default. This field decides which planner feeds the shed, so an absent
+            REQUIRED with no default. This field decides which planner feeds the pen, so an absent
             value cannot be filled in: "active" enrols it onto authored absolute kg and "retired"
             returns it to head count x grams per head. Both are changes to what its animals eat.
     UpsertFeedConfigRationRateRequest:

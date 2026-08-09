@@ -587,19 +587,31 @@ type CreateFeedItemCommand struct {
 	DisplayOrder    *int32
 }
 
-// SetExperimentShedStatusCommand switches a WHOLE SHED between the experiment workflow and the
-// normal per-head ration grid.
+// SetExperimentShedStatusCommand switches ONE PEN between the experiment workflow and the normal
+// per-head ration grid.
 //
 // This is a business-meaningful action, not a visibility toggle -- see the ExperimentStatus
-// constants. It is deliberately whole-shed rather than per-cell: a shed half on absolute kg and half
-// on the ration grid is not a state the generator can represent (a planner owns the shed, not the
-// cell), so allowing a per-cell status edit would let an author create a shed whose feed is
-// undefined.
+// constants.
+//
+// WHOLE-PEN, NEVER PER-CELL. A pen half on absolute kg and half on the ration grid is not a state
+// the generator can represent (a planner owns the pen, not the cell), so a per-cell status edit
+// would let an author create a pen whose feed is undefined.
+//
+// PEN, NOT SHED (maintainer decision 2026-08-09). This was shed-scoped while the screen above it
+// had already become pen-grouped, so a control captioned "Return Godel 1 - Part 3 to the standard
+// ration" retired all ten Godel 1 pens. Because membership-with-status-active IS the workflow
+// switch, the nine unnamed pens silently fell back to the per-head grid at roughly 2.2x their
+// authored quantity -- a real change to what those animals are fed, applied by a button that named
+// one pen. PartitionLabel is therefore required to identify the target, and is blank only for a
+// genuinely undivided shed.
 type SetExperimentShedStatusCommand struct {
 	WriteIdentity
 	ParkID string
 	ShedID string
-	Status string
+	// PartitionLabel is the raw authored pen ("2", "Part 3"), blank for an undivided shed. It is
+	// normalized to partition_key in SQL, never in Go -- see the adapter's partitionKeyMatch.
+	PartitionLabel string
+	Status         string
 }
 
 // ---------------------------------------------------------------------------
