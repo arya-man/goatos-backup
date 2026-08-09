@@ -118,7 +118,7 @@ export function WorklistFilters({
   }
 
   function applyFilter(param: string, value: string) {
-    const next = new URLSearchParams(current);
+    const next = new URLSearchParams(effectiveSearch);
     if (value) next.set(param, value);
     else next.delete(param);
     push(next);
@@ -126,7 +126,7 @@ export function WorklistFilters({
 
   /** Replaces every occurrence of `param` with `values`, so the URL carries the set exactly. */
   function applyMultiFilter(param: string, values: string[]) {
-    const next = new URLSearchParams(current);
+    const next = new URLSearchParams(effectiveSearch);
     next.delete(param);
     for (const value of values) if (value) next.append(param, value);
     push(next);
@@ -140,7 +140,7 @@ export function WorklistFilters({
    * one. Clearing either half clears both, for the same reason.
    */
   function applyCompare(opParam: string, valueParam: string, op: string, value: string) {
-    const next = new URLSearchParams(current);
+    const next = new URLSearchParams(effectiveSearch);
     if (op && value) {
       next.set(opParam, op);
       next.set(valueParam, value);
@@ -152,7 +152,7 @@ export function WorklistFilters({
   }
 
   function clearAll() {
-    const next = new URLSearchParams(current);
+    const next = new URLSearchParams(effectiveSearch);
     for (const field of clearable) {
       next.delete(field.param);
       if (field.kind === "compare") next.delete(field.valueParam);
