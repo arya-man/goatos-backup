@@ -107,15 +107,20 @@ safe to work, not a new finding).
 - PROOF: `ClaimDue` two-phase transition; notification suite green.
 
 ### CD-R50-015 — forward-migration lock safety
-- STATUS: **CLOSED**
+- STATUS: **OPEN** (validator regression; closure-pending under F0)
 - INVARIANT: a forward migration on a hot/populated table must be lock-safe: CHECK re-adds use
-  `ADD CONSTRAINT ... NOT VALID` + separate `VALIDATE`; index swaps use `CREATE ... CONCURRENTLY`
+  `ADD CONSTRAINT ... NOT VALID` + `VALIDATE` in a separate transaction/migration;
+  index swaps use `CREATE ... CONCURRENTLY`
   under a `-- +goose NO TRANSACTION` migration, CREATE-new-then-DROP-old (never a window with no
   unique index → no 42P10 for ON CONFLICT writers); long DML is split out of the DDL transaction;
   dedup DELETEs are bounded/scoped.
-- PROOF: migrations `000003/000004/000006` + `validate-postgres-migrations.sh` + hot-index guard.
-- ENFORCED-BY: `validate-hot-index-migrations` (floor recalibrated post-squash — do not restore
-  the stale 141 floor that false-greened migrations 1-140).
+- HISTORICAL-PROOF: migrations `000003/000004/000006` established the safe
+  source pattern.
+- CURRENT-GAP: `validate-hot-index-migrations` accepts same-transaction
+  add-not-valid plus validate and is absent from ordinary CI. F0 must repair the
+  rule, adversarial self-test, hot-table inventory, and CI wiring before this
+  returns to CLOSED. Do not restore the stale 141 floor that false-greened
+  migrations 1-140.
 - DO-NOT: `ADD CONSTRAINT` on a hot table without `NOT VALID`; drop-then-create a live unique index.
 
 ### CD-IDEMPOTENCY-UNIQUE-INDEX — ON CONFLICT needs a matching unique index

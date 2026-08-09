@@ -202,8 +202,9 @@ events, obligations, outbox, counters):
 
 - [ ] New indexes on hot tables use `CREATE INDEX CONCURRENTLY` (which requires
       the migration run OUTSIDE a transaction — `-- +goose NO TRANSACTION`)
-- [ ] New FK / CHECK constraints are added `NOT VALID` first, then a separate later
-      migration runs `VALIDATE CONSTRAINT` (validation takes a weaker lock)
+- [ ] New FK / CHECK constraints are added `NOT VALID` first, then validation runs
+      in a separate transaction (a later migration or the next autocommit
+      statement in a `-- +goose NO TRANSACTION` file)
 - [ ] New PRIMARY KEY / UNIQUE on a hot table is built as an index
       `CONCURRENTLY` then attached with `ADD CONSTRAINT … USING INDEX`, not a bare
       inline `ADD PRIMARY KEY` / `ADD UNIQUE` that rebuilds under an exclusive lock
@@ -213,8 +214,10 @@ events, obligations, outbox, counters):
       `make validate-hot-index-migrations` and `make validate-migrations`; sqlc
       access plans with `make validate-sqlc-plans`
 - [ ] **Forward migration on a hot table must be lock-safe:** The approved patterns
-      are `ADD CONSTRAINT ... NOT VALID` followed by `VALIDATE CONSTRAINT` (even in
-      a transactional migration — the locks are sequential and safe), and
+      are `ADD CONSTRAINT ... NOT VALID`, commit/release that metadata lock, then
+      `VALIDATE CONSTRAINT` in a separate transaction or migration. Putting both
+      statements in one transaction retains the stronger ADD lock through the
+      validation scan and is unsafe on a populated hot table. Index swaps use
       `DROP INDEX CONCURRENTLY` / `CREATE [UNIQUE] INDEX CONCURRENTLY` inside a
       `-- +goose NO TRANSACTION` migration. When a migration is squashed or
       renumbered, the enforcement floor in `validate-hot-index-migrations.sh` must
