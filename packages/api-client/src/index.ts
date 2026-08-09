@@ -19,7 +19,17 @@ export type GoatOSApiPaths = {
 
 export type RequestOptions = Omit<RequestInit, "body" | "headers"> & {
   headers?: HeadersInit;
-  query?: Record<string, string | number | boolean | null | undefined>;
+  /**
+   * Query parameters. An ARRAY value is serialized as a REPEATED parameter
+   * (`?feed_item=Hybrid&feed_item=COFS`), which is the `style: form, explode: true` shape the
+   * OpenAPI contract declares for multi-valued filters.
+   *
+   * Not a comma-joined single value: `String(["a","b"])` yields `"a,b"`, which a backend reading
+   * `r.URL.Query()["feed_item"]` receives as ONE item literally named "a,b" — it matches nothing,
+   * and it does so silently. Values that legitimately contain a comma make that unfixable at the
+   * other end, which is why the repeated form is the contract rather than a delimiter.
+   */
+  query?: Record<string, string | number | boolean | readonly string[] | null | undefined>;
   body?: unknown;
 };
 
@@ -72,9 +82,15 @@ export function createGoatOSClient<Paths>(options: GoatOSClientOptions): GoatOSC
     async requestWithResponse<Response = unknown>(path: keyof Paths & string, requestOptions: RequestOptions = {}) {
       const url = new URL(path, `${baseUrl}/`);
       for (const [key, value] of Object.entries(requestOptions.query ?? {})) {
-        if (value !== null && value !== undefined) {
-          url.searchParams.set(key, String(value));
+        if (value === null || value === undefined) continue;
+        if (Array.isArray(value)) {
+          // append per element, so the parameter REPEATS. `set` would overwrite each previous
+          // element and send only the last, and a single `set(key, String(value))` would comma-join
+          // them into one value that matches nothing on the other end.
+          for (const item of value) url.searchParams.append(key, String(item));
+          continue;
         }
+        url.searchParams.set(key, String(value));
       }
 
       const headers = new Headers(options.defaultHeaders);

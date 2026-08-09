@@ -11873,8 +11873,15 @@ export interface operations {
             query: {
                 park_id: string;
                 ration_group?: string;
+                /** @description Narrow by BREED, which is not the same filter as ration_group even though both land on the same column. feed_ration_groups maps breed -> ration group MANY-TO-ONE (Beetal and Sirohi both resolve to "Beetal/Sirohi"), so this resolves the breed to its group first and then filters. A breed that maps to no group returns NO rows -- an unknown breed narrows to nothing rather than widening to everything. No breed maps to the "Kid" group by design: kids resolve to one group by age band and their breed is deliberately ignored, so a breed filter correctly excludes kid rates. */
+                breed?: string;
                 shed_tag?: string;
-                feed_item?: string;
+                /** @description Repeatable. Each occurrence adds an item to the match set (?feed_item=Hybrid&feed_item=COFS returns rows for either), and omitting it entirely means no feed-item filter. Values are matched on the normalized feed-item key, so casing and separator differences resolve the same way the stored key does. */
+                feed_item?: string[];
+                /** @description Comparison applied to grams_per_head, paired with grams_value. Both are supplied together or neither is; sending one alone is rejected 400 rather than defaulted, because every possible default silently answers a different question than the one asked. The common use is grams_op=gt&grams_value=0 -- "show me only combinations that actually get some of this item" -- and its mirror grams_op=eq&grams_value=0, which isolates the authored zeros (correct and deliberate for milk-fed K0/K1 kids). */
+                grams_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+                /** @description The value grams_op compares against, as an exact decimal STRING with at most three decimal places -- the same representation grams_per_head is returned in, and for the same reason: numeric(12,3) is exact and a float round-trip is not. A value that is not an exact decimal is rejected 400. */
+                grams_value?: string;
                 /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
                 limit?: components["parameters"]["FeedConfigLimit"];
                 /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */
@@ -12217,6 +12224,14 @@ export interface operations {
                 shed_id?: string;
                 /** @description Narrow to one status. Absent returns BOTH active and retired rows. */
                 status?: "active" | "retired";
+                /** @description Repeatable, matching the ration grid's parameter of the same name. Each occurrence adds an item to the match set; omitting it means no feed-item filter. Because pagination counts PENS, a pen survives the filter when at least one of its cells matches, and only its matching cells are returned. */
+                feed_item?: string[];
+                /** @description Narrow to one experiment ARM ("Sheep M NEW"). Matched on the normalized label key, so casing and separator differences resolve the same way every other feed-config label does. */
+                experiment_category?: string;
+                /** @description Comparison applied to absolute_kg, paired with kg_value; both are supplied together or neither is, and sending one alone is rejected 400 rather than defaulted. Named kg_ rather than grams_ on purpose: the ration grid compares a PER-HEAD RATE in grams and this compares an ABSOLUTE PEN TOTAL in kg. They are not the same quantity and must not read as one parameter shared between two screens. */
+                kg_op?: "gt" | "gte" | "eq" | "lte" | "lt" | "neq";
+                /** @description The value kg_op compares against, as an exact decimal STRING with at most three decimal places -- the representation absolute_kg is returned in. A value that is not an exact decimal is rejected 400. */
+                kg_value?: string;
                 /** @description Page size. Absent uses the server default (50); a PRESENT but out-of-range value is a 400, never silently clamped -- a caller that asked for 5000 rows and got 50 without being told has a truncated grid it believes is complete. */
                 limit?: components["parameters"]["FeedConfigLimit"];
                 /** @description Row offset. Bounded rather than growable: these are authored config tables whose whole contents are small and stable, and an offset past the maximum is rejected outright. */

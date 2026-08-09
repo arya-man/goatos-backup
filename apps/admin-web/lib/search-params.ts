@@ -123,7 +123,14 @@ export function hrefWithParams(
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function all(params: RouteSearchParams, key: string): string[] {
+/**
+ * Every value of a REPEATED search parameter (`?feed_item=a&feed_item=b`), blanks dropped.
+ *
+ * The counterpart to `one`, and the one to reach for whenever a filter is multi-valued: `one`
+ * returns only the first occurrence, so using it on a repeated parameter silently discards the rest
+ * — the filter chips say four items are applied while the request asked for one.
+ */
+export function all(params: RouteSearchParams, key: string): string[] {
   const value = params[key];
   if (!value) return [];
   return Array.isArray(value) ? value.filter(Boolean) : [value];

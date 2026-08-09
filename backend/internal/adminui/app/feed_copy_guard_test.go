@@ -548,6 +548,11 @@ func TestFeedOptionGroupsCarryNoLiveTenantData(t *testing.T) {
 		"feed_config_status":        true,
 		"feed_quantity_units":       true,
 		"feed_generation_readiness": true,
+		// The grams comparison vocabulary. Fixed, not live: these six keys ARE the grams_op enum
+		// that /feed-config/ration-rates accepts, so the set changes only when that contract does.
+		// Note what is deliberately NOT here — the VALUES compared against are typed by the author,
+		// never enumerated, because an authored rate is live data.
+		"feed_grams_compare": true,
 	}
 
 	for _, group := range feedOptionGroups() {
