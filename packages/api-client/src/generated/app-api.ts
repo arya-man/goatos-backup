@@ -6877,6 +6877,8 @@ export interface components {
             /** @enum {string} */
             location_type: "shed" | "cohort" | "pen";
             display_name: string;
+            /** @description Raw operational partition label for this shed bucket, e.g. "1" or "Part 3". Required when location_id names a partitioned physical shed; omitted/empty only for truly unpartitioned sheds. The backend validates it against the active shed partition catalog and stores null for unpartitioned sheds. */
+            partition_label?: string;
             weighing_category: components["schemas"]["WeighingCategory"];
             /** Format: uuid */
             operator_user_id?: string;

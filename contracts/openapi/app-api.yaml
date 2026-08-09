@@ -18267,6 +18267,14 @@ components:
         display_name:
           type: string
           minLength: 1
+        partition_label:
+          type: string
+          description: >-
+            Raw operational partition label for this shed bucket, e.g. "1" or
+            "Part 3". Required when location_id names a partitioned physical
+            shed; omitted/empty only for truly unpartitioned sheds. The backend
+            validates it against the active shed partition catalog and stores
+            null for unpartitioned sheds.
         weighing_category:
           $ref: "#/components/schemas/WeighingCategory"
         operator_user_id:

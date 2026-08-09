@@ -8,6 +8,7 @@ data class WeighingRepeatBucket(
     val locationId: String,
     val category: String,
     val operatorUserId: String,
+    val partitionLabel: String? = null,
 )
 
 /**

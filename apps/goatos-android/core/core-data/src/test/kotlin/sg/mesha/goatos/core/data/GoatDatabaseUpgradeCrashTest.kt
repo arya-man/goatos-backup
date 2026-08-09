@@ -764,6 +764,7 @@ class GoatDatabaseUpgradeCrashTest {
                 WeighingPlannerShedRowEntity(
                     queryKey = "2026-08-03",
                     locationId = "loc-1",
+                    partitionKey = "",
                     parkId = "park-1",
                     parkName = "Channapatna",
                     sortIndex = 0,

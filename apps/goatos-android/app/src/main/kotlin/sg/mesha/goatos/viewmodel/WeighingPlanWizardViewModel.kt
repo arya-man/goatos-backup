@@ -366,11 +366,11 @@ class WeighingPlanWizardViewModel @Inject constructor(
      */
     fun toggleBucket(locationId: String) {
         val current = raw.value
-        val shed = current.shedsInPark().firstOrNull { it.locationId == locationId } ?: return
+        val shed = current.shedsInPark().firstOrNull { it.operationalKey() == locationId } ?: return
         if (shed.scheduled) return
         val selections = current.selections.toMutableMap()
         if (selections.remove(locationId) == null) {
-            selections[locationId] = current.seededSelection(locationId)
+            selections[locationId] = current.seededSelection(shed)
         }
         raw.value = current.copy(selections = selections, picked = current.picked - locationId)
     }
@@ -379,9 +379,9 @@ class WeighingPlanWizardViewModel @Inject constructor(
         val current = raw.value
         val selections = current.selections.toMutableMap()
         current.filteredBuckets()
-            .filterNot { it.scheduled || selections.containsKey(it.locationId) }
+            .filterNot { it.scheduled || selections.containsKey(it.operationalKey()) }
             .forEach { shed ->
-                selections[shed.locationId] = current.seededSelection(shed.locationId)
+                selections[shed.operationalKey()] = current.seededSelection(shed)
             }
         raw.value = current.copy(selections = selections)
     }
@@ -515,11 +515,12 @@ class WeighingPlanWizardViewModel @Inject constructor(
                 startBusinessDate = date,
                 plannedCapPerDay = DEFAULT_PLANNED_CAP_PER_DAY,
                 operatorUserId = rows.first().second.operatorUserId,
-                sheds = rows.map { (locationId, selection) ->
-                    val shed = current.shedsInPark().first { it.locationId == locationId }
+                sheds = rows.map { (bucketKey, selection) ->
+                    val shed = current.shedsInPark().first { it.operationalKey() == bucketKey }
                     WeighingPlannerShed(
                         locationId = shed.locationId,
                         name = shed.name,
+                        partitionLabel = shed.partitionLabel,
                         kidCount = shed.kidCount,
                         category = selection.category,
                         operatorUserId = selection.operatorUserId,
@@ -816,11 +817,11 @@ private fun WizardRaw.withRepeatBucketsApplied(): WizardRaw {
     val catalog = catalog ?: return this
     if (parkId != seed.parkId || bucketsParkId != seed.parkId) return this
     if (buckets.isEmpty()) return this
-    val shedsById = buckets.associateBy { it.locationId }
+    val shedsById = buckets.associateBy { it.operationalKey() }
     val carried = seed.buckets.mapNotNull { bucket ->
-        val shed = shedsById[bucket.locationId] ?: return@mapNotNull null
+        val shed = shedsById[bucket.operationalKey()] ?: return@mapNotNull null
         if (shed.scheduled) return@mapNotNull null
-        bucket.locationId to selectionFor(shed, bucket)
+        shed.operationalKey() to selectionFor(shed, bucket)
     }
     return copy(
         selections = carried.toMap(),
@@ -873,12 +874,8 @@ private fun WizardRaw.defaultOperatorId(): String =
  * with this park's default operator. See [selectionFor] for which of the two sources wins when a
  * shed IS found in the catalog.
  */
-private fun WizardRaw.seededSelection(locationId: String): WizardSelection {
-    val shed = shedsInPark().firstOrNull { it.locationId == locationId }
-    val seeded = repeat?.buckets?.firstOrNull { it.locationId == locationId }
-    if (shed == null && seeded == null) {
-        return WizardSelection(category = PER_SHED_PARTITION_CATEGORY, operatorUserId = defaultOperatorId())
-    }
+private fun WizardRaw.seededSelection(shed: WeighingPlannerShed): WizardSelection {
+    val seeded = repeat?.buckets?.firstOrNull { it.operationalKey() == shed.operationalKey() }
     return selectionFor(shed, seeded)
 }
 
@@ -950,7 +947,7 @@ private fun WizardRaw.filteredBuckets(): List<WeighingPlannerShed> {
             when (bucketFilter) {
                 WeighingBucketFilter.AVAILABLE -> !shed.scheduled
                 WeighingBucketFilter.TAKEN -> shed.scheduled
-                WeighingBucketFilter.ADDED -> selections.containsKey(shed.locationId)
+                WeighingBucketFilter.ADDED -> selections.containsKey(shed.operationalKey())
                 WeighingBucketFilter.ALL -> true
             }
         }
@@ -958,19 +955,19 @@ private fun WizardRaw.filteredBuckets(): List<WeighingPlannerShed> {
 
 /** Selected buckets in the park's own order, so the configure list never reshuffles under a tap. */
 private fun WizardRaw.orderedSelections(): List<Pair<String, WizardSelection>> =
-    shedsInPark().mapNotNull { shed -> selections[shed.locationId]?.let { shed.locationId to it } }
+    shedsInPark().mapNotNull { shed -> selections[shed.operationalKey()]?.let { shed.operationalKey() to it } }
 
 private fun WizardRaw.filteredSelections(): List<Pair<String, WizardSelection>> {
     val query = configQuery.trim().lowercase()
     if (query.isBlank()) return orderedSelections()
-    val names = shedsInPark().associate { it.locationId to it.name.lowercase() }
+    val names = shedsInPark().associate { it.operationalKey() to it.name.lowercase() }
     return orderedSelections().filter { (locationId, _) -> names[locationId]?.contains(query) == true }
 }
 
 private fun WizardRaw.toUiState(): WeighingWizardUiState {
     val today = LocalDate.now(ZoneId.of(WEIGHING_WIZARD_ZONE))
     val sheds = shedsInPark()
-    val shedsById = sheds.associateBy { it.locationId }
+    val shedsById = sheds.associateBy { it.operationalKey() }
     val ordered = orderedSelections()
     val filteredBuckets = filteredBuckets()
     val shownBuckets = filteredBuckets.take(bucketCap)
@@ -1049,8 +1046,9 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
         addedCount = ordered.size,
         allCount = sheds.size,
         bucketRows = shownBuckets.map { shed ->
+            val bucketKey = shed.operationalKey()
             WeighingWizardBucketRow(
-                locationId = shed.locationId,
+                locationId = bucketKey,
                 name = shed.name,
                 // A taken bucket says WHO holds it and in what state, so a planner can act on it
                 // instead of guessing. An available one says nothing more than that.
@@ -1074,16 +1072,16 @@ private fun WizardRaw.toUiState(): WeighingWizardUiState {
                             append(status)
                         }
                     }
-                    selections.containsKey(shed.locationId) -> "added to this task"
+                    selections.containsKey(bucketKey) -> "added to this task"
                     else -> "available"
                 },
                 taken = shed.scheduled,
-                added = selections.containsKey(shed.locationId),
+                added = selections.containsKey(bucketKey),
             )
         },
         bucketShownCount = shownBuckets.size,
         bucketTotalCount = filteredBuckets.size,
-        bucketsAddable = filteredBuckets.count { !it.scheduled && !selections.containsKey(it.locationId) },
+        bucketsAddable = filteredBuckets.count { !it.scheduled && !selections.containsKey(it.operationalKey()) },
         addedTray = addedNames.take(WEIGHING_WIZARD_TRAY_CAP),
         addedTrayMore = (addedNames.size - WEIGHING_WIZARD_TRAY_CAP).coerceAtLeast(0),
         configQuery = configQuery,
@@ -1157,6 +1155,14 @@ private fun WizardRaw.contextLine(dateLabel: String, addedCount: Int): String = 
 }
 
 private fun bucketWord(count: Int): String = if (count == 1) "shed bucket" else "shed buckets"
+
+private fun WeighingPlannerShed.operationalKey(): String =
+    listOfNotNull(locationId.takeIf { it.isNotBlank() }, partitionLabel?.takeIf { it.isNotBlank() })
+        .joinToString("|")
+
+private fun WeighingRepeatBucket.operationalKey(): String =
+    listOfNotNull(locationId.takeIf { it.isNotBlank() }, partitionLabel?.takeIf { it.isNotBlank() })
+        .joinToString("|")
 
 private fun categoryLabel(category: String): String = when (category.trim().lowercase()) {
     INDIVIDUAL_ANIMAL_CATEGORY -> "Individual"

@@ -237,13 +237,14 @@ data class WeighingPlannerParkRowEntity(
  */
 @Entity(
     tableName = "weighing_planner_shed_row",
-    primaryKeys = ["queryKey", "locationId"],
+    primaryKeys = ["queryKey", "locationId", "partitionKey"],
     indices = [Index(value = ["queryKey", "sortIndex"])],
 )
 data class WeighingPlannerShedRowEntity(
     /** `<weigh date>|<park id>`. Availability is date-scoped and the page is park-scoped. */
     val queryKey: String,
     val locationId: String,
+    val partitionKey: String = "",
     val parkId: String,
     val parkName: String,
     val sortIndex: Int,

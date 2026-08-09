@@ -78,3 +78,69 @@ func TestApplyPlannerShedPartitionDisplay(t *testing.T) {
 		t.Fatalf("OperationalLocationDisplay = %q, want %q", shed.OperationalLocationDisplay, "Godel 1 - Part 3")
 	}
 }
+
+func TestPlannerParkBucketsPartitionOneToManyDisplayDoesNotCollapseSiblings(t *testing.T) {
+	sheds := []domain.PlannerShed{
+		{LocationID: "castro", ParentShedName: "Castro", PartitionLabel: "1"},
+		{LocationID: "castro", ParentShedName: "Castro", PartitionLabel: "2"},
+		{LocationID: "yashoda", ParentShedName: "Yashoda"},
+	}
+	seen := map[string]bool{}
+	for i := range sheds {
+		applyPlannerShedOperationalDisplay(&sheds[i])
+		key := sheds[i].LocationID + "|" + sheds[i].PartitionLabel
+		if seen[key] {
+			t.Fatalf("operational key collapsed sibling partition %q", key)
+		}
+		seen[key] = true
+	}
+	if got := sheds[0].OperationalLocationDisplay; got != "Castro - 1" {
+		t.Fatalf("first sibling display = %q, want Castro - 1", got)
+	}
+	if got := sheds[1].OperationalLocationDisplay; got != "Castro - 2" {
+		t.Fatalf("second sibling display = %q, want Castro - 2", got)
+	}
+	if got := sheds[2].OperationalLocationDisplay; got != "Yashoda" {
+		t.Fatalf("unpartitioned display = %q, want Yashoda", got)
+	}
+}
+
+func TestPlannerParkBucketsPartitionPaginationPageBoundaryCursorIncludesPartition(t *testing.T) {
+	cursor := plannerBucketCursor{
+		Set:            true,
+		ShedOrder:      7,
+		ShedName:       "Castro",
+		PartitionOrder: 2,
+		PartitionKey:   "2",
+		ShedID:         "castro",
+	}
+	decoded, err := decodePlannerBucketCursor(encodePlannerBucketCursor(cursor))
+	if err != nil {
+		t.Fatalf("decode cursor: %v", err)
+	}
+	if decoded.ShedName != "Castro" || decoded.PartitionOrder != 2 || decoded.PartitionKey != "2" || decoded.ShedID != "castro" {
+		t.Fatalf("decoded cursor = %+v, want partition-aware cursor %+v", decoded, cursor)
+	}
+}
+
+func TestPlannerParkBucketsPartitionParkScopeUsesOperationalKey(t *testing.T) {
+	left := operationalLocationDisplay("park-a-castro", "Castro", "1")
+	right := operationalLocationDisplay("park-b-castro", "Castro", "1")
+	if left != "Castro - 1" || right != "Castro - 1" {
+		t.Fatalf("display must be stable across parks, got %q and %q", left, right)
+	}
+	if key := "park-a-castro|1"; key == "park-b-castro|1" {
+		t.Fatalf("park-scoped operational keys must include the shed id")
+	}
+}
+
+func TestPlannerParkBucketsPartitionStatusMatrixNeverRendersWholeSentinel(t *testing.T) {
+	statuses := []string{"queued", "in_progress", "closed", "completed", "canceled"}
+	for _, status := range statuses {
+		shed := domain.PlannerShed{LocationID: "castro", ParentShedName: "Castro", PartitionLabel: "whole", ScheduledStatus: status}
+		applyPlannerShedOperationalDisplay(&shed)
+		if shed.OperationalLocationDisplay != "Castro" {
+			t.Fatalf("status %s display = %q, want parent-only for whole sentinel", status, shed.OperationalLocationDisplay)
+		}
+	}
+}

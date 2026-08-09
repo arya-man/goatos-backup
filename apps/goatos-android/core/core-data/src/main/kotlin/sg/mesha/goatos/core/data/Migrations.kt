@@ -964,3 +964,23 @@ val MIGRATION_34_35: Migration = object : Migration(34, 35) {
         )
     }
 }
+
+val MIGRATION_35_36: Migration = object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `weighing_planner_shed_row`")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `weighing_planner_shed_row` (" +
+                "`queryKey` TEXT NOT NULL, " +
+                "`locationId` TEXT NOT NULL, " +
+                "`partitionKey` TEXT NOT NULL, " +
+                "`parkId` TEXT NOT NULL, " +
+                "`parkName` TEXT NOT NULL, " +
+                "`sortIndex` INTEGER NOT NULL, " +
+                "`shedJson` TEXT NOT NULL, " +
+                "`existingCampaignJson` TEXT, " +
+                "`updatedAt` INTEGER NOT NULL, " +
+                "PRIMARY KEY(`queryKey`, `locationId`, `partitionKey`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_weighing_planner_shed_row_queryKey_sortIndex` ON `weighing_planner_shed_row` (`queryKey`, `sortIndex`)")
+    }
+}
