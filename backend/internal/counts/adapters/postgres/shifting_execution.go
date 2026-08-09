@@ -34,18 +34,30 @@ import (
 //	                                                        applied        ◄── THE ANIMALS RELOCATE
 //
 // 'applied' and 'rejected' and 'canceled' are terminal. Completion is reachable ONLY from
-// 'authorized' -- enforced here by the `AND event_status = 'authorized'` transition predicate, and
-// independently by shifting_events_applied_requires_authorization_check in the schema, so a caller
-// addressing a pending movement's id cannot execute an unapproved relocation.
+// 'authorized' (or from evidence rework on an already-approved movement) -- enforced here by the
+// `authorization_state = 'authorized'` transition predicate, and independently by
+// shifting_events_applied_requires_authorization_check in the schema, so a caller addressing a
+// pending movement's id cannot execute an unapproved relocation.
+//
+// APPROVE-FIRST (maintainer decision 2026-08-09). This RETIRES the 2026-07-28 rule under which the
+// two gates were independent and order-free, and under which a raised movement appeared in the
+// operator's Actions queue immediately. A movement is now invisible to the operator's work list and
+// non-completable until a Park Head authorizes it; it is reachable only through the read-only
+// Pending tab, which reports "Awaiting Park Head approval" and offers no action.
+//
+// The approval-arrives-second branch in authorizeShiftingEventInTx is deliberately KEPT: rows
+// completed under the superseded rule are still in flight, and dropping it would strand them
+// approved-but-never-applied. It is compatibility, not a supported new path.
 
 // ---------------------------------------------------------------------------
 // Complete
 // ---------------------------------------------------------------------------
 
-// CompleteShiftingEvent records the operator-completion gate with mandatory video evidence. The
-// completion may arrive before or after Park Head approval. When approval already exists, this same
-// transaction applies the move; otherwise it remains pending with completion stamps and approval applies it
-// later. Verification reviews the evidence independently and never owns the relocation.
+// CompleteShiftingEvent records the operator-completion gate with mandatory video evidence.
+//
+// It requires Park Head approval to already exist (maintainer decision 2026-08-09): an unapproved
+// movement is refused with ErrShiftingNotAuthorized and nothing is written. Approval therefore
+// always lands first, and this transaction is the one that applies the move.
 //
 // A blank ProofRef is rejected with ErrShiftingProofRequired before any state changes -- a move with
 // no video has nothing for a verifier to approve.
@@ -126,6 +138,47 @@ func (r *Repository) CompleteShiftingEvent(
 		}, true, nil
 	}
 
+	// ORDER MATTERS from here down: each check below is more expensive and more specific than the
+	// last, and whichever fires first is the reason the operator is shown. Authorization is the
+	// cheapest and the most fundamental, so it answers first -- otherwise an unapproved HIGH-priority
+	// movement is told to "record the feed videos" (and pays for a full feed-requirement resolution)
+	// when the real answer is that nobody has approved it yet.
+	//
+	// APPROVE-FIRST (maintainer decision 2026-08-09). authorization_state is the ground truth of
+	// "approved", not event_status: a legacy pre-000049 row can sit in 'pending_verification' while
+	// still unapproved, and gating on event_status alone would let that row through.
+	//
+	// This is checked AFTER the replay branch above deliberately, so a movement completed under the
+	// superseded order-free rule still answers its own retries instead of turning a stored, in-flight
+	// completion into a hard error on the phone that made it.
+	if current.AuthorizationState != "authorized" {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
+			"%w: shifting event %s has not been approved by a park head, and completion may only start "+
+				"from an approved movement or evidence rework",
+			ports.ErrShiftingNotAuthorized, in.ShiftingEventID,
+		)
+	}
+	if current.EventStatus != domain.ShiftingEventStatusAuthorized &&
+		current.VerificationState != "rejected" {
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
+			"%w: shifting event %s is %q, and completion may only start from authorized or evidence rework",
+			ports.ErrShiftingNotAuthorized, in.ShiftingEventID, current.EventStatus,
+		)
+	}
+
+	if len(goatIDs) == 0 {
+		// Fail closed. A movement naming nobody cannot be "completed": submitting it for verification
+		// would queue a video that proves the relocation of no animals.
+		//
+		// Ahead of the feed block for the same precedence reason: the feed requirement is priced from
+		// this very animal set, so an empty movement would otherwise surface as a confusing
+		// "feed config blocked: movement or approval animal set is missing" instead of naming the
+		// actual problem.
+		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
+			"%w: shifting event %s names no animals to move",
+			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
+	}
+
 	var feedSnapshot []byte
 	if current.Priority == "high" {
 		if strings.TrimSpace(in.FeedPackingProofRef) == "" || strings.TrimSpace(in.FeedGivenProofRef) == "" {
@@ -151,23 +204,6 @@ func (r *Repository) CompleteShiftingEvent(
 		}
 	}
 
-	if current.EventStatus != domain.ShiftingEventStatusPending &&
-		current.EventStatus != domain.ShiftingEventStatusAuthorized &&
-		current.VerificationState != "rejected" {
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"%w: shifting event %s is %q, and completion may only start from pending, authorized, or evidence rework",
-			ports.ErrShiftingNotAuthorized, in.ShiftingEventID, current.EventStatus,
-		)
-	}
-
-	if len(goatIDs) == 0 {
-		// Fail closed. A movement naming nobody cannot be "completed": submitting it for verification
-		// would queue a video that proves the relocation of no animals.
-		return domain.ShiftingExecutionResult{}, false, fmt.Errorf(
-			"%w: shifting event %s names no animals to move",
-			ports.ErrShiftingExecutionIncomplete, in.ShiftingEventID)
-	}
-
 	// Record the operator fact first. For a rejected proof on an already-applied movement, preserve
 	// the applied state and original completion actor/time while replacing only the evidence.
 	tag, err := tx.Exec(ctx, `
@@ -187,7 +223,8 @@ SET event_status = event_status,
     updated_at = now(),
     row_version = row_version + 1
 WHERE tenant_id = $1::uuid AND shifting_event_id = $2::uuid
-  AND (event_status IN ('pending', 'authorized') OR verification_state = 'rejected')`,
+  AND authorization_state = 'authorized'
+  AND (event_status = 'authorized' OR verification_state = 'rejected')`,
 		in.TenantID, in.ShiftingEventID, strings.TrimSpace(in.ProofRef),
 		in.IdempotencyKey, in.RequestFingerprint, strings.TrimSpace(in.DestinationTag),
 		in.CompletedAt.UTC(), in.CompletedByUserID,
@@ -545,7 +582,7 @@ FOR UPDATE`, tenantID, shiftingEventID).Scan(
 }
 
 // applyAuthorizedCompletedShiftingInTx is the single relocation writer. Its caller already holds
-// the shifting row lock. It runs only after both independent gates are durable and commits goat
+// the shifting row lock. It runs only after both business gates are durable and commits goat
 // identity, stage/location events, outbox, and the shifting applied state in one transaction.
 func (r *Repository) applyAuthorizedCompletedShiftingInTx(
 	ctx context.Context, tx pgx.Tx, tenantID, shiftingEventID string, appliedAt time.Time, traceID string,
@@ -774,9 +811,49 @@ WHERE se.tenant_id = $1::uuid AND se.shifting_event_id = $2::uuid`, tenantID, sh
 // Pending-execution queue
 // ---------------------------------------------------------------------------
 
+// shiftingActionsVisibleSQL is the ACTIONS LEAD TIME (maintainer decision 2026-08-09), mirroring
+// counts/domain.ShiftingActionsDueFrom. nowParam is the placeholder carrying the caller's clock, so
+// the filter is deterministic in tests and cannot drift from the app's business clock.
+//
+// It hides only a row still AWAITING OPERATOR WORK -- event_status='authorized'. A movement that is
+// already applied (completed, or applied-and-in-evidence-rework) is history: hiding it because its
+// planned day has not arrived would erase work an operator demonstrably already did. A 'pending'
+// row is likewise never hidden, so a raiser always sees the movement they just raised sitting in
+// the read-only Pending tab.
+//
+// The date arithmetic is IST wall clock on both sides, because a Goat OS business day is an India
+// business day: `(raised_at AT TIME ZONE 'Asia/Kolkata')::time < '13:30'` asks what the clock on the
+// wall read when the operator raised it, which is the question the rule is actually about.
+//
+// SCALE. This is a computed predicate on raised_at, so it cannot use an index by itself. That is
+// bounded here rather than exempted: the surrounding query has already narrowed to one tenant, one
+// business-date range and one status through shifting_events_actions_history_idx, so the expression
+// is evaluated over an index range that is one business day wide in the normal mobile case. With no
+// date filter the planner still walks raised_at DESC and stops at LIMIT; the only rows it discards
+// are ones raised inside the lead window, so the extra work is bounded by two days of raise volume,
+// never by the tenant's history.
+//
+// Note for whoever changes this: `make scale-guard` does NOT check this construct -- a computed
+// timezone expression in a WHERE is one of its blind spots, verified by deleting the reasoning and
+// re-running the guard, which still passed. Do not read a green scale-guard as proof that a future
+// version of this predicate is index-safe; check the plan.
+func shiftingActionsVisibleSQL(nowParam string) string {
+	return `(se.event_status <> 'authorized' OR se.priority = 'high'
+	         OR (` + nowParam + `::timestamptz AT TIME ZONE 'Asia/Kolkata') >=
+	            ((se.raised_at AT TIME ZONE 'Asia/Kolkata')::date
+	             + (CASE WHEN (se.raised_at AT TIME ZONE 'Asia/Kolkata')::time < TIME '13:30'
+	                     THEN 1 ELSE 2 END)))`
+}
+
 // ListShiftingEventsPendingExecution returns one keyset page of date-scoped Actions history.
 //
 // projection-review: membership=date-and-status-scoped shifting_events plus one preferred request per event; group_key=shifting_event_id; join_cardinality=request and preview lateral joins reduce to at most one row per event; pagination=keyset over raised_at and shifting_event_id with limit plus one; scope=tenant_id plus business-date status park and shed filters
+// BUCKETS (maintainer decision 2026-08-09). The five buckets stay disjoint, but 'all' now means
+// "the operator's work list" and EXCLUDES unapproved movements: a raised movement is reachable only
+// through the read-only 'pending' bucket until a Park Head authorizes it, and 'rework' likewise
+// excludes 'pending' so an unapproved movement cannot re-enter the work list through an evidence
+// verdict. Every non-canceled row still lands in exactly one bucket, so nothing becomes unreachable.
+//
 // This is a canonical-source read, not a projection. GRAIN = one row per shifting_event,
 // which is the queue's natural unit of work (an operator executes a movement, not an animal). The
 // only aggregate is animal_count, computed from ONE selected pending/approved request payload per
@@ -829,11 +906,21 @@ func (r *Repository) ListShiftingEventsPendingExecution(
 		sourceShedID = q.SourceShedID
 	}
 
+	now := q.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+
 	// Fetch one extra row to decide whether a next page exists, without a second COUNT query.
 	rows, err := r.pool.Query(ctx, `
 WITH page AS (
 	    SELECT se.shifting_event_id, se.event_status, se.verification_state,
-	           CASE WHEN (((se.event_status IN ('pending', 'authorized')) AND se.proof_ref IS NULL)
+	           -- An UNAPPROVED movement is never executable (maintainer decision 2026-08-09,
+	           -- retiring the order-free gates). event_status='pending' is exactly
+	           -- authorization_state='pending': authorizeShiftingEventInTx flips both in one
+	           -- statement, so a row cannot be approved while still reading 'pending' here.
+	           CASE WHEN se.event_status = 'pending' THEN 'none'
+	                WHEN ((se.event_status = 'authorized' AND se.proof_ref IS NULL)
 	                           OR se.verification_state = 'rejected')
 	                THEN 'execute' ELSE 'none' END AS primary_action_key,
 	           se.priority, se.category,
@@ -845,13 +932,14 @@ WITH page AS (
 	      AND se.event_status <> 'canceled'
 	      AND ($2::timestamptz IS NULL OR se.raised_at >= $2::timestamptz)
 	      AND ($3::timestamptz IS NULL OR se.raised_at < $3::timestamptz)
-	      AND ($4::text = 'all'
-	           OR ($4::text = 'pending' AND se.event_status = 'pending' AND se.verification_state <> 'rejected')
+	      AND (($4::text = 'all' AND se.event_status <> 'pending')
+	           OR ($4::text = 'pending' AND se.event_status = 'pending')
 	           OR ($4::text = 'authorized' AND se.event_status = 'authorized' AND se.verification_state <> 'rejected')
-	           OR ($4::text = 'rework' AND se.verification_state = 'rejected')
+	           OR ($4::text = 'rework' AND se.verification_state = 'rejected' AND se.event_status <> 'pending')
 	           OR ($4::text = 'completed' AND se.event_status = 'applied' AND se.verification_state <> 'rejected'))
 	      AND ($9::uuid IS NULL OR se.source_park_id = $9::uuid)
 	      AND ($10::uuid IS NULL OR se.source_shed_id = $10::uuid)
+	      AND `+shiftingActionsVisibleSQL("$11")+`
 	      AND ($5::timestamptz IS NULL
 	           OR (se.raised_at, se.shifting_event_id) < ($5::timestamptz, $6::uuid))
 	    ORDER BY se.raised_at DESC, se.shifting_event_id DESC
@@ -907,7 +995,7 @@ LEFT JOIN LATERAL (
 ) preview ON true
 ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 		q.TenantID, raisedFrom, raisedBefore, status, cursorRaisedAt, cursorID, pageSize+1,
-		domain.MaxShiftingExecutionAnimalPreview, sourceParkID, sourceShedID)
+		domain.MaxShiftingExecutionAnimalPreview, sourceParkID, sourceShedID, now.UTC())
 	if err != nil {
 		return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: list shifting events pending execution: %w", err)
 	}
@@ -983,24 +1071,33 @@ ORDER BY p.raised_at DESC, p.shifting_event_id DESC`,
 	}
 	page.Items = items
 	if q.RaisedFrom != nil && q.RaisedBefore != nil {
+		// Each FILTER mirrors ONE branch of the page predicate above, so a tab's count is exactly what
+		// that tab lists. 'all' excludes 'pending' because an unapproved movement is not in the
+		// operator's work list; it is reachable only through its own read-only Pending tab. 'rework'
+		// excludes 'pending' for the same reason and 'canceled' because the page query drops canceled
+		// rows globally -- without that the Rework tab could count a row it cannot show.
 		if err := r.pool.QueryRow(ctx, `SELECT
- count(*) FILTER (WHERE event_status <> 'canceled'),
- count(*) FILTER (WHERE event_status='pending' AND verification_state <> 'rejected'),
+ count(*) FILTER (WHERE event_status NOT IN ('canceled', 'pending')),
+ count(*) FILTER (WHERE event_status='pending'),
  count(*) FILTER (WHERE event_status='authorized' AND verification_state <> 'rejected'),
- count(*) FILTER (WHERE verification_state='rejected'),
+ count(*) FILTER (WHERE verification_state='rejected' AND event_status NOT IN ('canceled', 'pending')),
  count(*) FILTER (WHERE event_status='applied' AND verification_state <> 'rejected')
-FROM shifting_events WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3`,
-			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC()).Scan(
+FROM shifting_events se WHERE tenant_id=$1::uuid AND raised_at >= $2 AND raised_at < $3
+  AND `+shiftingActionsVisibleSQL("$4"),
+			q.TenantID, q.RaisedFrom.UTC(), q.RaisedBefore.UTC(), now.UTC()).Scan(
 			&page.StatusCounts.All, &page.StatusCounts.Pending, &page.StatusCounts.Authorized,
 			&page.StatusCounts.Rework, &page.StatusCounts.Completed); err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting actions summary: %w", err)
 		}
+		// Same visibility filter as the page and the counts: a previous date must not advertise work
+		// the operator cannot yet see when they navigate to it.
 		prevRows, err := r.pool.Query(ctx, `SELECT to_char((raised_at AT TIME ZONE 'Asia/Kolkata')::date, 'YYYY-MM-DD'), count(*)
-FROM shifting_events
+FROM shifting_events se
 WHERE tenant_id=$1::uuid AND event_status <> 'canceled'
   AND raised_at < $2 AND raised_at >= $2 - interval '90 days'
+  AND `+shiftingActionsVisibleSQL("$3")+`
 GROUP BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date
-ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC())
+ORDER BY (raised_at AT TIME ZONE 'Asia/Kolkata')::date DESC LIMIT 5`, q.TenantID, q.RaisedFrom.UTC(), now.UTC())
 		if err != nil {
 			return domain.ShiftingExecutionPage{}, fmt.Errorf("counts: shifting previous dates: %w", err)
 		}

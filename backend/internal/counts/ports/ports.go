@@ -156,7 +156,10 @@ type Repository interface {
 	// NOTHING and records the required reason. Idempotent on the same terms as completion.
 	CancelShiftingEvent(ctx context.Context, in domain.ShiftingCancellationCommand) (domain.ShiftingExecutionResult, bool, error)
 
-	// ListShiftingEventsPendingExecution returns one keyset page of raised/authorized/evidence-rework Actions.
+	// ListShiftingEventsPendingExecution returns one keyset page of Actions. The work list carries
+	// approved, evidence-rework and completed movements; an unapproved one is reachable only through
+	// the read-only 'pending' bucket, and an approved one is held until its lead time elapses
+	// (see counts/domain.ShiftingActionsDueFrom).
 	ListShiftingEventsPendingExecution(ctx context.Context, q domain.ShiftingExecutionQuery) (domain.ShiftingExecutionPage, error)
 }
 
