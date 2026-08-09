@@ -452,15 +452,23 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const currentSearch = searchParams?.toString() ?? "";
+  const [optimisticDrive, setOptimisticDrive] = useState<{ from: string; value: string } | null>(null);
   const driveOptions = useMemo(
     () => enrichDriveOptions(board.driveOptions ?? [], board.shedDoseMatrix ?? [], board.cohortMatrix ?? [], board.kpis.targets),
     [board.driveOptions, board.shedDoseMatrix, board.cohortMatrix, board.kpis.targets],
   );
   const futureDrives = useMemo(() => scheduledDriveRows(driveOptions), [driveOptions]);
   const executedCampaigns = useMemo(() => executedDriveCampaigns(driveOptions), [driveOptions]);
+  const selectedDrive = optimisticDrive?.from === currentSearch
+    ? optimisticDrive.value
+    : driveBatchId
+      ? driveSelectionValue(driveBatchId, driveParkId)
+      : "";
 
   const selectDrive = (next: string) => {
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    setOptimisticDrive({ from: currentSearch, value: next });
+    const params = new URLSearchParams(currentSearch);
     const selection = next ? parseDriveSelectionValue(next) : undefined;
     if (selection?.driveBatchId) params.set("cb_drive", selection.driveBatchId); else params.delete("cb_drive");
     if (selection?.parkId) params.set("cb_drive_park", selection.parkId); else params.delete("cb_drive_park");
@@ -563,12 +571,18 @@ export function CommandBoardView({ board, pageContract, driveBatchId, driveParkI
         <select
           id="cbm-drive"
           className="cbm-select cbm-select-wide"
-          value={driveBatchId ? driveSelectionValue(driveBatchId, driveParkId) : ""}
+          value={selectedDrive}
           onChange={(e) => selectDrive(e.target.value)}
-          disabled={driveOptions.length === 0 || isPending}
-          aria-disabled={driveOptions.length === 0 || isPending}
+          disabled={driveOptions.length === 0}
+          aria-disabled={driveOptions.length === 0}
           aria-busy={isPending}
-          title={driveOptions.length === 0 ? copy(pageContract, "command_board.filter.no_drives") : undefined}
+          title={
+            driveOptions.length === 0
+              ? copy(pageContract, "command_board.filter.no_drives")
+              : isPending
+                ? copy(pageContract, "state.loading")
+                : undefined
+          }
         >
           <option value="">{copy(pageContract, "command_board.filter.all_common_drives")}</option>
           {driveCampaigns.map((campaign) => (

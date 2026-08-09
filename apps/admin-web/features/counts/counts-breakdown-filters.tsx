@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { copy, type AdminUiPageContract } from "@/lib/admin-ui-contract";
 
@@ -42,13 +43,22 @@ export function CountsBreakdownFilters({
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const routerSearchParams = useSearchParams();
   const current = routerSearchParams?.toString() ?? "";
+  const serverValues = useMemo(
+    () => Object.fromEntries(fields.map((field) => [field.param, field.value])),
+    [fields],
+  );
+  const [optimistic, setOptimistic] = useState<{ from: string; values: Record<string, string> } | null>(null);
 
   const allLabel = copy(pageContract, "filter.all_option");
-  const hasAnyFilter = fields.some((field) => field.value !== "");
+  const optimisticValues = optimistic?.from === current ? optimistic.values : null;
+  const fieldValue = (field: BreakdownFilterField) => optimisticValues?.[field.param] ?? field.value;
+  const hasAnyFilter = fields.some((field) => fieldValue(field) !== "");
 
   function applyFilter(param: string, value: string) {
+    setOptimistic({ from: current, values: { ...serverValues, ...optimisticValues, [param]: value } });
     const next = new URLSearchParams(current);
     // A filter change must reset paging, or the operator lands on an offset that no longer
     // exists in the newly-filtered result set and sees an empty page.
@@ -56,15 +66,24 @@ export function CountsBreakdownFilters({
     if (value) next.set(param, value);
     else next.delete(param);
     const qs = next.toString();
-    router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
+    startTransition(() => {
+      router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
+    });
   }
 
   function clearAll() {
+    setOptimistic(() => {
+      const nextValues = { ...serverValues, ...optimisticValues };
+      for (const field of fields) nextValues[field.param] = "";
+      return { from: current, values: nextValues };
+    });
     const next = new URLSearchParams(current);
     next.delete("bd_page");
     for (const field of fields) next.delete(field.param);
     const qs = next.toString();
-    router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
+    startTransition(() => {
+      router.replace(qs ? `/counts/breakdown?${qs}` : "/counts/breakdown", { scroll: false });
+    });
   }
 
   return (
@@ -82,10 +101,10 @@ export function CountsBreakdownFilters({
           <span className="muted">{field.label}</span>
           <select
             className="tsize"
-            value={field.value}
+            value={fieldValue(field)}
             aria-label={field.label}
             disabled={Boolean(field.disabledReason)}
-            title={field.disabledReason}
+            title={field.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
             style={field.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
             onChange={(event) => applyFilter(field.param, event.target.value)}
           >

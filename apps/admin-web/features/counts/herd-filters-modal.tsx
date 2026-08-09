@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/no-prefetch-link";
 import { Search, X } from "lucide-react";
@@ -35,6 +35,7 @@ interface HerdFiltersModalProps {
 
 export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClose }: HerdFiltersModalProps) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
   const pathname = "/counts/herd";
   const scope = parseScope(searchParams);
   const q = one(searchParams, "q");
@@ -88,7 +89,9 @@ export function HerdFiltersModal({ open, pageContract, searchParams = {}, onClos
     }
 
     const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    startTransition(() => {
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    });
     onClose();
   };
 

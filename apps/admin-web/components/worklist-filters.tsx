@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 
@@ -80,8 +80,12 @@ export function WorklistFilters({
   pageContract: AdminUiPageContract;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const routerSearchParams = useSearchParams();
   const current = routerSearchParams?.toString() ?? "";
+  const [optimisticSearch, setOptimisticSearch] = useState<{ from: string; search: string } | null>(null);
+  const effectiveSearch = optimisticSearch?.from === current ? optimisticSearch.search : current;
+  const effectiveParams = useMemo(() => new URLSearchParams(effectiveSearch), [effectiveSearch]);
   const allLabel = copy(pageContract, "filter.all_option");
   // Resolved ONLY when a multi-select is actually on the bar. `copy` throws on a key the contract
   // does not carry, and this component is shared by pages that have no multi-valued filter and
@@ -96,18 +100,21 @@ export function WorklistFilters({
       field.kind === "compare",
   );
   const hasAnyFilter = clearable.some((field) => {
-    if (field.kind === "multiselect") return field.values.length > 0;
+    if (field.kind === "multiselect") return effectiveParams.getAll(field.param).length > 0;
     // A comparison counts as applied when EITHER half is set, so a half-filled one can still be
     // cleared — the backend rejects half a comparison, and a control the operator cannot reset
     // would leave the page stuck on an error.
-    if (field.kind === "compare") return field.op !== "" || field.value !== "";
-    return field.kind === "select" && field.value !== "";
+    if (field.kind === "compare") return effectiveParams.get(field.param) !== null || effectiveParams.get(field.valueParam) !== null;
+    return field.kind === "select" && effectiveParams.get(field.param) !== null;
   });
 
   function push(next: URLSearchParams) {
     next.delete(pageParam);
     const qs = next.toString();
-    router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+    setOptimisticSearch({ from: current, search: qs });
+    startTransition(() => {
+      router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+    });
   }
 
   function applyFilter(param: string, value: string) {
@@ -160,51 +167,62 @@ export function WorklistFilters({
       role="group"
       aria-label={copy(pageContract, "filter.bar_aria")}
     >
-      {fields.map((field) =>
-        field.kind === "multiselect" ? (
+      {fields.map((field) => {
+        const effectiveField =
+          field.kind === "multiselect"
+            ? { ...field, values: effectiveParams.getAll(field.param) }
+            : field.kind === "compare"
+              ? {
+                  ...field,
+                  op: effectiveParams.get(field.param) ?? field.op,
+                  value: effectiveParams.get(field.valueParam) ?? field.value,
+                }
+              : { ...field, value: effectiveParams.get(field.param) ?? field.value };
+
+        return effectiveField.kind === "multiselect" ? (
           <MultiSelectFilter
-            key={field.param}
-            field={field}
+            key={effectiveField.param}
+            field={effectiveField}
             allLabel={allLabel}
             applyLabel={applyLabel}
-            onChange={(values) => applyMultiFilter(field.param, values)}
+            onChange={(values) => applyMultiFilter(effectiveField.param, values)}
           />
-        ) : field.kind === "compare" ? (
+        ) : effectiveField.kind === "compare" ? (
           <CompareFilter
-            key={field.param}
-            field={field}
+            key={effectiveField.param}
+            field={effectiveField}
             allLabel={allLabel}
             applyLabel={applyLabel}
-            onChange={(op, value) => applyCompare(field.param, field.valueParam, op, value)}
+            onChange={(op, value) => applyCompare(effectiveField.param, effectiveField.valueParam, op, value)}
           />
         ) : (
-        <label key={field.param} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <span className="muted">{field.label}</span>
-          {field.kind === "date" ? (
+        <label key={effectiveField.param} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+          <span className="muted">{effectiveField.label}</span>
+          {effectiveField.kind === "date" ? (
             <input
               className="tsize"
               type="date"
-              value={field.value}
-              min={field.min}
-              max={field.max}
-              aria-label={field.label}
-              disabled={Boolean(field.disabledReason)}
-              title={field.disabledReason}
-              style={field.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) => applyFilter(field.param, event.target.value)}
+              value={effectiveField.value}
+              min={effectiveField.min}
+              max={effectiveField.max}
+              aria-label={effectiveField.label}
+              disabled={Boolean(effectiveField.disabledReason)}
+              title={effectiveField.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
+              style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+              onChange={(event) => applyFilter(effectiveField.param, event.target.value)}
             />
           ) : (
             <select
               className="tsize"
-              value={field.value}
-              aria-label={field.label}
-              disabled={Boolean(field.disabledReason)}
-              title={field.disabledReason}
-              style={field.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
-              onChange={(event) => applyFilter(field.param, event.target.value)}
+              value={effectiveField.value}
+              aria-label={effectiveField.label}
+              disabled={Boolean(effectiveField.disabledReason)}
+              title={effectiveField.disabledReason || (isPending ? copy(pageContract, "state.loading") : undefined)}
+              style={effectiveField.disabledReason ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+              onChange={(event) => applyFilter(effectiveField.param, event.target.value)}
             >
-              {field.allowAll === false ? null : <option value="">{allLabel}</option>}
-              {field.options.map((option) => (
+              {effectiveField.allowAll === false ? null : <option value="">{allLabel}</option>}
+              {effectiveField.options.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -212,8 +230,8 @@ export function WorklistFilters({
             </select>
           )}
         </label>
-        ),
-      )}
+        );
+      })}
       {hasAnyFilter ? (
         <button type="button" className="btn sm" onClick={clearAll}>
           {copy(pageContract, "filter.clear_all")}
