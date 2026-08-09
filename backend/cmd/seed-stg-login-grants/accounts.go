@@ -114,6 +114,18 @@ var stgLoginAccounts = []Account{
 		DepartmentCode:         "preventive_care",
 		RosterDisplayNameMatch: "Sagar Mahoor",
 	},
+	// The FIRST operator scoped to CBE; the three above are all CPT. ParkCode is what keeps that
+	// distinction real -- an operator is park-scoped, never tenant (see stg-operator-scope-guard), so
+	// this account sees Coimbatore's execution work and nothing of Channapatna's.
+	{
+		DisplayName:            "Subrata Sardar",
+		Email:                  "subratasardar111986@gmail.com",
+		FirebaseUID:            "4c2zjoSGzjbHdUcOxKBagPmNBG02",
+		Role:                   permissions.RoleOperator,
+		ParkCode:               "CBE",
+		DepartmentCode:         "preventive_care",
+		RosterDisplayNameMatch: "Subrata Sardar",
+	},
 
 	// --- 1 director: Firebase email/password, pc_director role, preventive_care dept ---
 	{

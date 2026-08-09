@@ -1093,6 +1093,7 @@ seed-stg-firebase-password-users:
 	  --user-password "amit797069@gmail.com=Amit@2026" \
 	  --user-password "darshantalawar033@gmail.com=Darshan@2026" \
 	  --user-password "sagarmahoor143@gmail.com=Sagar@2026" \
+	  --user-password "subratasardar111986@gmail.com=Subrata@2026" \
 	  --user-password "chandrakanth119527@gmail.com=Chandrakant@2026" \
 	  --user-password "jyothipvg12345@gmail.com=Jyothi@2026"
 
